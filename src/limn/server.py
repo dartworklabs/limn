@@ -591,12 +591,16 @@ def expand_block(lines: list, lo: int, hi: int):
     return a, b, "paragraph"
 
 
+SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
+
+
 def para_bounds(lines: list, lo: int, hi: int) -> tuple:
+    """빈 줄까지 넓힌다. 절 제목 줄(\\section·\\subsection …)은 위아래 어느 쪽으로도 넘어 들이지 않는다."""
     n = len(lines)
     a, b = lo, hi
-    while a > 1 and lines[a - 2].strip() and not lines[a - 2].lstrip().startswith("\\section"):
+    while a > 1 and lines[a - 2].strip() and not SECTION_RE.match(lines[a - 2]):
         a -= 1
-    while b < n and lines[b].strip():
+    while b < n and lines[b].strip() and not SECTION_RE.match(lines[b]):
         b += 1
     return a, b
 
@@ -669,11 +673,31 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
         levels.append(item)
 
     add("raw", raw_lo, raw_hi, "드래그한 줄")
+    spans = env_spans(lines)
+    encl = sorted((s for s in spans if s[0] <= raw_lo <= s[1] and s[2] != "document"),
+                  key=lambda s: (s[1] - s[0], -s[0]))
     pa, pb = para_bounds(lines, raw_lo, raw_hi)
+    if encl:
+        # 문단은 감싸는 가장 안쪽 환경을 넘지 않는다. 드래그가 그 환경의 안쪽이면 \begin/\end 줄도 뺀다 —
+        # 안 그러면 표 안의 '문단' 이 \end{table*} 와 그 뒤 줄까지 먹어 환경과 엇갈린다(실측: L187-L270).
+        ea, eb = encl[0][0], encl[0][1]
+        if ea < raw_lo and raw_hi < eb:
+            ea, eb = ea + 1, eb - 1
+        pa, pb = max(pa, ea), min(pb, eb)
+        if pa > pb:
+            pa, pb = raw_lo, raw_hi
+    # 드래그 밖의 환경에 반쯤 걸치지도 않는다(\end{table*} 바로 뒤 문단이 표 꼬리를 먹던 것).
+    # 문단 안에 통째로 든 환경(빈 줄 없이 이어진 equation)은 그대로 둔다.
+    for a, b, name in spans:
+        if name == "document" or a <= raw_lo <= b:
+            continue
+        if b < raw_lo and a < pa <= b:
+            pa = b + 1
+        elif a > raw_hi and a <= pb < b:
+            pb = a - 1
+    pa, pb = min(pa, raw_lo), max(pb, raw_hi)
     pa, pb = trim_comments(lines, pa, pb)
     add("para", pa, pb, "문단")
-    encl = sorted((s for s in env_spans(lines) if s[0] <= raw_lo <= s[1] and s[2] != "document"),
-                  key=lambda s: (s[1] - s[0], -s[0]))
     # 바깥 환경이 안쪽 환경을 앞뒤 한 줄로만 감싸면(minipage 안의 tabular 하나) 같은 블록이다 —
     # 안쪽을 따로 세우면 사다리 한 칸이 거의 같은 범위로 낭비된다. 바깥 쪽 이름을 남긴다.
     encl = [s for i, s in enumerate(encl)
@@ -708,14 +732,24 @@ def anchor_of(lines: list, lo: int, hi: int) -> dict:
 
     줄 번호만 저장하면 원고를 한 번 고치는 순간 모든 핀이 어긋난다. 이 도구를 쓰는
     이유가 '에이전트가 원고를 고친다'인데, 고치면 핀이 죽는 구조는 쓸 수 없다.
-    주석을 건너뛰는 이유: TODO 주석은 곧 지워질 줄이라 앵커로 삼으면 핀이 먼저 죽는다."""
-    raw = [t for t in lines[lo - 1:hi] if t.strip()]
-    body = [norm(t) for t in raw if not is_comment(t)] or [norm(t) for t in raw]
-    return {"head": body[0], "tail": body[-1]} if body else {}
+    주석을 건너뛰는 이유: TODO 주석은 곧 지워질 줄이라 앵커로 삼으면 핀이 먼저 죽는다.
+
+    head_off/tail_off 는 lo 에서 머리 줄까지, 꼬리 줄에서 hi 까지의 거리다. 이것이 없으면
+    앞뒤에 주석 줄을 일부러 넣은 핀이 첫 줄 맞춤에서 조용히 줄어든다(실측: L7-L9 → L10-L11)."""
+    idx = [i for i in range(lo - 1, min(hi, len(lines))) if lines[i].strip()]
+    body = [i for i in idx if not is_comment(lines[i])] or idx
+    if not body:
+        return {}
+    return {"head": norm(lines[body[0]]), "tail": norm(lines[body[-1]]),
+            "head_off": body[0] - (lo - 1), "tail_off": (hi - 1) - body[-1]}
+
+
+def _off(v) -> int:
+    return v if _is_int(v) and 0 <= v < 10000 else 0
 
 
 def find_line(nlines: list, needle: str, near: int):
-    if not needle:
+    if not isinstance(needle, str) or not needle:
         return None
     cands = [i for i, t in enumerate(nlines) if t == needle]
     if not cands and len(needle) >= 12:
@@ -752,13 +786,17 @@ def sync_all(rows: list) -> bool:
             continue
         before = (r["lo"], r["hi"], bool(r.get("stale")))
         anc = r["anchor"]
-        lo = find_line(nlines, anc.get("head", ""), r["lo"])
-        if lo is None:
+        ho, to = _off(anc.get("head_off")), _off(anc.get("tail_off"))   # 옛 앵커는 0
+        span = r["hi"] - r["lo"]
+        head = find_line(nlines, anc.get("head", ""), r["lo"] + ho)
+        if head is None:
             r["stale"], r["sync"] = True, "lost"
         else:
-            hi = find_line(nlines, anc.get("tail", ""), lo + (r["hi"] - r["lo"]))
-            if hi is None or hi < lo:
-                hi = min(len(lines), lo + (r["hi"] - r["lo"]))
+            n = max(1, len(lines))
+            lo = max(1, head - ho)
+            tail = find_line(nlines, anc.get("tail", ""), r["hi"] - to + (lo - r["lo"]))
+            hi = tail + to if tail is not None and tail >= head else lo + span
+            hi = max(lo, min(n, hi))
             r["sync"] = "ok" if (lo, hi) == (r["lo"], r["hi"]) else "moved %+d" % (lo - r["lo"])
             r["lo"], r["hi"] = lo, hi
             r.pop("stale", None)
@@ -771,8 +809,35 @@ def sync_all(rows: list) -> bool:
 
 # ---------------------------------------------------------------- 핀 저장소
 
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def valid_rec(r) -> bool:
+    """저장소가 믿고 인덱싱하는 필드만 검사한다. 하나라도 틀리면 그 줄은 깨진 줄로 본다.
+
+    id 만 보던 때는 lo 가 문자열이거나 file 이 없는 레코드 하나가 모든 GET·POST 를 500 으로
+    만들었고, 그 500 직전에 pins.jsonl 쓰기가 이미 커밋돼 재시도가 중복 핀을 만들었다(실측)."""
+    if not isinstance(r, dict) or not _is_int(r.get("id")):
+        return False
+    if not isinstance(r.get("file"), str) or not r["file"]:
+        return False
+    lo, hi = r.get("lo"), r.get("hi")
+    if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi):
+        return False
+    if "page" in r and not _is_int(r["page"]):
+        return False
+    if "note" in r and r["note"] is not None and not isinstance(r["note"], str):
+        return False
+    if "anchor" in r and not isinstance(r["anchor"], dict):
+        return False
+    return True
+
+
 def read_jsonl(path: Path) -> tuple:
-    """(레코드, 깨진 줄 번호). 깨진 줄은 건너뛰고 경고한다 — GET 전체가 500 이 되지 않게."""
+    """(레코드, 깨진 줄 번호). 깨진 줄은 건너뛰고 경고한다 — GET 전체가 500 이 되지 않게.
+
+    JSON 으로 읽혀도 필수 필드(file·lo·hi·id)의 형이 틀리면 깨진 줄로 친다(valid_rec)."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -783,9 +848,9 @@ def read_jsonl(path: Path) -> tuple:
             continue
         try:
             r = json.loads(t)
-        except ValueError:
+        except (ValueError, RecursionError):
             r = None
-        if not isinstance(r, dict) or not isinstance(r.get("id"), int):
+        if not valid_rec(r):
             bad.append(i)
             continue
         rows.append(r)
@@ -803,11 +868,25 @@ def dump_jsonl(rows: list) -> str:
     return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
 
 
+def unique_path(stem: str, suffix: str) -> Path:
+    """<state>/<stem><suffix> 가 이미 있으면 -1, -2 … 를 붙인다 — 같은 초에 두 번 보관해도 덮지 않게."""
+    p = C.state / (stem + suffix)
+    k = 1
+    while p.exists():
+        p = C.state / ("%s-%d%s" % (stem, k, suffix))
+        k += 1
+    return p
+
+
 def write_pins(rows: list, bad=None) -> None:
+    """pins.md 를 메모리에서 먼저 만든다. 렌더가 실패하면 아무것도 쓰지 않는다 —
+    pins.jsonl 을 커밋한 뒤 500 을 돌려주면 클라이언트가 재시도해 중복 핀이 생긴다."""
+    md = pins_md_text(rows)
+    data = dump_jsonl(rows)
     if bad and C.pins_jsonl.exists():                # 조용한 데이터 손실 방지: 원본 바이트를 남긴다
-        shutil.copy2(C.pins_jsonl, C.state / ("pins.jsonl.corrupt-%s.bak" % time.strftime("%Y%m%d-%H%M%S")))
-    atomic_write(C.pins_jsonl, dump_jsonl(rows))
-    render_pins_md(rows)
+        shutil.copy2(C.pins_jsonl, unique_path("pins.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
+    atomic_write(C.pins_jsonl, data)
+    atomic_write(C.pins_md, md)
 
 
 def transact(fn):
@@ -1001,9 +1080,16 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             raise HTTPError(409, "conflict", pin=public(r))
         range_changed = False
         if newloc is not None:
+            # loc 에 없는 page·frac 은 그대로 둔다 — 에이전트가 file/lo/hi 만 보내도 쪽이 1로 튀지 않게.
+            keep = {k: r[k] for k in ("page", "frac") if k not in loc and k in r}
             for k in LOC_FIELDS:
                 r.pop(k, None)
             r.update(newloc)
+            r.update(keep)
+            if "kind" not in newloc:                 # add 와 같은 기본값
+                r["kind"] = kind if kind is not None else "lines"
+            if scope is not None and "scope" not in newloc:
+                r["scope"] = scope
             range_changed = True
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
@@ -1066,32 +1152,41 @@ def drop_pin(pid: int, actor: dict) -> bool:
 
 
 def restore_pin(pid: int, actor: dict) -> dict:
-    def fn(rows):
+    """pins.jsonl 에 먼저 쓰고, 그것이 성공한 뒤에만 삭제 기록에서 뺀다.
+
+    순서를 바꾸면 두 쓰기 사이에서 죽었을 때 핀이 양쪽 파일에서 모두 사라진다(실측).
+    이 순서면 최악이 '양쪽에 다 있음'이고, 그것은 복구할 수 있다."""
+    with PIN_LOCK:                                   # RLock — transact 와 삭제 기록 정리를 한 덩어리로
+        rec = transact(lambda rows: _restore(rows, pid, actor))[1]
         old, _ = read_jsonl(C.dropped)
-        hits = [r for r in old if r.get("id") == pid]
-        if not hits:
-            raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
-        if find_pin(rows, pid) is not None:
-            raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
-        rec = dict(hits[-1])
-        rec.pop("dropped_at", None)
-        rec.pop("dropped_by", None)
-        rec["restored_at"] = now_str()
-        rec["restored_by"] = who(actor)
-        rec["rev"] = int(rec.get("rev") or 0) + 1
-        sync_all([rec])
-        rows.append(rec)
-        rows.sort(key=lambda r: r["id"])
         atomic_write(C.dropped, dump_jsonl([r for r in old if r.get("id") != pid]))
-        return public(rec), True
-    return transact(fn)[1]
+        return rec
+
+
+def _restore(rows: list, pid: int, actor: dict):
+    old, _ = read_jsonl(C.dropped)
+    hits = [r for r in old if r.get("id") == pid]
+    if not hits:
+        raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
+    if find_pin(rows, pid) is not None:
+        raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
+    rec = dict(hits[-1])
+    rec.pop("dropped_at", None)
+    rec.pop("dropped_by", None)
+    rec["restored_at"] = now_str()
+    rec["restored_by"] = who(actor)
+    rec["rev"] = int(rec.get("rev") or 0) + 1
+    sync_all([rec])
+    rows.append(rec)
+    rows.sort(key=lambda r: r["id"])
+    return public(rec), True
 
 
 def clear_pins() -> None:
     """전체를 .bak 으로 보관하고 비운다. pins.seq 는 건드리지 않으므로 id 는 이어진다."""
     with PIN_LOCK:
-        if C.pins_jsonl.exists():
-            C.pins_jsonl.rename(C.state / ("pins_%s.jsonl.bak" % time.strftime("%y%m%d_%H%M%S")))
+        if C.pins_jsonl.exists():                    # 같은 초에 두 번 비워도 앞 보관본을 덮지 않는다
+            C.pins_jsonl.rename(unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak"))
         render_pins_md([])
 
 
@@ -1101,13 +1196,18 @@ def short_author(r: dict) -> str:
         return "—"
     if a.get("login") == "local":
         return "로컬"
-    name = (a.get("name") or a.get("login") or "?").replace("|", "/")
+    name = str(a.get("name") or a.get("login") or "?").replace("|", "/").replace("\n", " ")
     return name if len(name) <= 16 else name[:15] + "…"
 
 
 def render_pins_md(rows: list) -> None:
+    atomic_write(C.pins_md, pins_md_text(rows))
+
+
+def pins_md_text(rows: list) -> str:
     """에이전트가 한 번에 읽을 요약. 스니펫은 일부러 넣지 않는다 —
-    줄 범위만 있으면 에이전트가 원본을 직접 읽는 편이 항상 더 싸고 정확하다."""
+    줄 범위만 있으면 에이전트가 원본을 직접 읽는 편이 항상 더 싸고 정확하다.
+    형식 지정자는 %s 만 쓴다 — 레코드 하나의 형이 틀려도 요약 전체가 죽지 않게."""
     openn = [r for r in rows if not r.get("done")]
     out = ["# 수정 요청 핀", "",
            "원고: `%s`" % C.src,
@@ -1117,19 +1217,20 @@ def render_pins_md(rows: list) -> None:
            "", "| # | 쪽 | 위치 | 종류 | 메모 | 작성 |", "|---|---|---|---|---|---|"]
     for r in openn:
         flag = " ⚠원문에서 사라짐" if r.get("stale") else ""
-        loc = "`%s L%d-L%d`%s" % (Path(r["file"]).name, r["lo"], r["hi"], flag)
-        note = (r.get("note") or "").replace("|", "\\|").replace("\n", " ")
-        out.append("| %d | %d | %s | %s | %s | %s |" % (r["id"], r.get("page", 0), loc,
-                                                     r.get("kind", ""), note, short_author(r)))
+        loc = "`%s L%s-L%s`%s" % (Path(str(r.get("file", ""))).name, r.get("lo"), r.get("hi"), flag)
+        note = str(r.get("note") or "").replace("|", "\\|").replace("\n", " ")
+        kind = str(r.get("kind") or "").replace("|", "/")
+        out.append("| %s | %s | %s | %s | %s | %s |" % (r.get("id"), r.get("page", 0), loc,
+                                                     kind, note, short_author(r)))
     if not openn:
         out.append("| — | — | 열린 핀 없음 | | | |")
     done = [r for r in rows if r.get("done")]
     if done:
         out += ["", "<details><summary>닫힌 핀 %d건</summary>" % len(done), ""]
-        out += ["- #%d p.%d `L%d-L%d` %s" % (r["id"], r.get("page", 0), r["lo"], r["hi"],
-                                             (r.get("note") or "").replace("\n", " ")[:80]) for r in done]
+        out += ["- #%s p.%s `L%s-L%s` %s" % (r.get("id"), r.get("page", 0), r.get("lo"), r.get("hi"),
+                                             str(r.get("note") or "").replace("\n", " ")[:80]) for r in done]
         out += ["", "</details>"]
-    atomic_write(C.pins_md, "\n".join(out) + "\n")
+    return "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------------- 선택 해석
@@ -1254,6 +1355,43 @@ def actor_of(headers) -> tuple:
     return a, True
 
 
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def split_host(v: str) -> tuple:
+    """'name:port' / '[::1]:port' → (소문자 이름, 포트 또는 None). 형식이 틀리면 ('', None)."""
+    v = (v or "").strip().lower()
+    if v.startswith("["):
+        name, _, rest = v[1:].partition("]")
+        port = rest[1:] if rest.startswith(":") else ""
+    else:
+        name, _, port = v.partition(":")
+    if port and not port.isdigit():
+        return "", None
+    return name.rstrip("."), (int(port) if port else None)
+
+
+def host_ok(host: str) -> bool:
+    name, port = split_host(host)
+    if name in LOOPBACK:
+        return port in (None, C.port)
+    return name.endswith(".ts.net")
+
+
+def origin_ok(origin: str, host) -> bool:
+    u = urlparse(origin.strip())
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return False                                   # 'null' 출처(샌드박스 iframe·file://) 포함
+    name, port = u.hostname.lower().rstrip("."), u.port
+    if name in LOOPBACK:
+        return port == C.port
+    if name.endswith(".ts.net"):
+        hname, _ = split_host(host or "")
+        # tailscale serve 가 Host 를 보존하면 같은 이름이어야 하고, 루프백으로 바꿔 넘기면 ts.net 출처를 받는다.
+        return hname == name or hname in LOOPBACK
+    return False
+
+
 # ---------------------------------------------------------------- 뷰어
 
 HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset="utf-8">
@@ -1273,9 +1411,9 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
   --btn:#2a2f38;--btn-h:#343b46;--input:#12151a;--code:#0f1216;--card:#181b21;--shadow:#0008;--sel-fill:#6ea8fe22;
   --mark-fill:#4ec9a014;--stale-fill:#e0a45814;--tip-bg:#0b0d10;--tip-fg:#e6e8ec}
 :root[data-theme=light]{color-scheme:light;--bg:#e9ebef;--pane:#ffffff;--line:#d5d9e0;--line-strong:#8a93a3;--fg:#1b1f24;
-  --dim:#5b6472;--acc:#1f6feb;--on-acc:#ffffff;--ok:#1a7f5a;--on-ok:#ffffff;--warn:#9a6700;--on-warn:#ffffff;--danger:#cf222e;
-  --btn:#eef0f3;--btn-h:#e2e5ea;--input:#ffffff;--code:#f6f8fa;--card:#f6f7f9;--shadow:#0002;--sel-fill:#1f6feb1f;
-  --mark-fill:#1a7f5a14;--stale-fill:#9a670014;--tip-bg:#1b1f24;--tip-fg:#ffffff}
+  --dim:#5b6472;--acc:#1860cf;--on-acc:#ffffff;--ok:#1a7f5a;--on-ok:#ffffff;--warn:#8a5c00;--on-warn:#ffffff;--danger:#cf222e;
+  --btn:#eef0f3;--btn-h:#e2e5ea;--input:#ffffff;--code:#f6f8fa;--card:#f6f7f9;--shadow:#0002;--sel-fill:#1860cf1f;
+  --mark-fill:#1a7f5a14;--stale-fill:#8a5c0014;--tip-bg:#1b1f24;--tip-fg:#ffffff}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
@@ -1286,6 +1424,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,
 #right{width:430px;min-width:280px;max-width:80vw;border-left:1px solid var(--line);background:var(--pane);
   display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#bar1{flex-wrap:nowrap;gap:4px;padding:8px 10px}
+#bar1 button{padding:4px 8px;white-space:nowrap}
+#bar1 input.n{width:44px;flex:none}
 button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
   cursor:pointer;font:inherit;font-size:12.5px;line-height:1.4}
 button:hover{background:var(--btn-h)}
@@ -1390,7 +1531,8 @@ dialog code{font-size:12px;word-break:break-all}
     <input class="n" id="jump" placeholder="쪽" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
     <button id="btn-zoom-out" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
     <button id="btn-zoom-in" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
-    <button id="btn-theme" data-act="theme" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐ 시스템</button>
+    <button id="btn-fit" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다">폭</button>
+    <button id="btn-theme" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
     <button id="btn-help" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
   </div>
   <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span><span class="sp"></span><span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
@@ -1500,10 +1642,12 @@ function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');
 function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
 (function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w; if(p.wrap!==undefined)WRAP=!!p.wrap;})();
 
-const THEMES=['system','light','dark'],THEME_LABEL={system:'◐ 시스템',light:'☀ 밝게',dark:'☾ 어둡게'};
-function applyTheme(){const t=prefs().theme||'system';
+const THEMES=['system','light','dark'],THEME_LABEL={system:'◐',light:'☀',dark:'☾'},THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
+function applyTheme(){let t=prefs().theme||'system'; if(!THEME_LABEL[t])t='system';
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
-  document.documentElement.setAttribute('data-theme',eff); $('#btn-theme').textContent=THEME_LABEL[t]||THEME_LABEL.system;}
+  document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.textContent=THEME_LABEL[t];
+  b.setAttribute('aria-label','화면 테마: '+THEME_NAME[t]);
+  b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';}
 MQ.addEventListener('change',applyTheme);
 function cycleTheme(){const t=prefs().theme||'system';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
@@ -1550,7 +1694,11 @@ function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))r
   TIP.style.left=left+'px'; TIP.style.top=top+'px';}
 function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; tipT=setTimeout(()=>showTip(el),300);}
 document.addEventListener('mouseover',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
-document.addEventListener('focusin',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
+// 입력 칸(textarea)에는 포커스 툴팁을 띄우지 않는다 — 타이핑 중 스니펫을 가리고, 첫 Esc 를 툴팁이 먹어
+// '취소하려고 Esc → Ctrl+Enter' 가 버리려던 핀을 저장했다(실측).
+document.addEventListener('focusin',e=>{const t=e.target; if(t&&t.tagName==='TEXTAREA'){hideTip();return;}
+  armTip(t.closest?t.closest('[data-tip]'):null);});
+document.addEventListener('input',hideTip,true);
 document.addEventListener('focusout',hideTip);
 document.addEventListener('scroll',hideTip,true);
 document.addEventListener('mousedown',hideTip,true);
@@ -1560,7 +1708,7 @@ async function boot(){
   applyTheme();
   $('#btn-save').textContent='핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
-  drawMeta(); buildDoc(); await loadPins();
+  drawMeta(); buildDoc(); if(prefs().w===undefined&&$('#left').clientWidth-60<W)fitW(); await loadPins();
 }
 function drawMeta(){
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
@@ -1579,7 +1727,10 @@ function buildDoc(){
     doc.appendChild(d);});
   marks();
 }
-function zoom(k){W=Math.min(2200,Math.max(420,W+k*140)); $$('.pg').forEach(e=>e.style.width=W+'px'); savePrefs({w:W});}
+function setW(w){W=Math.round(Math.min(2200,Math.max(300,w))); $$('.pg').forEach(e=>e.style.width=W+'px'); savePrefs({w:W});}
+function zoom(k){setW(W+k*140);}
+// 폭 맞춤: #left 의 안쪽 폭(좌 44px 쪽 번호 여백 + 우 16px 을 뺀 값)에 쪽을 맞춘다.
+function fitW(){const L=$('#left'); setW(L.clientWidth-44-16);}
 function goPage(){const el=document.getElementById('p'+parseInt($('#jump').value,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 
@@ -1620,7 +1771,12 @@ function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))re
   return scope==='para'?'paragraph':'lines';}
 function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return lv.label; if(o.scope==='lines')return '줄 직접 지정';
   return ({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'';}
-function levelBtns(o,isEdit){return (o.levels||[]).map(lv=>{const on=lv.level===o.scope;
+// 지금 범위와 맞는 단계를 눌린 상태로 보인다. scope 가 있으면 그 단계(범위도 같을 때), 없으면 lo/hi 가 같은 첫 단계
+// (편집 카드에서는 '지금 범위').
+function curLevel(o){const ls=o.levels||[];
+  const s=o.scope&&lvOf(o,o.scope); if(s&&s.lo===o.lo&&s.hi===o.hi)return s;
+  return ls.find(l=>l.lo===o.lo&&l.hi===o.hi)||null;}
+function levelBtns(o,isEdit){const cur=curLevel(o); return (o.levels||[]).map(lv=>{const on=lv===cur;
   const tip=isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
   const label=isEdit&&lv.level==='raw'?'지금 범위':lv.label;
   return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" data-tip="'+esc(tip)+'">'+
@@ -1658,6 +1814,7 @@ async function pick(r){
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
+  $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
 }
 function renderComposer(){const d=CUR; if(!d)return;
   const loc=d.name+' L'+d.lo+'-L'+d.hi;
@@ -1886,7 +2043,7 @@ document.addEventListener('click',e=>{
   const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
   switch(a.dataset.act){
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
-    case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break;
+    case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
     case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
@@ -1912,7 +2069,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
   if(e.key==='Escape'){
     if($('#help').open)return;
-    if(!TIP.hidden){hideTip();return;}
+    if(!TIP.hidden){hideTip(); if(!inField)return;}
     if(REPICK){cancelRepick();return;}
     if(EDIT){cancelEdit();return;}
     if(CUR||!$('#composer').hidden){cancelSelection(true);return;}
@@ -1930,15 +2087,22 @@ class Server(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # 본문이 Content-Length 보다 짧게 오고 끊기지 않으면 읽기가 영원히 멈춘다. 유휴 keep-alive 도 이 시간에 닫힌다.
+    timeout = 30
 
     def log_message(self, *a):
         pass
 
     def _send(self, code, body: bytes, ctype: str):
+        if code >= 400:
+            # 오류 뒤에는 연결을 끊는다. 요청을 끝까지 못 읽었을 수 있고, 남은 바이트가 다음 요청으로
+            # 읽히면 --allow 와 작성자 기록을 우회한다(요청 밀반입).
+            self.close_connection = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "public, max-age=600" if ctype == "image/png" else "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
@@ -1947,8 +2111,54 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _read_raw(self) -> bytes:
+        """어떤 응답보다 먼저 요청 본문을 끝까지 읽는다(GET·403·404 경로 포함).
+
+        읽지 않고 응답하면 같은 연결의 남은 바이트가 '헤더 없는 로컬 요청'으로 해석된다 —
+        tailscale serve 는 백엔드 연결을 재사용하므로 테일넷 사용자가 그 틈에 닿을 수 있다."""
+        self._raw = b""
+        if self.headers.get("Transfer-Encoding") is not None:
+            self.close_connection = True
+            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.")
+        cls = self.headers.get_all("Content-Length") or []
+        if len(set(v.strip() for v in cls)) > 1:
+            self.close_connection = True
+            raise HTTPError(400, "Content-Length 가 여러 개입니다.")
+        cl = cls[0].strip() if cls else ""
+        if cl == "":
+            return b""
+        if not cl.isdigit():
+            self.close_connection = True
+            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
+        n = int(cl)
+        if n > MAX_BODY:
+            self.close_connection = True
+            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
+        raw = self.rfile.read(n) if n else b""
+        if len(raw) != n:                                 # 잘린 요청 — 동작하지 않는다(/api/clear 포함)
+            self.close_connection = True
+            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).")
+        self._raw = raw
+        return raw
+
+    def _check_origin(self, actor_via_header: bool) -> None:
+        """교차 출처 요청(CSRF)과 DNS rebinding 을 막는다.
+
+        - Host: 헤더 없는(=tailscale 을 거치지 않은) 요청은 루프백 이름이나 *.ts.net 만 받는다.
+          DNS rebinding 은 브라우저가 evil.example 로 127.0.0.1 에 닿는 것이라 Host 가 드러난다.
+        - Origin: 있으면 이 서버 자신의 출처(루프백:포트) 또는 Host 와 같은 *.ts.net 이어야 한다.
+          브라우저는 교차 출처 POST 에 Origin 을 반드시 싣는다. curl·에이전트는 Origin 이 없어 영향이 없다."""
+        host = self.headers.get("Host")
+        if host is not None and not actor_via_header and not host_ok(host):
+            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100])
+        origin = self.headers.get("Origin")
+        if origin is not None and not origin_ok(origin, host):
+            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % hdr_text(origin)[:100])
+
     def _guard(self) -> dict:
+        self._read_raw()
         actor, via_header = actor_of(self.headers)
+        self._check_origin(via_header)
         if C.allow and via_header and actor["login"] not in C.allow:
             raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % actor["login"])
         return actor
@@ -1958,7 +2168,7 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except HTTPError as e:
             self._json(e.body, e.code)
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, socket.timeout):
             self.close_connection = True
         except Exception as e:                            # noqa: BLE001 — 연결을 끊지 않고 JSON 으로 알린다
             traceback.print_exc(file=sys.stderr)
@@ -2002,26 +2212,16 @@ class Handler(BaseHTTPRequestHandler):
         raise HTTPError(404, "없는 경로입니다: %s" % path)
 
     def _body(self) -> dict:
-        cl = self.headers.get("Content-Length")
-        if cl is None or cl.strip() == "":
-            return {}
-        try:
-            n = int(cl)
-        except ValueError:
-            self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 숫자가 아닙니다.")
-        if n < 0:
-            self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 음수입니다.")
-        if n > MAX_BODY:
-            self.close_connection = True
-            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
-        raw = self.rfile.read(n) if n else b""
+        raw = self._raw
         if not raw.strip():
             return {}
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            # 교차 출처 '단순 요청'(text/plain 폼)은 preflight 없이 온다 — JSON 만 받아 그 길을 닫는다.
+            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.")
         try:
             d = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
             raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.")
         if not isinstance(d, dict):
             raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
