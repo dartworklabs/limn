@@ -176,6 +176,26 @@ def cur_pdf() -> Path:
     return C.build / (C.main.stem + ".pdf")
 
 
+def source_newer() -> float:
+    """원고가 화면의 PDF 보다 새로우면 그 차이(초)를, 아니면 0.0 을 돌려준다.
+
+    화면이 낡은 PDF 면 드래그한 자리와 원문이 어긋난다. 그런데 텍스트 경로는 그래도
+    비슷한 문단을 찾아내 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서 노멘클래처를
+    골랐는데 서론의 기여 목록이 0.32 로 경고 없이 돌아왔다. 점수로는 이 상황을 못 거르므로
+    사실 자체를 알린다."""
+    try:
+        built = cur_pdf().stat().st_mtime
+    except OSError:
+        return 0.0
+    newest = 0.0
+    for f in C.src.rglob("*.tex"):
+        try:
+            newest = max(newest, f.stat().st_mtime)
+        except OSError:
+            pass
+    return max(0.0, newest - built)
+
+
 def migrate_pages() -> None:
     """옛 레이아웃(<state>/pages/ + build/<main>.pdf)을 버전 디렉토리처럼 만든다.
 
@@ -372,7 +392,7 @@ def meta(actor: dict) -> dict:
             "main": C.main.name, "n_open": sum(1 for r in rows if not r.get("done")),
             "n_done": sum(1 for r in rows if r.get("done")),
             "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-            "building": BUILD_LOCK.locked()}
+            "building": BUILD_LOCK.locked(), "stale_build": source_newer() > 2}
 
 
 # ---------------------------------------------------------------- 원문 접근
@@ -1366,6 +1386,10 @@ def pick(d: dict) -> dict:
         if not (lo <= cands[1][1] <= hi):
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
+    if source_newer() > 2:
+        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 다시 만들기] 뒤에 다시 고르세요."
+        warn = stale_note + (" " + warn if warn else "")
+
     return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
             "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
             "score": round(best, 2), "warn": warn, "n_lines": len(lines),
@@ -1608,7 +1632,7 @@ dialog code{font-size:12px;word-break:break-all}
     <button id="btn-theme" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
     <button id="btn-help" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span><span class="sp"></span><span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span></span><span class="sp"></span><span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
   <div id="build-err" hidden></div>
   <div id="banner" hidden></div>
   <div id="composer" hidden>
@@ -1793,6 +1817,7 @@ function drawMeta(){
   const me=META.me||{};
   $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(me.name||me.login||'')+'</span>';
   $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
+  $('#meta-stale').hidden=!META.stale_build;
   $('#help-pins-md').textContent=META.pins_md||'';
 }
 function pageSrc(p){return '/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at);}

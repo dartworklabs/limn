@@ -117,8 +117,8 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중) |
-| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`) → `{file, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, levels, default_level, n_lines}`. 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가) |
+| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines}`. 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev` 가 채워진다. `?all=1` 이면 닫힌 핀까지 |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 사다리도. 원고 트리 밖이거나 범위가 틀리면 `400` |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote` |
@@ -328,6 +328,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ```
 
 ## 알려진 제약
+
+- **화면의 PDF 가 원고보다 낡으면 좌표와 원문이 어긋난다.** 에이전트가 원고를 고치고 아직 재빌드하지 않은
+  동안이 그렇다. 텍스트 경로는 그래도 비슷한 문단을 찾아 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서
+  노멘클래처를 골랐는데 서론의 기여 목록이 `0.32` 로 경고 없이 돌아왔다. 그래서 서버가 원고 `.tex` 의 수정
+  시각과 PDF 시각을 비교해 `meta.stale_build` 로 알리고, `pick` 의 `warn` 에도 점수와 무관하게 이 사실을
+  앞세운다. 화면 위쪽에는 "원고가 더 새롭습니다" 배지가 뜬다. 이 상태에서 찍은 핀은 줄 범위를 확인해야 한다.
 
 - SyncTeX 좌표 조회가 선택 영역 바로 바깥의 float를 잘못 물 수 있어(가장 가까운 노드 기준), 밀집 클러스터링 + 범위 사다리로 보정한다. 완전히 안전하지는 않다 — 결과의 `kind`가 `float`·`env:*`인데 사용자가 기대한 대상과 다르면 `raw_lo`/`raw_hi`(보정 전 원시 범위)를 참고해 재시도.
 - 원고를 고친 뒤 PDF 를 다시 만들지 않으면, 화면(옛 PDF)과 원문 줄 번호가 어긋난 채로 pick 이 된다. 에이전트가 원고를 고쳤으면 먼저 PDF 다시 만들기.
