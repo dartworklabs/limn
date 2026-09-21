@@ -74,6 +74,7 @@ class Cfg:
     envs: tuple
     timeout: int
     allow: frozenset
+    origin_check: bool = True
 
     @property
     def pins_jsonl(self) -> Path:
@@ -176,8 +177,26 @@ def cur_pdf() -> Path:
 
 
 def migrate_pages() -> None:
-    if not C.pages_ptr.exists() and (C.state / "pages").is_dir():
+    """옛 레이아웃(<state>/pages/ + build/<main>.pdf)을 버전 디렉토리처럼 만든다.
+
+    PDF·synctex 사본을 pages/ 에 넣어 두어야 pick 이 화면의 쪽과 같은 PDF 를 읽는다 —
+    build/ 의 것은 재빌드가 제자리에서 덮어쓴다(빌드 중이거나 뒤 단계에서 실패하면 어긋난다)."""
+    legacy = C.state / "pages"
+    if not legacy.is_dir():
+        return
+    if not C.pages_ptr.exists():
         atomic_write(C.pages_ptr, "pages")
+    if cur_pages() != legacy:
+        return
+    for suf in (".pdf", ".synctex.gz"):
+        src, dst = C.build / (C.main.stem + suf), legacy / (C.main.stem + suf)
+        if src.is_file() and not dst.exists():
+            tmp = dst.with_name(dst.name + ".tmp")
+            try:
+                shutil.copy2(src, tmp)
+                os.replace(tmp, dst)
+            except OSError as e:
+                print("경고: %s 를 쪽 디렉토리로 복사하지 못했습니다: %s" % (src.name, e), file=sys.stderr)
 
 
 # ---------------------------------------------------------------- 빌드
@@ -768,6 +787,8 @@ def sync_all(rows: list) -> bool:
         if r.get("done"):
             continue
         f = Path(r.get("file", ""))
+        if not in_tree(str(f)):
+            continue
         try:
             if not f.is_file():
                 continue
@@ -831,7 +852,50 @@ def valid_rec(r) -> bool:
         return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
         return False
+    if not os.path.isabs(r["file"]):                  # 상대 경로는 서버 cwd 에 따라 다른 파일을 가리킨다
+        return False
+    for k in ("raw_lo", "raw_hi", "rev"):
+        if r.get(k) is not None and not _is_int(r[k]):
+            return False
+    for k in ("synced_at", "score"):
+        if r.get(k) is not None and not _is_num(r[k]):
+            return False
+    for k in ("done", "stale"):
+        if r.get(k) is not None and not isinstance(r[k], bool):
+            return False
+    for k in ("name", "kind", "via", "scope", "sync"):
+        if r.get(k) is not None and not isinstance(r[k], str):
+            return False
+    for k, v in r.items():
+        if k == "at" or k.endswith("_at") and k != "synced_at":
+            if v is not None and not isinstance(v, str):
+                return False
+        elif k == "author" or k.endswith("_by"):
+            if v is not None and not _is_actor(v):
+                return False
+    fr = r.get("frac")
+    if fr is not None and not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
+        return False
     return True
+
+
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _is_actor(v) -> bool:
+    """author·*_by 는 {login,name,pic?} 문자열 사전이어야 한다 — UI 가 name.trim() 을 부른다."""
+    return isinstance(v, dict) and all(v.get(k) is None or isinstance(v[k], str) for k in ("login", "name", "pic"))
+
+
+def in_tree(p: str) -> bool:
+    """레코드의 file 이 원고 트리 안인가. 밖이면 줄 맞춤·편집이 그 파일을 읽지 않는다
+    (읽으면 앵커에 트리 밖 파일의 줄이 담겨 GET /api/pins 로 나간다)."""
+    try:
+        Path(p).resolve().relative_to(C.src.resolve())
+        return True
+    except (ValueError, OSError, RuntimeError):
+        return False
 
 
 def read_jsonl(path: Path) -> tuple:
@@ -915,7 +979,7 @@ def snapshot_pins() -> list:
 
 def public(r: dict) -> dict:
     out = dict(r)
-    out["rev"] = int(out.get("rev") or 0)
+    out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
     return out
 
 
@@ -1094,18 +1158,23 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
             b = hi if hi is not None else r["hi"]
+            if not in_tree(r["file"]):
+                raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
             f = Path(r["file"])
             n = len(tex_lines(f))
             if not 1 <= a <= b <= max(n, 1):
                 raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, a, b))
             range_changed = (a, b) != (r["lo"], r["hi"]) or bool(r.get("stale"))
             r["lo"], r["hi"] = a, b
+            if range_changed:                        # 손으로 옮긴 범위는 더 이상 좌표·글자 매칭 결과가 아니다
+                r.pop("via", None)
+                r.pop("score", None)
         if newloc is None:
             if scope is not None:
                 r["scope"] = scope
             if kind is not None:
                 r["kind"] = kind
-        if range_changed:
+        if range_changed and in_tree(r["file"]):
             f = Path(r["file"])
             r["anchor"] = anchor_of(tex_lines(f), r["lo"], r["hi"])
             r["synced_at"] = f.stat().st_mtime if f.exists() else 0
@@ -1216,7 +1285,7 @@ def pins_md_text(rows: list) -> str:
            "처리한 핀은 닫는다 — `curl -s -X POST http://127.0.0.1:%d/api/pins/N/close`" % C.port,
            "", "| # | 쪽 | 위치 | 종류 | 메모 | 작성 |", "|---|---|---|---|---|---|"]
     for r in openn:
-        flag = " ⚠원문에서 사라짐" if r.get("stale") else ""
+        flag = " ⚠ 위치 잃음" if r.get("stale") else ""
         loc = "`%s L%s-L%s`%s" % (Path(str(r.get("file", ""))).name, r.get("lo"), r.get("hi"), flag)
         note = str(r.get("note") or "").replace("|", "\\|").replace("\n", " ")
         kind = str(r.get("kind") or "").replace("|", "/")
@@ -1366,7 +1435,7 @@ def split_host(v: str) -> tuple:
         port = rest[1:] if rest.startswith(":") else ""
     else:
         name, _, port = v.partition(":")
-    if port and not port.isdigit():
+    if port and not re.fullmatch(r"[0-9]{1,5}", port):
         return "", None
     return name.rstrip("."), (int(port) if port else None)
 
@@ -1451,14 +1520,14 @@ input.n{width:58px;text-align:center}
 .mark{position:absolute;border:2px solid var(--ok);background:var(--mark-fill);pointer-events:none}
 .mark.st{border-color:var(--warn);background:var(--stale-fill)}
 .mark b{position:absolute;top:-11px;left:-11px;background:var(--ok);color:var(--on-ok);border-radius:50%;
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px}
+  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;pointer-events:auto}
 .mark.st b{background:var(--warn);color:var(--on-warn)}
 .mark.flash{animation:flash .6s ease-in-out 3}
 @keyframes flash{50%{box-shadow:0 0 0 5px var(--acc)}}
 #banner{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:6px;flex-wrap:wrap;
   align-items:center;font-size:13px}
 #build-err{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--card);font-size:12.5px}
-#composer{flex:none;max-height:55vh;overflow:auto;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card)}
+#composer{flex:none;max-height:62vh;overflow:auto;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card)}
 #list{flex:1;overflow:auto;padding:10px 14px 30px;min-height:0}
 .c-head{display:flex;align-items:center;gap:8px}
 .busy{opacity:.45}
@@ -1466,6 +1535,10 @@ pre{background:var(--code);border:1px solid var(--line);border-radius:6px;paddin
   line-height:1.5;max-height:44vh;font-family:"JetBrains Mono",ui-monospace,monospace;tab-size:2;margin:6px 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
+#c-snip{max-height:calc(12em + 20px)}  /* 접힌 원문은 약 8줄 — 메모 칸이 컴포저 밖으로 밀리지 않게 */
+#c-snip.open{max-height:44vh}
+/* 저장 줄은 컴포저 바닥에 붙인다 — 작은 창에서도 드래그 → 메모 → 저장이 안쪽 스크롤 없이 닿게 */
+#c-actions{position:sticky;bottom:-10px;margin:7px 0 -10px;padding:6px 0 10px;background:var(--card);z-index:1}
 .loc{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px;cursor:copy}
 .dim{color:var(--dim);font-size:12px}
 .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -1561,7 +1634,7 @@ dialog code{font-size:12px;word-break:break-all}
     </div>
     <h3 style="margin-top:10px">메모</h3>
     <textarea id="note" rows="3" placeholder="여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
-    <div class="row" style="margin-top:7px">
+    <div class="row" id="c-actions">
       <button class="p" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘↵ / Ctrl+Enter)">핀 저장 ⌘↵</button>
       <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
     </div>
@@ -1684,13 +1757,17 @@ async function copyText(s){
 }
 
 // ------------------------------------------------ 툴팁
-const TIP=$('#tip'); let tipT=null,tipEl=null;
+const TIP=$('#tip'); let tipT=null,tipEl=null,TIPXY=null;
+document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
 function hideTip(){clearTimeout(tipT);tipT=null;tipEl=null;TIP.hidden=true;}
 function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))return;
   TIP.textContent=txt; TIP.hidden=false;
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
-  let top=r.top-th-8; if(top<4) top=r.bottom+8;
-  const left=Math.min(Math.max(4,r.left+r.width/2-tw/2),innerWidth-tw-4);
+  let top=r.top-th-8, cx=r.left+r.width/2;
+  if(top<4) top=r.bottom+8;
+  if(top>innerHeight-th-4 && TIPXY){top=TIPXY[1]+18; cx=TIPXY[0];}   // 창보다 긴 요소(#grip·긴 카드)는 포인터에 붙인다
+  top=Math.max(4,Math.min(top,innerHeight-th-4));
+  const left=Math.min(Math.max(4,cx-tw/2),innerWidth-tw-4);
   TIP.style.left=left+'px'; TIP.style.top=top+'px';}
 function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; tipT=setTimeout(()=>showTip(el),300);}
 document.addEventListener('mouseover',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
@@ -1708,7 +1785,7 @@ async function boot(){
   applyTheme();
   $('#btn-save').textContent='핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
-  drawMeta(); buildDoc(); if(prefs().w===undefined&&$('#left').clientWidth-60<W)fitW(); await loadPins();
+  drawMeta(); buildDoc(); autoW(); await loadPins();
 }
 function drawMeta(){
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
@@ -1727,7 +1804,10 @@ function buildDoc(){
     doc.appendChild(d);});
   marks();
 }
-function setW(w){W=Math.round(Math.min(2200,Math.max(300,w))); $$('.pg').forEach(e=>e.style.width=W+'px'); savePrefs({w:W});}
+// save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
+function setW(w,save){W=Math.round(Math.min(2200,Math.max(300,w))); $$('.pg').forEach(e=>e.style.width=W+'px'); if(save!==false)savePrefs({w:W});}
+function autoW(){if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
+let autoT=null; window.addEventListener('resize',()=>{clearTimeout(autoT); autoT=setTimeout(autoW,150);});
 function zoom(k){setW(W+k*140);}
 // 폭 맞춤: #left 의 안쪽 폭(좌 44px 쪽 번호 여백 + 우 16px 을 뺀 값)에 쪽을 맞춘다.
 function fitW(){const L=$('#left'); setW(L.clientWidth-44-16);}
@@ -1815,6 +1895,7 @@ async function pick(r){
   CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
+  $('#note').focus({preventScroll:true});   // 드래그 → 바로 메모 입력
 }
 function renderComposer(){const d=CUR; if(!d)return;
   const loc=d.name+' L'+d.lo+'-L'+d.hi;
@@ -1823,7 +1904,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
   $('#c-levels').innerHTML=levelBtns(d,false);
-  const pre=$('#c-snip'); pre.className=WRAP?'wrap':'nowrap'; pre.textContent=snipText(d.snippet,SNIP_OPEN);
+  const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
   const many=String(d.snippet||'').split('\n').length>8;
   $('#c-expand').hidden=!many; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기';
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
@@ -1845,11 +1926,12 @@ async function savePin(){
 
 // ------------------------------------------------ 핀 목록
 function who(a){return (a&&(a.name||a.login))||'';}
+const BADPIC=new Set();   // 한 번 실패한 아바타 주소는 다시 요청하지 않는다(재렌더마다 콘솔 오류가 쌓인다)
 function avatar(a){if(!a||!(a.name||a.login))return ''; const ini=esc((who(a).trim()[0]||'?').toUpperCase());
-  return a.pic?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
+  return a.pic&&!BADPIC.has(a.pic)?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
     :'<span class="av i" aria-hidden="true">'+ini+'</span>';}
 document.addEventListener('error',e=>{const t=e.target;
-  if(t&&t.tagName==='IMG'&&t.classList.contains('av')){const s=document.createElement('span');s.className='av i';
+  if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
   if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
@@ -1905,7 +1987,8 @@ function marks(){
   PINS.forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
     const m=document.createElement('div'); m.className='mark'+(p.stale?' st':''); m.dataset.pin=p.id;
     Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
-    m.innerHTML='<b>'+p.id+'</b>'; el.appendChild(m);});
+    const n=String(p.note||'').replace(/\s+/g,' ').trim();
+    m.innerHTML='<b data-tip="'+esc('#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)'))+'">'+p.id+'</b>'; el.appendChild(m);});
 }
 function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
@@ -2127,7 +2210,7 @@ class Handler(BaseHTTPRequestHandler):
         cl = cls[0].strip() if cls else ""
         if cl == "":
             return b""
-        if not cl.isdigit():
+        if not re.fullmatch(r"[0-9]+", cl):          # isdigit() 는 '²' 같은 latin-1 숫자도 받는다
             self.close_connection = True
             raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
         n = int(cl)
@@ -2141,15 +2224,19 @@ class Handler(BaseHTTPRequestHandler):
         self._raw = raw
         return raw
 
-    def _check_origin(self, actor_via_header: bool) -> None:
+    def _check_origin(self) -> None:
         """교차 출처 요청(CSRF)과 DNS rebinding 을 막는다.
 
-        - Host: 헤더 없는(=tailscale 을 거치지 않은) 요청은 루프백 이름이나 *.ts.net 만 받는다.
+        - Host: 모든 요청이 루프백 이름(:이 포트)이나 *.ts.net 이어야 한다.
           DNS rebinding 은 브라우저가 evil.example 로 127.0.0.1 에 닿는 것이라 Host 가 드러난다.
         - Origin: 있으면 이 서버 자신의 출처(루프백:포트) 또는 Host 와 같은 *.ts.net 이어야 한다.
           브라우저는 교차 출처 POST 에 Origin 을 반드시 싣는다. curl·에이전트는 Origin 이 없어 영향이 없다."""
+        if not C.origin_check:                        # --no-origin-check: 실측 경로가 예상과 다를 때의 탈출구
+            return
         host = self.headers.get("Host")
-        if host is not None and not actor_via_header and not host_ok(host):
+        # Tailscale-User-* 헤더 여부와 무관하게 검사한다. 그 헤더는 rebinding 페이지도 같은 출처 GET 에
+        # preflight 없이 실을 수 있어, 헤더로 면제하면 방어가 통째로 우회된다(실측).
+        if host is not None and not host_ok(host):
             raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100])
         origin = self.headers.get("Origin")
         if origin is not None and not origin_ok(origin, host):
@@ -2158,9 +2245,14 @@ class Handler(BaseHTTPRequestHandler):
     def _guard(self) -> dict:
         self._read_raw()
         actor, via_header = actor_of(self.headers)
-        self._check_origin(via_header)
+        self._check_origin()
         if C.allow and via_header and actor["login"] not in C.allow:
             raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % actor["login"])
+        if C.allow and not via_header:
+            # 신원 헤더 없이 *.ts.net 으로 온 요청 = 태그 장치(또는 funnel). --allow 가 있으면 로컬로 치지 않는다.
+            hname, _ = split_host(self.headers.get("Host") or "")
+            if hname.endswith(".ts.net"):
+                raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.")
         return actor
 
     def _run(self, fn):
@@ -2269,7 +2361,11 @@ def main() -> None:
     ap.add_argument("--build-timeout", type=int, default=900)
     ap.add_argument("--no-build", action="store_true", help="기동 시 재빌드하지 않는다")
     ap.add_argument("--allow", default="",
-                    help="허용할 tailscale 로그인(쉼표 구분). 비우면 전원 허용. 헤더 없는 로컬 요청은 항상 허용")
+                    help="허용할 tailscale 로그인(쉼표 구분). 비우면 전원 허용. 신원 헤더 없는 루프백 요청"
+                         "(curl·에이전트)은 항상 허용, 신원 헤더 없이 *.ts.net 으로 온 요청(태그 장치)은 거부")
+    ap.add_argument("--no-origin-check", action="store_true",
+                    help="Host·Origin 검사(DNS rebinding·CSRF 방어)를 끈다. tailscale serve 가 예상 밖의 "
+                         "Host/Origin 을 넘겨 UI 가 403 을 받을 때만 쓴다")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -2289,6 +2385,7 @@ def main() -> None:
     C.timeout = a.build_timeout
     C.port = a.port or free_port()
     C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
+    C.origin_check = not a.no_origin_check
 
     migrate_pages()
     init_seq()
@@ -2303,7 +2400,9 @@ def main() -> None:
     print("상태   %s" % C.state)
     print("주소   http://127.0.0.1:%d/   (외부 노출은 tailscale serve 로만)" % C.port)
     if C.allow:
-        print("허용   %s (헤더 없는 로컬 요청은 허용)" % ", ".join(sorted(C.allow)))
+        print("허용   %s (헤더 없는 루프백 요청은 허용)" % ", ".join(sorted(C.allow)))
+    if not C.origin_check:
+        print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
     sys.stdout.flush()
     Server(("127.0.0.1", C.port), Handler).serve_forever()
 

@@ -84,7 +84,8 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   [--float-envs figure,table,algorithm,equation,align,itemize,enumerate,minipage] \
   [--build-timeout 900] \
   [--no-build] \
-  [--allow <login>,<login>]
+  [--allow <login>,<login>] \
+  [--no-origin-check]
 ```
 
 | 인자 | 필수 | 기본값 | 설명 |
@@ -97,7 +98,8 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `--float-envs` | 아니오 | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | 기본 범위 단계를 '환경'으로 둘 `\begin{...}` 이름 목록(사다리 자체는 모든 환경을 본다) |
 | `--build-timeout` | 아니오 | `900` | `latexmk` 빌드 타임아웃(초). 넘으면 프로세스 그룹째 종료하고 `fail` 로 판정 |
 | `--no-build` | 아니오 | (끔) | 기동 시 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도 — PDF·쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
-| `--allow` | 아니오 | (비움 = 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖이면 `403`. 헤더 없는 로컬 요청(에이전트 `curl`)은 항상 허용 |
+| `--allow` | 아니오 | (비움 = 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖이면 `403`. 신원 헤더 없이 루프백 `Host` 로 온 요청(에이전트 `curl`)은 항상 허용. 신원 헤더 없이 `*.ts.net` `Host` 로 온 요청은 `403` — tailscale 은 **태그 장치**(와 funnel)에는 신원 헤더를 붙이지 않으므로, 이를 로컬로 치면 목록을 우회한다. `--allow` 를 비우면 태그 장치 요청도 `로컬/에이전트` 로 기록된다 |
+| `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §HTTP API)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
 
 **바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§보안 제약)
 
@@ -110,7 +112,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 요청 경계(§보안 제약과 함께 본다):
 
 - 서버는 **어떤 응답보다 먼저 본문을 Content-Length 만큼 끝까지 읽고**, 오류(`4xx`/`5xx`) 뒤에는 연결을 닫는다. `Transfer-Encoding` 요청은 `400`. 본문이 Content-Length 보다 짧게 끊기면 `400` 이고 동작하지 않는다(`/api/clear` 포함). 읽지 않은 본문이 같은 keep-alive 연결의 다음 요청으로 해석되면 `--allow` 와 작성자 기록을 우회하기 때문이다 — tailscale serve 는 백엔드 연결을 재사용한다.
-- 교차 출처 요청: `Origin` 이 있으면 이 서버 자신(`http://127.0.0.1:<port>`·`localhost:<port>`) 또는 Host 와 같은 `*.ts.net` 이어야 한다(아니면 `403`). tailscale 헤더가 없는 요청의 `Host` 는 루프백 이름(포트 일치) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 원고 스니펫이 새지 않게.
+- 교차 출처 요청: `Origin` 이 있으면 이 서버 자신(`http://127.0.0.1:<port>`·`localhost:<port>`) 또는 Host 와 같은 `*.ts.net` 이어야 한다(아니면 `403`). **모든 요청**의 `Host` 는 루프백 이름(포트 일치) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 핀 메모·원고 스니펫이 새지 않게. `Tailscale-User-*` 헤더가 있어도 면제하지 않는다: rebinding 페이지는 같은 출처 GET 에 그 헤더를 preflight 없이 실을 수 있다. tailscale serve 는 원래 `Host`(`<기기>.<tailnet>.ts.net`)를 보존해 넘기므로 정상 테일넷 요청은 통과한다. 첫 배포 때 공저자 브라우저에서 저장이 `403`("허용되지 않은 Host"/"다른 출처")이면 그 메시지의 값을 기록하고 `--no-origin-check` 로 임시 우회한다.
 - 소켓 타임아웃 30초 — 본문을 보내다 멈춘 연결과 유휴 keep-alive 가 닫힌다(재빌드처럼 오래 걸리는 처리 자체와는 무관).
 
 | 메서드 | 경로 | 설명 |
@@ -188,7 +190,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 - 헤더가 없는 요청(로컬 `curl`, 에이전트)은 `{"login": "local", "name": "로컬/에이전트"}` 로 기록된다.
 - 핀 카드에 작성자 이름과 22px 원형 아바타(사진이 없거나 못 불러오면 이름 첫 글자)가 붙고, 카드 툴팁에 '작성: 이름 · 시각 / 수정: 이름 · 시각' 이 뜬다. 기록이 생기기 전의 옛 핀은 '기록 전' 으로 보인다.
 - `<state_dir>/pins.md` 의 `작성` 열에 짧은 이름이 실린다(로컬은 `로컬`, 옛 핀은 `—`).
-- 권한 제한은 없다. 막아야 하면 `--allow` 로 로그인 목록을 준다.
+- 권한 제한은 없다. 막아야 하면 `--allow` 로 로그인 목록을 준다. 태그 장치처럼 신원 헤더가 없는 테일넷 요청은 `--allow` 가 있을 때 거부되고, 없을 때는 `로컬/에이전트` 로 기록된다(§실행 인자).
 
 ### 저장소 안전성
 
