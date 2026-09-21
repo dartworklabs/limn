@@ -255,6 +255,46 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 | 경로 | 핀·스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다(밖이면 `400`) |
 | 종료 | 세션 종료 시 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스 자체를 계속 띄워둘지는 사용자 판단(재사용 이점과 유휴 리소스 비용의 트레이드오프) |
 
+## 상시로 띄울 때 — systemd 사용자 유닛
+
+서버 자체는 표준 라이브러리만 쓰지만, **재빌드는 외부 명령에 의존한다** — `latexmk`·`pdftoppm`·`pdftotext`·`synctex`.
+systemd 는 로그인 셸의 rc 를 거치지 않으므로, TeX 배포판이 `/usr/local/texlive/...` 처럼 기본 PATH 밖에 있으면
+유닛이 그 경로를 명시해야 한다. 그러지 않으면 **뷰어는 멀쩡히 뜨는데 재빌드만 실패한다** — 배포판 기본 `pdflatex`
+가 잡혀 저널 클래스 파일(`elsarticle.cls` 등)을 못 찾는 형태로 드러난다(2026-09-21 실측).
+
+```ini
+[Service]
+# 대화형 셸에서 `kpsewhich <클래스>.cls` 가 가리키는 배포판의 bin 을 PATH 맨 앞에 둔다.
+Environment=PATH=/usr/local/texlive/2025/bin/x86_64-linux:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 %h/.local/share/<name>/pin_server.py \
+  --manuscript <manuscript_dir> --main <main>.tex --state-dir %h/.local/share/<name> --port <port> --no-build
+Restart=on-failure
+```
+
+확인은 두 줄이면 된다.
+
+```bash
+tr '\0' '\n' < /proc/$(pgrep -f pin_server.py | head -1)/environ | grep ^PATH=
+curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 ok 여야 한다
+```
+
+설정 파일을 홈에 직접 두지 않는 dotfiles 규약을 쓰는 기기라면 유닛도 그 저장소에서 관리하고 심링크한다.
+
+## `tailscale serve` 뒤에서 (실측)
+
+`tailscale serve` 는 요청마다 신원 헤더를 붙이고 `*.ts.net` Host 를 그대로 넘긴다. 2026-09-21 에 잰 값이다.
+
+| 요청 | 결과 |
+| --- | --- |
+| 테일넷에서 `GET /` | `200`. `GET /api/meta` 의 `me` 가 `{login, name, pic}` 로 채워진다 |
+| 브라우저처럼 `Origin: https://<host>.ts.net:<port>` 를 붙인 `POST` | `200` |
+| 다른 출처(`Origin: https://evil.example`)의 `POST` | `403` |
+| 신원 헤더를 위조하고 낯선 `Host` 로 보낸 `POST` | `403` — 헤더가 Host 검사를 건너뛰게 하지 않는다 |
+| 공인 IP 로 접근 | 연결 실패 |
+
+신원 헤더는 **구분용이지 인증이 아니다.** 같은 기기의 로컬 프로세스는 헤더를 스스로 붙일 수 있다. 바인딩이
+`127.0.0.1` 이라 테일넷을 거치지 않은 요청은 그 기기 안에서만 오고, 그 기기는 이미 사용자 것이다.
+
 ## 핀 소비 절차 (에이전트)
 
 1. `<state_dir>/pins.md` 한 장을 읽는다. 스니펫은 일부러 넣지 않는다 — 줄 범위만 있으면 에이전트가 원본을 `Read`로 직접 읽는 편이 항상 더 싸고 정확하다(스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다). `작성` 열로 누가 남긴 요청인지 구분한다.
