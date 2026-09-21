@@ -11,29 +11,56 @@
 (예: Nomenclature)에서 실제로 그런 일이 일어난다.
 
 바인딩은 127.0.0.1 고정이다. 외부 노출은 tailscale serve 가 담당하며, 그것을
-바꾸는 플래그는 의도적으로 두지 않았다.
+바꾸는 플래그는 의도적으로 두지 않았다. tailscale serve 는 요청마다
+Tailscale-User-Login/Name/Profile-Pic 헤더를 붙이므로, 그 헤더로 누가 핀을
+남겼는지 기록한다(막지는 않는다 — 테일넷 구성원은 신뢰하는 동료다).
+
+Python 3.10 표준 라이브러리만 쓴다.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
+import traceback
 from datetime import datetime
+from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 FLOAT_KINDS = ("figure", "table", "algorithm")
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
+PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
+PAGE_FILE_RE = re.compile(r"page-\d+\.png")
+ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
+
+MAX_BODY = 1 << 20
+NOTE_MAX = 4000
+SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
+ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
+              "frac", "note", "scope", "quote")
+LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
+              "frac", "scope", "quote")
+LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
+
+# 핀 파일을 만지는 모든 경로가 이 잠금 하나를 거친다. 잠금 없이 읽고-고치고-쓰면
+# 동시에 저장한 핀 30건 중 2건만 남는다(실측) — 나머지는 서로의 쓰기에 덮인다.
+PIN_LOCK = threading.RLock()
+# latexmk 두 개가 같은 build/ 에서 돌면 서로의 .aux 를 밟는다.
+BUILD_LOCK = threading.Lock()
 
 
 class Cfg:
@@ -42,12 +69,11 @@ class Cfg:
     main: Path
     state: Path
     build: Path
-    pages: Path
-    pdf: Path
     port: int
     dpi: int
     envs: tuple
     timeout: int
+    allow: frozenset
 
     @property
     def pins_jsonl(self) -> Path:
@@ -57,8 +83,43 @@ class Cfg:
     def pins_md(self) -> Path:
         return self.state / "pins.md"
 
+    @property
+    def dropped(self) -> Path:
+        return self.state / "pins.dropped.jsonl"
+
+    @property
+    def seq(self) -> Path:
+        return self.state / "pins.seq"
+
+    @property
+    def pages_ptr(self) -> Path:
+        return self.state / "pages.cur"
+
 
 C = Cfg()
+
+
+class HTTPError(Exception):
+    """핸들러가 그대로 JSON 오류 응답으로 바꾼다."""
+
+    def __init__(self, code: int, msg: str, **extra):
+        super().__init__(msg)
+        self.code = code
+        self.body = dict({"error": msg}, **extra)
+
+
+def now_str() -> str:
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def atomic_write(path: Path, text: str) -> None:
+    """같은 디렉토리의 임시 파일에 쓰고 os.replace 한다 — 읽는 쪽은 옛 파일 아니면 새 파일만 본다."""
+    tmp = path.with_name(".%s.tmp%d.%d" % (path.name, os.getpid(), threading.get_ident()))
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------- 기동 준비
@@ -88,40 +149,179 @@ def state_slug(src: Path) -> str:
     return "%s-%s" % (src.name, hashlib.sha1(str(src).encode()).hexdigest()[:8])
 
 
-def build_all() -> tuple[bool, str]:
-    """원본을 건드리지 않고 사본에서 -synctex=1 로 빌드하고 페이지를 렌더한다."""
+# ---------------------------------------------------------------- 쪽 이미지 버전 디렉토리
+
+def cur_pages() -> Path:
+    """지금 보여 줄 쪽 이미지 디렉토리. pages.cur 포인터가 가리킨다.
+
+    포인터가 없으면 옛 레이아웃(<state>/pages/)을 그대로 쓴다 — 재빌드 없이 이관된다."""
+    try:
+        name = C.pages_ptr.read_text(encoding="utf-8").strip()
+    except OSError:
+        name = ""
+    if name and PAGES_DIR_RE.fullmatch(name) and (C.state / name).is_dir():
+        return C.state / name
+    return C.state / "pages"
+
+
+def cur_pdf() -> Path:
+    """쪽 이미지와 짝이 맞는 PDF. 버전 디렉토리에 사본이 있으면 그것을, 없으면(옛 레이아웃) build/ 의 것을 쓴다.
+
+    짝을 맞추는 이유: 빌드가 실패해도 화면은 옛 PDF 인데, pick 이 새로 깨진 PDF 를 읽으면
+    보이는 것과 다른 자리를 짚는다."""
+    f = cur_pages() / (C.main.stem + ".pdf")
+    if f.exists():
+        return f
+    return C.build / (C.main.stem + ".pdf")
+
+
+def migrate_pages() -> None:
+    if not C.pages_ptr.exists() and (C.state / "pages").is_dir():
+        atomic_write(C.pages_ptr, "pages")
+
+
+# ---------------------------------------------------------------- 빌드
+
+def latex_errors(text: str) -> list:
+    """'! ' 줄과 그 뒤 첫 'l.<n>' 줄을 최대 5건 뽑는다(파일 추정은 하지 않는다)."""
+    out = []
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        if not ln.startswith("! "):
+            continue
+        line_no = None
+        for nxt in lines[i + 1:i + 40]:
+            m = re.match(r"l\.(\d+)", nxt)
+            if m:
+                line_no = int(m.group(1))
+                break
+            if nxt.startswith("! "):
+                break
+        out.append({"line": line_no, "msg": ln[2:].strip()[:200]})
+        if len(out) >= 5:
+            break
+    return out
+
+
+def run_logged(cmd: list, cwd: Path, timeout: int):
+    """프로세스 그룹째 돌리고, 시간이 넘으면 그룹째 죽인다(latexmk 가 띄운 pdflatex 까지)."""
+    try:
+        p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             encoding="utf-8", errors="replace", start_new_session=True)
+    except FileNotFoundError:
+        return None, "%s 를 찾지 못했습니다." % cmd[0], False
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return p.returncode, out or "", False
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        out, _ = p.communicate()
+        return None, (out or "") + "\n[시간 초과 %d초 — 빌드를 중단했습니다]" % timeout, True
+
+
+def build_all() -> dict:
+    """PDF 를 다시 만든다. 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다."""
+    if not BUILD_LOCK.acquire(blocking=False):
+        return {"ok": False, "busy": True}
+    try:
+        return _build()
+    finally:
+        BUILD_LOCK.release()
+
+
+def _build() -> dict:
+    """원본을 건드리지 않고 사본에서 -synctex=1 로 빌드한 뒤, 새 디렉토리에 쪽을 그리고 포인터만 바꾼다.
+
+    판정은 세 가지다. fail = 새 PDF 가 없거나 시간 초과(화면은 옛 PDF 그대로),
+    ok_errors = 새 PDF 는 나왔지만 LaTeX 오류('! ' 줄)가 있음, ok = 오류 없음."""
+    t0 = time.time()
     C.build.mkdir(parents=True, exist_ok=True)
-    C.pages.mkdir(parents=True, exist_ok=True)
-    log = []
+    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
 
     rs = shutil.which("rsync")
-    if rs:
-        subprocess.run([rs, "-a", "--delete", "--exclude", "diff/", "--exclude", "*.synctex.gz",
-                        str(C.src) + "/", str(C.build) + "/"], capture_output=True, timeout=300)
-    else:                                            # rsync 없이도 돌아가야 한다
-        shutil.rmtree(C.build, ignore_errors=True)
-        shutil.copytree(C.src, C.build, ignore=shutil.ignore_patterns("diff", "*.synctex.gz"))
+    try:
+        if rs:
+            subprocess.run([rs, "-a", "--delete", "--exclude", "diff/", "--exclude", "*.synctex.gz",
+                            str(C.src) + "/", str(C.build) + "/"], capture_output=True, timeout=300)
+        else:                                            # rsync 없이도 돌아가야 한다
+            shutil.rmtree(C.build, ignore_errors=True)
+            shutil.copytree(C.src, C.build, ignore=shutil.ignore_patterns("diff", "*.synctex.gz"))
+    except (subprocess.TimeoutExpired, OSError) as e:
+        res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        return res
 
-    r = subprocess.run(["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", C.main.name],
-                       cwd=C.build, capture_output=True, text=True, timeout=C.timeout)
-    (C.state / "build.log").write_text(r.stdout + r.stderr, encoding="utf-8")
-    log.append(r.stdout[-1500:])
+    _rc, out, timed_out = run_logged(
+        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", C.main.name], C.build, C.timeout)
+    try:
+        atomic_write(C.state / "build.log", out)
+    except OSError:
+        pass
+    tail = "\n".join(out.splitlines()[-40:])[-4000:]
+    res["log"] = tail
 
-    if not C.pdf.exists():
-        return False, "PDF 가 나오지 않았습니다.\n" + "\n".join(log)
-    if not C.pdf.with_suffix(".synctex.gz").exists():
-        return False, "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요."
+    pdf = C.build / (C.main.stem + ".pdf")
+    syn = C.build / (C.main.stem + ".synctex.gz")
+    texlog = C.build / (C.main.stem + ".log")
+    try:
+        logtxt = texlog.read_text(encoding="utf-8", errors="replace") \
+            if texlog.exists() and texlog.stat().st_mtime >= t0 - 1 else out
+    except OSError:
+        logtxt = out
+    res["errors"] = latex_errors(logtxt)
 
-    for old in C.pages.glob("page-*.png"):
-        old.unlink()
-    subprocess.run(["pdftoppm", "-r", str(C.dpi), "-png", str(C.pdf), str(C.pages / "page")],
-                   capture_output=True, timeout=600)
+    fresh = (not timed_out) and pdf.exists() and pdf.stat().st_mtime >= t0 - 1
+    if not fresh:
+        res["log"] = ("시간 초과로 멈췄습니다.\n" if timed_out else "새 PDF 가 나오지 않았습니다.\n") + tail
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        return res
+    if not syn.exists() or syn.stat().st_mtime < t0 - 1:
+        res["log"] = "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.\n" + tail
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        return res
 
-    (C.state / "built_at.txt").write_text(datetime.now().astimezone().isoformat(timespec="seconds"))
+    # 새 디렉토리에 그린다. 끝나기 전까지 화면은 옛 디렉토리를 계속 본다.
+    bid = time.strftime("%Y%m%d%H%M%S")
+    name = "pages-" + bid
+    k = 1
+    while (C.state / name).exists():
+        name = "pages-%s-%d" % (bid, k)
+        k += 1
+    newdir = C.state / name
+    newdir.mkdir(parents=True)
+    try:
+        r = subprocess.run(["pdftoppm", "-r", str(C.dpi), "-png", str(pdf), str(newdir / "page")],
+                           capture_output=True, timeout=600)
+        ok_render = r.returncode == 0 and any(newdir.glob("page-*.png"))
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        ok_render = False
+    if not ok_render:
+        shutil.rmtree(newdir, ignore_errors=True)
+        res["log"] = "쪽 이미지를 그리지 못했습니다(pdftoppm).\n" + tail
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        return res
+    shutil.copy2(pdf, newdir / pdf.name)
+    shutil.copy2(syn, newdir / syn.name)
+
+    prev = cur_pages().name
+    atomic_write(C.pages_ptr, name)                      # 원자적 교체 한 번
+    for d in C.state.iterdir():                          # 현재와 직전 하나만 남긴다
+        if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (name, prev):
+            shutil.rmtree(d, ignore_errors=True)
+
+    atomic_write(C.state / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     head = subprocess.run(["git", "-C", str(C.src), "rev-parse", "--short", "HEAD"],
                           capture_output=True, text=True)
-    (C.state / "head.txt").write_text(head.stdout.strip() or "-")
-    return True, "ok"
+    atomic_write(C.state / "head.txt", head.stdout.strip() or "-")
+
+    res["state"] = "ok_errors" if res["errors"] else "ok"
+    res["ok"] = True
+    res["pages"] = len(list(newdir.glob("page-*.png")))
+    res["elapsed_s"] = round(time.time() - t0, 1)
+    return res
 
 
 # ---------------------------------------------------------------- 메타
@@ -131,14 +331,29 @@ def png_size(path: Path) -> tuple:
         return struct.unpack(">II", fh.read(24)[16:24])
 
 
-def meta() -> dict:
+def page_list() -> list:
     pages = []
-    for p in sorted(C.pages.glob("page-*.png")):
-        w, h = png_size(p)
+    for p in sorted(cur_pages().glob("page-*.png")):
+        try:
+            w, h = png_size(p)
+        except (OSError, struct.error):
+            continue
         pages.append({"name": p.name, "pt_w": w * 72.0 / C.dpi, "pt_h": h * 72.0 / C.dpi})
-    read = lambda f: (C.state / f).read_text().strip() if (C.state / f).exists() else "?"
-    return {"pages": pages, "built_at": read("built_at.txt"), "head": read("head.txt"),
-            "main": C.main.name, "n_open": len(live_pins())}
+    return pages
+
+
+def meta(actor: dict) -> dict:
+    def read(f):
+        try:
+            return (C.state / f).read_text().strip()
+        except OSError:
+            return "?"
+    rows = snapshot_pins()
+    return {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
+            "main": C.main.name, "n_open": sum(1 for r in rows if not r.get("done")),
+            "n_done": sum(1 for r in rows if r.get("done")),
+            "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
+            "building": BUILD_LOCK.locked()}
 
 
 # ---------------------------------------------------------------- 원문 접근
@@ -147,27 +362,65 @@ def norm(line: str) -> str:
     return " ".join(line.split())
 
 
+def is_comment(line: str) -> bool:
+    return line.lstrip().startswith("%")
+
+
+def strip_comment(line: str) -> str:
+    return re.sub(r"(?<!\\)%.*", "", line)
+
+
 def tex_lines(path: Path) -> list:
     try:
         return path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
 
 
 def to_source(path: str) -> Path:
     """빌드 사본 경로를 원본 체크아웃 경로로 되돌린다."""
     p = Path(path)
+    for base in (C.build, C.build.resolve()):
+        try:
+            return C.src / p.relative_to(base)
+        except ValueError:
+            pass
     try:
-        return C.src / p.relative_to(C.build)
-    except ValueError:
-        return p
+        return C.src / p.resolve().relative_to(C.build.resolve())
+    except (ValueError, OSError):
+        pass
+    # 상태 디렉토리를 옮겼거나 복제하면 synctex 가 옛 build 경로를 가리킨다. 경로 꼬리가
+    # 원고 트리 안의 실제 파일과 맞으면 그것으로 되돌린다(가장 긴 꼬리 우선, 트리 밖은 읽지 않는다).
+    parts = p.parts
+    for k in range(1, len(parts)):
+        cand = C.src.joinpath(*parts[k:])
+        if cand.is_file():
+            return cand
+    return p
+
+
+def safe_src(p) -> Path:
+    """원고 트리 안의 실제 파일만 통과시킨다. 밖이면 400 — 첫 줄이 pins.md 에 새어 나간다."""
+    if not isinstance(p, str) or not p or "\x00" in p or len(p) > 4096:
+        raise HTTPError(400, "file 이 올바르지 않습니다.")
+    q = Path(p)
+    if not q.is_absolute():
+        q = C.src / q
+    try:
+        rel = q.resolve().relative_to(C.src.resolve())
+    except (ValueError, OSError, RuntimeError):
+        raise HTTPError(400, "원고 디렉토리 밖의 파일입니다: %s" % p)
+    out = C.src / rel
+    if not out.is_file():
+        raise HTTPError(400, "원고 안에 그런 파일이 없습니다: %s" % p)
+    return out
 
 
 # ---------------------------------------------------------------- 역변환 1: SyncTeX
 
-def synctex_edit(page: int, x: float, y: float):
+def synctex_edit(pdf: Path, page: int, x: float, y: float):
     try:
-        out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, C.pdf)],
+        out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
                              capture_output=True, text=True, timeout=10).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
@@ -201,14 +454,14 @@ def densest(values: list, gap: int = 30) -> list:
     return max(groups, key=len)
 
 
-def by_synctex(page: int, x0: float, y0: float, x1: float, y1: float):
+def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float):
     w, h = x1 - x0, y1 - y0
     nx = max(2, min(5, int(w / 40) + 2))
     ny = max(2, min(6, int(h / 14) + 2))
     hits = []
     for i in range(nx):
         for j in range(ny):
-            r = synctex_edit(page, x0 + w * (i + 0.5) / nx, y0 + h * (j + 0.5) / ny)
+            r = synctex_edit(pdf, page, x0 + w * (i + 0.5) / nx, y0 + h * (j + 0.5) / ny)
             if r:
                 hits.append(r)
     if not hits:
@@ -220,36 +473,47 @@ def by_synctex(page: int, x0: float, y0: float, x1: float, y1: float):
 
 # ---------------------------------------------------------------- 역변환 2: 렌더 텍스트
 
-def region_text(page: int, x0: float, y0: float, x1: float, y1: float) -> str:
+def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> str:
     """선택 사각형 안에 실제로 찍힌 글자를 뽑는다(-r 72 이므로 1px = 1pt)."""
     try:
         return subprocess.run(
             ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
              "-x", str(int(x0)), "-y", str(int(y0)),
-             "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(C.pdf), "-"],
+             "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(pdf), "-"],
             capture_output=True, text=True, timeout=15).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
 
 
 _DF_CACHE: dict = {}
+_DF_LOCK = threading.Lock()
 
 
-def token_weights(text: str, lines: list) -> list:
+def file_key(path: Path) -> tuple:
+    try:
+        st = path.stat()
+        return (str(path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(path), 0, 0)
+
+
+def token_weights(text: str, lines: list, key: tuple) -> list:
     """영역 텍스트의 어절에 희귀도 가중을 준다.
 
     가중이 없으면 '타겟'·'데이터'·'학습' 같은 흔한 말이 점수를 지배해, 실제로는
     Nomenclature 를 고른 선택이 본문 문단과도 높게 겹친다고 나온다(실측). 드문
-    어절일수록 위치를 특정하는 힘이 크다."""
-    key = (id(lines), len(lines))
-    df = _DF_CACHE.get(key)
+    어절일수록 위치를 특정하는 힘이 크다. 캐시 키는 (경로, mtime_ns, 크기)다 —
+    id(lines) 는 목록이 버려지면 재사용되어 다른 파일의 빈도를 물 수 있다."""
+    with _DF_LOCK:
+        df = _DF_CACHE.get(key)
     if df is None:
         df = {}
         for ln in lines:
             for t in set(TOKEN_RE.findall(ln)):
                 df[t] = df.get(t, 0) + 1
-        _DF_CACHE.clear()
-        _DF_CACHE[key] = df
+        with _DF_LOCK:
+            _DF_CACHE.clear()
+            _DF_CACHE[key] = df
     n = max(1, len(lines))
     out = []
     for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
@@ -288,10 +552,10 @@ def by_text(tw: list, lines: list, near=None):
     return lo + 1, hi + 1, score_range(tw, lines, lo + 1, hi + 1)
 
 
-# ---------------------------------------------------------------- 블록 확장
+# ---------------------------------------------------------------- 블록 확장과 범위 사다리
 
 def expand_block(lines: list, lo: int, hi: int):
-    """선택 줄을 감싸는 환경 또는 문단 경계까지 넓힌다.
+    """선택 줄을 감싸는 환경(--float-envs) 또는 문단 경계까지 넓힌다. 기본 단계를 정하는 데 쓴다.
 
     환경은 반드시 같은 이름의 \\end 로 닫는다 — 이름을 안 맞추면 선택이 인접한 다른
     float 로 새어 나간다(실측: 표 하나를 골랐는데 109줄이 잡혔다)."""
@@ -299,7 +563,7 @@ def expand_block(lines: list, lo: int, hi: int):
     if not n:
         return lo, hi, "none"
     lo, hi = max(1, min(lo, n)), max(lo, min(hi, n))
-    alt = "|".join(C.envs)
+    alt = "|".join(re.escape(e) for e in C.envs)
     b_re = re.compile(r"\\begin\{(" + alt + r")(\*?)\}")
     e_re = re.compile(r"\\end\{(" + alt + r")(\*?)\}")
 
@@ -323,12 +587,47 @@ def expand_block(lines: list, lo: int, hi: int):
                 return i + 1, j + 1, "float" if m.group(1) in FLOAT_KINDS else "block"
         break
 
+    a, b = para_bounds(lines, lo, hi)
+    return a, b, "paragraph"
+
+
+def para_bounds(lines: list, lo: int, hi: int) -> tuple:
+    n = len(lines)
     a, b = lo, hi
     while a > 1 and lines[a - 2].strip() and not lines[a - 2].lstrip().startswith("\\section"):
         a -= 1
     while b < n and lines[b].strip():
         b += 1
-    return a, b, "paragraph"
+    return a, b
+
+
+def trim_comments(lines: list, a: int, b: int) -> tuple:
+    """앞뒤의 순수 주석 줄(% 로 시작)을 잘라낸다. 전부 주석이면 자르지 않는다.
+
+    한 줄이 한 문단인 원고에서 문단 뒤에 붙은 TODO 주석이 핀 범위와 앵커 꼬리가 되던 것을 막는다."""
+    x, y = a, b
+    while x <= y and is_comment(lines[x - 1]):
+        x += 1
+    while y >= x and is_comment(lines[y - 1]):
+        y -= 1
+    return (a, b) if x > y else (x, y)
+
+
+def env_spans(lines: list) -> list:
+    """(시작 줄, 끝 줄, 이름) — 이름과 깊이를 맞춰 짝지은 모든 환경. 주석 안의 \\begin 은 무시한다."""
+    stack, spans = [], []
+    for i, ln in enumerate(lines):
+        for m in ENV_TOK_RE.finditer(strip_comment(ln)):
+            name = m.group(2).strip()
+            if m.group(1) == "begin":
+                stack.append((name, i + 1))
+                continue
+            for k in range(len(stack) - 1, -1, -1):
+                if stack[k][0] == name:
+                    spans.append((stack[k][1], i + 1, name))
+                    del stack[k:]
+                    break
+    return spans
 
 
 def snippet(lines: list, lo: int, hi: int, cap: int = 80) -> str:
@@ -340,14 +639,78 @@ def snippet(lines: list, lo: int, hi: int, cap: int = 80) -> str:
     return out + ("\n      ... (%d줄 더)" % extra if extra > 0 else "")
 
 
+def find_level(levels: list, key: str):
+    for lv in levels:
+        if lv["level"] == key or key in lv.get("merged", ()):
+            return lv
+    return None
+
+
+def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
+    """범위 사다리: 드래그한 줄 / 문단(주석 꼬리 제외) / 감싸는 환경 안쪽→바깥 최대 3단.
+
+    클라이언트가 서버 왕복 없이 단계를 바꾸도록 스니펫까지 한 번에 준다. section 단계는
+    두지 않는다 — 수백 줄 범위가 쉽게 생겨 '줄 범위만 넘긴다'는 원칙에 반한다."""
+    n = len(lines)
+    raw_lo = max(1, min(raw_lo, n))
+    raw_hi = max(raw_lo, min(raw_hi, n))
+    levels: list = []
+
+    def add(level, lo, hi, label, env=None):
+        item = {"level": level, "lo": lo, "hi": hi, "label": label, "n": hi - lo + 1,
+                "snippet": snippet(lines, lo, hi)}
+        if env:
+            item["env"] = env
+        for i, old in enumerate(levels):              # 범위가 같은 단계는 합친다(뒤쪽 이름으로)
+            if (old["lo"], old["hi"]) == (lo, hi):
+                item["merged"] = old.get("merged", []) + [old["level"]]
+                levels[i] = item
+                return
+        levels.append(item)
+
+    add("raw", raw_lo, raw_hi, "드래그한 줄")
+    pa, pb = para_bounds(lines, raw_lo, raw_hi)
+    pa, pb = trim_comments(lines, pa, pb)
+    add("para", pa, pb, "문단")
+    encl = sorted((s for s in env_spans(lines) if s[0] <= raw_lo <= s[1] and s[2] != "document"),
+                  key=lambda s: (s[1] - s[0], -s[0]))
+    # 바깥 환경이 안쪽 환경을 앞뒤 한 줄로만 감싸면(minipage 안의 tabular 하나) 같은 블록이다 —
+    # 안쪽을 따로 세우면 사다리 한 칸이 거의 같은 범위로 낭비된다. 바깥 쪽 이름을 남긴다.
+    encl = [s for i, s in enumerate(encl)
+            if not any(o[0] == s[0] - 1 and o[1] == s[1] + 1 for o in encl[i + 1:])]
+    for k, (a, b, name) in enumerate(encl[:3]):
+        key = "env" if k == 0 else "env%d" % (k + 1)
+        suffix = "" if k == 0 else (" (바깥)" if k == 1 else " (바깥 2)")
+        add(key, a, b, "환경 %s%s" % (name, suffix), env=name)
+
+    ea, eb, kind = expand_block(lines, raw_lo, raw_hi)
+    default = None
+    if kind in ("float", "block"):
+        for lv in levels:
+            if lv["level"].startswith("env") and (lv["lo"], lv["hi"]) == (ea, eb):
+                default = lv
+                break
+        if default is None:
+            default = next((lv for lv in levels if lv["level"].startswith("env")), None)
+    if default is None:
+        default = find_level(levels, "para")
+        kind = "paragraph"
+    if not default["level"].startswith("env") and kind != "paragraph":
+        kind = "paragraph"
+    return {"levels": levels, "default_level": default["level"], "lo": default["lo"],
+            "hi": default["hi"], "kind": kind}
+
+
 # ---------------------------------------------------------------- 앵커와 재동기화
 
 def anchor_of(lines: list, lo: int, hi: int) -> dict:
-    """핀이 가리키는 블록의 머리·꼬리 텍스트를 떠 둔다.
+    """핀이 가리키는 블록의 머리·꼬리 텍스트를 떠 둔다(순수 주석 줄은 건너뛴다).
 
     줄 번호만 저장하면 원고를 한 번 고치는 순간 모든 핀이 어긋난다. 이 도구를 쓰는
-    이유가 '에이전트가 원고를 고친다'인데, 고치면 핀이 죽는 구조는 쓸 수 없다."""
-    body = [norm(t) for t in lines[lo - 1:hi] if t.strip()]
+    이유가 '에이전트가 원고를 고친다'인데, 고치면 핀이 죽는 구조는 쓸 수 없다.
+    주석을 건너뛰는 이유: TODO 주석은 곧 지워질 줄이라 앵커로 삼으면 핀이 먼저 죽는다."""
+    raw = [t for t in lines[lo - 1:hi] if t.strip()]
+    body = [norm(t) for t in raw if not is_comment(t)] or [norm(t) for t in raw]
     return {"head": body[0], "tail": body[-1]} if body else {}
 
 
@@ -364,26 +727,30 @@ def find_line(nlines: list, needle: str, near: int):
 
 
 def sync_all(rows: list) -> bool:
-    """원고가 핀보다 새로우면 앵커로 줄 번호를 다시 맞춘다."""
+    """원고가 핀보다 새로우면 앵커로 줄 번호를 다시 맞춘다. 줄이나 stale 이 바뀐 레코드는 rev+1."""
     changed = False
     cache: dict = {}
     for r in rows:
         if r.get("done"):
             continue
-        f = Path(r["file"])
-        if not f.exists():
+        f = Path(r.get("file", ""))
+        try:
+            if not f.is_file():
+                continue
+        except OSError:
             continue
         if f not in cache:
             ls = tex_lines(f)
             cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
         lines, nlines, mtime = cache[f]
-        if not r.get("anchor"):                      # 앵커 없이 저장된 옛 핀을 채운다
+        if "anchor" not in r:                        # 앵커 없이 저장된 옛 핀을 한 번만 채운다
             r["anchor"] = anchor_of(lines, r["lo"], r["hi"])
             r["synced_at"] = mtime
             changed = True
             continue
-        if r.get("synced_at", 0) >= mtime:
+        if not r["anchor"] or r.get("synced_at", 0) >= mtime:   # 빈 줄만 고른 핀은 따라갈 앵커가 없다
             continue
+        before = (r["lo"], r["hi"], bool(r.get("stale")))
         anc = r["anchor"]
         lo = find_line(nlines, anc.get("head", ""), r["lo"])
         if lo is None:
@@ -395,61 +762,347 @@ def sync_all(rows: list) -> bool:
             r["sync"] = "ok" if (lo, hi) == (r["lo"], r["hi"]) else "moved %+d" % (lo - r["lo"])
             r["lo"], r["hi"] = lo, hi
             r.pop("stale", None)
+        if (r["lo"], r["hi"], bool(r.get("stale"))) != before:
+            r["rev"] = int(r.get("rev") or 0) + 1
         r["synced_at"] = mtime
         changed = True
     return changed
 
 
-# ---------------------------------------------------------------- pins
+# ---------------------------------------------------------------- 핀 저장소
 
-def read_pins() -> list:
-    if not C.pins_jsonl.exists():
-        return []
-    return [json.loads(t) for t in C.pins_jsonl.read_text(encoding="utf-8").splitlines() if t.strip()]
+def read_jsonl(path: Path) -> tuple:
+    """(레코드, 깨진 줄 번호). 깨진 줄은 건너뛰고 경고한다 — GET 전체가 500 이 되지 않게."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return [], []
+    rows, bad = [], []
+    for i, t in enumerate(text.splitlines(), 1):
+        if not t.strip():
+            continue
+        try:
+            r = json.loads(t)
+        except ValueError:
+            r = None
+        if not isinstance(r, dict) or not isinstance(r.get("id"), int):
+            bad.append(i)
+            continue
+        rows.append(r)
+    if bad:
+        print("경고: %s 의 %d줄을 읽지 못했습니다(줄 %s)." % (path.name, len(bad), bad[:10]),
+              file=sys.stderr)
+    return rows, bad
 
 
-def write_pins(rows: list) -> None:
-    C.pins_jsonl.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
-                            encoding="utf-8")
+def read_pins() -> tuple:
+    return read_jsonl(C.pins_jsonl)
+
+
+def dump_jsonl(rows: list) -> str:
+    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+
+
+def write_pins(rows: list, bad=None) -> None:
+    if bad and C.pins_jsonl.exists():                # 조용한 데이터 손실 방지: 원본 바이트를 남긴다
+        shutil.copy2(C.pins_jsonl, C.state / ("pins.jsonl.corrupt-%s.bak" % time.strftime("%Y%m%d-%H%M%S")))
+    atomic_write(C.pins_jsonl, dump_jsonl(rows))
     render_pins_md(rows)
 
 
-def live_pins() -> list:
-    rows = read_pins()
-    if sync_all(rows):
-        write_pins(rows)
-    return [r for r in rows if not r.get("done")]
+def transact(fn):
+    """쓰기 순서 불변식: with PIN_LOCK → read → sync → 요청 변경 → atomic write → pins.md.
+
+    변경을 sync 뒤에 적용하므로 사용자가 준 lo/hi 가 옛 앵커로 되돌아가지 않는다.
+    fn(rows) 는 (결과, 바뀌었는지) 를 돌려준다. fn 은 검증을 끝낸 뒤에만 rows 를 고친다."""
+    with PIN_LOCK:
+        rows, bad = read_pins()
+        synced = sync_all(rows)
+        try:
+            result, mutated = fn(rows)
+        except HTTPError:
+            if synced:
+                write_pins(rows, bad)
+            raise
+        if synced or mutated:
+            write_pins(rows, bad)
+        return rows, result
 
 
-def add_pin(rec: dict) -> int:
-    rows = read_pins()
-    rec["at"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    rec["id"] = max((r["id"] for r in rows), default=0) + 1
+def snapshot_pins() -> list:
+    rows, _ = transact(lambda rows: (None, False))
+    return rows
+
+
+def public(r: dict) -> dict:
+    out = dict(r)
+    out["rev"] = int(out.get("rev") or 0)
+    return out
+
+
+def max_id_in(path: Path) -> int:
+    rows, _ = read_jsonl(path)
+    return max((r["id"] for r in rows), default=0)
+
+
+def init_seq() -> None:
+    """pins.seq 가 없으면 한 번만 현재·보관·삭제 기록의 최대 id 로 채운다(1회 이관)."""
+    with PIN_LOCK:
+        if C.seq.exists():
+            return
+        m = max_id_in(C.pins_jsonl)
+        for p in list(C.state.glob("pins_*.jsonl.bak")) + [C.dropped]:
+            m = max(m, max_id_in(p))
+        atomic_write(C.seq, str(m))
+
+
+def next_id(rows: list) -> int:
+    """id 는 다시 쓰지 않는다 — 채팅 속 '#2' 가 다른 핀을 가리키게 되면 안 된다."""
+    try:
+        last = int(C.seq.read_text().strip() or 0)
+    except (OSError, ValueError):
+        last = 0
+    nid = max(last, max((r["id"] for r in rows), default=0)) + 1
+    atomic_write(C.seq, str(nid))
+    return nid
+
+
+def find_pin(rows: list, pid: int):
+    return next((r for r in rows if r.get("id") == pid), None)
+
+
+def who(actor: dict) -> dict:
+    return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
+
+
+# ---------------------------------------------------------------- 입력 검증
+
+def _int(v, what: str) -> int:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
+        raise HTTPError(400, "%s 는 정수여야 합니다." % what)
+    return int(v)
+
+
+def _num(v, what: str) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        raise HTTPError(400, "%s 는 유한한 숫자여야 합니다." % what)
+    return float(v)
+
+
+def clean_note(v) -> str:
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise HTTPError(400, "note 는 문자열이어야 합니다.")
+    if len(v) > NOTE_MAX:
+        raise HTTPError(400, "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX)
+    return v
+
+
+def clean_loc(d: dict) -> dict:
+    """위치 필드를 검증해 저장할 모양으로 만든다. file 은 원고 트리 안, 1 ≤ lo ≤ hi ≤ 줄 수."""
+    out: dict = {}
+    f = safe_src(d.get("file"))
+    n = len(tex_lines(f))
+    lo, hi = _int(d.get("lo"), "lo"), _int(d.get("hi"), "hi")
+    if not 1 <= lo <= hi <= max(n, 1):
+        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi))
+    out.update(file=str(f), name=f.name, lo=lo, hi=hi)
+    page = _int(d.get("page", 1), "page")
+    if page < 1:
+        raise HTTPError(400, "page 는 1 이상이어야 합니다.")
+    out["page"] = page
+    for k in ("raw_lo", "raw_hi"):
+        if d.get(k) is not None:
+            out[k] = _int(d[k], k)
+    if d.get("kind") is not None:
+        if not isinstance(d["kind"], str) or len(d["kind"]) > 80:
+            raise HTTPError(400, "kind 가 올바르지 않습니다.")
+        out["kind"] = d["kind"]
+    if d.get("via") is not None:
+        if d["via"] not in ("synctex", "text"):
+            raise HTTPError(400, "via 는 synctex|text 입니다.")
+        out["via"] = d["via"]
+    if d.get("score") is not None:
+        out["score"] = _num(d["score"], "score")
+    if d.get("frac") is not None:
+        fr = d["frac"]
+        if not isinstance(fr, list) or len(fr) != 4:
+            raise HTTPError(400, "frac 은 숫자 4개 목록입니다.")
+        out["frac"] = [_num(x, "frac") for x in fr]
+    if d.get("scope") is not None:
+        if d["scope"] not in SCOPES:
+            raise HTTPError(400, "scope 는 %s 중 하나입니다." % "|".join(SCOPES))
+        out["scope"] = d["scope"]
+    if d.get("quote") is not None:
+        if not isinstance(d["quote"], str):
+            raise HTTPError(400, "quote 는 문자열입니다.")
+        out["quote"] = d["quote"][:60]
+    return out
+
+
+# ---------------------------------------------------------------- 핀 조작
+
+def add_pin(d: dict, actor: dict) -> int:
+    body = {k: d[k] for k in ADD_FIELDS if k in d}
+    rec = clean_loc(body)
+    note = clean_note(body.get("note"))
+    if "kind" not in rec:
+        rec["kind"] = "lines"
     f = Path(rec["file"])
-    rec["anchor"] = anchor_of(tex_lines(f), rec["lo"], rec["hi"])
-    rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
-    rows.append(rec)
-    write_pins(rows)
-    return rec["id"]
+    lines = tex_lines(f)
+
+    def fn(rows):
+        rec["note"] = note
+        rec["at"] = now_str()
+        rec["id"] = next_id(rows)
+        rec["author"] = dict(actor)
+        rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
+        rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
+        rec["rev"] = 0
+        rows.append(rec)
+        return rec["id"], True
+    return transact(fn)[1]
 
 
-def set_pin(pin_id: int, **fields) -> bool:
-    rows = read_pins()
-    hit = [r for r in rows if r["id"] == pin_id]
-    for r in hit:
-        r.update(fields)
-    if hit:
-        write_pins(rows)
-    return bool(hit)
+def edit_pin(pid: int, d: dict, actor: dict) -> dict:
+    """메모·범위·위치를 제자리에서 고친다. id·at·done 은 바꾸지 않는다.
+
+    base_rev 가 지금 rev 와 다르면 409 — 에이전트가 닫았거나 자동 줄 맞춤이 옮긴 핀을
+    옛 lo/hi 로 조용히 덮어쓰지 않기 위해서다."""
+    has_note = "note" in d
+    note = clean_note(d.get("note")) if has_note else None
+    loc = d.get("loc")
+    if loc is not None and not isinstance(loc, dict):
+        raise HTTPError(400, "loc 는 객체여야 합니다.")
+    lo = _int(d["lo"], "lo") if d.get("lo") is not None else None
+    hi = _int(d["hi"], "hi") if d.get("hi") is not None else None
+    scope = d.get("scope")
+    if scope is not None and scope not in SCOPES:
+        raise HTTPError(400, "scope 는 %s 중 하나입니다." % "|".join(SCOPES))
+    kind = d.get("kind")
+    if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
+        raise HTTPError(400, "kind 가 올바르지 않습니다.")
+    if "base_rev" not in d:
+        raise HTTPError(400, "base_rev 가 필요합니다(카드를 열 때 받은 rev).")
+    base = _int(d["base_rev"], "base_rev")
+    moves = loc is not None or lo is not None or hi is not None
+    if not (has_note or moves or scope is not None or kind is not None):
+        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc).")
+    newloc = clean_loc(loc) if loc is not None else None
+
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+        if r.get("done") and (moves or scope is not None or kind is not None):
+            raise HTTPError(409, "done", pin=public(r), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
+        if int(r.get("rev") or 0) != base:
+            raise HTTPError(409, "conflict", pin=public(r))
+        range_changed = False
+        if newloc is not None:
+            for k in LOC_FIELDS:
+                r.pop(k, None)
+            r.update(newloc)
+            range_changed = True
+        elif lo is not None or hi is not None:
+            a = lo if lo is not None else r["lo"]
+            b = hi if hi is not None else r["hi"]
+            f = Path(r["file"])
+            n = len(tex_lines(f))
+            if not 1 <= a <= b <= max(n, 1):
+                raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, a, b))
+            range_changed = (a, b) != (r["lo"], r["hi"]) or bool(r.get("stale"))
+            r["lo"], r["hi"] = a, b
+        if newloc is None:
+            if scope is not None:
+                r["scope"] = scope
+            if kind is not None:
+                r["kind"] = kind
+        if range_changed:
+            f = Path(r["file"])
+            r["anchor"] = anchor_of(tex_lines(f), r["lo"], r["hi"])
+            r["synced_at"] = f.stat().st_mtime if f.exists() else 0
+            r.pop("stale", None)
+            r.pop("sync", None)
+        if has_note:
+            r["note"] = note
+        r["edited_at"] = now_str()
+        r["edited_by"] = who(actor)
+        r["rev"] = int(r.get("rev") or 0) + 1
+        return public(r), True
+    return transact(fn)[1]
 
 
-def drop_pin(pin_id: int) -> bool:
-    rows = read_pins()
-    kept = [r for r in rows if r["id"] != pin_id]
-    if len(kept) == len(rows):
-        return False
-    write_pins(kept)
-    return True
+def set_done(pid: int, done: bool, actor: dict):
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return None, False
+        r["done"] = done
+        if done:
+            r["done_at"] = now_str()
+            r["closed_by"] = who(actor)
+        else:
+            r["reopened_at"] = now_str()
+            r["reopened_by"] = who(actor)
+        r["rev"] = int(r.get("rev") or 0) + 1
+        return public(r), True
+    return transact(fn)[1]
+
+
+def drop_pin(pid: int, actor: dict) -> bool:
+    """핀을 pins.jsonl 에서 빼 pins.dropped.jsonl 로 옮긴다. restore 로 같은 id 를 되살린다."""
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return False, False
+        rows.remove(r)
+        gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
+        old, _ = read_jsonl(C.dropped)
+        atomic_write(C.dropped, dump_jsonl(old + [gone]))
+        return True, True
+    return transact(fn)[1]
+
+
+def restore_pin(pid: int, actor: dict) -> dict:
+    def fn(rows):
+        old, _ = read_jsonl(C.dropped)
+        hits = [r for r in old if r.get("id") == pid]
+        if not hits:
+            raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
+        if find_pin(rows, pid) is not None:
+            raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
+        rec = dict(hits[-1])
+        rec.pop("dropped_at", None)
+        rec.pop("dropped_by", None)
+        rec["restored_at"] = now_str()
+        rec["restored_by"] = who(actor)
+        rec["rev"] = int(rec.get("rev") or 0) + 1
+        sync_all([rec])
+        rows.append(rec)
+        rows.sort(key=lambda r: r["id"])
+        atomic_write(C.dropped, dump_jsonl([r for r in old if r.get("id") != pid]))
+        return public(rec), True
+    return transact(fn)[1]
+
+
+def clear_pins() -> None:
+    """전체를 .bak 으로 보관하고 비운다. pins.seq 는 건드리지 않으므로 id 는 이어진다."""
+    with PIN_LOCK:
+        if C.pins_jsonl.exists():
+            C.pins_jsonl.rename(C.state / ("pins_%s.jsonl.bak" % time.strftime("%y%m%d_%H%M%S")))
+        render_pins_md([])
+
+
+def short_author(r: dict) -> str:
+    a = r.get("author")
+    if not isinstance(a, dict):
+        return "—"
+    if a.get("login") == "local":
+        return "로컬"
+    name = (a.get("name") or a.get("login") or "?").replace("|", "/")
+    return name if len(name) <= 16 else name[:15] + "…"
 
 
 def render_pins_md(rows: list) -> None:
@@ -461,45 +1114,64 @@ def render_pins_md(rows: list) -> None:
            "갱신: %s  ·  열린 핀 %d건" % (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn)),
            "",
            "처리한 핀은 닫는다 — `curl -s -X POST http://127.0.0.1:%d/api/pins/N/close`" % C.port,
-           "", "| # | 쪽 | 위치 | 종류 | 메모 |", "|---|---|---|---|---|"]
+           "", "| # | 쪽 | 위치 | 종류 | 메모 | 작성 |", "|---|---|---|---|---|---|"]
     for r in openn:
         flag = " ⚠원문에서 사라짐" if r.get("stale") else ""
         loc = "`%s L%d-L%d`%s" % (Path(r["file"]).name, r["lo"], r["hi"], flag)
         note = (r.get("note") or "").replace("|", "\\|").replace("\n", " ")
-        out.append("| %d | %d | %s | %s | %s |" % (r["id"], r["page"], loc, r.get("kind", ""), note))
+        out.append("| %d | %d | %s | %s | %s | %s |" % (r["id"], r.get("page", 0), loc,
+                                                     r.get("kind", ""), note, short_author(r)))
     if not openn:
-        out.append("| — | — | 열린 핀 없음 | | |")
+        out.append("| — | — | 열린 핀 없음 | | | |")
     done = [r for r in rows if r.get("done")]
     if done:
         out += ["", "<details><summary>닫힌 핀 %d건</summary>" % len(done), ""]
-        out += ["- #%d p.%d `L%d-L%d` %s" % (r["id"], r["page"], r["lo"], r["hi"],
+        out += ["- #%d p.%d `L%d-L%d` %s" % (r["id"], r.get("page", 0), r["lo"], r["hi"],
                                              (r.get("note") or "").replace("\n", " ")[:80]) for r in done]
         out += ["", "</details>"]
-    C.pins_md.write_text("\n".join(out) + "\n", encoding="utf-8")
+    atomic_write(C.pins_md, "\n".join(out) + "\n")
 
 
 # ---------------------------------------------------------------- 선택 해석
 
 def pick(d: dict) -> dict:
-    """드래그 영역 → 원문 줄 범위.
+    """드래그 영역 → 원문 줄 범위 + 범위 사다리.
 
     SyncTeX 후보와 텍스트 후보를 같은 척도로 겨루게 한다. 어느 한쪽을 조건부
     폴백으로 두면, SyncTeX 가 조용히 틀렸을 때(minipage·tabular 안) 그 오답을
     걸러낼 방법이 없다."""
-    page = int(d["page"])
-    x0, y0, x1, y1 = d["x0"], d["y0"], d["x1"], d["y1"]
-    rtext = region_text(page, x0, y0, x1, y1)
-    sy = by_synctex(page, x0, y0, x1, y1)
+    pages = page_list()
+    page = _int(d.get("page"), "page")
+    if not 1 <= page <= len(pages):
+        raise HTTPError(400, "page 는 1..%d 이어야 합니다." % len(pages))
+    pw, ph = pages[page - 1]["pt_w"], pages[page - 1]["pt_h"]
+    xs = sorted(min(max(_num(d.get(k), k), 0.0), pw) for k in ("x0", "x1"))
+    ys = sorted(min(max(_num(d.get(k), k), 0.0), ph) for k in ("y0", "y1"))
+    x0, x1 = xs
+    y0, y1 = ys
+    frac = d.get("frac")
+    if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and
+                                 all(not isinstance(v, bool) and isinstance(v, (int, float))
+                                     and math.isfinite(v) for v in frac)):
+        raise HTTPError(400, "frac 은 숫자 4개 목록입니다.")
+
+    pdf = cur_pdf()
+    rtext = region_text(pdf, page, x0, y0, x1, y1)
+    sy = by_synctex(pdf, page, x0, y0, x1, y1)
 
     src = to_source(sy[0]) if sy else C.main
     if src.suffix in (".bbl", ".bib"):
         return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
                          % src.suffix}
+    try:
+        src = safe_src(str(src))
+    except HTTPError:
+        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 다시 만들기 뒤 다시 골라 보세요." % src}
 
     lines = tex_lines(src)
     if not lines:
         return {"error": "원문 파일을 읽지 못했습니다: %s" % src}
-    tw = token_weights(rtext, lines)
+    tw = token_weights(rtext, lines, file_key(src))
 
     cands = []
     if sy:
@@ -517,204 +1189,743 @@ def pick(d: dict) -> dict:
     if tw and best < 0.3:
         warn = "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요." % (best * 100)
 
-    lo, hi, kind = expand_block(lines, raw_lo, raw_hi)
+    lad = compute_levels(lines, raw_lo, raw_hi)
+    lo, hi = lad["lo"], lad["hi"]
     if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
         # 같은 블록으로 확장되면 두 경로가 갈린 것이 아니다 — 경고하지 않는다.
         if not (lo <= cands[1][1] <= hi):
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
     return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
-            "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": kind, "via": via,
-            "score": round(best, 2), "warn": warn,
-            "snippet": snippet(lines, lo, hi), "frac": d.get("frac")}
+            "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
+            "score": round(best, 2), "warn": warn, "n_lines": len(lines),
+            "snippet": snippet(lines, lo, hi), "frac": frac,
+            "levels": lad["levels"], "default_level": lad["default_level"]}
+
+
+def snippet_api(q: dict) -> dict:
+    f = safe_src((q.get("file") or [""])[0])
+    lines = tex_lines(f)
+    try:
+        lo = int((q.get("lo") or [""])[0])
+        hi = int((q.get("hi") or [""])[0])
+    except ValueError:
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.")
+    if not 1 <= lo <= hi <= len(lines):
+        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
+    out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
+           "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
+    if (q.get("levels") or ["0"])[0] == "1":
+        lad = compute_levels(lines, lo, hi)
+        out["levels"] = lad["levels"]
+        out["default_level"] = lad["default_level"]
+    return out
+
+
+# ---------------------------------------------------------------- 신원(tailscale serve 헤더)
+
+def hdr_text(v) -> str:
+    """tailscale 은 비 ASCII 값을 RFC 2047(=?utf-8?q?…?=)로 싣는다. 날것 UTF-8 이 오면 latin-1 로 풀린 것을 되돌린다."""
+    if not v:
+        return ""
+    v = str(v).strip()
+    if "=?" in v:
+        try:
+            v = str(make_header(decode_header(v)))
+        except Exception:                                # noqa: BLE001 — 헤더 하나 때문에 요청을 떨구지 않는다
+            pass
+    else:
+        try:
+            v = v.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return "".join(ch for ch in v if ch.isprintable())[:300]
+
+
+def actor_of(headers) -> tuple:
+    """(행위자, 헤더로 왔는지). 서버는 127.0.0.1 에만 바인딩되므로 이 헤더는 tailscale serve 를 거쳐서만 온다."""
+    login = hdr_text(headers.get("Tailscale-User-Login"))
+    if not login:
+        return dict(LOCAL_ACTOR), False
+    a = {"login": login[:200], "name": (hdr_text(headers.get("Tailscale-User-Name")) or login.split("@")[0])[:100]}
+    pic = hdr_text(headers.get("Tailscale-User-Profile-Pic"))
+    if pic.startswith("https://") and len(pic) <= 1000:
+        a["pic"] = pic
+    return a, True
 
 
 # ---------------------------------------------------------------- 뷰어
 
-HTML = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset="utf-8">
+<script>
+(function(){var p=null;try{p=JSON.parse(localStorage.getItem('pinPrefs')||'null');}catch(e){}
+ if(!p||typeof p!=='object'){p={theme:'system'};}else if(!p.theme){p.theme='dark';}
+ try{localStorage.setItem('pinPrefs',JSON.stringify(p));}catch(e){}
+ var t=p.theme,eff=t;if(t==='system'){eff=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}
+ document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
+</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>원고 핀</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2a10 10 0 0 0-10 10c0 7 10 18 10 18s10-11 10-18A10 10 0 0 0 16 2z' fill='%234ec9a0'/%3E%3Ccircle cx='16' cy='12' r='4' fill='%2306231b'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#14161a;--pane:#1c1f25;--line:#2c313a;--fg:#e6e8ec;--dim:#98a0ad;--acc:#6ea8fe;--ok:#4ec9a0;--warn:#e0a458}
+:root{color-scheme:dark;--bg:#14161a;--pane:#1c1f25;--line:#2c313a;--line-strong:#6b7482;--fg:#e6e8ec;--dim:#98a0ad;
+  --acc:#6ea8fe;--on-acc:#0b1220;--ok:#4ec9a0;--on-ok:#06231b;--warn:#e0a458;--on-warn:#2a1a04;--danger:#f0787a;
+  --btn:#2a2f38;--btn-h:#343b46;--input:#12151a;--code:#0f1216;--card:#181b21;--shadow:#0008;--sel-fill:#6ea8fe22;
+  --mark-fill:#4ec9a014;--stale-fill:#e0a45814;--tip-bg:#0b0d10;--tip-fg:#e6e8ec}
+:root[data-theme=light]{color-scheme:light;--bg:#e9ebef;--pane:#ffffff;--line:#d5d9e0;--line-strong:#8a93a3;--fg:#1b1f24;
+  --dim:#5b6472;--acc:#1f6feb;--on-acc:#ffffff;--ok:#1a7f5a;--on-ok:#ffffff;--warn:#9a6700;--on-warn:#ffffff;--danger:#cf222e;
+  --btn:#eef0f3;--btn-h:#e2e5ea;--input:#ffffff;--code:#f6f8fa;--card:#f6f7f9;--shadow:#0002;--sel-fill:#1f6feb1f;
+  --mark-fill:#1a7f5a14;--stale-fill:#9a670014;--tip-bg:#1b1f24;--tip-fg:#ffffff}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,"Pretendard","Noto Sans KR",sans-serif;
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   display:flex;height:100vh;overflow:hidden}
-#left{flex:1;overflow:auto;padding:16px 16px 60vh;min-width:240px}
+#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px}
 #grip{width:6px;cursor:col-resize;background:var(--line);flex:none}
-#grip:hover,#grip.on{background:var(--acc)}
+#grip:hover,#grip.on{background:var(--line-strong)}
 #right{width:430px;min-width:280px;max-width:80vw;border-left:1px solid var(--line);background:var(--pane);
-  display:flex;flex-direction:column;flex:none}
+  display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-button{background:#2a2f38;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
-  cursor:pointer;font-size:12.5px}
-button:hover{background:#343b46}
-button.p{background:var(--acc);color:#0b1220;border-color:var(--acc);font-weight:600}
-button.x{padding:2px 7px;font-size:11px}
-input,textarea{background:#12151a;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;
+button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
+  cursor:pointer;font:inherit;font-size:12.5px;line-height:1.4}
+button:hover{background:var(--btn-h)}
+button:disabled{opacity:.65;cursor:default}
+button.p{background:var(--acc);color:var(--on-acc);border-color:var(--acc);font-weight:600}
+button.x{padding:2px 8px;font-size:11.5px}
+button.ghost{background:transparent;border-color:transparent}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+input,textarea{background:var(--input);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;
   font:inherit;width:100%}
+textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
-.pg{position:relative;margin:0 auto 18px;box-shadow:0 2px 18px #0008}
-.pg img{width:100%;display:block}
+.sp{flex:1}
+.pg{position:relative;margin:0 auto 18px;box-shadow:0 2px 18px var(--shadow);user-select:none}
+:root[data-theme=light] .pg{border:1px solid var(--line);box-shadow:0 1px 6px var(--shadow)}
+.pg img{width:100%;height:100%;display:block}
 .pg .no{position:absolute;top:4px;left:-34px;color:var(--dim);font-size:12px}
-.sel{position:absolute;border:2px solid var(--acc);background:#6ea8fe22;pointer-events:none}
-.mark{position:absolute;border:2px solid var(--ok);background:#4ec9a01a;pointer-events:none}
-.mark.st{border-color:var(--warn);background:#e0a4581a}
-.mark b{position:absolute;top:-11px;left:-11px;background:var(--ok);color:#06231b;border-radius:50%;
+.sel{position:absolute;border:2px solid var(--acc);background:var(--sel-fill);pointer-events:none}
+.sel.pending{border-style:dashed}
+.sel i{position:absolute;top:-21px;left:-2px;background:var(--acc);color:var(--on-acc);font-size:11px;font-style:normal;
+  padding:1px 6px;border-radius:4px;white-space:nowrap}
+.mark{position:absolute;border:2px solid var(--ok);background:var(--mark-fill);pointer-events:none}
+.mark.st{border-color:var(--warn);background:var(--stale-fill)}
+.mark b{position:absolute;top:-11px;left:-11px;background:var(--ok);color:var(--on-ok);border-radius:50%;
   width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px}
-.mark.st b{background:var(--warn);color:#2a1a04}
-#res{flex:1;overflow:auto;padding:12px 14px}
-pre{background:#0f1216;border:1px solid var(--line);border-radius:6px;padding:9px;overflow:auto;font-size:11.5px;
-  line-height:1.5;max-height:44vh;font-family:"JetBrains Mono",ui-monospace,monospace;tab-size:2}
+.mark.st b{background:var(--warn);color:var(--on-warn)}
+.mark.flash{animation:flash .6s ease-in-out 3}
+@keyframes flash{50%{box-shadow:0 0 0 5px var(--acc)}}
+#banner{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:6px;flex-wrap:wrap;
+  align-items:center;font-size:13px}
+#build-err{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--card);font-size:12.5px}
+#composer{flex:none;max-height:55vh;overflow:auto;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card)}
+#list{flex:1;overflow:auto;padding:10px 14px 30px;min-height:0}
+.c-head{display:flex;align-items:center;gap:8px}
+.busy{opacity:.45}
+pre{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:9px;overflow:auto;font-size:11.5px;
+  line-height:1.5;max-height:44vh;font-family:"JetBrains Mono",ui-monospace,monospace;tab-size:2;margin:6px 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
-.loc{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px}
+.loc{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px;cursor:copy}
 .dim{color:var(--dim);font-size:12px}
-.pin{border:1px solid var(--line);border-radius:7px;padding:7px 9px;margin-bottom:6px;background:#181b21}
+.row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.seg{display:flex;flex-wrap:wrap;gap:4px;margin:7px 0 4px}
+.seg button{font-size:11.5px;padding:2px 8px}
+.seg button.on{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc);font-weight:600}
+.wn{color:var(--warn)}
+.warnline{color:var(--warn);font-size:12px;margin-top:6px}
+.errline{color:var(--danger);font-size:12.5px;margin-top:6px}
+.pin{border:1px solid var(--line);border-radius:7px;padding:7px 9px;margin-bottom:6px;background:var(--card)}
 .pin.st{border-color:var(--warn)}
-.pin .n{color:var(--ok);font-weight:700;margin-right:5px}
-.pin .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.pin .sp{flex:1}
+.pin.editing{border-color:var(--acc)}
+.pin.flash{box-shadow:0 0 0 2px var(--acc)}
+.pin.done{opacity:.85}
+.pin .n{color:var(--ok);font-weight:700}
+.pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
+.pin .acts{margin-top:5px}
+.pg-link{color:var(--dim);font-size:12px;cursor:pointer;text-decoration:underline dotted}
+.au{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dim);max-width:150px}
+.au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au.old{font-style:italic}
+.av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
+.av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--acc);color:var(--on-acc);
+  font-size:11px;font-weight:700;font-style:normal}
+.edit{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
 h3{margin:0 0 7px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.hint{padding:22px 10px;color:var(--dim);font-size:13px;text-align:center;line-height:1.85}
-kbd{background:#2a2f38;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
-.tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--dim)}
+.hint{padding:18px 10px;color:var(--dim);font-size:13px;text-align:center;line-height:1.85}
+kbd{background:var(--btn);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
+.tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line-strong);color:var(--dim)}
 .tag.t{border-color:var(--warn);color:var(--warn)}
+.spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;
+  animation:rot .8s linear infinite;display:inline-block}
+@keyframes rot{to{transform:rotate(360deg)}}
+#toasts{position:fixed;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:50;max-width:min(480px,60vw)}
+.toast{display:flex;align-items:center;gap:8px;background:var(--pane);color:var(--fg);border:1px solid var(--line-strong);
+  border-left:4px solid var(--ok);border-radius:7px;padding:7px 8px 7px 10px;box-shadow:0 4px 16px var(--shadow);font-size:13px}
+.toast span{flex:1}
+.toast.warn{border-left-color:var(--warn)}
+.toast.err{border-left-color:var(--danger)}
+#tip{position:fixed;z-index:100;max-width:300px;background:var(--tip-bg);color:var(--tip-fg);font-size:12px;line-height:1.5;
+  padding:6px 9px;border-radius:6px;pointer-events:none;box-shadow:0 4px 14px var(--shadow);left:0;top:0}
+dialog{background:var(--pane);color:var(--fg);border:1px solid var(--line-strong);border-radius:10px;max-width:680px;
+  width:92vw;padding:16px 22px;max-height:88vh}
+dialog::backdrop{background:var(--shadow)}
+dialog h2{font-size:16px;margin:0 0 8px}
+dialog h4{margin:14px 0 4px;font-size:13px}
+dialog table{border-collapse:collapse;font-size:12.5px;width:100%}
+dialog td{border-top:1px solid var(--line);padding:3px 6px;vertical-align:top}
+dialog code{font-size:12px;word-break:break-all}
+.sw{display:inline-block;width:14px;height:10px;border:2px solid var(--ok);vertical-align:middle;margin-right:4px}
+.sw.w{border-color:var(--warn)}
+.sw.a{border-color:var(--acc);border-style:dashed}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style></head><body>
 <div id="left"><div id="doc"></div></div>
-<div id="grip"></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="grip" data-tip="끌어서 사이드바 폭을 조절합니다"></div>
 <div id="right">
-  <div class="bar">
-    <button class="p" onclick="rebuild()">재빌드</button>
-    <button onclick="loadPins()">새로고침</button>
-    <span style="flex:1"></span>
-    <input class="n" id="jump" placeholder="쪽" onkeydown="if(event.key==='Enter')goPage()">
-    <button onclick="zoom(-1)">−</button><button onclick="zoom(1)">＋</button>
+  <div class="bar" id="bar1" role="toolbar" aria-label="도구">
+    <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 다시 만들기</button>
+    <button id="btn-reload" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
+    <span class="sp"></span>
+    <input class="n" id="jump" placeholder="쪽" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
+    <button id="btn-zoom-out" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
+    <button id="btn-zoom-in" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
+    <button id="btn-theme" data-act="theme" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐ 시스템</button>
+    <button id="btn-help" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
   </div>
-  <div class="bar" style="padding-top:4px"><span class="dim" id="meta"></span></div>
-  <div id="res"></div>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span><span class="sp"></span><span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
+  <div id="build-err" hidden></div>
+  <div id="banner" hidden></div>
+  <div id="composer" hidden>
+    <div class="c-head"><h3 style="margin:0">선택한 자리</h3><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
+    <div id="c-err" class="errline" hidden></div>
+    <div id="c-body">
+      <div class="row" style="margin-top:6px"><span id="c-loc" class="loc" tabindex="0" data-tip="핀에 저장될 원문 위치입니다. 에이전트는 이 줄을 직접 열어 고칩니다. 클릭하면 복사"></span>
+        <span id="c-tag" class="tag" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span></div>
+      <div id="c-meta" class="dim"></div>
+      <div id="c-warn" class="warnline" hidden></div>
+      <div id="c-levels" class="seg" role="group" aria-label="범위 단계"></div>
+      <div class="row">
+        <button class="x" id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">▲+</button>
+        <button class="x" id="c-up-shrink" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">▲−</button>
+        <button class="x" id="c-down-grow" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">▼+</button>
+        <button class="x" id="c-down-shrink" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">▼−</button>
+        <span class="sp"></span>
+        <button class="x" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 사이드바 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">긴 줄 접기</button>
+        <button class="x" id="c-copy" data-act="copy-cur" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">위치 복사</button>
+      </div>
+      <pre id="c-snip" class="wrap"></pre>
+      <button class="x" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button>
+    </div>
+    <h3 style="margin-top:10px">메모</h3>
+    <textarea id="note" rows="3" placeholder="여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
+    <div class="row" style="margin-top:7px">
+      <button class="p" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘↵ / Ctrl+Enter)">핀 저장 ⌘↵</button>
+      <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
+    </div>
+  </div>
+  <div id="list">
+    <div id="empty" class="hint" hidden>PDF 위에서 <b>드래그</b>해 영역을 고르면 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
+      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><kbd>?</kbd> 를 누르면 도움말.</div>
+    <h3 id="list-h">열린 핀</h3>
+    <div id="pins"></div>
+    <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0 ▸</button>
+    <div id="done-list" hidden></div>
+  </div>
 </div>
+<div id="tip" role="tooltip" hidden></div>
+<dialog id="help" aria-labelledby="help-h">
+  <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="x" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
+  <h4>한 바퀴</h4>
+  <ol style="margin:0;padding-left:20px;font-size:13px">
+    <li>PDF 위에서 고칠 곳을 <b>드래그</b>합니다. 점선 상자('새 핀')가 남습니다.</li>
+    <li>사이드바의 <b>범위 단계</b>(드래그한 줄 / 문단 / 환경)와 ▲▼ 로 줄 범위를 맞춥니다.</li>
+    <li>메모를 쓰고 <b>핀 저장</b>(⌘↵ / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</li>
+    <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
+    <li><b>PDF 다시 만들기</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
+  </ol>
+  <h4>단축키</h4>
+  <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
+    <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
+    <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr></table>
+  <h4>용어</h4>
+  <table>
+    <tr><td>핀</td><td>원문 위치(파일·줄 범위)에 붙인 수정 요청 메모. 번호(#N)는 다시 쓰이지 않습니다</td></tr>
+    <tr><td>앵커</td><td>핀을 찍을 때 떠 둔 첫·끝 문장. 원고가 고쳐지면 이것으로 새 줄 번호를 찾습니다</td></tr>
+    <tr><td>줄 이동</td><td>원고 수정으로 핀 위치가 밀려 다시 맞췄다는 표시('줄 +3 이동')</td></tr>
+    <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
+    <tr><td>좌표로 찾음 / 글자로 찾음</td><td>PDF 좌표(SyncTeX)로 찾았는지, 드래그한 글자를 원문에서 찾았는지. '일치 %'는 드래그한 글자가 그 범위에 있는 비율</td></tr>
+    <tr><td>작성자</td><td>tailscale 로 들어온 사람은 계정 이름으로, 로컬·에이전트 요청은 '로컬/에이전트'로 기록됩니다. 기록이 생기기 전 핀은 '기록 전'</td></tr>
+    <tr><td>PDF 다시 만들기 vs 핀 다시 읽기</td><td>앞의 것(구 '재빌드')은 원고를 컴파일해 화면을 바꾸고(수십 초), 뒤의 것(구 '새로고침')은 핀 목록만 다시 읽습니다(즉시)</td></tr>
+  </table>
+  <h4>색</h4>
+  <div style="font-size:13px"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
+  <h4>pins.md 위치</h4>
+  <code id="help-pins-md"></code>
+</dialog>
 <script>
-let META=null,PINS=[],CUR=null,W=900,WRAP=true;
+'use strict';
 const $=s=>document.querySelector(s);
-const esc=t=>(t||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const $$=s=>Array.from(document.querySelectorAll(s));
+const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
+const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
+const MQ=matchMedia('(prefers-color-scheme: light)');
+let META=null,PINS=[],DONE=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null;
+let SHOW_DONE=false,SNIP_OPEN=false,W=900,WRAP=true;
+window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
 
-// 사이드바 너비·본문 배율·줄바꿈은 세션을 넘겨 기억한다.
-try{ const p=JSON.parse(localStorage.pinPrefs||'{}');
-  if(p.side) $('#right').style.width=p.side+'px'; if(p.w) W=p.w; if(p.wrap!==undefined) WRAP=p.wrap; }catch(e){}
-const savePrefs=()=>localStorage.pinPrefs=JSON.stringify(
-  {side:parseInt(getComputedStyle($('#right')).width),w:W,wrap:WRAP});
+const T={
+  stale:'핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
+  n:"핀 번호. 에이전트에게 '#2 처리해줘'처럼 부르세요. 번호는 다시 쓰이지 않습니다",
+  loc:'핀이 가리키는 원문 줄. 클릭하면 복사',
+  view:'PDF에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
+  close:"처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
+  drop:'잘못 찍은 핀을 지웁니다. 알림의 [되돌리기]로 같은 번호 그대로 되살릴 수 있습니다',
+  repick:'번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
+  esave:'수정한 내용을 저장합니다 (⌘↵ / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
+  reopen:'닫힌 핀을 다시 열어 목록과 pins.md에 올립니다',
+  synctex:'PDF 좌표(SyncTeX)로 원문 줄을 찾았습니다. %는 드래그한 글자가 이 줄 범위에서 발견된 비율입니다(드문 낱말에 가중). 30% 미만이면 줄 범위를 눈으로 확인하세요',
+  text:'드래그한 영역의 글자를 원문에서 직접 찾아 위치를 정했습니다. 표·기호표처럼 좌표 조회가 약한 곳에서 쓰입니다',
+  raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
+  para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
+  env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
+  cur:'지금 핀이 가리키는 범위 그대로입니다',
+  undo:'방금 한 저장·완료·삭제를 되돌립니다'
+};
 
-(function(){ let on=false;
-  $('#grip').addEventListener('mousedown',e=>{on=true;$('#grip').classList.add('on');
-    document.body.style.userSelect='none';e.preventDefault();});
-  window.addEventListener('mousemove',e=>{ if(!on)return;
-    const w=Math.min(Math.max(280,window.innerWidth-e.clientX),window.innerWidth*0.8);
-    $('#right').style.width=w+'px'; });
-  window.addEventListener('mouseup',()=>{ if(!on)return;
-    on=false;$('#grip').classList.remove('on');document.body.style.userSelect='';savePrefs(); });
+// ------------------------------------------------ 설정(병합 저장)
+function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');return p&&typeof p==='object'?p:{};}catch(e){return {};}}
+function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
+(function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w; if(p.wrap!==undefined)WRAP=!!p.wrap;})();
+
+const THEMES=['system','light','dark'],THEME_LABEL={system:'◐ 시스템',light:'☀ 밝게',dark:'☾ 어둡게'};
+function applyTheme(){const t=prefs().theme||'system';
+  const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
+  document.documentElement.setAttribute('data-theme',eff); $('#btn-theme').textContent=THEME_LABEL[t]||THEME_LABEL.system;}
+MQ.addEventListener('change',applyTheme);
+function cycleTheme(){const t=prefs().theme||'system';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
+
+// ------------------------------------------------ 서버 호출과 알림
+async function api(url,o){o=o||{};
+  const init={method:o.method||'GET',headers:{}};
+  if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
+  let r;
+  try{r=await fetch(url,init);}catch(e){toast((o.what||'요청')+' 실패 — 서버에 닿지 않습니다','err');throw e;}
+  let d=null; try{d=await r.json();}catch(e){}
+  if(r.status>=400&&!(o.expect||[]).includes(r.status)){
+    toast((o.what||'요청')+' 실패 — '+((d&&d.error)||('HTTP '+r.status)),'err');
+    const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
+  return {status:r.status,data:d};
+}
+function toast(msg,kind,action){
+  const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+(kind||'ok');
+  const s=document.createElement('span'); s.textContent=msg; t.appendChild(s);
+  let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();};
+  const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
+  if(action){const b=document.createElement('button');b.className='x';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
+    b.addEventListener('click',()=>{kill();action.fn();});t.appendChild(b);}
+  const c=document.createElement('button');c.className='x ghost';c.textContent='×';c.dataset.tip='알림 닫기';
+  c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);t.appendChild(c);
+  t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
+  box.appendChild(t); arm(); while(box.children.length>5) box.firstChild.remove();
+  return t;
+}
+async function copyText(s){
+  try{await navigator.clipboard.writeText(s);}catch(e){
+    const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');}catch(e2){} ta.remove();}
+  toast('복사함: '+s,'ok');
+}
+
+// ------------------------------------------------ 툴팁
+const TIP=$('#tip'); let tipT=null,tipEl=null;
+function hideTip(){clearTimeout(tipT);tipT=null;tipEl=null;TIP.hidden=true;}
+function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))return;
+  TIP.textContent=txt; TIP.hidden=false;
+  const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
+  let top=r.top-th-8; if(top<4) top=r.bottom+8;
+  const left=Math.min(Math.max(4,r.left+r.width/2-tw/2),innerWidth-tw-4);
+  TIP.style.left=left+'px'; TIP.style.top=top+'px';}
+function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; tipT=setTimeout(()=>showTip(el),300);}
+document.addEventListener('mouseover',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
+document.addEventListener('focusin',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
+document.addEventListener('focusout',hideTip);
+document.addEventListener('scroll',hideTip,true);
+document.addEventListener('mousedown',hideTip,true);
+
+// ------------------------------------------------ 문서
+async function boot(){
+  applyTheme();
+  $('#btn-save').textContent='핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
+  try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
+  drawMeta(); buildDoc(); await loadPins();
+}
+function drawMeta(){
+  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
+  $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
+  const me=META.me||{};
+  $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(me.name||me.login||'')+'</span>';
+  $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
+  $('#help-pins-md').textContent=META.pins_md||'';
+}
+function pageSrc(p){return '/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at);}
+function buildDoc(){
+  const doc=$('#doc'); doc.innerHTML=''; PENDING=null;
+  META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
+    d.style.width=W+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
+    d.innerHTML='<span class="no">'+(i+1)+'</span><img loading="lazy" draggable="false" alt="'+(i+1)+'쪽" src="'+esc(pageSrc(p))+'">';
+    doc.appendChild(d);});
+  marks();
+}
+function zoom(k){W=Math.min(2200,Math.max(420,W+k*140)); $$('.pg').forEach(e=>e.style.width=W+'px'); savePrefs({w:W});}
+function goPage(){const el=document.getElementById('p'+parseInt($('#jump').value,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
+$('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
+
+(function(){let on=false;
+  $('#grip').addEventListener('mousedown',e=>{on=true;$('#grip').classList.add('on');document.body.style.userSelect='none';e.preventDefault();});
+  window.addEventListener('mousemove',e=>{if(!on)return;
+    const w=Math.min(Math.max(280,innerWidth-e.clientX),innerWidth*0.8); $('#right').style.width=w+'px';});
+  window.addEventListener('mouseup',()=>{if(!on)return; on=false;$('#grip').classList.remove('on');document.body.style.userSelect='';
+    savePrefs({side:parseInt(getComputedStyle($('#right')).width,10)});});
 })();
 
-function zoom(d){ W=Math.min(2200,Math.max(420,W+d*140));
-  document.querySelectorAll('.pg').forEach(e=>e.style.width=W+'px'); savePrefs(); }
-function goPage(){ const el=document.getElementById('p'+parseInt($('#jump').value));
-  if(el) el.scrollIntoView({behavior:'smooth'}); }
+// ------------------------------------------------ 드래그 선택
+let DRAG=null;
+const c01=v=>Math.min(1,Math.max(0,v));
+$('#doc').addEventListener('mousedown',e=>{if(e.button!==0)return; const pg=e.target.closest('.pg'); if(!pg)return;
+  const r=pg.getBoundingClientRect();
+  DRAG={pg,sx:c01((e.clientX-r.left)/r.width),sy:c01((e.clientY-r.top)/r.height),box:document.createElement('div')};
+  DRAG.box.className='sel'; pg.appendChild(DRAG.box); e.preventDefault();});
+window.addEventListener('mousemove',e=>{if(!DRAG)return; const r=DRAG.pg.getBoundingClientRect();
+  const x=c01((e.clientX-r.left)/r.width),y=c01((e.clientY-r.top)/r.height);
+  Object.assign(DRAG.box.style,{left:Math.min(DRAG.sx,x)*100+'%',top:Math.min(DRAG.sy,y)*100+'%',
+    width:Math.abs(x-DRAG.sx)*100+'%',height:Math.abs(y-DRAG.sy)*100+'%'});});
+window.addEventListener('mouseup',e=>{if(!DRAG)return; const {pg,sx,sy,box}=DRAG; DRAG=null;
+  const r=pg.getBoundingClientRect(),x=c01((e.clientX-r.left)/r.width),y=c01((e.clientY-r.top)/r.height);
+  const w=Math.abs(x-sx),h=Math.abs(y-sy);
+  if(w<0.004&&h<0.004){box.remove();return;}
+  Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',width:w*100+'%',height:h*100+'%'});
+  box.classList.add('pending');
+  if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; box.innerHTML='<i>새 위치</i>'; }
+  else { if(PENDING)PENDING.remove(); PENDING=box; box.innerHTML='<i>새 핀</i>'; }
+  const page=+pg.dataset.page,p=META.pages[page-1];
+  pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
+    frac:[Math.min(sx,x),Math.min(sy,y),w,h]});});
 
-async function boot(){
-  META=await (await fetch('/api/meta')).json();
-  $('#meta').textContent=`${META.main} · ${META.pages.length}쪽 · ${META.head} · ${META.built_at.slice(0,16).replace('T',' ')}`;
-  const doc=$('#doc'); doc.innerHTML='';
-  META.pages.forEach((p,i)=>{
-    const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.style.width=W+'px';
-    d.innerHTML=`<span class="no">${i+1}</span><img loading="lazy" src="/pages/${p.name}?v=${encodeURIComponent(META.built_at)}">`;
-    doc.appendChild(d); wire(d,i+1,p);
-  });
-  idle(); loadPins();
-}
+// ------------------------------------------------ 범위 단계
+function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
+function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
+  return scope==='para'?'paragraph':'lines';}
+function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return lv.label; if(o.scope==='lines')return '줄 직접 지정';
+  return ({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'';}
+function levelBtns(o,isEdit){return (o.levels||[]).map(lv=>{const on=lv.level===o.scope;
+  const tip=isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
+  const label=isEdit&&lv.level==='raw'?'지금 범위':lv.label;
+  return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" data-tip="'+esc(tip)+'">'+
+    esc(label)+' <span class="'+(lv.n>50?'wn':'')+'">L'+lv.lo+(lv.hi!==lv.lo?'-L'+lv.hi:'')+' · '+lv.n+'줄</span></button>';}).join('');}
+function useLevel(o,key){const lv=lvOf(o,key); if(!lv)return; o.lo=lv.lo;o.hi=lv.hi;o.scope=lv.level;o.env=lv.env||null;o.snippet=lv.snippet;}
+function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
+  if(dir==='up-grow')lo=Math.max(1,lo-1); else if(dir==='up-shrink')lo=Math.min(hi,lo+1);
+  else if(dir==='down-grow')hi=Math.min(max,hi+1); else if(dir==='down-shrink')hi=Math.max(lo,hi-1);
+  if(lo===o.lo&&hi===o.hi)return false; o.lo=lo;o.hi=hi;o.scope='lines';o.env=null;return true;}
+let snipT=null;
+function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
+  try{const {data}=await api('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,{what:'원문 읽기'});
+    if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
+function snipText(text,open){const ls=String(text||'').split('\n');
+  return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+(ls.length-8)+'줄 접힘';}
+function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
+  if(p.via==='synctex')return {t:'좌표로 찾음 · 일치 '+pct+'%',tip:T.synctex};
+  if(p.via==='text')return {t:'글자로 찾음 · 일치 '+pct+'%',tip:T.text};
+  return {t:String(p.via),tip:'찾은 방법'};}
 
-function wire(el,page,pg){
-  let sx,sy,box=null,drag=false;
-  const rel=e=>{const r=el.getBoundingClientRect();return[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height];};
-  el.addEventListener('mousedown',e=>{ if(e.button!==0)return; drag=true; [sx,sy]=rel(e);
-    box=document.createElement('div'); box.className='sel'; el.appendChild(box); e.preventDefault(); });
-  window.addEventListener('mousemove',e=>{ if(!drag)return; const[x,y]=rel(e);
-    Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
-      width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'}); });
-  window.addEventListener('mouseup',async e=>{ if(!drag)return; drag=false; const[x,y]=rel(e);
-    const w=Math.abs(x-sx),h=Math.abs(y-sy); box.remove(); box=null;
-    if(w<0.004&&h<0.004) return;
-    await pick({page,x0:Math.min(sx,x)*pg.pt_w,y0:Math.min(sy,y)*pg.pt_h,
-      x1:Math.max(sx,x)*pg.pt_w,y1:Math.max(sy,y)*pg.pt_h,frac:[Math.min(sx,x),Math.min(sy,y),w,h]}); });
-}
-
-function idle(){ $('#res').innerHTML=`<div class="hint">PDF 위에서 <b>드래그</b>해 영역을 고르면<br>
-  그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br><br>문장·문단·그림·표 무엇이든 됩니다.<br>
-  메모를 달아 <kbd>핀</kbd> 으로 쌓으면<br>에이전트가 <code>pins.md</code> 한 장만 읽고 작업합니다.</div>
-  <h3 style="margin-top:14px">쌓인 핀</h3><div id="pins"></div>`; drawPins(); }
-
+// ------------------------------------------------ composer
+function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
-  $('#res').innerHTML='<div class="hint">되짚는 중…</div>';
-  const d=await (await fetch('/api/pick',{method:'POST',body:JSON.stringify(r)})).json();
-  if(d.error){ $('#res').innerHTML=`<div class="hint">${esc(d.error)}</div>
-    <h3 style="margin-top:14px">쌓인 핀</h3><div id="pins"></div>`; drawPins(); return; }
-  CUR=d;
-  const via={synctex:'SyncTeX',text:'렌더 텍스트'}[d.via]||d.via;
-  $('#res').innerHTML=`
-    <h3>선택한 자리</h3>
-    <div class="loc">${esc(d.name)} L${d.lo}-L${d.hi}</div>
-    <div class="dim">${d.page}쪽 · ${({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일'})[d.kind]||d.kind}
-      · ${d.hi-d.lo+1}줄 · 정확매칭 L${d.raw_lo}-L${d.raw_hi} · <span class="tag">${via} ${d.score}</span></div>
-    ${d.warn?`<div class="dim" style="color:var(--warn);margin-top:6px">${esc(d.warn)}</div>`:''}
-    <div style="display:flex;gap:6px;margin:8px 0 4px">
-      <button class="x" onclick="WRAP=!WRAP;savePrefs();document.querySelector('#res pre').className=WRAP?'wrap':'nowrap'">줄바꿈 토글</button>
-      <button class="x" onclick="navigator.clipboard.writeText('${d.name} L${d.lo}-L${d.hi}')">줄범위 복사</button>
-    </div>
-    <pre class="${WRAP?'wrap':'nowrap'}">${esc(d.snippet)}</pre>
-    <h3 style="margin-top:12px">메모</h3>
-    <textarea id="note" rows="3" placeholder="여기를 어떻게 고칠지 (비워도 됩니다)"
-      onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))savePin()"></textarea>
-    <div style="margin-top:7px"><button class="p" onclick="savePin()">핀으로 쌓기 (⌘↵)</button></div>
-    <h3 style="margin-top:16px">쌓인 핀</h3><div id="pins"></div>`;
-  drawPins();
+  const seq=++PICKSEQ,rp=REPICK;
+  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); $('#c-err').hidden=true;}
+  let d;
+  try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
+  catch(e){if(seq!==PICKSEQ)return; setBusy(false);
+    if(rp){bannerRepick();} else {if(PENDING){PENDING.remove();PENDING=null;} if(!CUR)$('#composer').hidden=true;} return;}
+  if(seq!==PICKSEQ)return;
+  setBusy(false);
+  if(d.error){
+    if(rp){bannerRepick(d.error);return;}
+    CUR=null; $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
+  if(rp){rp.cand=d; bannerCompare(); return;}
+  CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
+  SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
+}
+function renderComposer(){const d=CUR; if(!d)return;
+  const loc=d.name+' L'+d.lo+'-L'+d.hi;
+  $('#c-loc').textContent=loc; $('#c-loc').dataset.copy=loc;
+  $('#c-meta').textContent=d.page+'쪽 · '+scopeLabel(d)+' · '+(d.hi-d.lo+1)+'줄 · 드래그한 줄 L'+d.raw_lo+'-L'+d.raw_hi;
+  const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;}
+  $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
+  $('#c-levels').innerHTML=levelBtns(d,false);
+  const pre=$('#c-snip'); pre.className=WRAP?'wrap':'nowrap'; pre.textContent=snipText(d.snippet,SNIP_OPEN);
+  const many=String(d.snippet||'').split('\n').length>8;
+  $('#c-expand').hidden=!many; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기';
+  $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
+}
+function cancelSelection(clearNote){CUR=null; PICKSEQ++; if(PENDING){PENDING.remove();PENDING=null;}
+  setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
+async function savePin(){
+  if(!CUR||SAVING)return; SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
+  const d=CUR,note=$('#note').value.trim();
+  const body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
+    frac:d.frac,note:note};
+  if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
+  try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
+    const id=data.id; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
+    toast('핀 #'+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
+    await loadPins();
+  }catch(e){} finally{SAVING=false; btn.disabled=false;}
 }
 
-async function savePin(){
-  if(!CUR)return; const d=Object.assign({},CUR); delete d.snippet; delete d.warn;
-  d.note=($('#note')?.value||'').trim();
-  await fetch('/api/pin',{method:'POST',body:JSON.stringify(d)});
-  if($('#note')) $('#note').value=''; await loadPins();
+// ------------------------------------------------ 핀 목록
+function who(a){return (a&&(a.name||a.login))||'';}
+function avatar(a){if(!a||!(a.name||a.login))return ''; const ini=esc((who(a).trim()[0]||'?').toUpperCase());
+  return a.pic?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
+    :'<span class="av i" aria-hidden="true">'+ini+'</span>';}
+document.addEventListener('error',e=>{const t=e.target;
+  if(t&&t.tagName==='IMG'&&t.classList.contains('av')){const s=document.createElement('span');s.className='av i';
+    s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
+function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
+  if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
+function card(p){
+  const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];
+  if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">위치 잃음</span>');
+  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
+    esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">줄 '+esc(m[1])+' 이동</span>');}
+  if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
+    (p.edited_by?' · '+who(p.edited_by):'')+')')+'">✎ 수정됨</span>');
+  const v=viaTag(p); if(v)tags.push('<span class="tag" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
+  const tip=esc(authorTip(p));
+  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
+    :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
+  const editing=EDIT&&EDIT.id===p.id;
+  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+'" data-id="'+p.id+'" data-tip="'+tip+'">'+
+    '<div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
+    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
+    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+tags.join('')+
+    '<span class="sp"></span>'+au+'</div>'+
+    (editing?'<div class="edit-slot"></div>':
+    '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
+    '<div class="row acts"><button class="x b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
+    '<button class="x b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
+    '<button class="x b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
+    '<button class="x b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button></div>')+'</div>';
 }
-async function loadPins(){ PINS=await (await fetch('/api/pins')).json(); drawPins(); marks(); }
+function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
+  return '<div class="pin done" data-id="'+p.id+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
+    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
+    '<span class="dim" data-tip="닫은 시각과 닫은 사람">'+esc(p.done_at||'')+' · '+esc(who(p.closed_by)||'기록 전')+'</span><span class="sp"></span>'+
+    '<button class="x b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
+    (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
+async function loadPins(){let d;
+  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
+  PINS=d.filter(p=>!p.done); DONE=d.filter(p=>p.done);
+  if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
+  drawPins(); marks();
+  if(META)document.title='원고 핀 · '+META.main+' · 열린 '+PINS.length;
+}
 function drawPins(){
-  const el=$('#pins'); if(!el)return;
-  el.innerHTML=PINS.length?PINS.map(p=>`<div class="pin ${p.stale?'st':''}">
-    <div class="row"><span class="n">#${p.id}</span>
-      <span class="loc">L${p.lo}-L${p.hi}</span><span class="dim">${p.page}쪽</span>
-      ${p.stale?'<span class="tag t">원문에서 사라짐</span>':(p.sync&&p.sync!=='ok'?`<span class="tag">${esc(p.sync)}</span>`:'')}
-      <span class="sp"></span>
-      <button class="x" onclick="jumpPin(${p.id})">보기</button>
-      <button class="x" onclick="closePin(${p.id})">완료</button>
-      <button class="x" onclick="dropPin(${p.id})">삭제</button></div>
-    ${p.note?`<div style="margin-top:4px">${esc(p.note)}</div>`:''}</div>`).join('')
-    :'<div class="dim">아직 없습니다.</div>';
+  $('#list-h').textContent='열린 핀 '+PINS.length;
+  $('#empty').hidden=PINS.length>0;
+  $('#pins').innerHTML=PINS.length?PINS.map(card).join(''):'<div class="dim">아직 없습니다.</div>';
+  if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
+  $('#done-toggle').textContent='닫힌 핀 '+DONE.length+(SHOW_DONE?' ▾':' ▸');
+  $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
+  $('#done-list').hidden=!SHOW_DONE;
+  if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
 }
 function marks(){
-  document.querySelectorAll('.mark').forEach(m=>m.remove());
-  PINS.forEach(p=>{ const el=document.getElementById('p'+p.page); if(!el||!p.frac)return;
-    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'');
-    Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',
-      width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
-    m.innerHTML=`<b>${p.id}</b>`; el.appendChild(m); });
+  $$('.mark').forEach(m=>m.remove());
+  PINS.forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
+    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':''); m.dataset.pin=p.id;
+    Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
+    m.innerHTML='<b>'+p.id+'</b>'; el.appendChild(m);});
 }
-function jumpPin(id){ const p=PINS.find(x=>x.id===id);
-  if(p) document.getElementById('p'+p.page)?.scrollIntoView({behavior:'smooth'}); }
-async function closePin(id){ await fetch('/api/pins/'+id+'/close',{method:'POST'}); loadPins(); }
-async function dropPin(id){ if(!confirm(`핀 #${id} 를 지웁니다.`))return;
-  await fetch('/api/pins/'+id+'/drop',{method:'POST'}); loadPins(); }
-async function rebuild(){ $('#meta').textContent='재빌드 중…';
-  const r=await (await fetch('/api/rebuild',{method:'POST'})).json();
-  if(r.ok) location.reload(); else { $('#meta').textContent='빌드 실패'; alert(r.log||'실패'); } }
+function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
+  const m=document.querySelector('.mark[data-pin="'+id+'"]');
+  (m||document.getElementById('p'+p.page)||{scrollIntoView(){}}).scrollIntoView({behavior:SMOOTH,block:'center'});
+  if(m){m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');}}
+async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
+  if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
+  else toast('핀 #'+id+' 완료','ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}catch(e){} await loadPins();}
+async function reopenPin(id,undo){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
+  toast(undo?'핀 #'+id+' 완료를 되돌렸습니다':'핀 #'+id+' 다시 열림','ok');}catch(e){} await loadPins();}
+async function dropPin(id,undoSave){try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
+  if(EDIT&&EDIT.id===id)EDIT=null;
+  toast(undoSave?'핀 #'+id+' 저장을 되돌렸습니다':'핀 #'+id+' 삭제됨','ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
+async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기'});
+  toast('핀 #'+id+' 되살림','ok');}catch(e){} await loadPins();}
+
+// ------------------------------------------------ 편집
+function openEdit(id){const p=PINS.find(x=>x.id===id); if(!p)return;
+  if(EDIT&&EDIT.id===id)return;
+  const el=document.createElement('div'); el.className='edit';
+  el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘↵ / Ctrl+Enter 저장, Esc 취소"></textarea>'+
+    '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
+    '<div class="row"><span class="e-range loc" tabindex="0" data-tip="저장하면 핀이 가리킬 원문 줄. 클릭하면 복사"></span><span class="sp"></span>'+
+    '<button class="x" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">▲+</button>'+
+    '<button class="x" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">▲−</button>'+
+    '<button class="x" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">▼+</button>'+
+    '<button class="x" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">▼−</button></div>'+
+    '<pre class="e-snip wrap">원문 읽는 중…</pre>'+
+    '<div class="row"><button class="x b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button><span class="sp"></span>'+
+    '<button class="x p b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button>'+
+    '<button class="x b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button></div>';
+  const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
+  EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file).split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
+    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''}};
+  drawPins(); renderEdit(); ta.focus(); editSnip(true);
+}
+function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
+document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.id==='note'))autoGrow(e.target);});
+async function editSnip(withLevels){const E=EDIT; if(!E)return;
+  try{const {status,data}=await api('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),
+      {what:'원문 읽기',expect:[400]});
+    if(EDIT!==E)return;
+    if(status===400){E.snippet='원문을 읽지 못했습니다 — '+(data&&data.error||'')+'\n위치 다시 잡기로 고치세요.'; renderEdit(); return;}
+    E.snippet=data.snippet; E.n_lines=data.n_lines;
+    if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
+      if(cur&&!E.scope)E.scope=null;}}
+    renderEdit();}catch(e){}}
+function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
+  el.querySelector('.e-range').textContent=E.name+' L'+E.lo+'-L'+E.hi;
+  el.querySelector('.e-range').dataset.copy=E.name+' L'+E.lo+'-L'+E.hi;
+  el.querySelector('.e-levels').innerHTML=levelBtns(E,true);
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false);}
+function cancelEdit(){EDIT=null; drawPins();}
+async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
+  const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
+  if(note!==E.orig.note)body.note=note;
+  if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(E.scope||null)!==(E.orig.scope||null)){body.lo=E.lo;body.hi=E.hi;
+    if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
+  if(Object.keys(body).length===1){cancelEdit();return;}
+  ESAVING=true;
+  try{const {status,data}=await api('/api/pins/'+E.id+'/edit',{method:'POST',body,what:'핀 수정',expect:[409]});
+    if(status===409){
+      if(data&&data.error==='done'){toast('핀 #'+E.id+' 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다','warn'); EDIT=null; await loadPins(); return;}
+      const p=data.pin; toast('다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다','warn');
+      E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file;
+      E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''}; editSnip(true); await loadPins(); return;}
+    EDIT=null; toast('핀 #'+E.id+' 수정됨','ok'); await loadPins();
+  }catch(e){} finally{ESAVING=false;}
+}
+
+// ------------------------------------------------ 위치 다시 잡기
+function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
+function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PDF에서 드래그하세요 · Esc 취소</span>'+
+  (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
+  '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
+function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c;
+  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">L'+REPICK.from.lo+'-L'+REPICK.from.hi+' → L'+lv.lo+'-L'+lv.hi+'</span>'+
+    '<span class="dim">('+esc(lv.label||scopeLabel(c))+')</span><span class="sp"></span>'+
+    '<button class="x p" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
+    '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
+function startRepick(){if(!EDIT)return; REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi},box:null,cand:null}; bannerRepick();}
+function cancelRepick(){if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;}
+async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
+  const loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,
+    scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
+  if(!loc.scope)delete loc.scope;
+  const base=EDIT&&EDIT.id===R.id?EDIT.base_rev:0;
+  try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',expect:[409]});
+    if(status===409){toast(data&&data.error==='done'?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다','warn');
+      if(EDIT&&data.pin){EDIT.base_rev=data.pin.rev;} cancelRepick(); await loadPins(); return;}
+    const p=data.pin; cancelRepick();
+    if(EDIT&&EDIT.id===p.id){Object.assign(EDIT,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null});
+      EDIT.orig.lo=p.lo;EDIT.orig.hi=p.hi;EDIT.orig.scope=p.scope||null; editSnip(true);}
+    toast('핀 #'+p.id+' 위치를 L'+p.lo+'-L'+p.hi+' 로 바꿨습니다','ok'); await loadPins();
+  }catch(e){}}
+
+// ------------------------------------------------ PDF 다시 만들기
+function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
+  return null;}
+function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
+  L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
+async function refreshDoc(){const a=topAnchor();
+  const m=(await api('/api/meta',{what:'화면 정보 읽기'})).data; const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
+  if(same){$$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
+  else buildDoc();
+  restoreAnchor(a); await loadPins();}
+function showBuildErr(r){const b=$('#build-err');
+  b.innerHTML='<div class="row"><b>'+(r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'LaTeX 오류 '+r.errors.length+'건')+'</b><span class="sp"></span>'+
+    '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다">닫기</button></div>'+
+    (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
+    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log||'').split('\n').slice(-20).join('\n'))+'</pre>'; b.hidden=false;}
+async function rebuild(){const b=$('#btn-rebuild'); if(b.disabled)return; b.disabled=true; const t0=Date.now();
+  b.textContent='만드는 중 · 0초'; const tick=setInterval(()=>{b.textContent='만드는 중 · '+Math.round((Date.now()-t0)/1000)+'초';},1000);
+  try{const {status,data}=await api('/api/rebuild',{method:'POST',what:'PDF 다시 만들기',expect:[409]});
+    if(status===409){toast('이미 PDF를 만드는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
+    $('#build-err').hidden=true;
+    if(data.state!=='fail')await refreshDoc();
+    const secs=Math.round(data.elapsed_s||0);
+    if(data.state==='ok')toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok');
+    else if(data.state==='ok_errors'){const e=data.errors[0]||{};
+      toast('PDF를 만들었지만 LaTeX 오류 '+data.errors.length+'건 — '+(e.line?'L'+e.line+' ':'')+(e.msg||''),'warn',{label:'자세히',tip:'오류 목록과 로그 끝을 봅니다',fn:()=>showBuildErr(data)});}
+    else toast('빌드 실패 — 화면은 이전 PDF입니다','err',{label:'로그 보기',tip:'빌드 로그 끝 20줄을 펼칩니다',fn:()=>showBuildErr(data)});
+  }catch(e){} finally{clearInterval(tick); b.disabled=false; b.textContent='PDF 다시 만들기';}}
+
+// ------------------------------------------------ 도움말
+let HELP_BACK=null;
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); d.showModal();}
+$('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
+
+// ------------------------------------------------ 이벤트 위임(인라인 핸들러 없음)
+document.addEventListener('click',e=>{
+  const cp=e.target.closest('[data-copy]'); if(cp){copyText(cp.dataset.copy);return;}
+  const a=e.target.closest('[data-act]'); if(!a)return;
+  const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
+  switch(a.dataset.act){
+    case 'rebuild':rebuild();break; case 'reload':loadPins();break;
+    case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break;
+    case 'theme':cycleTheme();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
+    case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
+    case 'copy-cur':if(CUR)copyText(CUR.name+' L'+CUR.lo+'-L'+CUR.hi);break;
+    case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
+    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); inEdit?renderEdit():renderComposer(); break;}
+    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
+    case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
+    case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
+    case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
+    case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
+    case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();break;
+    case 'err-close':$('#build-err').hidden=true;break;
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(e.isComposing||e.keyCode===229)return;
+  const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
+  if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
+    if(t&&t.id==='note'){e.preventDefault();savePin();}
+    else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
+    return;}
+  if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
+  if(e.key==='Escape'){
+    if($('#help').open)return;
+    if(!TIP.hidden){hideTip();return;}
+    if(REPICK){cancelRepick();return;}
+    if(EDIT){cancelEdit();return;}
+    if(CUR||!$('#composer').hidden){cancelSelection(true);return;}
+    return;}
+  if(e.key==='?'&&!inField&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();openHelp();}
+});
 boot();
 </script></body></html>"""
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 128          # 동시 요청 수십 건이 SYN 재전송으로 1초씩 밀리지 않게
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -728,53 +1939,121 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "public, max-age=600" if ctype == "image/png" else "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _guard(self) -> dict:
+        actor, via_header = actor_of(self.headers)
+        if C.allow and via_header and actor["login"] not in C.allow:
+            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % actor["login"])
+        return actor
+
+    def _run(self, fn):
+        try:
+            fn()
+        except HTTPError as e:
+            self._json(e.body, e.code)
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+        except Exception as e:                            # noqa: BLE001 — 연결을 끊지 않고 JSON 으로 알린다
+            traceback.print_exc(file=sys.stderr)
+            try:
+                self._json({"error": "서버 내부 오류: %s" % e}, 500)
+            except OSError:
+                self.close_connection = True
+
     def do_GET(self):
-        path = urlparse(self.path).path
-        if path == "/":
-            return self._send(200, HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/meta":
-            return self._json(meta())
-        if path == "/api/pins":
-            return self._json(live_pins())
-        if path.startswith("/pages/"):
-            f = C.pages / os.path.basename(path)
-            if f.exists() and f.suffix == ".png":
-                return self._send(200, f.read_bytes(), "image/png")
-        return self._send(404, b"not found", "text/plain")
+        self._run(self._get)
 
     def do_POST(self):
-        path = urlparse(self.path).path
-        n = int(self.headers.get("Content-Length") or 0)
-        d = json.loads(self.rfile.read(n) or b"{}") if n else {}
+        self._run(self._post)
 
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop)", path)
+    def _get(self):
+        actor = self._guard()
+        u = urlparse(self.path)
+        path, q = u.path, parse_qs(u.query)
+        if path == "/":
+            return self._send(200, HTML.encode(), "text/html; charset=utf-8")
+        if path == "/favicon.ico":
+            return self._send(204, b"", "image/x-icon")
+        if path == "/api/meta":
+            return self._json(meta(actor))
+        if path == "/api/pins":
+            rows = snapshot_pins()
+            allp = (q.get("all") or ["0"])[0] == "1"
+            return self._json([public(r) for r in rows if allp or not r.get("done")])
+        if path == "/api/snippet":
+            return self._json(snippet_api(q))
+        if path.startswith("/pages/"):
+            name = os.path.basename(path)
+            if PAGE_FILE_RE.fullmatch(name):
+                f = cur_pages() / name
+                try:
+                    data = f.read_bytes()
+                except OSError:
+                    data = None
+                if data is not None:
+                    return self._send(200, data, "image/png")
+        raise HTTPError(404, "없는 경로입니다: %s" % path)
+
+    def _body(self) -> dict:
+        cl = self.headers.get("Content-Length")
+        if cl is None or cl.strip() == "":
+            return {}
+        try:
+            n = int(cl)
+        except ValueError:
+            self.close_connection = True
+            raise HTTPError(400, "Content-Length 가 숫자가 아닙니다.")
+        if n < 0:
+            self.close_connection = True
+            raise HTTPError(400, "Content-Length 가 음수입니다.")
+        if n > MAX_BODY:
+            self.close_connection = True
+            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
+        raw = self.rfile.read(n) if n else b""
+        if not raw.strip():
+            return {}
+        try:
+            d = json.loads(raw)
+        except ValueError:
+            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.")
+        if not isinstance(d, dict):
+            raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
+        return d
+
+    def _post(self):
+        actor = self._guard()
+        path = urlparse(self.path).path
+        d = self._body()
+
+        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
             if act == "drop":
-                return self._json({"ok": drop_pin(pid)})
-            if act == "reopen":
-                return self._json({"ok": set_pin(pid, done=False)})
-            return self._json({"ok": set_pin(
-                pid, done=True, done_at=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"))})
+                return self._json({"ok": drop_pin(pid, actor)})
+            if act == "restore":
+                return self._json({"ok": True, "pin": restore_pin(pid, actor)})
+            if act == "edit":
+                return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
+            pin = set_done(pid, act == "close", actor)
+            return self._json({"ok": pin is not None, "pin": pin})
         if path == "/api/pick":
             return self._json(pick(d))
         if path == "/api/pin":
-            return self._json({"id": add_pin(d)})
+            return self._json({"id": add_pin(d, actor)})
         if path == "/api/clear":
-            if C.pins_jsonl.exists():
-                C.pins_jsonl.rename(C.state / ("pins_%s.jsonl.bak" % time.strftime("%y%m%d_%H%M%S")))
-            render_pins_md([])
+            clear_pins()
             return self._json({"ok": True})
         if path == "/api/rebuild":
-            ok, log = build_all()
-            return self._json({"ok": ok, "log": log})
-        return self._send(404, b"not found", "text/plain")
+            r = build_all()
+            return self._json(r, 409 if r.get("busy") else 200)
+        raise HTTPError(404, "없는 경로입니다: %s" % path)
 
 
 # ---------------------------------------------------------------- 진입점
@@ -789,6 +2068,8 @@ def main() -> None:
     ap.add_argument("--float-envs", default=DEFAULT_ENVS)
     ap.add_argument("--build-timeout", type=int, default=900)
     ap.add_argument("--no-build", action="store_true", help="기동 시 재빌드하지 않는다")
+    ap.add_argument("--allow", default="",
+                    help="허용할 tailscale 로그인(쉼표 구분). 비우면 전원 허용. 헤더 없는 로컬 요청은 항상 허용")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -803,23 +2084,28 @@ def main() -> None:
         else default_state / "manuscript-pin-picker" / state_slug(C.src)
     C.state.mkdir(parents=True, exist_ok=True)
     C.build = C.state / "build"
-    C.pages = C.state / "pages"
-    C.pdf = C.build / (C.main.stem + ".pdf")
     C.dpi = a.dpi
     C.envs = tuple(e.strip() for e in a.float_envs.split(",") if e.strip())
     C.timeout = a.build_timeout
     C.port = a.port or free_port()
+    C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
 
-    if not a.no_build or not C.pdf.exists():
-        ok, log = build_all()
-        if not ok:
-            sys.exit("빌드 실패:\n" + log)
+    migrate_pages()
+    init_seq()
+    if not a.no_build or not cur_pdf().exists() or not page_list():
+        r = build_all()
+        if r.get("state") == "fail":
+            sys.exit("빌드 실패:\n" + r.get("log", ""))
 
-    render_pins_md(read_pins())
+    with PIN_LOCK:
+        render_pins_md(read_pins()[0])
     print("원고   %s" % C.main)
     print("상태   %s" % C.state)
     print("주소   http://127.0.0.1:%d/   (외부 노출은 tailscale serve 로만)" % C.port)
-    ThreadingHTTPServer(("127.0.0.1", C.port), Handler).serve_forever()
+    if C.allow:
+        print("허용   %s (헤더 없는 로컬 요청은 허용)" % ", ".join(sorted(C.allow)))
+    sys.stdout.flush()
+    Server(("127.0.0.1", C.port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
