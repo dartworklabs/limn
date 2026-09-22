@@ -466,7 +466,7 @@ def page_list() -> list:
 SRC_TEX_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst")
 SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
 SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
-BUILD_OUTDIRS = ("build", "out")
+BUILD_OUTDIRS = ("build", "out", "diff")   # diff/ 도 빌드 rsync 가 빼는 것과 맞춘다(오탐 방지)
 
 _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시
 _SRC_MTIME_LOCK = threading.Lock()
@@ -570,7 +570,9 @@ def meta(actor: dict, light: bool = False) -> dict:
            "main": C.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
            "building": BUILD_LOCK.locked(), "stale_build": source_newer() > 2,
            "src_mtime": src_mtime(), "build_src_mtime": read_built_src_mtime(),
-           "pins_rev": pins_rev(), "build": {"state": bstate["state"], "phase": bstate["phase"]}}
+           "pages_build": cur_pages().name,
+           "pins_rev": pins_rev(),
+           "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
     if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
         return out
     rows = snapshot_pins()
@@ -1399,6 +1401,9 @@ def add_pin(d: dict, actor: dict) -> int:
         rec["author"] = dict(actor)
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
+        # frac 은 지금 화면의 PDF(cur_pages()) 좌표계로 찍었다 — 이 핀이 '어느 빌드 기준인지'를
+        # 벽시계가 아니라 빌드 신원으로 못박는다(P0b 수선: 시간대·메모 수정에 흔들리지 않게).
+        rec["frac_build"] = cur_pages().name
         rec["rev"] = 0
         rows.append(rec)
         return rec["id"], True
@@ -1460,6 +1465,8 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 r["kind"] = kind if kind is not None else "lines"
             if scope is not None and "scope" not in newloc:
                 r["scope"] = scope
+            if "frac" in loc:                        # frac 을 실제로 다시 찍었을 때만 빌드 신원을 새로 못박는다
+                r["frac_build"] = cur_pages().name
             range_changed = True
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
@@ -1590,7 +1597,7 @@ def range_label(r: dict) -> str:
     """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind."""
     scope = r.get("scope")
     if scope and str(scope).startswith("env"):
-        k = str(r.get("kind") or "")
+        k = str(r.get("kind") or "").replace("|", "\\|")
         return k if k.startswith("env:") else "env:%s" % (k or "?")
     if scope == "para":
         return "paragraph"
@@ -1771,6 +1778,24 @@ def snippet_api(q: dict) -> dict:
     return out
 
 
+def overlaps_api(q: dict) -> dict:
+    """GET /api/overlaps — 단계 전환(useLevel)·▲▼(nudge)로 범위가 바뀔 때마다 가볍게 다시 묻는 용도.
+
+    /api/pick 은 좌표→SyncTeX→텍스트 대조까지 다시 하는 무거운 호출이라 범위만 바뀐 재계산에는
+    쓸 수 없다(애초에 좌표가 없다). overlaps_for_range 는 파일·범위만 있으면 되므로 이 얇은 엔드포인트로
+    뺀다."""
+    f = safe_src((q.get("file") or [""])[0])
+    lines = tex_lines(f)
+    try:
+        lo = int((q.get("lo") or [""])[0])
+        hi = int((q.get("hi") or [""])[0])
+    except ValueError:
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.")
+    if not 1 <= lo <= hi <= len(lines):
+        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
+    return {"overlaps": overlaps_for_range(str(f), lo, hi)}
+
+
 # ---------------------------------------------------------------- 신원(tailscale serve 헤더)
 
 def hdr_text(v) -> str:
@@ -1837,6 +1862,14 @@ def origin_ok(origin: str, host) -> bool:
         return False                                   # 'null' 출처(샌드박스 iframe·file://) 포함
     name, port = u.hostname.lower().rstrip("."), u.port
     if name in LOOPBACK:
+        # SSH -L 로 포워딩하면(예: 로컬 18109 → 원격 18106) 브라우저가 보는 실제 포트는 서버 자신의
+        # C.port 가 아니라 Host 헤더에 실린 포워딩 포트다. host_ok 는 루프백 Host 를 포트와 무관하게
+        # 허용하므로, 여기서도 Origin 의 포트를 서버 바인딩 포트가 아니라 '이 요청이 실제로 도착한
+        # Host' 의 포트와 맞춰야 브라우저 기준 동일 출처가 통과한다. Host 에 포트가 없으면(비표준
+        # 클라이언트) 서버 포트로 폴백한다 — 교차 포트 출처(예: localhost:3000)는 여전히 막힌다.
+        hname, hport = split_host(host or "")
+        if hname in LOOPBACK:
+            return port == (hport if hport is not None else C.port)
         return port == C.port
     if name.endswith(".ts.net"):
         hname, _ = split_host(host or "")
@@ -2220,6 +2253,10 @@ async function pollLight(){
   // 다른 세션·에이전트가 curl 로 시작한 빌드도 light meta 의 build.state 로 잡아낸다 — 1초 폴링은
   // 그때만(또는 이 탭에서 직접 rebuild() 를 눌렀을 때만) 돈다.
   if(d.build&&d.build.state==='running'&&!BUILD_TIMER)pollBuild();
+  // 5초 틈새 안에 다른 클라이언트가 시작~종료까지 끝낸 빌드는 'running'을 한 번도 못 보고 바로
+  // 최종 상태(fail 등)로 나타난다 — started_at 이 이 탭이 마지막으로 처리한 값과 다르면(=이 탭이
+  // 못 본 새 빌드 하나가 지나갔다) 전체 상세를 다시 받아 배너·칩을 갱신한다.
+  if(d.build&&d.build.state!=='running'&&BUILD_BOOTED&&d.build.started_at&&d.build.started_at!==LAST_SEEN_BUILD)pollBuild();
 }
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
@@ -2242,7 +2279,7 @@ function diffToast(prev,next){
 // BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
 // 뒤)까지 매초 /api/build 를 때리지 않는다. 시작하는 곳은 셋뿐이다: 이 탭에서 rebuild() 를 눌렀을 때,
 // pollLight(5초 폴링)가 build.state==='running' 을 봤을 때, 그리고 부팅 시 이미 도는 빌드를 잡을 때.
-let BUILD_TIMER=null,LAST_BUILD_STATE=null,LAST_BUILD_ERR=null;
+let BUILD_TIMER=null,LAST_BUILD_STATE=null,LAST_BUILD_ERR=null,LAST_SEEN_BUILD=null,BUILD_BOOTED=false;
 function buildChipText(b){
   const label={copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
@@ -2258,16 +2295,23 @@ async function pollBuild(){
     if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000);
   }else{
     chip.hidden=true; $('#btn-rebuild').disabled=false;
-    if(LAST_BUILD_STATE==='running'){                 // 방금 끝났다 — 제자리 교체 + 알림
+    // started_at 이 이 탭이 마지막으로 처리한 빌드와 다르면, running 을 직접 못 봤어도 '새로 끝난
+    // 빌드'다(예: 다른 클라이언트가 5초 폴링 틈새 안에 시작~종료까지 끝냄). BUILD_BOOTED 이전(첫
+    // 호출, 즉 페이지를 막 열었을 때)에는 그냥 '전부터 있던 상태'이므로 토스트는 울리지 않는다.
+    const isNew=BUILD_BOOTED&&b.started_at&&b.started_at!==LAST_SEEN_BUILD;
+    if(LAST_BUILD_STATE==='running'||isNew){           // 방금 끝났다 — 제자리 교체 + 알림
       await refreshDoc();
       const secs=Math.round(b.elapsed_s||0);
       if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok'); LAST_BUILD_ERR=null; hideBuildErr();}
       else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn'); showBuildErr(b);}
       else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다','err'); showBuildErr(b);}
+    }else if(!BUILD_BOOTED&&(b.state==='fail'||b.state==='ok_errors')){
+      showBuildErr(b);   // 부팅 시 이미 실패해 있던 빌드 — 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
     }
+    if(b.started_at)LAST_SEEN_BUILD=b.started_at;
     if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // 더 볼 게 없으면 폴링을 멈춘다
   }
-  LAST_BUILD_STATE=b.state;
+  LAST_BUILD_STATE=b.state; BUILD_BOOTED=true;
 }
 function startBuildPolling(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollBuild();});
@@ -2379,6 +2423,7 @@ async function pick(r){
     CUR=null; $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
+  OVERLAP_DISMISSED=false;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
   $('#note').focus({preventScroll:true});   // 드래그 → 바로 메모 입력
@@ -2389,17 +2434,31 @@ function pickOverlap(ovs){
   if(!ovs||!ovs.length)return null;
   const insides=ovs.filter(o=>o.rel==='inside');
   if(insides.length)return insides.reduce((a,b)=>(b.hi-b.lo)<(a.hi-a.lo)?b:a);
+  const contains=ovs.filter(o=>o.rel==='contains');
+  if(contains.length)return contains.reduce((a,b)=>(b.hi-b.lo)>(a.hi-a.lo)?b:a);
   const partials=ovs.filter(o=>o.rel==='partial');
   if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
   return null;
 }
-let OVERLAP_DISMISSED=false;
+let OVERLAP_DISMISSED=false,OVSEQ=0;
+// P0b 수선: pick 순간의 overlaps 는 그 순간의 기본 범위 기준이다 — 단계 전환(useLevel)·▲▼(nudge)로
+// CUR.lo/hi 가 바뀌면 다시 물어야 한다. /api/pick 은 좌표부터 다시 찾는 무거운 호출이라 쓸 수 없으므로
+// (애초에 재계산 시점엔 좌표가 없다) 가벼운 /api/overlaps 로 CUR.overlaps 만 새로 받는다.
+async function refreshOverlap(o){
+  if(o!==CUR)return;               // 편집 카드(EDIT)에는 겹침 배너가 없다
+  const seq=++OVSEQ;
+  try{const {data}=await api('/api/overlaps?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,{what:'겹침 확인',silent:true});
+    if(seq!==OVSEQ||o!==CUR)return;
+    CUR.overlaps=data.overlaps; renderOverlapBanner();
+  }catch(e){}
+}
 function renderOverlapBanner(){
   const box=$('#c-overlap'); const d=CUR;
   const ov=d&&!OVERLAP_DISMISSED?pickOverlap(d.overlaps):null;
   if(!ov){box.hidden=true;return;}
   box.hidden=false;
-  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+') '+(ov.rel==='inside'?'안입니다':'과 겹칩니다')+'</span>'+
+  const verb=ov.rel==='inside'?'안입니다':(ov.rel==='contains'?'을 감쌉니다':'과 겹칩니다');
+  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+') '+verb+'</span>'+
     '<button class="x" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
     ov.id+' 메모에 덧붙이기</button>'+
     '<button class="x" data-act="overlap-separate" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
@@ -2522,24 +2581,24 @@ function drawPins(){
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
 }
-// P0b-06: 재빌드 뒤에도 옛 PDF 좌표로 그려진 마크는 '위치 추정'이다 — 핀의 sync 기준 시각(synced_at/at)이
-// 지금 PDF 를 만든 시각보다 이르고, 그 뒤로 범위가 옮겨졌거나(moved/lost) 원고가 바뀌었으면(다음 재빌드가
-// 그 변경을 반영했으면) frac 좌표가 새 페이지 레이아웃과 어긋날 수 있다는 뜻이다.
-// pin.synced_at 는 원고 트리 전체가 아니라 '그 핀이 가리키는 파일 하나'의 mtime 스냅샷이라, 트리 전체의
-// build_src_mtime 과 직접 비교하면(다른 파일만 바뀌어도) 항상 더 커져 거의 모든 핀이 오탐으로 .est 가 된다.
-// 그래서 pin 이 가리키는 좌표(frac)를 마지막으로 확정한 실제 시각(at/edited_at, 벽시계)을 쓴다 — built_at 과
-// 같은 단위(벽시계)라 비교가 성립한다.
+// P0b-06/P0b 수선: 재빌드 뒤에도 옛 PDF 좌표로 그려진 마크는 '위치 추정'이다. 처음엔 이걸 벽시계
+// (at/edited_at 대 built_at/build_src_mtime)로 비교했는데, 그러면 세 갈래로 틀린다 — (1) 메모만
+// 고쳐도 edited_at 이 지금으로 튀어 frac 은 그대로인데 '추정' 표시가 꺼진다. (2) 원고를 고친 뒤 옛
+// PDF 화면에서 막 찍은 핀은 at 이 그 다음 재빌드보다도 나중이라 애초에 '추정' 판정에 들어가지도
+// 못한다. (3) 벽시계 비교라 브라우저 시간대가 서버와 다르면(공저자가 다른 대륙) 전부 어긋난다.
+// 그래서 frac 이 가리키는 좌표계를 벽시계가 아니라 '어느 빌드였는지'로 못박는다 — add_pin·edit_pin
+// (loc 에 frac 이 실제로 왔을 때만)이 서버에서 cur_pages().name 을 pin.frac_build 로 찍어 둔다.
+// 지금 META.pages_build 와 다르면 그 사이 새 빌드가 있었다는 뜻이므로 무조건 추정이다 — 문자열
+// 비교라 시간대와 무관하고, 메모 수정은 frac_build 를 건드리지 않으니 (1)도 사라진다.
+// frac_build 가 없는 핀(이 필드가 생기기 전 옛 인스턴스)은 예전 벽시계 비교로 폴백한다(하위 호환).
 function pinAtEpoch(p){return builtAtEpoch(p.edited_at||p.at);}
 function isEstimated(p){
   if(!META)return false;
-  const ba=builtAtEpoch(META.built_at), pa=pinAtEpoch(p);
-  if(ba==null||pa==null||!(pa<ba))return false;
   // '이동/위치잃음'은 원고가 바뀌어 앵커가 다시 찾은 결과다 — frac 좌표는 옛 PDF 기준 그대로이므로 추정이다.
   if(p.sync&&p.sync!=='ok')return true;
-  // sync 가 ok 로 돌아와도(같은 자리를 다시 찾음), 그 핀 자신의 시각 이후에 트리 전체가 다시 빌드됐으면
-  // frac 좌표는 여전히 옛 페이지 레이아웃 기준이다. build_src_mtime(전역, build 시작 시각 실측)을
-  // 핀 자신의 시각과 비교한다 — synced_at(그 핀이 가리키는 파일 하나의 mtime)과 비교하면 다른 파일만
-  // 바뀌어도 오탐이 난다(실측 이력).
+  if(p.frac_build!=null&&META.pages_build!=null)return p.frac_build!==META.pages_build;
+  const ba=builtAtEpoch(META.built_at), pa=pinAtEpoch(p);
+  if(ba==null||pa==null||!(pa<ba))return false;
   const bsm=(typeof META.build_src_mtime==='number')?META.build_src_mtime:null;
   return bsm!=null && bsm>pa;
 }
@@ -2728,8 +2787,8 @@ document.addEventListener('click',e=>{
     case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
     case 'copy-cur':if(CUR)copyText(CUR.name+' L'+CUR.lo+'-L'+CUR.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
-    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); inEdit?renderEdit():renderComposer(); break;}
-    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
+    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); inEdit?renderEdit():renderComposer(); if(!inEdit)refreshOverlap(o); break;}
+    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); if(!inEdit)refreshOverlap(o); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'mark-jump':jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
@@ -2893,6 +2952,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json([dict(public(r), rel=rel.get(r["id"], [])) for r in rows if allp or not r.get("done")])
         if path == "/api/snippet":
             return self._json(snippet_api(q))
+        if path == "/api/overlaps":
+            return self._json(overlaps_api(q))
         if path.startswith("/pages/"):
             name = os.path.basename(path)
             if PAGE_FILE_RE.fullmatch(name):

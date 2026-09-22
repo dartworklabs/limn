@@ -27,10 +27,15 @@ def extract_js_fn(name: str) -> str:
 
     문자열 리터럴에 중괄호가 없는(=이 파일의 순수 로직 함수들 — 그 안에 DOM/CSS 텍스트가 없는)
     함수에만 안전하다. 이렇게 뽑은 실제 서버 소스를 node 로 그대로 돌려, 프런트엔드 로직을
-    회귀 테스트가 문자열로 베껴 둔 사본이 아니라 진짜 소스로 검증한다."""
+    회귀 테스트가 문자열로 베껴 둔 사본이 아니라 진짜 소스로 검증한다.
+
+    'async function NAME(' 도 뽑는다 — 'function NAME(' 만 찾으면 앞의 'async '가 잘려 나가
+    (await 가 있는 함수를) node 가 'await is only valid in async functions'로 거부한다."""
     src = ps.HTML
     key = "function %s(" % name
     i = src.index(key)
+    if i >= 6 and src[i - 6:i] == "async ":
+        i -= 6
     j = src.index("{", i)
     depth = 0
     k = j
@@ -45,12 +50,18 @@ def extract_js_fn(name: str) -> str:
     return src[i:k + 1]
 
 
-def run_node(js: str):
-    """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리)."""
+def run_node(js: str, tz: str = None):
+    """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
+
+    tz 를 주면 그 시간대로 실행한다 — isEstimated 가 더 이상 벽시계를 안 쓰는지(frac_build 경로)
+    직접 확인하는 용도."""
     node = shutil.which("node")
     if not node:
         return None
-    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15)
+    env = dict(os.environ)
+    if tz is not None:
+        env["TZ"] = tz
+    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env)
     if r.returncode != 0:
         raise AssertionError("node 실행 실패:\n%s" % r.stderr)
     return r.stdout
@@ -240,10 +251,16 @@ class CrossOrigin(Base):
         self.assertTrue(ps.host_ok("box.tail1234.ts.net"))
         self.assertTrue(ps.host_ok("box.tail1234.ts.net:443"))
 
-    def test_origin_ok_still_enforces_port_for_loopback(self):
-        # Host 의 포트 완화가 Origin 검사까지 약하게 만들면 안 된다 — 교차 출처 방어는 Origin 쪽에 남는다.
-        self.assertFalse(ps.origin_ok("http://127.0.0.1:9000", "localhost:9000"))   # 서버 포트(18999)가 아니다
-        self.assertTrue(ps.origin_ok("http://127.0.0.1:18999", "localhost:9000"))   # Origin 은 진짜 서버 포트
+    def test_origin_ok_matches_actual_host_port_not_server_port(self):
+        # 결함(P0b 수선): origin_ok 가 루프백 Origin 의 포트를 언제나 서버 자신의 바인딩 포트(C.port)와
+        # 비교했다. SSH -L 로 다른 로컬 포트에 포워딩하면(예: 9000 → 18999) 브라우저는 Host 도 Origin 도
+        # 포워딩 포트(9000)로 보낸다 — host_ok 는 루프백 포트를 안 보므로 GET 은 통과하지만, origin_ok 가
+        # 9000 != 18999 로 POST 를 전부 403 처리했다. 이제는 Origin 의 포트를 '이 요청이 실제로 실린 Host'
+        # 의 포트와 맞춘다(브라우저 기준 동일 출처) — 교차 포트 출처(다른 로컬 앱 등)는 여전히 막는다.
+        self.assertTrue(ps.origin_ok("http://127.0.0.1:9000", "localhost:9000"))    # 포워딩 포트끼리는 동일 출처
+        self.assertTrue(ps.origin_ok("http://localhost:18999", "127.0.0.1:18999"))  # 포워딩 없는 직접 접속도 그대로
+        self.assertFalse(ps.origin_ok("http://127.0.0.1:3000", "localhost:9000"))   # Host 와도 다른 포트는 거부
+        self.assertTrue(ps.origin_ok("http://127.0.0.1:18999", None))               # Host 헤더가 없으면 서버 포트로 폴백
 
     def test_ssh_forwarded_port_request_allowed_end_to_end(self):
         # SSH -L 9000:127.0.0.1:18999 뒤에서 브라우저가 보내는 모양: Host 는 포워딩 포트, Origin 은 없다(직접
@@ -251,6 +268,25 @@ class CrossOrigin(Base):
         # 테스트는 curl 모양의 Origin 없는 요청으로 가장 흔한 경우를 확인한다).
         out = self.talk(req("GET", "/api/meta", headers={"Host": "localhost:9000"}))
         self.assertIn(b" 200 ", out)
+
+    def test_ssh_forwarded_port_post_with_matching_origin_allowed(self):
+        # 실제 브라우저가 포워딩 뒤에서 보내는 모양(Host 와 Origin 이 둘 다 포워딩 포트) — 고치기 전에는
+        # GET 만 통과하고 첫 드래그(POST /api/pick 류)는 항상 403 이라 뷰어가 읽기 전용이 됐다.
+        body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
+        out = self.talk(req("POST", "/api/pin", body, {"Host": "localhost:9000",
+                                                         "Origin": "http://localhost:9000",
+                                                         "Content-Type": "application/json"}))
+        self.assertIn(b" 200 ", out)
+        self.assertEqual(len(ps.snapshot_pins()), 1)
+
+    def test_ssh_forwarded_cross_port_origin_still_rejected(self):
+        # 포워딩 포트(9000)와 다른 출처(예: 로컬의 다른 앱, 3000)는 Host 완화와 무관하게 여전히 막는다.
+        body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
+        out = self.talk(req("POST", "/api/pin", body, {"Host": "localhost:9000",
+                                                         "Origin": "http://localhost:3000",
+                                                         "Content-Type": "application/json"}))
+        self.assertIn(b" 403 ", out)
+        self.assertEqual(ps.snapshot_pins(), [])
 
     def test_forged_host_plus_identity_header_still_403(self):
         # Host 완화가 rebinding 방어를 깨지 않는지 — 루프백이 아닌 이름은 여전히 거부된다.
@@ -403,6 +439,54 @@ class Store(Base):
                         dict(ps.LOCAL_ACTOR))
         self.assertEqual((p["lo"], p["hi"], p["page"], p["kind"]), (8, 9, 3, "lines"))
         self.assertEqual(p["frac"], [0.1, 0.2, 0.3, 0.4])
+
+    def test_add_pin_stamps_frac_build(self):
+        # must-2(P0b 수선): frac 이 가리키는 좌표계를 벽시계가 아니라 '어느 빌드였는지'로 못박는다.
+        pid = self.add()
+        self.assertEqual(self.pin(pid)["frac_build"], ps.cur_pages().name)
+
+    def test_edit_loc_with_new_frac_restamps_frac_build(self):
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]},
+                         dict(ps.LOCAL_ACTOR))
+        old_build = self.pin(pid)["frac_build"]
+        (ps.C.state / "pages-20260101000000").mkdir()
+        ps.C.pages_ptr.write_text("pages-20260101000000")
+        p = ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
+                                       "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        self.assertNotEqual(p["frac_build"], old_build)
+        self.assertEqual(p["frac_build"], "pages-20260101000000")
+
+    def test_edit_note_only_does_not_touch_frac_build(self):
+        # 결함(must-2 갈래 a): 메모만 고쳐도 edited_at 이 지금으로 튀어(옛 로직) '추정' 표시가 꺼졌다.
+        # frac 자체는 안 바뀌었으니 frac_build 도 그대로여야 한다.
+        pid = self.add()
+        old_build = self.pin(pid)["frac_build"]
+        (ps.C.state / "pages-20260101000000").mkdir()
+        ps.C.pages_ptr.write_text("pages-20260101000000")
+        p = ps.edit_pin(pid, {"note": "고친 메모", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(p["frac_build"], old_build)
+
+    def test_note_append_does_not_touch_frac_build(self):
+        pid = self.add()
+        old_build = self.pin(pid)["frac_build"]
+        (ps.C.state / "pages-20260101000000").mkdir()
+        ps.C.pages_ptr.write_text("pages-20260101000000")
+        p = ps.edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(p["frac_build"], old_build)
+
+    def test_lo_hi_only_edit_does_not_touch_frac_build(self):
+        # frac 없이 lo/hi 만 손으로 옮기면(scope='lines') frac 좌표 자체를 다시 찍은 게 아니므로
+        # frac_build 도 그대로 옛 값이어야 한다(뷰어가 옛 마크를 계속 '추정'으로 보여줘야 한다).
+        pid = self.add()
+        old_build = self.pin(pid)["frac_build"]
+        (ps.C.state / "pages-20260101000000").mkdir()
+        ps.C.pages_ptr.write_text("pages-20260101000000")
+        p = ps.edit_pin(pid, {"lo": 4, "hi": 6, "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(p["frac_build"], old_build)
+
+    def test_meta_exposes_pages_build(self):
+        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertEqual(d["pages_build"], ps.cur_pages().name)
 
 
 class Legacy(Base):
@@ -615,7 +699,7 @@ class LightMeta(Base):
         after = ps.C.pins_jsonl.stat().st_mtime_ns
         self.assertEqual(before, after)
         self.assertNotIn("n_open", d)
-        for k in ("src_mtime", "build_src_mtime", "pins_rev", "build"):
+        for k in ("src_mtime", "build_src_mtime", "pins_rev", "build", "pages_build"):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
@@ -632,6 +716,17 @@ class LightMeta(Base):
         (ps.C.src / "build").mkdir()
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
         self.assertEqual(ps.src_mtime(), m0)          # 캐시 밖이어도(2초 지난 뒤에도) 변하면 안 된다
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # 캐시를 강제로 만료시켜 재계산을 확인
+        self.assertEqual(ps.src_mtime(), m0)
+
+    def test_src_mtime_ignores_diff_dir(self):
+        # 결함(should, P0b 수선): 빌드 rsync 는 diff/(latexdiff 산출물)를 빼는데(exclude "diff/") src_mtime
+        # 은 안 빼서, latexdiff 를 한 번만 돌려도 '원고 수정됨' 배지가 뜨고 다음 재빌드 뒤 모든 핀이
+        # 레이아웃이 그대로인데도 '추정'으로 바뀌는 오탐이 났다.
+        m0 = ps.src_mtime()
+        (ps.C.src / "diff").mkdir()
+        (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
+        self.assertEqual(ps.src_mtime(), m0)
         ps._SRC_MTIME_CACHE[2] = 0.0                  # 캐시를 강제로 만료시켜 재계산을 확인
         self.assertEqual(ps.src_mtime(), m0)
 
@@ -765,6 +860,19 @@ class Overlaps(Base):
         by_id = {r["id"]: r for r in rows}
         self.assertEqual(by_id[p2]["rel"], [{"id": p1, "rel": "inside"}])
 
+    def test_overlaps_endpoint_recomputes_for_arbitrary_range(self):
+        # must-1(P0b 수선): 단계 전환(useLevel)·▲▼(nudge)로 CUR.lo/hi 가 바뀌면 /api/pick(좌표 필요)을
+        # 다시 부를 수 없다 — 범위만으로 가볍게 다시 묻는 엔드포인트가 있어야 배너가 따라간다.
+        pid = self.add(4, 9, note="outer")
+        out = self.talk(req("GET", "/api/overlaps?file=%s&lo=4&hi=5" % str(self.main)))
+        self.assertIn(b" 200 ", out)
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(data["overlaps"], [{"id": pid, "lo": 4, "hi": 9, "rel": "inside"}])
+
+    def test_overlaps_endpoint_range_out_of_file_is_400(self):
+        out = self.talk(req("GET", "/api/overlaps?file=%s&lo=1&hi=99999" % str(self.main)))
+        self.assertIn(b" 400 ", out)
+
 
 # ---------------------------------------------------------------- P0b-04 pins.md v2 · quote
 
@@ -864,6 +972,20 @@ class PinsMdV2(Base):
                 self.assertEqual(line.count("|"), 7)
                 self.assertNotIn("a|b/c.tex", line)     # 이스케이프 안 된 원본 조각은 없어야 한다
 
+    def test_range_col_escapes_pipe_in_env_kind(self):
+        # 결함(should, P0b 수선): 위치 칸(loc_label)·인용문(render_quote)은 파이프를 이스케이프했지만
+        # 범위 칸(range_label)은 env 이름을 그대로 돌려줘서, kind='env:x|y' 를 저장하면 pins.md 표 행이
+        # 6칸이 아니라 6칸을 넘겨 표가 깨졌다.
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
+                          "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        for line in md.splitlines():
+            if "env:x" in line:
+                self.assertIn("env:x\\|y", line)
+                # 5열 표 구분자 6개 + 범위 칸 안의 이스케이프된 파이프 1개 = 7(파일명 칸 테스트와 같은 셈).
+                self.assertEqual(line.count("|"), 7)
+
     def test_legend_absent_when_no_symbols(self):
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -918,6 +1040,115 @@ class FrontendLogic(unittest.TestCase):
         ])
         out = json.loads(run_node(js))
         self.assertEqual(out, [True, False, True, False])
+
+    def test_is_estimated_uses_frac_build_identity_not_wall_clock(self):
+        # must-2(P0b 수선): frac_build 가 있으면 벽시계(at/edited_at, built_at/build_src_mtime)를 아예
+        # 보지 않고 '지금 화면의 빌드와 같은가'만 본다 — 문자열 비교라 시간대와 무관하다.
+        js = "\n".join([
+            extract_js_fn("builtAtEpoch"),
+            extract_js_fn("pinAtEpoch"),
+            extract_js_fn("isEstimated"),
+            r"""
+            let META=null;
+            function run(m,p){META=m;return isEstimated(p);}
+            const out=[];
+            // 벽시계로는 '추정 아님'(pa>=ba)처럼 보여도 frac_build 가 다르면 무조건 추정이다.
+            out.push(run({built_at:"2026-09-22 09:00:00", pages_build:"pages-B", build_src_mtime:null},
+                          {at:"2026-09-22 10:00:00", sync:"ok", frac_build:"pages-A"}));
+            // frac_build 가 지금 화면과 같으면, 벽시계로는 '추정'처럼 보여도(pa<ba) 추정이 아니다.
+            out.push(run({built_at:"2026-09-22 10:00:00", pages_build:"pages-A", build_src_mtime:null},
+                          {at:"2026-09-22 09:00:00", sync:"ok", frac_build:"pages-A"}));
+            // sync!=ok 는 frac_build 가 같아도 여전히 추정이다.
+            out.push(run({built_at:"2026-09-22 10:00:00", pages_build:"pages-A", build_src_mtime:null},
+                          {at:"2026-09-22 09:00:00", sync:"moved +3", frac_build:"pages-A"}));
+            console.log(JSON.stringify(out));
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out, [True, False, True])
+
+    def test_is_estimated_note_edit_does_not_clear_estimated_flag(self):
+        # 결함(must-2 갈래 a): 메모만 고쳐 edited_at 이 지금으로 튀어도(옛 로직이면 '추정 아님'으로
+        # 뒤집혔다), frac_build 가 여전히 다르면 추정 표시가 그대로 유지돼야 한다.
+        js = "\n".join([
+            extract_js_fn("builtAtEpoch"),
+            extract_js_fn("pinAtEpoch"),
+            extract_js_fn("isEstimated"),
+            r"""
+            const META={built_at:"2026-09-22 09:00:00", pages_build:"pages-B", build_src_mtime:null};
+            const p={at:"2026-09-22 08:00:00", edited_at:"2026-09-22 10:30:00", sync:"ok", frac_build:"pages-A"};
+            console.log(JSON.stringify(isEstimated(p)));
+            """,
+        ])
+        self.assertEqual(json.loads(run_node(js)), True)
+
+    def test_is_estimated_frac_build_path_ignores_browser_timezone(self):
+        # 결함(must-2 갈래 c): 벽시계 비교는 브라우저 시간대에 따라 갈렸다(영국 공저자에게는 .est 가 전혀
+        # 안 보임). frac_build 경로는 Date.parse 를 전혀 안 쓰므로 시간대를 바꿔도 같은 결과가 나와야 한다.
+        js = "\n".join([
+            extract_js_fn("builtAtEpoch"),
+            extract_js_fn("pinAtEpoch"),
+            extract_js_fn("isEstimated"),
+            r"""
+            const META={built_at:"2026-09-22 09:00:00", pages_build:"pages-B", build_src_mtime:null};
+            const p={at:"2026-09-22 08:00:00", sync:"ok", frac_build:"pages-A"};
+            console.log(JSON.stringify(isEstimated(p)));
+            """,
+        ])
+        seoul = json.loads(run_node(js, tz="Asia/Seoul"))
+        london = json.loads(run_node(js, tz="Europe/London"))
+        la = json.loads(run_node(js, tz="America/Los_Angeles"))
+        self.assertEqual([seoul, london, la], [True, True, True])
+
+    def test_pick_overlap_treats_contains_as_bannerable(self):
+        # must-1(P0b 수선): 감싸는 선택(contains)도 배너가 떠야 한다 — 전에는 inside·partial 만 보고
+        # contains 는 조용히 무시했다.
+        js = "\n".join([
+            extract_js_fn("pickOverlap"),
+            r"""
+            const out=[];
+            out.push(pickOverlap([{id:6,lo:241,hi:243,rel:'contains'}]));
+            // inside 가 있으면 여전히 inside 를 우선한다.
+            out.push(pickOverlap([{id:1,lo:1,hi:100,rel:'contains'},{id:2,lo:10,hi:20,rel:'inside'}]));
+            // contains 가 여럿이면 범위가 더 큰(더 비슷한 크기의) 쪽을 고른다.
+            out.push(pickOverlap([{id:1,lo:1,hi:5,rel:'contains'},{id:2,lo:1,hi:9,rel:'contains'}]));
+            console.log(JSON.stringify(out));
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[0]["id"], 6)
+        self.assertEqual(out[1]["id"], 2)
+        self.assertEqual(out[2]["id"], 2)
+
+    def test_refresh_overlap_updates_cur_and_ignores_stale_target(self):
+        # must-1(P0b 수선): 단계 전환·▲▼ 뒤 가벼운 /api/overlaps 재조회가 CUR.overlaps 를 갱신하고
+        # 배너를 다시 그린다. 그 사이 CUR 이 다른 선택으로 바뀌었으면(응답이 늦게 옴) 반영하지 않는다.
+        js = "\n".join([
+            r"""
+            let OVSEQ=0, CUR=null; const calls=[];
+            async function api(url){calls.push(url); return {data:{overlaps:[{id:9,lo:1,hi:2,rel:'inside'}]}};}
+            function renderOverlapBanner(){calls.push('render');}
+            """,
+            extract_js_fn("refreshOverlap"),
+            r"""
+            (async()=>{
+              const o={file:'main.tex',lo:4,hi:5};
+              CUR=o;
+              await refreshOverlap(o);
+              const fresh={overlaps:o.overlaps, calls:calls.slice()};
+              calls.length=0;
+              const o2={file:'main.tex',lo:1,hi:1};
+              CUR=o2;                       // o 는 더 이상 CUR 이 아니다 — 응답이 와도 무시해야 한다
+              await refreshOverlap(o);
+              console.log(JSON.stringify({fresh, staleIgnored: calls.length===0, o2Untouched: o2.overlaps===undefined}));
+            })();
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out["fresh"]["overlaps"], [{"id": 9, "lo": 1, "hi": 2, "rel": "inside"}])
+        self.assertIn("render", out["fresh"]["calls"])
+        self.assertTrue(out["staleIgnored"])
+        self.assertTrue(out["o2Untouched"])
 
     def test_rel_badge_matches_python_smallest_inside_rule(self):
         # 결함: relBadge(JS, 카드 태그)가 insides[0](서버가 보낸 순서, 임의)을 골랐는데 서버의
@@ -1018,6 +1249,42 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("case 'build-err-reopen'", ps.HTML)
         self.assertIn("function hideBuildErr()", ps.HTML)
         self.assertIn("case 'err-close':hideBuildErr()", ps.HTML)
+
+    def test_pick_resets_overlap_dismissed_for_new_selection(self):
+        # must-1(P0b 수선): [별도 핀으로 저장]을 한 번 누르면 OVERLAP_DISMISSED 가 true 로 남아, 그
+        # 뒤로 새로 드래그해도(pick() 이 새 CUR 을 받아도) 배너가 영구히 꺼져 있었다.
+        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        cur_idx = body.index("CUR=d;")
+        dismissed_idx = body.index("OVERLAP_DISMISSED=false")
+        self.assertGreater(dismissed_idx, cur_idx)   # 새 CUR 을 받은 뒤에(재드래그마다) 리셋한다
+
+    def test_level_and_nudge_refresh_overlap_only_for_composer(self):
+        # must-1(P0b 수선): 단계 전환(useLevel)·▲▼(nudge)로 범위가 바뀌면 겹침을 다시 물어야 배너가
+        # 따라간다. 편집 카드(EDIT)에는 겹침 배너가 없으므로 !inEdit 일 때만 부른다.
+        m = re.search(r"case 'level':\{(.*?)\}\s*\n", ps.HTML)
+        self.assertIsNotNone(m)
+        self.assertIn("if(!inEdit)refreshOverlap(o)", m.group(1).replace(" ", ""))
+        m2 = re.search(r"case 'nudge':\{(.*?)\}\s*\n", ps.HTML)
+        self.assertIsNotNone(m2)
+        self.assertIn("if(!inEdit)refreshOverlap(o)", m2.group(1).replace(" ", ""))
+
+    def test_pollLight_catches_build_finished_between_polls(self):
+        # should(P0b 수선): 5초 틈새 안에 다른 클라이언트가 시작~종료까지 끝낸 빌드는 'running'을 한
+        # 번도 못 보고 최종 상태로 나타난다 — started_at 이 이 탭이 처리한 값과 다르면 다시 받는다.
+        m = re.search(r"async function pollLight\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        body = m.group(1).replace(" ", "")
+        self.assertIn("d.build.started_at!==LAST_SEEN_BUILD", body)
+        self.assertIn("pollBuild()", body)
+
+    def test_pollBuild_shows_panel_silently_on_boot(self):
+        # should(P0b 수선): 새로고침해서 처음 연 탭도 이미 fail|ok_errors 로 멈춰 있는 빌드를 배지/패널로
+        # 보여줘야 한다 — 단 '방금 실패했다'는 토스트는 울리지 않는다(그 일이 지금 일어난 게 아니므로).
+        m = re.search(r"async function pollBuild\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        body = m.group(1).replace(" ", "")
+        self.assertIn("!BUILD_BOOTED&&(b.state==='fail'||b.state==='ok_errors')", body)
+        self.assertIn("BUILD_BOOTED=true", m.group(1))
 
 
 if __name__ == "__main__":
