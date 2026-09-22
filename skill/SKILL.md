@@ -6,448 +6,26 @@ slash_command: true
 
 # Manuscript Pin Picker
 
-> **Activation**: 사용자가 "이 부분 고쳐줘" 하면서 스크린샷을 붙여넣으려 하거나, 원고 PDF에서 특정 위치를 가리키며 수정을 요청할 때. 이미 쌓인 핀(`<state_dir>/pins.md`)을 처리할 때도 활성화.
+> **Activation**: 원고 PDF 의 특정 위치를 가리켜 수정을 요청할 때(스크린샷을 붙이려 할 때). 쌓인 핀을 처리할 때("핀 확인해줘", 세션 시작).
 
-원고 PDF 위에서 영역을 드래그하면 SyncTeX(`synctex edit`)로 그 자리의 `.tex` 파일·줄 번호를 되찾아 메모와 함께 "핀"으로 쌓는다. 목적은 정확도와 토큰 절약이다 — 스크린샷 한 장(1,000~1,600 토큰, 위치 불명)을 읽고 다시 원고에서 그 자리를 찾는 왕복 대신, `manuscript_kr.tex L493-L501`(≈35 토큰) 한 줄을 받아 에이전트가 그 줄을 바로 읽고 고친다.
+원고 PDF 위에서 영역을 드래그하면 SyncTeX 역변환으로 그 자리의 `.tex` 파일·줄 번호를 되찾아 메모와 함께 "핀"으로 쌓는다(핀 = 위치가 붙은 TODO). 스크린샷 한 장(1,000~1,600 토큰, 위치 불명) 대신 `manuscript_kr.tex L493-L501`(≈35 토큰) 한 줄을 받아 바로 읽고 고친다. 공저자도 같은 테일넷 주소로 핀을 남기고, 누가 남겼는지 기록된다.
 
-## 사용 시점
+쓰지 않는 경우: SyncTeX 빌드가 안 되면 [`latex-build-fix`](../latex-build-fix/SKILL.md) 먼저. 파일:줄을 이미 알면 바로 [`manuscript-revision`](../manuscript-revision/SKILL.md). Typst 원고는 범위 밖이다(SyncTeX 은 LaTeX 전용).
 
-- 사용자가 원고의 특정 문단·표·그림·수식을 화면으로 보면서 "여기를 이렇게 고쳐줘"라고 지목하고 싶을 때.
-- 리뷰어 코멘트나 공동저자 피드백을 원고 PDF 위에 markup하듯 쌓아두고 싶을 때 (핀 = 위치가 붙은 TODO). 공저자가 같은 테일넷 주소로 들어와 핀을 남길 수 있고, 누가 남겼는지 기록된다(§작성자 귀속).
-- 에이전트가 세션 시작 시 또는 사용자가 "핀 확인해줘"라고 할 때, 열린 핀을 일괄 처리.
+## 핀 처리 (에이전트)
 
-## 쓰지 말아야 할 때
+`<base>` 는 원격이면 `https://<기기>.<tailnet>.ts.net:<port>`, 서버 머신이면 `http://127.0.0.1:<port>`.
 
-- 원고가 아직 SyncTeX 빌드가 안 되는 상태(구조적 컴파일 에러)면 먼저 [`latex-build-fix`](../latex-build-fix/SKILL.md)로 빌드부터 고친다.
-- 위치가 이미 명확한 수정(예: 사용자가 이미 파일:줄 번호를 알고 있음)에는 이 스킬을 거치지 않고 바로 [`manuscript-revision`](../manuscript-revision/SKILL.md)으로 간다 — 서버를 띄우는 오버헤드가 낭비다.
-- Typst 원고에는 적용되지 않는다 (SyncTeX은 LaTeX 전용). Typst 위치 대응은 이 스킬의 범위 밖.
-
-## 아키텍처 개요
-
-```
-브라우저 (드래그로 영역 선택)
-   │  좌표
-   ▼
-pin_server.py  ──(1)──▶  <manuscript_dir>의 사본을 별도 빌드 디렉토리에서
-  127.0.0.1:<port>         latexmk -synctex=1 빌드 (원본 체크아웃은 건드리지 않음)
-   │
-   ├─(2) 역변환 두 경로를 겨루게 한 뒤 범위 사다리(드래그한 줄/문단/환경) 계산 → 스니펫
-   ├─(3) 사용자가 메모를 달아 "핀"으로 저장 → <state_dir>/pins.jsonl (잠금 + 원자적 교체)
-   └─(4) <state_dir>/pins.md 재생성 — 에이전트가 이 한 장만 읽는다
-```
-
-### 역변환이 두 경로인 이유
-
-`synctex edit` 만으로는 부족하다. `minipage`·`tabular` 안(전형적으로 Nomenclature 기호표)은
-SyncTeX 노드가 희박해서, 그 영역을 골라도 **조용히 엉뚱한 본문 줄이 잡힌다** — 실측으로 확인했다.
-그래서 선택 사각형에 실제로 찍힌 글자를 `pdftotext` 로 뽑아 원문에서 되찾는 두 번째 경로를 둔다.
-한글 어절은 마크업을 거의 타지 않아서(`타겟--소스 $i$ 간 코사인 거리`) 원문에 그대로 남는다.
-
-두 경로는 **조건부 폴백이 아니라 같은 척도로 경쟁한다.** 어느 한쪽을 1차로 고정하면 그쪽이
-조용히 틀렸을 때 걸러낼 방법이 없다. 채점은 영역 텍스트의 어절이 후보 줄 범위에 얼마나 들어
-있는지로 하되, **어절마다 희귀도 가중**을 준다 — 가중이 없으면 `데이터`·`학습` 같은 흔한 말이
-점수를 지배해 본문 문단이 기호표만큼 잘 맞는다고 나온다(이것도 실측이다). 동점이면 SyncTeX 를
-남긴다. 글자가 없는 영역(그림)에서는 그쪽만 맞기 때문이다.
-
-응답의 `via`(`synctex`/`text`)와 `score`(0~1)가 어느 경로로 얼마나 확신하는지 알려 준다.
-UI 는 이를 '좌표로 찾음 · 일치 93%' / '글자로 찾음 · 일치 100%' 로 보여 준다.
-`score` 가 낮으면 서버가 경고 문구를 함께 돌려준다.
-
-### 범위 사다리
-
-`POST /api/pick` 은 줄 범위 하나가 아니라 단계 목록(`levels`)을 준다. 클라이언트는 서버 왕복 없이 단계를 바꾼다.
-
-| `level` | 뜻 |
-| --- | --- |
-| `raw` | 드래그 영역이 직접 가리킨 줄 |
-| `para` | 그 줄을 감싸는 문단. 앞뒤 순수 `%` 주석 줄은 뺀다 — 한 줄이 한 문단인 원고에서 TODO 주석이 범위와 앵커 꼬리가 되던 것을 막는다. 절 제목 줄을 넘지 않고, 감싸는 가장 안쪽 환경 밖으로 나가지 않으며(환경 안쪽이면 `\begin`/`\end` 줄도 뺀다), 드래그 밖 환경에 반쯤 걸치지도 않는다 |
-| `env`, `env2`, `env3` | 감싸는 `\begin{X}…\end{X}` 를 안쪽부터 최대 3단(이름 무관, `document` 제외). 바깥 환경이 안쪽을 앞뒤 한 줄로만 감싸면 같은 블록으로 보고 합친다 |
-| `lines` | 사용자가 ▲▼ 로 줄을 직접 조정한 범위 |
-
-범위가 같은 단계는 하나로 합치고(`merged`), 기본 단계(`default_level`)는 `--float-envs` 환경 안이면 그 `env` 단계, 아니면 `para` 다. 응답의 `lo`/`hi`/`kind` 는 기본 단계의 값이다. section 단계는 두지 않는다(수백 줄 범위가 쉽게 생긴다).
-
-원본 체크아웃을 직접 열지 않고 rsync 사본에서 빌드하는 이유: 원고가 동시에 편집 중이어도 빌드가 중간 상태를 물지 않게 하기 위함이다. 빌드 사본의 경로를 원본 경로로 되돌리는 매핑(`build_dir → manuscript_dir`)은 서버가 내부적으로 처리하며, 에이전트에게는 항상 원본 경로가 보고된다. 상태 디렉토리를 옮기거나 복제해 synctex 가 옛 build 경로를 가리키면, 경로 꼬리가 원고 트리 안 파일과 맞을 때만 되돌리고 트리 밖은 읽지 않는다.
-
-## 인터페이스
-
-### `scripts/pin_server.py`
-
-Python 3.10 이상 표준 라이브러리만 쓴다(외부 패키지·CDN·빌드 단계 없음) — 가상환경 없이 시스템 Python 3.10 으로도 돈다. 외부 도구는 `latexmk`, `synctex`, `pdftoppm`, `pdftotext`, (있으면) `rsync`.
-
-```bash
-uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
-  --manuscript <manuscript_dir> \
-  [--main <main-file>.tex] \
-  [--port <port>] \
-  [--state-dir <state_dir>] \
-  [--dpi 150] \
-  [--float-envs figure,table,algorithm,equation,align,itemize,enumerate,minipage] \
-  [--build-timeout 900] \
-  [--no-build] \
-  [--allow <login>,<login>] \
-  [--no-origin-check] \
-  [--git-pull]
-```
-
-| 인자 | 필수 | 기본값 | 설명 |
-| --- | --- | --- | --- |
-| `--manuscript` | 예 | — | LaTeX 소스 루트 디렉토리(`<manuscript_dir>`). 프로젝트마다 다르므로 하드코딩 금지. 핀이 가리킬 수 있는 파일은 이 트리 안으로 제한된다 |
-| `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략 시 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 0개 또는 2개 이상이면 후보 목록을 출력하고 종료(에러) — 추측하지 않는다 |
-| `--port` | 아니오 | 자동 선택 | 미지정 시 §"포트 충돌 회피"에 따라 빈 포트를 탐색해 사용하고, 실제 선택된 포트를 기동 로그에 출력한다 |
-| `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/manuscript-pin-picker/<slug>` | `<slug>`는 `--manuscript`의 절대경로를 정규화·해시한 값. 같은 머신에서 원고 A·B를 동시에 열어도 상태가 섞이지 않게 하기 위함(멀티 원고·멀티 worktree 안전) |
-| `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도 |
-| `--float-envs` | 아니오 | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | 기본 범위 단계를 '환경'으로 둘 `\begin{...}` 이름 목록(사다리 자체는 모든 환경을 본다) |
-| `--build-timeout` | 아니오 | `900` | `latexmk` 빌드 타임아웃(초). 넘으면 프로세스 그룹째 종료하고 `fail` 로 판정 |
-| `--no-build` | 아니오 | (끔) | 기동 시 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도 — PDF·쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
-| `--allow` | 아니오 | (비움 = 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖이면 `403`. 신원 헤더 없이 루프백 `Host` 로 온 요청(에이전트 `curl`)은 항상 허용. 신원 헤더 없이 `*.ts.net` `Host` 로 온 요청은 `403` — tailscale 은 **태그 장치**(와 funnel)에는 신원 헤더를 붙이지 않으므로, 이를 로컬로 치면 목록을 우회한다. `--allow` 를 비우면 태그 장치 요청도 `로컬/에이전트` 로 기록된다 |
-| `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §HTTP API)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
-| `--git-pull` | 아니오 | (끔) | 모든 재빌드(동기·비동기)가 copy 단계 전에 `--manuscript` 의 git 저장소를 업스트림으로 `--ff-only` pull 한다(공저자가 PR 을 머지해도 서버 체크아웃이 그대로였던 문제, §비동기 재빌드 다음 새 `pull` 단락). 더러움·분기·업스트림 없음·git 저장소 아님이면 건너뛰고 지금 체크아웃으로 빌드는 계속한다 — 빌드를 막지 않는다 |
-
-> **알려진 차이(설계 vs 구현)**: 이 스킬의 설계 초안은 `*.ts.net` 외의 도메인을 개별 허용하는 `--allow-host HOST`(여러 번 가능)와, `Host`/`Origin` 검사를 따로 끄는 `--no-host-check`, 요청 헤더를 로깅하는 `--log-headers` 를 별도로 두는 안이었다. 실제 구현은 그 세 개를 만들지 않고 위 `--allow`(로그인 기반 허용목록)·`--no-origin-check`(Host·Origin 검사를 한 번에 끔) 로 갈음했다 — 허용 호스트 집합 자체(`127.0.0.1`·`localhost`·`::1`·`*.ts.net`)는 하드코딩이고 커스텀 도메인을 추가로 허용할 길이 없다. 커스텀 `--allow-host` 가 필요해지면 별도로 구현해야 한다.
-
-**바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§보안 제약)
-
-회귀 테스트는 포트를 열지 않고(socketpair) 돈다: `uv run python3 -m unittest discover -s tests` (이 스킬 디렉토리에서).
-
-### HTTP API
-
-바디는 1 MiB 이하 JSON 객체이고 `Content-Type: application/json` 이어야 한다(아니면 `400`/`413`/`415`). 본문 없는 POST(에이전트의 `curl -X POST …/close`)는 헤더 없이 그대로 된다. 오류 응답은 항상 `{"error": "<한국어 메시지>"}` JSON 이며 예상 밖 예외도 `500` JSON 으로 돌려준다. 기존 경로는 계약을 유지하고 새 필드·경로는 덧붙이기만 했다.
-
-요청 경계(§보안 제약과 함께 본다):
-
-- 서버는 **어떤 응답보다 먼저 본문을 Content-Length 만큼 끝까지 읽고**, 오류(`4xx`/`5xx`) 뒤에는 연결을 닫는다. `Transfer-Encoding` 요청은 `400`. 본문이 Content-Length 보다 짧게 끊기면 `400` 이고 동작하지 않는다(`/api/clear` 포함). 읽지 않은 본문이 같은 keep-alive 연결의 다음 요청으로 해석되면 `--allow` 와 작성자 기록을 우회하기 때문이다 — tailscale serve 는 백엔드 연결을 재사용한다.
-- 교차 출처 요청: `Origin` 이 있으면 **Host 종류로 갈라** 검사한다(아니면 `403`). Host 가 루프백이면 Origin 도 루프백 이름(`127.0.0.1`·`localhost`·`::1`)이어야 하고 **포트는 보지 않는다**(SSH `-L` 뒤에서는 Origin·Host 포트가 서버 포트와 다르다 — 실측: 포워더 18110→18106 에서 `/api/pick`·`/api/pin`·`/close` 가 200). 루프백 Host 에 `*.ts.net` Origin 은 받지 않는다 — tailscale serve 는 Host 를 보존하므로 정상 경로가 아니고, 받으면 다른 tailnet 의 Funnel 공개 페이지가 로컬 사용자 브라우저로 `close`·`clear` 같은 본문 없는 POST 를 preflight 없이 보낸다(실측: 고치기 전 200, 지금 403). Host 가 `*.ts.net` 이면 Origin 은 그 호스트와 이름·포트가 같아야 한다(생략 포트는 scheme 기본값으로 정규화 — `https://h.ts.net` = `https://h.ts.net:443`). **모든 요청**의 `Host` 는 루프백 이름(`127.0.0.1`·`localhost`·`::1`, **포트는 안 본다**) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 핀 메모·원고 스니펫이 새지 않게. `Tailscale-User-*` 헤더가 있어도 면제하지 않는다: rebinding 페이지는 같은 출처 GET 에 그 헤더를 preflight 없이 실을 수 있다. tailscale serve 는 원래 `Host`(`<기기>.<tailnet>.ts.net`)를 보존해 넘기므로 정상 테일넷 요청은 통과한다. 첫 배포 때 공저자 브라우저에서 저장이 `403`("허용되지 않은 Host"/"다른 출처")이면 그 메시지의 값을 기록하고 `--no-origin-check` 로 임시 우회한다.
-  - Host 는 왜 포트를 안 보는가: SSH `-L 9000:127.0.0.1:<port>` 로 다른 로컬 포트에 포워딩하면 브라우저가 보내는 `Host` 는 `localhost:9000`처럼 포워딩 쪽 포트가 된다. 여기서 포트까지 요구하면 이런 요청이 전부 `403` 이었다. Host 이름 자체(루프백 이름인가)는 DNS rebinding 방어의 핵심이고 포트와 무관하므로, 포트를 빼도 그 방어는 약해지지 않는다 — rebinding 공격의 `Host` 는 애초에 루프백 이름이 아니라 공격자 도메인이다. 교차 출처 방어는 `Origin` 검사가 맡는다. 알려진 한계: 루프백 Origin 의 포트를 보지 않으므로, 같은 기기의 다른 로컬 웹앱(`http://localhost:3000`)이 사용자 브라우저로 보내는 POST 는 막지 못한다 — SSH `-L` 지원과 맞바꾼 선택이다.
-- 소켓 타임아웃 30초 — 본문을 보내다 멈춘 연결과 유휴 keep-alive 가 닫힌다(재빌드처럼 오래 걸리는 처리 자체와는 무관).
-
-| 메서드 | 경로 | 설명 |
-| --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(§자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(§비동기 재빌드) |
-| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. §자동 동기화 |
-| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 §에이전트 응답 다이어트를 따른다(`state=="ok"` 면 빠지고, 아니면 40줄, `?log=1` 이면 전체) |
-| `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
-| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`, 선택 `pdf_build` = 드래그할 때 화면의 빌드 id — 그 빌드의 PDF 로 되짚는다. 이미 지워진 빌드면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
-| `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(§작성자 귀속 다음 §자동 동기화)이 이것을 쓴다 |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 사다리도. 원고 트리 밖이거나 범위가 틀리면 `400` |
-| `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}` — 뷰어는 쓰지 않고(§겹친 핀) 에이전트·옛 뷰어 호환용으로 남긴다 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
-| `POST` | `/api/pins/{id}/edit` | 제자리 수정 — 아래 §핀 수정 |
-| `POST` | `/api/pins/{id}/close` | 핀 1건을 처리 완료로 표시(`done: true`, `closed_by`). 선택 본문 `{"reply", "ref"}` — 아래 §닫을 때 사유 남기기. 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §<state_dir>/pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주되 아무 필드도 바꾸지 않는다**(rev 도 그대로) — §닫을 때 사유 남기기 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref` 가 있었으면 지운다(다시 닫을 때 새로 남긴다) → `{ok, pin}` |
-| `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
-| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"ttl_min": 1..480}`(기본 120, 범위 밖·정수 아니면 `400`) → `{ok, pin}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다 — 요청자 신원과 무관하다(권한 제한 없음, 귀속만 기록하는 신뢰 모델). → `{ok, pin}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다 |
-| `POST` | `/api/rebuild` | PDF 다시 만들기(동기) — 아래 §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, §새 `pull` 단락)이 붙는다. `log` 는 §에이전트 응답 다이어트를 따른다 |
-| `POST` | `/api/rebuild?async=1` | PDF 다시 만들기(비동기) — 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}`. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행 상황은 `GET /api/build` 를 폴링한다(§비동기 재빌드) |
-| `POST` | `/api/rebuild?log=1` / `GET /api/build?log=1` | §에이전트 응답 다이어트의 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
-
-#### 핀 수정 (`/api/pins/{id}/edit`)
-
-```json
-{"note": "고친 메모", "lo": 185, "hi": 262, "scope": "env2", "kind": "env:minipage", "base_rev": 3}
-```
-
-- `base_rev` 는 필수다 — 수정하려는 핀을 읽을 때 받은 `rev`. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`/`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 최신 `pin` 을 보고 다시 보낸다.
-- 위치를 통째로 바꿀 때는 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build}` 를 보낸다(위치 다시 잡기). `pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다(없으면 pick 응답 값, 그것도 없으면 지금 빌드). 메모·`note_append`·`lo`/`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 두고, `kind` 가 없으면 `lines` 가 된다(나머지 위치 필드는 지워진다). id·메모·작성자는 그대로다.
-- 범위가 바뀌면 `anchor` 를 새로 떠고 `stale`/`sync` 를 지운다 — `stale` 핀도 이 경로로 고친다.
-- 닫힌 핀은 메모만 고칠 수 있다. 범위·위치를 보내면 `409 {"error":"done"}`.
-- 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
-- `note_append`(빈 문자열·공백만은 `400`, 개별 조각은 ≤2000자)는 `base_rev` 없이도 받는다 — `note += "\n(추가 HH:MM) " + note_append`. 합친 뒤 길이가 메모 상한(`NOTE_MAX`, 4000자)을 넘으면 `400` 이고 아무것도 바뀌지 않는다(개별 조각이 2000자 이하여도 기존 메모와 합치면 넘을 수 있다). 겹친 핀에 "덧붙이기"로 쓸 때, 매번 최신 `rev` 를 먼저 조회하지 않아도 되게 하기 위해서다(§겹친 핀). 되돌리려면 응답의 `pin.rev` 를 `base_rev` 로 삼아 `{"note": <이전 note>}` 를 다시 보낸다.
-
-#### 닫을 때 사유 남기기 (`/api/pins/{id}/close`)
-
-```bash
-curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
-  -H 'Content-Type: application/json' \
-  -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
-```
-
-- 둘 다 선택이다. **에이전트는 무엇을 고쳤는지와 PR 번호를 남긴다** — `reply` 에 무엇을 고쳤는지(≤500자), `ref` 에 참조(PR 번호 등, ≤80자). 본문이 없거나 비어 있으면(빈 문자열·공백만) 기존과 같이 동작한다 — 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
-- 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드와 마찬가지로 뷰어에서 `esc()` 를 거쳐 렌더된다(이스케이프).
-- 성공하면 핀에 `close_reply`/`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI 가 묶어 보일 수 있다.
-- **이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다** — `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref` 모두 첫 닫기 값 그대로고, 두 번째 호출의 `reply`/`ref` 는 버려진다(적용되지 않는다). 두 번째 닫기가 `done_at`·`closed_by` 를 덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막기 위해서다. **reply 를 새로 남기려면 `/reopen` 으로 한 번 열고 다시 `/close` 한다** — `reopen` 이 옛 `close_reply`/`close_ref` 를 지우므로 다음 닫기가 새 사유로 채운다.
-
-#### 원격 에이전트 진입점 (`GET /pins.md`)
-
-공저자의 에이전트는 서버 머신에 로그인하지 않는다 — 테일넷 주소로만 닿는다. `GET /pins.md` 는 디스크의 `<state_dir>/pins.md` 를 파일로 열 필요 없이, 지금 요청이 도착한 `Host` 에 맞춘 안내 줄로 같은 내용을 HTTP 로 낸다.
-
-```bash
-curl -s https://<기기>.<tailnet>.ts.net:<port>/pins.md
-```
-
-- `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다 — 줄 번호가 최신이다.
-- close 예시의 base URL만 바뀐다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로, 포트 포함>`, 아니면(루프백) 지금까지의 `http://127.0.0.1:<port>`. 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다(디스크 파일 자체를 읽고 있는 루프백에는 없다 — 이미 그 파일이다).
-- 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base 로 쓴다 — 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
-- Host/Origin 검사는 다른 `GET` 과 같다(§HTTP API) — 낯선 Host 는 `403`.
-
-#### 처리 중 표시 (`/api/pins/{id}/claim`, `/api/pins/{id}/unclaim`)
-
-두 에이전트(작성자 쪽·공저자 쪽)가 같은 핀을 동시에 고칠 수 있다. `claim` 은 **잠금이 아니라 TTL 있는 낙관적 표시**다 — 다른 사람이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다.
-
-```bash
-curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: application/json' -d '{"ttl_min": 60}'
-curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
-```
-
-- `claim` 선택 본문 `{"ttl_min": 1..480}`(기본 120분). 범위 밖이거나 정수가 아니면 `400`.
-- 신원은 작성자 귀속과 같은 방식(`Tailscale-User-Login` 또는 헤더 없으면 `로컬/에이전트`)으로 정한다. **같은 신원이 다시 걸면 연장**(`claim_until` 갱신, `rev`+1)이고, **다른 신원이 유효한(만료 안 된) claim 을 쥐고 있으면 `409`** — `{"error":"claimed","claimed_by":{...},"claim_until":...}`.
-- `claim_until` 은 epoch 초다 — 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유). 만료된 claim 은 모든 표시(`<state_dir>/pins.md`·뷰어 카드·충돌 판정)에서 없는 것으로 본다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
-- 닫힌 핀에 `claim` 을 걸면 `409 {"error":"done","pin":...}`. 없는 id 는 기존 관례대로 `200 {"ok": false}`.
-- `unclaim` 은 요청자 신원과 무관하게 지운다 — 이 스킬의 신뢰 모델은 테일넷 구성원을 막지 않고 귀속만 기록하므로(§작성자 귀속), 처리 중 표시도 권한 검사 없이 풀 수 있다.
-- `close`·`drop` 은 claim 필드를 함께 지운다 — 닫힌·삭제된 핀에 처리 중 표시가 남지 않는다. 다른 사람이 claim 한 핀을 닫는 것 자체는 막지 않는다.
-- `<state_dir>/pins.md` 번호 칸에 유효한 claim 이 있으면 `⏳<이름>` 이 붙는다(§<state_dir>/pins.md 형식). 뷰어 카드에는 "처리 중: 이름 · ~시각" 배지와 [풀기](unclaim) 버튼이 뜬다 — **뷰어에는 claim 을 거는 버튼이 없다**(에이전트 전용 동작이다).
-
-#### 겹친 핀과 덧붙이기 (자동 병합 없음)
-
-같은 파일의 열린 핀 두 개가 겹치면(한쪽이 다른 쪽 범위 안에 들거나 일부만 겹치면) `GET /api/pins`·`POST /api/pick` 응답에 계산 필드 `rel`/`overlaps` 가 붙는다 — **저장하지 않는다**, 요청마다 다시 계산한다.
-
-- `rel: [{"id", "rel": "inside"|"contains"|"partial"}]` — 그 핀을 기준으로 다른 핀과의 관계(저장된 핀끼리). 범위가 완전히 같으면 id 가 작은 쪽을 `contains`(바깥)로 본다.
-- `overlaps`(pick·`/api/overlaps` 응답): `[{"id","lo","hi","rel": "equal"|"inside"|"contains"|"partial"}]` — 저장 전 선택 기준의 관계(`selection_rel`). `equal` = 범위가 같음(같은 문단·환경을 다시 찍는 가장 흔한 중복), `inside` = 선택이 핀 안, `contains` = 선택이 핀을 감쌈, `partial` = 걸침.
-- **범위가 바뀔 때마다 다시 센다.** 뷰어는 드래그·단계 전환·▲▼ 때마다 이 탭의 열린 핀 목록으로 같은 규칙(`overlapsFor`/`selRel`, 회귀 테스트가 서버 구현과 대조)을 돌린다. pick 순간에만 세면 [문단] 단계로 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장됐다(실측). 서버가 본 겹친 핀이 이 탭 목록에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다.
-- 네 관계 모두 배너 대상이다. 대표 하나를 고른다: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id 가 가장 작은 것). 문구로 관계를 밝힌다 — `열린 핀 #4(L405-L406)과 같은 범위입니다` / `… 안입니다` / `…을 감쌉니다` / `…에 걸칩니다`, 그리고 `[#4 메모에 덧붙이기] [별도 핀으로 저장]`.
-- 뷰어는 자동으로 합치지 않는다. "덧붙이기"는 `note_append` 로 기존 핀에 붙이고 지금 선택은 새 핀으로 만들지 않는다. [별도 핀으로 저장]은 **그 핀과의 그 관계**만 끈다 — 범위를 바꿔 관계가 달라지면 다시 알리고, 다음 드래그에서는 초기화한다.
-- `<state_dir>/pins.md` 번호 칸의 `⊂#N`(안에 있음, N 과 한 번에 고치고 둘 다 닫는다)·`∩#N`(일부만 겹침)이 이 계산의 대표값이다(§<state_dir>/pins.md 형식).
-
-#### 자동 동기화 (가벼운 meta 폴링)
-
-`GET /api/pins`·`GET /api/meta`(라이트 아닌 쪽)는 **쓰기 부작용**(`sync_all` 이 앵커로 줄을 다시 맞추고 파일에 쓴다)이 있어 그대로 폴링할 수 없다. 그래서 폴링 전용으로 `GET /api/meta?light=1` 을 쓴다 — `n_open`·`n_done` 이 빠지고 `live_pins`(sync) 를 부르지 않는다. 응답의 `pins_rev`(`pins.jsonl` 의 `f"{mtime_ns}:{size}"`, 없으면 `"0"`)와 `src_mtime`(§아래) 이 **바뀌었을 때만** 뷰어가 `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다 — 그래서 에이전트가 `curl` 로 핀을 닫거나 원고를 고쳐도 몇 초 안에 화면에 반영되면서도, 아무 변화가 없는 동안은 `pins.jsonl` 을 건드리지 않는다.
-
-- `src_mtime`: `--manuscript` 아래 `*.tex`·`*.bib`·`*.sty`·`*.cls`·`*.bst`와 그림 확장자(`png`·`jpg`·`jpeg`·`pdf`·`eps`·`svg`)의 최대 mtime. 점(`.`)으로 시작하는 디렉토리, 빌드 산출물 디렉토리(`build/`·`out/`), **빌드 rsync 가 빼는 디렉토리(`diff/`·`diff_temporary/`)**, 메인 PDF(`<main>.pdf`)는 뺀다(2초 캐시, `force=True` 로 건너뛸 수 있다). 빌드 지문(§위치 추정)도 같은 파일 목록을 본다.
-- `build_src_mtime`: 빌드를 **시작할 때** 캐시를 건너뛰고 실측한 `src_mtime` 값. 빌드가 `ok`·`ok_errors` 로 끝났을 때만 `<state_dir>/built_src_mtime.txt` 에 확정해 기록한다 — 빌드가 실패하면 화면은 옛 PDF 그대로이므로 이 값도, "원고 수정됨" 배지도 그대로 남아야 한다(옛 인스턴스는 파일이 없어 `null` — 이때 뷰어는 `built_at` 시각과 비교한다).
-- 뷰어는 탭이 보이는 동안 5초마다, 그리고 `visibilitychange`(visible)·`focus` 때 라이트 meta 를 부른다. 탭을 숨기면 요청 자체를 보내지 않는다. 두 번 연속 실패하면 연결 끊김 배지를 띄운다.
-- 서버가 `stale_build`(원고가 화면 빌드의 시작 시점 `src_mtime` 보다 2초 넘게 새로움)와 `src_age_s` 로 판정해 주면 "원고 수정됨 · N분 전" 배지가 뜨고, 이때만 [PDF 다시 만들기] 버튼이 강조된다. 브라우저 시계는 쓰지 않는다.
-- **위치 추정(`.est`) 마크** — §위치 추정.
-- **완료·삭제 알림 구분** — 목록이 다시 그려질 때 직전에 열려 있던 핀이 사라졌으면, `GET /api/pins?all=1` 응답(열림+닫힘)에 `done:true` 로 남아 있으면 "완료"로, 아예 없으면(다른 사람이 `/drop` 함) `GET /api/pins/dropped` 로 누가 지웠는지 찾아 "#N 을 〈이름〉 가 삭제함"으로 알린다. 옛 구현은 이 둘을 가리지 않고 전부 "완료"로 알려 공저자가 지운 핀도 작성자 화면에 "완료"로 떴다(실측).
-
-#### 위치 추정 (`est`, 서버 판정)
-
-핀 마크는 드래그 당시의 `frac`(쪽 대비 비율)에 고정된다. 그 좌표가 지금 화면의 PDF 와 안 맞을 수 있으면 점선(`.est`)으로 그린다. **판정은 서버가 하고** `GET /api/pins` 의 `est` 불리언으로 싣는다. 뷰어는 받은 값을 그대로 그린다.
-
-- 빌드 신원: 빌드마다 `<state_dir>/builds.json` 에 `{build, src_hash, src_mtime, finished_at, seq}` 를 남긴다(성공 빌드 최근 200개). `build` 는 쪽 디렉토리 이름(`pages.cur` 값)이다. `src_hash` 는 빌드 사본의 원고 파일(`src_mtime` 과 같은 목록 — `diff/`·`diff_temporary/`·점 디렉토리·메인 PDF 제외)을 (상대경로, 내용)으로 해시한 값이다. mtime 은 넣지 않는다 — 내용이 같으면 레이아웃도 같다.
-- 핀의 `pdf_build`: 핀을 만들 때와 위치를 다시 잡을 때(`loc` 에 `frac`), 드래그할 때 화면에 있던 빌드 id 를 남긴다(pick 응답의 `pdf_build`). 메모·범위 텍스트 편집은 바꾸지 않는다.
-- `est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다름) 또는 sync 가 moved/lost`. 해시가 없으면 빌드 시작 `src_mtime` 으로 비교하고, 그 빌드를 이력에서 못 찾으면 추정으로 본다(모르는 채 실선으로 그리는 편이 더 해롭다).
-- `pdf_build` 가 없는 옛 핀(옛 필드명 `frac_build` 는 같은 뜻으로 읽는다)은 서버가 epoch 수치로 판정한다 — 찍은 시각 `at` < `built_at` 이고 지금 빌드를 시작할 때의 `src_mtime` > `at` 이면 추정. `edited_at` 은 보지 않는다.
-- 왜 서버 판정인가: 뷰어가 벽시계(`at`/`edited_at` 대 `built_at`/`build_src_mtime`)로 판정하던 때 세 갈래로 틀렸다(독립 검증 실측). 시간대 없는 `at` 을 브라우저가 현지 시각으로 풀어 America/New_York 에서는 어긋난 마크가 실선으로, Pacific/Kiritimati 에서는 방금 찍은 핀이 점선으로 그려졌다. 메모만 고쳐도 꺼졌다. 원고를 고친 뒤 옛 PDF 위에서 찍은 핀은 판정에 들어가지 못했다. 지금은 Asia/Seoul·America/New_York·Pacific/Kiritimati 세 컨텍스트에서 같은 마크가 같은 결과다.
-- 기동 때 이력에 없는 지금 빌드(옛 인스턴스가 만든 것)를 한 번 올린다. 원고가 그 빌드 뒤로 안 바뀌었으면(`src_mtime` ≤ 빌드 기준 시각) 지금 원고의 지문을 그 빌드의 지문으로 삼는다. 그래야 기동 뒤 첫 핀이 원고를 안 바꾼 재빌드에서 오탐되지 않는다.
-
-#### 비동기 재빌드 (`/api/rebuild?async=1` + `GET /api/build`)
-
-동기 `/api/rebuild` 는 수십 초 동안 요청을 묶는다. `?async=1` 을 주면 빌드 잠금을 얻은 즉시 `202 {"state":"running"}` 을 돌려주고, 실제 빌드는 데몬 스레드에서 돈다(잠금·판정 로직은 동기 경로와 완전히 같다). 이미 도는 중이면 `409`.
-
-끝난 빌드는 `build_seq`(서버가 빌드마다 1씩 올리는 수, 재기동 뒤에도 이어짐)로 센다. 뷰어는 자기가 처리한 seq 를 기억해, 라이트 meta 의 `build_seq` 가 다르면 5초 틈새에 시작~종료까지 끝나 `running` 을 한 번도 못 본 빌드도 알아채고 상세를 받는다. 완료 처리(화면 교체·토스트)는 seq 하나당 한 번이다. `GET /api/build` 조회는 **단일 비행**이다 — 1초 타이머·`visibilitychange`·`focus`·라이트 폴링이 한꺼번에 불러도 요청은 하나다(고치기 전: 숨은 탭이 돌아올 때 토스트 ×2). 새로 연 탭은 마지막 빌드가 `ok_errors`·`fail` 이면 토스트 없이 오류 패널을 연다.
-
-진행 상황은 `GET /api/build` 를 1초마다 폴링해서 본다 — 단, **실제로 빌드가 도는 동안만** 돈다. 무조건 매초 때리지 않는다: (a) 이 탭에서 [PDF 다시 만들기]를 눌렀을 때, (b) 5초 라이트 meta 폴링이 `build.state==='running'`(다른 세션·에이전트가 `curl` 로 시작한 빌드)을 봤을 때, (c) 부팅 시 이미 도는 빌드가 있는지 한 번 확인할 때만 1초 폴러가 켜지고, `state` 가 더 이상 `running` 이 아니면 스스로 멈춘다. 탭이 숨어 있으면 폴링 요청 자체를 보내지 않는다(포커스·`visibilitychange` 로 다시 켠다). `phase` 는 (`--git-pull` 일 때만) `pull`(업스트림 당겨오는 중) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 퍼센트는 만들지 않는다(모른다). `elapsed_s` 는 지금까지 걸린 시간, `last_s` 는 지난 빌드가 걸린 시간(진행 중 참고용)이다. 끝나면(`state` 가 `ok`·`ok_errors`·`fail`) 뷰어가 동기 경로와 같은 방식으로 제자리 교체를 한다. `ok_errors`·`fail` 이면 오류 패널(`#build-err`)이 **자동으로 열린다** — 토스트에만 의존하지 않는다(토스트는 6초면 사라지고, 그 뒤엔 다시 볼 길이 없었다). 패널을 닫아도 상태줄에 "빌드 오류 · 다시 보기" 칩이 남아, `LAST_BUILD_ERR` 이 있는 동안(다음 성공 빌드 전까지) 언제든 다시 열 수 있다. 다른 사람이 시작한 빌드도 같은 방식으로 잡아내므로, 페이지를 새로 열었을 때 빌드가 돌고 있으면 진행 칩이 이어서 보인다. 빌드 중(`phase=latex`)에도 pick 은 막지 않고, 응답 `warn` 에 "빌드 중이라 결과가 흔들릴 수 있습니다"를 붙인다.
-
-#### 재빌드 (`/api/rebuild`, 동기)
-
-잠금 하나로 한 번에 하나만 돈다. 이미 빌드 중이면 기다리지 않고 `409 {"ok": false, "busy": true}`.
-
-| `state` | 조건 | 화면 |
-| --- | --- | --- |
-| `ok` | 새 PDF 가 나왔고 LaTeX 로그에 `! ` 줄이 없음 | 새 쪽으로 교체 |
-| `ok_errors` | 새 PDF 는 나왔지만 `! ` 줄이 있음(nonstopmode 의 `\undefinedmacro` 등) | 새 쪽으로 교체 + 오류 알림 |
-| `fail` | 새 PDF 가 없거나(PDF mtime < 시작 시각) 시간 초과 | **이전 쪽 그대로** |
-
-응답: `{"ok": <state≠fail>, "state", "errors": [{"line", "msg"}], "log", "elapsed_s", "head", "pull"}`, 성공하면 `pages`(새 쪽 수)도. `errors` 는 `! ` 줄과 그 뒤 `l.<n>` 줄을 최대 5건. `head` 는 그 빌드가 컴파일한 커밋의 짧은 해시(성공 때만, `<state_dir>/head.txt` 와 같은 값). `pull` 은 `--git-pull` 일 때만 채워진다 — 아래 §`--git-pull`. `log` 는 §에이전트 응답 다이어트를 따른다. 쪽 이미지는 새 디렉토리 `pages-<build_id>/` 에 먼저 그린 뒤 포인터 파일 `pages.cur` 를 원자적으로 바꾼다 — 빌드 중에도, 전환 직후 옛 URL 로도 쪽 요청이 끊기지 않는다. 뷰어는 새로고침 없이 보던 쪽과 쓰던 메모를 유지한 채 이미지만 바꾼다.
-
-#### `--git-pull`: 재빌드 전에 원격 main 당겨오기
-
-공저자가 PR 을 머지해도 서버 쪽 원고 체크아웃은 그대로였다 — 뷰어가 옛 원고를 계속 보여줬다. `--git-pull` 을 켜면 모든 재빌드(동기·비동기 모두)가 copy 단계 전에 `pull` phase 를 돈다.
-
-1. `--manuscript` 가 속한 git 저장소 루트를 찾는다(`git -C <ms> rev-parse --show-toplevel`). 아니면 `skipped:not_git`.
-2. `git fetch --quiet`(업스트림 원격, timeout 30초). 실패·시간 초과면 `error:fetch_failed`/`error:fetch_timeout`.
-3. 현재 브랜치에 upstream(`@{u}`)이 없으면 `skipped:no_upstream`.
-4. `git status --porcelain --untracked-files=no` 가 비어 있지 않으면 `skipped:dirty`.
-5. `git merge --ff-only @{u}` — 분기했으면(실패) `skipped:diverged`.
-6. 결과 `{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}` 가 빌드 결과(`/api/rebuild` 응답·`/api/build`·`builds.json` 마지막 결과)의 `pull` 필드에 실린다. `ok` 는 fast-forward 로 커밋이 바뀜, `up_to_date` 는 저장소는 정상이지만 새 커밋이 없었음이다.
-
-**pull 이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한다** — pull 은 있으면 좋은 것이지 빌드의 전제조건이 아니다. 모든 git 호출은 `subprocess.run([...])` 로 쉘 없이 돌고, 인자에 사용자 입력을 넣지 않는다. 뷰어는 pull 이 `skipped`/`error` 면 빌드 완료 토스트에 사유를 한 줄 붙이고(`git pull 건너뜀(dirty)` 등), `ok` 면 `원격 반영 <head_before>→<head_after>` 를 붙인다. `up_to_date` 는 알릴 변화가 없으므로 덧붙이지 않는다.
-
-#### 에이전트 응답 다이어트
-
-동기 `/api/rebuild` 는 성공 때도 `log` 에 폰트 경로 등으로 수 KB가 실려 에이전트 토큰을 낭비했다. 지금은 `state=="ok"` 면 `log`(`/api/rebuild`)·`log_tail`(`GET /api/build`)을 응답에서 뺀다. `ok_errors`·`fail` 이면 마지막 40줄로 줄인다. `?log=1` 을 붙이면(둘 다) 다이어트를 끄고 전체 꼬리(4000자)를 그대로 받는다 — 뷰어의 오류 패널은 이 플래그를 항상 붙여 동작이 그대로다. 내부 상태(`BUILD_STATE`·`builds.json`)는 다이어트와 무관하게 풀 로그를 보관한다.
-
-### 핀 레코드 스키마 (`pins.jsonl`, 한 줄 = 한 레코드)
-
-```json
-{"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<절대경로>/introduction.tex",
- "lo": 120, "hi": 134, "raw_lo": 122, "raw_hi": 131, "kind": "env:minipage", "scope": "env",
- "via": "synctex", "score": 0.93, "note": "이 문단 톤을 낮춰줘", "frac": [0.12, 0.30, 0.55, 0.18],
- "pdf_build": "pages-20260921200500",
- "anchor": {"head": "이 절에서는 소스 재선정 주기를...", "tail": "...효과가 관측된다."},
- "synced_at": 1758450000.0, "sync": "moved +3", "rev": 2, "done": false,
- "author": {"login": "bob@example.com", "name": "Bob Park", "pic": "https://..."},
- "edited_at": "2026-09-21 21:00:00", "edited_by": {"login": "local", "name": "로컬/에이전트"}}
-```
-
-새 필드는 모두 선택이다 — 없는 옛 레코드도 그대로 읽힌다.
-
-| 필드 | 뜻 |
-| --- | --- |
-| `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
-| `scope` | `raw\|para\|env\|env2\|env3\|lines` — 저장할 때 고른 사다리 단계 |
-| `quote` | 선택 — 호출자가 붙인 짧은 인용(60자에서 자른다) |
-| `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀 — 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다(§위치 추정) |
-| `anchor` | `{head, tail, head_off, tail_off}` — 줄 맞춤 기준. `*_off` 가 없는 옛 앵커는 0 으로 본다 |
-| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 모르는 값은 원문 그대로 둔다 |
-| `author` | 만든 사람 `{login, name, pic?}` |
-| `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각·사람 |
-| `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
-| `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유 — 무엇을 고쳤는지(≤500자)·참조(PR 번호 등, ≤80자). 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
-| `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
-| `claimed_by` / `claimed_at` / `claim_until` | 처리 중 표시(§처리 중 표시) — `claimed_by`는 작성자 귀속과 같은 `{login,name}` 형식, `claim_until`은 epoch 초. `claim_until`이 지난 값이면 없는 것으로 본다. `close`·`drop`이 셋 다 지운다 |
-
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est` 는 응답에만 있고 저장하지 않는다(§겹친 핀·§위치 추정).
-
-### <state_dir>/pins.md 형식
-
-`<state_dir>/pins.md` 는 5열 표다: `| # | 쪽 | 위치 | 범위 | 메모 |`(옛 `종류` 열이 `범위` 로 바뀌었다. `작성` 열은 v2 에서 없앴다 — 작성자는 `GET /api/pins`·뷰어 카드에서만 본다. 닫힌 핀도 마찬가지다).
-
-- **머리줄**: `head.txt`·`built_at.txt` 가 둘 다 있으면 `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 두 줄이 원고 줄 바로 다음에 온다. 없으면(git 저장소가 아니거나 아직 안 빌드) 통째로 생략한다.
-- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename 과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`/`\include` 로 쪼개진 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명에 `|` 가 있으면 `\|` 로 이스케이프한다(아래 이스케이프 규칙).
-- **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`/`lines`→`lines`, 없으면 옛 `kind` 값을 그대로 쓴다.
-- **번호 칸의 기호** — 핀당 여러 개, 공백으로 이어 쓴다:
-  - `⊂#N` — 이 핀이 열린 핀 `#N` 범위 **안**에 통째로 든다(범위가 가장 작은 바깥 핀 하나만 표시 — 뷰어 카드의 태그도 같은 규칙이라 이 파일과 화면 표기가 어긋나지 않는다). **`#N` 과 한 번에 고치고 둘 다 닫는 것을 권한다** — 따로 고치면 같은 문단을 두 번 손대거나 `#N` 의 제약을 놓칠 수 있다.
-  - `∩#N` — 일부만 겹친다(`inside`/`contains` 가 없을 때만, id 가 가장 작은 상대).
-  - `⏳<이름>` — 다른 에이전트가 유효한 claim 을 쥐고 있다(§처리 중 표시). 이름은 `claimed_by.name`, 헤더 없는 요청이면 `로컬/에이전트`다. **이 핀은 건너뛴다** — 처리 중인 사람과 겹치지 않도록.
-  - `✎` — 저장한 뒤 메모·범위를 수정했다(`edited_at` 있음).
-  - `⚠` — 위치를 잃었다(`stale`). **네가 방금 그 범위를 고친 직후라면** 이미 반영됐을 수 있으니 원문을 확인하고 닫아도 된다 — 무조건 사용자에게 보고할 필요는 없다(방금 자기가 만든 변경이 원인일 때에 한한다).
-  - 기호 범례 줄(`기호: ⊂#N = … · ⏳<이름> = … · ✎ = … · ⚠ = … · «…» = …`)은 열린 핀에 기호가 하나라도 있을 때만 실린다.
-- **`«…»` 인용**: 메모 앞에 최대 60자 인용이 붙는 조건부 예외다 — 핀 범위가 **한 줄**이고, 그 줄이 **600자를 넘고**(문단 하나가 줄바꿈 없이 이어지는 원고에서 줄 번호만으로는 지목한 부분을 못 찾는다), `scope` 가 `raw`/`para`/없음일 때만 붙는다. 60자를 넘어 잘렸으면 인용 끝에 `…` 를 붙인다(예: `«문장의 앞부분까지만…»`) — 잘린 인용을 완결된 문장으로 오인하지 않도록. 이 인용은 **`pdftotext` 로 렌더된 글자**다 — 검색 힌트이지 `Edit` 의 `old_string` 으로 그대로 쓸 문자열이 아니다(리거처·하이픈·공백이 원문 LaTeX 소스와 다를 수 있다). 줄 범위로 파일을 `Read` 한 뒤 그 인용을 검색해 정확한 위치를 확인한다.
-- **메모 앞 `@작성자:`**: 열린 핀의 작성자가 2명 이상이면(`author.login` 기준, 작성자 없는 옛 핀은 한 부류) 메모 앞에 `@<author.name>: ` 이 붙는다. 작성자가 1명뿐이면 토큰을 아끼려고 붙이지 않는다 — 결과 보고나 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다(§작성자 귀속).
-- **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다 — `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
-- **이스케이프는 모든 칸에 같다**(`md_cell`): `|` 는 `\|`, 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호·쪽·위치·범위·인용)에서 공백. 범위 칸의 env 분기가 빠져 kind `env:x|y` 가 8열 행을 만든 적이 있어(독립 검증 실측) 칸마다 따로 처리하지 않고 한 함수로 모았다.
-
-### 작성자 귀속
-
-공저자가 자기 컴퓨터에서 같은 테일넷 주소로 들어와 핀을 남긴다. 테일넷 구성원은 신뢰하는 동료이므로 **접근은 막지 않고 누가 무엇을 했는지만 구분한다.**
-
-- `tailscale serve` 는 요청마다 `Tailscale-User-Login`, `Tailscale-User-Name`, `Tailscale-User-Profile-Pic` 헤더를 붙인다. 비 ASCII 이름은 RFC 2047 로 인코딩되어 오므로 서버가 풀어 저장한다. 서버는 `127.0.0.1` 에만 바인딩되므로 이 헤더는 tailscale 을 거쳐서만 온다(같은 머신의 로컬 프로세스는 흉내 낼 수 있다 — 인증이 아니라 구분이다).
-- 헤더가 없는 요청(로컬 `curl`, 에이전트)은 `{"login": "local", "name": "로컬/에이전트"}` 로 기록된다.
-- 핀 카드에 작성자 이름과 22px 원형 아바타(사진이 없거나 못 불러오면 이름 첫 글자)가 붙고, 카드 툴팁에 '작성: 이름 · 시각 / 수정: 이름 · 시각' 이 뜬다. 기록이 생기기 전의 옛 핀은 '기록 전' 으로 보인다.
-- `<state_dir>/pins.md` 에는 작성자 열이 없다(§`<state_dir>/pins.md` 형식) — 누가 남겼는지는 `GET /api/pins` 의 `author`/`edited_by` 필드나 뷰어 카드에서 본다.
-- 권한 제한은 없다. 막아야 하면 `--allow` 로 로그인 목록을 준다. 태그 장치처럼 신원 헤더가 없는 테일넷 요청은 `--allow` 가 있을 때 거부되고, 없을 때는 `로컬/에이전트` 로 기록된다(§실행 인자).
-
-### 저장소 안전성
-
-- 핀 파일을 만지는 모든 경로는 잠금 하나 아래에서 **읽기 → 줄 맞춤(sync) → 요청 변경 → 임시 파일에 쓰고 `os.replace` → `<state_dir>/pins.md` 재생성** 순서를 지킨다. 잠금이 없던 때는 핀 30건을 동시에 저장하면 2건만 남았다(실측).
-- `pins.jsonl` 은 append-only 가 아니라 **전체를 다시 쓴다.** 상태 갱신 레코드를 덧붙이는 방식은 읽는 쪽이 매번 이벤트를 접어야 해서, 파일 하나가 곧 현재 상태인 편이 단순하고 틀릴 여지가 적다.
-- id 는 `pins.seq` 로 발급하며 삭제·`clear` 뒤에도 다시 쓰지 않는다 — 채팅 속 '#2' 가 다른 핀을 가리키면 안 된다. 파일이 없으면 기동 때 한 번 기존 최대 id 로 채운다.
-- 파싱할 수 없는 줄, 또는 JSON 이어도 `id`(정수)·`file`(문자열)·`lo`/`hi`(정수, `1 ≤ lo ≤ hi`)·`page`(있으면 정수)가 틀린 레코드는 건너뛰고 경고하며, 그 상태에서 처음 쓰기 전에 원본을 `pins.jsonl.corrupt-<시각>.bak` 으로 보존한다. 레코드 하나 때문에 GET 이 `500` 이 되지 않는다.
-- `<state_dir>/pins.md` 를 메모리에서 먼저 만든 뒤 `pins.jsonl` → `<state_dir>/pins.md` 순으로 쓴다. 렌더가 실패하면 아무것도 쓰지 않는다 — 커밋한 뒤 `500` 을 주면 재시도가 중복 핀을 만든다.
-- 되살리기(`restore`)는 `pins.jsonl` 쓰기가 성공한 뒤에만 삭제 기록에서 뺀다. 중간에 죽으면 최악이 '양쪽에 다 있음'(복구 가능)이지 '양쪽에 다 없음'이 아니다.
-
-### 줄 번호 재동기화 (`anchor`)
-
-**이 스킬을 쓰는 이유가 "에이전트가 원고를 고친다"인데, 고치면 핀이 죽는 구조는 쓸 수 없다.**
-핀 하나를 처리해 세 줄을 넣는 순간 아래 핀이 전부 어긋난다.
-
-그래서 핀을 저장할 때 블록의 **머리·꼬리 줄 텍스트**를 함께 떠 둔다(`anchor`, 순수 주석 줄은 건너뜀). 건너뛴 주석 줄 수는 `head_off`·`tail_off` 로 남겨, 앞뒤에 주석 줄을 일부러 넣은 핀도 줄 맞춤 뒤 범위가 줄지 않는다. 핀을 읽거나 쓰는 모든 요청은 대상 파일의 mtime 이 `synced_at` 보다 새로우면 그 텍스트를 다시 찾아 `lo`/`hi` 를 갱신한다. 줄이 움직이면 `rev` 가 오르므로, 옛 화면에서 보낸 수정은 `409` 로 걸러진다.
-
-| 결과 | `sync` | 표시 |
-| --- | --- | --- |
-| 그대로 | `ok` | — |
-| 밀림 | `moved +3` | 새 줄 번호로 갱신('줄 +3 이동') |
-| 머리 줄이 원문에서 사라짐 | `lost` | `stale: true` — UI('위치 잃음')와 `<state_dir>/pins.md` 에 경고 |
-
-`stale` 핀은 추측해서 닫지 않는다. 사용자에게 보고한다(사용자는 [수정] → 위치 다시 잡기로 고칠 수 있다).
-
-## 뷰어 사용법 (사용자)
-
-| 동작 | 방법 |
-| --- | --- |
-| 위치 고르기 | PDF 위 드래그 → 점선 '새 핀' 상자가 저장·취소 때까지 남는다. 다시 드래그해도 메모는 지워지지 않는다 |
-| 범위 맞추기 | 사이드바의 단계 버튼(드래그한 줄 / 문단 / 환경 …)과 ▲+ ▲− ▼+ ▼− |
-| 저장 | [핀 저장] 또는 메모 칸에서 ⌘↵ / Ctrl+Enter(한글 조합 중엔 무시). 알림의 [되돌리기] |
-| 수정 | 카드의 메모를 누르거나 [수정] → 메모·범위 편집, [위치 다시 잡기] 로 PDF 에서 새 위치 지정 |
-| 완료·삭제 | [완료]·[삭제] — 둘 다 알림의 [되돌리기]로 즉시 되돌린다. 닫힌 핀은 목록 아래 '닫힌 핀 N' 에서 [다시 열기], 삭제한 핀은 그 아래 '삭제한 핀 N' 에서 [되살리기]. 다른 사람이 자기 핀을 지우면(공저자·에이전트) 알림이 '#N 이 완료되었습니다' 가 아니라 '#N 을 〈이름〉 가 삭제함 [되살리기]' 로 구분해 뜬다 |
-| 마크 배지 클릭 | PDF 위 초록 번호 배지를 누르면 해당 카드로 스크롤하고 `.cur`(강조 테두리)와 `.flash`(1.2초 깜빡임)를 준다(새 선택을 만들지 않는다). 1.2초 뒤 강조는 저절로 풀린다 — 정적 스타일이라 다음 클릭 전까지 남아 있지 않는다. 마크 상자 자체(배지 밖)를 드래그하면 평소처럼 새 위치를 고른다 |
-| 카드의 [보기] | 그 핀의 마크를 화면 위에서 30% 지점으로 맞추고 테두리가 잠깐 반짝인다. 점선 테두리(`.est`)는 핀을 찍은 PDF 와 지금 PDF 가 다른 원고에서 만들어졌거나 줄이 이동해 좌표가 추정치임을 뜻한다(서버 판정, §위치 추정) |
-| PDF 다시 만들기 | 원고를 비동기로 컴파일한다(수십 초) — 누른 즉시 돌아오고, 진행 칩이 단계(`--git-pull` 이면 원격 main 당겨오는 중 → 원고 복사 중 → LaTeX 컴파일 중 → 쪽 그리는 중)와 경과 시간을 보여 준다. 다른 사람이 이미 누른 빌드도 같은 칩에 보인다. 완료 알림에 pull 결과(원격 반영 범위 또는 건너뛴 사유)가 한 줄 붙는다(`--git-pull` 일 때). '핀 다시 읽기' 는 핀 목록만 즉시 다시 읽는다(자동 동기화가 보통 몇 초 안에 대신 해 준다, §자동 동기화) |
-| 처리 중 배지 | 에이전트가 `claim` 한 핀은 카드에 "처리 중: 이름 · ~시각" 배지가 뜬다(§처리 중 표시). 뷰어에서 claim 을 걸 수는 없다 — [풀기]로 표시만 지울 수 있다(예: 그 에이전트가 멈췄을 때) |
-| 테마 | [◐] 시스템 → [☀] 밝게 → [☾] 어둡게. 설정은 브라우저에 저장된다 |
-| 폭 | [폭] 이 쪽 폭을 왼쪽 화면에 맞춘다. 저장된 폭이 없는 첫 방문에서 화면보다 넓으면 자동으로 맞춘다 |
-| 도움말 | `?` 키 또는 [?] — 흐름·단축키·용어·`<state_dir>/pins.md` 경로 |
-| Esc | 열린 것부터 닫는다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 → 선택. 입력 칸에 있을 때는 툴팁을 닫는 데 한 번을 쓰지 않는다(메모 칸에서 Esc 한 번이면 선택이 취소된다) |
-
-## 시작 전 — 포트 충돌 회피 (강제)
-
-기존에 그 포트를 쓰는 프로세스가 있는지 먼저 확인한다. 확인 없이 바로 바인딩을 시도하지 않는다.
-
-```bash
-ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
-```
-
-- 점유돼 있으면: (a) `--port`를 지정하지 않았다면 서버가 자동으로 다음 빈 포트를 시도하게 하거나, (b) 점유 프로세스가 이 스킬의 이전 인스턴스인지 확인 후 재사용(같은 `--manuscript`면 기존 서버를 그대로 쓰고 새로 띄우지 않는다).
-- 서버를 내릴 때 `pkill -f pin_server.py`로 죽이지 않는다 — 자기 자신의 명령줄까지 매칭해 무관한 세션을 죽일 위험이 있다. 포트로 PID를 찾아 종료한다: `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
-- 새 버전 서버로 바꿔 띄울 때 상태 디렉토리는 그대로 둔다. 옛 레이아웃(`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`)을 `--no-build` 로도 재빌드 없이 읽는다. 기동 때 `pages.cur`(내용 `pages`)와 `pins.seq`(기존 최대 id)를 만들고 `<state_dir>/pins.md` 를 다시 그린다. 옛 `pages/` 는 다음 재빌드가 `pages-<build_id>/` 로 교체한 뒤 직전 1개로 남았다가 그다음 재빌드에서 지워진다.
-- **배포 경로**: 상시(systemd) 인스턴스는 이 레포의 `scripts/pin_server.py` 를 직접 실행하지 않고, `%h/.local/share/<name>/pin_server.py` 처럼 **`<state_dir>` 안에 둔 사본**을 실행한다(§상시로 띄울 때). 그래서 이 파일을 고친 뒤 실사용 인스턴스에 반영하려면 그 상태 디렉토리의 사본을 새 버전으로 덮어써야 한다 — 레포만 고치고 재시작해도 사본이 그대로면 옛 버전이 계속 돈다.
-
-## 보안 제약 (Hard Rule)
-
-| 항목 | 규칙 |
-| --- | --- |
-| 바인딩 주소 | `127.0.0.1` 고정. `0.0.0.0`·와일드카드 바인딩 금지 — 인자로도 노출하지 않는다 |
-| 외부 노출 | `tailscale serve`만 사용. **`tailscale funnel` 금지** — funnel은 공인 인터넷에 노출한다 |
-| 노출 후 검증 | (1) 테일넷 안에서 그 URL에 `curl`하면 `200` 확인. (2) 공인 IP·테일넷 밖 경로로는 연결이 실패하는지 확인(즉 `tailscale serve status`가 "Funnel"이 아니라 "tailnet only"로 뜨는지) — 이 둘을 확인해야 "노출됐다"고 보고한다 |
-| 인증 | 없음(테일넷 자체가 경계). 신원 헤더는 기록용이고, 필요하면 `--allow` 로 로그인 목록을 제한한다. 핀 데이터에 민감정보를 적지 않는다는 전제 |
-| 요청 경계 | 응답 전에 본문을 끝까지 읽고 오류 뒤 연결을 닫는다(요청 밀반입 차단), `Transfer-Encoding` 거부, 교차 출처 `Origin`·낯선 `Host` 는 `403`, 본문 있는 POST 는 JSON 만 — §HTTP API |
-| 경로 | 핀·스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다(밖이면 `400`) |
-| 종료 | 세션 종료 시 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스 자체를 계속 띄워둘지는 사용자 판단(재사용 이점과 유휴 리소스 비용의 트레이드오프) |
-
-## 상시로 띄울 때 — systemd 사용자 유닛
-
-서버 자체는 표준 라이브러리만 쓰지만, **재빌드는 외부 명령에 의존한다** — `latexmk`·`pdftoppm`·`pdftotext`·`synctex`.
-systemd 는 로그인 셸의 rc 를 거치지 않으므로, TeX 배포판이 `/usr/local/texlive/...` 처럼 기본 PATH 밖에 있으면
-유닛이 그 경로를 명시해야 한다. 그러지 않으면 **뷰어는 멀쩡히 뜨는데 재빌드만 실패한다** — 배포판 기본 `pdflatex`
-가 잡혀 저널 클래스 파일(`elsarticle.cls` 등)을 못 찾는 형태로 드러난다(2026-09-21 실측).
-
-```ini
-[Service]
-# 대화형 셸에서 `kpsewhich <클래스>.cls` 가 가리키는 배포판의 bin 을 PATH 맨 앞에 둔다.
-Environment=PATH=/usr/local/texlive/2025/bin/x86_64-linux:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/python3 %h/.local/share/<name>/pin_server.py \
-  --manuscript <manuscript_dir> --main <main>.tex --state-dir %h/.local/share/<name> --port <port> --no-build
-Restart=on-failure
-```
-
-확인은 두 줄이면 된다.
-
-```bash
-tr '\0' '\n' < /proc/$(pgrep -f pin_server.py | head -1)/environ | grep ^PATH=
-curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 ok 여야 한다
-```
-
-설정 파일을 홈에 직접 두지 않는 dotfiles 규약을 쓰는 기기라면 유닛도 그 저장소에서 관리하고 심링크한다.
-
-## `tailscale serve` 뒤에서 (실측)
-
-`tailscale serve` 는 요청마다 신원 헤더를 붙이고 `*.ts.net` Host 를 그대로 넘긴다. 2026-09-21 에 잰 값이다.
-
-| 요청 | 결과 |
-| --- | --- |
-| 테일넷에서 `GET /` | `200`. `GET /api/meta` 의 `me` 가 `{login, name, pic}` 로 채워진다 |
-| 브라우저처럼 `Origin: https://<host>.ts.net:<port>` 를 붙인 `POST` | `200` |
-| 다른 출처(`Origin: https://evil.example`)의 `POST` | `403` |
-| 신원 헤더를 위조하고 낯선 `Host` 로 보낸 `POST` | `403` — 헤더가 Host 검사를 건너뛰게 하지 않는다 |
-| 공인 IP 로 접근 | 연결 실패 |
-
-신원 헤더는 **구분용이지 인증이 아니다.** 같은 기기의 로컬 프로세스는 헤더를 스스로 붙일 수 있다. 바인딩이
-`127.0.0.1` 이라 테일넷을 거치지 않은 요청은 그 기기 안에서만 오고, 그 기기는 이미 사용자 것이다.
-
-## 핀 소비 절차 (에이전트)
-
-1. 원격이면 `curl -s <base>/pins.md`(§원격 에이전트 진입점), 로컬이면 `<state_dir>/pins.md` 를 직접 읽는다. 스니펫은 일부러 넣지 않는다 — 줄 범위만 있으면 에이전트가 원본을 `Read`로 직접 읽는 편이 항상 더 싸고 정확하다(스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다). `위치` 열은 `--manuscript` 기준 상대경로다.
-2. **처리 범위(저자 결정 2026-09-22)**: 누가 그 핀을 남겼는지와 무관하게, 자신에게 수정을 부탁한 사용자 쪽이 그 시점에 열려 있는 핀을 전부 처리한다. 사용자가 특정 핀 번호를 지목했으면 그 핀만 처리한다. 작성자별로 나눠 맡는 규칙은 두지 않는다 — 메모 앞 `@작성자:` 표시(§<state_dir>/pins.md 형식)는 배정 기준이 아니라 결과 보고와 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다.
-3. 처리하기 전에 그 핀을 claim 한다 — `POST .../api/pins/{id}/claim`(§처리 중 표시). 이미 다른 에이전트가 유효하게 claim(`⏳<이름>`)한 핀은 **건너뛴다** — 강제로 뺏지 않는다.
-4. 번호 칸의 `⊂#N` 을 먼저 본다 — 그 핀이 다른 열린 핀 `#N` 범위 안에 통째로 든다는 뜻이다. **`#N` 과 한 번에 고치고 둘 다 닫는다**(따로 고치면 같은 문단을 두 번 손대거나 `#N` 의 제약을 놓칠 수 있다). `∩#N` 은 일부만 겹친다는 뜻으로, 참고만 하고 각자 처리해도 된다.
-5. 메모 앞에 `«…»` 인용이 있으면 **렌더된 글자**다(원문 LaTeX 소스와 리거처·공백이 다를 수 있다) — `Edit` 의 `old_string` 으로 그대로 쓰지 말고, 원문에서 그 문장을 찾는 검색 힌트로만 쓴다.
-6. 표의 각 행에서 `위치 L<lo>-L<hi>`를 `Read`로 열어 문맥을 확인하고, `메모` 열의 지시대로 고친다. 줄 번호는 `<state_dir>/pins.md` 갱신 시각 기준이므로, 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
-7. `⚠` 이 붙은 핀은 위치를 잃은(`stale`) 핀이다. 그 범위가 **방금 자신이 고친 곳**이면(예: 앞선 핀 처리로 그 문장 자체를 갈아엎은 경우) 원문을 확인하고 닫아도 된다. 그렇지 않다면 추측해서 닫지 말고 사용자에게 보고한다.
-8. 처리한 핀은 개별 종료한다. 전체를 `/api/clear` 로 비우지 않는다 — 아직 처리 안 한 다른 핀까지 날아간다. 에이전트의 `curl` 은 헤더가 없으므로 `closed_by` 가 `로컬/에이전트` 로 남는다. **닫을 때 무엇을 고쳤는지와 PR 번호를 남긴다**(`reply`·`ref`, §닫을 때 사유 남기기) — 나중에 공저자가 닫힌 핀을 봤을 때 왜 닫혔는지 다시 원고를 뒤지지 않아도 된다. `close`·`drop` 이 claim 을 자동으로 지우므로 따로 `unclaim` 을 부를 필요는 없다 — 처리를 포기하거나 사용자에게 넘길 때만 `unclaim` 으로 표시를 푼다.
+1. **읽는다.** 원격: `curl -s <base>/pins.md`. 서버 머신: `<state_dir>/pins.md` 를 `Read`.
+   - 표는 `| # | 쪽 | 위치 | 범위 | 메모 |`. `위치` 는 `--manuscript` 기준 상대경로 + `L<lo>-L<hi>`.
+2. **기준 커밋을 맞춘다.** 머리줄 `기준: <head> · 빌드 <built_at>` 이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다.
+3. **처리 범위를 정한다.**
+   - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
+   - 사용자가 번호를 지목했으면 그 핀만.
+   - `⏳<이름>`(다른 쪽이 claim)은 건너뛴다. 뺏지 않는다.
+4. **claim 한다.** `curl -s -X POST <base>/api/pins/<id>/claim`. `409 claimed` 면 건너뛴다.
+5. **고친다.** `L<lo>-L<hi>` 를 `Read` 로 열어 문맥을 확인하고 메모대로 고친다. 앞 핀을 고쳐 줄이 밀렸을 수 있으면 `GET <base>/api/pins` 로 맞춘 값을 다시 받는다.
+6. **닫는다.** 무엇을 고쳤는지(`reply` ≤500자)와 PR 번호(`ref` ≤80자)를 남긴다.
 
    ```bash
    curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
@@ -455,57 +33,86 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
      -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
    ```
 
-   이미 닫힌 핀에 다시 `close` 를 보내면 아무것도 바뀌지 않는다(`reply` 도 적용되지 않는다) — 사유를 고치려면 `/reopen` 으로 열고 다시 닫는다.
-9. 한 세션에서 여러 핀을 처리했으면, 마지막에 `<state_dir>/pins.md`를 다시 읽어 열린 핀이 0인지(또는 남은 것이 전부 `⏳` 로 다른 에이전트가 처리 중인지) 확인하고 사용자에게 보고한다.
-10. 핀의 위치가 이미 존재하지 않거나(파일 삭제·섹션 이동) 문맥이 메모와 안 맞으면, 추측해서 닫지 않고 사용자에게 보고한다.
-11. 에이전트가 핀 메모·범위를 고쳐야 하면 `GET /api/pins` 로 `rev` 를 받아 `/edit` 에 `base_rev` 로 넣는다. `409` 면 최신 값을 다시 읽는다. 다른 핀에 짧게 덧붙이기만 하면(예: 겹친 핀 처리) `note_append` 를 쓰면 `base_rev` 조회를 건너뛸 수 있다.
+7. **확인한다.** 여러 핀을 처리했으면 `<state_dir>/pins.md` 를 다시 읽는다. 열린 핀이 0(또는 전부 `⏳`)인지 확인해 사용자에게 보고한다.
 
-## 상태 파일 레이아웃
+### 기호
 
-```
-<state_dir>/
-├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
-├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
-├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
-├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex 사본 (현재와 직전 1개만 유지)
-├── pages/                    # 옛 레이아웃 — pages.cur 가 없으면 이것을 그대로 쓴다
-├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)
-├── pins.seq                  # 마지막으로 발급한 id
-├── pins.dropped.jsonl        # 삭제한 핀(restore 원천)
-├── pins.jsonl.corrupt-*.bak  # 깨진 줄이 있을 때 첫 쓰기 전 원본 보존(조건부)
-├── pins_<ts>.jsonl.bak       # /api/clear 보관본
-├── pins.md                   # 에이전트 진입점 — 이 한 장만 읽는다
-├── build.log
-├── built_at.txt
-├── built_src_mtime.txt       # 빌드 시작 시각의 src_mtime — 자동 동기화 배지 기준(§자동 동기화, 없어도 동작)
-└── head.txt                  # 빌드 시점 커밋(짧은 해시) — 원고 repo가 git이면
-```
+| 표시 | 뜻 | 할 일 |
+| --- | --- | --- |
+| `⊂#N` | `#N` 범위 안에 통째로 든다 | `#N` 과 한 번에 고치고 둘 다 닫는다 |
+| `∩#N` | 일부만 겹친다 | 참고만 한다. 각자 처리해도 된다 |
+| `⏳<이름>` | 다른 쪽이 유효한 claim 을 쥐었다 | 건너뛴다 |
+| `✎` | 저장 뒤 메모·범위가 수정됐다 | — |
+| `⚠` | 위치를 잃었다(stale) | 아래 stale 규칙 |
+| `«…»` | 렌더된 글자 인용(≤60자, 잘리면 `…`) | 검색 힌트로만 쓴다. `Edit` 의 `old_string` 으로 쓰지 않는다 |
+| `@작성자:` | 작성자가 2명 이상일 때 메모 앞에 붙는다 | 배정 기준이 아니다. 보고·`reply` 참고용 |
 
-## 알려진 제약
+### 규칙
 
-- **화면의 PDF 가 원고보다 낡으면 좌표와 원문이 어긋난다.** 에이전트가 원고를 고치고 아직 재빌드하지 않은
-  동안이 그렇다. 텍스트 경로는 그래도 비슷한 문단을 찾아 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서
-  노멘클래처를 골랐는데 서론의 기여 목록이 `0.32` 로 경고 없이 돌아왔다. 그래서 서버가 원고 `.tex` 의 수정
-  시각과 PDF 시각을 비교해 `meta.stale_build` 로 알리고, `pick` 의 `warn` 에도 점수와 무관하게 이 사실을
-  앞세운다. 화면 위쪽에는 "원고가 더 새롭습니다" 배지가 뜬다. 이 상태에서 찍은 핀은 줄 범위를 확인해야 한다.
+- stale(`⚠`): 방금 자신이 그 범위를 고쳤으면 원문을 확인하고 닫아도 된다. 아니면 추측해서 닫지 말고 보고한다.
+- 위치가 사라졌거나(파일 삭제·섹션 이동) 문맥이 메모와 안 맞으면 닫지 말고 보고한다.
+- `/api/clear` 금지. 처리 안 한 핀까지 날아간다. 하나씩 닫는다.
+- 이미 닫힌 핀을 다시 닫으면 아무것도 안 바뀐다(`reply` 도 버려진다). 사유를 고치려면 `/reopen` 뒤 다시 `/close`.
+- `close`·`drop` 이 claim 을 지운다. 처리를 포기하거나 넘길 때만 `/unclaim`.
+- 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
+- 원고를 고쳤으면 PDF 를 다시 만든다(`POST /api/rebuild?async=1`). 옛 PDF 위의 pick 은 줄 번호가 어긋난다.
 
-- SyncTeX 좌표 조회가 선택 영역 바로 바깥의 float를 잘못 물 수 있어(가장 가까운 노드 기준), 밀집 클러스터링 + 범위 사다리로 보정한다. 완전히 안전하지는 않다 — 결과의 `kind`가 `float`·`env:*`인데 사용자가 기대한 대상과 다르면 `raw_lo`/`raw_hi`(보정 전 원시 범위)를 참고해 재시도.
-- 원고를 고친 뒤 PDF 를 다시 만들지 않으면, 화면(옛 PDF)과 원문 줄 번호가 어긋난 채로 pick 이 된다. 에이전트가 원고를 고쳤으면 먼저 PDF 다시 만들기.
-- 여러 `.tex` 파일이 `\input`/`\include`로 쪼개져 있으면 SyncTeX이 빌드 사본 안의 개별 파일 경로를 반환한다 — 서버가 이를 `<manuscript_dir>` 기준 원본 경로로 되돌린다(§아키텍처 개요). 이 매핑이 깨지면(예: 빌드 사본과 원본의 디렉토리 구조가 다르면) 경로가 어긋난다.
-- 앵커 재동기화는 **머리 줄이 원문에 남아 있을 때만** 작동한다. 그 문장 자체를 갈아엎으면
-  `stale` 로 떨어진다 — 자동 복구가 아니라 표시가 목적이다. 빈 줄만 고른 핀은 앵커가 없어 따라가지 않는다.
-- 같은 문장이 원고에 여러 번 나오면 원래 줄 번호에 가장 가까운 것을 고른다. 반복 구조가 많은
-  원고에서는 틀릴 수 있다.
-- 참고문헌 영역을 고르면 SyncTeX 이 `.bbl`(생성 파일)을 가리킨다. 서버가 이를 감지해 편집하지
-  말라고 안내하고 선택을 거부한다.
-- 렌더 텍스트 경로는 `pdftotext` 가 글자를 뽑을 수 있어야 한다. 그림 안에 래스터로 박힌 글자는
-  잡히지 않으므로 그 영역은 SyncTeX 경로에만 의존한다.
-- 다른 사람(에이전트)이 바꾼 핀은 가벼운 polling(5초, §자동 동기화)으로 몇 초 안에 저절로 반영된다. [핀 다시 읽기] 는 그 주기를 기다리지 않고 즉시 맞추는 용도로 남아 있다.
-- `claim` 은 잠금이 아니라 TTL 있는 표시다 — 다른 사람이 유효한 claim 을 쥔 핀을 닫거나 강제로 다시 claim 하는 것을 서버가 막지 않는다. 협업은 §핀 소비 절차의 관례(claim 먼저·`⏳` 건너뛰기)에 기댄다.
-- `--git-pull` 은 `--ff-only` 만 한다 — 서버 체크아웃에 로컬 커밋이 있어 분기했으면 pull 을 건너뛰고(`skipped:diverged`) 지금 체크아웃으로 빌드한다. 리베이스·머지 커밋을 대신 만들지 않는다.
+## 서버 띄우기
+
+1. **포트를 확인한다(강제).** 확인 없이 바인딩하지 않는다.
+
+   ```bash
+   ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
+   ```
+
+   - 같은 `--manuscript` 의 이전 인스턴스면 그대로 쓴다. 새로 띄우지 않는다.
+   - `--port` 를 빼면 서버가 빈 포트를 골라 기동 로그에 찍는다.
+   - 내릴 때 `pkill -f pin_server.py` 금지. `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
+2. **실행한다.**
+
+   ```bash
+   uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
+     --manuscript <manuscript_dir> [--main <main>.tex] [--port <port>] [--git-pull]
+   ```
+
+   - `--git-pull`: 재빌드마다 업스트림을 `--ff-only` 로 당긴다. dirty·분기면 건너뛰고 빌드는 계속한다.
+   - 다른 인자·systemd 유닛·배포 사본은 [operations.md](references/operations.md).
+3. **노출한다 — Hard Rule.**
+
+| 항목 | 규칙 |
+| --- | --- |
+| 바인딩 | `127.0.0.1` 고정. `0.0.0.0` 금지. 바꾸는 플래그도 만들지 않는다 |
+| 외부 노출 | `tailscale serve` 만. `tailscale funnel` 금지(공인 인터넷 노출) |
+| 노출 보고 전 | 테일넷 안 `curl` 이 `200`, `tailscale serve status` 가 tailnet only |
+| Host·Origin 검사 | 낯선 `Host`·교차 출처 `Origin` 은 `403`. `--no-origin-check` 는 탈출구 전용 |
+| 인증 | 없다(테일넷이 경계). 막아야 하면 `--allow <login>,…` |
+| 종료 | `tailscale serve --https=<port> off` |
+
+## 자주 쓰는 API
+
+| 경로 | 뜻 |
+| --- | --- |
+| `GET /pins.md` | 에이전트용 핀 표(원격 진입점) |
+| `GET /api/pins` | 열린 핀 JSON(`rev` 포함). `?all=1` 이면 닫힌 핀까지 |
+| `POST /api/pins/{id}/claim` | 처리 중 표시. 본문 `{"ttl_min": 1..480}`(기본 120) |
+| `POST /api/pins/{id}/unclaim` | 처리 중 표시를 푼다 |
+| `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref"}` |
+| `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제) |
+| `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
+| `POST /api/pins/{id}/drop` | 잘못 찍은 핀을 뺀다(`/restore` 로 되살림) |
+| `POST /api/rebuild?async=1` | PDF 다시 만들기. 진행은 `GET /api/build` |
+| `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등) |
+
+## 참고 파일
+
+| 할 일 | 열 파일 |
+| --- | --- |
+| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
+| 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`references/build-sync.md`](references/build-sync.md) |
+| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 알려진 제약 | [`references/design.md`](references/design.md) |
+| 실행 인자 전체, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
 
 ## 연관 자산
 
-- [`latex-build-fix`](../latex-build-fix/SKILL.md) — SyncTeX 빌드가 실패할 때 먼저 여기로.
-- [`manuscript-revision`](../manuscript-revision/SKILL.md) — 핀을 닫으며 실제 원고를 고칠 때의 편집 규율.
-- [`agent-operations.md`](../../rules/agent-operations.md) §4.1 — 원격 세션에서 결과물을 도달 가능한 주소로 서빙하는 일반 원칙(이 skill은 그 원칙의 예외다 — 여기는 `127.0.0.1` + `tailscale serve` 조합을 고정한다. 이유: PDF 뷰어가 즉석 markup 상태를 담고 있어 임의 바인딩보다 테일넷 경계 하나로 통제하는 편이 안전하다).
+- [`manuscript-revision`](../manuscript-revision/SKILL.md) — 핀을 닫으며 원고를 고칠 때의 편집 규율.
+- [`agent-operations.md`](../../rules/agent-operations.md) §4.1 — 결과물 서빙 일반 원칙. 이 스킬은 그 예외로 `127.0.0.1` + `tailscale serve` 를 고정한다([operations.md](references/operations.md) §보안 제약).
