@@ -1186,6 +1186,16 @@ class PinsMdV2(Base):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("⊂#%d" % p1, md)
 
+    def test_close_guidance_shows_reply_ref_body(self):
+        # 결함: pins.md 의 닫기 안내가 본문 없는 curl 만 보여줘, 이 파일 하나만 읽는 에이전트는
+        # reply·ref 를 남기는 방법을 몰랐다(§닫을 때 사유 남기기, SKILL.md 와 동일한 형태여야 한다).
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("curl -X POST -H 'Content-Type: application/json'", md)
+        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"커밋/PR(≤80자)"}\'', md)
+        self.assertIn("http://127.0.0.1:%d/api/pins/N/close" % ps.C.port, md)
+        self.assertIn("본문 생략", md)   # 본문을 생략해도 되는 옛 방식이 여전히 된다는 안내
+
     def test_quote_shown_only_for_single_long_raw_line(self):
         long_line = "x" * 650
         f = self.src / "long.tex"
@@ -1210,8 +1220,8 @@ class PinsMdV2(Base):
         self.assertNotIn("…", ps.truncate_quote("짧음", 60))
         long = "x" * 90
         cut = ps.truncate_quote(long, 60)
-        self.assertEqual(cut, "x" * 60 + "…")
-        self.assertEqual(len(cut), 61)
+        self.assertEqual(cut, "x" * 59 + "…")
+        self.assertEqual(len(cut), 60)   # 결함: 61자(60자+…)가 됐었다 — 설계는 ≤60자
         self.assertEqual(ps.truncate_quote("x" * 60, 60), "x" * 60)   # 정확히 경계면 안 붙는다
 
     def test_quote_truncated_with_ellipsis_in_pins_md(self):
@@ -1222,7 +1232,7 @@ class PinsMdV2(Base):
         pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
                           "quote": "가" * 90}, dict(ps.LOCAL_ACTOR))
         stored = self.pin(pid)["quote"]
-        self.assertEqual(stored, "가" * 60 + "…")
+        self.assertEqual(stored, "가" * 59 + "…")
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("«" + stored + "»", md)   # render_quote 가 이미 …가 붙은 값을 다시 자르지 않는다
 
@@ -1627,7 +1637,10 @@ class FrontendLogic(unittest.TestCase):
             const TOASTS=[]; const RESTORED=[];
             function toast(msg,kind,action){TOASTS.push({msg,kind,hasAction:!!action});}
             function restorePin(id){RESTORED.push(id);}
+            const MY_ACTIONS=new Map();
             """,
+            extract_js_fn("markMine"),
+            extract_js_fn("consumeMine"),
             extract_js_fn("diffToast"),
             r"""
             const prev=[{id:1},{id:2},{id:3}];
@@ -1656,7 +1669,10 @@ class FrontendLogic(unittest.TestCase):
             let CAPTURED=null; const RESTORED=[];
             function toast(msg,kind,action){if(action)CAPTURED=action;}
             function restorePin(id){RESTORED.push(id);}
+            const MY_ACTIONS=new Map();
             """,
+            extract_js_fn("markMine"),
+            extract_js_fn("consumeMine"),
             extract_js_fn("diffToast"),
             r"""
             diffToast([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
@@ -1672,7 +1688,10 @@ class FrontendLogic(unittest.TestCase):
             function who(a){return (a&&(a.name||a.login))||'';}
             const TOASTS=[]; function toast(msg,kind,action){TOASTS.push(msg);}
             function restorePin(id){}
+            const MY_ACTIONS=new Map();
             """,
+            extract_js_fn("markMine"),
+            extract_js_fn("consumeMine"),
             extract_js_fn("diffToast"),
             r"""
             diffToast([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
@@ -1683,6 +1702,36 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertIn("#5 을", out[0])
         self.assertIn("삭제함", out[0])
+
+    def test_diff_toast_suppresses_own_recent_action_but_not_others(self):
+        # 결함: 자기 탭이 방금 닫거나 지운 핀도 markMine 없이 diffToast 를 그대로 타 로컬 토스트와
+        # 겹쳐 두 번 떴다. markMine(id) 로 표시해 둔 id 는 한 번만 삼키고, 표시 안 된(=다른 탭이 한)
+        # id 는 그대로 알려야 한다.
+        js = "\n".join([
+            r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(msg,kind,action){TOASTS.push(msg);}
+            function restorePin(id){}
+            const MY_ACTIONS=new Map();
+            """,
+            extract_js_fn("markMine"),
+            extract_js_fn("consumeMine"),
+            extract_js_fn("diffToast"),
+            r"""
+            markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
+            const prev=[{id:1},{id:2},{id:3},{id:4}];
+            const d=[{id:1,done:true},{id:3,done:true}];   // #2,#4 는 d 에 없음=삭제
+            const dropped=[{id:2,dropped_by:{login:'me'}},{id:4,dropped_by:{name:'Coauthor'}}];
+            diffToast(prev,d,dropped);
+            console.log(JSON.stringify(TOASTS));
+            """,
+        ])
+        out = json.loads(run_node(js))
+        joined = " | ".join(out)
+        self.assertNotIn("#1", joined)                 # 자기 동작 — 억제됨
+        self.assertNotIn("#2", joined)                  # 자기 동작 — 억제됨
+        self.assertIn("#3 이 완료되었습니다", joined)     # 다른 탭이 완료 — 그대로 뜸
+        self.assertTrue(any("#4" in t and "삭제함" in t and "Coauthor" in t for t in out))  # 다른 탭이 삭제 — 그대로 뜸
 
 
 # ---------------------------------------------------------------- 프런트엔드 구조(소스 문자열 검사)
@@ -1709,11 +1758,21 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("clearInterval(BUILD_TIMER)", body)
 
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
-        m = re.search(r"async function pollLight\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1).replace(" ", "")
         self.assertIn("d.build&&d.build.state==='running'", body)
         self.assertIn("d.build_seq!==LAST_BUILD_SEQ", body)
         self.assertIn("pollBuild()", body)
+
+    def test_light_poll_is_single_flight(self):
+        # 결함: visibilitychange 와 focus 가 겹치면 pollLight() 가 매번 새로 /api/meta·loadPins 를
+        # 불러 loadPins 가 최대 3 회 나갔다. pollBuild 와 같은 단일 비행 패턴이어야 한다.
+        m = re.search(r"\nfunction pollLight\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1).replace(" ", "")
+        self.assertIn("if(document.hidden)returnPromise.resolve()", body)
+        self.assertIn("if(LIGHT_INFLIGHT)returnLIGHT_INFLIGHT", body)
+        self.assertIn("LIGHT_INFLIGHT=pollLightOnce()", body)
 
     def test_build_err_reopen_affordance_exists(self):
         self.assertIn('id="build-err-chip"', ps.HTML)

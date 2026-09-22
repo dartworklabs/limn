@@ -780,12 +780,13 @@ def norm(line: str) -> str:
 
 
 def truncate_quote(s, n: int = 60) -> str:
-    """인용문을 n 자로 자르고, 실제로 잘렸으면 말줄임표를 붙인다(«…» 예시와 맞춘다).
+    """인용문을 최대 n 자(말줄임표 포함)로 자른다(«…» 예시와 맞춘다).
 
     잘린 인용문이 온전한 문장처럼 보이면 원문을 다시 찾을 때 헷갈린다 — 잘렸다는 표시가 있어야
-    사용자·에이전트가 이걸 '전체'가 아니라 '검색 힌트'로 읽는다."""
+    사용자·에이전트가 이걸 '전체'가 아니라 '검색 힌트'로 읽는다. 잘렸을 때 본문 n-1자 뒤에
+    말줄임표를 붙이므로 결과는 항상 n자 이하다(n자+말줄임표로 n+1자가 되지 않게)."""
     s = str(s)
-    return s[:n] + "…" if len(s) > n else s
+    return s[:n - 1] + "…" if len(s) > n else s
 
 
 def is_comment(line: str) -> bool:
@@ -2021,7 +2022,9 @@ def pins_md_text(rows: list) -> str:
            "갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
            (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done),
            "",
-           "처리한 핀은 닫는다 — `curl -s -X POST http://127.0.0.1:%d/api/pins/N/close` · "
+           "처리한 핀은 닫는다 — `curl -X POST -H 'Content-Type: application/json' "
+           "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"커밋/PR(≤80자)\"}' "
+           "http://127.0.0.1:%d/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘) · "
            "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % C.port]
     if any_symbol:
         out.append(LEGEND)
@@ -2615,9 +2618,16 @@ function drawMeta(){
 }
 
 // ------------------------------------------------ 자동 동기화(P0b-02) — 가벼운 meta 폴링
-let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null;
-async function pollLight(){
-  if(document.hidden)return;         // 탭이 숨으면 요청 자체를 보내지 않는다
+let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_INFLIGHT=null;
+// 단일 비행: pollBuild 와 같은 패턴 — visibilitychange·focus·5초 타이머가 겹쳐 불러도(예: 탭 전환과
+// 동시에 포커스가 돌아오면) /api/meta·loadPins 는 한 번만 나간다(결함 실측: 겹치면 loadPins 3회).
+function pollLight(){
+  if(document.hidden)return Promise.resolve();   // 탭이 숨으면 요청 자체를 보내지 않는다
+  if(LIGHT_INFLIGHT)return LIGHT_INFLIGHT;
+  LIGHT_INFLIGHT=pollLightOnce().finally(()=>{LIGHT_INFLIGHT=null;});
+  return LIGHT_INFLIGHT;
+}
+async function pollLightOnce(){
   let d;
   try{d=(await api('/api/meta?light=1',{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
@@ -2637,6 +2647,14 @@ function startLightPolling(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
   window.addEventListener('focus',()=>pollLight());
 }
+// 자기 탭이 방금 한 close/drop/reopen/restore 는 로컬 토스트를 이미 띄웠으니 다음 loadPins() 의
+// diffToast 에서 같은 전환을 또 알리지 않는다 — markMine(id) 직후 첫 diffToast 판정 한 번만 삼키고
+// (consumeMine 이 확인 즉시 지운다) 10초가 지나도록 그 판정이 안 왔으면(예: 응답 유실) 포기하고
+// 이후 값은 정상적으로 알린다. 다른 탭이 한 동작은 이 맵에 없으므로 그대로 뜬다.
+const MY_ACTIONS=new Map();
+function markMine(id){MY_ACTIONS.set(id,Date.now()+10000);}
+function consumeMine(id){const until=MY_ACTIONS.get(id); if(until===undefined)return false;
+  MY_ACTIONS.delete(id); return Date.now()<=until;}
 function diffToast(prev,d,dropped){
   // prev 는 직전에 이 탭이 본 '열린 핀'만이다(PINS 는 done 을 담지 않는다). d 는 이번 GET 의 열린+닫힌
   // 핀(all=1) 전부다 — prev 에 있던 id 가 d 에도 있는데 done=true 면 완료된 것이고, d 에 아예 없으면
@@ -2647,7 +2665,9 @@ function diffToast(prev,d,dropped){
   const known=new Map((d||[]).map(p=>[p.id,p]));
   const dropById=new Map((dropped||[]).map(p=>[p.id,p]));
   const closed=[],droppedIds=[];
-  byId.forEach((_,id)=>{const n=known.get(id); if(n&&n.done)closed.push(id); else if(!n)droppedIds.push(id);});
+  byId.forEach((_,id)=>{const n=known.get(id);
+    if(n&&n.done){if(!consumeMine(id))closed.push(id);}
+    else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
   if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
     toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
@@ -3048,14 +3068,14 @@ $('#pins').addEventListener('mouseout',e=>{const c=e.target.closest('.pin'); if(
   markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.remove('hi');});});
 async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
   if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
-  else toast('핀 #'+id+' 완료','ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}catch(e){} await loadPins();}
+  else {markMine(id); toast('핀 #'+id+' 완료','ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}}catch(e){} await loadPins();}
 async function reopenPin(id,undo){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
-  toast(undo?'핀 #'+id+' 완료를 되돌렸습니다':'핀 #'+id+' 다시 열림','ok');}catch(e){} await loadPins();}
+  markMine(id); toast(undo?'핀 #'+id+' 완료를 되돌렸습니다':'핀 #'+id+' 다시 열림','ok');}catch(e){} await loadPins();}
 async function dropPin(id,undoSave){try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
   if(EDIT&&EDIT.id===id)EDIT=null;
-  toast(undoSave?'핀 #'+id+' 저장을 되돌렸습니다':'핀 #'+id+' 삭제됨','ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
+  markMine(id); toast(undoSave?'핀 #'+id+' 저장을 되돌렸습니다':'핀 #'+id+' 삭제됨','ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
 async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기'});
-  toast('핀 #'+id+' 되살림','ok');}catch(e){} await loadPins();}
+  markMine(id); toast('핀 #'+id+' 되살림','ok');}catch(e){} await loadPins();}
 
 // ------------------------------------------------ 편집
 function openEdit(id){const p=PINS.find(x=>x.id===id); if(!p)return;
