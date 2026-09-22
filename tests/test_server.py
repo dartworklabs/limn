@@ -106,8 +106,9 @@ class Base(unittest.TestCase):
         C.envs = tuple(ps.DEFAULT_ENVS.split(","))
         C.allow = frozenset()
         C.origin_check = True
+        C.git_pull = False
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
-                              finished_at=None, last=None, errors=[], log_tail="")
+                              finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
         ps.init_seq()
 
     def tearDown(self):
@@ -1537,7 +1538,8 @@ class FrontendLogic(unittest.TestCase):
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
             """,
-            extract_js_fn("buildChipText"), extract_js_fn("pollBuild"), extract_js_fn("pollBuildOnce"),
+            extract_js_fn("buildChipText"), extract_js_fn("pullSuffix"), extract_js_fn("pollBuild"),
+            extract_js_fn("pollBuildOnce"),
             r"""
             (async()=>{
               const out={};
@@ -1844,6 +1846,506 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn('"reply"', skill)
         self.assertIn('"ref"', skill)
         self.assertIn("/close", skill)
+
+
+# ---------------------------------------------------------------- §P0c-B: GET /pins.md — 원격 에이전트 진입점
+
+class RemotePinsMd(Base):
+    def test_loopback_host_uses_loopback_base(self):
+        self.add()
+        out = self.talk(req("GET", "/pins.md"))
+        self.assertIn(b" 200 ", out)
+        self.assertIn(b"text/markdown", out)
+        body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
+        self.assertIn("http://127.0.0.1:18999/api/pins/N/close", body)
+        self.assertNotIn("원격:", body)
+
+    def test_tailnet_host_rewrites_base_to_https_host_verbatim(self):
+        self.add()
+        out = self.talk(req("GET", "/pins.md", headers={"Host": "x.tail1234.ts.net:18004"}))
+        self.assertIn(b" 200 ", out)
+        body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
+        self.assertIn("https://x.tail1234.ts.net:18004/api/pins/N/close", body)
+        self.assertIn("원격: `curl -s https://x.tail1234.ts.net:18004/pins.md`", body)
+
+    def test_disk_pins_md_always_uses_loopback_base(self):
+        self.add()
+        self.talk(req("GET", "/pins.md", headers={"Host": "x.tail1234.ts.net:18004"}))
+        disk = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("http://127.0.0.1:18999", disk)
+        self.assertNotIn("x.tail1234.ts.net", disk)
+
+    def test_pins_md_endpoint_syncs_like_api_pins(self):
+        # GET /api/pins 와 같은 sync 경로를 타야 한다 — 원고를 고쳐 줄이 밀렸으면 반영돼야 한다.
+        pid = self.add(lo=7, hi=7, note="n")
+        self.main.write_text("\n" + TEX, encoding="utf-8")   # 앞에 빈 줄 하나 — 전부 한 줄씩 밀린다
+        out = self.talk(req("GET", "/pins.md"))
+        body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
+        self.assertIn("L8-L8", body)
+        self.assertEqual(self.pin(pid)["lo"], 8)
+
+    def test_pins_md_endpoint_respects_origin_check(self):
+        out = self.talk(req("GET", "/pins.md", headers={"Host": "evil.example"}))
+        self.assertIn(b" 403 ", out)
+
+
+# ---------------------------------------------------------------- §P0c-C: 처리 중 표시(claim)
+
+class Claim(Base):
+    def test_claim_sets_fields_and_bumps_rev(self):
+        pid = self.add()
+        p = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Alice"})
+        self.assertEqual(p["rev"], 1)
+        self.assertTrue(ps.claim_active(self.pin(pid)))
+
+    def test_default_ttl_used_when_body_omits_it(self):
+        pid = self.add()
+        before = time.time()
+        p = ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), ps.clean_claim_ttl({}))
+        self.assertAlmostEqual(p["claim_until"], before + ps.CLAIM_TTL_DEFAULT * 60, delta=5)
+
+    def test_claim_conflict_from_other_identity_is_409(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)
+        self.assertEqual(cm.exception.code, 409)
+        self.assertEqual(cm.exception.body["claimed_by"]["login"], "alice@x.com")
+        self.assertIn("claim_until", cm.exception.body)
+
+    def test_claim_same_identity_extends(self):
+        pid = self.add()
+        first = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 5)
+        second = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 200)
+        self.assertGreater(second["claim_until"], first["claim_until"])
+        self.assertEqual(second["rev"], first["rev"] + 1)
+
+    def test_claim_on_closed_pin_is_409_done(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        self.assertEqual(cm.exception.code, 409)
+        self.assertEqual(cm.exception.body["error"], "done")
+
+    def test_claim_missing_pin_id_returns_none(self):
+        self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
+
+    def test_ttl_out_of_range_or_wrong_type_rejected(self):
+        for bad in (0, 481, "120", 12.5, True, None):
+            with self.assertRaises(ps.HTTPError):
+                ps.clean_claim_ttl({"ttl_min": bad})
+        self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
+        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
+        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 480}), 480)
+
+    def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid:
+                r["claim_until"] = time.time() - 10
+        ps.write_pins(rows)
+        self.assertFalse(ps.claim_active(self.pin(pid)))
+        p = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)
+        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+
+    def test_unclaim_clears_fields_regardless_of_requester(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        p = ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"})
+        self.assertNotIn("claimed_by", p)
+        self.assertNotIn("claimed_at", p)
+        self.assertNotIn("claim_until", p)
+
+    def test_unclaim_missing_pin_returns_none(self):
+        self.assertIsNone(ps.unclaim_pin(999, dict(ps.LOCAL_ACTOR)))
+
+    def test_close_clears_claim(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
+        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        self.assertNotIn("claimed_by", p)
+
+    def test_drop_clears_claim_even_in_dropped_record(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
+        ps.drop_pin(pid, dict(ps.LOCAL_ACTOR))
+        dropped = ps.dropped_payload()
+        self.assertEqual(len(dropped), 1)
+        self.assertNotIn("claimed_by", dropped[0])
+
+    def test_pins_md_shows_hourglass_with_claimer_name_and_legend(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("⏳Coauthor Kim", md)
+        self.assertIn("처리 중(다른 에이전트가 잡음)", md)
+
+    def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("⏳로컬/에이전트", md)
+
+    def test_claim_fields_survive_jsonl_roundtrip(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        rows, bad = ps.read_jsonl(ps.C.pins_jsonl)
+        self.assertEqual(bad, [])
+        self.assertIn("claimed_by", ps.find_pin(rows, pid))
+
+    def test_http_claim_then_conflict_then_unclaim(self):
+        pid = self.add()
+        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@x.com", "Tailscale-User-Name": "Alice"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h1))
+        self.assertIn(b" 200 ", out)
+        h2 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "bob@x.com", "Tailscale-User-Name": "Bob"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h2))
+        self.assertIn(b" 409 ", out)
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(body["claimed_by"]["login"], "alice@x.com")
+        out = self.talk(req("POST", "/api/pins/%d/unclaim" % pid))
+        self.assertIn(b" 200 ", out)
+        self.assertFalse(ps.claim_active(self.pin(pid)))
+
+    def test_http_claim_bad_ttl_type_is_400(self):
+        pid = self.add()
+        body = json.dumps({"ttl_min": "soon"}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 400 ", out)
+
+    def test_http_claim_missing_pin_returns_ok_false(self):
+        out = self.talk(req("POST", "/api/pins/999/claim"))
+        self.assertIn(b" 200 ", out)
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertFalse(body["ok"])
+
+
+# ---------------------------------------------------------------- §P0c-D: 기준 커밋·빌드를 pins.md 머리에
+
+class BuildHeadInPinsMd(Base):
+    def test_head_line_present_when_head_and_built_at_known(self):
+        (ps.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("기준: abc1234 · 빌드 2026-09-22 10:00:00", md)
+        self.assertIn("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인", md)
+
+    def test_head_line_omitted_when_files_missing(self):
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기준:", md)
+        self.assertNotIn("다른 체크아웃에서", md)
+
+    def test_head_line_omitted_for_dash_placeholder(self):
+        # _build() 는 git 저장소가 아니면 head.txt 에 '-' 를 쓴다 — 그때는 '기준' 을 보여줄 게 없다.
+        (ps.C.state / "head.txt").write_text("-", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기준:", md)
+
+    def test_head_block_adds_at_most_two_lines(self):
+        without = ps.pins_md_text([]).splitlines()
+        (ps.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        withit = ps.pins_md_text([]).splitlines()
+        self.assertLessEqual(len(withit) - len(without), 2)
+
+
+# ---------------------------------------------------------------- §P0c-E: --git-pull
+
+class GitPull(unittest.TestCase):
+    """git_pull_phase() 를 임시 bare 저장소 + 클론으로 검증한다 — 실제 원고 저장소는 쓰지 않는다."""
+
+    def setUp(self):
+        if not shutil.which("git"):
+            self.skipTest("git 없음")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.bare = self.root / "upstream.git"
+        self._run(["git", "init", "--quiet", "--bare", str(self.bare)], self.root)
+        seed = self.root / "_seed"
+        self._run(["git", "clone", "--quiet", str(self.bare), str(seed)], self.root)
+        self._configure(seed)
+        self._run(["git", "checkout", "--quiet", "-b", "main"], seed)
+        (seed / "f.txt").write_text("seed\n", encoding="utf-8")
+        self._run(["git", "add", "-A"], seed)
+        self._run(["git", "commit", "--quiet", "-m", "seed"], seed)
+        self._run(["git", "push", "--quiet", "-u", "origin", "main"], seed)
+        self._run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], self.bare)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, args, cwd):
+        r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise AssertionError("%s 실패:\n%s%s" % (args, r.stdout, r.stderr))
+        return r.stdout
+
+    def _configure(self, d):
+        self._run(["git", "config", "user.email", "t@example.com"], d)
+        self._run(["git", "config", "user.name", "T"], d)
+
+    def _clone(self, name):
+        d = self.root / name
+        self._run(["git", "clone", "--quiet", str(self.bare), str(d)], self.root)
+        self._configure(d)
+        return d
+
+    def test_state_not_git(self):
+        plain = self.root / "plain"
+        plain.mkdir()
+        r = ps.git_pull_phase(plain)
+        self.assertEqual(r, {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
+
+    def test_state_ok_when_upstream_advanced(self):
+        d = self._clone("c1")
+        other = self._clone("c2")
+        (other / "f.txt").write_text("new\n", encoding="utf-8")
+        self._run(["git", "add", "-A"], other)
+        self._run(["git", "commit", "--quiet", "-m", "more"], other)
+        self._run(["git", "push", "--quiet"], other)
+        r = ps.git_pull_phase(d)
+        self.assertEqual(r["state"], "ok")
+        self.assertIsNotNone(r["head_before"])
+        self.assertIsNotNone(r["head_after"])
+        self.assertNotEqual(r["head_before"], r["head_after"])
+
+    def test_state_up_to_date_when_no_new_commits(self):
+        d = self._clone("c3")
+        r = ps.git_pull_phase(d)
+        self.assertEqual(r["state"], "up_to_date")
+        self.assertEqual(r["head_before"], r["head_after"])
+        self.assertIsNotNone(r["head_before"])
+
+    def test_state_skipped_dirty(self):
+        d = self._clone("c4")
+        (d / "f.txt").write_text("locally modified\n", encoding="utf-8")
+        r = ps.git_pull_phase(d)
+        self.assertEqual(r["state"], "skipped")
+        self.assertEqual(r["reason"], "dirty")
+
+    def test_state_skipped_diverged(self):
+        d = self._clone("c5")
+        (d / "f.txt").write_text("local change\n", encoding="utf-8")
+        self._run(["git", "add", "-A"], d)
+        self._run(["git", "commit", "--quiet", "-m", "local-only"], d)
+        other = self._clone("c6")
+        (other / "g.txt").write_text("remote change\n", encoding="utf-8")
+        self._run(["git", "add", "-A"], other)
+        self._run(["git", "commit", "--quiet", "-m", "remote-only"], other)
+        self._run(["git", "push", "--quiet"], other)
+        r = ps.git_pull_phase(d)
+        self.assertEqual(r["state"], "skipped")
+        self.assertEqual(r["reason"], "diverged")
+
+    def test_state_skipped_no_upstream(self):
+        d = self._clone("c7")
+        self._run(["git", "checkout", "--quiet", "-b", "untracked"], d)
+        r = ps.git_pull_phase(d)
+        self.assertEqual(r["state"], "skipped")
+        self.assertEqual(r["reason"], "no_upstream")
+
+    def test_repo_root_found_from_subdirectory(self):
+        d = self._clone("c8")
+        sub = d / "manuscript" / "1st"
+        sub.mkdir(parents=True)
+        r = ps.git_pull_phase(sub)
+        self.assertEqual(r["state"], "up_to_date")
+
+    def test_no_shell_no_user_input_in_argv(self):
+        # 보안: subprocess.run 이 리스트 인자로 돈다(쉘 없음) — _git() 의 시그니처 자체가 그 계약이다.
+        import inspect
+        src = inspect.getsource(ps._git)
+        self.assertIn("subprocess.run([\"git\"]", src)
+        self.assertNotIn("shell=True", src)
+
+
+class GitPullBuildIntegration(Base):
+    def test_pull_result_surfaces_in_build_response_and_state(self):
+        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm 없음")
+        ps.C.git_pull = True
+        res = ps.build_all()
+        self.assertEqual(res["state"], "ok")
+        # Base.setUp() 의 임시 원고는 git 저장소가 아니다 — not_git 이 실제로 타는지 확인한다.
+        self.assertEqual(res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
+        self.assertEqual(res.get("head"), ps.C.state.joinpath("head.txt").read_text().strip())
+        snap = ps.build_state_snapshot()
+        self.assertEqual(snap.get("pull"), res["pull"])
+        self.assertEqual(snap.get("head"), res["head"])
+
+    def test_pull_absent_when_flag_off(self):
+        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm 없음")
+        ps.C.git_pull = False
+        res = ps.build_all()
+        self.assertNotIn("pull", res)
+
+
+# ---------------------------------------------------------------- §P0c-F: 에이전트 응답 다이어트
+
+class ResponseDiet(unittest.TestCase):
+    def test_ok_drops_log_and_log_tail(self):
+        out = ps.diet_log({"state": "ok", "log": "x" * 5000, "log_tail": "y" * 10, "pages": 3}, full=False)
+        self.assertNotIn("log", out)
+        self.assertNotIn("log_tail", out)
+        self.assertEqual(out["pages"], 3)
+
+    def test_ok_errors_trims_log_tail_to_40_lines(self):
+        big = "\n".join("line%d" % i for i in range(100))
+        out = ps.diet_log({"state": "ok_errors", "log_tail": big}, full=False)
+        self.assertEqual(out["log_tail"].splitlines(), big.splitlines()[-40:])
+
+    def test_fail_trims_log_to_40_lines(self):
+        big = "\n".join(str(i) for i in range(60))
+        out = ps.diet_log({"state": "fail", "log": big}, full=False)
+        self.assertEqual(len(out["log"].splitlines()), 40)
+        self.assertEqual(out["log"].splitlines(), big.splitlines()[-40:])
+
+    def test_full_flag_bypasses_diet_entirely(self):
+        payload = {"state": "ok", "log": "keep-me-fully"}
+        out = ps.diet_log(payload, full=True)
+        self.assertEqual(out, payload)
+
+    def test_existing_fields_are_kept(self):
+        out = ps.diet_log({"ok": True, "state": "ok", "errors": [], "elapsed_s": 1.2, "pages": 2,
+                           "head": "abc1234", "log": "x"}, full=False)
+        for k in ("ok", "state", "errors", "elapsed_s", "pages", "head"):
+            self.assertIn(k, out)
+
+
+class RebuildLogDiet(Base):
+    def tearDown(self):
+        if ps.BUILD_LOCK.locked():
+            ps.BUILD_LOCK.release()
+        super().tearDown()
+
+    def test_sync_rebuild_ok_omits_log(self):
+        def fake_build():
+            return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200,
+                    "elapsed_s": 0.01, "pages": 1, "head": "abc1234"}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            out = self.talk(req("POST", "/api/rebuild"))
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertNotIn("log", body)
+        self.assertEqual(body["state"], "ok")
+        self.assertEqual(body["head"], "abc1234")
+
+    def test_sync_rebuild_ok_errors_trims_log_to_40_lines(self):
+        def fake_build():
+            return {"ok": True, "state": "ok_errors", "errors": [{"line": 1, "msg": "x"}],
+                    "log": "\n".join("l%d" % i for i in range(200)), "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            out = self.talk(req("POST", "/api/rebuild"))
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(len(body["log"].splitlines()), 40)
+
+    def test_sync_rebuild_log1_query_bypasses_diet(self):
+        def fake_build():
+            return {"ok": True, "state": "ok", "errors": [], "log": "keep-full", "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            out = self.talk(req("POST", "/api/rebuild?log=1"))
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(body["log"], "keep-full")
+
+    def test_get_api_build_applies_same_diet_and_log1_bypasses(self):
+        def fake_build():
+            return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200,
+                    "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all()
+        out = self.talk(req("GET", "/api/build"))
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertNotIn("log_tail", body)
+        out = self.talk(req("GET", "/api/build?log=1"))
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertIn("log_tail", body)
+
+    def test_rebuild_response_shrinks_on_success(self):
+        # 라이브 실측과 같은 축(§검증) — mock 으로 같은 결론을 빠르게 확인한다.
+        big_log = "font path\n" * 300
+
+        def fake_build_before():
+            return {"ok": True, "state": "ok", "errors": [], "log": big_log, "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build_before):
+            before = self.talk(req("POST", "/api/rebuild?log=1"))
+            after = self.talk(req("POST", "/api/rebuild"))
+        self.assertGreater(len(before), len(after))
+
+
+# ---------------------------------------------------------------- §P0c-G: 작성자 표시(필요할 때만)
+
+class AuthorPrefixInPinsMd(Base):
+    def test_single_author_has_no_prefix(self):
+        self.add(note="n", actor={"login": "alice@x.com", "name": "Alice"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("@Alice:", md)
+
+    def test_multiple_authors_get_prefix(self):
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("@Alice: n1", md)
+        self.assertIn("@Bob: n2", md)
+
+    def test_same_author_twice_does_not_trigger_prefix(self):
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
+        self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Alice"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("@Alice:", md)
+
+    def test_legacy_pin_without_author_counts_as_one_group(self):
+        pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
+                          dict(ps.LOCAL_ACTOR))
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid1:
+                r.pop("author", None)
+        ps.write_pins(rows)
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("@Bob: n2", md)
+        self.assertNotIn("@None", md)
+        self.assertIn("legacy", md)
+
+    def test_closed_pins_excluded_from_author_count(self):
+        # 닫힌 핀의 작성자는 열린 표에 안 보이니 카운트에서도 빠져야 한다(열린 핀 기준 판정).
+        pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("@Bob:", md)
+
+
+# ---------------------------------------------------------------- 뷰어 구조 — claim UI·log=1
+
+class FrontendClaimUI(unittest.TestCase):
+    def test_claim_badge_and_unclaim_button_wired(self):
+        self.assertIn("function claimActive(", ps.HTML)
+        self.assertIn("function claimLabel(", ps.HTML)
+        self.assertIn('data-act="unclaim"', ps.HTML)
+        self.assertIn("case 'unclaim':unclaimPin(id)", ps.HTML)
+        self.assertIn("function unclaimPin(", ps.HTML)
+        self.assertIn("/api/pins/'+id+'/unclaim'", ps.HTML)
+
+    def test_no_claim_button_offered_to_viewer(self):
+        # 뷰어는 claim 을 걸지 않는다(에이전트 전용) — 'claim' 액션 버튼이 없어야 한다.
+        self.assertNotIn('data-act="claim"', ps.HTML)
+
+    def test_build_status_fetch_requests_full_log(self):
+        self.assertIn("/api/build?log=1", ps.HTML)
+
+    def test_pull_chip_and_toast_wiring(self):
+        self.assertIn("원격 main 당겨오는 중", ps.HTML)
+        self.assertIn("function pullSuffix(", ps.HTML)
+        self.assertIn("pullSuffix(b)", ps.HTML)
 
 
 if __name__ == "__main__":
