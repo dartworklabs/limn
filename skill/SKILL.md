@@ -114,19 +114,20 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 요청 경계(§보안 제약과 함께 본다):
 
 - 서버는 **어떤 응답보다 먼저 본문을 Content-Length 만큼 끝까지 읽고**, 오류(`4xx`/`5xx`) 뒤에는 연결을 닫는다. `Transfer-Encoding` 요청은 `400`. 본문이 Content-Length 보다 짧게 끊기면 `400` 이고 동작하지 않는다(`/api/clear` 포함). 읽지 않은 본문이 같은 keep-alive 연결의 다음 요청으로 해석되면 `--allow` 와 작성자 기록을 우회하기 때문이다 — tailscale serve 는 백엔드 연결을 재사용한다.
-- 교차 출처 요청: `Origin` 이 있으면 이 서버 자신(`http://127.0.0.1:<port>`·`localhost:<port>`, **포트까지 일치**) 또는 Host 와 같은 `*.ts.net` 이어야 한다(아니면 `403`). **모든 요청**의 `Host` 는 루프백 이름(`127.0.0.1`·`localhost`·`::1`, **포트는 안 본다**) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 핀 메모·원고 스니펫이 새지 않게. `Tailscale-User-*` 헤더가 있어도 면제하지 않는다: rebinding 페이지는 같은 출처 GET 에 그 헤더를 preflight 없이 실을 수 있다. tailscale serve 는 원래 `Host`(`<기기>.<tailnet>.ts.net`)를 보존해 넘기므로 정상 테일넷 요청은 통과한다. 첫 배포 때 공저자 브라우저에서 저장이 `403`("허용되지 않은 Host"/"다른 출처")이면 그 메시지의 값을 기록하고 `--no-origin-check` 로 임시 우회한다.
-  - Host 는 왜 포트를 안 보는가: SSH `-L 9000:127.0.0.1:<port>` 로 다른 로컬 포트에 포워딩하면 브라우저가 보내는 `Host` 는 `localhost:9000`처럼 포워딩 쪽 포트가 된다. 여기서 포트까지 요구하면 이런 요청이 전부 `403` 이었다. Host 이름 자체(루프백 이름인가)는 DNS rebinding 방어의 핵심이고 포트와 무관하므로, 포트를 빼도 그 방어는 약해지지 않는다 — rebinding 공격의 `Host` 는 애초에 루프백 이름이 아니라 공격자 도메인이다. 교차 출처 방어는 포트까지 보는 `Origin` 검사가 그대로 맡는다.
+- 교차 출처 요청: `Origin` 이 있으면 **Host 종류로 갈라** 검사한다(아니면 `403`). Host 가 루프백이면 Origin 도 루프백 이름(`127.0.0.1`·`localhost`·`::1`)이어야 하고 **포트는 보지 않는다**(SSH `-L` 뒤에서는 Origin·Host 포트가 서버 포트와 다르다 — 실측: 포워더 18110→18106 에서 `/api/pick`·`/api/pin`·`/close` 가 200). 루프백 Host 에 `*.ts.net` Origin 은 받지 않는다 — tailscale serve 는 Host 를 보존하므로 정상 경로가 아니고, 받으면 다른 tailnet 의 Funnel 공개 페이지가 로컬 사용자 브라우저로 `close`·`clear` 같은 본문 없는 POST 를 preflight 없이 보낸다(실측: 고치기 전 200, 지금 403). Host 가 `*.ts.net` 이면 Origin 은 그 호스트와 이름·포트가 같아야 한다(생략 포트는 scheme 기본값으로 정규화 — `https://h.ts.net` = `https://h.ts.net:443`). **모든 요청**의 `Host` 는 루프백 이름(`127.0.0.1`·`localhost`·`::1`, **포트는 안 본다**) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 핀 메모·원고 스니펫이 새지 않게. `Tailscale-User-*` 헤더가 있어도 면제하지 않는다: rebinding 페이지는 같은 출처 GET 에 그 헤더를 preflight 없이 실을 수 있다. tailscale serve 는 원래 `Host`(`<기기>.<tailnet>.ts.net`)를 보존해 넘기므로 정상 테일넷 요청은 통과한다. 첫 배포 때 공저자 브라우저에서 저장이 `403`("허용되지 않은 Host"/"다른 출처")이면 그 메시지의 값을 기록하고 `--no-origin-check` 로 임시 우회한다.
+  - Host 는 왜 포트를 안 보는가: SSH `-L 9000:127.0.0.1:<port>` 로 다른 로컬 포트에 포워딩하면 브라우저가 보내는 `Host` 는 `localhost:9000`처럼 포워딩 쪽 포트가 된다. 여기서 포트까지 요구하면 이런 요청이 전부 `403` 이었다. Host 이름 자체(루프백 이름인가)는 DNS rebinding 방어의 핵심이고 포트와 무관하므로, 포트를 빼도 그 방어는 약해지지 않는다 — rebinding 공격의 `Host` 는 애초에 루프백 이름이 아니라 공격자 도메인이다. 교차 출처 방어는 `Origin` 검사가 맡는다. 알려진 한계: 루프백 Origin 의 포트를 보지 않으므로, 같은 기기의 다른 로컬 웹앱(`http://localhost:3000`)이 사용자 브라우저로 보내는 POST 는 막지 못한다 — SSH `-L` 지원과 맞바꾼 선택이다.
 - 소켓 타임아웃 30초 — 본문을 보내다 멈춘 연결과 유휴 keep-alive 가 닫힌다(재빌드처럼 오래 걸리는 처리 자체와는 무관).
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`pins_rev`(§자동 동기화), `build:{state,phase}`(§비동기 재빌드) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(§자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(§비동기 재빌드) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. §자동 동기화 |
-| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"copy\|latex\|render"\|null, started_at, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at}` — §비동기 재빌드 |
-| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀, 계산 필드라 저장하지 않음) 이 채워진다. `?all=1` 이면 닫힌 핀까지 |
+| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at}` — §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`)는 `builds.json` 에서 되살린다 |
+| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`, 선택 `pdf_build` = 드래그할 때 화면의 빌드 id — 그 빌드의 PDF 로 되짚는다. 이미 지워진 빌드면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 사다리도. 원고 트리 밖이거나 범위가 틀리면 `400` |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote` |
+| `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}` — 뷰어는 쓰지 않고(§겹친 핀) 에이전트·옛 뷰어 호환용으로 남긴다 |
+| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — 아래 §핀 수정 |
 | `POST` | `/api/pins/{id}/close` | 핀 1건을 처리 완료로 표시(`done: true`, `closed_by`). 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §<state_dir>/pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다) |
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`) → `{ok, pin}` |
@@ -143,7 +144,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 ```
 
 - `base_rev` 는 필수다 — 수정하려는 핀을 읽을 때 받은 `rev`. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`/`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 최신 `pin` 을 보고 다시 보낸다.
-- 위치를 통째로 바꿀 때는 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope}` 를 보낸다(위치 다시 잡기). 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 두고, `kind` 가 없으면 `lines` 가 된다(나머지 위치 필드는 지워진다). id·메모·작성자는 그대로다.
+- 위치를 통째로 바꿀 때는 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build}` 를 보낸다(위치 다시 잡기). `pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다(없으면 pick 응답 값, 그것도 없으면 지금 빌드). 메모·`note_append`·`lo`/`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 두고, `kind` 가 없으면 `lines` 가 된다(나머지 위치 필드는 지워진다). id·메모·작성자는 그대로다.
 - 범위가 바뀌면 `anchor` 를 새로 떠고 `stale`/`sync` 를 지운다 — `stale` 핀도 이 경로로 고친다.
 - 닫힌 핀은 메모만 고칠 수 있다. 범위·위치를 보내면 `409 {"error":"done"}`.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
@@ -154,23 +155,38 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 같은 파일의 열린 핀 두 개가 겹치면(한쪽이 다른 쪽 범위 안에 들거나 일부만 겹치면) `GET /api/pins`·`POST /api/pick` 응답에 계산 필드 `rel`/`overlaps` 가 붙는다 — **저장하지 않는다**, 요청마다 다시 계산한다.
 
 - `rel: [{"id", "rel": "inside"|"contains"|"partial"}]` — 그 핀을 기준으로 다른 핀과의 관계(저장된 핀끼리). 범위가 완전히 같으면 id 가 작은 쪽을 `contains`(바깥)로 본다.
-- `overlaps`(pick 응답만): `[{"id","lo","hi","rel"}]` — 지금 고른(아직 저장 전) 범위가 기존 열린 핀들과 겹치는 관계. 지금 고른 범위가 **이미 저장된 핀과 완전히 같으면** 항상 `inside`(저장된 쪽을 바깥으로 본다) — 아직 저장 전인 선택엔 id 가 없어 `rel` 위의 "id 작은 쪽" 규칙을 쓸 수 없고, 같은 문단·환경을 그대로 다시 드래그하는 가장 흔한 중복을 여기서 잡아야 하기 때문이다. 이 판정이 있어야 클라이언트의 `pickOverlap()`(`inside`만 배너로 띄움)이 "열린 핀 #N 안입니다" 배너를 띄우고 [메모에 덧붙이기]로 중복 핀을 막는다.
-- 뷰어는 자동으로 합치지 않는다. composer 에 `#1(L134-L138) 안입니다 — [#1 메모에 덧붙이기] [별도 핀으로 저장]` 배너를 띄우고, 사용자가 고른다. "덧붙이기"는 `note_append` 로 기존 핀에 붙이고 지금 선택은 새 핀으로 만들지 않는다.
+- `overlaps`(pick·`/api/overlaps` 응답): `[{"id","lo","hi","rel": "equal"|"inside"|"contains"|"partial"}]` — 저장 전 선택 기준의 관계(`selection_rel`). `equal` = 범위가 같음(같은 문단·환경을 다시 찍는 가장 흔한 중복), `inside` = 선택이 핀 안, `contains` = 선택이 핀을 감쌈, `partial` = 걸침.
+- **범위가 바뀔 때마다 다시 센다.** 뷰어는 드래그·단계 전환·▲▼ 때마다 이 탭의 열린 핀 목록으로 같은 규칙(`overlapsFor`/`selRel`, 회귀 테스트가 서버 구현과 대조)을 돌린다. pick 순간에만 세면 [문단] 단계로 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장됐다(실측). 서버가 본 겹친 핀이 이 탭 목록에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다.
+- 네 관계 모두 배너 대상이다. 대표 하나를 고른다: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id 가 가장 작은 것). 문구로 관계를 밝힌다 — `열린 핀 #4(L405-L406)과 같은 범위입니다` / `… 안입니다` / `…을 감쌉니다` / `…에 걸칩니다`, 그리고 `[#4 메모에 덧붙이기] [별도 핀으로 저장]`.
+- 뷰어는 자동으로 합치지 않는다. "덧붙이기"는 `note_append` 로 기존 핀에 붙이고 지금 선택은 새 핀으로 만들지 않는다. [별도 핀으로 저장]은 **그 핀과의 그 관계**만 끈다 — 범위를 바꿔 관계가 달라지면 다시 알리고, 다음 드래그에서는 초기화한다.
 - `<state_dir>/pins.md` 번호 칸의 `⊂#N`(안에 있음, N 과 한 번에 고치고 둘 다 닫는다)·`∩#N`(일부만 겹침)이 이 계산의 대표값이다(§<state_dir>/pins.md 형식).
 
 #### 자동 동기화 (가벼운 meta 폴링)
 
 `GET /api/pins`·`GET /api/meta`(라이트 아닌 쪽)는 **쓰기 부작용**(`sync_all` 이 앵커로 줄을 다시 맞추고 파일에 쓴다)이 있어 그대로 폴링할 수 없다. 그래서 폴링 전용으로 `GET /api/meta?light=1` 을 쓴다 — `n_open`·`n_done` 이 빠지고 `live_pins`(sync) 를 부르지 않는다. 응답의 `pins_rev`(`pins.jsonl` 의 `f"{mtime_ns}:{size}"`, 없으면 `"0"`)와 `src_mtime`(§아래) 이 **바뀌었을 때만** 뷰어가 `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다 — 그래서 에이전트가 `curl` 로 핀을 닫거나 원고를 고쳐도 몇 초 안에 화면에 반영되면서도, 아무 변화가 없는 동안은 `pins.jsonl` 을 건드리지 않는다.
 
-- `src_mtime`: `--manuscript` 아래 `*.tex`·`*.bib`·`*.sty`·`*.cls`·`*.bst`와 그림 확장자(`png`·`jpg`·`jpeg`·`pdf`·`eps`·`svg`)의 최대 mtime. 점(`.`)으로 시작하는 디렉토리, 빌드 산출물 디렉토리(`build/`·`out/`), 메인 PDF(`<main>.pdf`)는 뺀다(2초 캐시, `force=True` 로 건너뛸 수 있다).
+- `src_mtime`: `--manuscript` 아래 `*.tex`·`*.bib`·`*.sty`·`*.cls`·`*.bst`와 그림 확장자(`png`·`jpg`·`jpeg`·`pdf`·`eps`·`svg`)의 최대 mtime. 점(`.`)으로 시작하는 디렉토리, 빌드 산출물 디렉토리(`build/`·`out/`), **빌드 rsync 가 빼는 디렉토리(`diff/`·`diff_temporary/`)**, 메인 PDF(`<main>.pdf`)는 뺀다(2초 캐시, `force=True` 로 건너뛸 수 있다). 빌드 지문(§위치 추정)도 같은 파일 목록을 본다.
 - `build_src_mtime`: 빌드를 **시작할 때** 캐시를 건너뛰고 실측한 `src_mtime` 값. 빌드가 `ok`·`ok_errors` 로 끝났을 때만 `<state_dir>/built_src_mtime.txt` 에 확정해 기록한다 — 빌드가 실패하면 화면은 옛 PDF 그대로이므로 이 값도, "원고 수정됨" 배지도 그대로 남아야 한다(옛 인스턴스는 파일이 없어 `null` — 이때 뷰어는 `built_at` 시각과 비교한다).
 - 뷰어는 탭이 보이는 동안 5초마다, 그리고 `visibilitychange`(visible)·`focus` 때 라이트 meta 를 부른다. 탭을 숨기면 요청 자체를 보내지 않는다. 두 번 연속 실패하면 연결 끊김 배지를 띄운다.
-- `src_mtime` 이 빌드 기준보다 새로우면 "원고 수정됨 · N분 전" 배지가 뜨고, 이때만 [PDF 다시 만들기] 버튼이 강조된다.
-- **위치 추정(`.est`) 마크**: 핀 마크는 드래그 당시의 `frac` 좌표에 고정된다. 재빌드로 페이지 레이아웃이 바뀌면 그 좌표가 낡을 수 있다는 뜻으로 점선(`.est`)을 그린다. 조건은 두 갈래를 **OR** 로 본다 — ① 핀의 `sync` 가 `ok` 가 아님(줄이 이동했거나 위치를 잃음), **또는** ② `build_src_mtime`(전역, 빌드 시작 시각 실측)이 그 핀 자신의 시각(`edited_at` 있으면 그것, 없으면 `at` — `synced_at` 이 아니다)보다 나중. `sync` 가 다시 `ok` 로 돌아와도(앵커가 같은 자리를 다시 찾음) 그 뒤 트리 전체가 다시 빌드됐으면 좌표는 여전히 옛 레이아웃 기준이므로 ②가 이를 잡는다. 비교 기준을 `synced_at`(그 핀이 가리키는 파일 하나의 mtime)으로 잡으면 다른 파일만 바뀌어도 오탐이 난다(실측 이력) — 그래서 항상 핀 자신의 벽시계 시각과 비교한다.
+- 서버가 `stale_build`(원고가 화면 빌드의 시작 시점 `src_mtime` 보다 2초 넘게 새로움)와 `src_age_s` 로 판정해 주면 "원고 수정됨 · N분 전" 배지가 뜨고, 이때만 [PDF 다시 만들기] 버튼이 강조된다. 브라우저 시계는 쓰지 않는다.
+- **위치 추정(`.est`) 마크** — §위치 추정.
+
+#### 위치 추정 (`est`, 서버 판정)
+
+핀 마크는 드래그 당시의 `frac`(쪽 대비 비율)에 고정된다. 그 좌표가 지금 화면의 PDF 와 안 맞을 수 있으면 점선(`.est`)으로 그린다. **판정은 서버가 하고** `GET /api/pins` 의 `est` 불리언으로 싣는다. 뷰어는 받은 값을 그대로 그린다.
+
+- 빌드 신원: 빌드마다 `<state_dir>/builds.json` 에 `{build, src_hash, src_mtime, finished_at, seq}` 를 남긴다(성공 빌드 최근 200개). `build` 는 쪽 디렉토리 이름(`pages.cur` 값)이다. `src_hash` 는 빌드 사본의 원고 파일(`src_mtime` 과 같은 목록 — `diff/`·`diff_temporary/`·점 디렉토리·메인 PDF 제외)을 (상대경로, 내용)으로 해시한 값이다. mtime 은 넣지 않는다 — 내용이 같으면 레이아웃도 같다.
+- 핀의 `pdf_build`: 핀을 만들 때와 위치를 다시 잡을 때(`loc` 에 `frac`), 드래그할 때 화면에 있던 빌드 id 를 남긴다(pick 응답의 `pdf_build`). 메모·범위 텍스트 편집은 바꾸지 않는다.
+- `est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다름) 또는 sync 가 moved/lost`. 해시가 없으면 빌드 시작 `src_mtime` 으로 비교하고, 그 빌드를 이력에서 못 찾으면 추정으로 본다(모르는 채 실선으로 그리는 편이 더 해롭다).
+- `pdf_build` 가 없는 옛 핀(옛 필드명 `frac_build` 는 같은 뜻으로 읽는다)은 서버가 epoch 수치로 판정한다 — 찍은 시각 `at` < `built_at` 이고 지금 빌드를 시작할 때의 `src_mtime` > `at` 이면 추정. `edited_at` 은 보지 않는다.
+- 왜 서버 판정인가: 뷰어가 벽시계(`at`/`edited_at` 대 `built_at`/`build_src_mtime`)로 판정하던 때 세 갈래로 틀렸다(독립 검증 실측). 시간대 없는 `at` 을 브라우저가 현지 시각으로 풀어 America/New_York 에서는 어긋난 마크가 실선으로, Pacific/Kiritimati 에서는 방금 찍은 핀이 점선으로 그려졌다. 메모만 고쳐도 꺼졌다. 원고를 고친 뒤 옛 PDF 위에서 찍은 핀은 판정에 들어가지 못했다. 지금은 Asia/Seoul·America/New_York·Pacific/Kiritimati 세 컨텍스트에서 같은 마크가 같은 결과다.
+- 기동 때 이력에 없는 지금 빌드(옛 인스턴스가 만든 것)를 한 번 올린다. 원고가 그 빌드 뒤로 안 바뀌었으면(`src_mtime` ≤ 빌드 기준 시각) 지금 원고의 지문을 그 빌드의 지문으로 삼는다. 그래야 기동 뒤 첫 핀이 원고를 안 바꾼 재빌드에서 오탐되지 않는다.
 
 #### 비동기 재빌드 (`/api/rebuild?async=1` + `GET /api/build`)
 
 동기 `/api/rebuild` 는 수십 초 동안 요청을 묶는다. `?async=1` 을 주면 빌드 잠금을 얻은 즉시 `202 {"state":"running"}` 을 돌려주고, 실제 빌드는 데몬 스레드에서 돈다(잠금·판정 로직은 동기 경로와 완전히 같다). 이미 도는 중이면 `409`.
+
+끝난 빌드는 `build_seq`(서버가 빌드마다 1씩 올리는 수, 재기동 뒤에도 이어짐)로 센다. 뷰어는 자기가 처리한 seq 를 기억해, 라이트 meta 의 `build_seq` 가 다르면 5초 틈새에 시작~종료까지 끝나 `running` 을 한 번도 못 본 빌드도 알아채고 상세를 받는다. 완료 처리(화면 교체·토스트)는 seq 하나당 한 번이다. `GET /api/build` 조회는 **단일 비행**이다 — 1초 타이머·`visibilitychange`·`focus`·라이트 폴링이 한꺼번에 불러도 요청은 하나다(고치기 전: 숨은 탭이 돌아올 때 토스트 ×2). 새로 연 탭은 마지막 빌드가 `ok_errors`·`fail` 이면 토스트 없이 오류 패널을 연다.
 
 진행 상황은 `GET /api/build` 를 1초마다 폴링해서 본다 — 단, **실제로 빌드가 도는 동안만** 돈다. 무조건 매초 때리지 않는다: (a) 이 탭에서 [PDF 다시 만들기]를 눌렀을 때, (b) 5초 라이트 meta 폴링이 `build.state==='running'`(다른 세션·에이전트가 `curl` 로 시작한 빌드)을 봤을 때, (c) 부팅 시 이미 도는 빌드가 있는지 한 번 확인할 때만 1초 폴러가 켜지고, `state` 가 더 이상 `running` 이 아니면 스스로 멈춘다. 탭이 숨어 있으면 폴링 요청 자체를 보내지 않는다(포커스·`visibilitychange` 로 다시 켠다). `phase` 는 `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 퍼센트는 만들지 않는다(모른다). `elapsed_s` 는 지금까지 걸린 시간, `last_s` 는 지난 빌드가 걸린 시간(진행 중 참고용)이다. 끝나면(`state` 가 `ok`·`ok_errors`·`fail`) 뷰어가 동기 경로와 같은 방식으로 제자리 교체를 한다. `ok_errors`·`fail` 이면 오류 패널(`#build-err`)이 **자동으로 열린다** — 토스트에만 의존하지 않는다(토스트는 6초면 사라지고, 그 뒤엔 다시 볼 길이 없었다). 패널을 닫아도 상태줄에 "빌드 오류 · 다시 보기" 칩이 남아, `LAST_BUILD_ERR` 이 있는 동안(다음 성공 빌드 전까지) 언제든 다시 열 수 있다. 다른 사람이 시작한 빌드도 같은 방식으로 잡아내므로, 페이지를 새로 열었을 때 빌드가 돌고 있으면 진행 칩이 이어서 보인다. 빌드 중(`phase=latex`)에도 pick 은 막지 않고, 응답 `warn` 에 "빌드 중이라 결과가 흔들릴 수 있습니다"를 붙인다.
 
@@ -192,6 +208,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 {"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<절대경로>/introduction.tex",
  "lo": 120, "hi": 134, "raw_lo": 122, "raw_hi": 131, "kind": "env:minipage", "scope": "env",
  "via": "synctex", "score": 0.93, "note": "이 문단 톤을 낮춰줘", "frac": [0.12, 0.30, 0.55, 0.18],
+ "pdf_build": "pages-20260921200500",
  "anchor": {"head": "이 절에서는 소스 재선정 주기를...", "tail": "...효과가 관측된다."},
  "synced_at": 1758450000.0, "sync": "moved +3", "rev": 2, "done": false,
  "author": {"login": "bob@example.com", "name": "Bob Park", "pic": "https://..."},
@@ -205,6 +222,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
 | `scope` | `raw\|para\|env\|env2\|env3\|lines` — 저장할 때 고른 사다리 단계 |
 | `quote` | 선택 — 호출자가 붙인 짧은 인용(60자에서 자른다) |
+| `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀 — 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다(§위치 추정) |
 | `anchor` | `{head, tail, head_off, tail_off}` — 줄 맞춤 기준. `*_off` 가 없는 옛 앵커는 0 으로 본다 |
 | `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 모르는 값은 원문 그대로 둔다 |
 | `author` | 만든 사람 `{login, name, pic?}` |
@@ -212,13 +230,13 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps` 는 응답에만 있고 저장하지 않는다(§겹친 핀).
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est` 는 응답에만 있고 저장하지 않는다(§겹친 핀·§위치 추정).
 
 ### <state_dir>/pins.md 형식
 
 `<state_dir>/pins.md` 는 5열 표다: `| # | 쪽 | 위치 | 범위 | 메모 |`(옛 `종류` 열이 `범위` 로 바뀌었다. `작성` 열은 v2 에서 없앴다 — 작성자는 `GET /api/pins`·뷰어 카드에서만 본다. 닫힌 핀도 마찬가지다).
 
-- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename 과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`/`\include` 로 쪼개진 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명에 `|` 가 있으면 `\|` 로 이스케이프한다(메모·인용문과 같은 규칙 — 표 열 구조가 안 깨지게).
+- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename 과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`/`\include` 로 쪼개진 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명에 `|` 가 있으면 `\|` 로 이스케이프한다(아래 이스케이프 규칙).
 - **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`/`lines`→`lines`, 없으면 옛 `kind` 값을 그대로 쓴다.
 - **번호 칸의 기호** — 핀당 1~3개, 공백으로 이어 쓴다:
   - `⊂#N` — 이 핀이 열린 핀 `#N` 범위 **안**에 통째로 든다(범위가 가장 작은 바깥 핀 하나만 표시 — 뷰어 카드의 태그도 같은 규칙이라 이 파일과 화면 표기가 어긋나지 않는다). **`#N` 과 한 번에 고치고 둘 다 닫는 것을 권한다** — 따로 고치면 같은 문단을 두 번 손대거나 `#N` 의 제약을 놓칠 수 있다.
@@ -228,7 +246,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   - 기호 범례 줄(`기호: ⊂#N = … · ✎ = … · ⚠ = … · «…» = …`)은 열린 핀에 기호가 하나라도 있을 때만 실린다.
 - **`«…»` 인용**: 메모 앞에 최대 60자 인용이 붙는 조건부 예외다 — 핀 범위가 **한 줄**이고, 그 줄이 **600자를 넘고**(문단 하나가 줄바꿈 없이 이어지는 원고에서 줄 번호만으로는 지목한 부분을 못 찾는다), `scope` 가 `raw`/`para`/없음일 때만 붙는다. 60자를 넘어 잘렸으면 인용 끝에 `…` 를 붙인다(예: `«문장의 앞부분까지만…»`) — 잘린 인용을 완결된 문장으로 오인하지 않도록. 이 인용은 **`pdftotext` 로 렌더된 글자**다 — 검색 힌트이지 `Edit` 의 `old_string` 으로 그대로 쓸 문자열이 아니다(리거처·하이픈·공백이 원문 LaTeX 소스와 다를 수 있다). 줄 범위로 파일을 `Read` 한 뒤 그 인용을 검색해 정확한 위치를 확인한다.
 - **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다 — `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
-- 메모의 줄바꿈은 `⏎`, `|` 는 `\|` 로 바꾼다(5열 표가 깨지지 않게).
+- **이스케이프는 모든 칸에 같다**(`md_cell`): `|` 는 `\|`, 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호·쪽·위치·범위·인용)에서 공백. 범위 칸의 env 분기가 빠져 kind `env:x|y` 가 8열 행을 만든 적이 있어(독립 검증 실측) 칸마다 따로 처리하지 않고 한 함수로 모았다.
 
 ### 작성자 귀속
 
@@ -274,7 +292,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | 수정 | 카드의 메모를 누르거나 [수정] → 메모·범위 편집, [위치 다시 잡기] 로 PDF 에서 새 위치 지정 |
 | 완료·삭제 | [완료]·[삭제] — 둘 다 알림의 [되돌리기]로 즉시 되돌린다. 닫힌 핀은 목록 아래 '닫힌 핀 N' 에서 [다시 열기] |
 | 마크 배지 클릭 | PDF 위 초록 번호 배지를 누르면 해당 카드로 스크롤하고 `.cur`(강조 테두리)와 `.flash`(1.2초 깜빡임)를 준다(새 선택을 만들지 않는다). 1.2초 뒤 강조는 저절로 풀린다 — 정적 스타일이라 다음 클릭 전까지 남아 있지 않는다. 마크 상자 자체(배지 밖)를 드래그하면 평소처럼 새 위치를 고른다 |
-| 카드의 [보기] | 그 핀의 마크를 화면 위에서 30% 지점으로 맞추고 테두리가 잠깐 반짝인다. 점선 테두리(`.est`)는 마지막 PDF 재생성 뒤 원고나 범위가 바뀌어 좌표가 추정치임을 뜻한다 |
+| 카드의 [보기] | 그 핀의 마크를 화면 위에서 30% 지점으로 맞추고 테두리가 잠깐 반짝인다. 점선 테두리(`.est`)는 핀을 찍은 PDF 와 지금 PDF 가 다른 원고에서 만들어졌거나 줄이 이동해 좌표가 추정치임을 뜻한다(서버 판정, §위치 추정) |
 | PDF 다시 만들기 | 원고를 비동기로 컴파일한다(수십 초) — 누른 즉시 돌아오고, 진행 칩이 단계(원고 복사 중 → LaTeX 컴파일 중 → 쪽 그리는 중)와 경과 시간을 보여 준다. 다른 사람이 이미 누른 빌드도 같은 칩에 보인다. '핀 다시 읽기' 는 핀 목록만 즉시 다시 읽는다(자동 동기화가 보통 몇 초 안에 대신 해 준다, §자동 동기화) |
 | 테마 | [◐] 시스템 → [☀] 밝게 → [☾] 어둡게. 설정은 브라우저에 저장된다 |
 | 폭 | [폭] 이 쪽 폭을 왼쪽 화면에 맞춘다. 저장된 폭이 없는 첫 방문에서 화면보다 넓으면 자동으로 맞춘다 |
@@ -368,6 +386,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 <state_dir>/
 ├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
 ├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
+├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
 ├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex 사본 (현재와 직전 1개만 유지)
 ├── pages/                    # 옛 레이아웃 — pages.cur 가 없으면 이것을 그대로 쓴다
 ├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)

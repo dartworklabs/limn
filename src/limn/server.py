@@ -51,10 +51,14 @@ MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
-              "frac", "note", "scope", "quote")
+              "frac", "note", "scope", "quote", "pdf_build")
 LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "scope", "quote")
 LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
+# 빌드 사본(rsync)이 빼는 디렉토리. 원고 지문·src_mtime 도 같은 목록을 쓴다 — 빌드에 안 들어가는
+# latexdiff 산출물이 바뀌었다고 '원고 수정됨'·위치 추정이 켜지면 안 된다(실측: diff/ 에 PDF 17개).
+BUILD_EXCLUDE_DIRS = ("diff", "diff_temporary")
+BUILDS_KEEP = 200                  # builds.json 에 남길 성공 빌드 수(한 건 200바이트 안팎)
 
 # 핀 파일을 만지는 모든 경로가 이 잠금 하나를 거친다. 잠금 없이 읽고-고치고-쓰면
 # 동시에 저장한 핀 30건 중 2건만 남는다(실측) — 나머지는 서로의 쓰기에 덮인다.
@@ -65,7 +69,10 @@ BUILD_LOCK = threading.Lock()
 # 별개다 — 이 잠금은 그 상태를 "읽는" GET /api/build 요청과 경합하지 않게 하는 용도다.
 BUILD_STATE_LOCK = threading.Lock()
 BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
-               "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None}
+               "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
+               "seq": 0, "finished_at": None, "last": None}
+# builds.json(빌드 이력)의 읽기-고치기-쓰기를 묶는다.
+BUILDS_LOCK = threading.Lock()
 
 
 class Cfg:
@@ -104,6 +111,10 @@ class Cfg:
     @property
     def built_src_mtime_file(self) -> Path:
         return self.state / "built_src_mtime.txt"
+
+    @property
+    def builds_file(self) -> Path:
+        return self.state / "builds.json"
 
 
 C = Cfg()
@@ -174,35 +185,59 @@ def cur_pages() -> Path:
     return C.state / "pages"
 
 
-def cur_pdf() -> Path:
+def valid_build_name(v) -> bool:
+    return isinstance(v, str) and PAGES_DIR_RE.fullmatch(v) is not None
+
+
+def pages_dir_for(name) -> Path:
+    """브라우저가 지금 보고 있는 빌드의 쪽 디렉토리. 이름이 틀렸거나 이미 지워졌으면 지금 것을 쓴다.
+
+    재빌드가 끝난 뒤 뷰어가 새 화면으로 바꾸기 전(폴링 틈새)의 드래그는 옛 레이아웃 좌표다 —
+    그 좌표를 새 PDF 에 대 보면 다른 줄을 짚는다. 직전 빌드 디렉토리는 한 번 더 남겨 두므로
+    (_build 가 현재+직전을 유지) 대개 화면과 같은 PDF 로 되짚을 수 있다."""
+    if valid_build_name(name) and (C.state / name).is_dir():
+        return C.state / name
+    return cur_pages()
+
+
+def cur_pdf(pdir: Path = None) -> Path:
     """쪽 이미지와 짝이 맞는 PDF. 버전 디렉토리에 사본이 있으면 그것을, 없으면(옛 레이아웃) build/ 의 것을 쓴다.
 
     짝을 맞추는 이유: 빌드가 실패해도 화면은 옛 PDF 인데, pick 이 새로 깨진 PDF 를 읽으면
     보이는 것과 다른 자리를 짚는다."""
-    f = cur_pages() / (C.main.stem + ".pdf")
+    f = (pdir or cur_pages()) / (C.main.stem + ".pdf")
     if f.exists():
         return f
     return C.build / (C.main.stem + ".pdf")
 
 
-def source_newer() -> float:
-    """원고가 화면의 PDF 보다 새로우면 그 차이(초)를, 아니면 0.0 을 돌려준다.
+def build_ref_mtime(name: str):
+    """그 빌드를 시작할 때의 원고 src_mtime(빌드 이력 → built_src_mtime.txt → PDF 시각 순으로 찾는다)."""
+    ent = load_builds()["by"].get(name)
+    if ent and _is_num(ent.get("src_mtime")):
+        return float(ent["src_mtime"])
+    if name == cur_pages().name:
+        v = read_built_src_mtime()
+        if v is not None:
+            return v
+    try:
+        return cur_pdf(pages_dir_for(name)).stat().st_mtime
+    except OSError:
+        return None
+
+
+def source_newer(name: str = None) -> float:
+    """원고가 그 빌드(기본: 지금 화면의 빌드)보다 새로우면 그 차이(초)를, 아니면 0.0 을 돌려준다.
 
     화면이 낡은 PDF 면 드래그한 자리와 원문이 어긋난다. 그런데 텍스트 경로는 그래도
     비슷한 문단을 찾아내 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서 노멘클래처를
     골랐는데 서론의 기여 목록이 0.32 로 경고 없이 돌아왔다. 점수로는 이 상황을 못 거르므로
-    사실 자체를 알린다."""
-    try:
-        built = cur_pdf().stat().st_mtime
-    except OSError:
+    사실 자체를 알린다. 비교 기준은 '빌드 시작 때의 src_mtime' 이다 — 빌드 도중에 고친 파일도
+    잡히고, 빌드에 안 들어가는 diff/ 는 src_mtime 이 이미 뺀다(옛 구현은 *.tex 전부와 PDF 시각을 봤다)."""
+    ref = build_ref_mtime(name or cur_pages().name)
+    if ref is None:
         return 0.0
-    newest = 0.0
-    for f in C.src.rglob("*.tex"):
-        try:
-            newest = max(newest, f.stat().st_mtime)
-        except OSError:
-            pass
-    return max(0.0, newest - built)
+    return max(0.0, src_mtime() - ref)
 
 
 def migrate_pages() -> None:
@@ -309,9 +344,8 @@ def build_async() -> dict:
         try:
             _build_tracked()
         except Exception as e:                         # noqa: BLE001 — _build_tracked 자체가 죽어도 running 에 멈추지 않는다
-            build_state_update(state="fail", phase=None, start_ts=None,
-                                log_tail="빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e,
-                                built_at=_read_built_at())
+            finish_build({"ok": False, "state": "fail", "errors": [],
+                          "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}, None)
         finally:
             BUILD_LOCK.release()
     threading.Thread(target=worker, daemon=True).start()
@@ -319,7 +353,7 @@ def build_async() -> dict:
 
 
 def _build_tracked() -> dict:
-    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)를 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다.
+    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)와 빌드 이력을 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다.
 
     _build() 가 예상 밖 예외를 내도(예: rsync/latexmk 호출 근처의 OSError) BUILD_STATE 를 running 에
     묶어 두지 않는다 — 비동기 워커에서 이 함수가 죽으면 다음 폴링이 영원히 '만드는 중'을 보여 주게 된다.
@@ -337,11 +371,129 @@ def _build_tracked() -> dict:
                "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
     if res.get("state") in ("ok", "ok_errors"):
         write_built_src_mtime(src_mtime_at_start)
-    build_state_update(state=res.get("state", "fail"), phase=None, start_ts=None,
-                        elapsed_s=res.get("elapsed_s", 0.0), last_s=res.get("elapsed_s", 0.0),
-                        pages=res.get("pages", 0), errors=res.get("errors", []),
-                        log_tail=res.get("log", ""), built_at=_read_built_at())
+    finish_build(res, src_mtime_at_start)
     return res
+
+
+def finish_build(res: dict, src_mtime_at_start) -> None:
+    """빌드 하나가 끝났다(성공·실패 무관) — 이력에 남기고 build_seq 를 올린 뒤 BUILD_STATE 를 바꾼다.
+
+    build_seq 는 '끝난 빌드 수'다. 뷰어는 이 값이 바뀌었는지로 자기가 못 본 빌드를 알아챈다 —
+    5초 폴링 틈새에 시작해 끝난 빌드도 running 을 한 번도 못 봤을 뿐 seq 는 올라 있다.
+    seq 와 최종 state 는 한 번에 바꾼다(최종 state 인데 seq 는 옛 값인 순간이 보이지 않게)."""
+    state = res.get("state", "fail")
+    last = {"state": state, "errors": list(res.get("errors") or [])[:5],
+            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "elapsed_s": res.get("elapsed_s", 0.0), "log_tail": str(res.get("log") or "")[-4000:]}
+    with BUILD_STATE_LOCK:
+        last["started_at"] = BUILD_STATE.get("started_at")
+    ent = None
+    if state in ("ok", "ok_errors") and res.get("build"):
+        ent = {"build": res["build"], "src_mtime": src_mtime_at_start, "src_hash": res.get("src_hash"),
+               "finished_at": last["finished_at"]}
+    seq = record_build(last, ent)
+    build_state_update(state=state, phase=None, start_ts=None, seq=seq, finished_at=last["finished_at"],
+                        elapsed_s=last["elapsed_s"], last_s=last["elapsed_s"],
+                        pages=res.get("pages", 0), errors=last["errors"],
+                        log_tail=res.get("log", ""), built_at=_read_built_at(),
+                        last={"state": state, "errors": last["errors"], "finished_at": last["finished_at"], "seq": seq})
+
+
+# ---------------------------------------------------------------- 빌드 이력(builds.json)과 원고 지문
+#
+# 위치 추정(.est)을 서버가 판정하려면 '핀을 찍을 때 화면에 있던 빌드'와 '지금 빌드'가 같은 원고에서
+# 나왔는지를 알아야 한다. 그래서 빌드마다 쪽 디렉토리 이름(build id)과 그 빌드가 컴파일한 원고의
+# 지문(내용 해시 + 시작 때 src_mtime)을 남긴다. 벽시계 비교(옛 방식)는 브라우저 시간대·메모 편집·
+# 낡은 PDF 위 핀에서 전부 틀렸다(독립 검증 실측).
+
+def _empty_builds() -> dict:
+    return {"seq": 0, "builds": [], "last": None}
+
+
+def _valid_build_entry(b) -> bool:
+    return (isinstance(b, dict) and valid_build_name(b.get("build"))
+            and (b.get("src_mtime") is None or _is_num(b.get("src_mtime")))
+            and (b.get("src_hash") is None or isinstance(b.get("src_hash"), str)))
+
+
+def load_builds() -> dict:
+    """{seq, builds, last, by}. 파일이 없거나 깨졌으면 빈 이력 — 이력이 없어도 서버는 돈다(추정이 보수적일 뿐)."""
+    try:
+        d = json.loads(C.builds_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        d = None
+    out = _empty_builds()
+    if isinstance(d, dict):
+        if _is_int(d.get("seq")) and d["seq"] >= 0:
+            out["seq"] = d["seq"]
+        if isinstance(d.get("builds"), list):
+            out["builds"] = [b for b in d["builds"] if _valid_build_entry(b)]
+        if isinstance(d.get("last"), dict):
+            out["last"] = d["last"]
+    out["by"] = {b["build"]: b for b in out["builds"]}
+    return out
+
+
+def _write_builds(h: dict) -> None:
+    body = {"seq": h["seq"], "last": h["last"], "builds": h["builds"][-BUILDS_KEEP:]}
+    try:
+        atomic_write(C.builds_file, json.dumps(body, ensure_ascii=False, indent=1) + "\n")
+    except OSError as e:
+        print("경고: 빌드 이력을 쓰지 못했습니다: %s" % e, file=sys.stderr)
+
+
+def record_build(last: dict, ent) -> int:
+    """끝난 빌드 하나를 이력에 더하고 새 seq 를 돌려준다. 쓰기가 실패해도 seq 는 오른다(메모리 기준)."""
+    with BUILDS_LOCK:
+        h = load_builds()
+        with BUILD_STATE_LOCK:
+            seq = max(h["seq"], int(BUILD_STATE.get("seq") or 0)) + 1
+        h["seq"] = seq
+        h["last"] = dict(last, seq=seq, build=ent["build"] if ent else None)
+        if ent:
+            ent = dict(ent, seq=seq)
+            h["builds"] = [b for b in h["builds"] if b["build"] != ent["build"]] + [ent]
+        _write_builds(h)
+        return seq
+
+
+def seed_builds() -> None:
+    """이력에 없는 지금 빌드(옛 인스턴스가 만든 것)를 한 번 올리고, 마지막 빌드 결과를 BUILD_STATE 로 되살린다.
+
+    그 빌드가 어떤 원고로 만들어졌는지는 모른다. 다만 지금 원고의 src_mtime 이 그 빌드 기준 시각
+    (built_src_mtime.txt, 없으면 PDF 시각) 이하면 그 뒤로 고친 파일이 없다는 뜻이므로 지금 원고의
+    지문을 그 빌드의 지문으로 삼는다 — 그래야 기동 뒤 처음 찍은 핀이 '원고를 안 바꾼 재빌드'에서
+    추정으로 오탐되지 않는다. 판단이 안 서면 지문을 비워 둔다(그 빌드의 핀은 다음 빌드 뒤 보수적으로 추정)."""
+    with BUILDS_LOCK:
+        h = load_builds()
+        cur = cur_pages()
+        if cur.is_dir() and cur.name not in h["by"] and any(cur.glob("page-*.png")):
+            bsm = read_built_src_mtime()
+            ref = bsm
+            if ref is None:
+                try:
+                    ref = cur_pdf(cur).stat().st_mtime
+                except OSError:
+                    ref = None
+            ent = {"build": cur.name, "seq": h["seq"], "src_mtime": bsm, "src_hash": None,
+                   "finished_at": _read_built_at(), "seeded": True}
+            now_m = src_mtime(force=True)
+            if ref is not None and now_m <= ref + 1e-6:
+                ent["src_hash"] = source_fingerprint(C.src)
+                if ent["src_mtime"] is None:
+                    ent["src_mtime"] = now_m
+            h["builds"].append(ent)
+            _write_builds(h)
+    last = h.get("last") or {}
+    kw = {"seq": h["seq"]}
+    if last.get("state") in ("ok", "ok_errors", "fail"):
+        errs = [e for e in (last.get("errors") or []) if isinstance(e, dict)][:5]
+        kw.update(state=last["state"], errors=errs, log_tail=str(last.get("log_tail") or ""),
+                  started_at=last.get("started_at"), finished_at=last.get("finished_at"),
+                  last_s=last.get("elapsed_s"), elapsed_s=last.get("elapsed_s"),
+                  last={"state": last["state"], "errors": errs, "finished_at": last.get("finished_at"),
+                        "seq": h["seq"]})
+    build_state_update(**kw)
 
 
 def _read_built_at():
@@ -363,15 +515,23 @@ def _build() -> dict:
     rs = shutil.which("rsync")
     try:
         if rs:
-            subprocess.run([rs, "-a", "--delete", "--exclude", "diff/", "--exclude", "*.synctex.gz",
+            excl = []
+            for d in BUILD_EXCLUDE_DIRS:
+                excl += ["--exclude", d + "/"]
+            subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
                             str(C.src) + "/", str(C.build) + "/"], capture_output=True, timeout=300)
         else:                                            # rsync 없이도 돌아가야 한다
             shutil.rmtree(C.build, ignore_errors=True)
-            shutil.copytree(C.src, C.build, ignore=shutil.ignore_patterns("diff", "*.synctex.gz"))
+            shutil.copytree(C.src, C.build, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
     except (subprocess.TimeoutExpired, OSError) as e:
         res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
+    # 지문은 사본에서 뜬다 — 이 빌드가 실제로 컴파일하는 바로 그 파일들이다(원본은 그사이 또 바뀔 수 있다).
+    try:
+        res["src_hash"] = source_fingerprint(C.build)
+    except OSError:
+        res["src_hash"] = None
 
     build_state_update(phase="latex")
     _rc, out, timed_out = run_logged(
@@ -440,6 +600,7 @@ def _build() -> dict:
 
     res["state"] = "ok_errors" if res["errors"] else "ok"
     res["ok"] = True
+    res["build"] = name
     res["pages"] = len(list(newdir.glob("page-*.png")))
     res["elapsed_s"] = round(time.time() - t0, 1)
     return res
@@ -452,9 +613,9 @@ def png_size(path: Path) -> tuple:
         return struct.unpack(">II", fh.read(24)[16:24])
 
 
-def page_list() -> list:
+def page_list(pdir: Path = None) -> list:
     pages = []
-    for p in sorted(cur_pages().glob("page-*.png")):
+    for p in sorted((pdir or cur_pages()).glob("page-*.png")):
         try:
             w, h = png_size(p)
         except (OSError, struct.error):
@@ -466,7 +627,8 @@ def page_list() -> list:
 SRC_TEX_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst")
 SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
 SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
-BUILD_OUTDIRS = ("build", "out", "diff")   # diff/ 도 빌드 rsync 가 빼는 것과 맞춘다(오탐 방지)
+# 빌드 산출물 디렉토리(상태 디렉토리를 원고 안에 둔 배치 대비) + 빌드 rsync 가 빼는 디렉토리.
+BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
 
 _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시
 _SRC_MTIME_LOCK = threading.Lock()
@@ -476,8 +638,56 @@ def _excluded_dir(name: str) -> bool:
     return name.startswith(".") or name in BUILD_OUTDIRS
 
 
+def iter_sources(root: Path):
+    """root 아래 원고·그림 확장자 파일을 (상대경로 'a/b.tex', os.DirEntry) 로 낸다.
+
+    src_mtime(배지·낡은 PDF 경고)과 source_fingerprint(빌드 지문)가 같은 목록을 본다 — 둘이 다른 파일을
+    보면 '배지는 꺼졌는데 추정은 켜짐' 같은 어긋남이 생긴다. 점(.) 디렉토리, 빌드 산출물·빌드 rsync 가
+    빼는 디렉토리(BUILD_OUTDIRS), 원고 안에 둔 상태 디렉토리, 루트의 메인 PDF 는 뺀다."""
+    main_pdf = C.main.stem + ".pdf"
+    state_in_root = None
+    try:
+        state_in_root = tuple(C.state.resolve().relative_to(root.resolve()).parts)
+    except (ValueError, OSError, RuntimeError):
+        pass
+
+    def walk(d: Path, rel_parts: tuple):
+        try:
+            entries = sorted(os.scandir(d), key=lambda e: e.name)
+        except OSError:
+            return
+        for e in entries:
+            if e.is_dir(follow_symlinks=False):
+                if _excluded_dir(e.name):
+                    continue
+                parts = rel_parts + (e.name,)
+                if state_in_root is not None and parts == state_in_root:
+                    continue
+                yield from walk(Path(e.path), parts)
+            elif e.is_file(follow_symlinks=False):
+                if e.name == main_pdf and rel_parts == ():
+                    continue
+                if os.path.splitext(e.name)[1].lower() in SRC_MTIME_EXTS:
+                    yield "/".join(rel_parts + (e.name,)), e
+    yield from walk(root, ())
+
+
+def source_fingerprint(root: Path) -> str:
+    """원고 지문 — iter_sources 가 내는 파일들의 (상대경로, 내용) 해시. mtime 은 넣지 않는다:
+    git checkout 처럼 내용은 같고 시각만 바뀐 파일로 레이아웃이 바뀌지는 않는다."""
+    h = hashlib.sha256()
+    for rel, e in iter_sources(root):
+        try:
+            with open(e.path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).digest()
+        except OSError:
+            continue
+        h.update(rel.encode("utf-8", "surrogateescape") + b"\0" + digest)
+    return h.hexdigest()[:32]
+
+
 def src_mtime(force: bool = False) -> float:
-    """C.src 아래 원고·그림 확장자의 최대 mtime(2초 캐시). 빌드 산출물과 메인 PDF 는 뺀다.
+    """C.src 아래 원고·그림 확장자의 최대 mtime(2초 캐시). 빌드 산출물과 메인 PDF 는 뺀다(iter_sources).
 
     build_all() 이 rsync 로 만드는 C.build 는 보통 C.state 아래(즉 C.src 밖)이지만, 상태 디렉토리를
     원고 트리 안에 둔 드문 배치에서도 빌드 산출물이 '원고가 바뀌었다'는 오탐을 만들지 않게 이름으로도 뺀다.
@@ -493,39 +703,12 @@ def src_mtime(force: bool = False) -> float:
             ckey, val, at = _SRC_MTIME_CACHE
             if ckey == key and time.time() - at < 2.0:
                 return val
-    main_pdf = C.main.stem + ".pdf"
-    state_in_src = None
-    try:
-        state_in_src = C.state.resolve().relative_to(C.src.resolve())
-    except (ValueError, OSError, RuntimeError):
-        pass
     newest = 0.0
-
-    def walk(d: Path, rel_parts: tuple):
-        nonlocal newest
+    for _rel, e in iter_sources(C.src):
         try:
-            entries = list(os.scandir(d))
+            newest = max(newest, e.stat().st_mtime)
         except OSError:
-            return
-        for e in entries:
-            if e.is_dir(follow_symlinks=False):
-                if _excluded_dir(e.name):
-                    continue
-                parts = rel_parts + (e.name,)
-                if state_in_src is not None and parts == tuple(state_in_src.parts)[:len(parts)] \
-                        and len(parts) <= len(state_in_src.parts):
-                    if parts == tuple(state_in_src.parts):
-                        continue
-                walk(Path(e.path), parts)
-            elif e.is_file(follow_symlinks=False):
-                if e.name == main_pdf and rel_parts == ():
-                    continue
-                if os.path.splitext(e.name)[1].lower() in SRC_MTIME_EXTS:
-                    try:
-                        newest = max(newest, e.stat().st_mtime)
-                    except OSError:
-                        pass
-    walk(C.src, ())
+            pass
     with _SRC_MTIME_LOCK:
         _SRC_MTIME_CACHE[0], _SRC_MTIME_CACHE[1], _SRC_MTIME_CACHE[2] = key, newest, time.time()
     return newest
@@ -566,12 +749,19 @@ def meta(actor: dict, light: bool = False) -> dict:
         except OSError:
             return "?"
     bstate = build_state_snapshot()
+    sm = src_mtime()
+    newer = source_newer()
     out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
            "main": C.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-           "building": BUILD_LOCK.locked(), "stale_build": source_newer() > 2,
-           "src_mtime": src_mtime(), "build_src_mtime": read_built_src_mtime(),
+           "building": BUILD_LOCK.locked(),
+           # 원고가 화면의 PDF 보다 새로운가 — 서버가 숫자로 판정한다(브라우저 시계·시간대와 무관).
+           "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
+           "src_mtime": sm, "build_src_mtime": read_built_src_mtime(),
            "pages_build": cur_pages().name,
            "pins_rev": pins_rev(),
+           # build_seq = 끝난 빌드 수, last_build = 가장 최근에 끝난 빌드(진행 중인 빌드와 무관하게 유지).
+           "build_seq": bstate.get("seq", 0),
+           "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
            "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
     if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
         return out
@@ -1078,7 +1268,7 @@ def valid_rec(r) -> bool:
     for k in ("done", "stale"):
         if r.get(k) is not None and not isinstance(r[k], bool):
             return False
-    for k in ("name", "kind", "via", "scope", "sync"):
+    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build"):
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
     for k, v in r.items():
@@ -1198,6 +1388,91 @@ def public(r: dict) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- 위치 추정(.est) — 서버가 판정하는 계산 필드
+#
+# 마크는 핀을 찍을 때의 frac(쪽 대비 비율)에 고정된다. 그 좌표가 지금 화면의 PDF 와 안 맞을 수 있으면
+# '추정'(점선)이다. 판정은 빌드 신원으로 한다: 핀이 찍힌 화면의 빌드(pdf_build)가 지금 빌드와 다르고,
+# 두 빌드가 컴파일한 원고 지문이 다르면 추정. 또는 앵커 줄 맞춤이 옮겼거나(moved) 잃었으면(lost) 추정.
+# 벽시계는 쓰지 않는다 — 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은 핀에서 전부 틀렸다.
+
+def pin_build(r: dict):
+    """핀 좌표가 속한 빌드 이름. frac_build 는 같은 뜻의 옛 필드명(83b91a5)이다."""
+    for k in ("pdf_build", "frac_build"):
+        v = r.get(k)
+        if isinstance(v, str) and v:
+            return v
+    return None
+
+
+def _epoch(s):
+    """'YYYY-MM-DD HH:MM:SS'(서버 현지 시각, now_str 이 쓴 모양) 또는 ISO+오프셋 → epoch 초. 서버에서만 푼다."""
+    if not isinstance(s, str) or not s.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(s.strip().replace(" ", "T", 1))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()          # 서버 현지 시각으로 쓴 값이다 — 같은 기계에서 되읽는다
+    return dt.timestamp()
+
+
+def est_context() -> dict:
+    """요청 하나 동안 쓸 판정 재료(이력 한 번 읽기)."""
+    h = load_builds()
+    cur = cur_pages().name
+    by = dict(h["by"])
+    if cur not in by:                                 # seed_builds() 전(테스트·드문 경합) — 알려진 것만으로 판정
+        by[cur] = {"build": cur, "src_mtime": read_built_src_mtime(), "src_hash": None}
+    bsm = read_built_src_mtime()
+    if bsm is None and _is_num(by[cur].get("src_mtime")):
+        bsm = float(by[cur]["src_mtime"])
+    return {"cur": cur, "by": by, "built_at": _epoch(_read_built_at()), "bsm": bsm}
+
+
+def same_source(a, b) -> bool:
+    """두 빌드가 같은 원고로 만들어졌는가. 해시가 둘 다 있으면 해시로, 아니면 시작 때 src_mtime 으로.
+    어느 쪽도 모르면 False(다르다고 본다) — 모르는 채로 '정확한 위치'라고 그리는 편이 더 해롭다."""
+    if not a or not b:
+        return False
+    if a.get("src_hash") and b.get("src_hash"):
+        return a["src_hash"] == b["src_hash"]
+    ma, mb = a.get("src_mtime"), b.get("src_mtime")
+    return _is_num(ma) and _is_num(mb) and abs(float(ma) - float(mb)) < 0.01
+
+
+def legacy_est(r: dict, ctx: dict) -> bool:
+    """pdf_build 가 없는 옛 핀의 대체 휴리스틱(옛 뷰어의 규칙을 서버에서 epoch 수치로): 핀이 지금 PDF 보다
+    먼저 찍혔고, 지금 PDF 를 만든 원고(시작 때 src_mtime)가 그 핀보다 나중에 바뀌었으면 추정.
+
+    기준 시각은 찍은 시각(at)뿐이다 — edited_at 을 쓰면 메모만 고쳐도 추정이 꺼진다(독립 검증 실측).
+    frac 을 다시 찍는 편집(loc)은 이제 pdf_build 를 남기므로 이 휴리스틱을 더 타지 않는다."""
+    ba, pa = ctx["built_at"], _epoch(r.get("at"))
+    if ba is None or pa is None or pa >= ba:
+        return False
+    return ctx["bsm"] is not None and ctx["bsm"] > pa
+
+
+def pin_est(r: dict, ctx: dict) -> bool:
+    sync = r.get("sync")
+    if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
+        return True                                   # moved ±N / lost — 앵커가 옮기거나 잃었다
+    b = pin_build(r)
+    if b is None:
+        return legacy_est(r, ctx)
+    if b == ctx["cur"]:
+        return False
+    return not same_source(ctx["by"].get(b), ctx["by"].get(ctx["cur"]))
+
+
+def pins_payload(rows: list, allp: bool) -> list:
+    """GET /api/pins 응답: 저장 레코드 + 계산 필드 rel(겹침)·est(위치 추정). 둘 다 저장하지 않는다."""
+    rel = overlaps_by_id(rows)
+    ctx = est_context()
+    return [dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx))
+            for r in rows if allp or not r.get("done")]
+
+
 # ---------------------------------------------------------------- 겹침(overlap) — 저장하지 않는 계산 필드
 
 def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
@@ -1244,21 +1519,27 @@ def overlaps_by_id(rows: list) -> dict:
     return out
 
 
+def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int):
+    """아직 저장 전인 선택(lo..hi)과 저장된 핀(b_lo..b_hi)의 관계 — 선택 기준.
+
+    equal(범위가 같음 — 같은 문단·환경을 두 번 찍는 가장 흔한 중복) · inside(선택이 핀 안) ·
+    contains(선택이 핀을 감쌈) · partial(걸침) · None(안 겹침). 뷰어의 overlapsFor() 와 같은 규칙이다
+    (범위가 바뀔 때마다 브라우저가 서버 왕복 없이 다시 계산한다 — 회귀 테스트가 두 구현을 대조한다)."""
+    if (lo, hi) == (b_lo, b_hi):
+        return "equal"
+    return _range_rel(lo, hi, b_lo, b_hi)
+
+
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
     """pick 이 고른 (아직 저장 전인) 범위가 그 파일의 열린 핀들과 겹치는 관계. 저장은 하지 않는다.
 
-    범위가 이미 저장된 핀과 완전히 같으면(가장 흔한 중복 — 같은 문단·환경을 두 번 찍음) 기존 핀을
-    바깥으로 보고 이 선택을 'inside' 로 판정한다. _range_rel 은 두 저장된 핀끼리(overlaps_by_id) id
-    로 안팎을 가르지만, 여기서는 새 선택에 아직 id 가 없으므로 이미 저장된 쪽을 항상 바깥으로 둔다 —
-    그래야 '열린 핀 #N 안입니다' 배너가 뜨고 [메모에 덧붙이기]로 중복 핀을 막을 수 있다."""
+    저장된 핀끼리(overlaps_by_id)는 범위가 같으면 id 로 안팎을 가르지만, 새 선택에는 아직 id 가 없으므로
+    같은 범위를 따로 'equal' 로 낸다 — 뷰어는 네 관계 모두 배너로 알리고 문구로 관계를 밝힌다."""
     out = []
     for r in snapshot_pins():
         if r.get("done") or r.get("file") != file:
             continue
-        if (lo, hi) == (r["lo"], r["hi"]):
-            rel = "inside"
-        else:
-            rel = _range_rel(lo, hi, r["lo"], r["hi"])
+        rel = selection_rel(lo, hi, r["lo"], r["hi"])
         if rel:
             out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
     return out
@@ -1380,6 +1661,10 @@ def clean_loc(d: dict) -> dict:
         if not isinstance(d["quote"], str):
             raise HTTPError(400, "quote 는 문자열입니다.")
         out["quote"] = truncate_quote(d["quote"], 60)
+    if d.get("pdf_build") is not None:                # 드래그할 때 화면에 있던 빌드(pick 응답의 pdf_build)
+        if not valid_build_name(d["pdf_build"]):
+            raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+        out["pdf_build"] = d["pdf_build"]
     return out
 
 
@@ -1401,9 +1686,10 @@ def add_pin(d: dict, actor: dict) -> int:
         rec["author"] = dict(actor)
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
-        # frac 은 지금 화면의 PDF(cur_pages()) 좌표계로 찍었다 — 이 핀이 '어느 빌드 기준인지'를
-        # 벽시계가 아니라 빌드 신원으로 못박는다(P0b 수선: 시간대·메모 수정에 흔들리지 않게).
-        rec["frac_build"] = cur_pages().name
+        # frac 이 어느 빌드의 레이아웃 좌표인지를 빌드 신원으로 못박는다(§위치 추정). 뷰어는 pick 응답의
+        # pdf_build(드래그할 때 화면에 있던 빌드)를 그대로 돌려보낸다 — 재빌드 직후 화면을 바꾸기 전의
+        # 드래그도 옛 빌드로 남는다. 안 보낸 호출(에이전트 curl)은 지금 빌드다.
+        rec.setdefault("pdf_build", cur_pages().name)
         rec["rev"] = 0
         rows.append(rec)
         return rec["id"], True
@@ -1444,6 +1730,12 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     if not (has_note or moves or scope is not None or kind is not None or note_append is not None):
         raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append).")
     newloc = clean_loc(loc) if loc is not None else None
+    if newloc is not None:
+        # pdf_build 는 frac 이 어느 빌드의 좌표인지다 — frac 을 새로 찍지 않은 loc 는 그 값을 못 바꾼다.
+        if "frac" in loc:
+            newloc.setdefault("pdf_build", cur_pages().name)
+        else:
+            newloc.pop("pdf_build", None)
 
     def fn(rows):
         r = find_pin(rows, pid)
@@ -1465,8 +1757,8 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 r["kind"] = kind if kind is not None else "lines"
             if scope is not None and "scope" not in newloc:
                 r["scope"] = scope
-            if "frac" in loc:                        # frac 을 실제로 다시 찍었을 때만 빌드 신원을 새로 못박는다
-                r["frac_build"] = cur_pages().name
+            if "frac" in loc:                        # frac 을 실제로 다시 찍었을 때만 빌드 신원이 바뀐다
+                r.pop("frac_build", None)            # 옛 필드명(83b91a5) — pdf_build 로 대체
             range_changed = True
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
@@ -1582,6 +1874,13 @@ def render_pins_md(rows: list) -> None:
     atomic_write(C.pins_md, pins_md_text(rows))
 
 
+def md_cell(v, newline: str = " ") -> str:
+    """pins.md 표 칸 하나. '|' 는 열을 늘리고 줄바꿈은 행을 끊는다 — 어느 칸이든 레코드 값이 그대로 들어가면
+    표가 깨진다(실측: kind 'env:x|y' 가 8열 행을 만들었다). 모든 칸이 이 함수를 거친다."""
+    s = str("" if v is None else v).replace("\r\n", "\n").replace("\r", "\n")
+    return s.replace("|", "\\|").replace("\n", newline)
+
+
 def location_col(r: dict) -> str:
     """C.src 기준 상대경로 — 루트 파일은 basename 과 같아서 기존 행이 변하지 않는다."""
     f = Path(str(r.get("file", "")))
@@ -1590,20 +1889,21 @@ def location_col(r: dict) -> str:
         name = str(rel)
     except (ValueError, OSError, RuntimeError):
         name = f.name or str(r.get("name") or "")
-    return "`%s L%s-L%s`" % (name.replace("|", "\\|"), r.get("lo"), r.get("hi"))
+    return "`%s L%s-L%s`" % (md_cell(name),md_cell(r.get("lo")), md_cell(r.get("hi")))
 
 
 def range_label(r: dict) -> str:
-    """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind."""
+    """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind.
+    어느 분기든 md_cell 로 이스케이프한다(env 분기만 빠져 있던 것이 결함이었다)."""
     scope = r.get("scope")
     if scope and str(scope).startswith("env"):
-        k = str(r.get("kind") or "").replace("|", "\\|")
-        return k if k.startswith("env:") else "env:%s" % (k or "?")
+        k = str(r.get("kind") or "")
+        return md_cell(k if k.startswith("env:") else "env:%s" % (k or "?"))
     if scope == "para":
         return "paragraph"
     if scope in ("raw", "lines"):
         return "lines"
-    return str(r.get("kind") or "").replace("|", "/")
+    return md_cell(r.get("kind") or "")
 
 
 def render_quote(r: dict) -> str:
@@ -1625,7 +1925,7 @@ def render_quote(r: dict) -> str:
         return ""
     # q 는 저장될 때 이미 truncate_quote() 로 잘렸다(잘렸으면 …가 붙어 있다) — 여기서 다시 60자로
     # 자르면 이미 붙은 …까지 잘려 이중으로 잘린 것처럼 보인다. 파이프만 이스케이프한다.
-    return "«%s» " % str(q).replace("|", "\\|")
+    return "«%s» " % md_cell(q)
 
 
 LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ✎ = 저장 뒤 메모·범위 수정됨 · "
@@ -1656,14 +1956,14 @@ def pins_md_text(rows: list) -> str:
             syms.append("⚠")
         if syms:
             any_symbol = True
-        idcol = " ".join(["%s" % r.get("id")] + syms)
-        note = str(r.get("note") or "").replace("|", "\\|").replace("\r\n", "\n").replace("\n", " ⏎ ")
+        idcol = md_cell(" ".join(["%s" % r.get("id")] + syms))
+        note = md_cell(r.get("note") or "", newline=" ⏎ ")
         q = render_quote(r)
         if q:
             any_symbol = True
             note = q + note
         rows_render.append("| %s | %s | %s | %s | %s |" %
-                            (idcol, r.get("page", 0), location_col(r), range_label(r), note))
+                            (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
 
     out = ["# 수정 요청 핀", "",
            "원고: `%s`" % C.src,
@@ -1686,8 +1986,20 @@ def pick(d: dict) -> dict:
 
     SyncTeX 후보와 텍스트 후보를 같은 척도로 겨루게 한다. 어느 한쪽을 조건부
     폴백으로 두면, SyncTeX 가 조용히 틀렸을 때(minipage·tabular 안) 그 오답을
-    걸러낼 방법이 없다."""
-    pages = page_list()
+    걸러낼 방법이 없다.
+
+    pdf_build(선택)는 드래그할 때 화면에 있던 빌드다(META.pages_build). 재빌드가 끝난 뒤 뷰어가 쪽을
+    바꾸기 전의 드래그는 옛 레이아웃 좌표이므로 그 빌드의 PDF 로 되짚고, 응답의 pdf_build 로 돌려준다 —
+    뷰어는 그 값을 핀 저장(/api/pin)에 그대로 실어 '어느 빌드의 좌표인지'를 남긴다(§위치 추정)."""
+    want = d.get("pdf_build")
+    if want is not None:
+        if not valid_build_name(want):
+            raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+        if not (C.state / want).is_dir():
+            return {"error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
+                    "pdf_build_gone": True}
+    pdir = pages_dir_for(want) if want is not None else cur_pages()
+    pages = page_list(pdir)
     page = _int(d.get("page"), "page")
     if not 1 <= page <= len(pages):
         raise HTTPError(400, "page 는 1..%d 이어야 합니다." % len(pages))
@@ -1702,7 +2014,7 @@ def pick(d: dict) -> dict:
                                      and math.isfinite(v) for v in frac)):
         raise HTTPError(400, "frac 은 숫자 4개 목록입니다.")
 
-    pdf = cur_pdf()
+    pdf = cur_pdf(pdir)
     rtext = region_text(pdf, page, x0, y0, x1, y1)
     sy = by_synctex(pdf, page, x0, y0, x1, y1)
 
@@ -1743,7 +2055,7 @@ def pick(d: dict) -> dict:
         if not (lo <= cands[1][1] <= hi):
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
-    if source_newer() > 2:
+    if source_newer(pdir.name) > 2:
         stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 다시 만들기] 뒤에 다시 고르세요."
         warn = stale_note + (" " + warn if warn else "")
     bstate = build_state_snapshot()
@@ -1756,7 +2068,7 @@ def pick(d: dict) -> dict:
             "score": round(best, 2), "warn": warn, "n_lines": len(lines),
             "snippet": snippet(lines, lo, hi), "frac": frac, "quote": quote,
             "levels": lad["levels"], "default_level": lad["default_level"],
-            "overlaps": overlaps_for_range(str(src), lo, hi)}
+            "overlaps": overlaps_for_range(str(src), lo, hi), "pdf_build": pdir.name}
 
 
 def snippet_api(q: dict) -> dict:
@@ -1779,11 +2091,10 @@ def snippet_api(q: dict) -> dict:
 
 
 def overlaps_api(q: dict) -> dict:
-    """GET /api/overlaps — 단계 전환(useLevel)·▲▼(nudge)로 범위가 바뀔 때마다 가볍게 다시 묻는 용도.
+    """GET /api/overlaps — 파일·범위만으로 저장 전 선택의 겹침을 묻는다(에이전트·옛 뷰어 호환용).
 
-    /api/pick 은 좌표→SyncTeX→텍스트 대조까지 다시 하는 무거운 호출이라 범위만 바뀐 재계산에는
-    쓸 수 없다(애초에 좌표가 없다). overlaps_for_range 는 파일·범위만 있으면 되므로 이 얇은 엔드포인트로
-    뺀다."""
+    지금 뷰어는 범위가 바뀔 때마다 자기 PINS 로 같은 규칙(overlapsFor)을 돌려 왕복 없이 센다 — 응답이
+    늦게 오는 사이 [핀 저장]을 누르면 배너 없이 중복이 저장될 수 있어서다. 이 경로는 83b91a5 뷰어가 불렀다."""
     f = safe_src((q.get("file") or [""])[0])
     lines = tex_lines(f)
     try:
@@ -1848,33 +2159,39 @@ def host_ok(host: str) -> bool:
     """루프백 이름이면 포트는 보지 않는다 — SSH -L 로 다른 로컬 포트에 포워딩해도 Host 가
     'localhost:9000'처럼 실제 서버 포트와 달라질 수 있다. DNS 리바인딩 공격의 Host 는 루프백 이름이
     아니므로(외부 도메인이 127.0.0.1 로 풀리는 것이지 Host 헤더 자체가 'localhost'가 되는 게 아니다)
-    여기서 포트를 빼도 그 방어는 약해지지 않는다. 포트가 실제로 달라지는 상황(SSH 포워딩)에서 요청을
-    받아 줄지는 origin_ok 가 Origin 의 포트로 다시 검사한다."""
+    여기서 포트를 빼도 그 방어는 약해지지 않는다. 교차 출처(CSRF) 방어는 origin_ok 가 맡는다."""
     name, _ = split_host(host)
     if name in LOOPBACK:
         return True
     return name.endswith(".ts.net")
 
 
+DEFAULT_PORT = {"http": 80, "https": 443}
+
+
 def origin_ok(origin: str, host) -> bool:
+    """Origin 이 이 요청이 도착한 Host 와 같은 편인가. 규칙은 Host 종류로 갈린다.
+
+    - Host 가 루프백: Origin 도 루프백이어야 한다. 포트는 보지 않는다 — SSH -L 로 포워딩하면 브라우저의
+      Origin·Host 포트가 서버 바인딩 포트와 다르다(실측: 18110→18106 POST 가 403). 루프백 Host 로
+      *.ts.net Origin 이 오는 정상 경로는 없다(tailscale serve 는 Host 를 보존한다, SKILL.md 실측) —
+      받으면 다른 tailnet 의 Funnel 공개 페이지가 로컬 사용자 브라우저로 CSRF 를 한다(실측: 200).
+    - Host 가 *.ts.net: Origin 은 그 호스트와 이름·포트가 같아야 한다(생략 포트는 scheme 기본값).
+    Origin 이 없는 요청(curl·에이전트·같은 출처 GET)은 이 함수까지 오지 않는다."""
     u = urlparse(origin.strip())
     if u.scheme not in ("http", "https") or not u.hostname:
         return False                                   # 'null' 출처(샌드박스 iframe·file://) 포함
-    name, port = u.hostname.lower().rstrip("."), u.port
-    if name in LOOPBACK:
-        # SSH -L 로 포워딩하면(예: 로컬 18109 → 원격 18106) 브라우저가 보는 실제 포트는 서버 자신의
-        # C.port 가 아니라 Host 헤더에 실린 포워딩 포트다. host_ok 는 루프백 Host 를 포트와 무관하게
-        # 허용하므로, 여기서도 Origin 의 포트를 서버 바인딩 포트가 아니라 '이 요청이 실제로 도착한
-        # Host' 의 포트와 맞춰야 브라우저 기준 동일 출처가 통과한다. Host 에 포트가 없으면(비표준
-        # 클라이언트) 서버 포트로 폴백한다 — 교차 포트 출처(예: localhost:3000)는 여전히 막힌다.
-        hname, hport = split_host(host or "")
-        if hname in LOOPBACK:
-            return port == (hport if hport is not None else C.port)
-        return port == C.port
-    if name.endswith(".ts.net"):
-        hname, _ = split_host(host or "")
-        # tailscale serve 가 Host 를 보존하면 같은 이름이어야 하고, 루프백으로 바꿔 넘기면 ts.net 출처를 받는다.
-        return hname == name or hname in LOOPBACK
+    try:
+        oport = u.port
+    except ValueError:
+        return False
+    name = u.hostname.lower().rstrip(".")
+    hname, hport = split_host(host or "")
+    if not hname or hname in LOOPBACK:                 # Host 가 없으면(HTTP/1.0) 루프백으로 친다 — 더 엄한 쪽
+        return name in LOOPBACK
+    if hname.endswith(".ts.net"):
+        dflt = DEFAULT_PORT[u.scheme]
+        return name == hname and (oport or dflt) == (hport or dflt)
     return False
 
 
@@ -2214,18 +2531,21 @@ async function boot(){
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
   drawMeta(); buildDoc(); autoW(); applySideWidth(); await loadPins();
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_mtime;
+  LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
   startLightPolling(); startBuildPolling();
 }
 function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
-// 원고 수정됨 배지 — source_newer() 기반 stale_build 대신, 부작용 없는 src_mtime/build_src_mtime 비교로
-// 가볍게 갱신한다(5초 폴링). built_src_mtime 이 없는 옛 인스턴스는 built_at 시각과 비교한다.
+// 원고 수정됨 배지 — 서버가 준 숫자(stale_build, src_age_s)로만 판정한다. 브라우저 시계·시간대와 무관하다.
+// stale_build 가 없는 옛 응답만 src_mtime/build_src_mtime(둘 다 서버 epoch) 비교로 폴백한다.
 function updateStaleBadge(m){
   const badge=$('#meta-stale'), btn=$('#btn-rebuild');
-  const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
-  if(ref==null||!(typeof m.src_mtime==='number')||!(m.src_mtime>ref+2)){
-    badge.hidden=true; btn.classList.remove('p'); return;
-  }
-  const mins=Math.max(0,Math.round((Date.now()/1000-m.src_mtime)/60));
+  let stale;
+  if(typeof m.stale_build==='boolean')stale=m.stale_build;
+  else{const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
+    stale=ref!=null&&typeof m.src_mtime==='number'&&m.src_mtime>ref+2;}
+  if(!stale){badge.hidden=true; btn.classList.remove('p'); return;}
+  const age=(typeof m.src_age_s==='number')?m.src_age_s:(Date.now()/1000-m.src_mtime);
+  const mins=Math.max(0,Math.round(age/60));
   badge.hidden=false; badge.textContent='원고 수정됨 · '+mins+'분 전';
   btn.classList.add('p');
 }
@@ -2253,10 +2573,9 @@ async function pollLight(){
   // 다른 세션·에이전트가 curl 로 시작한 빌드도 light meta 의 build.state 로 잡아낸다 — 1초 폴링은
   // 그때만(또는 이 탭에서 직접 rebuild() 를 눌렀을 때만) 돈다.
   if(d.build&&d.build.state==='running'&&!BUILD_TIMER)pollBuild();
-  // 5초 틈새 안에 다른 클라이언트가 시작~종료까지 끝낸 빌드는 'running'을 한 번도 못 보고 바로
-  // 최종 상태(fail 등)로 나타난다 — started_at 이 이 탭이 마지막으로 처리한 값과 다르면(=이 탭이
-  // 못 본 새 빌드 하나가 지나갔다) 전체 상세를 다시 받아 배너·칩을 갱신한다.
-  if(d.build&&d.build.state!=='running'&&BUILD_BOOTED&&d.build.started_at&&d.build.started_at!==LAST_SEEN_BUILD)pollBuild();
+  // build_seq(끝난 빌드 수)가 이 탭이 본 값과 다르면, 5초 틈새 안에 시작~종료까지 끝나 'running'을 한 번도
+  // 못 본 빌드가 있었다는 뜻이다 — 상세를 받아 화면·배너·칩을 맞춘다.
+  else if(typeof d.build_seq==='number'&&d.build_seq!==LAST_BUILD_SEQ)pollBuild();
 }
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
@@ -2279,39 +2598,47 @@ function diffToast(prev,next){
 // BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
 // 뒤)까지 매초 /api/build 를 때리지 않는다. 시작하는 곳은 셋뿐이다: 이 탭에서 rebuild() 를 눌렀을 때,
 // pollLight(5초 폴링)가 build.state==='running' 을 봤을 때, 그리고 부팅 시 이미 도는 빌드를 잡을 때.
-let BUILD_TIMER=null,LAST_BUILD_STATE=null,LAST_BUILD_ERR=null,LAST_SEEN_BUILD=null,BUILD_BOOTED=false;
+// 끝난 빌드는 build_seq(서버가 빌드마다 1씩 올림)로 센다. LAST_BUILD_SEQ 는 이 탭이 이미 처리한 값이다 —
+// 처리(화면 교체·토스트)는 seq 하나당 한 번이다. started_at 문자열이나 'running 을 봤는가'로 세면 5초 틈새에
+// 끝난 빌드를 놓치거나, 숨은 탭이 돌아올 때 두 경로가 같은 완료를 두 번 처리했다(실측: 토스트 ×2).
+let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
 function buildChipText(b){
   const label={copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
   return label+' · '+el+'초'+last;
 }
-async function pollBuild(){
-  if(document.hidden)return;           // 탭이 숨으면 요청 자체를 보내지 않는다
+// 단일 비행: 이미 도는 조회가 있으면 새로 보내지 않고 그 약속을 돌려준다(1초 타이머·visibilitychange·
+// focus·pollLight 가 한꺼번에 불러도 /api/build 는 한 번, 완료 처리도 한 번).
+function pollBuild(){
+  if(document.hidden)return Promise.resolve();   // 탭이 숨으면 요청 자체를 보내지 않는다
+  if(BUILD_INFLIGHT)return BUILD_INFLIGHT;
+  BUILD_INFLIGHT=pollBuildOnce().finally(()=>{BUILD_INFLIGHT=null;});
+  return BUILD_INFLIGHT;
+}
+async function pollBuildOnce(){
   let b;
   try{b=(await api('/api/build',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
   const chip=$('#build-chip');
   if(b.state==='running'){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
     if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000);
-  }else{
-    chip.hidden=true; $('#btn-rebuild').disabled=false;
-    // started_at 이 이 탭이 마지막으로 처리한 빌드와 다르면, running 을 직접 못 봤어도 '새로 끝난
-    // 빌드'다(예: 다른 클라이언트가 5초 폴링 틈새 안에 시작~종료까지 끝냄). BUILD_BOOTED 이전(첫
-    // 호출, 즉 페이지를 막 열었을 때)에는 그냥 '전부터 있던 상태'이므로 토스트는 울리지 않는다.
-    const isNew=BUILD_BOOTED&&b.started_at&&b.started_at!==LAST_SEEN_BUILD;
-    if(LAST_BUILD_STATE==='running'||isNew){           // 방금 끝났다 — 제자리 교체 + 알림
-      await refreshDoc();
-      const secs=Math.round(b.elapsed_s||0);
-      if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok'); LAST_BUILD_ERR=null; hideBuildErr();}
-      else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn'); showBuildErr(b);}
-      else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다','err'); showBuildErr(b);}
-    }else if(!BUILD_BOOTED&&(b.state==='fail'||b.state==='ok_errors')){
-      showBuildErr(b);   // 부팅 시 이미 실패해 있던 빌드 — 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
-    }
-    if(b.started_at)LAST_SEEN_BUILD=b.started_at;
-    if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // 더 볼 게 없으면 폴링을 멈춘다
+    BUILD_BOOTED=true; return;
   }
-  LAST_BUILD_STATE=b.state; BUILD_BOOTED=true;
+  chip.hidden=true; $('#btn-rebuild').disabled=false;
+  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // 더 볼 게 없으면 폴링을 멈춘다
+  const seq=(typeof b.seq==='number')?b.seq:0;
+  const booted=BUILD_BOOTED; BUILD_BOOTED=true;
+  if(LAST_BUILD_SEQ===null)LAST_BUILD_SEQ=seq;
+  if(seq!==LAST_BUILD_SEQ){
+    LAST_BUILD_SEQ=seq;                 // await 전에 먼저 차지한다 — 같은 완료를 두 번 처리하지 않게
+    try{await refreshDoc();}catch(e){}
+    const secs=Math.round(b.elapsed_s||0);
+    if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok'); LAST_BUILD_ERR=null; hideBuildErr();}
+    else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn'); showBuildErr(b);}
+    else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다','err'); showBuildErr(b);}
+  }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
+    showBuildErr(b);   // 새로 연 탭 — 이미 실패해 있던 빌드는 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
+  }
 }
 function startBuildPolling(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollBuild();});
@@ -2373,7 +2700,7 @@ window.addEventListener('mouseup',e=>{if(!DRAG)return; const {pg,sx,sy,box}=DRAG
   else { if(PENDING)PENDING.remove(); PENDING=box; box.innerHTML='<i>새 핀</i>'; }
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
-    frac:[Math.min(sx,x),Math.min(sy,y),w,h]});});
+    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined});});
 
 // ------------------------------------------------ 범위 단계
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
@@ -2419,19 +2746,40 @@ async function pick(r){
   if(seq!==PICKSEQ)return;
   setBusy(false);
   if(d.error){
+    if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
     if(rp){bannerRepick(d.error);return;}
     CUR=null; $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
-  OVERLAP_DISMISSED=false;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
+  OVERLAP_DISMISSED=null;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
+  CUR.overlaps=overlapsFor(CUR,PINS);
+  // 서버가 본 겹친 핀이 이 탭의 PINS 에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다 — loadPins 가 겹침도 다시 센다.
+  if((d.overlaps||[]).some(o=>!PINS.some(p=>p.id===o.id)))loadPins();
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
   $('#note').focus({preventScroll:true});   // 드래그 → 바로 메모 입력
 }
-// P0b-03: pick() 이 돌려준 overlaps 중 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지 않는다 —
-// 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
+// P0b-03: 저장 전 선택(CUR)이 열린 핀과 겹치면 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지
+// 않는다 — 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
+// 겹침은 범위가 바뀔 때마다(드래그·단계 전환·▲▼) 이 탭의 PINS 로 다시 센다. pick 순간 한 번만 세면 단계를
+// 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장됐다(실측). 규칙은 서버 selection_rel 과
+// 같다(회귀 테스트가 대조한다): equal(같은 범위) · inside(선택이 핀 안) · contains(선택이 핀을 감쌈) · partial.
+function selRel(lo,hi,blo,bhi){
+  if(hi<blo||bhi<lo)return null;
+  if(lo===blo&&hi===bhi)return 'equal';
+  if(blo<=lo&&hi<=bhi)return 'inside';
+  if(lo<=blo&&bhi<=hi)return 'contains';
+  return 'partial';
+}
+function overlapsFor(o,pins){const out=[];
+  (pins||[]).forEach(p=>{if(p.done||p.file!==o.file)return; const rel=selRel(o.lo,o.hi,p.lo,p.hi);
+    if(rel)out.push({id:p.id,lo:p.lo,hi:p.hi,rel:rel});});
+  return out;}
+// 대표 하나: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id 가 가장 작은 것).
 function pickOverlap(ovs){
   if(!ovs||!ovs.length)return null;
+  const eq=ovs.filter(o=>o.rel==='equal');
+  if(eq.length)return eq.reduce((a,b)=>b.id<a.id?b:a);
   const insides=ovs.filter(o=>o.rel==='inside');
   if(insides.length)return insides.reduce((a,b)=>(b.hi-b.lo)<(a.hi-a.lo)?b:a);
   const contains=ovs.filter(o=>o.rel==='contains');
@@ -2440,28 +2788,20 @@ function pickOverlap(ovs){
   if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
   return null;
 }
-let OVERLAP_DISMISSED=false,OVSEQ=0;
-// P0b 수선: pick 순간의 overlaps 는 그 순간의 기본 범위 기준이다 — 단계 전환(useLevel)·▲▼(nudge)로
-// CUR.lo/hi 가 바뀌면 다시 물어야 한다. /api/pick 은 좌표부터 다시 찾는 무거운 호출이라 쓸 수 없으므로
-// (애초에 재계산 시점엔 좌표가 없다) 가벼운 /api/overlaps 로 CUR.overlaps 만 새로 받는다.
-async function refreshOverlap(o){
-  if(o!==CUR)return;               // 편집 카드(EDIT)에는 겹침 배너가 없다
-  const seq=++OVSEQ;
-  try{const {data}=await api('/api/overlaps?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,{what:'겹침 확인',silent:true});
-    if(seq!==OVSEQ||o!==CUR)return;
-    CUR.overlaps=data.overlaps; renderOverlapBanner();
-  }catch(e){}
-}
+function overlapVerb(rel){return ({equal:'과 같은 범위입니다',inside:' 안입니다',contains:'을 감쌉니다',partial:'에 걸칩니다'})[rel]||'과 겹칩니다';}
+// [별도 핀으로 저장]은 '그 핀과의 그 관계'를 끈다(id:rel). 범위를 바꿔 관계가 달라지면 다시 알리고, 새 드래그(pick)
+// 에서는 초기화한다 — 한 번 누르면 이후 선택까지 영구히 꺼지던 결함의 재발 방지.
+let OVERLAP_DISMISSED=null;
+function recomputeOverlap(){if(CUR)CUR.overlaps=overlapsFor(CUR,PINS);}
 function renderOverlapBanner(){
   const box=$('#c-overlap'); const d=CUR;
-  const ov=d&&!OVERLAP_DISMISSED?pickOverlap(d.overlaps):null;
-  if(!ov){box.hidden=true;return;}
-  box.hidden=false;
-  const verb=ov.rel==='inside'?'안입니다':(ov.rel==='contains'?'을 감쌉니다':'과 겹칩니다');
-  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+') '+verb+'</span>'+
+  const ov=d?pickOverlap(d.overlaps):null;
+  if(!ov||OVERLAP_DISMISSED===ov.id+':'+ov.rel){box.hidden=true;return;}
+  box.hidden=false; box.dataset.rel=ov.rel;
+  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+')'+overlapVerb(ov.rel)+'</span>'+
     '<button class="x" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
     ov.id+' 메모에 덧붙이기</button>'+
-    '<button class="x" data-act="overlap-separate" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
+    '<button class="x" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
 }
 function renderComposer(){const d=CUR; if(!d)return;
   const loc=d.name+' L'+d.lo+'-L'+d.hi;
@@ -2477,7 +2817,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=false; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -2492,7 +2832,7 @@ async function savePin(){
   if(!CUR||SAVING)return; SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
   const d=CUR,note=$('#note').value.trim();
   const body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
-    frac:d.frac,note:note,quote:d.quote};
+    frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
@@ -2569,6 +2909,7 @@ async function loadPins(){let d;
   PINS=nextOpen;
   if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   drawPins(); marks();
+  if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
   if(META)document.title='원고 핀 · '+META.main+' · 열린 '+PINS.length;
 }
 function drawPins(){
@@ -2581,27 +2922,10 @@ function drawPins(){
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
 }
-// P0b-06/P0b 수선: 재빌드 뒤에도 옛 PDF 좌표로 그려진 마크는 '위치 추정'이다. 처음엔 이걸 벽시계
-// (at/edited_at 대 built_at/build_src_mtime)로 비교했는데, 그러면 세 갈래로 틀린다 — (1) 메모만
-// 고쳐도 edited_at 이 지금으로 튀어 frac 은 그대로인데 '추정' 표시가 꺼진다. (2) 원고를 고친 뒤 옛
-// PDF 화면에서 막 찍은 핀은 at 이 그 다음 재빌드보다도 나중이라 애초에 '추정' 판정에 들어가지도
-// 못한다. (3) 벽시계 비교라 브라우저 시간대가 서버와 다르면(공저자가 다른 대륙) 전부 어긋난다.
-// 그래서 frac 이 가리키는 좌표계를 벽시계가 아니라 '어느 빌드였는지'로 못박는다 — add_pin·edit_pin
-// (loc 에 frac 이 실제로 왔을 때만)이 서버에서 cur_pages().name 을 pin.frac_build 로 찍어 둔다.
-// 지금 META.pages_build 와 다르면 그 사이 새 빌드가 있었다는 뜻이므로 무조건 추정이다 — 문자열
-// 비교라 시간대와 무관하고, 메모 수정은 frac_build 를 건드리지 않으니 (1)도 사라진다.
-// frac_build 가 없는 핀(이 필드가 생기기 전 옛 인스턴스)은 예전 벽시계 비교로 폴백한다(하위 호환).
-function pinAtEpoch(p){return builtAtEpoch(p.edited_at||p.at);}
-function isEstimated(p){
-  if(!META)return false;
-  // '이동/위치잃음'은 원고가 바뀌어 앵커가 다시 찾은 결과다 — frac 좌표는 옛 PDF 기준 그대로이므로 추정이다.
-  if(p.sync&&p.sync!=='ok')return true;
-  if(p.frac_build!=null&&META.pages_build!=null)return p.frac_build!==META.pages_build;
-  const ba=builtAtEpoch(META.built_at), pa=pinAtEpoch(p);
-  if(ba==null||pa==null||!(pa<ba))return false;
-  const bsm=(typeof META.build_src_mtime==='number')?META.build_src_mtime:null;
-  return bsm!=null && bsm>pa;
-}
+// 위치 추정(.est, 점선)은 서버가 판정해 /api/pins 의 est 로 싣는다(pin_est — 핀을 찍은 빌드와 지금 빌드의
+// 원고 지문 비교). 뷰어가 벽시계로 판정하던 때는 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은
+// 핀에서 전부 틀렸다(독립 검증 실측). 뷰어는 받은 값을 그대로 그린다.
+function isEstimated(p){return p.est===true;}
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   PINS.forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
@@ -2723,7 +3047,7 @@ function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c;
 function startRepick(){if(!EDIT)return; REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi},box:null,cand:null}; bannerRepick();}
 function cancelRepick(){if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;}
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
-  const loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,
+  const loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
     scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
   if(!loc.scope)delete loc.scope;
   const base=EDIT&&EDIT.id===R.id?EDIT.base_rev:0;
@@ -2762,7 +3086,11 @@ function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden
 async function rebuild(){
   try{const {status}=await api('/api/rebuild?async=1',{method:'POST',what:'PDF 다시 만들기',expect:[409]});
     if(status===409){toast('이미 다른 곳에서 PDF를 만드는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
-    $('#build-err').hidden=true; LAST_BUILD_STATE='running'; await pollBuild();
+    $('#build-err').hidden=true;
+    // POST 전에 떠난 조회가 있으면 끝나길 기다린 뒤 새로 묻는다 — 그 조회는 옛 상태(ok)를 들고 와 1초 폴링을
+    // 걸지 않는다. 완료는 build_seq 로 가리므로 이 탭이 따로 기억할 것은 없다.
+    if(BUILD_INFLIGHT){try{await BUILD_INFLIGHT;}catch(e){}}
+    await pollBuild();
   }catch(e){}}
 
 // ------------------------------------------------ 도움말
@@ -2783,12 +3111,12 @@ document.addEventListener('click',e=>{
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
-    case 'overlap-separate':OVERLAP_DISMISSED=true;renderOverlapBanner();break;
+    case 'overlap-separate':OVERLAP_DISMISSED=a.dataset.key||null;renderOverlapBanner();break;
     case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
     case 'copy-cur':if(CUR)copyText(CUR.name+' L'+CUR.lo+'-L'+CUR.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
-    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); inEdit?renderEdit():renderComposer(); if(!inEdit)refreshOverlap(o); break;}
-    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); if(!inEdit)refreshOverlap(o); break;}
+    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
+    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'mark-jump':jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
@@ -2886,7 +3214,8 @@ class Handler(BaseHTTPRequestHandler):
 
         - Host: 모든 요청이 루프백 이름(:이 포트)이나 *.ts.net 이어야 한다.
           DNS rebinding 은 브라우저가 evil.example 로 127.0.0.1 에 닿는 것이라 Host 가 드러난다.
-        - Origin: 있으면 이 서버 자신의 출처(루프백:포트) 또는 Host 와 같은 *.ts.net 이어야 한다.
+        - Origin: 있으면 Host 가 루프백일 때 루프백(포트 무관 — SSH -L), Host 가 *.ts.net 일 때 그 호스트와
+          같은 출처여야 한다(origin_ok).
           브라우저는 교차 출처 POST 에 Origin 을 반드시 싣는다. curl·에이전트는 Origin 이 없어 영향이 없다."""
         if not C.origin_check:                        # --no-origin-check: 실측 경로가 예상과 다를 때의 탈출구
             return
@@ -2946,10 +3275,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/build":
             return self._json(build_state_snapshot())
         if path == "/api/pins":
-            rows = snapshot_pins()
             allp = (q.get("all") or ["0"])[0] == "1"
-            rel = overlaps_by_id(rows)
-            return self._json([dict(public(r), rel=rel.get(r["id"], [])) for r in rows if allp or not r.get("done")])
+            return self._json(pins_payload(snapshot_pins(), allp))
         if path == "/api/snippet":
             return self._json(snippet_api(q))
         if path == "/api/overlaps":
@@ -3056,6 +3383,7 @@ def main() -> None:
 
     migrate_pages()
     init_seq()
+    seed_builds()                    # 옛 인스턴스가 만든 지금 빌드를 이력에 올리고 마지막 빌드 결과를 되살린다
     if not a.no_build or not cur_pdf().exists() or not page_list():
         r = build_all()
         if r.get("state") == "fail":
