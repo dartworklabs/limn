@@ -28,12 +28,12 @@ slash_command: true
 6. **닫는다.** 무엇을 고쳤는지(`reply` ≤500자)와 PR 번호(`ref` ≤80자)를 남긴다.
 
    ```bash
-   curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
+   curl -s -X POST <base>/api/pins/3/close \
      -H 'Content-Type: application/json' \
      -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
    ```
 
-7. **확인한다.** 여러 핀을 처리했으면 `<state_dir>/pins.md` 를 다시 읽는다. 열린 핀이 0(또는 전부 `⏳`)인지 확인해 사용자에게 보고한다.
+7. **확인한다.** 여러 핀을 처리했으면 1단계처럼 핀 표를 다시 읽는다. 열린 핀이 0(또는 전부 `⏳`)인지 확인해 사용자에게 보고한다.
 
 ### 기호
 
