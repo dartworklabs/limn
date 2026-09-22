@@ -51,6 +51,10 @@ MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
 CLOSE_REF_MAX = 80                 # 같은 값(PR 번호 등)이면 UI 가 닫힌 핀을 묶어 보일 수 있는 참조
+CLAIM_TTL_DEFAULT = 120            # 분 — claim 을 걸 때 ttl_min 을 안 주면 쓰는 기본값(§P0c-C)
+CLAIM_TTL_MIN = 1
+CLAIM_TTL_MAX = 480
+GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "note", "scope", "quote", "pdf_build")
@@ -72,7 +76,7 @@ BUILD_LOCK = threading.Lock()
 BUILD_STATE_LOCK = threading.Lock()
 BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
                "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
-               "seq": 0, "finished_at": None, "last": None}
+               "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
 # builds.json(빌드 이력)의 읽기-고치기-쓰기를 묶는다.
 BUILDS_LOCK = threading.Lock()
 
@@ -89,6 +93,7 @@ class Cfg:
     timeout: int
     allow: frozenset
     origin_check: bool = True
+    git_pull: bool = False
 
     @property
     def pins_jsonl(self) -> Path:
@@ -326,6 +331,27 @@ def build_state_snapshot() -> dict:
     return d
 
 
+LOG_TAIL_LINES = 40                # 성공하지 않은 빌드에서 다이어트 응답에 남기는 줄 수(§P0c-F)
+
+
+def diet_log(payload: dict, full: bool) -> dict:
+    """에이전트 응답 다이어트: state=='ok' 면 log·log_tail 을 뺀다(성공 때도 폰트 경로로 수 KB였다).
+    ok_errors|fail 은 마지막 LOG_TAIL_LINES 줄로 줄인다. full(?log=1)이면 손대지 않는다.
+    내부 상태(BUILD_STATE·builds.json)는 그대로 두고 HTTP 응답 직전에만 적용한다."""
+    if full:
+        return payload
+    out = dict(payload)
+    state = out.get("state")
+    for key in ("log", "log_tail"):
+        if key not in out:
+            continue
+        if state == "ok":
+            out.pop(key, None)
+        else:
+            out[key] = "\n".join(str(out[key] or "").splitlines()[-LOG_TAIL_LINES:])
+    return out
+
+
 def build_all() -> dict:
     """PDF 를 다시 만든다(동기). 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다."""
     if not BUILD_LOCK.acquire(blocking=False):
@@ -386,7 +412,8 @@ def finish_build(res: dict, src_mtime_at_start) -> None:
     state = res.get("state", "fail")
     last = {"state": state, "errors": list(res.get("errors") or [])[:5],
             "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "elapsed_s": res.get("elapsed_s", 0.0), "log_tail": str(res.get("log") or "")[-4000:]}
+            "elapsed_s": res.get("elapsed_s", 0.0), "log_tail": str(res.get("log") or "")[-4000:],
+            "head": res.get("head"), "pull": res.get("pull")}
     with BUILD_STATE_LOCK:
         last["started_at"] = BUILD_STATE.get("started_at")
     ent = None
@@ -396,9 +423,10 @@ def finish_build(res: dict, src_mtime_at_start) -> None:
     seq = record_build(last, ent)
     build_state_update(state=state, phase=None, start_ts=None, seq=seq, finished_at=last["finished_at"],
                         elapsed_s=last["elapsed_s"], last_s=last["elapsed_s"],
-                        pages=res.get("pages", 0), errors=last["errors"],
+                        pages=res.get("pages", 0), errors=last["errors"], head=last["head"], pull=last["pull"],
                         log_tail=res.get("log", ""), built_at=_read_built_at(),
-                        last={"state": state, "errors": last["errors"], "finished_at": last["finished_at"], "seq": seq})
+                        last={"state": state, "errors": last["errors"], "finished_at": last["finished_at"],
+                              "seq": seq, "head": last["head"], "pull": last["pull"]})
 
 
 # ---------------------------------------------------------------- 빌드 이력(builds.json)과 원고 지문
@@ -493,8 +521,9 @@ def seed_builds() -> None:
         kw.update(state=last["state"], errors=errs, log_tail=str(last.get("log_tail") or ""),
                   started_at=last.get("started_at"), finished_at=last.get("finished_at"),
                   last_s=last.get("elapsed_s"), elapsed_s=last.get("elapsed_s"),
+                  head=last.get("head"), pull=last.get("pull"),
                   last={"state": last["state"], "errors": errs, "finished_at": last.get("finished_at"),
-                        "seq": h["seq"]})
+                        "seq": h["seq"], "head": last.get("head"), "pull": last.get("pull")})
     build_state_update(**kw)
 
 
@@ -505,6 +534,68 @@ def _read_built_at():
         return None
 
 
+def _read_head():
+    try:
+        return (C.state / "head.txt").read_text().strip()
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------- --git-pull(§P0c-E)
+#
+# 재빌드 copy 단계 전에 원고 저장소를 원격 main 으로 fast-forward 한다. 공저자가 PR 을 머지해도
+# 서버 쪽 체크아웃은 그대로였다 — 뷰어가 옛 원고를 계속 보여 줬다. 실패해도(더러움·분기·업스트림
+# 없음) 빌드 자체는 지금 체크아웃으로 계속한다 — pull 은 있으면 좋은 것이지 빌드의 전제조건이 아니다.
+
+def _git(args: list, cwd, timeout: int = GIT_PULL_TIMEOUT):
+    """git 을 쉘 없이 돌린다. 인자에 사용자 입력을 넣지 않는다. (returncode, stdout, stderr).
+    시간 초과·실행 실패는 returncode=None 으로 구분한다."""
+    try:
+        r = subprocess.run(["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True)
+        return r.returncode, r.stdout, r.stderr
+    except (subprocess.TimeoutExpired, OSError):
+        return None, "", ""
+
+
+def git_pull_phase(manuscript: Path) -> dict:
+    """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
+
+    순서: 저장소 루트 탐색(아니면 skipped:not_git) → fetch(실패하면 error) → 업스트림 확인
+    (없으면 skipped:no_upstream) → 더러움 확인(있으면 skipped:dirty) → --ff-only 머지
+    (분기했으면 skipped:diverged). 어느 단계든 git 호출 자체가 시간 초과·실행 실패면 error."""
+    rc, top, _ = _git(["-C", str(manuscript), "rev-parse", "--show-toplevel"], manuscript)
+    if rc != 0 or not top.strip():
+        return {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}
+    root = top.strip()
+
+    rc, before, _ = _git(["-C", root, "rev-parse", "HEAD"], root)
+    head_before = before.strip() if rc == 0 else None
+
+    rc, _out, _err = _git(["-C", root, "fetch", "--quiet"], root)
+    if rc != 0:
+        reason = "fetch_timeout" if rc is None else "fetch_failed"
+        return {"state": "error", "reason": reason, "head_before": head_before, "head_after": head_before}
+
+    rc, _out, _err = _git(["-C", root, "rev-parse", "--abbrev-ref", "@{u}"], root)
+    if rc != 0:
+        return {"state": "skipped", "reason": "no_upstream", "head_before": head_before, "head_after": head_before}
+
+    rc, dirty, _err = _git(["-C", root, "status", "--porcelain", "--untracked-files=no"], root)
+    if rc != 0:
+        return {"state": "error", "reason": "status_failed", "head_before": head_before, "head_after": head_before}
+    if dirty.strip():
+        return {"state": "skipped", "reason": "dirty", "head_before": head_before, "head_after": head_before}
+
+    rc, _out, _err = _git(["-C", root, "merge", "--ff-only", "@{u}"], root)
+    if rc != 0:
+        return {"state": "skipped", "reason": "diverged", "head_before": head_before, "head_after": head_before}
+
+    rc, after, _err = _git(["-C", root, "rev-parse", "HEAD"], root)
+    head_after = after.strip() if rc == 0 else head_before
+    state = "up_to_date" if head_after == head_before else "ok"
+    return {"state": state, "reason": None, "head_before": head_before, "head_after": head_after}
+
+
 def _build() -> dict:
     """원본을 건드리지 않고 사본에서 -synctex=1 로 빌드한 뒤, 새 디렉토리에 쪽을 그리고 포인터만 바꾼다.
 
@@ -513,6 +604,11 @@ def _build() -> dict:
     t0 = time.time()
     C.build.mkdir(parents=True, exist_ok=True)
     res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
+
+    if C.git_pull:                                        # copy 단계 전에 원격 main 으로 fast-forward(§P0c-E)
+        build_state_update(phase="pull")
+        res["pull"] = git_pull_phase(C.src)
+        build_state_update(phase="copy")
 
     rs = shutil.which("rsync")
     try:
@@ -598,7 +694,9 @@ def _build() -> dict:
     atomic_write(C.state / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     head = subprocess.run(["git", "-C", str(C.src), "rev-parse", "--short", "HEAD"],
                           capture_output=True, text=True)
-    atomic_write(C.state / "head.txt", head.stdout.strip() or "-")
+    head_short = head.stdout.strip() or "-"
+    atomic_write(C.state / "head.txt", head_short)
+    res["head"] = head_short
 
     res["state"] = "ok_errors" if res["errors"] else "ok"
     res["ok"] = True
@@ -1268,7 +1366,7 @@ def valid_rec(r) -> bool:
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not _is_int(r[k]):
             return False
-    for k in ("synced_at", "score"):
+    for k in ("synced_at", "score", "claim_until"):
         if r.get(k) is not None and not _is_num(r[k]):
             return False
     for k in ("done", "stale"):
@@ -1858,6 +1956,7 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 r["close_reply"] = reply
             if ref:
                 r["close_ref"] = ref
+            _clear_claim(r)                       # 닫으면 처리 중 표시도 함께 지운다(§P0c-C)
         else:
             r["done"] = False
             r["reopened_at"] = now_str()
@@ -1876,10 +1975,73 @@ def drop_pin(pid: int, actor: dict) -> bool:
         if r is None:
             return False, False
         rows.remove(r)
+        _clear_claim(r)                           # 삭제해도 처리 중 표시를 남기지 않는다(§P0c-C)
         gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
         old, _ = read_jsonl(C.dropped)
         atomic_write(C.dropped, dump_jsonl(old + [gone]))
         return True, True
+    return transact(fn)[1]
+
+
+# ---------------------------------------------------------------- 처리 중 표시(claim, §P0c-C)
+#
+# 공저자와 그 에이전트가 같은 핀을 동시에 고칠 수 있다. TTL 있는 낙관적 표시로 충돌을 줄인다 —
+# 잠금이 아니라 신호다: 다른 신원이 유효한 claim 을 쥔 핀을 닫거나 강제로 잡는 것을 막지는 않는다.
+
+def claim_active(r: dict) -> bool:
+    """이 핀에 만료되지 않은 claim 이 있는가. claim_until 은 epoch 초(시간대와 무관하게 비교)다."""
+    cu = r.get("claim_until")
+    return _is_num(cu) and float(cu) > time.time()
+
+
+def _clear_claim(r: dict) -> None:
+    r.pop("claimed_by", None)
+    r.pop("claimed_at", None)
+    r.pop("claim_until", None)
+
+
+def clean_claim_ttl(d: dict) -> int:
+    v = d.get("ttl_min", CLAIM_TTL_DEFAULT)
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
+        raise HTTPError(400, "ttl_min 은 정수여야 합니다.")
+    v = int(v)
+    if not (CLAIM_TTL_MIN <= v <= CLAIM_TTL_MAX):
+        raise HTTPError(400, "ttl_min 은 %d..%d 사이여야 합니다." % (CLAIM_TTL_MIN, CLAIM_TTL_MAX))
+    return v
+
+
+def claim_pin(pid: int, actor: dict, ttl_min: int):
+    """처리 중 표시를 걸거나(같은 신원이면) 연장한다. 없는 id 는 (None, False) — 호출부가
+    {"ok": false} 를 낸다. 닫힌 핀이거나 다른 신원이 유효한 claim 을 쥐고 있으면 409."""
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return None, False
+        if r.get("done"):
+            raise HTTPError(409, "done", pin=public(r))
+        me = who(actor)
+        if claim_active(r) and (r.get("claimed_by") or {}).get("login") != me["login"]:
+            raise HTTPError(409, "claimed", claimed_by=r["claimed_by"], claim_until=r["claim_until"])
+        r["claimed_by"] = me
+        r["claimed_at"] = now_str()
+        r["claim_until"] = time.time() + ttl_min * 60
+        r["rev"] = int(r.get("rev") or 0) + 1
+        return public(r), True
+    return transact(fn)[1]
+
+
+def unclaim_pin(pid: int, actor: dict):
+    """처리 중 표시를 지운다 — 요청자 신원과 무관하다(신뢰 모델상 권한 제한을 두지 않는다).
+    없는 id 는 (None, False)."""
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return None, False
+        had = "claimed_by" in r
+        _clear_claim(r)
+        if had:
+            r["rev"] = int(r.get("rev") or 0) + 1
+        return public(r), had
     return transact(fn)[1]
 
 
@@ -1980,20 +2142,35 @@ def render_quote(r: dict) -> str:
     return "«%s» " % md_cell(q)
 
 
-LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ✎ = 저장 뒤 메모·범위 수정됨 · "
+LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ⏳<이름> = 처리 중(다른 에이전트가 잡음) · "
+          "✎ = 저장 뒤 메모·범위 수정됨 · "
           "⚠ = 위치를 잃음(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 
 
-def pins_md_text(rows: list) -> str:
+def pins_md_text(rows: list, base: str = None) -> str:
     """에이전트가 한 번에 읽을 요약. 스니펫은 일부러 넣지 않는다 —
     줄 범위만 있으면 에이전트가 원본을 직접 읽는 편이 항상 더 싸고 정확하다.
     형식 지정자는 %s 만 쓴다 — 레코드 하나의 형이 틀려도 요약 전체가 죽지 않게.
-    닫힌 핀은 목록에 내려받지 않는다(머리줄 건수로만) — 쌓여도 pins.md 크기가 늘지 않는다."""
+    닫힌 핀은 목록에 내려받지 않는다(머리줄 건수로만) — 쌓여도 pins.md 크기가 늘지 않는다.
+
+    base(§P0c-B): 안내 줄의 close 예시가 쓸 base URL. 안 주면(디스크에 쓰는 기본 경로) 지금처럼
+    루프백이다. GET /pins.md 는 요청 Host 로 바꾼 값을 넘긴다 — 원격 base 일 때만 '원격: curl …'
+    한 줄을 안내 문단에 덧붙인다(루프백은 이미 그 파일을 읽고 있으므로 생략)."""
+    loopback_base = "http://127.0.0.1:%d" % C.port
+    is_remote = base is not None and base != loopback_base
+    base = base or loopback_base
     openn = [r for r in rows if not r.get("done")]
     n_done = len(rows) - len(openn)
     rel = overlaps_by_id(rows)
     by_id = {r["id"]: r for r in rows}
+
+    # §P0c-G: 작성자가 2명 이상(로그인 기준, 작성자 없는 옛 핀은 한 부류)일 때만 메모 앞에 @이름 을 붙인다.
+    author_groups = set()
+    for r in openn:
+        a = r.get("author")
+        author_groups.add(a.get("login") if a and a.get("login") else None)
+    multi_author = len(author_groups) > 1
 
     rows_render = []
     any_symbol = False
@@ -2002,6 +2179,8 @@ def pins_md_text(rows: list) -> str:
         badge = rel_badge(rel.get(r["id"], []), by_id)
         if badge:
             syms.append(badge)
+        if claim_active(r):
+            syms.append("⏳%s" % md_cell((r.get("claimed_by") or {}).get("name") or "?"))
         if r.get("edited_at"):
             syms.append("✎")
         if r.get("stale"):
@@ -2010,6 +2189,10 @@ def pins_md_text(rows: list) -> str:
             any_symbol = True
         idcol = md_cell(" ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
+        if multi_author:
+            an = (r.get("author") or {}).get("name")
+            if an:
+                note = "@%s: " % md_cell(an) + note
         q = render_quote(r)
         if q:
             any_symbol = True
@@ -2017,15 +2200,21 @@ def pins_md_text(rows: list) -> str:
         rows_render.append("| %s | %s | %s | %s | %s |" %
                             (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
 
-    out = ["# 수정 요청 핀", "",
-           "원고: `%s`" % C.src,
-           "갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
-           (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done),
-           "",
-           "처리한 핀은 닫는다 — `curl -X POST -H 'Content-Type: application/json' "
-           "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"커밋/PR(≤80자)\"}' "
-           "http://127.0.0.1:%d/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘) · "
-           "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % C.port]
+    out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src]
+    head_short, built_at = _read_head(), _read_built_at()
+    if head_short and head_short != "-" and built_at:               # §P0c-D: 없으면 통째로 생략한다
+        out.append("기준: %s · 빌드 %s" % (head_short, built_at))
+        out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
+    out.append("갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
+               (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done))
+    out.append("")
+    guidance = ("처리한 핀은 닫는다 — `curl -X POST -H 'Content-Type: application/json' "
+                "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"커밋/PR(≤80자)\"}' "
+                "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘) · "
+                "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % base)
+    if is_remote:
+        guidance += " · 원격: `curl -s %s/pins.md`" % base
+    out.append(guidance)
     if any_symbol:
         out.append(LEGEND)
     out += ["", "| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
@@ -2247,6 +2436,16 @@ def origin_ok(origin: str, host) -> bool:
         dflt = DEFAULT_PORT[u.scheme]
         return name == hname and (oport or dflt) == (hport or dflt)
     return False
+
+
+def remote_base_for(host_raw: str) -> str:
+    """GET /pins.md 안내 줄에 쓸 base URL(§P0c-B). Host 가 *.ts.net 이면 'https://<Host 그대로,
+    포트 포함>', 아니면(루프백·Host 없음) 지금까지의 루프백 URL. _check_origin() 이 이미 Host 를
+    검증한 뒤(루프백 또는 *.ts.net)이므로 여기서는 종류만 가른다."""
+    name, _ = split_host(host_raw or "")
+    if name.endswith(".ts.net"):
+        return "https://%s" % host_raw.strip()
+    return "http://127.0.0.1:%d" % C.port
 
 
 # ---------------------------------------------------------------- 뷰어
@@ -2686,9 +2885,17 @@ function diffToast(prev,d,dropped){
 // 끝난 빌드를 놓치거나, 숨은 탭이 돌아올 때 두 경로가 같은 완료를 두 번 처리했다(실측: 토스트 ×2).
 let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
 function buildChipText(b){
-  const label={copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
+  const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
   return label+' · '+el+'초'+last;
+}
+// §P0c-E: 빌드 완료 토스트에 pull 결과를 한 줄 덧붙인다. ok 는 반영된 커밋 범위, skipped·error 는 사유만 —
+// up_to_date 는 알릴 변화가 없으므로 덧붙이지 않는다.
+function pullSuffix(b){
+  const p=b&&b.pull; if(!p||!p.state)return '';
+  if(p.state==='ok')return ' · 원격 반영 '+String(p.head_before||'?').slice(0,7)+'→'+String(p.head_after||'?').slice(0,7);
+  if(p.state==='skipped'||p.state==='error')return ' · git pull '+(p.state==='error'?'실패':'건너뜀')+'('+(p.reason||'?')+')';
+  return '';
 }
 // 단일 비행: 이미 도는 조회가 있으면 새로 보내지 않고 그 약속을 돌려준다(1초 타이머·visibilitychange·
 // focus·pollLight 가 한꺼번에 불러도 /api/build 는 한 번, 완료 처리도 한 번).
@@ -2700,7 +2907,7 @@ function pollBuild(){
 }
 async function pollBuildOnce(){
   let b;
-  try{b=(await api('/api/build',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
+  try{b=(await api('/api/build?log=1',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
   const chip=$('#build-chip');
   if(b.state==='running'){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
@@ -2716,9 +2923,9 @@ async function pollBuildOnce(){
     LAST_BUILD_SEQ=seq;                 // await 전에 먼저 차지한다 — 같은 완료를 두 번 처리하지 않게
     try{await refreshDoc();}catch(e){}
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok'); LAST_BUILD_ERR=null; hideBuildErr();}
-    else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn'); showBuildErr(b);}
-    else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다','err'); showBuildErr(b);}
+    if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; hideBuildErr();}
+    else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
+    else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다'+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
     showBuildErr(b);   // 새로 연 탭 — 이미 실패해 있던 빌드는 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
   }
@@ -2952,11 +3159,19 @@ function relBadge(rel){
   if(partials.length)return {id:partials[0].id,label:'#'+partials[0].id+' 과 겹침'};
   return null;
 }
+// §P0c-C: 처리 중 표시. claim_until 은 epoch 초라 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유로
+// 벽시계 문자열 대신 숫자를 쓴다). 뷰어는 claim 을 걸지 않는다(에이전트 전용) — [풀기]만 둔다.
+function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
+function claimLabel(p){const w=who(p.claimed_by)||'?';
+  const t=p.claim_until?new Date(p.claim_until*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+  return '처리 중: '+w+(t?' · ~'+t:'');}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];
   if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">위치 잃음</span>');
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">줄 '+esc(m[1])+' 이동</span>');}
+  const claimed=claimActive(p);
+  if(claimed)tags.push('<span class="tag" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">⏳ '+esc(claimLabel(p))+'</span>');
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">✎ 수정됨</span>');
   const rb=relBadge(p.rel);
@@ -2976,7 +3191,9 @@ function card(p){
     '<div class="row acts"><button class="x b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
     '<button class="x b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
     '<button class="x b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
-    '<button class="x b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button></div>')+'</div>';
+    '<button class="x b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
+    (claimed?'<button class="x b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
+    '</div>')+'</div>';
 }
 function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
   const ref=p.close_ref?'<span class="tag" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
@@ -3076,6 +3293,8 @@ async function dropPin(id,undoSave){try{await api('/api/pins/'+id+'/drop',{metho
   markMine(id); toast(undoSave?'핀 #'+id+' 저장을 되돌렸습니다':'핀 #'+id+' 삭제됨','ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
 async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기'});
   markMine(id); toast('핀 #'+id+' 되살림','ok');}catch(e){} await loadPins();}
+async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
+  markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
 
 // ------------------------------------------------ 편집
 function openEdit(id){const p=PINS.find(x=>x.id===id); if(!p)return;
@@ -3217,7 +3436,7 @@ document.addEventListener('click',e=>{
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'mark-jump':jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
-    case 'restore':restorePin(id);break;
+    case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();break;
@@ -3372,7 +3591,12 @@ class Handler(BaseHTTPRequestHandler):
             light = (q.get("light") or ["0"])[0] == "1"
             return self._json(meta(actor, light=light))
         if path == "/api/build":
-            return self._json(build_state_snapshot())
+            full = (q.get("log") or ["0"])[0] == "1"
+            return self._json(diet_log(build_state_snapshot(), full))
+        if path == "/pins.md":                    # §P0c-B: 원격 에이전트 진입점 — GET /api/pins 와 같은 sync 경로
+            base = remote_base_for(self.headers.get("Host") or "")
+            text = pins_md_text(snapshot_pins(), base=base)
+            return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             allp = (q.get("all") or ["0"])[0] == "1"
             return self._json(pins_payload(snapshot_pins(), allp))
@@ -3416,7 +3640,7 @@ class Handler(BaseHTTPRequestHandler):
         path = u.path
         d = self._body()
 
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit)", path)
+        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
             if act == "drop":
@@ -3425,6 +3649,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "pin": restore_pin(pid, actor)})
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
+            if act == "claim":
+                pin = claim_pin(pid, actor, clean_claim_ttl(d))
+                return self._json({"ok": pin is not None, "pin": pin})
+            if act == "unclaim":
+                pin = unclaim_pin(pid, actor)
+                return self._json({"ok": pin is not None, "pin": pin})
             reply = ref = None
             if act == "close":
                 reply, ref = clean_close_body(d)
@@ -3438,11 +3668,12 @@ class Handler(BaseHTTPRequestHandler):
             clear_pins()
             return self._json({"ok": True})
         if path == "/api/rebuild":
+            full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
             if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
                 r = build_async()
                 return self._json(r, 409 if r.get("busy") else 202)
             r = build_all()
-            return self._json(r, 409 if r.get("busy") else 200)
+            return self._json(diet_log(r, full), 409 if r.get("busy") else 200)
         raise HTTPError(404, "없는 경로입니다: %s" % path)
 
 
@@ -3464,6 +3695,10 @@ def main() -> None:
     ap.add_argument("--no-origin-check", action="store_true",
                     help="Host·Origin 검사(DNS rebinding·CSRF 방어)를 끈다. tailscale serve 가 예상 밖의 "
                          "Host/Origin 을 넘겨 UI 가 403 을 받을 때만 쓴다")
+    ap.add_argument("--git-pull", action="store_true",
+                    help="재빌드(동기·비동기 모두)마다 copy 단계 전에 --manuscript 의 git 저장소를 "
+                         "업스트림으로 --ff-only pull 한다. 더러움·분기·업스트림 없음이면 건너뛰고 "
+                         "지금 체크아웃으로 빌드는 계속한다")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -3484,6 +3719,7 @@ def main() -> None:
     C.port = a.port or free_port()
     C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
     C.origin_check = not a.no_origin_check
+    C.git_pull = a.git_pull
 
     migrate_pages()
     init_seq()
@@ -3502,6 +3738,8 @@ def main() -> None:
         print("허용   %s (헤더 없는 루프백 요청은 허용)" % ", ".join(sorted(C.allow)))
     if not C.origin_check:
         print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
+    if C.git_pull:
+        print("git-pull  재빌드마다 업스트림으로 --ff-only pull 합니다(실패해도 지금 체크아웃으로 빌드)")
     sys.stdout.flush()
     Server(("127.0.0.1", C.port), Handler).serve_forever()
 
