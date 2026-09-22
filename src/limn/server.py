@@ -49,6 +49,8 @@ ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 
 MAX_BODY = 1 << 20
 NOTE_MAX = 4000
+CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
+CLOSE_REF_MAX = 80                 # 같은 값(PR 번호 등)이면 UI 가 닫힌 핀을 묶어 보일 수 있는 참조
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "note", "scope", "quote", "pdf_build")
@@ -1255,6 +1257,9 @@ def valid_rec(r) -> bool:
         return False
     if "note" in r and r["note"] is not None and not isinstance(r["note"], str):
         return False
+    for k in ("close_reply", "close_ref"):
+        if r.get(k) is not None and not isinstance(r[k], str):
+            return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
         return False
     if not os.path.isabs(r["file"]):                  # 상대 경로는 서버 cwd 에 따라 다른 파일을 가리킨다
@@ -1473,6 +1478,16 @@ def pins_payload(rows: list, allp: bool) -> list:
             for r in rows if allp or not r.get("done")]
 
 
+def dropped_payload() -> list:
+    """GET /api/pins/dropped 응답: pins.dropped.jsonl 을 dropped_at 순으로 그대로 낸다(계산 필드 없음).
+
+    읽기 전용이고 잠금 밖이다 — 삭제·되살리기는 이미 PIN_LOCK 을 쥐고 이 파일을 쓴다(drop_pin·restore_pin).
+    여기서는 원자적 교체(atomic_write)가 끝난 파일만 읽으므로 별도 잠금이 없어도 반쪽짜리를 보지 않는다."""
+    rows, _ = read_jsonl(C.dropped)
+    rows.sort(key=lambda r: str(r.get("dropped_at") or ""))
+    return [public(r) for r in rows]
+
+
 # ---------------------------------------------------------------- 겹침(overlap) — 저장하지 않는 계산 필드
 
 def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
@@ -1620,6 +1635,28 @@ def clean_note(v) -> str:
     if len(v) > NOTE_MAX:
         raise HTTPError(400, "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX)
     return v
+
+
+def clean_close_body(d: dict) -> tuple:
+    """close 본문의 선택 필드 {"reply", "ref"} 를 검증한다. 없거나 빈 문자열(공백만 포함)이면
+    (None, None) — 기존 '본문 없는 curl POST' 동작을 그대로 둔다(§P0b-보완 C)."""
+    reply = d.get("reply")
+    if reply is not None:
+        if not isinstance(reply, str):
+            raise HTTPError(400, "reply 는 문자열이어야 합니다.")
+        if len(reply) > CLOSE_REPLY_MAX:
+            raise HTTPError(400, "reply 가 너무 깁니다(%d자 이하)." % CLOSE_REPLY_MAX)
+        if not reply.strip():
+            reply = None
+    ref = d.get("ref")
+    if ref is not None:
+        if not isinstance(ref, str):
+            raise HTTPError(400, "ref 는 문자열이어야 합니다.")
+        if len(ref) > CLOSE_REF_MAX:
+            raise HTTPError(400, "ref 가 너무 깁니다(%d자 이하)." % CLOSE_REF_MAX)
+        if not ref.strip():
+            ref = None
+    return reply, ref
 
 
 def clean_loc(d: dict) -> dict:
@@ -1800,18 +1837,32 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     return transact(fn)[1]
 
 
-def set_done(pid: int, done: bool, actor: dict):
+def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = None):
+    """열기·닫기. `reply`/`ref`(이미 clean_close_body 로 검증된 값)는 닫을 때만 쓰고 첫 닫기에만 적힌다.
+
+    이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다(§P0b-보완 D) — 두 번째 닫기가 done_at·closed_by 를
+    덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막는다. rev 도 그대로다. reply 를 다시 남기려면
+    한 번 열고 닫아야 한다 — 그래서 다시 열 때 옛 close_reply/close_ref 를 지운다(다음 닫기가 새로 채운다)."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
             return None, False
-        r["done"] = done
         if done:
+            if r.get("done"):
+                return public(r), False           # 이미 닫힘 — 아무것도 바꾸지 않는다(rev 도 그대로)
+            r["done"] = True
             r["done_at"] = now_str()
             r["closed_by"] = who(actor)
+            if reply:
+                r["close_reply"] = reply
+            if ref:
+                r["close_ref"] = ref
         else:
+            r["done"] = False
             r["reopened_at"] = now_str()
             r["reopened_by"] = who(actor)
+            r.pop("close_reply", None)
+            r.pop("close_ref", None)
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     return transact(fn)[1]
@@ -2292,6 +2343,7 @@ pre.nowrap{white-space:pre}
 .pin.flash{animation:pinflash 1.2s ease-in-out 1}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--acc)}50%{box-shadow:0 0 0 5px var(--acc)}}
 .pin.done{opacity:.85}
+.pin.dropped{opacity:.7;border-style:dashed}
 .pin .n{color:var(--ok);font-weight:700}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
 .pin .acts{margin-top:5px}
@@ -2390,6 +2442,8 @@ dialog code{font-size:12px;word-break:break-all}
     <div id="pins"></div>
     <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0 ▸</button>
     <div id="done-list" hidden></div>
+    <button class="x" id="dropped-toggle" data-act="dropped-toggle" style="margin-top:8px" data-tip="삭제한 핀을 펼쳐 봅니다. 되살리기로 같은 번호 그대로 복구합니다">삭제한 핀 0 ▸</button>
+    <div id="dropped-list" hidden></div>
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
@@ -2431,8 +2485,8 @@ const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
 const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
 const MQ=matchMedia('(prefers-color-scheme: light)');
-let META=null,PINS=[],DONE=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null;
-let SHOW_DONE=false,SNIP_OPEN=false,W=900,WRAP=true;
+let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null;
+let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
 window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
 
 const T={
@@ -2445,6 +2499,7 @@ const T={
   repick:'번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
   esave:'수정한 내용을 저장합니다 (⌘↵ / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
   reopen:'닫힌 핀을 다시 열어 목록과 pins.md에 올립니다',
+  restore:'삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
   synctex:'PDF 좌표(SyncTeX)로 원문 줄을 찾았습니다. %는 드래그한 글자가 이 줄 범위에서 발견된 비율입니다(드문 낱말에 가중). 30% 미만이면 줄 범위를 눈으로 확인하세요',
   text:'드래그한 영역의 글자를 원문에서 직접 찾아 위치를 정했습니다. 표·기호표처럼 좌표 조회가 약한 곳에서 쓰입니다',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
@@ -2582,13 +2637,21 @@ function startLightPolling(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
   window.addEventListener('focus',()=>pollLight());
 }
-function diffToast(prev,next){
+function diffToast(prev,d,dropped){
+  // prev 는 직전에 이 탭이 본 '열린 핀'만이다(PINS 는 done 을 담지 않는다). d 는 이번 GET 의 열린+닫힌
+  // 핀(all=1) 전부다 — prev 에 있던 id 가 d 에도 있는데 done=true 면 완료된 것이고, d 에 아예 없으면
+  // (열려도 닫혀도 없으면) 삭제된 것이다. 옛 구현은 이 둘을 가리지 않고 전부 '완료'로 알렸다 — 공저자가
+  // 핀을 지우면 작성자 화면에 '#N 이 완료되었습니다'가 떴다(실측).
   if(!prev||!prev.length)return;
   const byId=new Map(prev.map(p=>[p.id,p]));
-  const nowIds=new Set(next.map(p=>p.id));
-  const closed=[...byId.keys()].filter(id=>!nowIds.has(id));
+  const known=new Map((d||[]).map(p=>[p.id,p]));
+  const dropById=new Map((dropped||[]).map(p=>[p.id,p]));
+  const closed=[],droppedIds=[];
+  byId.forEach((_,id)=>{const n=known.get(id); if(n&&n.done)closed.push(id); else if(!n)droppedIds.push(id);});
   if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
-  next.forEach(p=>{const was=byId.get(p.id); if(!was)return;
+  droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
+    toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
+  (d||[]).filter(p=>!p.done).forEach(p=>{const was=byId.get(p.id); if(!was)return;
     if(!was.stale&&p.stale){toast('#'+p.id+' 위치를 잃었습니다','warn');return;}
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
     if(m&&(!wm||wm[1]!==m[1]))toast('#'+p.id+' 줄 '+m[1]+' 이동','ok');});
@@ -2896,16 +2959,26 @@ function card(p){
     '<button class="x b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button></div>')+'</div>';
 }
 function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
+  const ref=p.close_ref?'<span class="tag" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   return '<div class="pin done" data-id="'+p.id+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
-    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
+    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+ref+
     '<span class="dim" data-tip="닫은 시각과 닫은 사람">'+esc(p.done_at||'')+' · '+esc(who(p.closed_by)||'기록 전')+'</span><span class="sp"></span>'+
     '<button class="x b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
+    (p.close_reply?'<div class="note" data-tip="닫을 때 남긴 설명">'+esc(p.close_reply)+'</div>':'')+
+    (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
+function droppedCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
+  return '<div class="pin dropped" data-id="'+p.id+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
+    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
+    '<span class="dim" data-tip="삭제 시각과 삭제한 사람">'+esc(p.dropped_at||'')+' · '+esc(who(p.dropped_by)||'기록 전')+'</span><span class="sp"></span>'+
+    '<button class="x b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
 async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
+  let dropped=[];
+  try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
   const prevOpen=PINS;
-  const nextOpen=d.filter(p=>!p.done); DONE=d.filter(p=>p.done);
-  diffToast(prevOpen,nextOpen);
+  const nextOpen=d.filter(p=>!p.done); DONE=d.filter(p=>p.done); DROPPED=dropped;
+  diffToast(prevOpen,d,dropped);
   PINS=nextOpen;
   if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   drawPins(); marks();
@@ -2921,6 +2994,10 @@ function drawPins(){
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
+  $('#dropped-toggle').textContent='삭제한 핀 '+DROPPED.length+(SHOW_DROPPED?' ▾':' ▸');
+  $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
+  $('#dropped-list').hidden=!SHOW_DROPPED;
+  if(SHOW_DROPPED)$('#dropped-list').innerHTML=DROPPED.length?DROPPED.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
 }
 // 위치 추정(.est, 점선)은 서버가 판정해 /api/pins 의 est 로 싣는다(pin_est — 핀을 찍은 빌드와 지금 빌드의
 // 원고 지문 비교). 뷰어가 벽시계로 판정하던 때는 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은
@@ -3120,9 +3197,11 @@ document.addEventListener('click',e=>{
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'mark-jump':jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
+    case 'restore':restorePin(id);break;
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();break;
+    case 'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins();break;
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(LAST_BUILD_ERR)showBuildErr(LAST_BUILD_ERR);break;
   }
@@ -3277,6 +3356,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pins":
             allp = (q.get("all") or ["0"])[0] == "1"
             return self._json(pins_payload(snapshot_pins(), allp))
+        if path == "/api/pins/dropped":
+            return self._json({"dropped": dropped_payload()})
         if path == "/api/snippet":
             return self._json(snippet_api(q))
         if path == "/api/overlaps":
@@ -3324,7 +3405,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "pin": restore_pin(pid, actor)})
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
-            pin = set_done(pid, act == "close", actor)
+            reply = ref = None
+            if act == "close":
+                reply, ref = clean_close_body(d)
+            pin = set_done(pid, act == "close", actor, reply, ref)
             return self._json({"ok": pin is not None, "pin": pin})
         if path == "/api/pick":
             return self._json(pick(d))

@@ -1286,6 +1286,142 @@ class PinsMdV2(Base):
                 self.assertEqual(line.count("|"), 6)
 
 
+# ---------------------------------------------------------------- P0b-보완: 삭제/완료 구분·되살리기·닫기 사유·재닫기 무변경
+
+class CloseReplyRef(Base):
+    """§C: /close 가 선택 {"reply","ref"} 를 받아 close_reply/close_ref 로 저장한다."""
+
+    def test_close_with_reply_and_ref_is_stored(self):
+        pid = self.add()
+        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR),
+                        *ps.clean_close_body({"reply": "제목을 고침", "ref": "PR #227"}))
+        self.assertEqual(p["close_reply"], "제목을 고침")
+        self.assertEqual(p["close_ref"], "PR #227")
+        self.assertTrue(p["done"])
+
+    def test_close_without_body_behaves_as_before(self):
+        pid = self.add()
+        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        self.assertNotIn("close_reply", p)
+        self.assertNotIn("close_ref", p)
+
+    def test_clean_close_body_empty_or_whitespace_is_none(self):
+        self.assertEqual(ps.clean_close_body({}), (None, None))
+        self.assertEqual(ps.clean_close_body({"reply": "", "ref": "  "}), (None, None))
+        self.assertEqual(ps.clean_close_body({"reply": None, "ref": None}), (None, None))
+
+    def test_clean_close_body_rejects_wrong_type(self):
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_close_body({"reply": 123})
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_close_body({"ref": ["PR #227"]})
+
+    def test_clean_close_body_enforces_length_caps(self):
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_close_body({"reply": "x" * (ps.CLOSE_REPLY_MAX + 1)})
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_close_body({"ref": "x" * (ps.CLOSE_REF_MAX + 1)})
+        # 상한 그 자체는 통과한다.
+        reply, ref = ps.clean_close_body({"reply": "x" * ps.CLOSE_REPLY_MAX, "ref": "x" * ps.CLOSE_REF_MAX})
+        self.assertEqual(len(reply), ps.CLOSE_REPLY_MAX)
+        self.assertEqual(len(ref), ps.CLOSE_REF_MAX)
+
+    def test_close_endpoint_http_stores_reply_and_escapes_in_card(self):
+        pid = self.add()
+        body = json.dumps({"reply": "제목을 <b>고침</b>", "ref": "PR #227"}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 200 ", out)
+        p = self.pin(pid)
+        self.assertEqual(p["close_reply"], "제목을 <b>고침</b>")
+        self.assertEqual(p["close_ref"], "PR #227")
+
+    def test_close_endpoint_http_rejects_oversized_reply(self):
+        pid = self.add()
+        body = json.dumps({"reply": "x" * (ps.CLOSE_REPLY_MAX + 1)}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 400 ", out)
+        self.assertFalse(self.pin(pid).get("done"))
+
+
+class CloseIdempotent(Base):
+    """§D: 이미 닫힌 핀을 다시 닫으면 아무것도 바뀌지 않는다(rev 도 그대로)."""
+
+    def test_second_close_does_not_overwrite_closed_by_or_rev(self):
+        pid = self.add()
+        first = ps.set_done(pid, True, {"login": "alice", "name": "Alice"})
+        self.assertEqual(first["rev"], 1)
+        second = ps.set_done(pid, True, {"login": "bob", "name": "Bob"})
+        self.assertEqual(second["closed_by"]["login"], "alice")
+        self.assertEqual(second["rev"], first["rev"])
+        self.assertEqual(second["done_at"], first["done_at"])
+
+    def test_second_close_with_reply_does_not_apply(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "first"}))
+        again = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"}))
+        self.assertEqual(again["close_reply"], "first")
+
+    def test_reopen_then_close_allows_new_reply(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "first", "ref": "PR #1"}))
+        ps.set_done(pid, False, dict(ps.LOCAL_ACTOR))
+        reopened = self.pin(pid)
+        self.assertNotIn("close_reply", reopened)
+        self.assertNotIn("close_ref", reopened)
+        closed_again = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"}))
+        self.assertEqual(closed_again["close_reply"], "second")
+        self.assertNotIn("close_ref", closed_again)
+
+    def test_close_http_endpoint_second_call_returns_ok_unchanged(self):
+        pid = self.add()
+        out1 = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out1)
+        rev_after_first = self.pin(pid)["rev"]
+        out2 = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out2)
+        self.assertTrue(json.loads(out2.split(b"\r\n\r\n", 1)[1])["ok"])
+        self.assertEqual(self.pin(pid)["rev"], rev_after_first)
+
+
+class DroppedList(Base):
+    """§B: GET /api/pins/dropped — 삭제한 핀을 dropped_at·dropped_by 와 함께 읽기 전용으로 낸다."""
+
+    def test_dropped_payload_includes_dropped_at_and_by(self):
+        pid = self.add(note="oops")
+        ps.drop_pin(pid, {"login": "alice", "name": "Alice"})
+        out = ps.dropped_payload()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["id"], pid)
+        self.assertEqual(out[0]["dropped_by"]["login"], "alice")
+        self.assertIn("dropped_at", out[0])
+
+    def test_dropped_payload_empty_when_nothing_dropped(self):
+        self.add()
+        self.assertEqual(ps.dropped_payload(), [])
+
+    def test_dropped_payload_excludes_restored_pins(self):
+        pid = self.add()
+        ps.drop_pin(pid, dict(ps.LOCAL_ACTOR))
+        ps.restore_pin(pid, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(ps.dropped_payload(), [])
+
+    def test_get_pins_dropped_endpoint_http(self):
+        pid = self.add(note="secret-drop-note")
+        ps.drop_pin(pid, {"login": "alice", "name": "Alice"})
+        out = self.talk(req("GET", "/api/pins/dropped"))
+        self.assertIn(b" 200 ", out)
+        payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(len(payload["dropped"]), 1)
+        self.assertEqual(payload["dropped"][0]["id"], pid)
+        self.assertEqual(payload["dropped"][0]["note"], "secret-drop-note")
+
+    def test_get_pins_dropped_respects_origin_check(self):
+        pid = self.add()
+        ps.drop_pin(pid, dict(ps.LOCAL_ACTOR))
+        out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
+        self.assertIn(b" 403 ", out)
+
+
 # ---------------------------------------------------------------- 프런트엔드 순수 로직(node 로 실제 소스 실행)
 #
 # 서버는 표준 라이브러리·127.0.0.1 만 쓰지만, 이 테스트들은 회귀 검증을 위해 node 로 클라이언트 JS 를
@@ -1481,6 +1617,73 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out["mid"], [True, True])     # 클릭 직후: .cur 와 .flash 둘 다 있다
         self.assertEqual(out["after"], [False, False])  # 1.2초 뒤: 강조가 풀린다(정적 box-shadow 버그 수정)
 
+    def test_diff_toast_distinguishes_dropped_from_closed(self):
+        # §A: 옛 구현은 열린 목록에서 사라진 핀을 전부 '완료'로 알렸다 — 공저자가 지운 핀도 작성자
+        # 화면에 '#N 이 완료되었습니다'로 떴다(실측). id 2 는 d(열림+닫힘)에 아예 없으므로 삭제,
+        # id 3 은 d 에 done:true 로 있으므로 완료다.
+        js = "\n".join([
+            r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; const RESTORED=[];
+            function toast(msg,kind,action){TOASTS.push({msg,kind,hasAction:!!action});}
+            function restorePin(id){RESTORED.push(id);}
+            """,
+            extract_js_fn("diffToast"),
+            r"""
+            const prev=[{id:1},{id:2},{id:3}];
+            const d=[{id:1,done:false},{id:3,done:true}];
+            const dropped=[{id:2,dropped_by:{name:'Bob'}}];
+            diffToast(prev,d,dropped);
+            console.log(JSON.stringify(TOASTS));
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(len(out), 2)
+        closed = [t for t in out if "완료" in t["msg"]]
+        dropped = [t for t in out if "삭제함" in t["msg"]]
+        self.assertEqual(len(closed), 1)
+        self.assertEqual(closed[0]["msg"], "#3 이 완료되었습니다")
+        self.assertEqual(closed[0]["kind"], "ok")
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0]["msg"], "#2 을 Bob 가 삭제함")
+        self.assertEqual(dropped[0]["kind"], "warn")
+        self.assertTrue(dropped[0]["hasAction"])          # [되살리기] 액션이 붙는다
+
+    def test_diff_toast_dropped_action_calls_restore_pin(self):
+        js = "\n".join([
+            r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            let CAPTURED=null; const RESTORED=[];
+            function toast(msg,kind,action){if(action)CAPTURED=action;}
+            function restorePin(id){RESTORED.push(id);}
+            """,
+            extract_js_fn("diffToast"),
+            r"""
+            diffToast([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
+            CAPTURED.fn();
+            console.log(JSON.stringify(RESTORED));
+            """,
+        ])
+        self.assertEqual(json.loads(run_node(js)), [9])
+
+    def test_diff_toast_unknown_dropper_falls_back_to_generic_label(self):
+        js = "\n".join([
+            r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(msg,kind,action){TOASTS.push(msg);}
+            function restorePin(id){}
+            """,
+            extract_js_fn("diffToast"),
+            r"""
+            diffToast([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
+            console.log(JSON.stringify(TOASTS));
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(len(out), 1)
+        self.assertIn("#5 을", out[0])
+        self.assertIn("삭제함", out[0])
+
 
 # ---------------------------------------------------------------- 프런트엔드 구조(소스 문자열 검사)
 #
@@ -1541,6 +1744,47 @@ class FrontendStructure(unittest.TestCase):
         self.assertNotIn("pinAtEpoch", ps.HTML)
         self.assertNotIn("frac_build", ps.HTML)
         self.assertNotIn("LAST_SEEN_BUILD", ps.HTML)
+
+    def test_dropped_list_ui_exists(self):
+        # §B: '닫힌 핀' 아래 접힌 '삭제한 핀 N ▸' 목록과 되살리기 버튼.
+        self.assertIn('id="dropped-toggle"', ps.HTML)
+        self.assertIn('id="dropped-list"', ps.HTML)
+        self.assertIn("case'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins()", ps.HTML.replace(" ", ""))
+        self.assertIn("function droppedCard(", ps.HTML)
+        self.assertIn("data-act=\"restore\"", ps.HTML)
+        self.assertIn("case 'restore':restorePin(id)", ps.HTML)
+
+    def test_load_pins_fetches_dropped_list_for_diff_and_panel(self):
+        m = re.search(r"async function loadPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("/api/pins/dropped", body)
+        self.assertIn("DROPPED=dropped", body)
+        self.assertIn("diffToast(prevOpen,d,dropped)", body)
+
+    def test_draw_pins_renders_dropped_toggle_and_list(self):
+        m = re.search(r"function drawPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("DROPPED.length", body)
+        self.assertIn("droppedCard", body)
+
+    def test_done_card_shows_close_reply_and_ref(self):
+        # §C: 닫힌 카드에 닫을 때 남긴 reply·ref 를 보여 준다(둘 다 esc 를 거친다).
+        m = re.search(r"function doneCard\(p\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("p.close_ref", body)
+        self.assertIn("p.close_reply", body)
+        self.assertIn("esc(p.close_reply)", body)
+        self.assertIn("esc(p.close_ref)", body)
+
+    def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
+        # SKILL.md 의 '핀 소비 절차' 닫기 예시가 reply·ref 를 남기도록 바뀌었는지(§C).
+        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn('"reply"', skill)
+        self.assertIn('"ref"', skill)
+        self.assertIn("/close", skill)
 
 
 if __name__ == "__main__":

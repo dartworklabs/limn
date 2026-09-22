@@ -125,12 +125,13 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at}` — §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`)는 `builds.json` 에서 되살린다 |
 | `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`, 선택 `pdf_build` = 드래그할 때 화면의 빌드 id — 그 빌드의 PDF 로 되짚는다. 이미 지워진 빌드면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}` |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
+| `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(§작성자 귀속 다음 §자동 동기화)이 이것을 쓴다 |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 사다리도. 원고 트리 밖이거나 범위가 틀리면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}` — 뷰어는 쓰지 않고(§겹친 핀) 에이전트·옛 뷰어 호환용으로 남긴다 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — 아래 §핀 수정 |
-| `POST` | `/api/pins/{id}/close` | 핀 1건을 처리 완료로 표시(`done: true`, `closed_by`). 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §<state_dir>/pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다) |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`) → `{ok, pin}` |
+| `POST` | `/api/pins/{id}/close` | 핀 1건을 처리 완료로 표시(`done: true`, `closed_by`). 선택 본문 `{"reply", "ref"}` — 아래 §닫을 때 사유 남기기. 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §<state_dir>/pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주되 아무 필드도 바꾸지 않는다**(rev 도 그대로) — §닫을 때 사유 남기기 |
+| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref` 가 있었으면 지운다(다시 닫을 때 새로 남긴다) → `{ok, pin}` |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
 | `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다 |
@@ -149,6 +150,19 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 - 닫힌 핀은 메모만 고칠 수 있다. 범위·위치를 보내면 `409 {"error":"done"}`.
 - 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
 - `note_append`(빈 문자열·공백만은 `400`, 개별 조각은 ≤2000자)는 `base_rev` 없이도 받는다 — `note += "\n(추가 HH:MM) " + note_append`. 합친 뒤 길이가 메모 상한(`NOTE_MAX`, 4000자)을 넘으면 `400` 이고 아무것도 바뀌지 않는다(개별 조각이 2000자 이하여도 기존 메모와 합치면 넘을 수 있다). 겹친 핀에 "덧붙이기"로 쓸 때, 매번 최신 `rev` 를 먼저 조회하지 않아도 되게 하기 위해서다(§겹친 핀). 되돌리려면 응답의 `pin.rev` 를 `base_rev` 로 삼아 `{"note": <이전 note>}` 를 다시 보낸다.
+
+#### 닫을 때 사유 남기기 (`/api/pins/{id}/close`)
+
+```bash
+curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
+  -H 'Content-Type: application/json' \
+  -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
+```
+
+- 둘 다 선택이다. **에이전트는 무엇을 고쳤는지와 PR 번호를 남긴다** — `reply` 에 무엇을 고쳤는지(≤500자), `ref` 에 참조(PR 번호 등, ≤80자). 본문이 없거나 비어 있으면(빈 문자열·공백만) 기존과 같이 동작한다 — 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
+- 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드와 마찬가지로 뷰어에서 `esc()` 를 거쳐 렌더된다(이스케이프).
+- 성공하면 핀에 `close_reply`/`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI 가 묶어 보일 수 있다.
+- **이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다** — `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref` 모두 첫 닫기 값 그대로고, 두 번째 호출의 `reply`/`ref` 는 버려진다(적용되지 않는다). 두 번째 닫기가 `done_at`·`closed_by` 를 덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막기 위해서다. **reply 를 새로 남기려면 `/reopen` 으로 한 번 열고 다시 `/close` 한다** — `reopen` 이 옛 `close_reply`/`close_ref` 를 지우므로 다음 닫기가 새 사유로 채운다.
 
 #### 겹친 핀과 덧붙이기 (자동 병합 없음)
 
@@ -170,6 +184,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 - 뷰어는 탭이 보이는 동안 5초마다, 그리고 `visibilitychange`(visible)·`focus` 때 라이트 meta 를 부른다. 탭을 숨기면 요청 자체를 보내지 않는다. 두 번 연속 실패하면 연결 끊김 배지를 띄운다.
 - 서버가 `stale_build`(원고가 화면 빌드의 시작 시점 `src_mtime` 보다 2초 넘게 새로움)와 `src_age_s` 로 판정해 주면 "원고 수정됨 · N분 전" 배지가 뜨고, 이때만 [PDF 다시 만들기] 버튼이 강조된다. 브라우저 시계는 쓰지 않는다.
 - **위치 추정(`.est`) 마크** — §위치 추정.
+- **완료·삭제 알림 구분** — 목록이 다시 그려질 때 직전에 열려 있던 핀이 사라졌으면, `GET /api/pins?all=1` 응답(열림+닫힘)에 `done:true` 로 남아 있으면 "완료"로, 아예 없으면(다른 사람이 `/drop` 함) `GET /api/pins/dropped` 로 누가 지웠는지 찾아 "#N 을 〈이름〉 가 삭제함"으로 알린다. 옛 구현은 이 둘을 가리지 않고 전부 "완료"로 알려 공저자가 지운 핀도 작성자 화면에 "완료"로 떴다(실측).
 
 #### 위치 추정 (`est`, 서버 판정)
 
@@ -228,6 +243,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `author` | 만든 사람 `{login, name, pic?}` |
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각·사람 |
 | `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
+| `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유 — 무엇을 고쳤는지(≤500자)·참조(PR 번호 등, ≤80자). 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
 
 `snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est` 는 응답에만 있고 저장하지 않는다(§겹친 핀·§위치 추정).
@@ -290,7 +306,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | 범위 맞추기 | 사이드바의 단계 버튼(드래그한 줄 / 문단 / 환경 …)과 ▲+ ▲− ▼+ ▼− |
 | 저장 | [핀 저장] 또는 메모 칸에서 ⌘↵ / Ctrl+Enter(한글 조합 중엔 무시). 알림의 [되돌리기] |
 | 수정 | 카드의 메모를 누르거나 [수정] → 메모·범위 편집, [위치 다시 잡기] 로 PDF 에서 새 위치 지정 |
-| 완료·삭제 | [완료]·[삭제] — 둘 다 알림의 [되돌리기]로 즉시 되돌린다. 닫힌 핀은 목록 아래 '닫힌 핀 N' 에서 [다시 열기] |
+| 완료·삭제 | [완료]·[삭제] — 둘 다 알림의 [되돌리기]로 즉시 되돌린다. 닫힌 핀은 목록 아래 '닫힌 핀 N' 에서 [다시 열기], 삭제한 핀은 그 아래 '삭제한 핀 N' 에서 [되살리기]. 다른 사람이 자기 핀을 지우면(공저자·에이전트) 알림이 '#N 이 완료되었습니다' 가 아니라 '#N 을 〈이름〉 가 삭제함 [되살리기]' 로 구분해 뜬다 |
 | 마크 배지 클릭 | PDF 위 초록 번호 배지를 누르면 해당 카드로 스크롤하고 `.cur`(강조 테두리)와 `.flash`(1.2초 깜빡임)를 준다(새 선택을 만들지 않는다). 1.2초 뒤 강조는 저절로 풀린다 — 정적 스타일이라 다음 클릭 전까지 남아 있지 않는다. 마크 상자 자체(배지 밖)를 드래그하면 평소처럼 새 위치를 고른다 |
 | 카드의 [보기] | 그 핀의 마크를 화면 위에서 30% 지점으로 맞추고 테두리가 잠깐 반짝인다. 점선 테두리(`.est`)는 핀을 찍은 PDF 와 지금 PDF 가 다른 원고에서 만들어졌거나 줄이 이동해 좌표가 추정치임을 뜻한다(서버 판정, §위치 추정) |
 | PDF 다시 만들기 | 원고를 비동기로 컴파일한다(수십 초) — 누른 즉시 돌아오고, 진행 칩이 단계(원고 복사 중 → LaTeX 컴파일 중 → 쪽 그리는 중)와 경과 시간을 보여 준다. 다른 사람이 이미 누른 빌드도 같은 칩에 보인다. '핀 다시 읽기' 는 핀 목록만 즉시 다시 읽는다(자동 동기화가 보통 몇 초 안에 대신 해 준다, §자동 동기화) |
@@ -371,11 +387,15 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 3. 메모 앞에 `«…»` 인용이 있으면 **렌더된 글자**다(원문 LaTeX 소스와 리거처·공백이 다를 수 있다) — `Edit` 의 `old_string` 으로 그대로 쓰지 말고, 원문에서 그 문장을 찾는 검색 힌트로만 쓴다.
 4. 표의 각 행에서 `위치 L<lo>-L<hi>`를 `Read`로 열어 문맥을 확인하고, `메모` 열의 지시대로 고친다. 줄 번호는 `<state_dir>/pins.md` 갱신 시각 기준이므로, 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
 5. `⚠` 이 붙은 핀은 위치를 잃은(`stale`) 핀이다. 그 범위가 **방금 자신이 고친 곳**이면(예: 앞선 핀 처리로 그 문장 자체를 갈아엎은 경우) 원문을 확인하고 닫아도 된다. 그렇지 않다면 추측해서 닫지 말고 사용자에게 보고한다.
-6. 처리한 핀은 개별 종료한다. 전체를 `/api/clear` 로 비우지 않는다 — 아직 처리 안 한 다른 핀까지 날아간다. 에이전트의 `curl` 은 헤더가 없으므로 `closed_by` 가 `로컬/에이전트` 로 남는다.
+6. 처리한 핀은 개별 종료한다. 전체를 `/api/clear` 로 비우지 않는다 — 아직 처리 안 한 다른 핀까지 날아간다. 에이전트의 `curl` 은 헤더가 없으므로 `closed_by` 가 `로컬/에이전트` 로 남는다. **닫을 때 무엇을 고쳤는지와 PR 번호를 남긴다**(`reply`·`ref`, §닫을 때 사유 남기기) — 나중에 공저자가 닫힌 핀을 봤을 때 왜 닫혔는지 다시 원고를 뒤지지 않아도 된다.
 
    ```bash
-   curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close
+   curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
+     -H 'Content-Type: application/json' \
+     -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
    ```
+
+   이미 닫힌 핀에 다시 `close` 를 보내면 아무것도 바뀌지 않는다(`reply` 도 적용되지 않는다) — 사유를 고치려면 `/reopen` 으로 열고 다시 닫는다.
 7. 한 세션에서 여러 핀을 처리했으면, 마지막에 `<state_dir>/pins.md`를 다시 읽어 열린 핀이 0인지 확인하고 사용자에게 보고한다.
 8. 핀의 위치가 이미 존재하지 않거나(파일 삭제·섹션 이동) 문맥이 메모와 안 맞으면, 추측해서 닫지 않고 사용자에게 보고한다.
 9. 에이전트가 핀 메모·범위를 고쳐야 하면 `GET /api/pins` 로 `rev` 를 받아 `/edit` 에 `base_rev` 로 넣는다. `409` 면 최신 값을 다시 읽는다. 다른 핀에 짧게 덧붙이기만 하면(예: 겹친 핀 처리) `note_append` 를 쓰면 `base_rev` 조회를 건너뛸 수 있다.
