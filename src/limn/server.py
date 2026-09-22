@@ -308,6 +308,10 @@ def build_async() -> dict:
     def worker():
         try:
             _build_tracked()
+        except Exception as e:                         # noqa: BLE001 — _build_tracked 자체가 죽어도 running 에 멈추지 않는다
+            build_state_update(state="fail", phase=None, start_ts=None,
+                                log_tail="빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e,
+                                built_at=_read_built_at())
         finally:
             BUILD_LOCK.release()
     threading.Thread(target=worker, daemon=True).start()
@@ -315,13 +319,24 @@ def build_async() -> dict:
 
 
 def _build_tracked() -> dict:
-    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)를 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다."""
+    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)를 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다.
+
+    _build() 가 예상 밖 예외를 내도(예: rsync/latexmk 호출 근처의 OSError) BUILD_STATE 를 running 에
+    묶어 두지 않는다 — 비동기 워커에서 이 함수가 죽으면 다음 폴링이 영원히 '만드는 중'을 보여 주게 된다.
+    built_src_mtime 은 빌드 시작 시각에 실측해 두되(force=True, 2초 캐시를 건너뜀), ok|ok_errors 로
+    끝났을 때만 파일에 확정한다 — 실패하면 화면은 옛 PDF 그대로이므로 '원고 수정됨' 배지가 꺼지면 안 된다."""
     with BUILD_STATE_LOCK:
         last_s = BUILD_STATE.get("last_s")
     build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time(),
                         last_s=last_s, errors=[], log_tail="")
-    write_built_src_mtime()
-    res = _build()
+    src_mtime_at_start = src_mtime(force=True)
+    try:
+        res = _build()
+    except Exception as e:                            # noqa: BLE001 — 빌드가 죽어도 running 에 멈추지 않는다
+        res = {"ok": False, "state": "fail", "errors": [],
+               "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
+    if res.get("state") in ("ok", "ok_errors"):
+        write_built_src_mtime(src_mtime_at_start)
     build_state_update(state=res.get("state", "fail"), phase=None, start_ts=None,
                         elapsed_s=res.get("elapsed_s", 0.0), last_s=res.get("elapsed_s", 0.0),
                         pages=res.get("pages", 0), errors=res.get("errors", []),
@@ -461,18 +476,23 @@ def _excluded_dir(name: str) -> bool:
     return name.startswith(".") or name in BUILD_OUTDIRS
 
 
-def src_mtime() -> float:
+def src_mtime(force: bool = False) -> float:
     """C.src 아래 원고·그림 확장자의 최대 mtime(2초 캐시). 빌드 산출물과 메인 PDF 는 뺀다.
 
     build_all() 이 rsync 로 만드는 C.build 는 보통 C.state 아래(즉 C.src 밖)이지만, 상태 디렉토리를
     원고 트리 안에 둔 드문 배치에서도 빌드 산출물이 '원고가 바뀌었다'는 오탐을 만들지 않게 이름으로도 뺀다.
     캐시 키에 C.src 를 넣는 이유: 같은 프로세스 안에서 원고 경로가 바뀌면(테스트, 또는 드문 재구성)
-    옛 경로의 값을 새 경로에 잘못 돌려주지 않기 위해서다."""
+    옛 경로의 값을 새 경로에 잘못 돌려주지 않기 위해서다.
+
+    force=True 는 캐시를 건너뛰고 실측한다 — write_built_src_mtime() 이 빌드 시작 시각의 mtime 을
+    남길 때 2초 캐시 값을 그대로 쓰면, 캐시가 채워진 지 2초 안에 원고를 고치고 바로 재빌드했을 때
+    수정 전 mtime 이 '빌드 시작 시각'으로 잘못 기록된다."""
     key = str(C.src)
-    with _SRC_MTIME_LOCK:
-        ckey, val, at = _SRC_MTIME_CACHE
-        if ckey == key and time.time() - at < 2.0:
-            return val
+    if not force:
+        with _SRC_MTIME_LOCK:
+            ckey, val, at = _SRC_MTIME_CACHE
+            if ckey == key and time.time() - at < 2.0:
+                return val
     main_pdf = C.main.stem + ".pdf"
     state_in_src = None
     try:
@@ -518,9 +538,15 @@ def read_built_src_mtime():
         return None
 
 
-def write_built_src_mtime() -> None:
+def write_built_src_mtime(value: float = None) -> None:
+    """value 를 안 주면 지금 src_mtime(force=True) 를 실측해 기록한다(2초 캐시를 건너뛴다).
+
+    호출부(_build_tracked)는 빌드 시작 시각의 mtime 을 미리 실측해 넘기고, 빌드가 ok|ok_errors 로
+    끝났을 때만 이 함수를 불러 확정한다 — 실패한 빌드는 화면이 옛 PDF 그대로이므로 '원고 수정됨' 배지가
+    꺼지면 안 된다."""
     try:
-        atomic_write(C.built_src_mtime_file, "%f" % src_mtime())
+        v = src_mtime(force=True) if value is None else value
+        atomic_write(C.built_src_mtime_file, "%f" % v)
     except OSError:
         pass
 
@@ -557,6 +583,15 @@ def meta(actor: dict, light: bool = False) -> dict:
 
 def norm(line: str) -> str:
     return " ".join(line.split())
+
+
+def truncate_quote(s, n: int = 60) -> str:
+    """인용문을 n 자로 자르고, 실제로 잘렸으면 말줄임표를 붙인다(«…» 예시와 맞춘다).
+
+    잘린 인용문이 온전한 문장처럼 보이면 원문을 다시 찾을 때 헷갈린다 — 잘렸다는 표시가 있어야
+    사용자·에이전트가 이걸 '전체'가 아니라 '검색 힌트'로 읽는다."""
+    s = str(s)
+    return s[:n] + "…" if len(s) > n else s
 
 
 def is_comment(line: str) -> bool:
@@ -1208,12 +1243,20 @@ def overlaps_by_id(rows: list) -> dict:
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
-    """pick 이 고른 (아직 저장 전인) 범위가 그 파일의 열린 핀들과 겹치는 관계. 저장은 하지 않는다."""
+    """pick 이 고른 (아직 저장 전인) 범위가 그 파일의 열린 핀들과 겹치는 관계. 저장은 하지 않는다.
+
+    범위가 이미 저장된 핀과 완전히 같으면(가장 흔한 중복 — 같은 문단·환경을 두 번 찍음) 기존 핀을
+    바깥으로 보고 이 선택을 'inside' 로 판정한다. _range_rel 은 두 저장된 핀끼리(overlaps_by_id) id
+    로 안팎을 가르지만, 여기서는 새 선택에 아직 id 가 없으므로 이미 저장된 쪽을 항상 바깥으로 둔다 —
+    그래야 '열린 핀 #N 안입니다' 배너가 뜨고 [메모에 덧붙이기]로 중복 핀을 막을 수 있다."""
     out = []
     for r in snapshot_pins():
         if r.get("done") or r.get("file") != file:
             continue
-        rel = _range_rel(lo, hi, r["lo"], r["hi"])
+        if (lo, hi) == (r["lo"], r["hi"]):
+            rel = "inside"
+        else:
+            rel = _range_rel(lo, hi, r["lo"], r["hi"])
         if rel:
             out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
     return out
@@ -1334,7 +1377,7 @@ def clean_loc(d: dict) -> dict:
     if d.get("quote") is not None:
         if not isinstance(d["quote"], str):
             raise HTTPError(400, "quote 는 문자열입니다.")
-        out["quote"] = d["quote"][:60]
+        out["quote"] = truncate_quote(d["quote"], 60)
     return out
 
 
@@ -1373,6 +1416,8 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     if note_append is not None:
         if not isinstance(note_append, str):
             raise HTTPError(400, "note_append 는 문자열이어야 합니다.")
+        if not note_append.strip():
+            raise HTTPError(400, "덧붙일 메모가 비어 있습니다.")
         if len(note_append) > 2000:
             raise HTTPError(400, "덧붙일 메모가 너무 깁니다(2000자 이하).")
     loc = d.get("loc")
@@ -1445,7 +1490,10 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             r["note"] = note
         if note_append is not None:
             stamp = "(추가 %s) " % datetime.now().astimezone().strftime("%H:%M")
-            r["note"] = (str(r.get("note") or "") + ("\n" if r.get("note") else "") + stamp + note_append)
+            merged = str(r.get("note") or "") + ("\n" if r.get("note") else "") + stamp + note_append
+            if len(merged) > NOTE_MAX:
+                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (len(merged), NOTE_MAX))
+            r["note"] = merged
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
         r["rev"] = int(r.get("rev") or 0) + 1
@@ -1535,7 +1583,7 @@ def location_col(r: dict) -> str:
         name = str(rel)
     except (ValueError, OSError, RuntimeError):
         name = f.name or str(r.get("name") or "")
-    return "`%s L%s-L%s`" % (name, r.get("lo"), r.get("hi"))
+    return "`%s L%s-L%s`" % (name.replace("|", "\\|"), r.get("lo"), r.get("hi"))
 
 
 def range_label(r: dict) -> str:
@@ -1568,7 +1616,9 @@ def render_quote(r: dict) -> str:
     lines = tex_lines(f)
     if not (1 <= lo <= len(lines)) or len(lines[lo - 1]) <= 600:
         return ""
-    return "«%s» " % str(q)[:60].replace("|", "\\|")
+    # q 는 저장될 때 이미 truncate_quote() 로 잘렸다(잘렸으면 …가 붙어 있다) — 여기서 다시 60자로
+    # 자르면 이미 붙은 …까지 잘려 이중으로 잘린 것처럼 보인다. 파이프만 이스케이프한다.
+    return "«%s» " % str(q).replace("|", "\\|")
 
 
 LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ✎ = 저장 뒤 메모·범위 수정됨 · "
@@ -1693,7 +1743,7 @@ def pick(d: dict) -> dict:
     if bstate["state"] == "running" and bstate["phase"] == "latex":
         warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
 
-    quote = norm(rtext)[:60]
+    quote = truncate_quote(norm(rtext), 60)
     return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
             "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
             "score": round(best, 2), "warn": warn, "n_lines": len(lines),
@@ -1770,9 +1820,14 @@ def split_host(v: str) -> tuple:
 
 
 def host_ok(host: str) -> bool:
-    name, port = split_host(host)
+    """루프백 이름이면 포트는 보지 않는다 — SSH -L 로 다른 로컬 포트에 포워딩해도 Host 가
+    'localhost:9000'처럼 실제 서버 포트와 달라질 수 있다. DNS 리바인딩 공격의 Host 는 루프백 이름이
+    아니므로(외부 도메인이 127.0.0.1 로 풀리는 것이지 Host 헤더 자체가 'localhost'가 되는 게 아니다)
+    여기서 포트를 빼도 그 방어는 약해지지 않는다. 포트가 실제로 달라지는 상황(SSH 포워딩)에서 요청을
+    받아 줄지는 origin_ok 가 Origin 의 포트로 다시 검사한다."""
+    name, _ = split_host(host)
     if name in LOOPBACK:
-        return port in (None, C.port)
+        return True
     return name.endswith(".ts.net")
 
 
@@ -1883,7 +1938,9 @@ pre.nowrap{white-space:pre}
 .pin{border:1px solid var(--line);border-radius:7px;padding:7px 9px;margin-bottom:6px;background:var(--card)}
 .pin.st{border-color:var(--warn)}
 .pin.editing{border-color:var(--acc)}
-.pin.flash{box-shadow:0 0 0 2px var(--acc)}
+.pin.cur{box-shadow:0 0 0 2px var(--acc)}
+.pin.flash{animation:pinflash 1.2s ease-in-out 1}
+@keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--acc)}50%{box-shadow:0 0 0 5px var(--acc)}}
 .pin.done{opacity:.85}
 .pin .n{color:var(--ok);font-weight:700}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
@@ -1901,6 +1958,7 @@ h3{margin:0 0 7px;font-size:12px;color:var(--dim);text-transform:uppercase;lette
 kbd{background:var(--btn);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
 .tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line-strong);color:var(--dim)}
 .tag.t{border-color:var(--warn);color:var(--warn)}
+button.tag{background:none;cursor:pointer;font:inherit}
 .spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
@@ -1942,6 +2000,7 @@ dialog code{font-size:12px;word-break:break-all}
   </div>
   <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 다시 만드는 중입니다"></span></span><span class="sp"></span>
     <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
+    <button id="build-err-chip" class="tag t" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
   <div id="build-err" hidden></div>
   <div id="banner" hidden></div>
@@ -2158,6 +2217,9 @@ async function pollLight(){
   updateStaleBadge(d);
   if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||d.src_mtime!==LAST_SRC_MTIME)) await loadPins();
   LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=d.src_mtime;
+  // 다른 세션·에이전트가 curl 로 시작한 빌드도 light meta 의 build.state 로 잡아낸다 — 1초 폴링은
+  // 그때만(또는 이 탭에서 직접 rebuild() 를 눌렀을 때만) 돈다.
+  if(d.build&&d.build.state==='running'&&!BUILD_TIMER)pollBuild();
 }
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
@@ -2177,35 +2239,40 @@ function diffToast(prev,next){
 }
 
 // ------------------------------------------------ 비동기 빌드 진행 칩(P0b-01)
-let BUILD_TIMER=null,LAST_BUILD_STATE=null;
+// BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
+// 뒤)까지 매초 /api/build 를 때리지 않는다. 시작하는 곳은 셋뿐이다: 이 탭에서 rebuild() 를 눌렀을 때,
+// pollLight(5초 폴링)가 build.state==='running' 을 봤을 때, 그리고 부팅 시 이미 도는 빌드를 잡을 때.
+let BUILD_TIMER=null,LAST_BUILD_STATE=null,LAST_BUILD_ERR=null;
 function buildChipText(b){
   const label={copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
   return label+' · '+el+'초'+last;
 }
 async function pollBuild(){
+  if(document.hidden)return;           // 탭이 숨으면 요청 자체를 보내지 않는다
   let b;
   try{b=(await api('/api/build',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
   const chip=$('#build-chip');
-  if(b.state==='running'){chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;}
-  else{
+  if(b.state==='running'){
+    chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
+    if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000);
+  }else{
     chip.hidden=true; $('#btn-rebuild').disabled=false;
     if(LAST_BUILD_STATE==='running'){                 // 방금 끝났다 — 제자리 교체 + 알림
       await refreshDoc();
       const secs=Math.round(b.elapsed_s||0);
-      if(b.state==='ok')toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok');
-      else if(b.state==='ok_errors')toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn',
-        {label:'자세히',tip:'오류 목록과 로그 끝을 봅니다',fn:()=>showBuildErr(b)});
-      else if(b.state==='fail')toast('빌드 실패 — 화면은 이전 PDF입니다','err',
-        {label:'로그 보기',tip:'빌드 로그 끝을 펼칩니다',fn:()=>showBuildErr(b)});
+      if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok'); LAST_BUILD_ERR=null; hideBuildErr();}
+      else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn'); showBuildErr(b);}
+      else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다','err'); showBuildErr(b);}
     }
+    if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // 더 볼 게 없으면 폴링을 멈춘다
   }
   LAST_BUILD_STATE=b.state;
 }
 function startBuildPolling(){
-  clearInterval(BUILD_TIMER); BUILD_TIMER=setInterval(pollBuild,1000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollBuild();});
-  pollBuild();
+  window.addEventListener('focus',()=>pollBuild());
+  pollBuild();   // 부팅 시 한 번 — 이미 도는 빌드(다른 세션이 시작)가 있으면 여기서 1초 폴링이 켜진다
 }
 
 // ------------------------------------------------ 사이드바 폭 제한(P0b-06)
@@ -2386,11 +2453,19 @@ document.addEventListener('error',e=>{const t=e.target;
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
   if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
-// P0b-03: rel 항목 중 대표 하나 — inside 가 있으면(가장 작은 바깥 핀), 없으면 partial 중 id 가 가장 작은 것.
+// P0b-03: rel 항목 중 대표 하나 — inside 가 있으면(범위가 가장 작은 바깥 핀), 없으면 partial 중 id 가
+// 가장 작은 것. 서버 rel_badge()(pins.md)와 같은 규칙이어야 카드 태그와 pins.md 행이 어긋나지 않는다 —
+// rel 항목은 {id,rel}뿐이라 범위는 PINS(현재 로드된 열린 핀 전체)에서 id 로 찾는다.
 function relBadge(rel){
   if(!rel||!rel.length)return null;
   const insides=rel.filter(x=>x.rel==='inside');
-  if(insides.length)return {id:insides[0].id,label:'#'+insides[0].id+' 안'};
+  if(insides.length){
+    const byId=new Map(PINS.map(p=>[p.id,p]));
+    const span=x=>{const o=byId.get(x.id); return o?(o.hi-o.lo):Number.MAX_SAFE_INTEGER;};
+    const best=insides.reduce((a,b)=>{const sa=span(a),sb=span(b);
+      return (sb<sa||(sb===sa&&b.id<a.id))?b:a;});
+    return {id:best.id,label:'#'+best.id+' 안'};
+  }
   const partials=rel.filter(x=>x.rel==='partial').sort((a,b)=>a.id-b.id);
   if(partials.length)return {id:partials[0].id,label:'#'+partials[0].id+' 과 겹침'};
   return null;
@@ -2460,7 +2535,13 @@ function isEstimated(p){
   const ba=builtAtEpoch(META.built_at), pa=pinAtEpoch(p);
   if(ba==null||pa==null||!(pa<ba))return false;
   // '이동/위치잃음'은 원고가 바뀌어 앵커가 다시 찾은 결과다 — frac 좌표는 옛 PDF 기준 그대로이므로 추정이다.
-  return !!(p.sync&&p.sync!=='ok');
+  if(p.sync&&p.sync!=='ok')return true;
+  // sync 가 ok 로 돌아와도(같은 자리를 다시 찾음), 그 핀 자신의 시각 이후에 트리 전체가 다시 빌드됐으면
+  // frac 좌표는 여전히 옛 페이지 레이아웃 기준이다. build_src_mtime(전역, build 시작 시각 실측)을
+  // 핀 자신의 시각과 비교한다 — synced_at(그 핀이 가리키는 파일 하나의 mtime)과 비교하면 다른 파일만
+  // 바뀌어도 오탐이 난다(실측 이력).
+  const bsm=(typeof META.build_src_mtime==='number')?META.build_src_mtime:null;
+  return bsm!=null && bsm>pa;
 }
 function marks(){
   $$('.mark').forEach(m=>m.remove());
@@ -2477,10 +2558,15 @@ function marks(){
 $('#doc').addEventListener('mousedown',e=>{
   if(e.target.closest('.mark b')){e.stopPropagation();e.preventDefault();}
 },true);
+// 배지 클릭 → 카드로 스크롤 + .cur 강조(스펙) + 1.2초 깜빡임. 강조는 그대로 남지 않고 풀린다 —
+// 정적 box-shadow 였을 때는 다음 클릭 전까지 카드에 계속 남아 있었다.
 function jumpToCard(id){
   const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
   el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
-  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  $$('.pin.cur').forEach(x=>{if(x!==el)x.classList.remove('cur');});
+  clearTimeout(el._curT);
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
+  el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
 function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
@@ -2602,12 +2688,16 @@ async function refreshDoc(){const a=topAnchor();
   if(same){$$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
   else buildDoc();
   restoreAnchor(a); await loadPins();}
-function showBuildErr(r){const b=$('#build-err');
+// ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
+// 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
+function showBuildErr(r){LAST_BUILD_ERR=r; const b=$('#build-err');
   const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 만들었지만 LaTeX 오류가 있습니다';
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
-    '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다">닫기</button></div>'+
+    '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
-    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>'; b.hidden=false;}
+    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>';
+  b.hidden=false; $('#build-err-chip').hidden=true;}
+function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden=!LAST_BUILD_ERR;}
 // P0b-01: 재빌드는 비동기다 — POST 는 바로 돌아오고, #build-chip 폴러(startBuildPolling)가 진행 상황을
 // 보여 준 뒤 끝나면 제자리 교체와 알림을 한다. 다른 사람이 시작한 빌드도 같은 폴러가 잡아낸다.
 async function rebuild(){
@@ -2646,7 +2736,8 @@ document.addEventListener('click',e=>{
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();break;
-    case 'err-close':$('#build-err').hidden=true;break;
+    case 'err-close':hideBuildErr();break;
+    case 'build-err-reopen':if(LAST_BUILD_ERR)showBuildErr(LAST_BUILD_ERR);break;
   }
 });
 document.addEventListener('keydown',e=>{
