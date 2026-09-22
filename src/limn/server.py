@@ -61,6 +61,11 @@ LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
 PIN_LOCK = threading.RLock()
 # latexmk 두 개가 같은 build/ 에서 돌면 서로의 .aux 를 밟는다.
 BUILD_LOCK = threading.Lock()
+# BUILD_STATE 딕셔너리(진행 칩·오류 패널용)를 보호한다. BUILD_LOCK(한 번에 하나만 빌드)과는
+# 별개다 — 이 잠금은 그 상태를 "읽는" GET /api/build 요청과 경합하지 않게 하는 용도다.
+BUILD_STATE_LOCK = threading.Lock()
+BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
+               "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None}
 
 
 class Cfg:
@@ -95,6 +100,10 @@ class Cfg:
     @property
     def pages_ptr(self) -> Path:
         return self.state / "pages.cur"
+
+    @property
+    def built_src_mtime_file(self) -> Path:
+        return self.state / "built_src_mtime.txt"
 
 
 C = Cfg()
@@ -261,14 +270,70 @@ def run_logged(cmd: list, cwd: Path, timeout: int):
         return None, (out or "") + "\n[시간 초과 %d초 — 빌드를 중단했습니다]" % timeout, True
 
 
+def build_state_update(**kw) -> None:
+    with BUILD_STATE_LOCK:
+        BUILD_STATE.update(kw)
+
+
+def build_state_snapshot() -> dict:
+    """GET /api/build 가 돌려줄 모양. 돌아가는 중이면 elapsed_s 를 지금 시각으로 다시 잰다."""
+    with BUILD_STATE_LOCK:
+        d = dict(BUILD_STATE)
+    t0 = d.pop("start_ts", None)
+    d["elapsed_s"] = round(time.time() - t0, 1) if d.get("state") == "running" and t0 else d.get("elapsed_s") or 0.0
+    if d.get("built_at") is None:
+        try:
+            d["built_at"] = (C.state / "built_at.txt").read_text().strip()
+        except OSError:
+            d["built_at"] = None
+    return d
+
+
 def build_all() -> dict:
-    """PDF 를 다시 만든다. 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다."""
+    """PDF 를 다시 만든다(동기). 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다."""
     if not BUILD_LOCK.acquire(blocking=False):
         return {"ok": False, "busy": True}
     try:
-        return _build()
+        return _build_tracked()
     finally:
         BUILD_LOCK.release()
+
+
+def build_async() -> dict:
+    """POST /api/rebuild?async=1: 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 돌아온다."""
+    if not BUILD_LOCK.acquire(blocking=False):
+        return {"state": "running", "busy": True}
+    build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time())
+
+    def worker():
+        try:
+            _build_tracked()
+        finally:
+            BUILD_LOCK.release()
+    threading.Thread(target=worker, daemon=True).start()
+    return {"state": "running"}
+
+
+def _build_tracked() -> dict:
+    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)를 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다."""
+    with BUILD_STATE_LOCK:
+        last_s = BUILD_STATE.get("last_s")
+    build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time(),
+                        last_s=last_s, errors=[], log_tail="")
+    write_built_src_mtime()
+    res = _build()
+    build_state_update(state=res.get("state", "fail"), phase=None, start_ts=None,
+                        elapsed_s=res.get("elapsed_s", 0.0), last_s=res.get("elapsed_s", 0.0),
+                        pages=res.get("pages", 0), errors=res.get("errors", []),
+                        log_tail=res.get("log", ""), built_at=_read_built_at())
+    return res
+
+
+def _read_built_at():
+    try:
+        return (C.state / "built_at.txt").read_text().strip()
+    except OSError:
+        return None
 
 
 def _build() -> dict:
@@ -293,6 +358,7 @@ def _build() -> dict:
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
 
+    build_state_update(phase="latex")
     _rc, out, timed_out = run_logged(
         ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", C.main.name], C.build, C.timeout)
     try:
@@ -331,6 +397,7 @@ def _build() -> dict:
         k += 1
     newdir = C.state / name
     newdir.mkdir(parents=True)
+    build_state_update(phase="render")
     try:
         r = subprocess.run(["pdftoppm", "-r", str(C.dpi), "-png", str(pdf), str(newdir / "page")],
                            capture_output=True, timeout=600)
@@ -381,18 +448,109 @@ def page_list() -> list:
     return pages
 
 
-def meta(actor: dict) -> dict:
+SRC_TEX_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst")
+SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
+SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
+BUILD_OUTDIRS = ("build", "out")
+
+_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시
+_SRC_MTIME_LOCK = threading.Lock()
+
+
+def _excluded_dir(name: str) -> bool:
+    return name.startswith(".") or name in BUILD_OUTDIRS
+
+
+def src_mtime() -> float:
+    """C.src 아래 원고·그림 확장자의 최대 mtime(2초 캐시). 빌드 산출물과 메인 PDF 는 뺀다.
+
+    build_all() 이 rsync 로 만드는 C.build 는 보통 C.state 아래(즉 C.src 밖)이지만, 상태 디렉토리를
+    원고 트리 안에 둔 드문 배치에서도 빌드 산출물이 '원고가 바뀌었다'는 오탐을 만들지 않게 이름으로도 뺀다.
+    캐시 키에 C.src 를 넣는 이유: 같은 프로세스 안에서 원고 경로가 바뀌면(테스트, 또는 드문 재구성)
+    옛 경로의 값을 새 경로에 잘못 돌려주지 않기 위해서다."""
+    key = str(C.src)
+    with _SRC_MTIME_LOCK:
+        ckey, val, at = _SRC_MTIME_CACHE
+        if ckey == key and time.time() - at < 2.0:
+            return val
+    main_pdf = C.main.stem + ".pdf"
+    state_in_src = None
+    try:
+        state_in_src = C.state.resolve().relative_to(C.src.resolve())
+    except (ValueError, OSError, RuntimeError):
+        pass
+    newest = 0.0
+
+    def walk(d: Path, rel_parts: tuple):
+        nonlocal newest
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            return
+        for e in entries:
+            if e.is_dir(follow_symlinks=False):
+                if _excluded_dir(e.name):
+                    continue
+                parts = rel_parts + (e.name,)
+                if state_in_src is not None and parts == tuple(state_in_src.parts)[:len(parts)] \
+                        and len(parts) <= len(state_in_src.parts):
+                    if parts == tuple(state_in_src.parts):
+                        continue
+                walk(Path(e.path), parts)
+            elif e.is_file(follow_symlinks=False):
+                if e.name == main_pdf and rel_parts == ():
+                    continue
+                if os.path.splitext(e.name)[1].lower() in SRC_MTIME_EXTS:
+                    try:
+                        newest = max(newest, e.stat().st_mtime)
+                    except OSError:
+                        pass
+    walk(C.src, ())
+    with _SRC_MTIME_LOCK:
+        _SRC_MTIME_CACHE[0], _SRC_MTIME_CACHE[1], _SRC_MTIME_CACHE[2] = key, newest, time.time()
+    return newest
+
+
+def read_built_src_mtime():
+    try:
+        return float(C.built_src_mtime_file.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_built_src_mtime() -> None:
+    try:
+        atomic_write(C.built_src_mtime_file, "%f" % src_mtime())
+    except OSError:
+        pass
+
+
+def pins_rev() -> str:
+    try:
+        st = C.pins_jsonl.stat()
+        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return "0"
+
+
+def meta(actor: dict, light: bool = False) -> dict:
     def read(f):
         try:
             return (C.state / f).read_text().strip()
         except OSError:
             return "?"
+    bstate = build_state_snapshot()
+    out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
+           "main": C.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
+           "building": BUILD_LOCK.locked(), "stale_build": source_newer() > 2,
+           "src_mtime": src_mtime(), "build_src_mtime": read_built_src_mtime(),
+           "pins_rev": pins_rev(), "build": {"state": bstate["state"], "phase": bstate["phase"]}}
+    if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
+        return out
     rows = snapshot_pins()
-    return {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
-            "main": C.main.name, "n_open": sum(1 for r in rows if not r.get("done")),
-            "n_done": sum(1 for r in rows if r.get("done")),
-            "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-            "building": BUILD_LOCK.locked(), "stale_build": source_newer() > 2}
+    out["n_open"] = sum(1 for r in rows if not r.get("done"))
+    out["n_done"] = sum(1 for r in rows if r.get("done"))
+    return out
 
 
 # ---------------------------------------------------------------- 원문 접근
@@ -1003,6 +1161,82 @@ def public(r: dict) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- 겹침(overlap) — 저장하지 않는 계산 필드
+
+def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
+    """a 를 기준으로 b 와의 관계. 겹치지 않으면 None."""
+    if a_hi < b_lo or b_hi < a_lo:
+        return None
+    if b_lo <= a_lo and a_hi <= b_hi:
+        return "contains" if (a_lo, a_hi) == (b_lo, b_hi) else "inside"
+    if a_lo <= b_lo and b_hi <= a_hi:
+        return "contains"
+    return "partial"
+
+
+def overlaps_by_id(rows: list) -> dict:
+    """같은 file 의 열린 핀 쌍마다 관계를 계산한다(저장하지 않는다). {id: [{"id","rel"}, …]}.
+
+    범위가 완전히 같으면 id 가 작은 쪽을 바깥(contains)으로 본다 — 어느 쪽도 진짜로 안에 든 것이
+    아니므로 결정적인 규칙 하나가 필요하다."""
+    out: dict = {}
+    by_file: dict = {}
+    for r in rows:
+        if r.get("done"):
+            continue
+        out.setdefault(r["id"], [])
+        by_file.setdefault(r.get("file"), []).append(r)
+    for group in by_file.values():
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                if (a["lo"], a["hi"]) == (b["lo"], b["hi"]):
+                    outer, inner = (a, b) if a["id"] < b["id"] else (b, a)
+                    out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
+                    out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
+                    continue
+                rel_a = _range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # a 가 b 안에 드는가
+                if rel_a == "inside":
+                    out[a["id"]].append({"id": b["id"], "rel": "inside"})
+                    out[b["id"]].append({"id": a["id"], "rel": "contains"})
+                elif rel_a == "contains":
+                    out[a["id"]].append({"id": b["id"], "rel": "contains"})
+                    out[b["id"]].append({"id": a["id"], "rel": "inside"})
+                elif rel_a == "partial":
+                    out[a["id"]].append({"id": b["id"], "rel": "partial"})
+                    out[b["id"]].append({"id": a["id"], "rel": "partial"})
+    return out
+
+
+def overlaps_for_range(file: str, lo: int, hi: int) -> list:
+    """pick 이 고른 (아직 저장 전인) 범위가 그 파일의 열린 핀들과 겹치는 관계. 저장은 하지 않는다."""
+    out = []
+    for r in snapshot_pins():
+        if r.get("done") or r.get("file") != file:
+            continue
+        rel = _range_rel(lo, hi, r["lo"], r["hi"])
+        if rel:
+            out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
+    return out
+
+
+def rel_badge(rel: list, by_id: dict) -> str:
+    """pins.md·카드 태그용 대표 관계 하나. inside 가 있으면 범위가 가장 작은 바깥 핀을 ⊂,
+    없으면 partial 중 id 가 가장 작은 것을 ∩. contains 는 표기하지 않는다.
+    GET /api/pins 의 rel 항목은 {id,rel} 뿐이라(계약), 범위는 by_id(전체 행)에서 찾는다."""
+    insides = [x for x in rel if x["rel"] == "inside"]
+    if insides:
+        def span(x):
+            o = by_id.get(x["id"])
+            return ((o["hi"] - o["lo"]) if o else 1 << 30, x["id"])
+        best = min(insides, key=span)
+        return "⊂#%d" % best["id"]
+    partials = [x for x in rel if x["rel"] == "partial"]
+    if partials:
+        best = min(partials, key=lambda x: x["id"])
+        return "∩#%d" % best["id"]
+    return ""
+
+
 def max_id_in(path: Path) -> int:
     rows, _ = read_jsonl(path)
     return max((r["id"] for r in rows), default=0)
@@ -1135,6 +1369,12 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     옛 lo/hi 로 조용히 덮어쓰지 않기 위해서다."""
     has_note = "note" in d
     note = clean_note(d.get("note")) if has_note else None
+    note_append = d.get("note_append")
+    if note_append is not None:
+        if not isinstance(note_append, str):
+            raise HTTPError(400, "note_append 는 문자열이어야 합니다.")
+        if len(note_append) > 2000:
+            raise HTTPError(400, "덧붙일 메모가 너무 깁니다(2000자 이하).")
     loc = d.get("loc")
     if loc is not None and not isinstance(loc, dict):
         raise HTTPError(400, "loc 는 객체여야 합니다.")
@@ -1146,12 +1386,13 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         raise HTTPError(400, "kind 가 올바르지 않습니다.")
-    if "base_rev" not in d:
+    base_given = "base_rev" in d
+    if not base_given and note_append is None:
         raise HTTPError(400, "base_rev 가 필요합니다(카드를 열 때 받은 rev).")
-    base = _int(d["base_rev"], "base_rev")
+    base = _int(d["base_rev"], "base_rev") if base_given else None
     moves = loc is not None or lo is not None or hi is not None
-    if not (has_note or moves or scope is not None or kind is not None):
-        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc).")
+    if not (has_note or moves or scope is not None or kind is not None or note_append is not None):
+        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append).")
     newloc = clean_loc(loc) if loc is not None else None
 
     def fn(rows):
@@ -1160,7 +1401,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
         if r.get("done") and (moves or scope is not None or kind is not None):
             raise HTTPError(409, "done", pin=public(r), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
-        if int(r.get("rev") or 0) != base:
+        if base_given and int(r.get("rev") or 0) != base:
             raise HTTPError(409, "conflict", pin=public(r))
         range_changed = False
         if newloc is not None:
@@ -1202,6 +1443,9 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             r.pop("sync", None)
         if has_note:
             r["note"] = note
+        if note_append is not None:
+            stamp = "(추가 %s) " % datetime.now().astimezone().strftime("%H:%M")
+            r["note"] = (str(r.get("note") or "") + ("\n" if r.get("note") else "") + stamp + note_append)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
         r["rev"] = int(r.get("rev") or 0) + 1
@@ -1279,46 +1523,102 @@ def clear_pins() -> None:
         render_pins_md([])
 
 
-def short_author(r: dict) -> str:
-    a = r.get("author")
-    if not isinstance(a, dict):
-        return "—"
-    if a.get("login") == "local":
-        return "로컬"
-    name = str(a.get("name") or a.get("login") or "?").replace("|", "/").replace("\n", " ")
-    return name if len(name) <= 16 else name[:15] + "…"
-
-
 def render_pins_md(rows: list) -> None:
     atomic_write(C.pins_md, pins_md_text(rows))
+
+
+def location_col(r: dict) -> str:
+    """C.src 기준 상대경로 — 루트 파일은 basename 과 같아서 기존 행이 변하지 않는다."""
+    f = Path(str(r.get("file", "")))
+    try:
+        rel = f.resolve().relative_to(C.src.resolve())
+        name = str(rel)
+    except (ValueError, OSError, RuntimeError):
+        name = f.name or str(r.get("name") or "")
+    return "`%s L%s-L%s`" % (name, r.get("lo"), r.get("hi"))
+
+
+def range_label(r: dict) -> str:
+    """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind."""
+    scope = r.get("scope")
+    if scope and str(scope).startswith("env"):
+        k = str(r.get("kind") or "")
+        return k if k.startswith("env:") else "env:%s" % (k or "?")
+    if scope == "para":
+        return "paragraph"
+    if scope in ("raw", "lines"):
+        return "lines"
+    return str(r.get("kind") or "").replace("|", "/")
+
+
+def render_quote(r: dict) -> str:
+    """«quote…» 인용 예외: 핀 범위가 한 줄이고, 그 줄이 600자를 넘고, scope 가 raw/para/없음일 때만."""
+    scope = r.get("scope")
+    if scope not in (None, "raw", "para"):
+        return ""
+    lo, hi = r.get("lo"), r.get("hi")
+    if not (_is_int(lo) and _is_int(hi)) or lo != hi:
+        return ""
+    q = r.get("quote")
+    if not q:
+        return ""
+    f = Path(str(r.get("file", "")))
+    if not in_tree(str(f)):
+        return ""
+    lines = tex_lines(f)
+    if not (1 <= lo <= len(lines)) or len(lines[lo - 1]) <= 600:
+        return ""
+    return "«%s» " % str(q)[:60].replace("|", "\\|")
+
+
+LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ✎ = 저장 뒤 메모·범위 수정됨 · "
+          "⚠ = 위치를 잃음(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
+          "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 
 
 def pins_md_text(rows: list) -> str:
     """에이전트가 한 번에 읽을 요약. 스니펫은 일부러 넣지 않는다 —
     줄 범위만 있으면 에이전트가 원본을 직접 읽는 편이 항상 더 싸고 정확하다.
-    형식 지정자는 %s 만 쓴다 — 레코드 하나의 형이 틀려도 요약 전체가 죽지 않게."""
+    형식 지정자는 %s 만 쓴다 — 레코드 하나의 형이 틀려도 요약 전체가 죽지 않게.
+    닫힌 핀은 목록에 내려받지 않는다(머리줄 건수로만) — 쌓여도 pins.md 크기가 늘지 않는다."""
     openn = [r for r in rows if not r.get("done")]
+    n_done = len(rows) - len(openn)
+    rel = overlaps_by_id(rows)
+    by_id = {r["id"]: r for r in rows}
+
+    rows_render = []
+    any_symbol = False
+    for r in openn:
+        syms = []
+        badge = rel_badge(rel.get(r["id"], []), by_id)
+        if badge:
+            syms.append(badge)
+        if r.get("edited_at"):
+            syms.append("✎")
+        if r.get("stale"):
+            syms.append("⚠")
+        if syms:
+            any_symbol = True
+        idcol = " ".join(["%s" % r.get("id")] + syms)
+        note = str(r.get("note") or "").replace("|", "\\|").replace("\r\n", "\n").replace("\n", " ⏎ ")
+        q = render_quote(r)
+        if q:
+            any_symbol = True
+            note = q + note
+        rows_render.append("| %s | %s | %s | %s | %s |" %
+                            (idcol, r.get("page", 0), location_col(r), range_label(r), note))
+
     out = ["# 수정 요청 핀", "",
            "원고: `%s`" % C.src,
-           "갱신: %s  ·  열린 핀 %d건" % (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn)),
+           "갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
+           (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done),
            "",
-           "처리한 핀은 닫는다 — `curl -s -X POST http://127.0.0.1:%d/api/pins/N/close`" % C.port,
-           "", "| # | 쪽 | 위치 | 종류 | 메모 | 작성 |", "|---|---|---|---|---|---|"]
-    for r in openn:
-        flag = " ⚠ 위치 잃음" if r.get("stale") else ""
-        loc = "`%s L%s-L%s`%s" % (Path(str(r.get("file", ""))).name, r.get("lo"), r.get("hi"), flag)
-        note = str(r.get("note") or "").replace("|", "\\|").replace("\n", " ")
-        kind = str(r.get("kind") or "").replace("|", "/")
-        out.append("| %s | %s | %s | %s | %s | %s |" % (r.get("id"), r.get("page", 0), loc,
-                                                     kind, note, short_author(r)))
-    if not openn:
-        out.append("| — | — | 열린 핀 없음 | | | |")
-    done = [r for r in rows if r.get("done")]
-    if done:
-        out += ["", "<details><summary>닫힌 핀 %d건</summary>" % len(done), ""]
-        out += ["- #%s p.%s `L%s-L%s` %s" % (r.get("id"), r.get("page", 0), r.get("lo"), r.get("hi"),
-                                             str(r.get("note") or "").replace("\n", " ")[:80]) for r in done]
-        out += ["", "</details>"]
+           "처리한 핀은 닫는다 — `curl -s -X POST http://127.0.0.1:%d/api/pins/N/close` · "
+           "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % C.port]
+    if any_symbol:
+        out.append(LEGEND)
+    out += ["", "| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
+    out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
     return "\n".join(out) + "\n"
 
 
@@ -1389,12 +1689,17 @@ def pick(d: dict) -> dict:
     if source_newer() > 2:
         stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 다시 만들기] 뒤에 다시 고르세요."
         warn = stale_note + (" " + warn if warn else "")
+    bstate = build_state_snapshot()
+    if bstate["state"] == "running" and bstate["phase"] == "latex":
+        warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
 
+    quote = norm(rtext)[:60]
     return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
             "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
             "score": round(best, 2), "warn": warn, "n_lines": len(lines),
-            "snippet": snippet(lines, lo, hi), "frac": frac,
-            "levels": lad["levels"], "default_level": lad["default_level"]}
+            "snippet": snippet(lines, lo, hi), "frac": frac, "quote": quote,
+            "levels": lad["levels"], "default_level": lad["default_level"],
+            "overlaps": overlaps_for_range(str(src), lo, hi)}
 
 
 def snippet_api(q: dict) -> dict:
@@ -1536,15 +1841,18 @@ input.n{width:58px;text-align:center}
 .pg{position:relative;margin:0 auto 18px;box-shadow:0 2px 18px var(--shadow);user-select:none}
 :root[data-theme=light] .pg{border:1px solid var(--line);box-shadow:0 1px 6px var(--shadow)}
 .pg img{width:100%;height:100%;display:block}
-.pg .no{position:absolute;top:4px;left:-34px;color:var(--dim);font-size:12px}
+.pg .no{position:absolute;top:6px;left:6px;color:var(--dim);font-size:11px;background:var(--card);
+  padding:1px 6px;border-radius:4px;box-shadow:0 1px 4px var(--shadow);line-height:1.5}
 .sel{position:absolute;border:2px solid var(--acc);background:var(--sel-fill);pointer-events:none}
 .sel.pending{border-style:dashed}
 .sel i{position:absolute;top:-21px;left:-2px;background:var(--acc);color:var(--on-acc);font-size:11px;font-style:normal;
   padding:1px 6px;border-radius:4px;white-space:nowrap}
 .mark{position:absolute;border:2px solid var(--ok);background:var(--mark-fill);pointer-events:none}
 .mark.st{border-color:var(--warn);background:var(--stale-fill)}
-.mark b{position:absolute;top:-11px;left:-11px;background:var(--ok);color:var(--on-ok);border-radius:50%;
-  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;pointer-events:auto}
+.mark.est{border-style:dashed}
+.mark.hi{border-width:3px}
+.mark b{position:absolute;top:-2px;left:-24px;background:var(--ok);color:var(--on-ok);border-radius:50%;
+  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;pointer-events:auto;cursor:pointer}
 .mark.st b{background:var(--warn);color:var(--on-warn)}
 .mark.flash{animation:flash .6s ease-in-out 3}
 @keyframes flash{50%{box-shadow:0 0 0 5px var(--acc)}}
@@ -1632,7 +1940,9 @@ dialog code{font-size:12px;word-break:break-all}
     <button id="btn-theme" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
     <button id="btn-help" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span></span><span class="sp"></span><span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 다시 만드는 중입니다"></span></span><span class="sp"></span>
+    <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
+    <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
   <div id="build-err" hidden></div>
   <div id="banner" hidden></div>
   <div id="composer" hidden>
@@ -1643,6 +1953,7 @@ dialog code{font-size:12px;word-break:break-all}
         <span id="c-tag" class="tag" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span></div>
       <div id="c-meta" class="dim"></div>
       <div id="c-warn" class="warnline" hidden></div>
+      <div id="c-overlap" class="row" hidden style="margin:6px 0;font-size:12.5px"></div>
       <div id="c-levels" class="seg" role="group" aria-label="범위 단계"></div>
       <div class="row">
         <button class="x" id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">▲+</button>
@@ -1753,10 +2064,10 @@ async function api(url,o){o=o||{};
   const init={method:o.method||'GET',headers:{}};
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
-  try{r=await fetch(url,init);}catch(e){toast((o.what||'요청')+' 실패 — 서버에 닿지 않습니다','err');throw e;}
+  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast((o.what||'요청')+' 실패 — 서버에 닿지 않습니다','err');throw e;}
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
-    toast((o.what||'요청')+' 실패 — '+((d&&d.error)||('HTTP '+r.status)),'err');
+    if(!o.silent)toast((o.what||'요청')+' 실패 — '+((d&&d.error)||('HTTP '+r.status)),'err');
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
@@ -1809,7 +2120,22 @@ async function boot(){
   applyTheme();
   $('#btn-save').textContent='핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
-  drawMeta(); buildDoc(); autoW(); await loadPins();
+  drawMeta(); buildDoc(); autoW(); applySideWidth(); await loadPins();
+  LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_mtime;
+  startLightPolling(); startBuildPolling();
+}
+function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
+// 원고 수정됨 배지 — source_newer() 기반 stale_build 대신, 부작용 없는 src_mtime/build_src_mtime 비교로
+// 가볍게 갱신한다(5초 폴링). built_src_mtime 이 없는 옛 인스턴스는 built_at 시각과 비교한다.
+function updateStaleBadge(m){
+  const badge=$('#meta-stale'), btn=$('#btn-rebuild');
+  const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
+  if(ref==null||!(typeof m.src_mtime==='number')||!(m.src_mtime>ref+2)){
+    badge.hidden=true; btn.classList.remove('p'); return;
+  }
+  const mins=Math.max(0,Math.round((Date.now()/1000-m.src_mtime)/60));
+  badge.hidden=false; badge.textContent='원고 수정됨 · '+mins+'분 전';
+  btn.classList.add('p');
 }
 function drawMeta(){
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
@@ -1817,8 +2143,76 @@ function drawMeta(){
   const me=META.me||{};
   $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(me.name||me.login||'')+'</span>';
   $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
-  $('#meta-stale').hidden=!META.stale_build;
+  updateStaleBadge(META);
   $('#help-pins-md').textContent=META.pins_md||'';
+}
+
+// ------------------------------------------------ 자동 동기화(P0b-02) — 가벼운 meta 폴링
+let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null;
+async function pollLight(){
+  if(document.hidden)return;         // 탭이 숨으면 요청 자체를 보내지 않는다
+  let d;
+  try{d=(await api('/api/meta?light=1',{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
+  catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
+  $('#conn-lost').hidden=true;
+  updateStaleBadge(d);
+  if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||d.src_mtime!==LAST_SRC_MTIME)) await loadPins();
+  LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=d.src_mtime;
+}
+function startLightPolling(){
+  clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
+  window.addEventListener('focus',()=>pollLight());
+}
+function diffToast(prev,next){
+  if(!prev||!prev.length)return;
+  const byId=new Map(prev.map(p=>[p.id,p]));
+  const nowIds=new Set(next.map(p=>p.id));
+  const closed=[...byId.keys()].filter(id=>!nowIds.has(id));
+  if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
+  next.forEach(p=>{const was=byId.get(p.id); if(!was)return;
+    if(!was.stale&&p.stale){toast('#'+p.id+' 위치를 잃었습니다','warn');return;}
+    const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
+    if(m&&(!wm||wm[1]!==m[1]))toast('#'+p.id+' 줄 '+m[1]+' 이동','ok');});
+}
+
+// ------------------------------------------------ 비동기 빌드 진행 칩(P0b-01)
+let BUILD_TIMER=null,LAST_BUILD_STATE=null;
+function buildChipText(b){
+  const label={copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
+  const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
+  return label+' · '+el+'초'+last;
+}
+async function pollBuild(){
+  let b;
+  try{b=(await api('/api/build',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
+  const chip=$('#build-chip');
+  if(b.state==='running'){chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;}
+  else{
+    chip.hidden=true; $('#btn-rebuild').disabled=false;
+    if(LAST_BUILD_STATE==='running'){                 // 방금 끝났다 — 제자리 교체 + 알림
+      await refreshDoc();
+      const secs=Math.round(b.elapsed_s||0);
+      if(b.state==='ok')toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok');
+      else if(b.state==='ok_errors')toast('PDF를 만들었지만 LaTeX 오류가 있습니다','warn',
+        {label:'자세히',tip:'오류 목록과 로그 끝을 봅니다',fn:()=>showBuildErr(b)});
+      else if(b.state==='fail')toast('빌드 실패 — 화면은 이전 PDF입니다','err',
+        {label:'로그 보기',tip:'빌드 로그 끝을 펼칩니다',fn:()=>showBuildErr(b)});
+    }
+  }
+  LAST_BUILD_STATE=b.state;
+}
+function startBuildPolling(){
+  clearInterval(BUILD_TIMER); BUILD_TIMER=setInterval(pollBuild,1000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollBuild();});
+  pollBuild();
+}
+
+// ------------------------------------------------ 사이드바 폭 제한(P0b-06)
+function applySideWidth(){
+  const p=prefs(); if(!p.side)return;
+  const maxSide=Math.max(280,innerWidth-480-6);
+  $('#right').style.width=Math.min(p.side,maxSide)+'px';
 }
 function pageSrc(p){return '/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at);}
 function buildDoc(){
@@ -1832,10 +2226,10 @@ function buildDoc(){
 // save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
 function setW(w,save){W=Math.round(Math.min(2200,Math.max(300,w))); $$('.pg').forEach(e=>e.style.width=W+'px'); if(save!==false)savePrefs({w:W});}
 function autoW(){if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
-let autoT=null; window.addEventListener('resize',()=>{clearTimeout(autoT); autoT=setTimeout(autoW,150);});
+let autoT=null; window.addEventListener('resize',()=>{clearTimeout(autoT); autoT=setTimeout(()=>{autoW();applySideWidth();},150);});
 function zoom(k){setW(W+k*140);}
-// 폭 맞춤: #left 의 안쪽 폭(좌 44px 쪽 번호 여백 + 우 16px 을 뺀 값)에 쪽을 맞춘다.
-function fitW(){const L=$('#left'); setW(L.clientWidth-44-16);}
+// 폭 맞춤: #left.clientWidth 에서 48px(좌우 여백)을 뺀 값에 맞춘다.
+function fitW(){const L=$('#left'); setW(L.clientWidth-48);}
 function goPage(){const el=document.getElementById('p'+parseInt($('#jump').value,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 
@@ -1922,12 +2316,34 @@ async function pick(r){
   $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
   $('#note').focus({preventScroll:true});   // 드래그 → 바로 메모 입력
 }
+// P0b-03: pick() 이 돌려준 overlaps 중 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지 않는다 —
+// 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
+function pickOverlap(ovs){
+  if(!ovs||!ovs.length)return null;
+  const insides=ovs.filter(o=>o.rel==='inside');
+  if(insides.length)return insides.reduce((a,b)=>(b.hi-b.lo)<(a.hi-a.lo)?b:a);
+  const partials=ovs.filter(o=>o.rel==='partial');
+  if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
+  return null;
+}
+let OVERLAP_DISMISSED=false;
+function renderOverlapBanner(){
+  const box=$('#c-overlap'); const d=CUR;
+  const ov=d&&!OVERLAP_DISMISSED?pickOverlap(d.overlaps):null;
+  if(!ov){box.hidden=true;return;}
+  box.hidden=false;
+  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+') '+(ov.rel==='inside'?'안입니다':'과 겹칩니다')+'</span>'+
+    '<button class="x" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
+    ov.id+' 메모에 덧붙이기</button>'+
+    '<button class="x" data-act="overlap-separate" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
+}
 function renderComposer(){const d=CUR; if(!d)return;
   const loc=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=loc; $('#c-loc').dataset.copy=loc;
   $('#c-meta').textContent=d.page+'쪽 · '+scopeLabel(d)+' · '+(d.hi-d.lo+1)+'줄 · 드래그한 줄 L'+d.raw_lo+'-L'+d.raw_hi;
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
+  renderOverlapBanner();
   $('#c-levels').innerHTML=levelBtns(d,false);
   const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
   const many=String(d.snippet||'').split('\n').length>8;
@@ -1935,12 +2351,22 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; if(PENDING){PENDING.remove();PENDING=null;}
-  setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
+  OVERLAP_DISMISSED=false; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
+async function appendToPin(id,text){
+  const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
+  try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
+    const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
+    toast('#'+id+' 에 덧붙였습니다','ok',{label:'되돌리기',fn:()=>undoAppend(id,priorNote,data.pin.rev)});
+    await loadPins();
+  }catch(e){}}
+async function undoAppend(id,note,rev){
+  try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기'});
+    toast('#'+id+' 메모를 되돌렸습니다','ok');}catch(e){} await loadPins();}
 async function savePin(){
   if(!CUR||SAVING)return; SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
   const d=CUR,note=$('#note').value.trim();
   const body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
-    frac:d.frac,note:note};
+    frac:d.frac,note:note,quote:d.quote};
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
@@ -1960,6 +2386,15 @@ document.addEventListener('error',e=>{const t=e.target;
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
   if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
+// P0b-03: rel 항목 중 대표 하나 — inside 가 있으면(가장 작은 바깥 핀), 없으면 partial 중 id 가 가장 작은 것.
+function relBadge(rel){
+  if(!rel||!rel.length)return null;
+  const insides=rel.filter(x=>x.rel==='inside');
+  if(insides.length)return {id:insides[0].id,label:'#'+insides[0].id+' 안'};
+  const partials=rel.filter(x=>x.rel==='partial').sort((a,b)=>a.id-b.id);
+  if(partials.length)return {id:partials[0].id,label:'#'+partials[0].id+' 과 겹침'};
+  return null;
+}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];
   if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">위치 잃음</span>');
@@ -1967,6 +2402,8 @@ function card(p){
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">줄 '+esc(m[1])+' 이동</span>');}
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">✎ 수정됨</span>');
+  const rb=relBadge(p.rel);
+  if(rb)tags.push('<span class="tag" data-tip="'+esc('핀 #'+rb.id+' 과 범위가 겹칩니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
   const v=viaTag(p); if(v)tags.push('<span class="tag" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
@@ -1992,7 +2429,10 @@ function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=
     (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
 async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
-  PINS=d.filter(p=>!p.done); DONE=d.filter(p=>p.done);
+  const prevOpen=PINS;
+  const nextOpen=d.filter(p=>!p.done); DONE=d.filter(p=>p.done);
+  diffToast(prevOpen,nextOpen);
+  PINS=nextOpen;
   if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   drawPins(); marks();
   if(META)document.title='원고 핀 · '+META.main+' · 열린 '+PINS.length;
@@ -2007,18 +2447,59 @@ function drawPins(){
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
 }
+// P0b-06: 재빌드 뒤에도 옛 PDF 좌표로 그려진 마크는 '위치 추정'이다 — 핀의 sync 기준 시각(synced_at/at)이
+// 지금 PDF 를 만든 시각보다 이르고, 그 뒤로 범위가 옮겨졌거나(moved/lost) 원고가 바뀌었으면(다음 재빌드가
+// 그 변경을 반영했으면) frac 좌표가 새 페이지 레이아웃과 어긋날 수 있다는 뜻이다.
+// pin.synced_at 는 원고 트리 전체가 아니라 '그 핀이 가리키는 파일 하나'의 mtime 스냅샷이라, 트리 전체의
+// build_src_mtime 과 직접 비교하면(다른 파일만 바뀌어도) 항상 더 커져 거의 모든 핀이 오탐으로 .est 가 된다.
+// 그래서 pin 이 가리키는 좌표(frac)를 마지막으로 확정한 실제 시각(at/edited_at, 벽시계)을 쓴다 — built_at 과
+// 같은 단위(벽시계)라 비교가 성립한다.
+function pinAtEpoch(p){return builtAtEpoch(p.edited_at||p.at);}
+function isEstimated(p){
+  if(!META)return false;
+  const ba=builtAtEpoch(META.built_at), pa=pinAtEpoch(p);
+  if(ba==null||pa==null||!(pa<ba))return false;
+  // '이동/위치잃음'은 원고가 바뀌어 앵커가 다시 찾은 결과다 — frac 좌표는 옛 PDF 기준 그대로이므로 추정이다.
+  return !!(p.sync&&p.sync!=='ok');
+}
 function marks(){
   $$('.mark').forEach(m=>m.remove());
   PINS.forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
-    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':''); m.dataset.pin=p.id;
+    const est=isEstimated(p);
+    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':''); m.dataset.pin=p.id;
     Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
-    m.innerHTML='<b data-tip="'+esc('#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)'))+'">'+p.id+'</b>'; el.appendChild(m);});
+    const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)')+(est?' (PDF가 새로 만들어져 위치는 추정입니다)':'');
+    m.innerHTML='<b data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});
+}
+// 배지 클릭은 카드로 스크롤·깜빡인다(pick 을 부르지 않는다). 마크 상자 자체는 pointer-events:none 이라
+// 그 위 드래그는 그대로 새 선택이 된다 — 배지(<b>)만 mousedown 을 막아야 한다.
+$('#doc').addEventListener('mousedown',e=>{
+  if(e.target.closest('.mark b')){e.stopPropagation();e.preventDefault();}
+},true);
+function jumpToCard(id){
+  const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
+  el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
 }
 function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
-  (m||document.getElementById('p'+p.page)||{scrollIntoView(){}}).scrollIntoView({behavior:SMOOTH,block:'center'});
-  if(m){m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');}}
+  if(m){
+    const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();
+    L.scrollTop+=(mr.top-(lr.top+lr.height*0.30));
+    m.classList.remove('flash');void m.offsetWidth;m.classList.add('flash');
+  } else {
+    const el=document.getElementById('p'+p.page); if(el)el.scrollIntoView({behavior:SMOOTH});
+  }
+}
+// 카드에 hover 하면 그 마크와, 겹친 상대 마크까지 함께 강조한다.
+function markIdsFor(p){return [p.id].concat((p.rel||[]).map(x=>x.id));}
+$('#pins').addEventListener('mouseover',e=>{const c=e.target.closest('.pin'); if(!c)return;
+  const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;
+  markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.add('hi');});});
+$('#pins').addEventListener('mouseout',e=>{const c=e.target.closest('.pin'); if(!c)return;
+  const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;
+  markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.remove('hi');});});
 async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
   if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
   else toast('핀 #'+id+' 완료','ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}catch(e){} await loadPins();}
@@ -2122,22 +2603,18 @@ async function refreshDoc(){const a=topAnchor();
   else buildDoc();
   restoreAnchor(a); await loadPins();}
 function showBuildErr(r){const b=$('#build-err');
-  b.innerHTML='<div class="row"><b>'+(r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'LaTeX 오류 '+r.errors.length+'건')+'</b><span class="sp"></span>'+
+  const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 만들었지만 LaTeX 오류가 있습니다';
+  b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
     '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
-    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log||'').split('\n').slice(-20).join('\n'))+'</pre>'; b.hidden=false;}
-async function rebuild(){const b=$('#btn-rebuild'); if(b.disabled)return; b.disabled=true; const t0=Date.now();
-  b.textContent='만드는 중 · 0초'; const tick=setInterval(()=>{b.textContent='만드는 중 · '+Math.round((Date.now()-t0)/1000)+'초';},1000);
-  try{const {status,data}=await api('/api/rebuild',{method:'POST',what:'PDF 다시 만들기',expect:[409]});
-    if(status===409){toast('이미 PDF를 만드는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
-    $('#build-err').hidden=true;
-    if(data.state!=='fail')await refreshDoc();
-    const secs=Math.round(data.elapsed_s||0);
-    if(data.state==='ok')toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초','ok');
-    else if(data.state==='ok_errors'){const e=data.errors[0]||{};
-      toast('PDF를 만들었지만 LaTeX 오류 '+data.errors.length+'건 — '+(e.line?'L'+e.line+' ':'')+(e.msg||''),'warn',{label:'자세히',tip:'오류 목록과 로그 끝을 봅니다',fn:()=>showBuildErr(data)});}
-    else toast('빌드 실패 — 화면은 이전 PDF입니다','err',{label:'로그 보기',tip:'빌드 로그 끝 20줄을 펼칩니다',fn:()=>showBuildErr(data)});
-  }catch(e){} finally{clearInterval(tick); b.disabled=false; b.textContent='PDF 다시 만들기';}}
+    '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>'; b.hidden=false;}
+// P0b-01: 재빌드는 비동기다 — POST 는 바로 돌아오고, #build-chip 폴러(startBuildPolling)가 진행 상황을
+// 보여 준 뒤 끝나면 제자리 교체와 알림을 한다. 다른 사람이 시작한 빌드도 같은 폴러가 잡아낸다.
+async function rebuild(){
+  try{const {status}=await api('/api/rebuild?async=1',{method:'POST',what:'PDF 다시 만들기',expect:[409]});
+    if(status===409){toast('이미 다른 곳에서 PDF를 만드는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
+    $('#build-err').hidden=true; LAST_BUILD_STATE='running'; await pollBuild();
+  }catch(e){}}
 
 // ------------------------------------------------ 도움말
 let HELP_BACK=null;
@@ -2154,12 +2631,17 @@ document.addEventListener('click',e=>{
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
+    case 'overlap-append':{const text=$('#note').value.trim();
+      if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
+      appendToPin(+a.dataset.oid,text);break;}
+    case 'overlap-separate':OVERLAP_DISMISSED=true;renderOverlapBanner();break;
     case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
     case 'copy-cur':if(CUR)copyText(CUR.name+' L'+CUR.lo+'-L'+CUR.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
     case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
+    case 'mark-jump':jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
@@ -2309,11 +2791,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
         if path == "/api/meta":
-            return self._json(meta(actor))
+            light = (q.get("light") or ["0"])[0] == "1"
+            return self._json(meta(actor, light=light))
+        if path == "/api/build":
+            return self._json(build_state_snapshot())
         if path == "/api/pins":
             rows = snapshot_pins()
             allp = (q.get("all") or ["0"])[0] == "1"
-            return self._json([public(r) for r in rows if allp or not r.get("done")])
+            rel = overlaps_by_id(rows)
+            return self._json([dict(public(r), rel=rel.get(r["id"], [])) for r in rows if allp or not r.get("done")])
         if path == "/api/snippet":
             return self._json(snippet_api(q))
         if path.startswith("/pages/"):
@@ -2346,7 +2832,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post(self):
         actor = self._guard()
-        path = urlparse(self.path).path
+        u = urlparse(self.path)
+        path = u.path
         d = self._body()
 
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit)", path)
@@ -2368,6 +2855,9 @@ class Handler(BaseHTTPRequestHandler):
             clear_pins()
             return self._json({"ok": True})
         if path == "/api/rebuild":
+            if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
+                r = build_async()
+                return self._json(r, 409 if r.get("busy") else 202)
             r = build_all()
             return self._json(r, 409 if r.get("busy") else 200)
         raise HTTPError(404, "없는 경로입니다: %s" % path)

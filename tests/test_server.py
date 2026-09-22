@@ -288,7 +288,8 @@ class Store(Base):
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("위치 잃음", md)
+        self.assertIn("%d ⚠" % pid, md)          # v2: 위치 잃음은 번호 칸의 ⚠ 기호로 표시된다
+        self.assertIn("위치를 잃음", md)          # 기호 범례 줄
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
@@ -391,6 +392,293 @@ class Ladder(Base):
         lad = ps.compute_levels(lines, 17, 17)    # 표 뒤 줄 — 다음 줄이 \subsection
         para = ps.find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
+
+
+# ---------------------------------------------------------------- P0b-01 비동기 빌드
+
+class AsyncBuild(Base):
+    def tearDown(self):
+        if ps.BUILD_LOCK.locked():
+            ps.BUILD_LOCK.release()
+        ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None)
+        super().tearDown()
+
+    def test_async_returns_running_then_409_while_busy(self):
+        ev = threading.Event()
+
+        def fake_build():
+            ev.wait(5)
+            return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            r1 = ps.build_async()
+            self.assertEqual(r1, {"state": "running"})
+            self.assertEqual(ps.build_state_snapshot()["state"], "running")
+            r2 = ps.build_async()
+            self.assertEqual(r2, {"state": "running", "busy": True})
+            ev.set()
+            for _ in range(200):
+                if not ps.BUILD_LOCK.locked():
+                    break
+                time.sleep(0.02)
+        self.assertFalse(ps.BUILD_LOCK.locked())
+        self.assertEqual(ps.build_state_snapshot()["state"], "ok")
+
+    def test_phase_copy_observed_before_build_runs(self):
+        seen = []
+
+        def fake_build():
+            seen.append(ps.build_state_snapshot()["phase"])
+            return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.0, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all()
+        self.assertEqual(seen, ["copy"])
+        self.assertEqual(ps.build_state_snapshot()["phase"], None)   # 끝나면 phase 를 비운다
+
+    def test_ok_errors_state_surfaces_in_build_state(self):
+        def fake_build():
+            return {"ok": True, "state": "ok_errors", "errors": [{"line": 412, "msg": "Undefined control sequence"}],
+                    "log": "boom", "elapsed_s": 1.2, "pages": 3}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all()
+        st = ps.build_state_snapshot()
+        self.assertEqual(st["state"], "ok_errors")
+        self.assertEqual(st["errors"][0]["line"], 412)
+
+    def test_rebuild_async_endpoint_202_then_409(self):
+        ps.BUILD_LOCK.acquire()
+        try:
+            out = self.talk(req("POST", "/api/rebuild?async=1"))
+            self.assertIn(b" 409 ", out)
+        finally:
+            ps.BUILD_LOCK.release()
+
+    def test_get_api_build_reports_known_state(self):
+        out = self.talk(req("GET", "/api/build"))
+        self.assertIn(b" 200 ", out)
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertIn(data["state"], ("idle", "running", "ok", "ok_errors", "fail"))
+        self.assertIn("phase", data)
+        self.assertIn("log_tail", data)
+
+    def test_real_build_progresses_through_all_phases(self):
+        """실제 latexmk·pdftoppm 으로 한 번 돌려 copy→latex→render 순서를 관측한다(도구가 있을 때만)."""
+        import shutil as _sh
+        if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm 없음")
+        seen = []
+        stop = threading.Event()
+
+        def poll():
+            while not stop.is_set():
+                ph = ps.build_state_snapshot()["phase"]
+                if ph and (not seen or seen[-1] != ph):
+                    seen.append(ph)
+                time.sleep(0.01)
+        t = threading.Thread(target=poll, daemon=True)
+        t.start()
+        res = ps.build_all()
+        stop.set()
+        t.join(2)
+        self.assertEqual(res["state"], "ok")
+        self.assertIn("latex", seen)
+        self.assertIn("render", seen)
+        self.assertTrue(ps.cur_pdf().exists())
+
+
+# ---------------------------------------------------------------- P0b-02 light meta 폴링
+
+class LightMeta(Base):
+    def test_light_meta_has_no_write_side_effect(self):
+        self.add()
+        before = ps.C.pins_jsonl.stat().st_mtime_ns
+        for _ in range(5):
+            d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        after = ps.C.pins_jsonl.stat().st_mtime_ns
+        self.assertEqual(before, after)
+        self.assertNotIn("n_open", d)
+        for k in ("src_mtime", "build_src_mtime", "pins_rev", "build"):
+            self.assertIn(k, d)
+
+    def test_pins_rev_changes_only_when_file_changes(self):
+        rev0 = ps.pins_rev()
+        self.add()
+        rev1 = ps.pins_rev()
+        self.assertNotEqual(rev0, rev1)
+        rev2 = ps.pins_rev()
+        self.assertEqual(rev1, rev2)      # 변화 없으면 그대로
+
+    def test_src_mtime_ignores_main_pdf_and_build_dir(self):
+        m0 = ps.src_mtime()
+        (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
+        (ps.C.src / "build").mkdir()
+        (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
+        self.assertEqual(ps.src_mtime(), m0)          # 캐시 밖이어도(2초 지난 뒤에도) 변하면 안 된다
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # 캐시를 강제로 만료시켜 재계산을 확인
+        self.assertEqual(ps.src_mtime(), m0)
+
+    def test_src_mtime_reacts_to_tex_change(self):
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        m0 = ps.src_mtime()
+        time.sleep(0.05)
+        os.utime(self.main, (time.time() + 10, time.time() + 10))
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        self.assertGreater(ps.src_mtime(), m0)
+
+    def test_built_src_mtime_file_missing_is_fine(self):
+        self.assertIsNone(ps.read_built_src_mtime())
+        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertIsNone(d["build_src_mtime"])
+
+    def test_light_query_param_via_handler(self):
+        out = self.talk(req("GET", "/api/meta?light=1"))
+        self.assertIn(b" 200 ", out)
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertNotIn("n_open", data)
+        self.assertIn("pins_rev", data)
+
+
+# ---------------------------------------------------------------- P0b-03 겹침·덧붙이기
+
+class Overlaps(Base):
+    def test_inside_and_contains_pair(self):
+        p1 = self.add(4, 9, note="outer")     # 앞 두 문단(빈 줄 없음 아님, 넉넉히 겹치게 lo/hi 조정)
+        p2 = self.add(4, 5, note="inner")
+        rows = ps.snapshot_pins()
+        rel = ps.overlaps_by_id(rows)
+        self.assertEqual(rel[p2], [{"id": p1, "rel": "inside"}])
+        self.assertEqual(rel[p1], [{"id": p2, "rel": "contains"}])
+
+    def test_partial_overlap(self):
+        p1 = self.add(4, 5)
+        p2 = self.add(5, 6)
+        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        self.assertEqual(rel[p1], [{"id": p2, "rel": "partial"}])
+        self.assertEqual(rel[p2], [{"id": p1, "rel": "partial"}])
+
+    def test_no_overlap_is_empty(self):
+        p1 = self.add(4, 5)
+        p2 = self.add(8, 9)
+        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        self.assertEqual(rel[p1], [])
+        self.assertEqual(rel[p2], [])
+
+    def test_overlaps_for_range_matches_pick_semantics(self):
+        self.add(4, 9, note="outer")
+        ov = ps.overlaps_for_range(str(self.main), 4, 5)
+        self.assertEqual(len(ov), 1)
+        self.assertEqual(ov[0]["rel"], "inside")
+
+    def test_pick_end_to_end_includes_quote_and_overlaps(self):
+        import shutil as _sh
+        if not (_sh.which("latexmk") and _sh.which("pdftoppm") and _sh.which("pdftotext")):
+            self.skipTest("latex 도구 없음")
+        res = ps.build_all()
+        self.assertEqual(res["state"], "ok")
+        pages = ps.page_list()
+        self.assertTrue(pages)
+        p = pages[0]
+        d = ps.pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
+        self.assertNotIn("error", d)
+        self.assertIn("quote", d)
+        self.assertIn("overlaps", d)
+
+    def test_note_append_then_undo(self):
+        pid = self.add(note="원본")
+        p0 = self.pin(pid)
+        p1 = ps.edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR))
+        self.assertIn("추가 텍스트", p1["note"])
+        self.assertIn("(추가 ", p1["note"])
+        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)   # 줄 수 불변
+        undone = ps.edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(undone["note"], p0["note"])
+
+    def test_note_append_does_not_need_base_rev(self):
+        pid = self.add()
+        p = ps.edit_pin(pid, {"note_append": "x"}, dict(ps.LOCAL_ACTOR))
+        self.assertIn("x", p["note"])
+
+    def test_get_pins_includes_rel_field(self):
+        p1 = self.add(4, 9)
+        p2 = self.add(4, 5)
+        out = self.talk(req("GET", "/api/pins?all=1"))
+        rows = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        by_id = {r["id"]: r for r in rows}
+        self.assertEqual(by_id[p2]["rel"], [{"id": p1, "rel": "inside"}])
+
+
+# ---------------------------------------------------------------- P0b-04 pins.md v2 · quote
+
+class PinsMdV2(Base):
+    def test_relative_path_for_included_file(self):
+        sub = self.src / "sections"
+        sub.mkdir()
+        f = sub / "intro.tex"
+        f.write_text("line one\nline two\n", encoding="utf-8")
+        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("`sections/intro.tex L1-L1`", md)
+        self.assertEqual(self.pin(pid)["lo"], 1)
+
+    def test_root_file_location_matches_basename(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("`main.tex L4-L5`", md)
+
+    def test_closed_pins_do_not_grow_pins_md(self):
+        self.add(4, 5)
+        before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
+        for i in range(20):
+            pid = self.add(4, 5, note="c%d" % i)
+            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(before, after)
+        self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
+
+    def test_newline_in_note_becomes_line_separator(self):
+        self.add(4, 5, note="첫줄\n둘째줄")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("첫줄 ⏎ 둘째줄", md)
+        self.assertNotIn("첫줄\n둘째줄", md)
+        for line in md.splitlines():
+            if line.startswith("| ") and "⏎" in line:
+                self.assertEqual(line.count("|"), 6)   # 5열 표: 파이프 6개
+
+    def test_overlap_symbol_in_number_column(self):
+        p1 = self.add(4, 9)
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("⊂#%d" % p1, md)
+
+    def test_quote_shown_only_for_single_long_raw_line(self):
+        long_line = "x" * 650
+        f = self.src / "long.tex"
+        f.write_text(long_line + "\n", encoding="utf-8")
+        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
+                          "quote": "짧은 인용"}, dict(ps.LOCAL_ACTOR))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("«짧은 인용»", md)
+        # 짧은 줄(600자 이하)에는 quote 가 있어도 붙지 않는다
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid:
+                r["lo"] = r["hi"] = 4
+                r["quote"] = "안 보여야 함"
+                r["file"] = str(self.main)
+        ps.write_pins(rows)
+        md2 = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("«안 보여야 함»", md2)
+
+    def test_legend_absent_when_no_symbols(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기호:", md)
+
+    def test_open_pins_table_has_five_columns(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        for line in md.splitlines():
+            if line.startswith("| ") and "쪽" not in line and "#" not in line[:4]:
+                self.assertEqual(line.count("|"), 6)
 
 
 if __name__ == "__main__":
