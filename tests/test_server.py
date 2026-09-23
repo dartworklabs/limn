@@ -50,6 +50,12 @@ def extract_js_fn(name: str) -> str:
     return src[i:k + 1]
 
 
+def js_icons() -> str:
+    """뷰어의 Lucide 아이콘 표(ICONS)와 ic() — card()·archiveRow() 처럼 아이콘을 그리는 함수를 node 로 돌릴 때 함께 싣는다."""
+    m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
+    return m.group(0) + "\n" + extract_js_fn("ic")
+
+
 def run_node(js: str, tz: str = None):
     """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
 
@@ -580,8 +586,8 @@ class Store(Base):
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("%d ⚠" % pid, md)          # v2: 위치 잃음은 번호 칸의 ⚠ 기호로 표시된다
-        self.assertIn("위치를 잃음", md)          # 기호 범례 줄
+        self.assertIn("%d · 위치 잃음" % pid, md)   # 위치 잃음은 번호 칸에 말로 쓴다(예전 ⚠)
+        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)          # 표시 범례 줄
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
@@ -1337,7 +1343,8 @@ class PinsMdV2(Base):
         p1 = self.add(4, 9)
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⊂#%d" % p1, md)
+        self.assertIn("#%d 범위 안" % p1, md)
+        self.assertNotIn("⊂", md)
 
     def test_close_guidance_shows_reply_ref_body(self):
         # 결함: pins.md 의 닫기 안내가 본문 없는 curl 만 보여줘, 이 파일 하나만 읽는 에이전트는
@@ -1652,7 +1659,7 @@ class FrontendLogic(unittest.TestCase):
             let CUR=null, PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             """,
             extract_js_fn("selRel"), extract_js_fn("overlapsFor"), extract_js_fn("pickOverlap"),
-            extract_js_fn("overlapVerb"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
+            extract_js_fn("josa"), extract_js_fn("overlapVerb"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
             extract_js_fn("renderOverlapBanner"), extract_js_fn("lvOf"), extract_js_fn("useLevel"),
             r"""
             const out=[];
@@ -1733,7 +1740,7 @@ class FrontendLogic(unittest.TestCase):
         # 결함: relBadge(JS, 카드 태그)가 insides[0](서버가 보낸 순서, 임의)을 골랐는데 서버의
         # rel_badge()(pins.md)는 범위가 가장 작은 바깥 핀을 골랐다 — 카드와 pins.md 표기가 어긋났다.
         js = "\n".join([
-            extract_js_fn("relBadge"),
+            extract_js_fn("josa"), extract_js_fn("relBadge"),
             r"""
             const PINS=[{id:1,lo:1,hi:100},{id:2,lo:10,hi:20},{id:3,lo:5,hi:50}];
             // rel 배열은 실제 서버 순서를 흉내내 일부러 '가장 작은 것'을 뒤에 둔다.
@@ -1747,7 +1754,7 @@ class FrontendLogic(unittest.TestCase):
         # Python 쪽(rel_badge, pins.md)과 같은 by_id 로 같은 규칙을 비교한다.
         by_id = {1: {"lo": 1, "hi": 100}, 2: {"lo": 10, "hi": 20}, 3: {"lo": 5, "hi": 50}}
         rel = [{"id": 1, "rel": "inside"}, {"id": 3, "rel": "inside"}, {"id": 2, "rel": "inside"}]
-        self.assertEqual(ps.rel_badge(rel, by_id), "⊂#2")
+        self.assertEqual(ps.rel_badge(rel, by_id), "#2 범위 안")
 
     def test_jump_to_card_sets_cur_and_clears_highlight_after_timeout(self):
         # 결함: 배지 클릭이 .flash 만 붙였고(.cur 없음), 정적 box-shadow 라 강조가 풀리지 않았다.
@@ -1991,7 +1998,8 @@ class FrontendStructure(unittest.TestCase):
         body = m.group(1)
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
-        self.assertIn("esc(p.close_reply)", body)
+        self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # 답 한 줄은 arcLine 이 esc 를 거쳐 그린다
+        self.assertIn("esc(text)", extract_js_fn("arcLine"))
         self.assertIn("esc(p.close_ref)", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
@@ -2087,12 +2095,15 @@ class Claim(Base):
         self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
-        for bad in (0, 481, "120", 12.5, True, None):
+        for bad in (0, -1, "120", 12.5, True, None):                  # 형이 틀리거나 1 보다 작으면 400
             with self.assertRaises(ps.HTTPError):
                 ps.clean_claim_ttl({"ttl_min": bad})
         self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
-        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 480}), 480)
+        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 120}), 120)
+        self.assertEqual(ps.CLAIM_TTL_MAX, 120)
+        for over in (121, 480, 10_000):                                # 상한(120, 예전 480)을 넘으면 깎아서 받는다(하위 호환)
+            self.assertEqual(ps.clean_claim_ttl({"ttl_min": over}), 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
@@ -2135,14 +2146,15 @@ class Claim(Base):
         pid = self.add()
         ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⏳Coauthor Kim", md)
-        self.assertIn("처리 중(다른 에이전트가 잡음)", md)
+        self.assertIn("처리 중(Coauthor Kim)", md)                     # 예상 없이 잡으면 이름만
+        self.assertNotIn("⏳", md)
+        self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
 
     def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
         pid = self.add()
         ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⏳로컬/에이전트", md)
+        self.assertIn("처리 중(로컬/에이전트)", md)
 
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
@@ -2533,7 +2545,7 @@ class FrontendMobileStructure(unittest.TestCase):
         for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
                          ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
-            self.assertIn('class="sec"', tag)
+            self.assertRegex(tag, r'class="sec( ib)?"')
             more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
@@ -2817,7 +2829,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             """,
             extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
-            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"), js_icons(),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -2870,13 +2882,20 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)),
                          [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"])
 
-    def test_via_tag_is_short_and_flags_low_score(self):
+    def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
+        # 90% 이상은 배지를 숨기고, 낮으면 '위치 불확실'(30% 미만은 경고 색). 방법·일치율·할 일은 설명에 둔다.
         js = "\n".join(["const T={synctex:'S',text:'X'};", extract_js_fn("viaTag"), r"""
-            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'text',score:0.2}),viaTag({})]));"""])
+            const V="const VIA_HIDE=90,VIA_WARN=30;";
+            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'synctex',score:0.884}),
+              viaTag({via:'text',score:0.2}),viaTag({via:'synctex',score:1}),viaTag({})]));"""])
+        js = js.replace("function viaTag(", "const VIA_HIDE=90,VIA_WARN=30;\nfunction viaTag(", 1)
         got = json.loads(run_node(js))
-        self.assertEqual(got[0], {"t": "일치 93%", "tip": "좌표로 찾음 · S", "low": False})
-        self.assertEqual(got[1], {"t": "글자 일치 20%", "tip": "글자로 찾음 · X", "low": True})
-        self.assertIsNone(got[2])
+        self.assertIsNone(got[0])
+        self.assertEqual(got[1], {"t": "위치 불확실", "tip": "좌표로 찾음 · 일치 88% — S", "low": False})
+        self.assertEqual(got[2], {"t": "위치 불확실", "tip": "글자로 찾음 · 일치 20% — X 많이 어긋났을 수 있습니다.", "low": True})
+        self.assertIsNone(got[3])
+        self.assertIsNone(got[4])
+        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", ps.HTML)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
@@ -3622,3 +3641,449 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body.doc=d.doc||DOC||undefined;", body)
         self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
         self.assertIn("#composer.region #c-levels", ps.HTML)
+
+
+# ---------------------------------------------------------------- 아이콘: Lucide 만, 이모지·기호 글자 없음
+# 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 보기 흉했다(저자 지적 2026-09-23). 아이콘은
+# Lucide(vendor/lucide/README.md)의 SVG 요소만 인라인으로 쓴다. 산문 속 화살표(→)와 키 이름(⌘)은 글자로 남긴다.
+ICON_GLYPHS = re.compile("[⏳⌛▲-◃◐-◓☀☼☾✓✔✎✏⚠"
+                         "⧉⋯＋×↵⊂∩★☆●○"
+                         "\U0001F000-\U0001FFFF✀-➿️]")
+
+
+def html_without_comments(h: str) -> str:
+    h = re.sub(r"/\*.*?\*/", "", h, flags=re.S)
+    return "\n".join(l for l in h.split("\n") if not l.strip().startswith("//"))
+
+
+class FrontendIcons(unittest.TestCase):
+    VENDOR = HERE.parent / "vendor" / "lucide"
+
+    def test_vendor_license_and_readme_record_version_and_icons(self):
+        lic = (self.VENDOR / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("ISC License", lic)
+        self.assertIn("Lucide Icons and Contributors", lic)
+        readme = (self.VENDOR / "README.md").read_text(encoding="utf-8")
+        self.assertIn("lucide-static@%s" % ps.LUCIDE_VERSION, readme)
+        table = readme[readme.index("## 쓰는 아이콘"):readme.index("## 갱신")]
+        names = set()
+        for row in re.findall(r"^\| (`[^|]+) \|", table, flags=re.M):
+            names |= set(re.findall(r"`([a-z0-9-]+)`", row))
+        self.assertEqual(names, set(ps.LUCIDE))
+
+    def test_icon_markup_is_plain_svg_elements(self):
+        for name, body in ps.LUCIDE.items():
+            els = re.findall(r"<[^>]+>", body)
+            self.assertTrue(els, name)
+            for el in els:
+                self.assertRegex(el, r'^<(path|circle|rect|line|polyline|polygon|ellipse)( [a-z-]+="[^"<>]*")+/>$', name)
+        svg = ps.icon_svg("check")
+        for attr in ('viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'stroke-width="2"', 'aria-hidden="true"'):
+            self.assertIn(attr, svg)
+
+    def test_every_used_icon_exists_and_every_icon_is_used(self):
+        h = ps.HTML
+        self.assertNotIn("{{ic:", h)
+        self.assertNotIn("__LUCIDE_JSON__", h)
+        used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
+        used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
+        used |= set(re.findall(r"THEME_ICON=\{system:'([a-z-]+)',light:'([a-z-]+)',dark:'([a-z-]+)'\}", h)[0])
+        self.assertEqual(used - set(ps.LUCIDE), set())
+        self.assertEqual(set(ps.LUCIDE) - used, set())
+
+    def test_no_emoji_or_symbol_glyph_icons_in_viewer(self):
+        found = sorted(set(ICON_GLYPHS.findall(html_without_comments(ps.HTML))))
+        self.assertEqual(found, [])
+
+    def test_js_ic_matches_server_icon_svg(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = js_icons() + "\nconsole.log(JSON.stringify(['check','clock','x'].map(ic).concat([ic('nope')])));"
+        self.assertEqual(json.loads(run_node(js)), [ps.icon_svg("check"), ps.icon_svg("clock"), ps.icon_svg("x"), ""])
+
+    def test_toolbar_icon_buttons_keep_accessible_names(self):
+        for bid, label in (("btn-zoom-out", "축소"), ("btn-zoom-in", "확대"), ("btn-help", "도움말"), ("btn-more", "더보기"),
+                           ("c-copy", "위치 복사")):
+            tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, ps.HTML).group(0)
+            self.assertIn('aria-label="%s"' % label, tag)
+        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", ps.HTML)
+
+
+# ---------------------------------------------------------------- 상태 띠·보관함(닫힌·삭제한 핀)
+# 닫힌·삭제한 핀을 펼치면 열린 카드와 모양이 같아 경계가 모호했다(저자 지적 2026-09-23). 열린 목록 뒤에 폭 전체를 쓰는
+# sticky 구획 머리('완료 N ─── 펼치기')를 두고, 그 아래는 카드가 아니라 흐린 납작한 행이다. 상태는 카드 왼쪽 띠 색으로 가른다.
+class FrontendArchive(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_rows(self, script: str):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={loc:'l',reopen:'r',restore:'s',n:'n'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
+            function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
+            """, js_icons(), extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locCopy"), extract_js_fn("docChip"),
+            "const ARC_OPEN=new Set();", extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
+            extract_js_fn("arcHead"), extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
+        return json.loads(run_node(js))
+
+    def test_done_row_is_flat_with_reply_line_and_hidden_original_request(self):
+        out = self.run_rows(r"""
+            const p={id:7,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
+              closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
+            const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
+            console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
+              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
+              /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
+              /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
+            """)
+        self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
+
+    def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
+        out = self.run_rows(r"""
+            const a=doneCard({id:3,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00'});
+            const d=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'잘못 찍음',dropped_at:'2026-09-23 09:00:00',dropped_by:{name:'김'}});
+            console.log(JSON.stringify([/설명 없이 닫힘/.test(a), /원래 요청/.test(a), /class="arc-row dropped"/.test(d), /ic-trash-2/.test(d),
+              /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d)]));
+            """)
+        self.assertEqual(out, [True, False, True, True, True, True, True, False])
+
+    def test_section_head_reads_label_count_and_fold_state(self):
+        out = self.run_rows(r"""
+            const strip=s=>s.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+            console.log(JSON.stringify([strip(arcHead('완료',18,false)), strip(arcHead('삭제',2,true)),
+              /ic-chevron-right/.test(arcHead('완료',1,false)), /ic-chevron-down/.test(arcHead('완료',1,true))]));
+            """)
+        self.assertEqual(out, ["완료 18 펼치기", "삭제 2 접기", True, True])
+
+    def test_sections_are_sticky_and_wired(self):
+        h = ps.HTML
+        for sid in ("sec-open", "sec-done", "sec-dropped"):
+            self.assertIn('id="%s"' % sid, h)
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
+        self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
+        self.assertIn("function stickTop()", h)
+        self.assertIn("case 'arc-toggle':", h)
+        body = extract_js_fn("drawPins")
+        self.assertIn("arcHead('완료',LDONE.length,SHOW_DONE)", body)
+        self.assertIn("arcHead('삭제',LDROP.length,SHOW_DROPPED)", body)
+        self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
+        # 문서 전환·모든 문서 토글에도 같은 목록 함수(listDone/listDropped)를 쓴다
+        self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
+
+    def test_status_strips_colour_open_claimed_done_dropped(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pin.claimed::before{", css)
+        self.assertIn("background:var(--claim)", css)
+        self.assertIn(".arc-row{position:relative;padding:4px 4px 6px 10px;border-left:3px solid var(--ok)", css)
+        self.assertIn(".arc-row.dropped{border-left-color:var(--arc-grey)", css)
+        self.assertEqual(css.count("--claim:"), 2)                      # 다크·라이트 둘 다
+        self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))
+
+
+# ---------------------------------------------------------------- 처리 예상 시간(eta_min) — 서버·pins.md·뷰어 표시
+# '⏳ 처리 중 · ~04:02' 가 예상 완료처럼 읽혔는데 실제로는 잠금 자동 해제 시각이었다(다른 세션이 23건을 ttl 480 분으로 한꺼번에
+# 잡음, 2026-09-23). 에이전트가 견적(eta_min)을 넣고, 화면은 5분 단위로 올린 '약 15분 · 20:40쯤'을 보인다. 잠금은 안전장치로만
+# 남고 상한은 120 분이다.
+class ClaimEta(Base):
+    A = {"login": "alice@x.com", "name": "Alice"}
+    B = {"login": "bob@x.com", "name": "Bob"}
+
+    def test_body_validation_and_derived_ttl(self):
+        self.assertEqual(ps.clean_claim_body({}), (ps.CLAIM_TTL_DEFAULT, None))
+        for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
+            self.assertEqual(ps.clean_claim_body({"eta_min": eta}), (ttl, eta), eta)
+        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # ttl 을 주면 그대로
+        for bad in (0, "15", 1.5, True, None, -5):
+            with self.assertRaises(ps.HTTPError) as cm:
+                ps.clean_claim_body({"eta_min": bad})
+            self.assertEqual(cm.exception.code, 400)
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_claim_body({"eta_min": 15, "ttl_min": 0})
+        # 상한을 넘으면 400 이 아니라 깎는다 — 옛 절차(ttl_min 480)로 잡아 둔 에이전트가 연장하다 깨지지 않게
+        self.assertEqual(ps.clean_claim_body({"eta_min": 241}), (120, 240))
+        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
+        self.assertEqual(ps.clean_claim_body({"ttl_min": 480}), (120, None))
+
+    def test_claim_stores_eta_and_start(self):
+        pid = self.add()
+        t0 = time.time()
+        p = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
+        self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
+        self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
+        self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
+        self.assertIsInstance(p["claimed_at"], str)
+        rows, _ = ps.read_pins()                                        # 저장값이다(계산 필드가 아님)
+        self.assertIn("eta_ts", ps.find_pin(rows, pid))
+
+    def test_same_identity_reclaim_extends_and_updates_estimate(self):
+        pid = self.add()
+        first = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5}))
+        with ps.PIN_LOCK:                                              # 10분 전에 잡은 것으로 옮긴다
+            rows, _ = ps.read_pins()
+            r = ps.find_pin(rows, pid)
+            for k in ("claim_ts", "eta_ts", "claim_until"):
+                r[k] -= 600
+            ps.write_pins(rows)
+        second = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20}))
+        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # 시작 시각은 그대로
+        self.assertEqual(second["claimed_at"], first["claimed_at"])
+        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # 새 예상은 지금부터
+        self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
+        third = ps.claim_pin(pid, self.A, *ps.clean_claim_body({}))                      # 예상 없이 연장하면 앞 예상을 둔다
+        self.assertEqual(third["eta_ts"], second["eta_ts"])
+        self.assertEqual(third["rev"], second["rev"] + 1)
+
+    def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
+        pid = self.add()
+        ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))
+        self.assertEqual(cm.exception.code, 409)
+        self.assertIn("eta_ts", cm.exception.body)
+        with ps.PIN_LOCK:                                              # A 의 잠금이 풀렸다
+            rows, _ = ps.read_pins()
+            ps.find_pin(rows, pid)["claim_until"] = time.time() - 1
+            ps.write_pins(rows)
+        p = ps.claim_pin(pid, self.B, *ps.clean_claim_body({}))
+        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+        self.assertNotIn("eta_ts", p)                                   # 남의 옛 예상을 물려받지 않는다
+
+    def test_close_drop_unclaim_clear_all_claim_fields(self):
+        for how in ("close", "drop", "unclaim"):
+            pid = self.add()
+            ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 10}))
+            if how == "close":
+                rec = ps.set_done(pid, True, self.A)
+            elif how == "unclaim":
+                rec = ps.unclaim_pin(pid, self.A)
+            else:
+                ps.drop_pin(pid, self.A)
+                rec = ps.read_jsonl(ps.C.dropped)[0][-1]
+            for k in ps.CLAIM_FIELDS:
+                self.assertNotIn(k, rec, (how, k))
+
+    def test_http_claim_with_eta(self):
+        pid = self.add()
+        hj = {"Content-Type": "application/json"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"eta_min": 15}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)
+        pin = json.loads(body)["pin"]
+        self.assertAlmostEqual(pin["eta_ts"] - pin["claim_ts"], 900, delta=2)
+        self.assertEqual(json.loads(body)["ttl_min_applied"], 30)
+        self.assertEqual(json.loads(body)["eta_min_applied"], 15)
+        for bad in ({"eta_min": 0}, {"eta_min": "15"}, {"ttl_min": 0}, {"ttl_min": "480"}):
+            out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps(bad).encode(), hj))
+            self.assertEqual(split_resp(out)[0], 400, bad)
+
+    def test_http_claim_clamps_over_limit_values_for_old_agents(self):
+        # 옛 스킬 절차대로 ttl_min=480 으로 잡아 둔 에이전트가 같은 값으로 연장해도 깨지지 않는다(200, 120 으로 적용).
+        pid = self.add()
+        hj = {"Content-Type": "application/json"}
+        t0 = time.time()
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)
+        got = json.loads(body)
+        self.assertEqual(got["ttl_min_applied"], 120)
+        self.assertNotIn("eta_min_applied", got)
+        self.assertAlmostEqual(got["pin"]["claim_until"], t0 + 120 * 60, delta=5)
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480, "eta_min": 300}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)                                     # 같은 신원(헤더 없음 = 로컬/에이전트)의 연장
+        got = json.loads(body)
+        self.assertEqual((got["ttl_min_applied"], got["eta_min_applied"]), (120, 240))
+        self.assertAlmostEqual(got["pin"]["eta_ts"], time.time() + 240 * 60, delta=5)
+
+    def test_pins_payload_fills_start_for_legacy_claims(self):
+        pid = self.add()
+        with ps.PIN_LOCK:                                              # eta 이전 서버가 쓴 claim 모양
+            rows, _ = ps.read_pins()
+            r = ps.find_pin(rows, pid)
+            r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
+            ps.write_pins(rows)
+        rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
+        self.assertAlmostEqual(rec["claim_ts"], ps._epoch("2026-09-23 20:02:00"), delta=0.01)
+        self.assertNotIn("claim_ts", ps.find_pin(ps.read_pins()[0], pid))   # 계산 필드 — 저장하지 않는다
+
+    def test_pins_md_claim_text(self):
+        now = 1_790_000_000.0
+        r = {"claimed_by": {"name": "Kim"}}
+        self.assertEqual(ps.claim_md(dict(r), now), "처리 중(Kim)")
+        for left_s, want in ((14 * 60 + 10, "약 15분"), (3 * 60, "약 5분"), (15 * 60, "약 15분"), (16 * 60, "약 20분"),
+                             (-60, "예상 초과")):
+            self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *ps.clean_claim_body({"eta_min": 15}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("처리 중(에이전트 A, 약 15분)", md)
+
+
+class FrontendClaimEta(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_info(self, script: str, tz="Asia/Seoul"):
+        js = "\n".join(["function who(a){return a?a.name:'';}", extract_js_fn("ceil5"), extract_js_fn("hhmm"),
+                        extract_js_fn("claimInfo"), extract_js_fn("claimLabel"), script])
+        return json.loads(run_node(js, tz=tz))
+
+    def test_estimate_rounds_up_to_five_minutes_and_clock(self):
+        # 20:23:00 KST 에 보고, 예상 완료는 20:37:12 → 남은 14.2분은 '약 15분', 시각은 20:40쯤.
+        out = self.run_info(r"""
+            const now=Date.parse('2026-09-23T20:23:00+09:00'), eta=Date.parse('2026-09-23T20:37:12+09:00')/1000;
+            const p={claimed_by:{name:'A'},claim_ts:Date.parse('2026-09-23T20:20:00+09:00')/1000,eta_ts:eta,
+                     claim_until:Date.parse('2026-09-23T22:20:00+09:00')/1000};
+            const a=claimInfo(p,now), b=claimInfo(Object.assign({},p,{eta_ts:(now/1000)+3*60}),now);
+            console.log(JSON.stringify([a.t,a.late,b.t,/잠금 자동 해제 22:20/.test(a.tip),/22:20/.test(a.t),/예상 완료 20:37/.test(a.tip)]));
+            """)
+        self.assertEqual(out, ["처리 중 · 약 15분 · 20:40쯤", False, "처리 중 · 약 5분 · 20:30쯤", True, False, True])
+
+    def test_overrun_reports_late_by_five_minute_steps(self):
+        out = self.run_info(r"""
+            const now=Date.parse('2026-09-23T20:45:00+09:00')/1000;
+            const p=o=>Object.assign({claimed_by:{name:'A'},claim_until:now+3600},o);
+            console.log(JSON.stringify([claimInfo(p({eta_ts:now-30}),now*1000).t, claimInfo(p({eta_ts:now-7*60}),now*1000).t,
+              claimInfo(p({eta_ts:now-30}),now*1000).late, claimLabel(p({eta_ts:now-10*60}),now*1000)]));
+            """)
+        self.assertEqual(out, ["예상보다 늦어짐 (+5분)", "예상보다 늦어짐 (+10분)", True, "예상보다 늦어짐 (+10분)"])
+
+    def test_legacy_claim_without_eta_shows_start_and_elapsed(self):
+        out = self.run_info(r"""
+            const st=Date.parse('2026-09-23T20:02:00+09:00')/1000, now=(st+22*60+30)*1000;
+            const a=claimInfo({claimed_by:{name:'A'},claim_ts:st,claim_until:st+480*60},now);
+            const b=claimInfo({claimed_by:{name:'A'},claim_until:st+480*60},now);
+            console.log(JSON.stringify([a.t, b.t, /04:02/.test(a.t), /잠금 자동 해제 04:02/.test(a.tip)]));
+            """)
+        self.assertEqual(out, ["처리 중 · 20:02부터 (23분째)", "처리 중", False, True])
+
+    def test_clock_uses_viewer_local_time(self):
+        js = r"""
+            const now=Date.parse('2026-09-23T11:23:00Z'), eta=Date.parse('2026-09-23T11:37:12Z')/1000;
+            console.log(JSON.stringify(claimInfo({claimed_by:{name:'A'},eta_ts:eta,claim_until:eta+600},now).t));
+            """
+        self.assertEqual(self.run_info(js, tz="Asia/Seoul"), "처리 중 · 약 15분 · 20:40쯤")
+        self.assertEqual(self.run_info(js, tz="America/New_York"), "처리 중 · 약 15분 · 07:40쯤")
+
+    def test_js_ceil5_matches_server(self):
+        out = self.run_info("console.log(JSON.stringify([0,0.2,5,5.01,14.9,23].map(ceil5)));")
+        self.assertEqual(out, [ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
+
+    def test_card_uses_claim_tag_and_ticker(self):
+        self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
+        self.assertIn('data-claim="', extract_js_fn("claimTag"))
+        self.assertIn("setInterval(tickClaims,30000);", ps.HTML)
+        self.assertNotIn("toLocaleTimeString", extract_js_fn("claimInfo"))
+
+
+class ClaimEtaDocs(unittest.TestCase):
+    """SKILL.md 핀 처리 절차가 '고치기 직전에 그 핀만 claim, eta_min 에 견적'을 가르치는지."""
+
+    def test_skill_claim_step_teaches_single_pin_and_estimate(self):
+        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("고치기 직전에 그 핀만 claim", skill)
+        self.assertIn('"eta_min"', skill)
+        for row in ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"):
+            self.assertIn(row, skill)
+        self.assertNotIn("⏳", skill)
+        api = (HERE.parent / "references" / "api.md").read_text(encoding="utf-8")
+        self.assertIn("`eta_min` | 1..240", api)
+        self.assertIn("`ttl_min` | 1..120", api)
+        self.assertIn("min(120, max(30, eta_min×2))", api)
+
+    def test_epoch_claim_fields_are_valid_record_fields(self):
+        base = {"id": 1, "file": "/x.tex", "lo": 1, "hi": 2, "claim_ts": 1.5, "eta_ts": 2.5, "claim_until": 3.0}
+        self.assertTrue(ps.valid_rec(base))
+        self.assertFalse(ps.valid_rec(dict(base, eta_ts="soon")))
+        self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))
+
+
+# ---------------------------------------------------------------- 배지 문구: 뜻이 드러나는 말(겹침·위치 일치율)·pins.md 표시
+# '#20 안'·'일치 100%'·'⊂#N' 은 뜻을 알 수 없었다(저자 지적 2026-09-23). 겹침은 '#20 범위 안'·'#20과 같은 범위'·'#20과 일부 겹침',
+# 위치 일치율은 90% 이상이면 숨기고 낮을 때만 '위치 불확실'. pins.md 번호 칸도 같은 말을 ' · ' 로 잇는다.
+class BadgeWording(Base):
+    NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
+
+    def test_josa_follows_korean_reading(self):
+        got = [ps.josa(n, "과", "와") for n in self.NUMS]
+        self.assertEqual(got, ["과", "와", "과", "와", "와", "과", "과", "과", "와", "과", "과", "와", "와", "와", "과", "과", "과",
+                               "과", "와"])
+        if shutil.which("node"):
+            js = extract_js_fn("josa") + "\nconsole.log(JSON.stringify(%s.map(n=>josa(n,'과','와'))));" % json.dumps(self.NUMS)
+            self.assertEqual(json.loads(run_node(js)), got)
+
+    def test_rel_badge_prefers_same_range_then_inside_then_partial(self):
+        by_id = {1: {"lo": 4, "hi": 9}, 2: {"lo": 4, "hi": 9}, 3: {"lo": 5, "hi": 6}, 20: {"lo": 8, "hi": 12}}
+        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위")
+        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위")
+        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id,
+                                      {"id": 3, "lo": 5, "hi": 6}), "#1 범위 안")
+        self.assertEqual(ps.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침")
+        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침")
+        self.assertEqual(ps.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
+
+    def test_js_rel_badge_matches_server(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("relBadge"), r"""
+            const PINS=[{id:1,lo:4,hi:9},{id:2,lo:4,hi:9},{id:3,lo:5,hi:6},{id:20,lo:8,hi:12}];
+            console.log(JSON.stringify([relBadge([{id:1,rel:'contains'}],{id:2,lo:4,hi:9}).label,
+              relBadge([{id:1,rel:'inside'},{id:2,rel:'inside'}],{id:3,lo:5,hi:6}).label,
+              relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
+            """])
+        self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
+        self.assertIn("const rb=relBadge(p.rel,p);", extract_js_fn("card"))
+
+    def test_overlap_banner_verbs(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapVerb"), r"""
+            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>'#'+a[1]+overlapVerb(a[0],a[1]))));
+            """])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["#4와 같은 범위입니다", "#20 범위 안입니다", "#4를 감쌉니다", "#20을 감쌉니다", "#2와 일부 겹칩니다"])
+
+    def test_pins_md_number_column_uses_words(self):
+        a = self.add(4, 9)
+        b = self.add(4, 9)
+        c = self.add(5, 6)
+        ps.edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(ps.LOCAL_ACTOR))
+        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *ps.clean_claim_body({"eta_min": 10}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
+        self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
+        self.assertIn("| %d · #%d 범위 안 · 처리 중(Kim, 약 10분) · 수정됨 |" % (c, a), md)
+        for sym in ("⊂", "∩", "⏳", "✎", "⚠"):
+            self.assertNotIn(sym, md)
+        self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
+
+    def test_skill_symbol_table_uses_words(self):
+        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        table = skill[skill.index("### 번호 칸의 표시"):skill.index("### 규칙")]
+        for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
+                    "| `수정됨` |", "| `위치 잃음` |"):
+            self.assertIn(row, table)
+        self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
+        cmd = (HERE.parents[2] / "commands" / "manuscript-pin-picker.md").read_text(encoding="utf-8")
+        self.assertIn("### 번호 칸의 표시", cmd)                        # 생성본(sync_commands.py)도 맞춰 두었다
+
+
+class FrontendToolbarSize(unittest.TestCase):
+    """도구 줄 '쪽' 칸이 버튼과 같은 높이·글자 크기인지(데스크톱 28px, 터치 44px). 실측은 Playwright 로 했다."""
+
+    def test_page_field_matches_toolbar_buttons(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#bar1{flex-wrap:wrap;gap:4px;padding:8px 10px;--tb-h:28px}", css)
+        self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
+        self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 4px;font-size:12.5px;", css)
+        self.assertIn("#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
+        coarse = css[css.index("@media (pointer:coarse){"):]
+        self.assertIn("#bar1{flex-wrap:wrap;--tb-h:44px}", coarse)
+        self.assertIn("#bar1 input.n{width:52px;font-size:16px}", coarse)
+        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽"')
+        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
