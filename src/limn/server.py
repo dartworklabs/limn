@@ -4426,6 +4426,8 @@ async function vecOpen(){
   const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
   vecCancel();
   if(!doc){
+    // 옛 문서(다른 문서·옛 빌드)는 새 쪽 DOM 에 쓰지 않는다 — 받는 동안은 PNG 가 보인다.
+    const prev=VEC.doc; VEC.doc=null; VEC.build=null; if(prev&&!vecCached(prev))vecClose(prev);
     try{const r=await fetch(dq('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||'')));
       if(!r.ok)throw new Error('PDF HTTP '+r.status);
       const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
@@ -4438,7 +4440,7 @@ async function vecOpen(){
   if(gen!==VEC.gen)return;
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
   VEC.st.forEach(s=>{s.stale=true;});
-  if(old!==doc&&!vecCached(old))vecClose(old);
+  if(old&&old!==doc&&!vecCached(old))vecClose(old);
   vecSchedule(0);
 }
 // 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
@@ -4500,6 +4502,7 @@ async function vecPump(){
 }
 async function vecRun(job){
   const n=job.n,pg=document.getElementById('p'+n),doc=VEC.doc,gen=VEC.gen; if(!pg||!doc)return;
+  if(n>doc.numPages)return;   // 방어용 — 다른 문서/빌드의 doc 이 새 나 위에서 실행되는 경우를 그냥 건너뛴다(위 vecOpen 정지가 본 수정)
   let page; try{page=await doc.getPage(n);}catch(e){if(gen===VEC.gen)vecFail('쪽을 읽지 못했습니다',e); return;}
   if(gen!==VEC.gen||!VEC.near.has(n)||!document.contains(pg))return;
   const t=vecTargetOf(pg); if(!t)return;
