@@ -3651,9 +3651,12 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   #bar1 button{padding:0 10px}
   input,textarea,select{font-size:var(--text-xl)}
   #bar1 input.n{width:52px;font-size:var(--text-xl)}   /* iOS 는 16px 보다 작은 입력 칸에 포커스하면 화면을 키운다 */
-  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px;position:relative}
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
   /* #N 은 글자 폭만큼만(26~35px) 그려 좁다 — 시각 크기는 그대로 두고 고정 44×44 히트 영역만 가운데 얹는다
-     (parent 폭에 비례하는 inset 대신 fixed size 를 써야 짧은 번호에서도 44 를 보장한다). */
+     (parent 폭에 비례하는 inset 대신 fixed size 를 써야 짧은 번호에서도 44 를 보장한다). position:relative 는
+     .n.go 에만 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 .n.go 의
+     ::before 위로 올라와 오른쪽 절반의 히트 테스트를 가로챘다(실측: cx+21 이 '#N' 대신 '.loc' 을 반환).  */
+  .pin .n.go{position:relative}
   .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}

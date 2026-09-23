@@ -3244,11 +3244,14 @@ class PinNumberJump(unittest.TestCase):
     def test_number_is_keyboard_and_touch_reachable(self):
         src = ps.HTML
         self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
-        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px;position:relative}", src)
+        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
         # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
         # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
-        # 고정 width/height 라야 짧은 번호(예: 한 자리)에서도 44 를 보장한다.
+        # 고정 width/height 라야 짧은 번호(예: 한 자리)에서도 44 를 보장한다. position:relative 는 .n.go 에만
+        # 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 ::before 위로 올라와
+        # 오른쪽 절반의 히트 테스트를 가로챘다(브라우저 실측으로 발견해 되돌린 회귀).
         css = src[src.index("<style>"):src.index("</style>")]
+        self.assertIn(".pin .n.go{position:relative}", css)
         self.assertIn(".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
                       "width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}", css)
 
