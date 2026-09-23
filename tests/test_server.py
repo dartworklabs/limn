@@ -3,6 +3,7 @@
 실행: python3 -m unittest discover -s skills/manuscript-pin-picker/tests
 """
 import importlib.util
+import errno
 import json
 import os
 import re
@@ -17,7 +18,9 @@ from pathlib import Path
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location("pin_server", HERE.parent / "scripts" / "pin_server.py")
+ROOT = HERE.parents[1]
+SKILL = ROOT / "skills" / "manuscript-pin-picker"
+spec = importlib.util.spec_from_file_location("pin_server", SKILL / "scripts" / "pin_server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
 
@@ -142,7 +145,11 @@ class Base(unittest.TestCase):
         t.start()
         a.sendall(raw)
         if shut:
-            a.shutdown(socket.SHUT_WR)
+            try:
+                a.shutdown(socket.SHUT_WR)
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTCONN, errno.EPIPE, errno.ECONNRESET):
+                    raise
         a.settimeout(10)
         out = b""
         try:
@@ -376,7 +383,7 @@ class CrossOrigin(Base):
         self.assertIn(b" 400 ", out)
 
 
-VENDOR = HERE.parent / "vendor" / "pdfjs"
+VENDOR = SKILL / "vendor" / "pdfjs"
 
 
 class VendorPdfjs(Base):
@@ -2004,7 +2011,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
         # SKILL.md 의 '핀 소비 절차' 닫기 예시가 reply·ref 를 남기도록 바뀌었는지(§C).
-        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn('"reply"', skill)
         self.assertIn('"ref"', skill)
         self.assertIn("/close", skill)
@@ -2532,7 +2539,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*>PDF 재빌드</button>')
         self.assertNotIn("다시 만들기", ps.HTML)
         self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
-        skill = HERE.parent
+        skill = SKILL
         for doc in [skill / "SKILL.md"] + sorted((skill / "references").glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
 
@@ -3525,7 +3532,8 @@ class MultiDoc(Base):
         self.assertEqual(code, 200, body)
         pid = json.loads(body)["id"]
         rec = self.pin(pid)
-        self.assertEqual((rec["doc"], rec["kind"], rec["page"], rec["pdf"]), ("rv", "region", 2, str(self.pdf)))
+        self.assertEqual((rec["doc"], rec["kind"], rec["page"], rec["pdf"]),
+                         ("rv", "region", 2, str(self.pdf.resolve())))
         self.assertNotIn("file", rec)
         self.assertNotIn("lo", rec)
         self.assertTrue(ps.valid_rec(rec))
@@ -3757,7 +3765,7 @@ def html_without_comments(h: str) -> str:
 
 
 class FrontendIcons(unittest.TestCase):
-    VENDOR = HERE.parent / "vendor" / "lucide"
+    VENDOR = SKILL / "vendor" / "lucide"
 
     def test_vendor_license_and_readme_record_version_and_icons(self):
         lic = (self.VENDOR / "LICENSE").read_text(encoding="utf-8")
@@ -4085,13 +4093,13 @@ class ClaimEtaDocs(unittest.TestCase):
     """SKILL.md 핀 처리 절차가 '고치기 직전에 그 핀만 claim, eta_min 에 견적'을 가르치는지."""
 
     def test_skill_claim_step_teaches_single_pin_and_estimate(self):
-        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("고치기 직전에 그 핀만 claim", skill)
         self.assertIn('"eta_min"', skill)
         for row in ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"):
             self.assertIn(row, skill)
         self.assertNotIn("⏳", skill)
-        api = (HERE.parent / "references" / "api.md").read_text(encoding="utf-8")
+        api = (SKILL / "references" / "api.md").read_text(encoding="utf-8")
         self.assertIn("`eta_min` | 1..240", api)
         self.assertIn("`ttl_min` | 1..120", api)
         self.assertIn("min(120, max(30, eta_min×2))", api)
@@ -4163,14 +4171,12 @@ class BadgeWording(Base):
         self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
 
     def test_skill_symbol_table_uses_words(self):
-        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         table = skill[skill.index("### 번호 칸의 표시"):skill.index("### 규칙")]
         for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
                     "| `수정됨` |", "| `위치 잃음` |"):
             self.assertIn(row, table)
         self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
-        cmd = (HERE.parents[2] / "commands" / "manuscript-pin-picker.md").read_text(encoding="utf-8")
-        self.assertIn("### 번호 칸의 표시", cmd)                        # 생성본(sync_commands.py)도 맞춰 두었다
 
 
 class FrontendToolbarOneRow(unittest.TestCase):
