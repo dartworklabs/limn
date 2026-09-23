@@ -46,6 +46,32 @@ git -C ~/dotfiles add machines/example-host/pin-viewer/paper2.env
 `--main` 을 생략하면 원고 폴더 맨 위에서 `\documentclass` 가 있는 `.tex` 를 찾는다. 두 개 이상이면 추측하지 않고 멈춘다.
 `--label` 을 생략하면 원고 저장소 이름(`origin` URL 끝)을 쓴다. 로컬에서만 띄우려면 `--no-serve` 를 쓴다.
 
+## 기본 문서 탭 자동 탐지
+
+`--doc` 도 `--main` 도 안 주면, 원고 폴더가 아래 표준 `manuscript-repo-structure` 레이아웃일 때
+문서 탭을 자동으로 만든다(수동 `--doc` 나열이 필요 없다). 레이아웃이 아니면 옛 방식대로 단일
+`MAIN` 자동 탐지로 물러난다.
+
+| 탭 | 키 | 경로 | 포함 조건 |
+|---|---|---|---|
+| 본문 | `ms` | `manuscript/<최신 라운드>/<본문>.tex` | 항상(레이아웃이 맞으면). 라운드는 `1st`·`2nd`·`3rd`… 맨 앞 숫자가 가장 큰 폴더(`changes` 등 숫자로 시작 않는 폴더는 무시), 본문 파일은 `detect_main`(라운드 폴더 안에 후보가 여럿이면 가장 최근에 고친 파일) |
+| 답변서 | `rr` | `submission/review_response/review_response.tex` | revision 단계이고 파일이 있을 때만 |
+| 하이라이트 | `hl` | `submission/highlights/highlights.tex` | 파일이 있을 때만 |
+| 커버레터 | `cl` | `submission/cover_letter/cover_letter.tex` | 파일이 있을 때만 |
+
+순서는 고정(`ms`→`rr`→`hl`→`cl`), 문서 개수와 무관하다. 단계는 `--stage auto|initial|revision`
+(기본 `auto` = `<원고 폴더>/reviews/` 가 있으면 revision). `--doc`/`--main` 을 명시하면 자동 탐지는
+건너뛴다 — `--stage` 도 그때는 함께 쓸 수 없다(자동 탐지 전용 플래그).
+
+```bash
+# 읽기 전용 — 무엇이 자동 탐지될지 미리 본다(설정을 쓰지 않는다)
+pin-viewer doc suggest --manuscript ~/Codes/paper2
+# ms=본문:manuscript::2nd/2nd_manuscript_en.tex;rr=답변서:submission/review_response/review_response.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex
+
+# add 는 --doc 없이 바로 같은 결과를 쓴다(자동 탐지 문서를 한 줄씩 찍는다)
+pin-viewer add paper2 --manuscript ~/Codes/paper2 --label Paper2
+```
+
 ## 여러 문서 (`DOCS=`)
 
 논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소

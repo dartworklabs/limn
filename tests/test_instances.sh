@@ -314,5 +314,122 @@ snip=$("$PV" snippet docs-1 2>&1)
 chk "snippet 이 문서 키와 #doc= 링크·pins.md 소절 안내를 보인다" \
     "grep -q '문서: ms,rr,sub,wd' <<< \"\$snip\" && grep -q '#doc=<키>' <<< \"\$snip\" && grep -q 'pins.md' <<< \"\$snip\""
 
+echo "── 11. 기본 문서 탭 자동 탐지 (manuscript/<라운드> + submission/{...}) ──"
+std="$T/std-paper"
+mkdir -p "$std/manuscript/1st" "$std/manuscript/2nd" "$std/manuscript/changes" \
+    "$std/submission/highlights" "$std/submission/cover_letter" "$std/submission/review_response"
+printf '\\documentclass{article}\n\\begin{document}v1\\end{document}\n' > "$std/manuscript/1st/main_v1.tex"
+printf '\\documentclass{article}\n\\begin{document}v2\\end{document}\n' > "$std/manuscript/2nd/main_v2.tex"
+: > "$std/manuscript/changes/notes.tex" # 숫자로 시작하지 않는 폴더 → 라운드 후보에서 제외
+printf '\\documentclass{article}\n\\begin{document}hl\\end{document}\n' > "$std/submission/highlights/highlights.tex"
+printf '\\documentclass{article}\n\\begin{document}cl\\end{document}\n' > "$std/submission/cover_letter/cover_letter.tex"
+printf '\\documentclass{article}\n\\begin{document}rr\\end{document}\n' > "$std/submission/review_response/review_response.tex"
+
+sug=$("$PV" doc suggest --manuscript "$std" 2>&1)
+chk "doc suggest(초기 단계, reviews/ 없음): 최신 라운드(2nd)·rr 제외·hl·cl 순" \
+    "[[ \"\$sug\" == 'ms=본문:manuscript::2nd/main_v2.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex' ]]"
+chk "doc suggest 는 아무 것도 쓰지 않는다" "[[ ! -e '$T/src/std-paper.env' && ! -e '$std/pin-viewer.env' ]]"
+
+mkdir -p "$std/reviews"
+sug=$("$PV" doc suggest --manuscript "$std" 2>&1)
+chk "doc suggest(revision 단계, reviews/ 있음): ms,rr,hl,cl 순" \
+    "[[ \"\$sug\" == 'ms=본문:manuscript::2nd/main_v2.tex;rr=답변서:submission/review_response/review_response.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex' ]]"
+sug=$("$PV" doc suggest --manuscript "$std" --stage initial 2>&1)
+chk "--stage initial 은 reviews/ 가 있어도 rr 을 뺀다" \
+    "[[ \"\$sug\" == 'ms=본문:manuscript::2nd/main_v2.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex' ]]"
+sug=$("$PV" doc suggest --manuscript "$std" --stage revision 2>&1)
+chk "--stage revision 을 명시해도 같은 결과" \
+    "[[ \"\$sug\" == 'ms=본문:manuscript::2nd/main_v2.tex;rr=답변서:submission/review_response/review_response.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex' ]]"
+
+std2="$T/std-paper-no-optional"
+mkdir -p "$std2/manuscript/1st" "$std2/submission/review_response" "$std2/reviews"
+printf '\\documentclass{article}\n\\begin{document}v1\\end{document}\n' > "$std2/manuscript/1st/main.tex"
+printf '\\documentclass{article}\n\\begin{document}rr\\end{document}\n' > "$std2/submission/review_response/review_response.tex"
+sug=$("$PV" doc suggest --manuscript "$std2" 2>&1)
+chk "hl·cl 파일이 없으면 그 탭만 빠진다(ms,rr 만 남음)" \
+    "[[ \"\$sug\" == 'ms=본문:manuscript::1st/main.tex;rr=답변서:submission/review_response/review_response.tex' ]]"
+
+chk "표준 레이아웃이 아니면 doc suggest 거부(비표준 → --doc 를 손으로)" \
+    "! '$PV' doc suggest --manuscript '$ms' >/dev/null 2>&1"
+# 이 아래 add 들은 §2/§8/§9 가 이미 TS_MIN-TS_MAX(18005-18012) 자동 배정 풀을 거의 다 썼으므로
+# --port/--ts-port 를 명시해 풀 고갈로 인한 무관한 실패를 피한다(이 절의 초점은 DOCS 내용이지 포트가 아니다).
+"$PV" add nonstd --manuscript "$ms" --port 19101 --ts-port 19001 --no-serve --no-start > /dev/null 2>&1
+chk "add 도 같은 원고(manuscript/<라운드> 구조 없음)에서 --main/--doc 없이 단일 MAIN 으로 물러난다(옛 동작 그대로)" \
+    "grep -qx 'MAIN=main.tex' '$T/src/nonstd.env' && ! grep -q '^DOCS=' '$T/src/nonstd.env'"
+
+out=$("$PV" add std-auto --manuscript "$std" --port 19102 --ts-port 19002 --no-serve --no-start 2>&1)
+rc=$?
+env_std="$T/src/std-auto.env"
+chk "add 가 --doc/--main 없이 표준 레이아웃을 자동 탐지한다" "[[ $rc -eq 0 ]]"
+chk "자동 탐지 결과를 한 줄씩 찍는다" \
+    "grep -q '자동 탐지 문서:' <<< \"\$out\" && grep -qF '  ms=본문:manuscript::2nd/main_v2.tex' <<< \"\$out\" && grep -qF '  rr=답변서:submission/review_response/review_response.tex' <<< \"\$out\""
+chk "DOCS 가 ms,rr,hl,cl 순으로 저장된다" \
+    "grep -qx 'DOCS=ms=본문:manuscript::2nd/main_v2.tex;rr=답변서:submission/review_response/review_response.tex;hl=하이라이트:submission/highlights/highlights.tex;cl=커버레터:submission/cover_letter/cover_letter.tex' '$env_std'"
+chk "자동 탐지 경로도 MAIN 줄은 남기지 않는다" "! grep -q '^MAIN=' '$env_std'"
+
+out=$("$PV" add std-explicit --manuscript "$std" --port 19103 --ts-port 19003 --no-serve --no-start \
+    --doc 'x=문서:submission/highlights/highlights.tex' 2>&1)
+chk "명시적 --doc 는 자동 탐지를 건너뛴다" "grep -qx 'DOCS=x=문서:submission/highlights/highlights.tex' '$T/src/std-explicit.env'"
+chk "명시 --doc 경로에서는 '자동 탐지 문서' 를 찍지 않는다" "! grep -q '자동 탐지 문서:' <<< \"\$out\""
+
+chk "--stage 는 --doc/--main 없이 자동 탐지할 때만 허용(명시 --main 과 함께 쓰면 거부)" \
+    "! '$PV' add std-bad --manuscript '$std' --main manuscript/2nd/main_v2.tex --stage initial --no-start >/dev/null 2>&1"
+
+echo "── 12. 라운드 폴더 안에서 본문 후보가 여럿일 때: git 커밋 시각 → mtime → 동률이면 실패 ──"
+GITBIN=$(command -v git || true)
+if [[ -z "$GITBIN" ]]; then
+    printf '  · git 없음 — 12절 건너뜁니다\n'
+else
+    # 12a. git 저장소 밖(추적 안 됨): mtime 으로 고른다.
+    mt="$T/mtime-tie"
+    mkdir -p "$mt/manuscript/1st"
+    printf '\\documentclass{article}\n\\begin{document}old\\end{document}\n' > "$mt/manuscript/1st/old.tex"
+    printf '\\documentclass{article}\n\\begin{document}new\\end{document}\n' > "$mt/manuscript/1st/new.tex"
+    touch -d '2020-01-01 00:00:00' "$mt/manuscript/1st/old.tex" 2> /dev/null || touch -t 202001010000 "$mt/manuscript/1st/old.tex"
+    touch -d '2024-01-01 00:00:00' "$mt/manuscript/1st/new.tex" 2> /dev/null || touch -t 202401010000 "$mt/manuscript/1st/new.tex"
+    sug=$("$PV" doc suggest --manuscript "$mt" 2>&1)
+    chk "git 저장소 밖(추적 안 됨)이면 mtime 이 최근인 후보를 고른다" \
+        "[[ \"\$sug\" == 'ms=본문:manuscript::1st/new.tex' ]]"
+
+    # 12b. git 저장소: mtime 은 반대로 꾸며도 git 커밋 시각이 이긴다.
+    gt="$T/git-tie"
+    mkdir -p "$gt/manuscript/1st"
+    printf '\\documentclass{article}\n\\begin{document}a\\end{document}\n' > "$gt/manuscript/1st/a.tex"
+    printf '\\documentclass{article}\n\\begin{document}b\\end{document}\n' > "$gt/manuscript/1st/b.tex"
+    (
+        cd "$gt" && "$GITBIN" init -q && "$GITBIN" config user.email t@t && "$GITBIN" config user.name t \
+            && "$GITBIN" add manuscript/1st/a.tex \
+            && GIT_AUTHOR_DATE='2020-01-01T00:00:00' GIT_COMMITTER_DATE='2020-01-01T00:00:00' "$GITBIN" commit -q -m a \
+            && "$GITBIN" add manuscript/1st/b.tex \
+            && GIT_AUTHOR_DATE='2024-01-01T00:00:00' GIT_COMMITTER_DATE='2024-01-01T00:00:00' "$GITBIN" commit -q -m b
+    ) > /dev/null 2>&1
+    # mtime 은 거꾸로: a.tex 가 더 최근인 것처럼 꾸민다 — git 커밋 시각(b 가 최근)이 이겨야 한다.
+    touch -d '2030-01-01 00:00:00' "$gt/manuscript/1st/a.tex" 2> /dev/null || touch -t 203001010000 "$gt/manuscript/1st/a.tex"
+    sug=$("$PV" doc suggest --manuscript "$gt" 2>&1)
+    chk "git 커밋 시각이 mtime 보다 우선한다(mtime 은 a.tex 가 최근이어도 커밋이 최근인 b.tex 선택)" \
+        "[[ \"\$sug\" == 'ms=본문:manuscript::1st/b.tex' ]]"
+
+    # 12c. 같은 커밋에서 함께 들어가 커밋 시각까지 같으면 추측하지 않고 실패한다.
+    tie="$T/git-equal"
+    mkdir -p "$tie/manuscript/1st"
+    printf '\\documentclass{article}\n\\begin{document}x\\end{document}\n' > "$tie/manuscript/1st/x.tex"
+    printf '\\documentclass{article}\n\\begin{document}y\\end{document}\n' > "$tie/manuscript/1st/y.tex"
+    (
+        cd "$tie" && "$GITBIN" init -q && "$GITBIN" config user.email t@t && "$GITBIN" config user.name t \
+            && "$GITBIN" add manuscript/1st/x.tex manuscript/1st/y.tex \
+            && GIT_AUTHOR_DATE='2022-01-01T00:00:00' GIT_COMMITTER_DATE='2022-01-01T00:00:00' "$GITBIN" commit -q -m both
+    ) > /dev/null 2>&1
+    err=$("$PV" doc suggest --manuscript "$tie" 2>&1)
+    rc=$?
+    chk "커밋 시각까지 같으면 추측하지 않고 비영(非零) 종료(doc suggest)" "[[ $rc -ne 0 ]]"
+    chk "실패 메시지가 두 후보 파일명을 모두 보인다" "grep -q 'x.tex' <<< \"\$err\" && grep -q 'y.tex' <<< \"\$err\""
+    chk "실패 메시지가 --doc 를 안내한다" "grep -q -- '--doc' <<< \"\$err\""
+
+    out=$("$PV" add git-equal --manuscript "$tie" --port 19104 --ts-port 19004 --no-serve --no-start 2>&1)
+    rc=$?
+    chk "add 도 동률이면 실패하고 설정을 남기지 않는다" "[[ $rc -ne 0 ]] && [[ ! -e '$T/src/git-equal.env' ]]"
+    chk "add 의 실패 메시지도 후보·--doc 안내를 보인다" "grep -q 'x.tex' <<< \"\$out\" && grep -q 'y.tex' <<< \"\$out\" && grep -q -- '--doc' <<< \"\$out\""
+fi
+
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

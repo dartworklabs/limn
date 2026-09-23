@@ -10,6 +10,15 @@
 #                  [--git-pull] [--label <이름표>] [--accent <#rrggbb>] [--state-dir <폴더>]
 #                  [--extra "<서버 인자>"] [--no-serve] [--no-start]
 #                  [--doc <키>=<표시 이름>:<경로> ...]   (--main 과 함께 쓰지 않는다. §여러 문서)
+#                  [--stage auto|initial|revision]        (--doc/--main 없이 자동 탐지할 때만. §기본 탭 자동 탐지)
+#
+# 기본 탭 자동 탐지: --doc 도 --main 도 안 주면, 원고 폴더가 표준 paper-repo 구조
+# (manuscript/<라운드>/<본문>.tex, submission/{highlights,cover_letter,review_response}/*.tex)면
+# ms=본문(최신 라운드) · rr=답변서(revision 단계·파일 있을 때만) · hl=하이라이트 · cl=커버레터
+# 순서로 DOCS 를 만든다. --stage 기본은 auto(<원고 폴더>/reviews/ 있으면 revision). 구조가 아니면
+# 옛 방식대로 단일 MAIN 탐지로 물러난다.
+#   pin-viewer doc suggest --manuscript <원고 폴더> [--stage auto|initial|revision]
+#                                          위 자동 탐지가 고를 DOCS 문자열만 찍는다(읽기 전용)
 #   pin-viewer start <이름> [--no-serve]   설정이 이미 있는 인스턴스를 켠다(재부팅 뒤·새 기기·전환)
 #   pin-viewer stop <이름>                 유닛만 끈다(설정·포트·serve 항목은 그대로)
 #   pin-viewer update [--from <스킬 폴더>] [--force] [--no-restart]
@@ -572,6 +581,112 @@ detect_main() { # 원고 폴더 맨 위에서 \documentclass 가 있는 .tex 가
     return 1
 }
 
+# detect_round <manuscript/ 폴더> — 맨 앞 숫자가 가장 큰 하위 폴더 이름(1st, 2nd, 3rd, ...)을
+# 고른다. 숫자로 시작하지 않는 폴더(`changes` 등)는 무시한다. 없으면 실패.
+detect_round() {
+    local mdir=$1 d base n best="" bestn=-1
+    for d in "$mdir"/*/; do
+        [[ -d "$d" ]] || continue
+        base=$(basename "$d")
+        [[ "$base" =~ ^([0-9]+) ]] || continue
+        n=${BASH_REMATCH[1]}
+        if ((10#$n > bestn)); then
+            bestn=$((10#$n))
+            best=$base
+        fi
+    done
+    [[ -n "$best" ]] || return 1
+    printf '%s' "$best"
+}
+
+# git_commit_time <파일> — 그 파일이 속한 git 저장소에서 가장 최근 커밋의 커밋 시각(unix epoch)을
+# 찍는다. git 이 없거나, 저장소 밖이거나, 추적되지 않은 파일이면 아무 것도 찍지 않고 실패한다
+# (mtime 은 fresh clone·checkout 에서 리셋되거나 동시에 찍혀 신뢰할 수 없다 — git log 가 우선).
+git_commit_time() {
+    local f=$1 dir t
+    command -v git > /dev/null 2>&1 || return 1
+    dir=$(dirname "$f")
+    git -C "$dir" rev-parse --is-inside-work-tree > /dev/null 2>&1 || return 1
+    t=$(git -C "$dir" log -1 --format=%ct -- "$(basename "$f")" 2> /dev/null) || return 1
+    [[ -n "$t" ]] || return 1
+    printf '%s' "$t"
+}
+# file_mtime <파일> — 수정 시각(unix epoch). GNU(stat -c)·BSD/macOS(stat -f) 둘 다 시도한다.
+file_mtime() { stat -c %Y "$1" 2> /dev/null || stat -f %m "$1" 2> /dev/null; }
+
+# detect_main_for_round <라운드 폴더> — detect_main 을 그대로 쓰되, 후보가 여럿이면(같은 라운드
+# 폴더에 독립된 \documentclass 를 가진 선행 논문 원문이 남아 있는 경우 등) git 커밋 시각이 가장
+# 최근인 파일을 고른다(파일이 git 밖이거나 추적되지 않으면 mtime 으로 물러난다). 시각까지 같으면
+# 추측하지 않고 die 로 멈춘다 — 후보 목록을 보여주고 --doc 를 안내한다. 후보가 0개면 그대로
+# 실패(비표준 레이아웃으로 취급해 상위에서 옛 탐지로 물러난다).
+detect_main_for_round() {
+    local d=$1 out cands=() f
+    out=$(detect_main "$d" 2> /dev/null) && {
+        printf '%s' "$out"
+        return 0
+    }
+    for f in "$d"/*.tex; do
+        [[ -f "$f" ]] && grep -qE '^[^%]*\\documentclass' "$f" && cands+=("$f")
+    done
+    ((${#cands[@]} > 0)) || return 1
+    if ((${#cands[@]} == 1)); then
+        printf '%s' "$(basename "${cands[0]}")"
+        return 0
+    fi
+    local times=() t i best_t=-1 best_i=-1 tie=0
+    for f in "${cands[@]}"; do
+        t=$(git_commit_time "$f")
+        [[ -n "$t" ]] || t=$(file_mtime "$f")
+        [[ -n "$t" ]] || t=-1
+        times+=("$t")
+    done
+    for ((i = 0; i < ${#cands[@]}; i++)); do
+        t=${times[$i]}
+        if ((t > best_t)); then
+            best_t=$t
+            best_i=$i
+            tie=0
+        elif ((t == best_t)); then
+            tie=1
+        fi
+    done
+    if ((tie == 1)); then
+        local names=() nf
+        for nf in "${cands[@]}"; do names+=("$(basename "$nf")"); done
+        die "$(basename "$d")/ 안에 \\documentclass 후보가 여럿이고(git 커밋·수정 시각까지 같아) 자동으로 고르지 못했습니다 — --doc 로 지정하세요: $(IFS=,; printf '%s' "${names[*]}")"
+    fi
+    printf '%s' "$(basename "${cands[$best_i]}")"
+}
+
+# detect_docs_layout <원고 절대경로> <stage: auto|initial|revision> — 표준 paper-repo 레이아웃
+# (`manuscript/<라운드>/<본문>.tex` + `submission/{highlights,cover_letter,review_response}/*.tex`)
+# 이면 전역 배열 DETECTED_DOCS(--doc 스펙과 같은 형식)를 고정 순서(ms·rr·hl·cl)로 채우고 0을
+# 돌려준다. `rr`(답변서)은 revision 단계에서만, 그리고 파일이 실제로 있을 때만 넣는다. 라운드
+# 폴더나 본문을 못 찾으면(비표준 레이아웃) 아무 것도 채우지 않고 1을 돌려준다 — 호출부가 옛
+# 단일 MAIN 탐지로 대체한다.
+detect_docs_layout() {
+    local ms=$1 stage=${2:-auto} mdir round main
+    DETECTED_DOCS=()
+    mdir="$ms/manuscript"
+    [[ -d "$mdir" ]] || return 1
+    round=$(detect_round "$mdir") || return 1
+    main=$(detect_main_for_round "$mdir/$round") || return 1
+    DETECTED_DOCS+=("ms=본문:manuscript::$round/$main")
+    case "$stage" in
+        auto)
+            if [[ -d "$ms/reviews" ]]; then stage=revision; else stage=initial; fi
+            ;;
+        initial | revision) ;;
+        *) die "--stage 는 auto|initial|revision 입니다: $stage" ;;
+    esac
+    if [[ "$stage" == revision && -f "$ms/submission/review_response/review_response.tex" ]]; then
+        DETECTED_DOCS+=("rr=답변서:submission/review_response/review_response.tex")
+    fi
+    [[ -f "$ms/submission/highlights/highlights.tex" ]] && DETECTED_DOCS+=("hl=하이라이트:submission/highlights/highlights.tex")
+    [[ -f "$ms/submission/cover_letter/cover_letter.tex" ]] && DETECTED_DOCS+=("cl=커버레터:submission/cover_letter/cover_letter.tex")
+    return 0
+}
+
 with_lock() { # 포트 고르기~설정 쓰기를 동시 add 끼리 겹치지 않게
     mkdir -p "$CONFIG_DIR"
     if command -v flock > /dev/null 2>&1; then
@@ -661,12 +776,13 @@ cmd_add() {
     need_name "$n"
     shift
     local manuscript="" main="" port="" ts="" gitpull=0 label="" accent="" state="" extra_args="--no-build" serve=1 start=1
-    local docs=()
+    local docs=() stage=auto
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --manuscript) manuscript=${2:-}; shift 2 ;;
             --main) main=${2:-}; shift 2 ;;
             --doc) docs+=("${2:-}"); shift 2 ;;
+            --stage) stage=${2:-}; shift 2 ;;
             --port) port=${2:-}; shift 2 ;;
             --ts-port) ts=${2:-}; shift 2 ;;
             --git-pull) gitpull=1; shift ;;
@@ -684,9 +800,17 @@ cmd_add() {
     manuscript=$(cd "$manuscript" && pwd -P)
     [[ -z "$main" || ${#docs[@]} -eq 0 ]] || die "--main 과 --doc 는 함께 쓸 수 없습니다"
     if [[ ${#docs[@]} -gt 0 ]]; then
+        [[ "$stage" == auto ]] || die "--stage 는 --doc/--main 없이 자동 탐지할 때만 씁니다"
         validate_doc_specs "$manuscript" "${docs[@]}"
     elif [[ -n "$main" ]]; then
+        [[ "$stage" == auto ]] || die "--stage 는 --doc/--main 없이 자동 탐지할 때만 씁니다"
         [[ "$main" != */* && -f "$manuscript/$main" ]] || die "메인 .tex 가 원고 폴더 맨 위에 없습니다: $manuscript/$main"
+    elif detect_docs_layout "$manuscript" "$stage"; then
+        docs=("${DETECTED_DOCS[@]}")
+        validate_doc_specs "$manuscript" "${docs[@]}"
+        say "자동 탐지 문서:"
+        local d
+        for d in "${docs[@]}"; do say "  $d"; done
     else
         main=$(detect_main "$manuscript") || die "메인 .tex 자동 탐지 실패"
     fi
@@ -962,6 +1086,25 @@ cmd_doc_list() {
     done
 }
 
+cmd_doc_suggest() { # 읽기 전용 — 설정을 쓰지 않고 자동 탐지될 DOCS 문자열만 찍는다
+    local manuscript="" stage=auto
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --manuscript) manuscript=${2:-}; shift 2 ;;
+            --stage) stage=${2:-}; shift 2 ;;
+            *) die "모르는 인자: $1" ;;
+        esac
+    done
+    [[ -n "$manuscript" ]] || die "--manuscript <원고 폴더> 가 필요합니다"
+    [[ -d "$manuscript" ]] || die "원고 폴더가 없습니다: $manuscript"
+    manuscript=$(cd "$manuscript" && pwd -P)
+    detect_docs_layout "$manuscript" "$stage" \
+        || die "표준 레이아웃(manuscript/<라운드>/<본문>.tex)을 찾지 못했습니다 — --doc 를 손으로 주세요"
+    validate_doc_specs "$manuscript" "${DETECTED_DOCS[@]}"
+    join_semi "${DETECTED_DOCS[@]}"
+    printf '\n'
+}
+
 cmd_doc_add() {
     local n=${1:-}
     need_name "$n"
@@ -1037,7 +1180,8 @@ cmd_doc() {
         list) cmd_doc_list "$@" ;;
         add) cmd_doc_add "$@" ;;
         remove | rm) cmd_doc_remove "$@" ;;
-        *) die "pin-viewer doc list|add|remove <이름> ... (모르는 하위 명령: '$sub')" ;;
+        suggest) cmd_doc_suggest "$@" ;;
+        *) die "pin-viewer doc list|add|remove <이름> ... | suggest --manuscript <원고 폴더> (모르는 하위 명령: '$sub')" ;;
     esac
 }
 
