@@ -2636,6 +2636,8 @@ button.tg[aria-pressed=true]{border-color:var(--line-strong)}
 .pin.done{opacity:.85}
 .pin.dropped{opacity:.7;border-style:dashed}
 .pin .n{color:var(--ok);font-weight:700}
+.pin .n.go{cursor:pointer;border-radius:6px;padding:0 4px;margin:0 -4px}
+.pin .n.go:hover,.pin .n.go:focus-visible{background:var(--hover,rgba(127,127,127,.15));text-decoration:underline}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
 /* 카드 머리: 왼쪽에 번호·범위·쪽, 오른쪽에 작성자·접기. 배지는 머리 아래 한 줄. 동작은 같은 폭 격자, 완료만 강조·삭제는 위험 색. */
 .pin .head{flex-wrap:nowrap;gap:8px;min-height:28px}
@@ -2720,7 +2722,7 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   #bar1{flex-wrap:wrap}
   input,textarea,select{font-size:16px}
   #bar1 input.n{width:60px;min-height:44px}
-  .loc,.pg-link{display:inline-flex;align-items:center;min-height:44px}
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
   .mark b{width:26px;height:26px;left:-28px;font-size:12.5px}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
@@ -2926,7 +2928,7 @@ window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 
 
 const T={
   stale:'핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
-  n:"핀 번호. 에이전트에게 '#2 처리해줘'처럼 부르세요. 번호는 다시 쓰이지 않습니다",
+  n:"누르면 PDF에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
   loc:'핀이 가리키는 원문 줄. 클릭하면 복사',
   view:'PDF에서 이 핀 자리로 가서 깜빡입니다', edit:'메모와 범위를 고칩니다. 번호는 그대로입니다',
   close:"처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
@@ -3838,7 +3840,7 @@ function card(p){
   // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
   const first=String(p.note||'').split('\n')[0].trim();
   return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
+    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
     '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+rng(p.lo,p.hi)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(p.stale?'⚠ ':'')+(claimed?'⏳ ':'')+(first?esc(first):'(메모 없음)')+'</span>'+
@@ -4138,6 +4140,8 @@ document.addEventListener('keydown',e=>{
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
+  // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
+  if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}

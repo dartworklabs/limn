@@ -2959,3 +2959,20 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PinNumberJump(unittest.TestCase):
+    """카드 머리의 #번호를 누르면 PDF 에서 그 핀 자리로 간다([보기]·N쪽과 같은 data-act="view")."""
+
+    def test_number_is_a_button_that_jumps(self):
+        src = ps.HTML
+        self.assertIn('<span class="n go" role="button" tabindex="0" data-act="view"', src)
+        self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
+
+    def test_number_is_keyboard_and_touch_reachable(self):
+        src = ps.HTML
+        self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
+        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
+
+    def test_view_action_still_routes_to_jumppin(self):
+        self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
