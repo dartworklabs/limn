@@ -3609,6 +3609,8 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
 #coach button{background:transparent;color:inherit;border-color:transparent}
 body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-width:calc(100vw - var(--side-w,340px) - 16px)}
 #more{max-width:440px}
+#more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
+#more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
 #more .more-info{font-size:var(--text-base);color:var(--muted-foreground);overflow-wrap:anywhere;margin:0 0 10px}
 #more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
 #more .more-grid .wide{grid-column:1/-1}
@@ -3657,6 +3659,11 @@ body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
 /* 폭이 모자라면 이름표가 먼저 줄어든다(전체 이름은 설명에) — 버튼 글자가 잘려 'DF 재빌드'처럼 보이던 것을 막는다 */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
+/* 접은 폴드(narrow): 이름표 글자는 도구 줄에서 빼고 [더보기] 첫 줄에 둔다 — 28px 로 줄어 'C…' 만 남아 읽을 수 없었다(2026-09-23).
+   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다. */
+body.lay-narrow #bar1 .chip{display:none}
+body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
+body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}
 body.compact #composer{max-height:none;overflow:visible}
 /* narrow 시트: 메모 칸을 원문보다 위로 올린다 — 시트 높이 안에서 메모 칸이 아래 동작 줄 밑에 숨었다(실측, 모바일 개선 때). */
@@ -3815,8 +3822,8 @@ body.view-only #btn-rebuild{display:none}
 </div>
 <div id="tip" role="tooltip" hidden></div>
 <div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
-<dialog id="more" aria-label="더보기">
-  <div class="row"><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm" data-act="more-close">닫기</button></div>
+<dialog id="more" aria-label="더보기 · __LABEL__">
+  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm" data-act="more-close">닫기</button></div>
   <p class="more-info" id="more-info"></p>
   <div class="more-grid">
     <button data-act="reload" data-close="1">핀 다시 읽기</button>

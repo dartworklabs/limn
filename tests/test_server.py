@@ -4192,6 +4192,19 @@ class FrontendToolbarOneRow(unittest.TestCase):
         out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
+    def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
+        # 접은 폴드(344px)에서 이름표가 'C…', 문서 버튼이 '본..' 으로 줄어 읽을 수 없었다(2026-09-23).
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.lay-narrow #bar1 .chip{display:none}", css)
+        self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
+        self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
+        self.assertNotIn("body.lay-mid #bar1 .chip{display:none}", css)          # 편 폴드·데스크톱은 그대로
+        more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))]
+        self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
+        out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
+        self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
+        self.assertIn("#more .more-head .chip{background:var(--brand);", css)
+
 
 class FrontendToolbarSize(unittest.TestCase):
     """도구 줄 '쪽' 칸이 버튼과 같은 높이·글자 크기인지(데스크톱 28px, 터치 44px). 실측은 Playwright 로 했다."""
