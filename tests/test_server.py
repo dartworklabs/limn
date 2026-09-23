@@ -2582,6 +2582,98 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('<img loading="lazy"', ps.HTML)
 
 
+# 벡터 렌더링(references/design.md §벡터 렌더링) — 배포 HTML 에 PDF.js 경로·폴백·가시 영역 렌더·픽셀 상한이 있는지.
+class FrontendVector(unittest.TestCase):
+    def fn(self, name):
+        m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
+        self.assertIsNotNone(m, name)
+        return m.group(1)
+
+    def test_loads_vendored_pdfjs_same_origin_with_version(self):
+        self.assertNotIn("__PDFJS_VERSION__", ps.HTML)
+        self.assertIn("const PDFJS_V='%s'" % ps.PDFJS_VERSION, ps.HTML)
+        self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", ps.HTML)
+        self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", ps.HTML)
+        for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
+            self.assertNotIn(cdn, ps.HTML)                   # 테일넷 안에서만 돈다 — 외부 CDN 금지
+        self.assertIn("isEvalSupported:false", ps.HTML)
+        self.assertIn("useWasm:false", ps.HTML)              # wasm 은 vendor 에 없다(vendor/pdfjs/README.md)
+
+    def test_pdf_is_the_screen_build(self):
+        body = self.fn("vecOpen")
+        self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
+        self.assertIn("build=META.pages_build", body)
+        self.assertIn("doc.numPages!==n", body)                 # 쪽 수가 다르면 쓰지 않는다
+
+    def test_fallback_to_png_on_any_failure(self):
+        boot = self.fn("vecBoot")
+        self.assertIn("catch(e){VEC.lib=null; vecFail(", boot)
+        self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
+        run = self.fn("vecRun")
+        self.assertIn("RenderingCancelledException", run)       # 취소는 실패가 아니다
+        self.assertIn("vecFail('쪽을 그리지 못했습니다'", run)
+        fail = self.fn("vecFail")
+        self.assertIn("vecReleaseAll()", fail)                  # 캔버스를 걷으면 밑의 PNG 가 보인다
+        self.assertIn("$('#vec-chip')", fail)
+        self.assertIn('id="vec-chip" class="tag t" hidden', ps.HTML)
+        self.assertIn('<img loading="lazy"', ps.HTML)          # PNG 는 첫 화면·폴백으로 남는다
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pg.drawn>img{visibility:hidden}", css)
+        self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)   # 드래그는 .pg 가 받는다
+
+    def test_visible_pages_only_and_release(self):
+        obs = self.fn("vecObserve")
+        self.assertIn("new IntersectionObserver(", obs)
+        self.assertIn("root:$('#left'),rootMargin:VEC_KEEP", obs)
+        self.assertIn("vecRelease(n)", obs)
+        self.assertIn("cv.width=0; cv.height=0", self.fn("vecDrop"))
+        self.assertIn("vecObserve()", self.fn("buildDoc"))
+        ref = self.fn("refreshDoc")
+        self.assertIn("vecReleaseAll()", ref)                   # 옛 PDF 로 그린 캔버스는 걷는다
+        self.assertIn("vecOpen()", ref)                         # 새 빌드의 PDF 를 다시 연다
+        self.assertIn("vecInvalidate()", self.fn("setW"))       # 확대가 바뀌면 다시 그린다
+
+    def test_no_text_layer(self):
+        for s in ("getTextContent", "TextLayer", "textLayer"):
+            self.assertNotIn(s, ps.HTML)
+
+
+class FrontendVectorLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_backing_size_is_css_times_k_until_the_pixel_cap(self):
+        js = "\n".join([
+            extract_js_fn("vecTarget"),
+            "const cap=16777216; const out=[];",
+            "for(const [cw,ch,k] of [[898,1270,2],[370,523,2.6],[1796,2540,2],[3592,5080,2],[4490,6350,2]]){",
+            "  const t=vecTarget(cw,ch,k,cap); out.push([t.bw,t.bh,t.capped,t.bw*t.bh<=cap,+(t.bw/(cw*k)).toFixed(3)]);}",
+            "console.log(JSON.stringify(out));",
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[0][:3], [1796, 2540, False])
+        self.assertEqual(out[1][:3], [962, 1360, False])
+        for row in out[:2]:
+            self.assertGreaterEqual(row[4], 1.0)               # 상한 안에서는 CSS × DPR 이상
+        for row in out[2:]:                                    # 1796×2540 CSS × DPR 2 = 18.2M 픽셀 > 16.8M
+            self.assertTrue(row[2])                            # 상한을 넘으면 낮춘다(상세 캔버스가 보이는 부분을 채운다)
+            self.assertTrue(row[3])
+
+    def test_detail_region_cover_check(self):
+        js = "\n".join([
+            extract_js_fn("vecCovers"),
+            "const reg={x:0.1,y:0.2,w:0.5,h:0.3}; const out=[];",
+            "out.push(vecCovers(reg,{x:100,y:200,w:500,h:300,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:150,y:250,w:100,h:100,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:50,y:250,w:100,h:100,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:150,y:250,w:100,h:300,cw:1000,ch:1000}));",
+            "out.push(vecCovers(null,{x:0,y:0,w:1,h:1,cw:10,ch:10}));",
+            "console.log(JSON.stringify(out));",
+        ])
+        self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
+
+
 class FrontendMobileLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
