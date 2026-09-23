@@ -2475,8 +2475,14 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
 #left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px}
-#grip{width:6px;cursor:col-resize;background:var(--line);flex:none}
-#grip:hover,#grip.on{background:var(--line-strong)}
+/* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
+   마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
+#grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--line);flex:none;touch-action:none}
+#grip::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px}
+#grip:hover,#grip.on,#grip:focus-visible{background:var(--line-strong)}
+body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
+body.resizing #left{pointer-events:none}
+#sheet-grip{display:none}
 #right{width:430px;min-width:280px;max-width:80vw;border-left:1px solid var(--line);background:var(--pane);
   display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -2641,13 +2647,15 @@ body.selmode .pg{touch-action:pinch-zoom;outline:2px dashed var(--acc);outline-o
   color:var(--on-acc);border-radius:10px;padding:6px 6px 6px 14px;display:flex;gap:8px;align-items:center;
   width:max-content;max-width:calc(100vw - 16px);font-size:14px;box-shadow:0 6px 20px var(--shadow)}
 #coach button{background:transparent;color:inherit;border-color:transparent}
-body.lay-mid.side-open #coach{left:calc((100vw - clamp(300px,38vw,360px))/2);max-width:calc(100vw - clamp(300px,38vw,360px) - 16px)}
+body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-width:calc(100vw - var(--side-w,340px) - 16px)}
 #more{max-width:440px}
 #more .more-info{font-size:12.5px;color:var(--dim);overflow-wrap:anywhere;margin:0 0 10px}
 #more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 #more .more-grid .wide{grid-column:1/-1}
 #more .jump-row{display:flex;gap:8px}
 #more .jump-row input{flex:1;min-width:0}
+#more .size-row{display:flex;align-items:center;gap:8px}
+#more .size-row .seg{flex:1;margin:0}
 @media (pointer:coarse){
   button.tch{display:inline-block}
   .hint .t-touch{display:inline}
@@ -2666,8 +2674,14 @@ body.lay-mid.side-open #coach{left:calc((100vw - clamp(300px,38vw,360px))/2);max
   button.ico,.step button{width:44px;min-width:44px}
   #c-actions button{min-height:48px;font-size:15px}
   .pin .acts button{min-height:44px}
+  #grip::after{left:-9px;right:-9px}
 }
-body.compact #grip{display:none}
+body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
+/* mid: 손잡이 가운데에 잡는 막대를 보인다(터치로 찾기 쉽게) */
+body.lay-mid #grip{width:8px;background:var(--pane);border-left:1px solid var(--line)}
+body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:2px;
+  background:var(--line-strong);transform:translate(-50%,-50%)}
+body.lay-mid #grip.on::before{background:var(--acc)}
 body.compact button.cmp{display:inline-block}
 body.compact .sec{display:none}
 body.compact #left{padding:12px max(10px,env(safe-area-inset-right)) 60vh max(30px,env(safe-area-inset-left));min-width:0}
@@ -2689,11 +2703,11 @@ body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-ins
 body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.tag:not([hidden]))){display:none}
-body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
+body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
 body.lay-narrow #toasts{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));bottom:auto;max-width:none}
-body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));max-width:calc(100vw - 400px)}
+body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));max-width:calc(100vw - var(--side-w,360px) - 40px)}
 body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim);cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
@@ -2704,9 +2718,15 @@ body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
   max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--line-strong);border-radius:14px 14px 0 0;
   box-shadow:0 -6px 24px var(--shadow);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-body.lay-narrow.side-open #right{height:min(64dvh,calc(var(--vvh,100dvh) - 48px))}
-body.lay-narrow #bar1{border-radius:14px 14px 0 0}
-body.lay-mid.side-open #right{width:clamp(300px,38vw,360px)!important}
+/* 시트 높이: --sheet-f(화면 높이 비율, 기본 0.64)를 윗가장자리 손잡이(#sheet-grip)로 끌거나 눌러 바꾼다. 키보드가 올라오면 보이는 높이 안으로 줄인다. */
+body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
+  background:var(--pane);border-radius:14px 14px 0 0;touch-action:none;cursor:row-resize}
+body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:2px;background:var(--line-strong)}
+body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
+body.lay-narrow #sheet-grip.on::before{background:var(--acc)}
+body.lay-narrow #bar1{top:24px;padding-top:0}
+body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
 body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-inset-right));
   bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
   border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 6px 24px var(--shadow);z-index:20;overflow:hidden}
@@ -2715,8 +2735,9 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
 </style></head><body>
 <div id="left"><div id="doc"></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
-<div id="grip" data-tip="끌어서 사이드바 폭을 조절합니다"></div>
+<div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
+  <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
@@ -2786,6 +2807,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <button data-act="zoom-out" aria-label="축소">축소 −</button>
     <button data-act="zoom-in" aria-label="확대">확대 ＋</button>
     <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
+    <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
     <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽 번호" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
     <button id="m-done" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
     <button id="m-dropped" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
@@ -2807,12 +2829,14 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락 확대는 그대로 됩니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
     <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
     <tr><td><kbd>⋯</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
+    <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [⋯] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
     <tr><td>설명 보기</td><td>버튼을 길게 누르면 설명이 뜹니다</td></tr></table>
   <h4>단축키</h4>
   <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
     <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
-    <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr></table>
+    <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
+    <tr><td>폭 손잡이</td><td>본문과 패널 사이 막대를 끌면 패널 폭이 바뀝니다. 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→ 로도 바뀝니다. 폭은 브라우저에 기억됩니다</td></tr></table>
   <h4>용어</h4>
   <table>
     <tr><td>핀</td><td>원문 위치(파일·줄 범위)에 붙인 수정 요청 메모. 번호(#N)는 다시 쓰이지 않습니다</td></tr>
@@ -3119,12 +3143,47 @@ function startBuildPolling(){
   pollBuild();   // 부팅 시 한 번 — 이미 도는 빌드(다른 세션이 시작)가 있으면 여기서 1초 폴링이 켜진다
 }
 
-// ------------------------------------------------ 사이드바 폭 제한(P0b-06)
+// ------------------------------------------------ 패널 폭(P0b-06 + references/design.md §패널 폭 조절)
+// wide·mid 는 오른쪽 패널의 폭을, narrow 는 하단 시트의 높이를 조절한다. 폭은 화면 종류별로 따로 기억한다
+// (pinPrefs.side = wide, pinPrefs.sideMid = mid) — 편 화면에서 맞춘 폭이 데스크톱 폭을 덮지 않게. 저장값이 지금 화면의
+// 한계를 넘으면(접기·펴기, 창 줄이기) 저장값은 두고 보이는 폭만 한계 안으로 맞춘다. 한계: 최소는 패널 도구 줄이
+// 한 줄에 들어가는 폭, 최대는 본문(PDF) 쪽 최소 폭을 남기는 폭.
+function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(a,w)));
+  if(layout==='mid'){const min=300,max=Math.max(min,Math.min(Math.round(iw*0.6),iw-320));
+    const def=cl(iw*0.38,300,Math.min(360,max)); return {min,max,def,presets:[min,def,cl(iw*0.5,min,max)]};}
+  const min=280,max=Math.max(min,Math.min(Math.round(iw*0.8),iw-486)),def=cl(430,min,max);
+  return {min,max,def,presets:[cl(320,min,max),def,cl(iw*0.42,min,max)]};}
+function clampSide(w,b){return Math.round(Math.min(b.max,Math.max(b.min,w)));}
+// 단계 순환: 지금 폭보다 큰 다음 단계, 가장 넓으면 가장 좁은 단계로. presetIndex 는 ±4px 안에서 맞는 단계(없으면 -1).
+function nextPreset(presets,w){const n=presets.find(p=>p>w+4); return n===undefined?presets[0]:n;}
+function presetIndex(presets,w){return presets.findIndex(p=>Math.abs(p-w)<=4);}
+function sideKey(){return LAYOUT==='mid'?'sideMid':'side';}
+function curSideW(){return Math.round($('#right').getBoundingClientRect().width);}
+function showSideW(w,b){$('#right').style.width=w+'px'; document.documentElement.style.setProperty('--side-w',w+'px');
+  const g=$('#grip'); g.setAttribute('aria-valuenow',w); g.setAttribute('aria-valuemin',b.min); g.setAttribute('aria-valuemax',b.max);}
 function applySideWidth(){
-  const p=prefs(); if(!p.side)return;
-  const maxSide=Math.max(280,innerWidth-480-6);
-  $('#right').style.width=Math.min(p.side,maxSide)+'px';
+  if(LAYOUT==='narrow'){$('#right').style.width=''; applySheet(); return;}
+  const b=sideBounds(LAYOUT,innerWidth),p=prefs()[sideKey()];
+  showSideW(clampSide(typeof p==='number'?p:b.def,b),b);
 }
+// 폭을 정하고 기억한 뒤 쪽 폭·마크를 다시 맞춘다(보던 자리 유지 — relayout 이 topAnchor/restoreAnchor 를 쓴다).
+function setSideWidth(w){if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth); w=clampSide(w,b);
+  showSideW(w,b); savePrefs({[sideKey()]:w}); relayout(); renderSizeSeg();}
+function cycleSideWidth(){if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth); setSideWidth(nextPreset(b.presets,curSideW()));}
+// 시트 높이는 화면 높이 비율(--sheet-f)로 둔다 — 키보드가 올라오면 CSS 가 보이는 높이 안으로 줄인다.
+const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25;
+function sheetF(){const f=prefs().sheetF; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):0.64;}
+function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(sheetF()));}
+function setSheetF(f){f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({sheetF:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
+function cycleSheet(){const f=sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
+// [⋯] 안의 '패널 폭'(wide·mid) / '시트 높이'(narrow) 분절 컨트롤.
+function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT==='narrow';
+  $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');
+  let names,cur;
+  if(narrow){names=['낮게','보통','높게']; const f=sheetF(); cur=SHEET_F.findIndex(x=>Math.abs(x-f)<=0.02);}
+  else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,curSideW());}
+  box.innerHTML=names.map((n,i)=>'<button class="'+(i===cur?'on':'')+'" aria-pressed="'+(i===cur)+'" data-act="size-preset" data-i="'+i+'">'+n+'</button>').join('');}
+function sizePreset(i){if(LAYOUT==='narrow'){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}
 function pageSrc(p){return '/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at);}
 function buildDoc(){
   const doc=$('#doc'); doc.innerHTML=''; PENDING=null;
@@ -3177,7 +3236,8 @@ window.addEventListener('resize',scheduleRelayout);
 MQ_COARSE.addEventListener('change',scheduleRelayout);
 // 패널을 펴고 접어 #left 폭만 바뀌어도(compact) 쪽 폭을 다시 맞춘다. 콜백에서 바로 레이아웃을 바꾸지 않고
 // 다음 프레임으로 미룬다(ResizeObserver 루프 경고 방지). wide 는 예전처럼 창 크기 변화에만 반응한다.
-if(window.ResizeObserver)new ResizeObserver(()=>{if(LAYOUT&&LAYOUT!=='wide')scheduleRelayout();}).observe($('#left'));
+// 손잡이를 끄는 동안(body.resizing)은 다시 맞추지 않는다 — 손을 떼면 setSideWidth 가 한 번 맞춘다.
+if(window.ResizeObserver)new ResizeObserver(()=>{if(LAYOUT&&LAYOUT!=='wide'&&!document.body.classList.contains('resizing'))scheduleRelayout();}).observe($('#left'));
 
 // 가상 키보드: 크롬 안드로이드는 viewport meta 의 interactive-widget=resizes-content 로 레이아웃 자체가 줄어든다.
 // 그 값을 모르는 브라우저는 visualViewport 로 키보드 높이(--kb)를 재서 화면 전체를 그만큼 올린다. 핀치 확대로 줄어든
@@ -3201,19 +3261,54 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); d.showModal();}
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal();}
 // [⋯] 에서 닫힌 핀·삭제한 핀을 펼치면 패널을 펴고 그 목록으로 스크롤한다.
 function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
 // 대화상자 밖(배경)을 누르면 닫는다 — dialog 자신이 target 인 click 중 상자 사각형 밖인 것만.
 $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
 
-(function(){let on=false;
-  $('#grip').addEventListener('mousedown',e=>{on=true;$('#grip').classList.add('on');document.body.style.userSelect='none';e.preventDefault();});
-  window.addEventListener('mousemove',e=>{if(!on)return;
-    const w=Math.min(Math.max(280,innerWidth-e.clientX),innerWidth*0.8); $('#right').style.width=w+'px';});
-  window.addEventListener('mouseup',()=>{if(!on)return; on=false;$('#grip').classList.remove('on');document.body.style.userSelect='';
-    savePrefs({side:parseInt(getComputedStyle($('#right')).width,10)});});
+// 패널 폭 손잡이 — 마우스·터치·펜 모두 Pointer Events 한 경로(데스크톱의 옛 mousedown 구현을 대신한다). 손잡이는
+// touch-action:none 이라 끄는 동안 브라우저 스크롤과 다투지 않고, setPointerCapture 로 손잡이 밖까지 따라간다.
+// 끄는 동안은 폭만 바꾸고(본문 쪽 폭은 그대로), 손을 떼면 한 번 relayout 한다. 탭(마우스는 두 번 클릭)은 단계 순환,
+// ←/→ 는 16px, Home/End 는 한계, Enter/Space 는 단계 순환이다.
+(function(){const g=$('#grip'); let D=null;
+  g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
+    e.preventDefault(); D={id:e.pointerId,x:e.clientX,w:curSideW(),moved:false,mouse:e.pointerType==='mouse'};
+    try{g.setPointerCapture(e.pointerId);}catch(_){}
+    g.classList.add('on'); document.body.classList.add('resizing');});
+  g.addEventListener('pointermove',e=>{if(!D||e.pointerId!==D.id)return; const dx=D.x-e.clientX;
+    if(!D.moved&&Math.abs(dx)<4)return; D.moved=true; const b=sideBounds(LAYOUT,innerWidth); showSideW(clampSide(D.w+dx,b),b);});
+  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing');
+    if(e.type==='pointercancel'){applySideWidth(); relayout(); return;}
+    if(d.moved)setSideWidth(curSideW()); else if(!d.mouse&&Date.now()>=SWALLOW_CLICK)cycleSideWidth();};
+  g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
+  g.addEventListener('dblclick',()=>cycleSideWidth());
+  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth),w=curSideW();
+    const k={ArrowLeft:w+16,ArrowRight:w-16,Home:b.max,End:b.min}[e.key];
+    if(k!==undefined){e.preventDefault(); setSideWidth(k);} else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSideWidth();}});
+})();
+// 시트 높이 손잡이(narrow) — 위로 끌면 높아지고(접힌 시트는 펴진다), 화면 25% 아래로 내려놓으면 접힌다. 탭은 단계 순환.
+(function(){const g=$('#sheet-grip'); let D=null;
+  g.addEventListener('pointerdown',e=>{if(LAYOUT!=='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
+    e.preventDefault(); D={id:e.pointerId,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false};
+    try{g.setPointerCapture(e.pointerId);}catch(_){}
+    g.classList.add('on'); document.body.classList.add('resizing');});
+  g.addEventListener('pointermove',e=>{if(!D||e.pointerId!==D.id)return; const dy=D.y-e.clientY;
+    if(!D.moved&&Math.abs(dy)<6)return; D.moved=true;
+    if(!SIDE_OPEN&&dy>0)setSide(true);
+    if(SIDE_OPEN)document.documentElement.style.setProperty('--sheet-f',String(Math.max(0.12,(D.h+dy)/innerHeight)));});
+  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing');
+    if(e.type==='pointercancel'){applySheet(); return;}
+    if(!d.moved){if(Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); return;}
+    if(!SIDE_OPEN){applySheet(); return;}
+    const f=$('#right').getBoundingClientRect().height/innerHeight;
+    if(f<SHEET_CLOSE_F){applySheet(); setSide(false,true); return;}
+    setSheetF(f);};
+  g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
+  g.addEventListener('keydown',e=>{if(LAYOUT!=='narrow')return; const f=sheetF();
+    if(e.key==='ArrowUp'){e.preventDefault(); setSheetF(f+0.05);} else if(e.key==='ArrowDown'){e.preventDefault(); setSheetF(f-0.05);}
+    else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSheet();}});
 })();
 
 // ------------------------------------------------ 드래그 선택(마우스·터치·펜 — Pointer Events 한 경로)
@@ -3754,6 +3849,7 @@ document.addEventListener('click',e=>{
     case 'side':setSide(!SIDE_OPEN,true);break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT==='narrow'&&!CUR&&!EDIT)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
+    case 'size-preset':sizePreset(+a.dataset.i);break;
     case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
     case 'coach-close':$('#coach').hidden=true;break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;

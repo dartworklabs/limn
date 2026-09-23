@@ -2395,8 +2395,11 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("input,textarea,select{font-size:16px}", coarse)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다
-        self.assertEqual(re.findall(r"([^{}]*)\{[^{}]*touch-action", css), ["\nbody.selmode .pg"])
+        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다. 그 밖에는 폭·높이 손잡이
+        # 둘뿐이다(내용이 아니라 잡는 막대라, 끄는 동안 스크롤과 다투지 않게 none 을 건다).
+        css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
+                         ["#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
         self.assertIn("touch-action:pinch-zoom", css)
         # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
         self.assertIn("body.lay-narrow #toasts{", css)
