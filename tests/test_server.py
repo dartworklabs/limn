@@ -915,6 +915,12 @@ class AsyncBuild(Base):
         self.assertIn("latex", seen)
         self.assertIn("render", seen)
         self.assertTrue(ps.cur_pdf().exists())
+        aux = ps.cur_pages() / "main.aux"
+        self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")
+        labels = ps.outline_labels(ps.cur_doc())
+        self.assertEqual(labels["build"], res["build"])
+        self.assertEqual([(row["number"], row["title"]) for row in labels["labels"][:2]],
+                         [("1", "Intro"), ("1.1", "Next")])
 
 
 # ---------------------------------------------------------------- 위치 추정(.est) — 서버 판정
@@ -2581,6 +2587,237 @@ class ManuscriptRevisions(Base):
         self.assertTrue(d["truncated"])
         self.assertLessEqual(len(d["diff"].encode("utf-8")), 53)  # UTF-8 replacement at the byte boundary
 
+    def test_revision_spec_uses_first_parent_and_rejects_root(self):
+        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        self.assertEqual((spec.base, spec.head), (self.first, self.latest))
+        with self.assertRaises(ps.HTTPError):
+            ps.revision_spec(ps.cur_doc(), self.first)
+
+    def test_revision_snapshot_uses_git_and_rejects_symlinks(self):
+        self.main.write_text("uncommitted secret")
+        dest = self.repo / "snapshot"
+        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        ps.revision_snapshot(spec, spec.head, dest)
+        self.assertIn("New manuscript sentence.", (dest / "main.tex").read_text())
+        self.assertFalse((dest / "other").exists())
+        (self.src / "escape.tex").symlink_to(self.secret)
+        for cmd in (["git", "add", "ms/escape.tex"], ["git", "commit", "-qm", "link"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        with self.assertRaises(ps.HTTPError):
+            ps.revision_snapshot(ps.revision_spec(ps.cur_doc(), head), head, self.repo / "bad-snapshot")
+
+    def test_outline_uses_only_current_pdf_aux_and_balanced_tex_groups(self):
+        current = ps.C.state / "pages-20260924010000"
+        current.mkdir()
+        (ps.C.state / "pages.cur").write_text(current.name)
+        (current / "main.aux").write_text(
+            r"\@writefile{toc}{\contentsline {section}{\numberline {2}A \textbf{nested {title}} \& B}{iv}{section.2}}" + "\n" +
+            r"\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Use \texorpdfstring{$x^2$}{x squared}}{8}{subsection.2.1}}" + "\n")
+        ps.C.build.mkdir()
+        (ps.C.build / "main.aux").write_text("wrong next build")
+        data = ps.outline_labels(ps.cur_doc())
+        self.assertEqual(data["build"], current.name)
+        self.assertEqual(data["labels"], [
+            {"number": "2", "title": "A nested title & B", "page": "iv", "level": "section", "anchor": "section.2"},
+            {"number": "2.1", "title": "Use x squared", "page": "8", "level": "subsection", "anchor": "subsection.2.1"},
+        ])
+
+    def test_outline_missing_snapshot_does_not_read_mutable_build(self):
+        ps.C.build.mkdir()
+        (ps.C.build / "main.aux").write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {9}Stale}{1}{section.9}}")
+        self.assertEqual(ps.outline_labels(ps.cur_doc())["labels"], [])
+
+    def _wait_revision(self):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            status = ps.revision_status(ps.cur_doc(), self.latest)
+            if status["state"] != "running":
+                return status
+            time.sleep(.01)
+        self.fail("revision worker did not finish")
+
+    def test_async_revision_http_deduplicates_caches_and_preserves_current_build(self):
+        entered, release = threading.Event(), threading.Event()
+        original = self.main.read_bytes()
+        marker = ps.C.state / "pages.cur"
+        marker.write_text("pages-20260924000000")
+        before = dict(ps.BUILD_STATE)
+        calls = []
+        def compile(spec, jobdir, timeout):
+            calls.append(spec)
+            entered.set()
+            release.wait(3)
+            (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4\nrevision")
+            return {"state": "ready", "warnings": ["test warning"], "error": None, "reason": None}
+        body = json.dumps({"commit": self.latest}).encode()
+        request = req("POST", "/api/revision-build", body, {"Content-Type": "application/json"})
+        with mock.patch.object(ps, "revision_compile", side_effect=compile):
+            try:
+                code, _, raw = split_resp(self.talk(request))
+                self.assertEqual(code, 202)
+                self.assertEqual(json.loads(raw)["base"], self.first)
+                self.assertTrue(entered.wait(2))
+                self.assertEqual(split_resp(self.talk(request))[0], 202)
+                self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
+            finally:
+                release.set()
+                status = self._wait_revision()
+            self.assertEqual(status["state"], "ready")
+            self.assertEqual(status["warnings"], ["test warning"])
+            self.assertEqual(split_resp(self.talk(request))[0], 200)
+            self.assertEqual(len(calls), 1)
+        code, headers, pdf = split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))
+        self.assertEqual((code, headers["content-type"], pdf), (200, "application/pdf", b"%PDF-1.4\nrevision"))
+        self.assertEqual(self.main.read_bytes(), original)
+        self.assertEqual(marker.read_text(), "pages-20260924000000")
+        self.assertEqual(ps.BUILD_STATE, before)
+        with mock.patch.object(ps, "revision_history", return_value={"available": True, "revisions": []}):
+            self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
+            with self.assertRaises(ps.HTTPError):
+                ps.revision_status(ps.cur_doc(), self.latest)
+
+    def test_revision_failure_has_no_pdf_and_can_retry(self):
+        failure = ps.HTTPError(503, "test timeout", reason="timeout")
+        with mock.patch.object(ps, "revision_compile", side_effect=failure) as run:
+            ps.revision_start(ps.cur_doc(), self.latest)
+            status = self._wait_revision()
+            self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
+            with self.assertRaises(ps.HTTPError):
+                ps.revision_pdf(ps.cur_doc(), self.latest)
+            ps.revision_start(ps.cur_doc(), self.latest)
+            self._wait_revision()
+            self.assertEqual(run.call_count, 2)
+
+    def test_revision_requests_enforce_origin_allowlist_and_field_validation(self):
+        body = json.dumps({"commit": self.latest}).encode()
+        ps.C.allow = frozenset({"allowed@example.com"})
+        code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", body,
+            {"Content-Type": "application/json", "Tailscale-User-Login": "stranger@example.com"})))
+        self.assertEqual(code, 403)
+        ps.C.allow = frozenset()
+        code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", body,
+            {"Content-Type": "application/json", "Origin": "https://evil.example"})))
+        self.assertEqual(code, 403)
+        for bad in ({"commit": []}, {"commit": "HEAD"}, {"commit": self.latest, "command": "evil"}):
+            code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", json.dumps(bad).encode(),
+                {"Content-Type": "application/json"})))
+            self.assertEqual(code, 400)
+        self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-build?commit=HEAD")))[0], 400)
+
+    def test_revision_source_limits_and_gitlinks_are_rejected(self):
+        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        with mock.patch.object(ps, "REVISION_FILE_MAX", 1):
+            with self.assertRaises(ps.HTTPError) as raised:
+                ps.revision_snapshot(spec, self.latest, self.repo / "large")
+            self.assertEqual(raised.exception.body["reason"], "size_limit")
+        for cmd in (["git", "update-index", "--add", "--cacheinfo", "160000," + self.first + ",ms/sub"],
+                    ["git", "commit", "-qm", "add submodule"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        with self.assertRaises(ps.HTTPError) as raised:
+            ps.revision_snapshot(spec, head, self.repo / "submodule-snapshot")
+        self.assertEqual(raised.exception.body["reason"], "unsafe_snapshot")
+
+    def test_revision_jobs_are_bounded_and_cache_expires(self):
+        with mock.patch.object(ps, "REVISION_SLOTS", threading.BoundedSemaphore(0)):
+            with self.assertRaises(ps.HTTPError) as raised:
+                ps.revision_start(ps.cur_doc(), self.latest)
+            self.assertEqual(raised.exception.code, 409)
+        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        root = ps._revision_cache_root(ps.cur_doc())
+        jobdir = root / spec.key
+        jobdir.mkdir()
+        (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
+        status = jobdir / "status.json"
+        status.write_text(json.dumps({"state": "ready"}))
+        self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "ready")
+        os.utime(status, (1, 1))
+        self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "idle")
+        for i in range(8):
+            (root / ("%064x" % i)).mkdir()
+        ps._revision_prune(root, spec.key)
+        self.assertLessEqual(sum(p.is_dir() for p in root.iterdir()), ps.REVISION_CACHE_KEEP)
+
+    def test_corrupt_revision_cache_is_a_miss(self):
+        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        root = ps._revision_cache_root(ps.cur_doc())
+        jobdir = root / spec.key
+        jobdir.mkdir()
+        for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
+            (jobdir / "status.json").write_text(content)
+            self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "idle")
+
+    def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
+        with mock.patch.object(ps.shutil, "which", return_value=None):
+            with self.assertRaises(ps.HTTPError) as raised:
+                ps.revision_sandbox(self.repo, Path("."), "latexmk", [])
+        self.assertEqual(raised.exception.body["reason"], "tool_unavailable")
+        with self.assertRaises(ValueError):
+            ps.revision_sandbox(self.repo, Path("."), "sh", [])
+
+    def test_revision_exec_bounds_output_and_time(self):
+        with self.assertRaises(ps.HTTPError) as raised:
+            ps.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 2, 100)
+        self.assertEqual(raised.exception.body["reason"], "size_limit")
+        with self.assertRaises(ps.HTTPError) as raised:
+            ps.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, .1)
+        self.assertEqual(raised.exception.body["reason"], "timeout")
+
+    def test_outline_complex_titles_keep_alignment_and_http_build_identity(self):
+        pages = ps.C.state / "pages"
+        pages.mkdir()
+        (pages / "main.aux").write_text(
+            r"\@writefile{toc}{\contentsline {section}{\numberline {1}Bad \unknown{macro}}{1}{section.1}}" + "\n" +
+            r"\@writefile{toc}{\contentsline {section}{\protect\numberline {2}A \{literal\} title}{2}{section.2}}" + "\n" +
+            r"\@writefile{toc}{\contentsline {section}{Unnumbered}{3}{section*.3}}" + "\n" +
+            r"\@writefile{lof}{\contentsline {figure}{\numberline {1}Not a section}{4}{figure.1}}")
+        code, _, raw = split_resp(self.talk(req("GET", "/api/outline-labels")))
+        self.assertEqual(code, 200)
+        data = json.loads(raw)
+        self.assertEqual(data["build"], "pages")
+        self.assertEqual([r["number"] for r in data["labels"]], ["", "2", ""])
+        self.assertEqual(data["labels"][1]["title"], "A {literal} title")
+        self.assertEqual(data["labels"][0]["title"], "")
+
+    def test_page_snapshot_keeps_aux_with_its_pdf(self):
+        ps.C.build.mkdir()
+        pdf, aux = ps.C.build / "main.pdf", ps.C.build / "main.aux"
+        pdf.write_bytes(b"%PDF-1.4")
+        aux.write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {1}Before}{1}{section.1}}")
+        def render(cmd, **kwargs):
+            Path(str(cmd[-1]) + "-1.png").write_bytes(b"png")
+            return subprocess.CompletedProcess(cmd, 0)
+        with mock.patch.object(ps.subprocess, "run", side_effect=render):
+            pages, error = ps._render_pages(pdf, [aux])
+        self.assertIsNone(error)
+        (ps.C.state / "pages.cur").write_text(pages.name)
+        aux.write_text("changed by a failed next build")
+        self.assertEqual(ps.outline_labels(ps.cur_doc())["labels"][0]["title"], "Before")
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable")
+    def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
+        self.main.write_text("\\documentclass{article}\n\\begin{document}\n\\input{section}\n\\end{document}\n")
+        section = self.src / "section.tex"
+        section.write_text("Old sentence.\n")
+        for cmd in (["git", "add", "ms"], ["git", "commit", "-qm", "split document"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        section.write_text("New sentence.\n")
+        for cmd in (["git", "add", "ms"], ["git", "commit", "-qm", "change included section"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        before = {p.name: p.read_bytes() for p in self.src.iterdir()}
+        dest = self.repo / "actual-job"
+        dest.mkdir()
+        status = ps.revision_compile(ps.revision_spec(ps.cur_doc(), head), dest, 30)
+        self.assertEqual(status["state"], "ready")
+        text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
+        self.assertIn("Old", text)
+        self.assertIn("New", text)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.src.iterdir()})
+        self.assertFalse(list(dest.glob("work-*")))
+
+
 
 # ---------------------------------------------------------------- §P0c-F: 에이전트 응답 다이어트
 
@@ -2794,7 +3031,7 @@ class FrontendMobileStructure(unittest.TestCase):
         # 다투지 않게 none). 사이드바·시트는 건드리지 않는다.
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
-                         ["#left", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
+                     ["#left", "#outline-grip", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)
@@ -3538,10 +3775,11 @@ class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
         out = ps.build_html("A-DEMO", "#1d4ed8")
         self.assertIn("<title>A-DEMO · 원고 핀</title>", out)
-        self.assertIn('id="brand-chip" class="chip" style="background:#1d4ed8"', out)
-        self.assertIn(">A-DEMO</span>", out)
+        self.assertIn('id="paper-identity-mark" aria-hidden="true">A</span><span>A-DEMO</span>', out)
+        self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
         self.assertNotIn("__LABEL__", out)
+        self.assertNotIn("__LABEL_INITIAL__", out)
         self.assertNotIn("__ACCENT__", out)
         self.assertNotIn("__FAVICON_HREF__", out)
 
@@ -3579,14 +3817,14 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertIn('id="brand-stripe"', ps.HTML)
         self.assertIn("#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px", ps.HTML)
 
-    def test_brand_chip_is_first_child_of_bar1(self):
-        m = re.search(r'<div class="bar" id="bar1"[^>]*>\s*(<span id="brand-chip"[^>]*>[^<]*</span>)',
-                      ps.HTML)
-        self.assertIsNotNone(m, "brand-chip 이 #bar1 의 첫 자식이어야 한다")
+    def test_identity_crumb_precedes_desktop_doc_links_and_not_right_toolbar(self):
+        self.assertLess(ps.HTML.index('id="paper-identity"'), ps.HTML.index('id="doc-links"'))
+        self.assertLess(ps.HTML.index('id="paper-identity"'), ps.HTML.index('id="right"'))
+        self.assertNotIn('id="brand-chip"', ps.HTML)
 
-    def test_chip_narrow_screen_css_keeps_it_visible(self):
-        self.assertIn("@media (max-width:480px){.chip{", ps.HTML)
-        self.assertNotIn("display:none", re.search(r"\.chip\{[^}]*\}", ps.HTML).group(0))
+    def test_identity_crumb_does_not_take_mobile_space(self):
+        self.assertIn('body.lay-narrow #paper-identity{display:none}', ps.HTML)
+        self.assertIn('body:not(.lay-narrow) #doc-nav{display:flex}', ps.HTML)
 
     def test_document_title_prefixes_label(self):
         # 여러 문서면 메인 파일 이름 대신 문서 이름(META.doc_name)을 쓴다 — 이름표 접두는 그대로다.
@@ -3997,7 +4235,8 @@ class FrontendDocs(unittest.TestCase):
     def test_document_selector_and_mobile_button(self):
         css = ps.HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
-        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-select-wrap{display:flex}", css)
+        self.assertIn("#doc-links{display:none;", css)
+        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-links{display:flex}", css)
         self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
         self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
@@ -4008,18 +4247,56 @@ class FrontendDocs(unittest.TestCase):
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
         self.assertIn('<select id="doc-select" aria-label="문서 선택">', ps.HTML)
+        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택">', ps.HTML)
         self.assertIn('id="view-manuscript" data-act="view-mode"', ps.HTML)
         self.assertIn('id="view-revisions" data-act="view-mode"', ps.HTML)
         self.assertIn('<nav id="outline" aria-label="원고 목차">', ps.HTML)
+        self.assertIn('body.outline-collapsed #outline{display:none}', ps.HTML)
+        self.assertIn('id="nav-toc-toggle" data-act="outline"', ps.HTML)
         self.assertLess(ps.HTML.index('id="doc-nav"'), ps.HTML.index('id="right"'))
         body = extract_js_fn("drawDocTabs")
         self.assertIn("box.value=DOC", body)
         self.assertIn("DOCS.map", body)
+        self.assertIn('aria-current="', body)
 
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', ps.HTML)
         self.assertIn("p={theme:'light'}", ps.HTML)
         self.assertIn("prefs().theme||'light'", ps.HTML)
+
+    def test_outline_labels_only_attach_to_matching_pdf_entries(self):
+        js = "\n".join([extract_js_fn("mergeOutlineLabels"), r"""
+            const entries=[
+              {title:'Experimental design',page:9,depth:0},
+              {title:'Questions and comparisons',page:10,depth:1},
+              {title:'Repeated',page:11,depth:1},
+              {title:'Repeated',page:12,depth:1}];
+            const labels=[
+              {number:'4',title:'Experimental design',page:'9'},
+              {number:'4.2',title:'Questions and comparisons',page:'11'},
+              {number:'4.3',title:'Repeated',page:'11'},
+              {number:'4.4',title:'Repeated',page:'13'}];
+            console.log(JSON.stringify(mergeOutlineLabels(entries,labels).map(x=>[x.number,x.pageLabel])));"""])
+        self.assertEqual(json.loads(run_node(js)),
+                         [["4", "9"], ["", ""], ["4.3", "11"], ["", ""]])
+
+    def test_outline_labels_require_matching_section_depth_when_supported(self):
+        js = "\n".join([extract_js_fn("mergeOutlineLabels"), r"""
+            const entries=[{title:'Overview',page:1,depth:0},{title:'Overview',page:1,depth:1}];
+            const labels=[{number:'0.9',title:'Overview',page:'1',level:'subsection'},
+                          {number:'1',title:'Overview',page:'1',level:'section'},
+                          {number:'1.1',title:'Overview',page:'1',level:'subsection'}];
+            console.log(JSON.stringify(mergeOutlineLabels(entries,labels).map(x=>x.number)));"""])
+        self.assertEqual(json.loads(run_node(js)), ["1", "1.1"])
+
+    def test_revision_async_result_is_ignored_after_doc_commit_or_view_change(self):
+        js = "\n".join(["let REVISION_SEQ=8,DOC='ms',REVISION_COMMIT='abc';",
+                        "const document={body:{classList:{contains:x=>x==='revision-open'}}};",
+                        extract_js_fn("revisionCurrent"), r"""
+            console.log(JSON.stringify([
+              revisionCurrent(8,'ms','abc'),revisionCurrent(7,'ms','abc'),
+              revisionCurrent(8,'hl','abc'),revisionCurrent(8,'ms','def')]));"""])
+        self.assertEqual(json.loads(run_node(js)), [True, False, False, False])
 
     def test_pin_actions_restore_pdf_from_revision_view(self):
         self.assertIn("setViewMode('manuscript')", extract_js_fn("jumpPin"))

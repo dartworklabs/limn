@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import hashlib
 import html
 import json
@@ -35,12 +36,14 @@ import struct
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import traceback
 from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qs, quote, urlparse
 
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
@@ -408,6 +411,7 @@ def build_html(label: str, accent: str) -> str:
     실행 인자(라벨·강조색)에 좌우되므로 argparse 뒤(main())에서 호출한다 — 모듈 로드 시점에 정해지는
     __PDFJS_VERSION__ 과 달리 이건 C 가 채워진 다음에만 값이 있다."""
     out = HTML.replace("__LABEL__", html.escape(label, quote=True))
+    out = out.replace("__LABEL_INITIAL__", html.escape((label.strip()[:1] or "?").upper(), quote=True))
     out = out.replace("__ACCENT__", accent)
     out = out.replace("__FAVICON_HREF__", favicon_href(label, accent))
     return out
@@ -955,6 +959,455 @@ def revision_diff(D: Doc, commit: str) -> dict:
             "truncated": too_large}
 
 
+# ---------------------------------------------------------------- Git revision PDFs — independent from the current manuscript build
+
+REVISION_CACHE_VERSION = "latex-pdf-v1"
+REVISION_FILES_MAX = 4000
+REVISION_TREE_MAX = 256 * 1024 * 1024
+REVISION_FILE_MAX = 64 * 1024 * 1024
+REVISION_PDF_MAX = 32 * 1024 * 1024
+REVISION_CACHE_KEEP = 6
+REVISION_CACHE_TTL = 24 * 3600
+REVISION_JOBS_LOCK = threading.RLock()
+REVISION_JOBS = {}                    # active jobs only; completed state lives in the bounded cache
+REVISION_SLOTS = threading.BoundedSemaphore(2)
+
+
+class RevisionSpec(NamedTuple):
+    repo: Path
+    source: str
+    main: Path
+    base: str
+    head: str
+    key: str
+
+
+def revision_spec(D: Doc, commit: str) -> RevisionSpec:
+    if not isinstance(commit, str) or not REVISION_ID_RE.fullmatch(commit):
+        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.")
+    scope = revision_scope(D)
+    if scope is None or commit not in {r["id"] for r in revision_history(D)["revisions"]}:
+        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.")
+    repo = scope[0]
+    try:
+        source = D.src.resolve().relative_to(repo).as_posix()
+        main = D.main.resolve().relative_to(D.src.resolve())
+    except ValueError:
+        raise HTTPError(400, "Git 저장소 안의 문서 빌드 루트가 필요합니다.")
+    rc, out, _ = _git(["rev-list", "--parents", "-n", "1", commit], repo)
+    parents = out.strip().split()
+    if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
+        raise HTTPError(422, "첫 커밋은 이전 원고가 없어 비교 PDF를 만들 수 없습니다.", reason="no_parent")
+    base = parents[1]
+    identity = [REVISION_CACHE_VERSION, str(repo), source, main.as_posix(), base, commit, "pdflatex"]
+    key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    return RevisionSpec(repo, source, main, base, commit, key)
+
+
+def revision_exec(cmd: list, cwd: Path, timeout: float, limit: int = 8 * 1024 * 1024):
+    """Bound both pipes and lifetime; kill the entire process group on every early exit."""
+    try:
+        proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError:
+        raise HTTPError(503, "비교 PDF 실행 도구를 시작하지 못했습니다.", reason="tool_unavailable")
+    buffers = {proc.stdout: bytearray(), proc.stderr: bytearray()}
+    size, deadline = 0, time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as sel:
+            for pipe in buffers:
+                sel.register(pipe, selectors.EVENT_READ)
+            while sel.get_map():
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise HTTPError(503, "비교 PDF 실행 시간이 초과됐습니다.", reason="timeout")
+                for key, _ in sel.select(min(left, 1)):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        sel.unregister(key.fileobj)
+                        continue
+                    size += len(chunk)
+                    if size > limit:
+                        raise HTTPError(422, "비교 입력 또는 실행 로그가 크기 제한을 넘었습니다.", reason="size_limit")
+                    buffers[key.fileobj].extend(chunk)
+            try:
+                rc = proc.wait(timeout=max(0.01, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                raise HTTPError(503, "비교 PDF 실행 시간이 초과됐습니다.", reason="timeout")
+        return rc, bytes(buffers[proc.stdout]), bytes(buffers[proc.stderr])
+    finally:
+        # Also remove descendants left behind by a command that has already exited.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        for pipe in buffers:
+            pipe.close()
+
+
+def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None:
+    prefix = "" if spec.source == "." else spec.source + "/"
+    cmd = ["git", "ls-tree", "-r", "-l", "-z", commit]
+    if prefix:
+        cmd += ["--", ":(literal)" + spec.source]
+    rc, tree, _ = revision_exec(cmd, spec.repo, 30, 2 * 1024 * 1024)
+    if rc != 0:
+        raise HTTPError(422, "Git 원고 사본을 읽지 못했습니다.", reason="snapshot_failed")
+    entries, total = [], 0
+    for row in tree.split(b"\0"):
+        if not row:
+            continue
+        try:
+            meta, rawname = row.split(b"\t", 1)
+            mode, kind, oid, size = meta.split()
+            name = rawname.decode("utf-8")
+            if not name.startswith(prefix):
+                raise ValueError()
+            name = name[len(prefix):]
+            path = Path(name)
+            if (mode not in (b"100644", b"100755") or kind != b"blob" or path.is_absolute()
+                    or not name or any(p in (".", "..", ".git") for p in name.split("/"))
+                    or "\\" in name or any(ord(c) < 32 for c in name)):
+                raise ValueError()
+            n = int(size)
+        except (ValueError, UnicodeError):
+            raise HTTPError(422, "사본에 허용되지 않는 경로·심링크·하위 저장소가 있습니다.", reason="unsafe_snapshot")
+        total += n
+        entries.append((path, oid.decode("ascii"), n))
+        if n > REVISION_FILE_MAX or total > REVISION_TREE_MAX or len(entries) > REVISION_FILES_MAX:
+            raise HTTPError(422, "원고 사본이 파일 수·크기 제한을 넘었습니다.", reason="size_limit")
+    dest.mkdir(parents=True)
+    deadline = time.monotonic() + 60
+    for path, oid, n in entries:
+        if time.monotonic() >= deadline:
+            raise HTTPError(503, "Git 사본 생성 시간이 초과됐습니다.", reason="timeout")
+        rc, data, _ = revision_exec(["git", "cat-file", "blob", oid], spec.repo,
+                                    min(15, max(.01, deadline - time.monotonic())), n + 4096)
+        if rc != 0 or len(data) != n:
+            raise HTTPError(422, "Git 원고 파일을 읽지 못했습니다.", reason="snapshot_failed")
+        target = dest / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    if not (dest / spec.main).is_file():
+        raise HTTPError(422, "해당 커밋에 현재 메인 원고 경로가 없습니다. 소스 변경사항을 확인하세요.", reason="missing_main")
+
+
+def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list) -> list:
+    """Only the TeX installation and throwaway snapshots are visible; no host home or network."""
+    if tool not in ("latexdiff", "latexmk"):
+        raise ValueError("unsupported revision tool")
+    bwrap, exe = shutil.which("bwrap"), shutil.which(tool)
+    if not bwrap or not exe:
+        raise HTTPError(503, "비교 PDF에는 bwrap, latexdiff, latexmk가 필요합니다.", reason="tool_unavailable")
+    exe = Path(exe).resolve()
+    if not exe.is_relative_to(Path("/usr")):
+        raise HTTPError(503, "비교 PDF 도구는 /usr 아래의 시스템 설치를 사용해야 합니다.", reason="tool_unavailable")
+    cmd = [bwrap, "--unshare-all", "--die-with-parent", "--clearenv"]
+    for path in ("/usr", "/bin", "/lib", "/lib64", "/etc/fonts", "/etc/texmf", "/var/lib/texmf", "/var/cache/fontconfig"):
+        if Path(path).exists():
+            cmd += ["--ro-bind", path, path]
+    cmd += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
+            "--bind", str(work), "/work", "--chdir", "/work/new/" + main_parent.as_posix()]
+    # latexmk invokes the engine by name; use the installation's public binary directory,
+    # not a symlink-resolved Perl script directory.
+    texbin = str(Path(shutil.which("latexmk") or "/usr/bin/latexmk").parent)
+    for key, value in {"PATH": texbin + ":/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8",
+                       "TEXMFVAR": "/tmp/texmf-var", "TEXMFCONFIG": "/tmp/texmf-config",
+                       "openin_any": "p", "openout_any": "p"}.items():
+        cmd += ["--setenv", key, value]
+    return cmd + ["--", str(exe)] + args
+
+
+def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> dict:
+    warnings = ["수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."]
+    with tempfile.TemporaryDirectory(prefix="work-", dir=jobdir) as tmp:
+        work = Path(tmp)
+        revision_snapshot(spec, spec.base, work / "old")
+        revision_snapshot(spec, spec.head, work / "new")
+        main = spec.main.as_posix()
+        args = ["--encoding=utf8", "--flatten", "--math-markup=off", "--add-to-config",
+                "ARRENV=tabularx;tabular;tabular[*]", "--label", spec.base[:8], "--label", spec.head[:8],
+                "/work/old/" + main, "/work/new/" + main]
+        rc, diff, err = revision_exec(revision_sandbox(work, spec.main.parent, "latexdiff", args), work, 60)
+        log = err.decode("utf-8", errors="replace")
+        if rc != 0 or b"\\begin{document}" not in diff or "Could not find" in log:
+            atomic_write(jobdir / "build.log", log[-8000:])
+            raise HTTPError(422, "latexdiff가 원고를 비교하지 못했습니다. 누락된 포함 파일 또는 실행 격리 설정을 확인하세요.", reason="diff_failed")
+        if not re.search(rb"\\DIF(?:add|del)(?:begin|\{)", diff.split(b"\\begin{document}", 1)[1]):
+            warnings.append("본문에 강조할 문장 차이가 없습니다. 서지·스타일 또는 주석만 바뀌었을 수 있습니다.")
+        out = work / "new" / spec.main.parent
+        # Tracked artifacts must never satisfy the fresh-PDF check or influence latexmk.
+        for stale in out.glob("pin_revision.*"):
+            if stale.is_file():
+                stale.unlink()
+        (out / "pin_revision.tex").write_bytes(diff)
+        args = ["-norc", "-pdf", "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "pin_revision.tex"]
+        rc, stdout, stderr = revision_exec(revision_sandbox(work, spec.main.parent, "latexmk", args), work, timeout)
+        log += (stdout + stderr).decode("utf-8", errors="replace")
+        atomic_write(jobdir / "build.log", log[-8000:])
+        pdf = out / "pin_revision.pdf"
+        if rc != 0 or not pdf.is_file() or pdf.stat().st_size > REVISION_PDF_MAX:
+            raise HTTPError(422, "비교 PDF 컴파일에 실패했습니다. 이 뷰어는 pdfLaTeX를 사용합니다. 소스 변경사항을 확인하세요.", reason="compile_failed")
+        if not pdf.read_bytes().startswith(b"%PDF-"):
+            raise HTTPError(422, "비교 PDF 결과가 올바르지 않습니다.", reason="invalid_pdf")
+        # Earlier latexmk passes normally contain unresolved citations. Report the final
+        # engine log only, otherwise a successful BibTeX pass looks like a broken PDF.
+        final_log = out / "pin_revision.log"
+        final_text = (final_log.read_text(encoding="utf-8", errors="replace")
+                      if final_log.is_file() and final_log.stat().st_size <= 8 * 1024 * 1024 else log)
+        warning_lines = [line.strip() for line in final_text.splitlines()
+                         if "Warning:" in line or "undefined" in line or "Missing character:" in line]
+        warnings += list(dict.fromkeys(warning_lines))[:12]
+        os.replace(pdf, jobdir / "revision.pdf")
+    return {"state": "ready", "warnings": warnings, "error": None, "reason": None}
+
+
+def _revision_cache_root(D: Doc) -> Path:
+    root = D.dir / "revisions"
+    if root.is_symlink():
+        raise HTTPError(503, "비교 캐시 경로가 올바르지 않습니다.", reason="unsafe_cache")
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _revision_cached(spec: RevisionSpec, root: Path) -> dict:
+    path = root / spec.key
+    identity = {"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}
+    try:
+        status = path / "status.json"
+        if path.is_symlink() or status.is_symlink() or status.stat().st_size > 32768:
+            raise ValueError()
+        data = json.loads(status.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("state") not in ("ready", "error") or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL:
+            raise ValueError()
+        if data["state"] == "ready":
+            pdf = path / "revision.pdf"
+            if pdf.is_symlink() or not 0 < pdf.stat().st_size <= REVISION_PDF_MAX:
+                raise ValueError()
+        return dict(data, **identity)
+    except (OSError, ValueError, TypeError):
+        return dict(identity, state="idle", warnings=[], error=None, reason=None)
+
+
+def _revision_prune(root: Path, keep_key: str) -> None:
+    entries = [p for p in root.iterdir() if re.fullmatch(r"[0-9a-f]{64}", p.name) and p.is_dir() and not p.is_symlink()]
+    entries.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    kept = 1
+    for path in entries:
+        if path.name == keep_key or str(path) in REVISION_JOBS:
+            continue
+        if kept >= REVISION_CACHE_KEEP or time.time() - path.stat().st_mtime > REVISION_CACHE_TTL:
+            shutil.rmtree(path)
+        else:
+            kept += 1
+
+
+def revision_status(D: Doc, commit: str) -> dict:
+    spec = revision_spec(D, commit)              # Reauthorize cache hits and poll requests too.
+    with REVISION_JOBS_LOCK:
+        root = _revision_cache_root(D)
+        active = REVISION_JOBS.get(str(root / spec.key))
+        return dict(active) if active else _revision_cached(spec, root)
+
+
+def revision_start(D: Doc, commit: str) -> dict:
+    spec = revision_spec(D, commit)
+    with REVISION_JOBS_LOCK:
+        root = _revision_cache_root(D)
+        jobdir, jobkey = root / spec.key, str(root / spec.key)
+        if jobkey in REVISION_JOBS:
+            return dict(REVISION_JOBS[jobkey])
+        cached = _revision_cached(spec, root)
+        if cached["state"] == "ready":
+            return cached
+        if not REVISION_SLOTS.acquire(blocking=False):
+            raise HTTPError(409, "다른 비교 PDF를 만드는 중입니다. 잠시 뒤 다시 시도하세요.", reason="busy")
+        try:
+            # A second server sharing a state directory must not prune or replace this job.
+            lock = (root / "build.lock").open("a")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                lock.close()
+                raise HTTPError(409, "이 문서의 비교 PDF를 만드는 중입니다.", reason="busy")
+            _revision_prune(root, spec.key)
+            if jobdir.is_symlink():
+                raise HTTPError(503, "비교 캐시 경로가 올바르지 않습니다.", reason="unsafe_cache")
+            if jobdir.exists():
+                shutil.rmtree(jobdir)
+            jobdir.mkdir()
+            running = dict(cached, state="running", error=None, reason=None, warnings=[])
+            REVISION_JOBS[jobkey] = running
+            timeout = min(180, max(1, C.timeout))
+        except BaseException:
+            if "lock" in locals() and not lock.closed:
+                lock.close()
+            REVISION_SLOTS.release()
+            raise
+
+        def worker():
+            try:
+                result = revision_compile(spec, jobdir, timeout)
+            except HTTPError as exc:
+                result = {"state": "error", "error": exc.body["error"], "reason": exc.body.get("reason", "build_failed"), "warnings": []}
+            except Exception:
+                traceback.print_exc()
+                result = {"state": "error", "error": "비교 PDF를 만들지 못했습니다.", "reason": "build_failed", "warnings": []}
+            try:
+                result = dict(running, **result)
+                atomic_write(jobdir / "status.json", json.dumps(result, ensure_ascii=False))
+            except OSError:
+                pass
+            finally:
+                with REVISION_JOBS_LOCK:
+                    REVISION_JOBS.pop(jobkey, None)
+                    lock.close()
+                    REVISION_SLOTS.release()
+
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except BaseException:
+            REVISION_JOBS.pop(jobkey, None)
+            lock.close()
+            REVISION_SLOTS.release()
+            raise
+        return dict(running)
+
+
+def revision_pdf(D: Doc, commit: str) -> bytes:
+    spec = revision_spec(D, commit)
+    with REVISION_JOBS_LOCK:
+        root = _revision_cache_root(D)
+        if _revision_cached(spec, root)["state"] != "ready":
+            raise HTTPError(404, "해당 비교 PDF가 아직 없거나 만료됐습니다.")
+        try:
+            return (root / spec.key / "revision.pdf").read_bytes()
+        except OSError:
+            raise HTTPError(404, "해당 비교 PDF가 없습니다.")
+
+
+# ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
+
+def _tex_group(text: str, pos: int):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text) or text[pos] != "{":
+        return None
+    start, depth = pos + 1, 1
+    pos += 1
+    while pos < len(text):
+        if text[pos] == "\\":
+            pos += 2
+            continue
+        if text[pos] == "{":
+            depth += 1
+        elif text[pos] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:pos], pos + 1
+        pos += 1
+    return None
+
+
+def _tex_plain(text: str, depth: int = 0) -> str:
+    """Conservative display conversion, never a TeX evaluator; unsupported macros omit a label."""
+    if depth > 12 or len(text) > 4000:
+        raise ValueError("complex title")
+    out, i = [], 0
+    wrappers = {"textbf", "textit", "texttt", "textrm", "textsf", "textsc", "emph", "mbox", "ensuremath", "mathrm", "mathbf"}
+    while i < len(text):
+        c = text[i]
+        if c == "{":
+            group = _tex_group(text, i)
+            if not group:
+                raise ValueError("unbalanced title")
+            value, i = group
+            out.append(_tex_plain(value, depth + 1))
+        elif c == "\\":
+            match = re.match(r"\\([A-Za-z@]+|.)", text[i:])
+            if not match:
+                raise ValueError("bad macro")
+            macro = match[1]
+            i += len(match[0])
+            if macro in ("protect", "relax", "ignorespaces"):
+                continue
+            if macro in ("&", "%", "#", "_", "$", "{", "}"):
+                out.append(macro)
+            elif macro in (" ", ",", ";", "quad", "qquad", "enspace"):
+                out.append(" ")
+            elif macro in wrappers or macro == "texorpdfstring":
+                first = _tex_group(text, i)
+                if not first:
+                    raise ValueError("missing macro group")
+                value, i = first
+                if macro == "texorpdfstring":
+                    second = _tex_group(text, i)
+                    if not second:
+                        raise ValueError("missing PDF title")
+                    value, i = second
+                out.append(_tex_plain(value, depth + 1))
+            else:
+                raise ValueError("unsupported title macro")
+        elif c in "$^_}":
+            raise ValueError("unsupported math title")
+        else:
+            out.append(" " if c == "~" else c)
+            i += 1
+    return " ".join("".join(out).replace("---", "—").replace("--", "–").split())
+
+
+def outline_labels(D: Doc) -> dict:
+    with using_doc(D):
+        pages = cur_pages()
+    result = {"build": pages.name, "labels": []}
+    if D.is_pdf:
+        return result
+    aux = pages / (D.main.stem + ".aux")
+    try:
+        if aux.is_symlink() or aux.stat().st_size > 4 * 1024 * 1024:
+            return result
+        source = aux.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return result
+    for match in re.finditer(r"\\@writefile\s*\{toc\}", source):
+        outer = _tex_group(source, match.end())
+        if not outer:
+            continue
+        line = outer[0]
+        marker = re.match(r"\s*\\contentsline\s*", line)
+        if not marker:
+            continue
+        groups, pos = [], marker.end()
+        for _ in range(4):
+            group = _tex_group(line, pos)
+            if not group:
+                break
+            value, pos = group
+            groups.append(value)
+        if len(groups) < 3 or groups[0] not in ("part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"):
+            continue
+        level, title, page = groups[:3]
+        number, anchor = "", groups[3] if len(groups) > 3 else ""
+        numberline = re.match(r"\s*(?:\\protect\s*)?\\numberline\s*", title)
+        if numberline:
+            group = _tex_group(title, numberline.end())
+            if not group:
+                continue
+            number, pos = group
+            title = title[pos:]
+        try:
+            row = {"number": _tex_plain(number), "title": _tex_plain(title), "page": _tex_plain(page),
+                   "level": level, "anchor": anchor[:200]}
+        except ValueError:
+            # Keep a placeholder so consumers cannot shift all subsequent numbers by index.
+            row = {"number": "", "title": "", "page": page[:40], "level": level, "anchor": anchor[:200]}
+        result["labels"].append(row)
+        if len(result["labels"]) >= 200:
+            break
+    return result
+
+
 def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
 
@@ -1196,7 +1649,11 @@ def _build() -> dict:
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
 
-    newdir, err = _render_pages(pdf, [syn])
+    extra = [syn]
+    aux = D.out / (D.main.stem + ".aux")
+    if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
+        extra.append(aux)
+    newdir, err = _render_pages(pdf, extra)
     if newdir is None:
         res["log"] = err + "\n" + tail
         res["elapsed_s"] = round(time.time() - t0, 1)
@@ -3552,6 +4009,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
 /* 테마와 무관한 척도: radius 3단(원형 점·아바타만 50%), 글자 5단, 간격 6단, 컨트롤 높이. 이름표 색(--brand)은 인스턴스마다
    서버가 채우고(--accent 인자) 테마가 바뀌어도 그대로다. */
 :root{--brand:__ACCENT__;--brand-foreground:#ffffff;
+  --outline-width:240px;
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
@@ -3561,6 +4019,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
   --font-mono:"JetBrains Mono",ui-monospace,monospace}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
 /* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
@@ -3568,39 +4027,73 @@ body{margin:0;background:var(--background);color:var(--foreground);font:var(--te
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
+#pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
 #doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:44px;padding:0 var(--space-4);
   background:var(--sidebar);border-bottom:1px solid var(--border);font-size:var(--text-base)}
 body:not(.lay-narrow) #doc-nav{display:flex}
 #doc-nav .nav-sp{flex:1}
+#paper-identity{display:inline-flex;align-items:center;gap:6px;flex:none;margin-right:var(--space-3);padding-right:var(--space-3);
+  border-right:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:600;white-space:nowrap}
+#paper-identity-mark{display:grid;place-items:center;width:15px;height:15px;border-radius:var(--radius-sm);background:var(--brand);
+  color:var(--brand-foreground);font-size:var(--text-xs);line-height:1;font-weight:700}
+body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
-body.docs-multi:not(.lay-narrow) #doc-select-wrap{display:flex}
+#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);margin-right:var(--space-3)}
+body.docs-multi:not(.lay-narrow) #doc-links{display:flex}
+#doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
+#doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
+#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#doc-links button:hover,#doc-links button:focus-visible{color:var(--foreground)}
+#doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:3px}
+#doc-links button[aria-current=page] .doc-link-count{color:var(--brand)}
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
 #doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:4px 20px 4px 2px}
-#view-switch{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius);background:var(--muted)}
-#view-switch button{border:0;background:transparent;color:var(--muted-foreground);padding:3px var(--space-3);font-size:var(--text-sm)}
-#view-switch button[aria-pressed=true]{background:var(--sidebar);color:var(--foreground);box-shadow:var(--shadow-sm)}
-#toc-toggle{font-size:var(--text-sm);color:var(--muted-foreground)}
-#toc-toggle[aria-pressed=true]{color:var(--foreground);background:var(--accent)}
-body.revision-open #toc-toggle{visibility:hidden}
-#outline{display:none;flex:none;width:210px;min-width:170px;max-width:30%;overflow:auto;padding:var(--space-4) var(--space-2);
-  background:var(--sidebar);border-right:1px solid var(--border);font-size:var(--text-sm)}
-body.outline-open:not(.lay-narrow):not(.revision-open) #outline{display:block}
-#outline .outline-title{font-weight:600;padding:0 var(--space-2) var(--space-2)}
+#view-switch{padding-left:0}
+body.docs-multi #view-switch{border-left:1px solid var(--border);padding-left:var(--space-3)}
+#view-switch{display:inline-flex;align-items:stretch;gap:var(--space-4);height:100%}
+#view-switch button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm)}
+#view-switch button[aria-pressed=true]{color:var(--foreground);font-weight:600}
+#view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#outline{display:block;flex:none;width:var(--outline-width);min-width:var(--outline-width);overflow:auto;padding:var(--space-3) var(--space-2);
+  background:var(--sidebar);font-size:var(--text-sm)}
+body.outline-collapsed #outline{display:none}
+body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,body.outline-collapsed .outline-title{display:none}
+.outline-head{display:flex;align-items:center;min-height:32px;gap:var(--space-2);padding:0 var(--space-2) var(--space-2)}
+#outline .outline-title{font-weight:600}
+#toc-toggle{margin-left:auto;padding:2px var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
+#nav-toc-toggle{display:none;flex:none;align-self:center;margin-right:var(--space-2);padding:3px 7px;color:var(--muted-foreground)}
+body.outline-collapsed:not(.lay-narrow) #nav-toc-toggle{display:inline-flex}
+#outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
 #outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
-#outline button{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--muted-foreground);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px var(--space-2);font-size:var(--text-sm)}
-#outline button:hover,#outline button:focus-visible{background:var(--accent);color:var(--foreground)}
-#revision-view{display:none;flex:1;min-width:0;overflow:auto;padding:var(--space-5) clamp(20px,5vw,72px);background:var(--background)}
+#outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-1);width:100%;text-align:left;
+  background:transparent;border:0;color:var(--muted-foreground);padding:6px var(--space-1);font-size:var(--text-sm)}
+#outline-items button .ol-name{overflow-wrap:anywhere}
+#outline-items button.ol-depth-0 .ol-name,#outline-items button.ol-depth-0 .ol-no{font-weight:600;color:var(--foreground)}
+#outline-items button .ol-page{color:var(--subtle-foreground);white-space:nowrap;font-size:var(--text-xs)}
+#outline-items button.ol-depth-1{padding-left:var(--space-4)}
+#outline-items button.ol-depth-2{padding-left:var(--space-5)}
+#outline-items button.ol-depth-3,#outline-items button.ol-depth-4{padding-left:var(--space-6)}
+#outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
+#outline-items button:hover,#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
+#outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
+#outline-grip::after{content:'';position:absolute;inset:0 -9px}
+#outline-grip:hover,#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
+body.outline-collapsed #outline-grip,body.lay-narrow #outline,body.lay-narrow #outline-grip{display:none}
+#section-strip{display:flex;align-items:center;gap:var(--space-2);height:38px;flex:none;padding:0 var(--space-4);background:var(--muted);
+  border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--muted-foreground)}
+#section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#section-page{margin-left:auto;white-space:nowrap}
+body.revision-open #section-strip{display:none}
+body.lay-narrow #section-strip{display:none}
+#revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
 body.revision-open:not(.lay-narrow) #revision-view{display:block}
 body.revision-open:not(.lay-narrow) #left{display:none}
-#revision-inner{max-width:1050px;margin:auto}
-#revision-inner h2{font-size:var(--text-xl);margin:0 0 var(--space-1)}
-#revision-inner p{color:var(--muted-foreground);font-size:var(--text-sm);margin:0 0 var(--space-4)}
-#revision-list{display:flex;gap:var(--space-2);overflow-x:auto;padding-bottom:var(--space-3)}
-#revision-list button{flex:none;max-width:260px;text-align:left;background:var(--sidebar);border:1px solid var(--border);padding:var(--space-2) var(--space-3)}
-#revision-list button[aria-pressed=true]{border-color:var(--primary)}
-#revision-list button span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#revision-list button small{color:var(--muted-foreground)}
+#revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
+#revision-head{display:flex;align-items:center;gap:var(--space-3);padding:9px var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
+#revision-list{min-width:0;flex:1}
+#revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
+#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:4px var(--space-4);background:var(--sidebar)}
 #revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
 #revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
@@ -3615,6 +4108,16 @@ body.revision-open:not(.lay-narrow) #left{display:none}
   color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
 #revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
+#revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:5px var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
+#revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:4px var(--space-4);background:var(--sidebar)}
+#revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}
+#revision-warning summary{cursor:pointer}
+#revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:4px 0}
+#revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);text-align:center}
+#revision-source{flex:1;min-height:0;overflow:auto}
+.revision-page{width:min(100%,780px);min-height:500px;margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
+.revision-page canvas{display:block;max-width:100%;margin:auto}
 /* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
    마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
@@ -4026,13 +4529,12 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div><span class="nav-sp"></span><button id="toc-toggle" data-act="outline" aria-pressed="false">목차</button></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-title">목차</div><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><h2>변경사항</h2><p>이 문서의 최근 Git 커밋에서 원고 파일에 생긴 변경입니다. 다른 작업 트리의 미커밋 수정은 포함되지 않습니다.</p><div id="revision-list"></div><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></section></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span><button id="toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="true" aria-label="목차 접기">접기</button></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
-    <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
     <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
@@ -4326,10 +4828,12 @@ function drawDocTabs(){
   const box=$('#doc-select');
   box.innerHTML=DOCS.map(d=>'<option value="'+esc(d.key)+'">'+esc(d.name)+(d.building?' · 빌드 중':d.stale_build?' · 원고 수정됨':'')+'</option>').join('');
   if(DOC)box.value=DOC;
+  $('#doc-links').innerHTML=DOCS.map(d=>'<button data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+d.n_pages+'쪽</span>':'')+'</button>').join('');
   const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:'문서';
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
   if($('#docs-menu').open)drawDocsMenu();}
-let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='';
+let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='',REVISION_COMMIT='',REVISION_SOURCE_COMMIT='',REVISION_FORMAT='pdf';
+const REV_PDF={doc:null,loading:null,observer:null,tasks:new Set()};
 function revisionFiles(patch){
   const starts=[];const re=/^diff --git .+$/gm;let m;
   while((m=re.exec(patch))!==null)starts.push({at:m.index,head:m[0]});
@@ -4356,34 +4860,102 @@ function renderRevisionDiff(patch){
 }
 function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);
   $('#revision-diff').innerHTML=renderRevisionDiff(v==='all'?REVISION_WHOLE:(REVISION_FILES[i]&&REVISION_FILES[i].text)||REVISION_WHOLE);}
+function revisionCurrent(seq,k,id){return seq===REVISION_SEQ&&k===DOC&&id===REVISION_COMMIT&&document.body.classList.contains('revision-open');}
+function clearRevisionPdf(){
+  if(REV_PDF.observer){REV_PDF.observer.disconnect();REV_PDF.observer=null;}
+  REV_PDF.tasks.forEach(t=>{try{t.cancel();}catch(e){}});REV_PDF.tasks.clear();
+  if(REV_PDF.loading){try{REV_PDF.loading.destroy();}catch(e){}REV_PDF.loading=null;}
+  REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
+}
+function setRevisionFormat(format){REVISION_FORMAT=format==='source'?'source':'pdf';
+  $('#revision-pdf-tab').setAttribute('aria-pressed',String(REVISION_FORMAT==='pdf'));
+  $('#revision-source-tab').setAttribute('aria-pressed',String(REVISION_FORMAT==='source'));
+  $('#revision-pdf').hidden=REVISION_FORMAT!=='pdf';$('#revision-source').hidden=REVISION_FORMAT!=='source';
+  if(REVISION_FORMAT==='source'&&REVISION_COMMIT&&REVISION_SOURCE_COMMIT!==REVISION_COMMIT)
+    loadRevisionSource(REVISION_COMMIT,REVISION_SEQ,DOC);
+}
 function setViewMode(mode){
   const revisions=mode==='revisions'; document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
-  if(revisions)loadRevisions(); else if(VEC.doc)vecSchedule(0);
+  if(revisions)loadRevisions(); else{++REVISION_SEQ;clearRevisionPdf();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
 }
 async function loadRevisions(){
   const seq=++REVISION_SEQ,k=DOC,list=$('#revision-list'),out=$('#revision-diff');
-  list.textContent='최근 변경사항을 읽는 중입니다.'; out.textContent='';
+  clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';
   let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
   catch(e){if(seq===REVISION_SEQ)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REVISION_SEQ||k!==DOC)return;
   if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';return;}
   if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.';return;}
-  list.innerHTML=data.revisions.map((r,i)=>'<button data-act="revision" data-commit="'+esc(r.id)+'" aria-pressed="'+(i===0)+'"><span>'+esc(r.subject)+'</span><small>'+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</small></button>').join('');
-  showRevision(data.revisions[0].id);
+  list.innerHTML='<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">'+data.revisions.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.subject)+' · '+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</option>').join('')+'</select>';
+  showRevision(data.revisions.some(r=>r.id===REVISION_COMMIT)?REVISION_COMMIT:data.revisions[0].id);
 }
 async function showRevision(id){
-  const seq=++REVISION_SEQ,k=DOC,out=$('#revision-diff');
-  $$('#revision-list button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.commit===id)));
-  out.textContent='변경 내용을 읽는 중입니다.'; $('#revision-file-row').hidden=true;
+  const seq=++REVISION_SEQ,k=DOC;REVISION_COMMIT=id;REVISION_SOURCE_COMMIT='';clearRevisionPdf();
+  const select=$('#revision-select');if(select)select.value=id;
+  $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
+  setRevisionFormat('pdf');$('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.';
+  loadRevisionPdf(id,seq,k);
+}
+async function loadRevisionSource(id,seq,k){
+  const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id),k),{what:'변경 내용 읽기',silent:true})).data;
-    if(seq!==REVISION_SEQ||k!==DOC)return;
+    if(!revisionCurrent(seq,k,id))return;
     REVISION_WHOLE=(r.diff||'이 커밋에서 표시할 원고 텍스트 변경이 없습니다.')+(r.truncated?'\n\n변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.':'');
     REVISION_FILES=revisionFiles(r.diff||'');
     const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REVISION_FILES.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
-    select.value='all'; $('#revision-file-row').hidden=REVISION_FILES.length<2;renderRevisionFile();
-  }catch(e){if(seq===REVISION_SEQ)out.textContent='변경 내용을 읽지 못했습니다.';}
+    select.value='all';$('#revision-file-row').hidden=REVISION_FILES.length<2;REVISION_SOURCE_COMMIT=id;renderRevisionFile();
+  }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
+}
+async function loadRevisionPdf(id,seq,k){
+  const statusBox=$('#revision-status'),warningBox=$('#revision-warning');
+  try{
+    let status=(await api('/api/revision-build',{method:'POST',body:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
+    for(let tries=0;status.state==='running'&&tries<180;tries++){
+      if(!revisionCurrent(seq,k,id))return;
+      statusBox.textContent='선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.';
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      if(!revisionCurrent(seq,k,id))return;
+      status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id),k),{what:'비교 PDF 상태',silent:true})).data;
+    }
+    if(!revisionCurrent(seq,k,id))return;
+    if(status.state!=='ready')throw new Error(status.error||(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
+    if(status.head&&status.head!==id)throw new Error('요청한 커밋과 비교 PDF의 커밋이 다릅니다.');
+    const warnings=Array.isArray(status.warnings)?status.warnings:[];
+    warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent='빌드 경고 '+warnings.length+'건 보기';
+    warningBox.querySelector('pre').textContent=warnings.join('\n');warningBox.open=false;
+    statusBox.textContent='비교 PDF를 읽는 중입니다.';
+    const response=await fetch(dq('/api/revision-pdf?commit='+encodeURIComponent(id),k));
+    if(!response.ok)throw new Error('비교 PDF를 열지 못했습니다 (HTTP '+response.status+').');
+    const bytes=new Uint8Array(await response.arrayBuffer());
+    if(!revisionCurrent(seq,k,id))return;
+    const lib=VEC.lib||await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V);
+    lib.GlobalWorkerOptions.workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V;
+    const loading=lib.getDocument({data:bytes,isEvalSupported:false,useWasm:false,enableXfa:false});REV_PDF.loading=loading;
+    const pdf=await loading.promise;
+    if(!revisionCurrent(seq,k,id)){try{loading.destroy();}catch(e){}return;}
+    REV_PDF.doc=pdf;
+    statusBox.textContent='첫 부모 '+String(status.base||'').slice(0,8)+' → '+id.slice(0,8)+' · '+pdf.numPages+'쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가';
+    const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="비교 PDF '+(i+1)+'쪽"></div>').join('');
+    if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
+      REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
+    }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>REV_PDF.observer.observe(el));}
+    else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
+  }catch(e){if(revisionCurrent(seq,k,id)){
+    statusBox.textContent='비교 PDF: '+(e&&e.message?e.message:'표시하지 못했습니다.')+' 소스 diff에서 변경 내용을 확인할 수 있습니다.';
+  }}
+}
+async function renderRevisionPage(el,pdf,seq,k,id){
+  if(el.dataset.state||!revisionCurrent(seq,k,id))return;el.dataset.state='loading';
+  try{const page=await pdf.getPage(Number(el.dataset.page));if(!revisionCurrent(seq,k,id))return;
+    const base=page.getViewport({scale:1}),cssWidth=Math.min(780,$('#revision-pdf').clientWidth-24),scale=Math.max(0.25,cssWidth/base.width);
+    const viewport=page.getViewport({scale}),dpr=Math.min(2,window.devicePixelRatio||1),canvas=document.createElement('canvas');
+    canvas.width=Math.ceil(viewport.width*dpr);canvas.height=Math.ceil(viewport.height*dpr);
+    canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';el.style.minHeight=viewport.height+'px';el.append(canvas);
+    const task=page.render({canvasContext:canvas.getContext('2d'),viewport,transform:[dpr,0,0,dpr,0,0]});REV_PDF.tasks.add(task);
+    try{await task.promise;el.dataset.state='ready';}finally{REV_PDF.tasks.delete(task);}
+  }catch(e){if(revisionCurrent(seq,k,id)){$('#revision-status').textContent='일부 비교 PDF 쪽을 그리지 못했습니다. 소스 diff를 확인할 수 있습니다.';el.dataset.state='error';}}
 }
 function drawDocsMenu(){
   $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
@@ -4448,7 +5020,7 @@ async function boot(){
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
-  drawMeta(); applySideWidth(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); await loadPins();
+  drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); await loadPins();
   restoreView(v); drawDocTabs();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;
@@ -4640,6 +5212,21 @@ function startBuildPolling(){
 // (pinPrefs.side = wide, pinPrefs.sideMid = mid) — 편 화면에서 맞춘 폭이 데스크톱 폭을 덮지 않게. 저장값이 지금 화면의
 // 한계를 넘으면(접기·펴기, 창 줄이기) 저장값은 두고 보이는 폭만 한계 안으로 맞춘다. 한계: 최소는 패널 도구 줄이
 // 한 줄에 들어가는 폭, 최대는 본문(PDF) 쪽 최소 폭을 남기는 폭.
+function outlineBounds(){const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
+function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
+  document.documentElement.style.setProperty('--outline-width',w+'px');
+  const g=$('#outline-grip');g.setAttribute('aria-valuemin',b.min);g.setAttribute('aria-valuemax',b.max);g.setAttribute('aria-valuenow',w);return w;}
+function applyOutlineState(){
+  const p=prefs(),closed=p.outlineClosed===true;
+  document.body.classList.toggle('outline-collapsed',closed);
+  const t=$('#toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
+  t.textContent='접기';
+  $('#nav-toc-toggle').setAttribute('aria-expanded',String(!closed));
+  if(LAYOUT!=='narrow')showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);
+}
+function setOutlineWidth(w){if(LAYOUT==='narrow')return;w=showOutlineWidth(w);savePrefs({outlineWidth:w});relayout();}
+function toggleOutline(){const closed=!document.body.classList.contains('outline-collapsed');
+  savePrefs({outlineClosed:closed});applyOutlineState();relayout();}
 function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(a,w)));
   if(layout==='mid'){const min=300,max=Math.max(min,Math.min(Math.round(iw*0.6),iw-320));
     const def=cl(iw*0.38,300,Math.min(360,max)); return {min,max,def,presets:[min,def,cl(iw*0.5,min,max)]};}
@@ -4789,9 +5376,54 @@ async function loadOutline(doc,gen){
     await walk(items,0);
   }catch(e){entries=[];}
   if(gen!==VEC.gen||doc!==VEC.doc)return;
-  if(!entries.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
-  box.className=''; box.innerHTML=entries.map(x=>'<button data-act="outline-page" data-page="'+x.page+'" title="'+esc(x.title)+'" style="padding-left:calc(var(--space-2) + '+Math.min(x.depth,4)+' * var(--space-4))">'+esc(x.title)+'</button>').join('');
+  if(entries.length){
+    const k=DOC,build=META&&META.pages_build;
+    try{const r=(await api(dq('/api/outline-labels',k),{what:'목차 번호 읽기',silent:true})).data;
+      if(gen===VEC.gen&&doc===VEC.doc&&k===DOC&&build===META.pages_build&&r.build===build)
+        entries=mergeOutlineLabels(entries,r.labels||[]);
+    }catch(e){} // PDF 자체 목차는 번호 서비스에 닿지 않아도 쓸 수 있다.
+  }
+  if(gen!==VEC.gen||doc!==VEC.doc)return;
+  OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;
+  renderOutline();updateSectionStrip();
 }
+function mergeOutlineLabels(entries,labels){
+  const norm=s=>String(s||'').normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
+  const levels=['section','subsection','subsubsection','paragraph','subparagraph'];
+  const depthGuard=labels.some(l=>l.level==='section'&&entries.some(e=>e.depth===0&&norm(e.title)===norm(l.title)));
+  let cursor=0;
+  return entries.map(entry=>{
+    const title=norm(entry.title);let matched=null;
+    if(title)for(let i=cursor;i<labels.length;i++){
+      const label=labels[i];if(norm(label.title)!==title)continue;
+      if(/^\d+$/.test(String(label.page||''))&&Number(label.page)!==entry.page)continue;
+      if(depthGuard&&levels.includes(label.level)&&levels.indexOf(label.level)!==entry.depth)continue;
+      matched=label;cursor=i+1;break;
+    }
+    return Object.assign({},entry,{number:matched?String(matched.number||''):'',
+      pageLabel:matched?String(matched.page||''):''});
+  });
+}
+let OUTLINE_ENTRIES=[],OUTLINE_SELECTED=-1,OUTLINE_ACTIVE_PAGE=0;
+function renderOutline(){
+  const box=$('#outline-items'),query=$('#outline-search').value.trim().toLowerCase();
+  if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
+  const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
+  if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
+  box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(x.pageLabel||String(x.page))+'쪽</span></button>').join('');
+}
+function updateSectionStrip(){
+  const anchor=topAnchor(),page=anchor?anchor.page:1;
+  if(page!==OUTLINE_ACTIVE_PAGE){
+    OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=-1;
+    for(let i=0;i<OUTLINE_ENTRIES.length;i++)if(OUTLINE_ENTRIES[i].page<=page)OUTLINE_SELECTED=i;
+    renderOutline();
+  }
+  const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:'원고';
+  $('#section-page').textContent=page+' / '+(META&&META.pages?META.pages.length:0)+'쪽';
+}
+$('#outline-search').addEventListener('input',renderOutline);
+$('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
 // 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
@@ -4950,7 +5582,7 @@ function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
   if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
-function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();}
+function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
 // 목록 구획 머리(sticky)가 붙을 높이. compact 에서는 #right 가 스크롤 상자이고 그 위에 도구 줄(#bar1, narrow 는 시트 손잡이 아래)이
 // 먼저 붙어 있으니 그 아래에 붙인다. wide 는 #list 자체가 스크롤 상자라 0 이다.
 function stickTop(){let t=0; const b=$('#bar1');
@@ -5014,6 +5646,19 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
   g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth),w=curSideW();
     const k={ArrowLeft:w+16,ArrowRight:w-16,Home:b.max,End:b.min}[e.key];
     if(k!==undefined){e.preventDefault(); setSideWidth(k);} else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSideWidth();}});
+})();
+// 목차 폭은 오른쪽 작업창 손잡이와 독립이다. 끄는 중에는 폭만 바꾸고 끝날 때 PDF 위치를 복원한다.
+(function(){const g=$('#outline-grip');let D=null;
+  g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||document.body.classList.contains('outline-collapsed')||(e.pointerType==='mouse'&&e.button!==0))return;
+    e.preventDefault();D={id:e.pointerId,x:e.clientX,w:Math.round($('#outline').getBoundingClientRect().width)};
+    try{g.setPointerCapture(e.pointerId);}catch(_){}g.classList.add('on');document.body.classList.add('resizing');});
+  g.addEventListener('pointermove',e=>{if(D&&e.pointerId===D.id)showOutlineWidth(D.w+e.clientX-D.x);});
+  const end=e=>{if(!D||e.pointerId!==D.id)return;D=null;g.classList.remove('on');document.body.classList.remove('resizing');
+    if(e.type==='pointercancel'){applyOutlineState();relayout();}else setOutlineWidth($('#outline').getBoundingClientRect().width);};
+  g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);
+  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return;const b=outlineBounds(),w=Math.round($('#outline').getBoundingClientRect().width);
+    const next={ArrowLeft:w-16,ArrowRight:w+16,Home:b.min,End:b.max}[e.key];
+    if(next!==undefined){e.preventDefault();setOutlineWidth(next);}});
 })();
 // 시트 높이 손잡이(narrow) — 위로 끌면 높아지고(접힌 시트는 펴진다), 화면 25% 아래로 내려놓으면 접힌다. 탭은 단계 순환.
 (function(){const g=$('#sheet-grip'); let D=null;
@@ -5706,9 +6351,10 @@ document.addEventListener('click',e=>{
     //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
-    case 'outline':document.body.classList.toggle('outline-open');a.setAttribute('aria-pressed',String(document.body.classList.contains('outline-open')));scheduleRelayout();break;
-    case 'outline-page':setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline':toggleOutline();break;
+    case 'outline-page':OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
+    case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
@@ -5723,6 +6369,7 @@ document.addEventListener('click',e=>{
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
+$('#revision-list').addEventListener('change',e=>{if(e.target.id==='revision-select')showRevision(e.target.value);});
 $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
@@ -5894,6 +6541,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(revision_history(cur_doc()))
         if path == "/api/revision-diff":
             return self._json(revision_diff(cur_doc(), (q.get("commit") or [""])[0]))
+        if path == "/api/outline-labels":
+            return self._json(outline_labels(cur_doc()))
+        if path == "/api/revision-build":
+            return self._json(revision_status(cur_doc(), (q.get("commit") or [""])[0]))
+        if path == "/api/revision-pdf":
+            return self._send(200, revision_pdf(cur_doc(), (q.get("commit") or [""])[0]), "application/pdf", cache="private, max-age=600")
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(diet_log(build_state_snapshot(), full))
@@ -5975,7 +6628,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path = u.path
         d = self._body()
-        if path in ("/api/pick", "/api/pin", "/api/rebuild"):
+        if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
             q = parse_qs(u.query)
             D = request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
             with using_doc(D):
@@ -6014,6 +6667,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/clear":
             clear_pins()
             return self._json({"ok": True})
+        if path == "/api/revision-build":
+            if set(d) - {"commit", "doc"}:
+                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
+            result = revision_start(cur_doc(), d.get("commit"))
+            return self._json(result, 202 if result["state"] == "running" else 200)
         if path == "/api/rebuild":
             if cur_doc().is_pdf:
                 raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."

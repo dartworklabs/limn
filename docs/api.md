@@ -22,6 +22,10 @@
 | `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` = 설정에 없는 문서 키의 열린 핀 수 |
 | `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
 | `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 최근 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일의 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID·보기 전용 PDF는 `404` |
+| `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux`의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page`는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux`가 없는 기존 빌드는 빈 배열, 지원하지 않는 복잡한 TeX 제목은 빈 number/title 자리표시자 |
+| `POST` | `/api/revision-build` | `{commit,doc?}`. 선택 커밋 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시는 `200 {state:"ready",…}`. `doc`은 쿼리도 지원. 다른 임의 필드는 `400` |
+| `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>` | 같은 상태 스키마를 조회한다. `state`는 `idle`(미실행·만료), `running`, `ready`, `error`. `error`는 설명, `reason`은 오류 분류. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
+| `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>` | 성공한 동일 비교의 PDF. 미완성·실패·만료는 `404`이며 현재 원고 PDF로 대체하지 않는다. 현재 페이지·SyncTeX·핀 좌표와 별개인 열람 전용 결과 |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. build-sync §자동 동기화 |
 | `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — build-sync §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 build-sync §에이전트 응답 다이어트를 따른다(`state=="ok"` 면 빠지고, 아니면 40줄, `?log=1` 이면 전체) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
@@ -44,6 +48,18 @@
 | `POST` | `/api/rebuild` | PDF 재빌드(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
 | `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기) — 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}`. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행 상황은 `GET /api/build` 를 폴링한다(build-sync §비동기 재빌드) |
 | `POST` | `/api/rebuild?log=1` / `GET /api/build?log=1` | build-sync §에이전트 응답 다이어트의 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
+
+## 비교 PDF 실행과 캐시
+
+비교는 선택 커밋의 **첫 부모 → 선택 커밋**이다. 합병 커밋도 첫 부모를 쓴다. 첫 커밋은 `422 reason:no_parent`다. Git 객체에서 빌드 루트의 두 스냅샷을 만들며 미커밋 수정은 포함하지 않는다. 과거 커밋에 현재 메인 경로가 없으면 `missing_main`으로 실패한다. 이름 변경 전 경로를 추측하지 않는다.
+
+Linux `bwrap`, `latexdiff`, `latexmk`가 필요하다. 실행 파일은 `/usr` 아래 시스템 설치만 허용한다. 홈·원본 저장소·네트워크를 노출하지 않는 bwrap 격리에서 `latexdiff --flatten --math-markup=off`와 `latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error`를 실행한다. 격리 실행이 불가능하면 실패하며 격리 없는 재시도는 하지 않는다. 현재 비교 엔진은 pdfLaTeX다. XeLaTeX/LuaLaTeX 전용 원고는 소스 변경사항으로 확인한다. kotex 등 원고 패키지를 임의로 제거하지 않는다.
+
+`input/include/subfile` 등은 각 Git 스냅샷에서 펼친다. 포함 파일이 없으면 비교 PDF를 성공 처리하지 않는다. 파일마다 64 MiB, 스냅샷마다 256 MiB·4,000개, PDF는 32 MiB로 제한한다. 심링크·gitlink·경로 이탈은 거부한다. 두 프로세스 파이프의 합은 기본 8 MiB까지 읽고, Git 사본은 각각 60초, latexdiff는 60초, latexmk는 서버 `--timeout`과 180초 중 작은 값으로 제한한다. 시간 초과·출력 초과 시 프로세스 그룹을 종료한다.
+
+비교 상태는 문서별 `<state>/revisions/`에 보존한다. 키에는 저장소·빌드 루트·메인 경로·두 전체 SHA·엔진·구현 버전이 포함된다. 성공 PDF와 상태를 완료 뒤 확정하고 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다. 프로세스 전체에서 최대 두 작업, 동일 문서 상태 폴더에서 최대 한 작업을 허용한다. 같은 작업의 중복 요청은 기존 상태를 반환하고 다른 작업으로 자리가 찼으면 `409 reason:busy`다. 문서별 캐시는 최대 여섯 비교, 24시간이며 다음 요청 때 정리한다. 도중 재시작한 작업은 다음 요청에서 다시 만든다. 실패한 작업은 POST로 재시도할 수 있다.
+
+경고는 실패와 구분한다. 삭제 문장이 옛 라벨을 참조해 `??`가 생길 수 있고, 수식 내부·같은 파일명의 그림 바이너리 변경은 강조되지 않을 수 있다. 서지·스타일·주석만 바뀐 경우 본문에 강조가 없을 수 있다. `warnings`를 표시하고 원래 소스 diff 경로를 함께 제공한다. 서버 파일의 `build.log`는 마지막 8,000자만 보존하며 HTTP 응답에는 로그 전체를 노출하지 않는다.
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
 
