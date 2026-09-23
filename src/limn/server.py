@@ -2690,23 +2690,27 @@ def _clear_claim(r: dict) -> None:
 
 
 def _claim_int(d: dict, key: str, lo: int, hi: int):
-    """본문의 선택 정수 하나. 없으면 None, 정수가 아니거나 범위 밖이면 400."""
+    """본문의 선택 정수 하나. 없으면 None. 정수가 아니거나 lo 보다 작으면 400, hi 를 넘으면 hi 로 깎는다.
+
+    깎는 쪽은 하위 호환이다 — 옛 절차대로 ttl_min=480 을 보내던 에이전트가 상한을 120 으로 낮춘 뒤 같은 값으로 연장하다
+    400 을 받아 작업이 깨지지 않게 한다. 실제로 적용한 값은 응답의 *_applied 로 돌려준다."""
     if key not in d:
         return None
     v = d[key]
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
         raise HTTPError(400, "%s 은 정수여야 합니다." % key)
     v = int(v)
-    if not (lo <= v <= hi):
-        raise HTTPError(400, "%s 은 %d..%d 사이여야 합니다." % (key, lo, hi))
-    return v
+    if v < lo:
+        raise HTTPError(400, "%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi))
+    return min(v, hi)
 
 
 def clean_claim_body(d: dict) -> tuple:
     """claim 본문 → (ttl_min, eta_min 또는 None). 둘 다 선택이다.
 
     eta_min(1..240)은 처리 예상 시간 — 뷰어에 '처리 중 · 약 15분 · 20:40쯤'으로 보인다. ttl_min(1..120)은 잠금 자동
-    해제까지의 시간(안전장치)이다. ttl_min 을 빼면 eta_min 이 있을 때 min(120, max(30, eta×2)), 없으면 120."""
+    해제까지의 시간(안전장치)이다. 상한을 넘는 값은 상한으로 깎는다(옛 ttl_min 480 호환). ttl_min 을 빼면 eta_min 이 있을 때
+    min(120, max(30, eta×2)), 없으면 120."""
     eta = _claim_int(d, "eta_min", CLAIM_ETA_MIN, CLAIM_ETA_MAX)
     ttl = _claim_int(d, "ttl_min", CLAIM_TTL_MIN, CLAIM_TTL_MAX)
     if ttl is None:
@@ -5533,8 +5537,12 @@ class Handler(BaseHTTPRequestHandler):
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
             if act == "claim":
-                pin = claim_pin(pid, actor, *clean_claim_body(d))
-                return self._json({"ok": pin is not None, "pin": pin})
+                ttl, eta = clean_claim_body(d)
+                pin = claim_pin(pid, actor, ttl, eta)
+                out = {"ok": pin is not None, "pin": pin, "ttl_min_applied": ttl}
+                if eta is not None:
+                    out["eta_min_applied"] = eta          # 상한(240)을 넘겨 보냈으면 깎인 값
+                return self._json(out)
             if act == "unclaim":
                 pin = unclaim_pin(pid, actor)
                 return self._json({"ok": pin is not None, "pin": pin})

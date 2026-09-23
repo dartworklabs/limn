@@ -121,7 +121,7 @@ slash_command: true
 | --- | --- |
 | `GET /pins.md` | 에이전트용 핀 표(원격 진입점) |
 | `GET /api/pins` | 열린 핀 JSON(`rev` 포함). `?all=1` 이면 닫힌 핀까지 |
-| `POST /api/pins/{id}/claim` | 처리 중 표시. 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(둘 다 선택) — 견적과 잠금 |
+| `POST /api/pins/{id}/claim` | 처리 중 표시. 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(둘 다 선택, 상한을 넘으면 깎는다) — 견적과 잠금 |
 | `POST /api/pins/{id}/unclaim` | 처리 중 표시를 푼다 |
 | `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref"}` |
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제) |

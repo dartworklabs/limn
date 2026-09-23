@@ -2095,13 +2095,15 @@ class Claim(Base):
         self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
-        for bad in (0, 121, 480, "120", 12.5, True, None):              # 상한은 120(예전 480)
+        for bad in (0, -1, "120", 12.5, True, None):                  # 형이 틀리거나 1 보다 작으면 400
             with self.assertRaises(ps.HTTPError):
                 ps.clean_claim_ttl({"ttl_min": bad})
         self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 120}), 120)
         self.assertEqual(ps.CLAIM_TTL_MAX, 120)
+        for over in (121, 480, 10_000):                                # 상한(120, 예전 480)을 넘으면 깎아서 받는다(하위 호환)
+            self.assertEqual(ps.clean_claim_ttl({"ttl_min": over}), 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
@@ -3794,12 +3796,16 @@ class ClaimEta(Base):
         for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
             self.assertEqual(ps.clean_claim_body({"eta_min": eta}), (ttl, eta), eta)
         self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # ttl 을 주면 그대로
-        for bad in (0, 241, "15", 1.5, True, None, -5):
+        for bad in (0, "15", 1.5, True, None, -5):
             with self.assertRaises(ps.HTTPError) as cm:
                 ps.clean_claim_body({"eta_min": bad})
             self.assertEqual(cm.exception.code, 400)
         with self.assertRaises(ps.HTTPError):
-            ps.clean_claim_body({"eta_min": 15, "ttl_min": 121})
+            ps.clean_claim_body({"eta_min": 15, "ttl_min": 0})
+        # 상한을 넘으면 400 이 아니라 깎는다 — 옛 절차(ttl_min 480)로 잡아 둔 에이전트가 연장하다 깨지지 않게
+        self.assertEqual(ps.clean_claim_body({"eta_min": 241}), (120, 240))
+        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
+        self.assertEqual(ps.clean_claim_body({"ttl_min": 480}), (120, None))
 
     def test_claim_stores_eta_and_start(self):
         pid = self.add()
@@ -3867,9 +3873,30 @@ class ClaimEta(Base):
         self.assertEqual(code, 200)
         pin = json.loads(body)["pin"]
         self.assertAlmostEqual(pin["eta_ts"] - pin["claim_ts"], 900, delta=2)
-        for bad in ({"eta_min": 0}, {"eta_min": 241}, {"eta_min": "15"}, {"ttl_min": 480}):
+        self.assertEqual(json.loads(body)["ttl_min_applied"], 30)
+        self.assertEqual(json.loads(body)["eta_min_applied"], 15)
+        for bad in ({"eta_min": 0}, {"eta_min": "15"}, {"ttl_min": 0}, {"ttl_min": "480"}):
             out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps(bad).encode(), hj))
             self.assertEqual(split_resp(out)[0], 400, bad)
+
+    def test_http_claim_clamps_over_limit_values_for_old_agents(self):
+        # 옛 스킬 절차대로 ttl_min=480 으로 잡아 둔 에이전트가 같은 값으로 연장해도 깨지지 않는다(200, 120 으로 적용).
+        pid = self.add()
+        hj = {"Content-Type": "application/json"}
+        t0 = time.time()
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)
+        got = json.loads(body)
+        self.assertEqual(got["ttl_min_applied"], 120)
+        self.assertNotIn("eta_min_applied", got)
+        self.assertAlmostEqual(got["pin"]["claim_until"], t0 + 120 * 60, delta=5)
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480, "eta_min": 300}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)                                     # 같은 신원(헤더 없음 = 로컬/에이전트)의 연장
+        got = json.loads(body)
+        self.assertEqual((got["ttl_min_applied"], got["eta_min_applied"]), (120, 240))
+        self.assertAlmostEqual(got["pin"]["eta_ts"], time.time() + 240 * 60, delta=5)
 
     def test_pins_payload_fills_start_for_legacy_claims(self):
         pid = self.add()

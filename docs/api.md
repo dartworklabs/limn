@@ -36,7 +36,7 @@
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref` 가 있었으면 지운다(다시 닫을 때 새로 남긴다) → `{ok, pin}` |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
-| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(범위 밖·정수 아니면 `400`) → `{ok, pin}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
+| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(정수가 아니거나 1 보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다) → `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다 — 요청자 신원과 무관하다(권한 제한 없음, 귀속만 기록하는 신뢰 모델). → `{ok, pin}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다. **에이전트는 쓰지 않는다** |
 | `POST` | `/api/rebuild` | PDF 재빌드(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
@@ -92,7 +92,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: appli
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 ```
 
-- 선택 본문 두 칸. 범위 밖이거나 정수가 아니면 `400` 이고 아무것도 바뀌지 않는다.
+- 선택 본문 두 칸. 정수가 아니거나 1 보다 작으면 `400` 이고 아무것도 바뀌지 않는다. **상한을 넘는 값은 거부하지 않고 상한으로 깎는다**(`ttl_min` 480 → 120, `eta_min` 300 → 240) — 옛 절차대로 `ttl_min` 480 으로 잡아 둔 에이전트가 같은 값으로 연장하다 `400` 을 받아 작업이 깨지지 않게 하려는 하위 호환이다. 응답의 `ttl_min_applied`(늘)·`eta_min_applied`(`eta_min` 을 보냈을 때)가 실제로 적용한 값이다.
 
   | 칸 | 범위 | 뜻 |
   | --- | --- | --- |
