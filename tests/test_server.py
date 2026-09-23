@@ -2983,6 +2983,103 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
 
+
+# ---------------------------------------------------------------- 디자인 토큰 가드(references/design.md §디자인 토큰)
+# 색·radius·글자 크기가 규칙마다 제각각이던 것(색 리터럴 54가지, radius 14가지, 글자 12가지)을 토큰 층으로 모았다.
+# 앞으로 규칙에 리터럴을 다시 박으면 여기서 막는다. 예외는 아래 허용 목록 하나이고, 늘리면 design.md 의 표도 함께 고친다.
+TOKEN_SELECTORS = (":root", ":root[data-theme=light]")            # 색 리터럴이 살 수 있는 유일한 곳
+COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|"
+                      r"\b(?:white|black|red|green|blue|gray|grey|yellow|orange|purple|pink|silver)\b", re.I)
+RADIUS_OK = re.compile(r"^(?:var\(--radius(?:-sm|-lg)?\)|0|50%)$")
+INLINE_STYLE_OK = {"background:__ACCENT__"}                         # 인스턴스 이름표 색 — 서버가 --accent 값으로 채운다
+
+
+def css_rules():
+    """<style> 안의 (선택자, [(속성, 값)]) 목록. 주석을 빼고 @media 안 규칙도 평평하게 편다."""
+    css = ps.HTML[ps.HTML.index("<style>") + len("<style>"):ps.HTML.index("</style>")]
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    out = []
+    for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", css):
+        sel = m.group(1).strip()
+        decls = []
+        for d in m.group(2).split(";"):
+            if ":" in d:
+                k, v = d.split(":", 1)
+                decls.append((k.strip(), v.strip()))
+        out.append((sel, decls))
+    return out
+
+
+class FrontendDesignTokens(unittest.TestCase):
+    def test_colour_literals_only_in_token_blocks(self):
+        bad = []
+        for sel, decls in css_rules():
+            for k, v in decls:
+                if sel in TOKEN_SELECTORS and k.startswith("--"):
+                    continue                                          # 토큰 정의
+                if COLOR_RE.search(v):
+                    bad.append("%s { %s:%s }" % (sel, k, v))
+        self.assertEqual(bad, [])
+
+    def test_both_themes_define_every_colour_token(self):
+        blocks = {sel: dict(decls) for sel, decls in css_rules() if sel in TOKEN_SELECTORS and any(k == "color-scheme" for k, _ in decls)}
+        dark, light = blocks[":root"], blocks[":root[data-theme=light]"]
+        lit = lambda b: {k for k, v in b.items() if k.startswith("--") and COLOR_RE.search(v)}
+        self.assertEqual(lit(dark) - set(light), set())               # 다크 색이 라이트로 새어 들지 않는다
+        self.assertEqual(set(light) - set(dark), set())               # 라이트는 다크에 있는 토큰만 덮는다
+        for k in ("--background", "--foreground", "--card", "--card-foreground", "--muted", "--muted-foreground",
+                  "--border", "--input", "--ring", "--primary", "--primary-foreground", "--secondary",
+                  "--secondary-foreground", "--destructive", "--destructive-foreground", "--status-open",
+                  "--status-claimed", "--status-closed", "--status-dropped", "--status-warning"):
+            self.assertIn(k, dark)
+
+    def test_radius_uses_scale_only(self):
+        bad = []
+        for sel, decls in css_rules():
+            for k, v in decls:
+                if re.fullmatch(r"border(?:-[a-z]+)*-radius", k) and not all(RADIUS_OK.match(t) for t in v.split()):
+                    bad.append("%s { %s:%s }" % (sel, k, v))
+        self.assertEqual(bad, [])
+        defs = {k: v for sel, decls in css_rules() if sel == ":root" for k, v in decls}
+        self.assertEqual([defs["--radius-sm"], defs["--radius"], defs["--radius-lg"]], ["4px", "6px", "10px"])
+
+    def test_font_size_uses_text_scale_only(self):
+        bad = []
+        for sel, decls in css_rules():
+            for k, v in decls:
+                if k == "font-size" and not re.fullmatch(r"var\(--text-(?:xs|sm|base|lg|xl)\)|inherit", v):
+                    bad.append("%s { %s:%s }" % (sel, k, v))
+                if k == "font" and v != "inherit" and not v.startswith("var(--text-"):
+                    bad.append("%s { %s:%s }" % (sel, k, v))
+        self.assertEqual(bad, [])
+        defs = {k: v for sel, decls in css_rules() if sel == ":root" for k, v in decls}
+        self.assertEqual([defs["--text-" + n] for n in ("xs", "sm", "base", "lg", "xl")], ["11px", "12px", "13px", "14px", "16px"])
+
+    def test_inline_styles_and_scripts_carry_no_design_literals(self):
+        body = ps.HTML[ps.HTML.index("</style>"):]
+        for st in re.findall(r'style="([^"]*)"', body):
+            self.assertTrue(st in INLINE_STYLE_OK or not (COLOR_RE.search(st) or re.search(r"font-size|radius", st)), st)
+        # JS 가 요소 스타일에 색·글자 크기를 직접 쓰지 않는다(값은 폭·높이·좌표·토큰 변수뿐)
+        self.assertEqual(re.findall(r"\.style\.(?:color|background\w*|fontSize|borderRadius|borderColor)\s*=", body), [])
+        self.assertIsNone(re.search(r"['\"]#[0-9a-fA-F]{3,8}['\"]", body))
+
+    def test_every_var_is_defined(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))    # JS 가 재서 넣는 값(--kb·--side-w 등)
+        used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
+        defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
+        self.assertEqual(used - defined - runtime, set())             # 이름을 바꾸다 남은 옛 토큰(--acc, --dim …)이 없다
+
+    def test_component_variants_exist(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        for cls in ("button.btn-default{", "button.btn-secondary{", "button.btn-ghost{", "button.btn-destructive{",
+                    "button.btn-sm{", "button.btn-icon{", ".badge{", ".badge-default{", ".badge-secondary{",
+                    ".badge-destructive{", ".badge-claimed{", ".badge-warning{", ".card{"):
+            self.assertIn(cls, css)
+        for old in ("button.p{", "button.x{", "button.ghost{", "button.ib{", "button.ico{", ".tag{", ".tag.t{"):
+            self.assertNotIn(old, css)                                # 옛 표시 전용 클래스는 없앴다
+
 if __name__ == "__main__":
     unittest.main()
 

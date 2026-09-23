@@ -3475,7 +3475,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 /* 동작 줄은 패널 바닥에 고정한다(목록을 스크롤해도, 가상 키보드가 올라와도 보인다). 작성 패널이 닫히면 함께 숨는다. */
 #c-actions{flex:none;display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--border);background:var(--sidebar);z-index:3}
 #composer[hidden]~#c-actions{display:none}
-#c-actions button{min-height:36px;font-size:var(--text-base)}
+#c-actions button{min-height:var(--control-h-lg);font-size:var(--text-base)}
 #composer:not([hidden])~#list #empty{display:none}   /* 고르는 중에는 첫 화면 안내 문단을 숨긴다 */
 .loc{font-family:var(--font-mono);color:var(--primary);font-size:var(--text-base);cursor:copy;overflow-wrap:anywhere}
 .dim{color:var(--muted-foreground);font-size:var(--text-sm)}
@@ -3562,19 +3562,19 @@ button.arc-orig-t{flex:none;background:transparent;border-color:transparent;colo
 .arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
 h3{margin:0 0 7px;font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
-kbd{background:var(--secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 5px;font-size:var(--text-xs)}
+kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 5px;font-size:var(--text-xs)}
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
 #toasts{position:fixed;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:50;max-width:min(480px,60vw)}
-.toast{display:flex;align-items:center;gap:var(--space-2);background:var(--sidebar);color:var(--foreground);border:1px solid var(--border-strong);
+.toast{display:flex;align-items:center;gap:var(--space-2);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);
   border-left:4px solid var(--success);border-radius:var(--radius);padding:7px var(--space-2) 7px 10px;box-shadow:var(--shadow);font-size:var(--text-base)}
 .toast span{flex:1;min-width:0;overflow-wrap:anywhere}
 .toast.warn{border-left-color:var(--warning)}
 .toast.err{border-left-color:var(--destructive)}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:6px 9px;border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
-dialog{background:var(--sidebar);color:var(--foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);max-width:680px;
+dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);max-width:680px;
   width:92vw;padding:var(--space-4) 22px;max-height:88vh}
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 8px}
