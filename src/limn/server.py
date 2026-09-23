@@ -5349,7 +5349,10 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'doc':switchDoc(a.dataset.doc);if(a.closest('#docs-menu'))$('#docs-menu').close();break;
+    case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
+    // ^ inMenu 는 switchDoc() 호출 전에 정한다 — 캐시된 문서는 switchDoc 이 동기로 drawDocTabs 까지 끝내고,
+    //   그 안에서 열린 #docs-menu 를 다시 그려(drawDocsMenu) a 를 DOM 에서 떼어낸다. switchDoc 이후에
+    //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;

@@ -1951,6 +1951,32 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("function hideBuildErr()", ps.HTML)
         self.assertIn("case 'err-close':hideBuildErr()", ps.HTML)
 
+    def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
+        # 회귀: switchDoc() 이 캐시된 문서에서 동기로 drawDocTabs→drawDocsMenu 까지 돌면 열린 #docs-menu 를
+        # 다시 그려 클릭된 <a> 를 DOM 에서 떼어낸다. switchDoc() 호출 뒤에 a.closest() 를 부르면 null 이
+        # 나와 메뉴가 열린 채 남는다 — inMenu 는 반드시 switchDoc() 호출 '전'에 정해야 한다.
+        m = re.search(r"case 'doc':\{(.*?)\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        js = ("""
+            (async()=>{
+              const out={};
+              const docsMenu={closed:false,close(){this.closed=true;}};
+              function $(sel){return sel==='#docs-menu'?docsMenu:{};}
+              let detached=false;
+              function switchDoc(k){detached=true;}   // 캐시된 문서: 동기로 끝나며 a 를 떼어낸 것을 흉내
+              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#docs-menu')?{}:null;}};
+              switch('doc'){case 'doc':{%s}}
+              out.closed=docsMenu.closed;
+              console.log(JSON.stringify(out));
+            })();
+            """ % body)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertTrue(data["closed"], "캐시된 문서를 골라도 #docs-menu 가 닫혀야 한다")
+
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1)
