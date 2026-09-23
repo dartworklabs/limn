@@ -50,6 +50,12 @@ def extract_js_fn(name: str) -> str:
     return src[i:k + 1]
 
 
+def js_icons() -> str:
+    """뷰어의 Lucide 아이콘 표(ICONS)와 ic() — card()·archiveRow() 처럼 아이콘을 그리는 함수를 node 로 돌릴 때 함께 싣는다."""
+    m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
+    return m.group(0) + "\n" + extract_js_fn("ic")
+
+
 def run_node(js: str, tz: str = None):
     """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
 
@@ -2533,7 +2539,7 @@ class FrontendMobileStructure(unittest.TestCase):
         for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
                          ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
-            self.assertIn('class="sec"', tag)
+            self.assertRegex(tag, r'class="sec( ib)?"')
             more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
@@ -2817,7 +2823,7 @@ class FrontendMobileLogic(unittest.TestCase):
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             """,
             extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
-            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"), js_icons(),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -3622,3 +3628,69 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body.doc=d.doc||DOC||undefined;", body)
         self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
         self.assertIn("#composer.region #c-levels", ps.HTML)
+
+
+# ---------------------------------------------------------------- 아이콘: Lucide 만, 이모지·기호 글자 없음
+# 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 보기 흉했다(저자 지적 2026-09-23). 아이콘은
+# Lucide(vendor/lucide/README.md)의 SVG 요소만 인라인으로 쓴다. 산문 속 화살표(→)와 키 이름(⌘)은 글자로 남긴다.
+ICON_GLYPHS = re.compile("[⏳⌛▲-◃◐-◓☀☼☾✓✔✎✏⚠"
+                         "⧉⋯＋×↵⊂∩★☆●○"
+                         "\U0001F000-\U0001FFFF✀-➿️]")
+
+
+def html_without_comments(h: str) -> str:
+    h = re.sub(r"/\*.*?\*/", "", h, flags=re.S)
+    return "\n".join(l for l in h.split("\n") if not l.strip().startswith("//"))
+
+
+class FrontendIcons(unittest.TestCase):
+    VENDOR = HERE.parent / "vendor" / "lucide"
+
+    def test_vendor_license_and_readme_record_version_and_icons(self):
+        lic = (self.VENDOR / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("ISC License", lic)
+        self.assertIn("Lucide Icons and Contributors", lic)
+        readme = (self.VENDOR / "README.md").read_text(encoding="utf-8")
+        self.assertIn("lucide-static@%s" % ps.LUCIDE_VERSION, readme)
+        table = readme[readme.index("## 쓰는 아이콘"):readme.index("## 갱신")]
+        names = set()
+        for row in re.findall(r"^\| (`[^|]+) \|", table, flags=re.M):
+            names |= set(re.findall(r"`([a-z0-9-]+)`", row))
+        self.assertEqual(names, set(ps.LUCIDE))
+
+    def test_icon_markup_is_plain_svg_elements(self):
+        for name, body in ps.LUCIDE.items():
+            els = re.findall(r"<[^>]+>", body)
+            self.assertTrue(els, name)
+            for el in els:
+                self.assertRegex(el, r'^<(path|circle|rect|line|polyline|polygon|ellipse)( [a-z-]+="[^"<>]*")+/>$', name)
+        svg = ps.icon_svg("check")
+        for attr in ('viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'stroke-width="2"', 'aria-hidden="true"'):
+            self.assertIn(attr, svg)
+
+    def test_every_used_icon_exists_and_every_icon_is_used(self):
+        h = ps.HTML
+        self.assertNotIn("{{ic:", h)
+        self.assertNotIn("__LUCIDE_JSON__", h)
+        used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
+        used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
+        used |= set(re.findall(r"THEME_ICON=\{system:'([a-z-]+)',light:'([a-z-]+)',dark:'([a-z-]+)'\}", h)[0])
+        self.assertEqual(used - set(ps.LUCIDE), set())
+        self.assertEqual(set(ps.LUCIDE) - used, set())
+
+    def test_no_emoji_or_symbol_glyph_icons_in_viewer(self):
+        found = sorted(set(ICON_GLYPHS.findall(html_without_comments(ps.HTML))))
+        self.assertEqual(found, [])
+
+    def test_js_ic_matches_server_icon_svg(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = js_icons() + "\nconsole.log(JSON.stringify(['check','clock','x'].map(ic).concat([ic('nope')])));"
+        self.assertEqual(json.loads(run_node(js)), [ps.icon_svg("check"), ps.icon_svg("clock"), ps.icon_svg("x"), ""])
+
+    def test_toolbar_icon_buttons_keep_accessible_names(self):
+        for bid, label in (("btn-zoom-out", "축소"), ("btn-zoom-in", "확대"), ("btn-help", "도움말"), ("btn-more", "더보기"),
+                           ("c-copy", "위치 복사")):
+            tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, ps.HTML).group(0)
+            self.assertIn('aria-label="%s"' % label, tag)
+        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", ps.HTML)

@@ -54,6 +54,50 @@ PDFJS_VERSION = "6.3.289"
 VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
 VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 
+# 뷰어 아이콘 — Lucide(ISC, vendor/lucide/README.md). 쓰는 아이콘의 <svg> 안 요소만 npm 의 lucide-static 원본
+# 그대로 옮겼다(공백만 줄임). 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 쓰지 않는다.
+LUCIDE_VERSION = "1.47.0"
+LUCIDE = {
+    "check": '<path d="M20 6 9 17l-5-5"/>',
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "chevron-left": '<path d="m15 18-6-6 6-6"/>',
+    "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+    "chevron-up": '<path d="m18 15-6-6-6 6"/>',
+    "circle-question-mark": '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'
+                            '<path d="M12 17h.01"/>',
+    "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    "copy": '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
+            '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    "ellipsis": '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    "minus": '<path d="M5 12h14"/>',
+    "moon": '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268'
+            'c.344-.215.825-.004.803.401"/>',
+    "move-vertical": '<path d="M12 2v20"/><path d="m8 18 4 4 4-4"/><path d="m8 6 4-4 4 4"/>',
+    "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 '
+              '.623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+    "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>'
+           '<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/>'
+           '<path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    "sun-moon": '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 '
+                '5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/>'
+                '<path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
+    "trash-2": '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
+               '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'
+                      '<path d="M12 9v4"/><path d="M12 17h.01"/>',
+    "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+}
+ICON_TOKEN_RE = re.compile(r"\{\{ic:([a-z0-9-]+)\}\}")
+
+
+def icon_svg(name: str) -> str:
+    """Lucide 아이콘 하나를 인라인 <svg> 로. 원본 속성 그대로이고 크기는 CSS(.ic)가 정한다.
+    뷰어 JS 의 ic() 와 같은 모양을 낸다(회귀 테스트가 대조)."""
+    return ('<svg class="ic ic-%s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%s</svg>'
+            % (name, LUCIDE[name]))
+
 MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
@@ -3208,7 +3252,11 @@ body.resizing #left{pointer-events:none}
 #bar1 button{padding:4px 8px;white-space:nowrap}
 #bar1 input.n{width:44px;flex:none}
 button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
-  cursor:pointer;font:inherit;font-size:12.5px;line-height:1.4}
+  cursor:pointer;font:inherit;font-size:12.5px;line-height:1.4;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+/* 아이콘(Lucide, vendor/lucide/README.md): 글자색을 따르는 선 아이콘. 버튼 안에서는 글자 옆에 4px 틈으로 붙는다. */
+.ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
+button.ib{padding:0;width:28px;min-width:28px}
+.kh{font-weight:400;opacity:.8;font-size:11.5px}
 button:hover{background:var(--btn-h)}
 button:disabled{opacity:.65;cursor:default}
 button.p{background:var(--acc);color:var(--on-acc);border-color:var(--acc);font-weight:600}
@@ -3262,8 +3310,12 @@ pre.nowrap{white-space:pre}
 button.ico{flex:none;width:30px;min-width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .c-tools{display:flex;align-items:center;gap:8px;margin:0 0 8px}
 .step{display:inline-flex;flex:none;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.step button{border:0;border-radius:0;min-width:34px;padding:3px 8px}
+.step{align-items:stretch}
+.step button{border:0;border-radius:0;min-width:30px;padding:3px 6px}
 .step button+button{border-left:1px solid var(--line)}
+.step .sl{display:inline-flex;align-items:center;padding:0 6px;font-size:11.5px;color:var(--dim);background:var(--input)}
+.step .sl+button{border-left:1px solid var(--line)}
+.step button+.sl{border-left:1px solid var(--line)}
 button.tg[aria-pressed=false]{color:var(--dim)}
 button.tg[aria-pressed=true]{border-color:var(--line-strong)}
 #c-snip,.e-snip{margin:0}
@@ -3333,7 +3385,9 @@ button.b-drop:hover{background:var(--danger-soft)}
 h3{margin:0 0 7px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--dim);font-size:13px;text-align:center;line-height:1.85}
 kbd{background:var(--btn);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
-.tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line-strong);color:var(--dim)}
+.tag{font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line-strong);color:var(--dim);
+  display:inline-flex;align-items:center;gap:3px}
+.tag .ic{width:12px;height:12px}
 .tag.t{border-color:var(--warn);color:var(--warn)}
 button.tag{background:none;cursor:pointer;font:inherit}
 .spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;
@@ -3382,7 +3436,7 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
 #more .size-row{display:flex;align-items:center;gap:8px}
 #more .size-row .seg{flex:1;margin:0}
 @media (pointer:coarse){
-  button.tch{display:inline-block}
+  button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:8px 12px;font-size:14px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
@@ -3396,7 +3450,7 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   .mark b{width:26px;height:26px;left:-28px;font-size:12.5px}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
-  button.ico,.step button{width:44px;min-width:44px}
+  button.ico,.step button,button.ib{width:44px;min-width:44px}
   #c-actions button{min-height:48px;font-size:15px}
   .pin .acts button{min-height:44px}
   #grip::after{left:-9px;right:-9px}
@@ -3407,7 +3461,7 @@ body.lay-mid #grip{width:8px;background:var(--pane);border-left:1px solid var(--
 body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:2px;
   background:var(--line-strong);transform:translate(-50%,-50%)}
 body.lay-mid #grip.on::before{background:var(--acc)}
-body.compact button.cmp{display:inline-block}
+body.compact button.cmp{display:inline-flex}
 body.compact .sec{display:none}
 body.compact #left{padding:12px max(10px,env(safe-area-inset-right)) 60vh max(30px,env(safe-area-inset-left));min-width:0}
 body.compact #main{min-width:0}
@@ -3512,19 +3566,19 @@ body.view-only #btn-rebuild{display:none}
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="이 창이 다루는 논문 — 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
-    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span><span aria-hidden="true">▾</span></button>
-    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
+    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
+    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
     <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
-    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">−</button>
-    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">＋</button>
+    <button id="btn-zoom-out" class="sec ib" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
+    <button id="btn-zoom-in" class="sec ib" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">{{ic:plus}}</button>
     <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">폭</button>
-    <button id="btn-theme" class="sec" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
-    <button id="btn-help" class="sec" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
-    <button id="btn-more" class="cmp" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">⋯</button>
+    <button id="btn-theme" class="sec ib" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">{{ic:sun-moon}}</button>
+    <button id="btn-help" class="sec ib" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
+    <button id="btn-more" class="cmp ib" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">{{ic:ellipsis}}</button>
   </div>
   <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
     <span id="vec-chip" class="tag t" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
@@ -3539,14 +3593,14 @@ body.view-only #btn-rebuild{display:none}
       <div class="c-loc-row">
         <div class="c-loc-main"><span id="c-loc" class="loc" tabindex="0" data-tip="핀에 저장될 원문 위치입니다. 에이전트는 이 줄을 직접 열어 고칩니다. 누르면 복사"></span>
           <span id="c-page"></span><span id="c-tag" class="tag" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
-        <button class="ico" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">⧉</button>
+        <button class="ico" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">{{ic:copy}}</button>
       </div>
       <div id="c-warn" class="warnline" hidden></div>
       <div id="c-overlap" hidden></div>
       <div id="c-levels" class="seg" role="group" aria-label="범위 단계"></div>
       <div class="c-tools">
         <div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">
-          <button id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">▲+</button><button id="c-up-shrink" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">▲−</button><button id="c-down-grow" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">▼+</button><button id="c-down-shrink" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">▼−</button>
+          <span class="sl" aria-hidden="true">위</span><button id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-up-shrink" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">{{ic:minus}}</button><span class="sl" aria-hidden="true">아래</span><button id="c-down-grow" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-down-shrink" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">{{ic:minus}}</button>
         </div>
         <span class="sp"></span>
         <button class="tg" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">줄바꿈</button>
@@ -3558,29 +3612,29 @@ body.view-only #btn-rebuild{display:none}
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
-      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [⋯] → 도움말.</span></div>
+      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
     <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="x tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
     <div id="pins"></div>
-    <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0 ▸</button>
+    <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0</button>
     <div id="done-list" hidden></div>
-    <button class="x" id="dropped-toggle" data-act="dropped-toggle" style="margin-top:8px" data-tip="삭제한 핀을 펼쳐 봅니다. 되살리기로 같은 번호 그대로 복구합니다">삭제한 핀 0 ▸</button>
+    <button class="x" id="dropped-toggle" data-act="dropped-toggle" style="margin-top:8px" data-tip="삭제한 핀을 펼쳐 봅니다. 되살리기로 같은 번호 그대로 복구합니다">삭제한 핀 0</button>
     <div id="dropped-list" hidden></div>
   </div>
   <div id="c-actions">
     <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
-    <button class="p" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘↵ / Ctrl+Enter)">핀 저장 ⌘↵</button>
+    <button class="p" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)">핀 저장</button>
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
-<div id="coach" role="status" hidden><span id="coach-t"></span><button class="x" data-act="coach-close" aria-label="안내 닫기">×</button></div>
+<div id="coach" role="status" hidden><span id="coach-t"></span><button class="x ib" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
 <dialog id="more" aria-label="더보기">
   <div class="row"><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="x" data-act="more-close">닫기</button></div>
   <p class="more-info" id="more-info"></p>
   <div class="more-grid">
     <button data-act="reload" data-close="1">핀 다시 읽기</button>
     <button id="m-theme" data-act="theme">테마: 시스템</button>
-    <button data-act="zoom-out" aria-label="축소">축소 −</button>
-    <button data-act="zoom-in" aria-label="확대">확대 ＋</button>
+    <button data-act="zoom-out">축소</button>
+    <button data-act="zoom-in">확대</button>
     <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
     <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
     <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽 번호" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
@@ -3598,8 +3652,8 @@ body.view-only #btn-rebuild{display:none}
   <h4>한 바퀴</h4>
   <ol style="margin:0;padding-left:20px;font-size:13px">
     <li>PDF 위에서 고칠 곳을 <b>드래그</b>합니다. 점선 상자('새 핀')가 남습니다.</li>
-    <li>사이드바의 <b>범위 단계</b>(드래그한 줄 / 문단 / 환경)와 ▲▼ 로 줄 범위를 맞춥니다.</li>
-    <li>메모를 쓰고 <b>핀 저장</b>(⌘↵ / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</li>
+    <li>사이드바의 <b>범위 단계</b>(드래그한 줄 / 문단 / 환경)와 한 줄 버튼(위·아래 +/−)으로 줄 범위를 맞춥니다.</li>
+    <li>메모를 쓰고 <b>핀 저장</b>(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</li>
     <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
     <li><b>PDF 재빌드</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
   </ol>
@@ -3607,12 +3661,12 @@ body.view-only #btn-rebuild{display:none}
   <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
     <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
     <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
-    <tr><td><kbd>⋯</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
-    <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [⋯] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
+    <tr><td><kbd>더보기</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
+    <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [더보기] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
     <tr><td>설명 보기</td><td>버튼을 길게 누르면 설명이 뜹니다</td></tr></table>
   <h4>단축키</h4>
   <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
-    <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
+    <tr><td><kbd>⌘ Enter</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
     <tr><td><kbd>Ctrl/⌘ + 휠</kbd> · <kbd>Ctrl/⌘ + = − 0</kbd></td><td>PDF 위에서 확대·축소(포인터 자리 기준), 0 은 폭 맞춤. 트랙패드 핀치도 같습니다. PDF 만 커지고 패널은 그대로입니다 (입력 칸 밖에서)</td></tr>
     <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
@@ -3637,6 +3691,9 @@ body.view-only #btn-rebuild{display:none}
 'use strict';
 const $=s=>document.querySelector(s);
 const $$=s=>Array.from(document.querySelectorAll(s));
+// Lucide 아이콘(vendor/lucide/README.md). 서버 icon_svg() 와 같은 모양 — 크기는 CSS(.ic)가 정한다.
+const ICONS=__LUCIDE_JSON__;
+function ic(n){const b=ICONS[n]; return b?'<svg class="ic ic-'+n+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+b+'</svg>':'';}
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
 const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
@@ -3664,7 +3721,7 @@ const T={
   close:"처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
   drop:'잘못 찍은 핀을 지웁니다. 알림의 [되돌리기]로 같은 번호 그대로 되살릴 수 있습니다',
   repick:'번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
-  esave:'수정한 내용을 저장합니다 (⌘↵ / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
+  esave:'수정한 내용을 저장합니다 (⌘ Enter / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
   reopen:'닫힌 핀을 다시 열어 목록과 pins.md에 올립니다',
   restore:'삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
   synctex:'PDF 좌표(SyncTeX)로 원문 줄을 찾았습니다. %는 드래그한 글자가 이 줄 범위에서 발견된 비율입니다(드문 낱말에 가중). 30% 미만이면 줄 범위를 눈으로 확인하세요',
@@ -3681,13 +3738,13 @@ function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');
 function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
 (function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w; if(p.wrap!==undefined)WRAP=!!p.wrap;})();
 
-const THEMES=['system','light','dark'],THEME_LABEL={system:'◐',light:'☀',dark:'☾'},THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
-function applyTheme(){let t=prefs().theme||'system'; if(!THEME_LABEL[t])t='system';
+const THEMES=['system','light','dark'],THEME_ICON={system:'sun-moon',light:'sun',dark:'moon'},THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
+function applyTheme(){let t=prefs().theme||'system'; if(!THEME_ICON[t])t='system';
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
-  document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.textContent=THEME_LABEL[t];
+  document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.innerHTML=ic(THEME_ICON[t]);
   b.setAttribute('aria-label','화면 테마: '+THEME_NAME[t]);
   b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';
-  const m=$('#m-theme'); if(m)m.textContent='테마: '+THEME_NAME[t]+' '+THEME_LABEL[t];}
+  const m=$('#m-theme'); if(m)m.textContent='테마: '+THEME_NAME[t];}
 MQ.addEventListener('change',applyTheme);
 function cycleTheme(){const t=prefs().theme||'system';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
@@ -3710,7 +3767,7 @@ function toast(msg,kind,action){
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='x';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
     b.addEventListener('click',()=>{kill();action.fn();});t.appendChild(b);}
-  const c=document.createElement('button');c.className='x ghost';c.textContent='×';c.dataset.tip='알림 닫기';
+  const c=document.createElement('button');c.className='x ghost ib';c.innerHTML=ic('x');c.dataset.tip='알림 닫기';
   c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);t.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
   box.appendChild(t); arm(); while(box.children.length>5) box.firstChild.remove();
@@ -3803,7 +3860,7 @@ function drawDocTabs(){
 function drawDocsMenu(){
   $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
     return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
-      '<span class="tx"><span class="nm">'+esc(d.name)+(on?' ✓':'')+'</span><span class="ph">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
+      '<span class="tx"><span class="nm">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
 function openDocsMenu(){const d=$('#docs-menu'); if(d.open)return; hideTip(); drawDocsMenu(); d.showModal();
   const on=d.querySelector('.dm-item.on'); if(on)on.focus();}
 // 보던 자리: 위쪽 기준 쪽·비율, 쪽 폭, compact 에서 손으로 확대했는가, 가로 스크롤. 새로고침에도 남게 sessionStorage 에 둔다.
@@ -3855,7 +3912,7 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 async function boot(){
   applyTheme(); applyLayout();
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
-  $('#btn-save').textContent=MQ_COARSE.matches?'핀 저장':'핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
+  $('#btn-save').innerHTML=MQ_COARSE.matches?'핀 저장':'핀 저장 <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
@@ -3987,7 +4044,7 @@ function buildChipText(b){
 // up_to_date 는 알릴 변화가 없으므로 덧붙이지 않는다.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
-  if(p.state==='ok')return ' · 원격 반영 '+String(p.head_before||'?').slice(0,7)+'→'+String(p.head_after||'?').slice(0,7);
+  if(p.state==='ok')return ' · 원격 반영 '+String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7);
   if(p.state==='skipped'||p.state==='error')return ' · git pull '+(p.state==='error'?'실패':'건너뜀')+'('+(p.reason||'?')+')';
   return '';
 }
@@ -4320,7 +4377,7 @@ function applyLayout(){const L=layoutFor(); if(L===LAYOUT)return false;
 function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
   document.body.classList.toggle('side-open',open);
   const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
-  $('#side-arrow').textContent=LAYOUT==='narrow'?(open?'▾':'▴'):(open?'▸':'◂');
+  $('#side-arrow').innerHTML=ic(LAYOUT==='narrow'?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
   btn.setAttribute('aria-label',(open?'패널 접기':'패널 펴기')+' · 열린 핀 '+PINS.length);}
 // remember: mid 에서 사용자가 직접 접고 편 것만 기억한다(narrow 는 늘 접힌 채 시작).
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
@@ -4613,7 +4670,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   // 접힌 원문은 CSS 가 4줄로 자른다. 잘렸는지는 그린 뒤에 잰다(긴 한 줄이 여러 줄로 접히는 원고가 흔하다).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
-  $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?'원문 접기 ▴':'원문 펼치기'+(nl>1?' · '+nl+'줄':'')+' ▾';
+  $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기'+(nl>1?' · '+nl+'줄':'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 // 저장·취소·덧붙이기로 선택이 끝나면 선택 모드를 끄고(다시 스크롤되게) narrow 시트를 접는다(다시 본문이 먼저).
@@ -4687,13 +4744,13 @@ function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p
   return '<span class="dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc 은 복사 형식 그대로
-  if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">위치 잃음</span>');
+  if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
-    esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">줄 '+esc(m[1])+' 이동</span>');}
+    esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
   const claimed=claimActive(p);
-  if(claimed)tags.push('<span class="tag" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">⏳ '+esc(claimLabel(p))+'</span>');
+  if(claimed)tags.push('<span class="tag" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">'+ic('clock')+esc(claimLabel(p))+'</span>');
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
-    (p.edited_by?' · '+who(p.edited_by):'')+')')+'">✎ 수정됨</span>');
+    (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
   const rb=relBadge(p.rel);
   if(rb)tags.push('<span class="tag" data-tip="'+esc('핀 #'+rb.id+' 과 범위가 겹칩니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
   const v=viaTag(p); if(v)tags.push('<span class="tag'+(v.low?' t':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
@@ -4710,9 +4767,9 @@ function card(p){
     '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
-    '<span class="sum" data-act="card-toggle">'+(p.stale?'⚠ ':'')+(claimed?'⏳ ':'')+(first?esc(first):'(메모 없음)')+'</span>'+
+    '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
     '<span class="sp"></span>'+au+
-    '<button class="x ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+(open||editing?'▾':'▸')+'</button></div>'+
+    '<button class="x ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
@@ -4725,14 +4782,14 @@ function card(p){
 }
 function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
   const ref=p.close_ref?'<span class="tag" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
-  return '<div class="pin done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+  return '<div class="pin done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row">'+ic('check')+'<span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+ref+
     '<span class="dim" data-tip="닫은 시각과 닫은 사람">'+esc(p.done_at||'')+' · '+esc(who(p.closed_by)||'기록 전')+'</span><span class="sp"></span>'+
     '<button class="x b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     (p.close_reply?'<div class="note" data-tip="닫을 때 남긴 설명">'+esc(p.close_reply)+'</div>':'')+
     (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
 function droppedCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
-  return '<div class="pin dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+  return '<div class="pin dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row">'+ic('trash-2')+'<span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
     '<span class="dim" data-tip="삭제 시각과 삭제한 사람">'+esc(p.dropped_at||'')+' · '+esc(who(p.dropped_by)||'기록 전')+'</span><span class="sp"></span>'+
     '<button class="x b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
@@ -4758,7 +4815,7 @@ function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdo
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   $('#list-h').textContent=(SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 ':'열린 핀 ')+LIST.length;
-  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.textContent=SHOW_ALL?'모든 문서 ✓':'모든 문서';
+  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+'모든 문서';
   $('#side-n').textContent=PINS.length; applySide();
   // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
   $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
@@ -4767,11 +4824,11 @@ function drawPins(){
   $('#empty').hidden=LIST.length>0||OPEN_ALL.length>0;
   $('#pins').innerHTML=LIST.length?LIST.map(card).join(''):'<div class="dim">'+(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'이 문서에는 아직 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건':'아직 없습니다.')+'</div>';
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
-  $('#done-toggle').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' ▾':' ▸');
+  $('#done-toggle').innerHTML='닫힌 핀 '+LDONE.length+ic(SHOW_DONE?'chevron-down':'chevron-right');
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=LDONE.length?LDONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
-  $('#dropped-toggle').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' ▾':' ▸');
+  $('#dropped-toggle').innerHTML='삭제한 핀 '+LDROP.length+ic(SHOW_DROPPED?'chevron-down':'chevron-right');
   $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
   $('#dropped-list').hidden=!SHOW_DROPPED;
   if(SHOW_DROPPED)$('#dropped-list').innerHTML=LDROP.length?LDROP.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
@@ -4844,13 +4901,13 @@ async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(EDIT&&EDIT.id===id)return;
   const el=document.createElement('div'); el.className='edit';
-  el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘↵ / Ctrl+Enter 저장, Esc 취소"></textarea>'+
+  el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
-    '<button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">▲+</button>'+
-    '<button data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">▲−</button>'+
-    '<button data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">▼+</button>'+
-    '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">▼−</button></div>'+
+    '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
+    '<button data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">'+ic('minus')+'</button>'+
+    '<span class="sl" aria-hidden="true">아래</span><button data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
+    '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">'+ic('minus')+'</button></div>'+
     '<span class="e-range loc" tabindex="0" data-tip="저장하면 핀이 가리킬 원문 줄. 누르면 복사"></span></div>'+
     '<pre class="e-snip wrap">원문 읽는 중…</pre>'+
     '<div class="e-acts"><button class="x b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
@@ -4907,7 +4964,7 @@ function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PD
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
   '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
-  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+(rg?'쪽 '+REPICK.from.page+' → 쪽 '+c.page+' 영역':'L'+REPICK.from.lo+'-L'+REPICK.from.hi+' → L'+lv.lo+'-L'+lv.hi)+'</span>'+
+  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+(rg?'지금 쪽 '+REPICK.from.page+' · 새 쪽 '+c.page+' 영역':'지금 L'+REPICK.from.lo+'-L'+REPICK.from.hi+' · 새 L'+lv.lo+'-L'+lv.hi)+'</span>'+
     '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):'글자 없는 영역'):(lv.label||scopeLabel(c)))+')</span><span class="sp"></span>'+
     '<button class="x p" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
     '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
@@ -5052,6 +5109,8 @@ document.addEventListener('keydown',e=>{
 boot();
 </script></body></html>"""
 HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
+HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
+HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
 
 
 class Server(ThreadingHTTPServer):
