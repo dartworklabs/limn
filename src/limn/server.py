@@ -27,6 +27,7 @@ import json
 import math
 import os
 import re
+import selectors
 import shutil
 import signal
 import socket
@@ -109,6 +110,8 @@ CLAIM_ETA_MIN = 1                  # 분 — 처리 예상 시간(eta_min). 화�
 CLAIM_ETA_MAX = 240
 CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, max(이 값, eta×2)) — 짧은 견적도 30분은 쥔다
 GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
+REVISION_DIFF_MAX = 256 * 1024     # 응답·메모리 상한. 큰 변경은 저장소에서 검토한다.
+REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "note", "scope", "quote", "pdf_build")
@@ -864,7 +867,95 @@ def _git(args: list, cwd, timeout: int = GIT_PULL_TIMEOUT):
         return None, "", ""
 
 
-def git_pull_phase(manuscript: Path) -> dict:
+def revision_scope(D: Doc):
+    """선택한 메인 .tex 폴더 안의 원고 텍스트만 Git pathspec 으로 돌려준다.
+
+    D.src 는 빌드 사본의 범위라 여러 문서가 같은 루트를 공유할 수 있다. 변경 이력은
+    D.main.parent 로 가려야 본문·하이라이트·커버레터의 커밋이 섞이지 않는다."""
+    if D.is_pdf:
+        return None
+    root = D.main.resolve().parent
+    try:
+        root.relative_to(D.src.resolve())
+    except ValueError:
+        return None
+    rc, top, _ = _git(["-C", str(root), "rev-parse", "--show-toplevel"], root)
+    if rc != 0 or not top.strip():
+        return None
+    repo = Path(top.strip()).resolve()
+    try:
+        prefix = root.relative_to(repo).as_posix()
+    except ValueError:
+        return None
+    prefix = "" if prefix == "." else prefix + "/"
+    # Git :(glob) 의 ** 는 하위 폴더만 잡으므로 루트 파일도 별도 패턴으로 포함한다.
+    exts = ("tex", "bib", "sty", "cls", "bst")
+    paths = [":(glob)%s*.%s" % (prefix, ext) for ext in exts]
+    paths += [":(glob)%s**/*.%s" % (prefix, ext) for ext in exts]
+    return repo, paths
+
+
+def revision_history(D: Doc) -> dict:
+    scope = revision_scope(D)
+    if scope is None:
+        return {"available": False, "revisions": []}
+    repo, paths = scope
+    rc, out, _ = _git(["-C", str(repo), "log", "-12", "--format=%H%x1f%cs%x1f%s", "--"] + paths, repo)
+    if rc != 0:
+        return {"available": False, "revisions": []}
+    rows = []
+    for line in out.splitlines():
+        parts = line.split("\x1f", 2)
+        if len(parts) == 3 and REVISION_ID_RE.fullmatch(parts[0]):
+            rows.append({"id": parts[0], "date": parts[1], "subject": parts[2][:180]})
+    return {"available": True, "revisions": rows}
+
+
+def revision_diff(D: Doc, commit: str) -> dict:
+    if not REVISION_ID_RE.fullmatch(commit or ""):
+        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.")
+    scope = revision_scope(D)
+    if scope is None:
+        raise HTTPError(404, "이 문서는 원고 변경사항을 볼 수 없습니다.")
+    repo, paths = scope
+    # 현재 문서의 최근 목록에 나온 커밋만 읽는다. 임의 Git 객체·다른 문서의 이력은 노출하지 않는다.
+    if commit not in {row["id"] for row in revision_history(D)["revisions"]}:
+        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.")
+    cmd = ["git", "-C", str(repo), "show", "--format=", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3",
+           commit, "--"] + paths
+    try:
+        with subprocess.Popen(cmd, cwd=str(repo), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
+            chunks, size = [], 0
+            deadline = time.monotonic() + GIT_PULL_TIMEOUT
+            try:
+                with selectors.DefaultSelector() as sel:
+                    sel.register(proc.stdout, selectors.EVENT_READ)
+                    while size <= REVISION_DIFF_MAX:
+                        ready = sel.select(max(0, deadline - time.monotonic()))
+                        if not ready:
+                            raise subprocess.TimeoutExpired(cmd, GIT_PULL_TIMEOUT)
+                        part = os.read(proc.stdout.fileno(), min(65536, REVISION_DIFF_MAX + 1 - size))
+                        if not part:
+                            break
+                        chunks.append(part)
+                        size += len(part)
+                too_large = size > REVISION_DIFF_MAX
+                if too_large:
+                    proc.kill()
+                proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except (OSError, subprocess.TimeoutExpired):
+                proc.kill()
+                proc.wait()
+                raise
+            if proc.returncode != 0 and not too_large:
+                raise HTTPError(404, "변경사항을 읽지 못했습니다.")
+    except (OSError, subprocess.TimeoutExpired):
+        raise HTTPError(503, "변경사항을 읽지 못했습니다.")
+    return {"id": commit, "diff": b"".join(chunks)[:REVISION_DIFF_MAX].decode("utf-8", errors="replace"),
+            "truncated": too_large}
+
+
+def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
 
     순서: 저장소 루트 탐색(아니면 skipped:not_git) → fetch(실패하면 error) → 업스트림 확인
@@ -883,9 +974,13 @@ def git_pull_phase(manuscript: Path) -> dict:
         reason = "fetch_timeout" if rc is None else "fetch_failed"
         return {"state": "error", "reason": reason, "head_before": head_before, "head_after": head_before}
 
-    rc, _out, _err = _git(["-C", root, "rev-parse", "--abbrev-ref", "@{u}"], root)
+    rc, upstream, _err = _git(["-C", root, "rev-parse", "--abbrev-ref", "@{u}"], root)
     if rc != 0:
         return {"state": "skipped", "reason": "no_upstream", "head_before": head_before, "head_after": head_before}
+    if main_only:
+        rc, branch, _err = _git(["-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"], root)
+        if rc != 0 or branch.strip() != "main" or not upstream.strip().endswith("/main"):
+            return {"state": "skipped", "reason": "not_main", "head_before": head_before, "head_after": head_before}
 
     rc, dirty, _err = _git(["-C", root, "status", "--porcelain", "--untracked-files=no"], root)
     if rc != 0:
@@ -906,6 +1001,112 @@ def git_pull_phase(manuscript: Path) -> dict:
 _PULL_LOCK = threading.Lock()
 _PULL_LAST = {"at": 0.0, "res": None}
 PULL_SHARE_S = 20                  # 초 — 이 안에 다른 문서가 이미 당겼으면 그 결과를 같이 쓴다
+SYNC_EVERY_S = 60                  # 원격 main 확인 간격. 브라우저가 열려 있지 않아도 확인한다.
+_SYNC_LOCK = threading.Lock()
+_SYNC_STATE = {"state": "checking", "reason": None, "checked_at": None,
+               "head_before": None, "head_after": None}
+
+
+def sync_status() -> dict:
+    if not C.git_pull:
+        return {"state": "disabled"}
+    with _SYNC_LOCK:
+        state = dict(_SYNC_STATE)
+    if state.get("state") != "updating" or not state.get("head_after"):
+        return state
+    head = state["head_after"]
+    pending = False
+    failed = False
+    for D in list(DOCS):
+        if D.is_pdf:
+            continue
+        if D.lock.locked():
+            pending = True
+            continue
+        try:
+            built = (D.dir / "head.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            built = ""
+        if not built or built == "-" or not head.startswith(built):
+            pending = True
+            with D.bstate_lock:
+                failed |= D.bstate.get("state") == "fail"
+    if not pending or failed:
+        with _SYNC_LOCK:
+            if _SYNC_STATE.get("state") == "updating" and _SYNC_STATE.get("head_after") == head:
+                _SYNC_STATE.update(state="error" if failed else "current",
+                                   reason="build_failed" if failed else None)
+            return dict(_SYNC_STATE)
+    return state
+
+
+def sync_main_once() -> dict:
+    """원격 main 을 확인하고 바뀐 문서만 새 PDF 로 만든다. --no-build 기동에도 호출한다.
+
+    빌드 중인 문서가 있으면 이번 회차를 미룬다. Git 체크아웃을 갱신하는 동안 문서 잠금을 모두
+    쥐므로 다른 빌드가 소스 사본을 복사하는 중에 fast-forward 하지 않는다.
+    """
+    if not C.git_pull:
+        return {"state": "disabled"}
+    held = []
+    for D in list(DOCS):
+        if D.is_pdf:
+            continue
+        if not D.lock.acquire(blocking=False):
+            for lock in reversed(held):
+                lock.release()
+            out = {"state": "deferred", "reason": "building",
+                   "checked_at": datetime.now().astimezone().isoformat(timespec="seconds")}
+            with _SYNC_LOCK:
+                _SYNC_STATE.update(out)
+            return out
+        held.append(D.lock)
+    try:
+        with _PULL_LOCK:
+            pull = git_pull_phase(C.src, main_only=True)
+            _PULL_LAST.update(at=time.time(), res=pull)
+    finally:
+        for lock in reversed(held):
+            lock.release()
+
+    state = {"ok": "updated", "up_to_date": "current",
+             "skipped": "blocked", "error": "error"}.get(pull["state"], "error")
+    out = dict(pull, state=state, checked_at=datetime.now().astimezone().isoformat(timespec="seconds"))
+    with _SYNC_LOCK:
+        _SYNC_STATE.clear()
+        _SYNC_STATE.update(out)
+    if state in ("updated", "current"):
+        head = pull.get("head_after") or ""
+        for D in list(DOCS):
+            if D.is_pdf:
+                continue
+            try:
+                built = (D.dir / "head.txt").read_text(encoding="utf-8").strip()
+            except OSError:
+                built = ""
+            if state == "updated" or not built or built == "-" or not head.startswith(built):
+                with using_doc(D):
+                    build_async()
+                out["state"] = "updating"
+        if out["state"] == "updating":
+            with _SYNC_LOCK:
+                _SYNC_STATE["state"] = "updating"
+    return out
+
+
+def watch_main(stop: threading.Event, every: float = SYNC_EVERY_S) -> None:
+    """기동 직후와 이후 주기적으로 동기화한다. 오류가 나도 감시 스레드는 살아남는다."""
+    while not stop.is_set():
+        try:
+            result = sync_main_once()
+        except Exception:                         # noqa: BLE001 — 다음 회차가 다시 시도한다
+            traceback.print_exc(file=sys.stderr)
+            with _SYNC_LOCK:
+                _SYNC_STATE.update(state="error", reason="unexpected",
+                                   checked_at=datetime.now().astimezone().isoformat(timespec="seconds"))
+            result = {"state": "error"}
+        if stop.wait(min(3.0, every) if result.get("state") == "deferred" else every):
+            break
 
 
 def repo_pull() -> dict:
@@ -1392,7 +1593,7 @@ def meta(actor: dict, light: bool = False) -> dict:
     out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
            "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
            "label": C.label, "accent": C.accent, "repo": C.repo,
-           "building": D.lock.locked(),
+           "building": D.lock.locked(), "sync": sync_status(),
            "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
            # 원고가 화면의 PDF 보다 새로운가 — 서버가 숫자로 판정한다(브라우저 시계·시간대와 무관).
            "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
@@ -3308,10 +3509,10 @@ def remote_base_for(host_raw: str) -> str:
 
 # ---------------------------------------------------------------- 뷰어
 
-HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset="utf-8">
+HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset="utf-8">
 <script>
 (function(){var p=null;try{p=JSON.parse(localStorage.getItem('pinPrefs')||'null');}catch(e){}
- if(!p||typeof p!=='object'){p={theme:'system'};}else if(!p.theme){p.theme='dark';}
+ if(!p||typeof p!=='object'){p={theme:'light'};}else if(!p.theme){p.theme='light';}
  try{localStorage.setItem('pinPrefs',JSON.stringify(p));}catch(e){}
  var t=p.theme,eff=t;if(t==='system'){eff=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
@@ -3363,9 +3564,57 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
 /* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
-/* #main = 문서 탭 줄 + PDF 영역(§여러 문서). 폭·높이 규칙은 #main 이 받고 #left 는 그 안에서 스크롤한다. */
+/* #main = 문서 탐색 + PDF 영역. #right 의 편집·핀 화면은 독립적으로 유지한다. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
+#pdf-body{flex:1;display:flex;min-height:0;min-width:0}
+#doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:44px;padding:0 var(--space-4);
+  background:var(--sidebar);border-bottom:1px solid var(--border);font-size:var(--text-base)}
+body:not(.lay-narrow) #doc-nav{display:flex}
+#doc-nav .nav-sp{flex:1}
+#doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
+body.docs-multi:not(.lay-narrow) #doc-select-wrap{display:flex}
+#doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
+#doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:4px 20px 4px 2px}
+#view-switch{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius);background:var(--muted)}
+#view-switch button{border:0;background:transparent;color:var(--muted-foreground);padding:3px var(--space-3);font-size:var(--text-sm)}
+#view-switch button[aria-pressed=true]{background:var(--sidebar);color:var(--foreground);box-shadow:var(--shadow-sm)}
+#toc-toggle{font-size:var(--text-sm);color:var(--muted-foreground)}
+#toc-toggle[aria-pressed=true]{color:var(--foreground);background:var(--accent)}
+body.revision-open #toc-toggle{visibility:hidden}
+#outline{display:none;flex:none;width:210px;min-width:170px;max-width:30%;overflow:auto;padding:var(--space-4) var(--space-2);
+  background:var(--sidebar);border-right:1px solid var(--border);font-size:var(--text-sm)}
+body.outline-open:not(.lay-narrow):not(.revision-open) #outline{display:block}
+#outline .outline-title{font-weight:600;padding:0 var(--space-2) var(--space-2)}
+#outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
+#outline button{display:block;width:100%;text-align:left;background:transparent;border:0;color:var(--muted-foreground);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px var(--space-2);font-size:var(--text-sm)}
+#outline button:hover,#outline button:focus-visible{background:var(--accent);color:var(--foreground)}
+#revision-view{display:none;flex:1;min-width:0;overflow:auto;padding:var(--space-5) clamp(20px,5vw,72px);background:var(--background)}
+body.revision-open:not(.lay-narrow) #revision-view{display:block}
+body.revision-open:not(.lay-narrow) #left{display:none}
+#revision-inner{max-width:1050px;margin:auto}
+#revision-inner h2{font-size:var(--text-xl);margin:0 0 var(--space-1)}
+#revision-inner p{color:var(--muted-foreground);font-size:var(--text-sm);margin:0 0 var(--space-4)}
+#revision-list{display:flex;gap:var(--space-2);overflow-x:auto;padding-bottom:var(--space-3)}
+#revision-list button{flex:none;max-width:260px;text-align:left;background:var(--sidebar);border:1px solid var(--border);padding:var(--space-2) var(--space-3)}
+#revision-list button[aria-pressed=true]{border-color:var(--primary)}
+#revision-list button span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#revision-list button small{color:var(--muted-foreground)}
+#revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
+#revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
+#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
+#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
+#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
+  text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
+#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+#revision-diff .rd-file{background:var(--muted);font-weight:600}
+#revision-diff .rd-meta{color:var(--muted-foreground)}
+#revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
+#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
+  color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
+#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
+  color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
 /* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
    마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
@@ -3743,24 +3992,14 @@ body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-
   bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
   border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);z-index:20;overflow:hidden}
 body.lay-mid:not(.side-open) #bar1{border-radius:var(--radius-lg)}
-/* 문서 탭(§여러 문서, references/design.md §여러 문서): PDF 영역 위 한 줄. 문서가 하나면 숨긴다(지금 화면 그대로).
-   지금 탭은 PDF 영역과 같은 바탕(--bg)으로 이어 붙이고 위에 이름표 색 띠를 둔다. 넘치면 가로로 스크롤한다.
-   접은 폴드(narrow)는 탭 줄 대신 도구 줄의 [문서 ▾] 버튼 → 아래 시트 목록이다. */
-#doc-tabs{display:none;flex:none;gap:2px;align-items:flex-end;overflow-x:auto;overflow-y:hidden;padding:6px var(--space-3) 0 36px;
-  background:var(--sidebar);border-bottom:1px solid var(--border);scrollbar-width:none;overscroll-behavior-x:contain}
-#doc-tabs::-webkit-scrollbar{display:none}
-body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}
-.dtab{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:260px;margin-bottom:-1px;padding:6px var(--space-3);
-  background:transparent;border:1px solid transparent;border-bottom:0;border-radius:var(--radius-lg) var(--radius-lg) 0 0;color:var(--muted-foreground);font-size:var(--text-base)}
-.dtab:hover{background:var(--accent);color:var(--foreground)}
-.dtab[aria-selected=true]{background:var(--background);border-color:var(--border);color:var(--foreground);font-weight:600;box-shadow:inset 0 3px 0 var(--brand)}
-.dtab .nm,.dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
+.dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent;border-color:var(--border)}
-.dtab[aria-selected=true] .dcnt:not(.z),.dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
+.dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
 .dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
-.dtab .spin,.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
+.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
 #btn-doc{display:none;align-items:center;gap:var(--space-1)}
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
@@ -3787,7 +4026,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-tabs" role="tablist" aria-label="문서" aria-orientation="horizontal"></div><div id="left"><div id="doc"></div></div></div>
+<div id="main"><div id="doc-nav"><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div><span class="nav-sp"></span><button id="toc-toggle" data-act="outline" aria-pressed="false">목차</button></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-title">목차</div><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><h2>변경사항</h2><p>이 문서의 최근 Git 커밋에서 원고 파일에 생긴 변경입니다. 다른 작업 트리의 미커밋 수정은 포함되지 않습니다.</p><div id="revision-list"></div><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></section></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -3807,7 +4046,7 @@ body.view-only #btn-rebuild{display:none}
     <button id="btn-help" class="sec btn-icon" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
     <button id="btn-more" class="cmp btn-icon" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">{{ic:ellipsis}}</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="badge badge-warning" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="badge" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="badge badge-warning" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="meta-sync" class="badge" hidden></span> <span id="build-chip" class="badge" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
     <span id="vec-chip" class="badge badge-warning" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
     <span id="conn-lost" class="badge badge-warning" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
     <button id="build-err-chip" class="badge badge-warning" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
@@ -3974,14 +4213,14 @@ function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Obj
 (function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w; if(p.wrap!==undefined)WRAP=!!p.wrap;})();
 
 const THEMES=['system','light','dark'],THEME_ICON={system:'sun-moon',light:'sun',dark:'moon'},THEME_NAME={system:'시스템',light:'밝게',dark:'어둡게'};
-function applyTheme(){let t=prefs().theme||'system'; if(!THEME_ICON[t])t='system';
+function applyTheme(){let t=prefs().theme||'light'; if(!THEME_ICON[t])t='light';
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
   document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.innerHTML=ic(THEME_ICON[t]);
   b.setAttribute('aria-label','화면 테마: '+THEME_NAME[t]);
   b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';
   const m=$('#m-theme'); if(m)m.textContent='테마: '+THEME_NAME[t];}
 MQ.addEventListener('change',applyTheme);
-function cycleTheme(){const t=prefs().theme||'system';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
+function cycleTheme(){const t=prefs().theme||'light';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
 // ------------------------------------------------ 서버 호출과 알림
 async function api(url,o){o=o||{};
@@ -4084,14 +4323,68 @@ function docBadge(d){const n=docCount(d.key);
 function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
   (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
 function drawDocTabs(){
-  const box=$('#doc-tabs'); if(!multiDoc()){box.innerHTML=''; return;}
-  box.innerHTML=DOCS.map((d,i)=>{const on=d.key===DOC;
-    return '<button class="dtab" role="tab" id="dtab-'+esc(d.key)+'" aria-selected="'+on+'" tabindex="'+(on?0:-1)+'" aria-controls="left" data-act="doc" data-doc="'+esc(d.key)+'" data-tip="'+
-      esc(docTip(d)+(i<9?' (Alt+'+(i+1)+')':''))+'"><span class="nm">'+esc(d.name)+'</span>'+docBadge(d)+'</button>';}).join('');
-  const on=box.querySelector('[aria-selected=true]'); if(on)segReveal(box);
+  const box=$('#doc-select');
+  box.innerHTML=DOCS.map(d=>'<option value="'+esc(d.key)+'">'+esc(d.name)+(d.building?' · 빌드 중':d.stale_build?' · 원고 수정됨':'')+'</option>').join('');
+  if(DOC)box.value=DOC;
   const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:'문서';
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
   if($('#docs-menu').open)drawDocsMenu();}
+let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='';
+function revisionFiles(patch){
+  const starts=[];const re=/^diff --git .+$/gm;let m;
+  while((m=re.exec(patch))!==null)starts.push({at:m.index,head:m[0]});
+  return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
+    name:n>=0?s.head.slice(n+3):'파일 '+(i+1),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
+}
+function renderRevisionDiff(patch){
+  const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
+  let oldLine=null,newLine=null,inHunk=false;
+  return lines.map(line=>{
+    let kind='meta',number='';
+    if(line.startsWith('diff --git ')){kind='file';inHunk=false;oldLine=newLine=null;}
+    else if(line.startsWith('@@ ')){
+      kind='hunk';inHunk=true;
+      const at=/^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
+      oldLine=at?Number(at[1]):null;newLine=at?Number(at[2]):null;
+    }
+    else if(!inHunk&&(line.startsWith('--- ')||line.startsWith('+++ '))){kind='meta';}
+    else if(line.startsWith('+')){kind='add';if(newLine!==null)number=newLine++;}
+    else if(line.startsWith('-')){kind='del';if(oldLine!==null)number=oldLine++;}
+    else if(line.startsWith(' ')){kind='context';if(newLine!==null){number=newLine++;oldLine++;}}
+    return '<span class="rd-line rd-'+kind+'"><span class="rd-no" aria-hidden="true">'+number+'</span><span class="rd-code">'+esc(line)+'</span></span>';
+  }).join('');
+}
+function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);
+  $('#revision-diff').innerHTML=renderRevisionDiff(v==='all'?REVISION_WHOLE:(REVISION_FILES[i]&&REVISION_FILES[i].text)||REVISION_WHOLE);}
+function setViewMode(mode){
+  const revisions=mode==='revisions'; document.body.classList.toggle('revision-open',revisions);
+  $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
+  $('#view-revisions').setAttribute('aria-pressed',String(revisions));
+  if(revisions)loadRevisions(); else if(VEC.doc)vecSchedule(0);
+}
+async function loadRevisions(){
+  const seq=++REVISION_SEQ,k=DOC,list=$('#revision-list'),out=$('#revision-diff');
+  list.textContent='최근 변경사항을 읽는 중입니다.'; out.textContent='';
+  let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
+  catch(e){if(seq===REVISION_SEQ)list.textContent='변경사항을 읽지 못했습니다.';return;}
+  if(seq!==REVISION_SEQ||k!==DOC)return;
+  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';return;}
+  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.';return;}
+  list.innerHTML=data.revisions.map((r,i)=>'<button data-act="revision" data-commit="'+esc(r.id)+'" aria-pressed="'+(i===0)+'"><span>'+esc(r.subject)+'</span><small>'+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</small></button>').join('');
+  showRevision(data.revisions[0].id);
+}
+async function showRevision(id){
+  const seq=++REVISION_SEQ,k=DOC,out=$('#revision-diff');
+  $$('#revision-list button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.commit===id)));
+  out.textContent='변경 내용을 읽는 중입니다.'; $('#revision-file-row').hidden=true;
+  try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id),k),{what:'변경 내용 읽기',silent:true})).data;
+    if(seq!==REVISION_SEQ||k!==DOC)return;
+    REVISION_WHOLE=(r.diff||'이 커밋에서 표시할 원고 텍스트 변경이 없습니다.')+(r.truncated?'\n\n변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.':'');
+    REVISION_FILES=revisionFiles(r.diff||'');
+    const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REVISION_FILES.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
+    select.value='all'; $('#revision-file-row').hidden=REVISION_FILES.length<2;renderRevisionFile();
+  }catch(e){if(seq===REVISION_SEQ)out.textContent='변경 내용을 읽지 못했습니다.';}
+}
 function drawDocsMenu(){
   $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
     return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
@@ -4113,6 +4406,7 @@ addEventListener('pagehide',saveView);
 // meta 캐시가 있으면 기다리지 않고 바로 그 문서를 그리고, 뒤에서 최신 meta 를 받아 빌드가 바뀌었으면 쪽만 바꾼다.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
+  if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
   saveView(); cancelRepick(); if(CUR||!$('#composer').hidden)cancelSelection(false);
   if(EDIT&&!editDirty())cancelEdit();
   let m=META_BY.get(k),cached=!!m;
@@ -4128,6 +4422,8 @@ function showDoc(v){
   drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
   if(!v&&$('#left'))$('#left').scrollTop=0;
   PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks(); drawDocTabs();
+  $('#outline-items').textContent='PDF 목차를 읽는 중입니다.';
+  if(document.body.classList.contains('revision-open'))loadRevisions();
   vecOpen();
   if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;} $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
@@ -4175,6 +4471,19 @@ function updateStaleBadge(m){
   badge.hidden=false; badge.textContent='원고 수정됨 · '+mins+'분 전';
   btn.classList.add('btn-default');
 }
+const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업스트림이 없습니다',not_main:'현재 체크아웃이 main이 아닙니다',
+  dirty:'로컬에 커밋되지 않은 수정이 있습니다',diverged:'로컬 main과 원격 main이 갈라졌습니다',
+  fetch_failed:'원격을 확인하지 못했습니다',fetch_timeout:'원격 확인 시간이 초과됐습니다',
+  status_failed:'로컬 수정 상태를 읽지 못했습니다',unexpected:'동기화 중 오류가 났습니다',
+  building:'다른 PDF 빌드가 진행 중입니다',build_failed:'새 원고의 PDF 빌드가 실패했습니다'};
+function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
+  if(!s||s.state==='disabled'||s.state==='current'){b.hidden=true; return;}
+  b.hidden=false; b.classList.toggle('badge-warning',s.state==='blocked'||s.state==='error');
+  const reason=SYNC_REASON[s.reason]||s.reason||'';
+  b.textContent=s.state==='updating'?'최신 main PDF 반영 중':s.state==='updated'?'최신 main 반영됨':
+    s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요';
+  b.dataset.tip=reason?(b.textContent+' · '+reason+' · 기존 PDF가 보일 수 있습니다'):b.textContent;
+}
 function drawMeta(){
   document.body.classList.toggle('view-only',!!META.view_only);
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
@@ -4183,6 +4492,7 @@ function drawMeta(){
   $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(me.name||me.login||'')+'</span>';
   $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
   updateStaleBadge(META);
+  updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
   // compact 에서는 #bar2 의 파일·커밋·시각·작성자 줄을 숨기고 [⋯] 안에 한 줄로 보인다(긴 파일 이름이 넘치지 않게).
   $('#more-info').textContent=[META.main,META.pages.length+'쪽',META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
@@ -4205,7 +4515,7 @@ async function pollLightOnce(){
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   $('#conn-lost').hidden=true;
   if(k!==DOC)return;                    // 기다리는 사이 문서를 바꿨다 — 옛 문서의 상태로 화면을 칠하지 않는다
-  updateStaleBadge(d); noteOtherDocs(d.docs);
+  updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // 여러 문서면 src_sig(문서마다의 src_mtime)가 바뀌어도 다시 읽는다 — 다른 문서의 원고가 바뀌어도 그 핀들의 줄이 밀린다.
   const sig=d.src_sig||d.src_mtime;
   if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME)) await loadPins();
@@ -4459,9 +4769,28 @@ async function vecOpen(){
   }else vecCachePut(key,doc);           // 최근에 쓴 것으로 올린다
   if(gen!==VEC.gen)return;
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
+  loadOutline(doc,gen);
   VEC.st.forEach(s=>{s.stale=true;});
   if(old&&old!==doc&&!vecCached(old))vecClose(old);
   vecSchedule(0);
+}
+async function loadOutline(doc,gen){
+  const box=$('#outline-items'); let entries=[];
+  try{const items=await doc.getOutline();
+    async function walk(rows,depth){for(const item of rows||[]){if(entries.length>=180)return;
+      let dest=item.dest;
+      if(typeof dest==='string')dest=await doc.getDestination(dest);
+      if(Array.isArray(dest)&&dest[0]!=null){
+        const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
+        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||'제목 없음',page,depth});
+      }
+      if(depth<4)await walk(item.items,depth+1);
+    }}
+    await walk(items,0);
+  }catch(e){entries=[];}
+  if(gen!==VEC.gen||doc!==VEC.doc)return;
+  if(!entries.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
+  box.className=''; box.innerHTML=entries.map(x=>'<button data-act="outline-page" data-page="'+x.page+'" title="'+esc(x.title)+'" style="padding-left:calc(var(--space-2) + '+Math.min(x.depth,4)+' * var(--space-4))">'+esc(x.title)+'</button>').join('');
 }
 // 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
@@ -5175,6 +5504,7 @@ function jumpToCard(id){
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id); if(!p)return;
+  if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
   if(LAYOUT==='narrow')setSide(false);   // 시트가 쪽을 가리지 않게 접고 나서 잰다
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
   if(m){
@@ -5208,6 +5538,7 @@ async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'
 
 // ------------------------------------------------ 편집
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
+  if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDIT&&EDIT.id===id)return;
   const el=document.createElement('div'); el.className='edit';
   el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
@@ -5312,7 +5643,7 @@ async function refreshDoc(){const a=topAnchor(),k=DOC;
   // 캔버스는 옛 PDF 로 그린 것이다 — 걷어 내 새 PNG 를 먼저 보이고, 새 빌드의 PDF 를 열면 다시 그린다.
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
   else buildDoc();
-  restoreAnchor(a); vecOpen(); await loadPins();}
+  restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
 // 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
 function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
@@ -5374,6 +5705,10 @@ document.addEventListener('click',e=>{
     //   그 안에서 열린 #docs-menu 를 다시 그려(drawDocsMenu) a 를 DOM 에서 떼어낸다. switchDoc 이후에
     //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
+    case 'view-mode':setViewMode(a.dataset.mode);break;
+    case 'outline':document.body.classList.toggle('outline-open');a.setAttribute('aria-pressed',String(document.body.classList.contains('outline-open')));scheduleRelayout();break;
+    case 'outline-page':setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'revision':showRevision(a.dataset.commit);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
@@ -5387,6 +5722,8 @@ document.addEventListener('click',e=>{
     case 'build-err-reopen':if(LAST_BUILD_ERR)showBuildErr(LAST_BUILD_ERR);break;
   }
 });
+$('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
+$('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
   const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
@@ -5394,14 +5731,10 @@ document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
     if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
   // 문서 전환(여러 문서): Ctrl+PgUp/PgDn 은 이전·다음, Alt+1…9 는 그 번째(e.code — 맥의 Option+숫자는 다른 글자를 낸다).
-  // 탭에 포커스가 있으면 ←/→/Home/End 로 옮긴다(ARIA 탭 패턴, 자동 활성화). 입력 칸에서는 하지 않는다.
+  // 선택기는 기본 키보드 조작을 쓴다. 입력 칸에서는 전역 단축키를 쓰지 않는다.
   if(multiDoc()&&!inField){
     if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); cycleDoc(e.key==='PageDown'?1:-1); return;}
     if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
-    if(t&&t.classList&&t.classList.contains('dtab')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();
-      const i=DOCS.findIndex(d=>d.key===t.dataset.doc),n=DOCS.length;
-      const j=e.key==='Home'?0:e.key==='End'?n-1:(i+(e.key==='ArrowRight'?1:-1)+n)%n;
-      switchDoc(DOCS[j].key).then(()=>{const b=document.getElementById('dtab-'+DOCS[j].key); if(b)b.focus();}); return;}
   }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&t.id==='note'){e.preventDefault();savePin();}
@@ -5557,6 +5890,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/meta":
             light = (q.get("light") or ["0"])[0] == "1"
             return self._json(meta(actor, light=light))
+        if path == "/api/revisions":
+            return self._json(revision_history(cur_doc()))
+        if path == "/api/revision-diff":
+            return self._json(revision_diff(cur_doc(), (q.get("commit") or [""])[0]))
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(diet_log(build_state_snapshot(), full))
@@ -5822,9 +6159,8 @@ def main() -> None:
                     help="Host·Origin 검사(DNS rebinding·CSRF 방어)를 끈다. tailscale serve 가 예상 밖의 "
                          "Host/Origin 을 넘겨 UI 가 403 을 받을 때만 쓴다")
     ap.add_argument("--git-pull", action="store_true",
-                    help="재빌드(동기·비동기 모두)마다 copy 단계 전에 --manuscript 의 git 저장소를 "
-                         "업스트림으로 --ff-only pull 한다. 더러움·분기·업스트림 없음이면 건너뛰고 "
-                         "지금 체크아웃으로 빌드는 계속한다")
+                    help="기동 직후와 60초마다 원격 main 을 확인하고 새 커밋이면 PDF를 재빌드한다. "
+                         "수동 재빌드도 copy 전에 업스트림을 --ff-only pull 한다. 로컬 수정·분기가 있으면 건너뛰고 화면에 알린다")
     ap.add_argument("--pdfjs-dir",
                     help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
                          "스크립트 옆 ../vendor/pdfjs 또는 ./vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
@@ -5897,6 +6233,8 @@ def main() -> None:
             print("문서   %-10s %s %s%s" % (D.key, "보기 전용" if D.is_pdf else "LaTeX   ", D.rel_path(),
                                            "" if r.get("state") == "skip" else "  (빌드 시작)"))
         threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
+    if C.git_pull:
+        threading.Thread(target=watch_main, args=(threading.Event(),), daemon=True).start()
 
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
@@ -5909,7 +6247,7 @@ def main() -> None:
     if not C.origin_check:
         print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
     if C.git_pull:
-        print("git-pull  재빌드마다 업스트림으로 --ff-only pull 합니다(실패해도 지금 체크아웃으로 빌드)")
+        print("git-pull  기동 직후와 60초마다 main 을 확인하고 새 커밋이면 PDF를 다시 만듭니다")
     if vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"):
         print("pdf.js %s (벡터 렌더링)" % C.pdfjs_dir)
     else:

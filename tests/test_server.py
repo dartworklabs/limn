@@ -116,6 +116,10 @@ class Base(unittest.TestCase):
         C.allow = frozenset()
         C.origin_check = True
         C.git_pull = False
+        with ps._SYNC_LOCK:
+            ps._SYNC_STATE.clear()
+            ps._SYNC_STATE.update(state="checking", reason=None, checked_at=None,
+                                  head_before=None, head_after=None)
         C.pdfjs_dir = None
         C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
@@ -2323,6 +2327,13 @@ class GitPull(unittest.TestCase):
         self.assertEqual(r["head_before"], r["head_after"])
         self.assertIsNotNone(r["head_before"])
 
+    def test_main_only_rejects_feature_branch(self):
+        d = self._clone("feature")
+        self._run(["git", "checkout", "--quiet", "-b", "feature"], d)
+        self._run(["git", "push", "--quiet", "-u", "origin", "feature"], d)
+        r = ps.git_pull_phase(d, main_only=True)
+        self.assertEqual((r["state"], r["reason"]), ("skipped", "not_main"))
+
     def test_state_skipped_dirty(self):
         d = self._clone("c4")
         (d / "f.txt").write_text("locally modified\n", encoding="utf-8")
@@ -2430,6 +2441,145 @@ class GitPullBuildIntegration(Base):
         ps._SRC_MTIME_CACHE[2] = 0.0
         m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
+
+
+class AutomaticMainSync(Base):
+    def test_new_head_schedules_each_tex_document_once(self):
+        docs = [ps.Doc("ms", "본문", src=self.src, main=self.main),
+                ps.Doc("hl", "하이라이트", src=self.src, main=self.main),
+                ps.Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf")]
+        ps.set_docs(docs)
+        ps.C.git_pull = True
+        pull = {"state": "ok", "reason": None, "head_before": "a" * 40, "head_after": "b" * 40}
+        with mock.patch.object(ps, "git_pull_phase", return_value=pull) as git_pull, \
+             mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
+            out = ps.sync_main_once()
+        git_pull.assert_called_once_with(self.src, main_only=True)
+        self.assertEqual(build.call_count, 2)
+        self.assertEqual(out["state"], "updating")
+
+    def test_current_head_still_rebuilds_old_pdf_on_startup(self):
+        ps.C.git_pull = True
+        (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
+        pull = {"state": "up_to_date", "reason": None, "head_before": "b" * 40, "head_after": "b" * 40}
+        with mock.patch.object(ps, "git_pull_phase", return_value=pull), \
+             mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
+            out = ps.sync_main_once()
+        build.assert_called_once()
+        self.assertEqual(out["state"], "updating")
+
+    def test_dirty_checkout_is_visible_and_never_rebuilt(self):
+        ps.C.git_pull = True
+        pull = {"state": "skipped", "reason": "dirty", "head_before": "a" * 40, "head_after": "a" * 40}
+        with mock.patch.object(ps, "git_pull_phase", return_value=pull), \
+             mock.patch.object(ps, "build_async") as build:
+            out = ps.sync_main_once()
+        build.assert_not_called()
+        self.assertEqual(out["state"], "blocked")
+        self.assertEqual(ps.meta(dict(ps.LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
+
+    def test_updating_clears_when_pdf_reaches_synced_head(self):
+        ps.C.git_pull = True
+        with ps._SYNC_LOCK:
+            ps._SYNC_STATE.update(state="updating", reason=None, head_after="b" * 40)
+        (ps.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
+        self.assertEqual(ps.sync_status()["state"], "current")
+
+    def test_failed_pdf_build_reports_error(self):
+        ps.C.git_pull = True
+        with ps._SYNC_LOCK:
+            ps._SYNC_STATE.update(state="updating", reason=None, head_after="b" * 40)
+        (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
+        with ps.cur_doc().bstate_lock:
+            ps.cur_doc().bstate["state"] = "fail"
+        status = ps.sync_status()
+        self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
+
+
+class ManuscriptRevisions(Base):
+    def setUp(self):
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git 없음")
+        self.repo = self.src.parent
+        self.secret = self.repo / "other" / "private.tex"
+        self.secret.parent.mkdir()
+        self.secret.write_text("private text\n", encoding="utf-8")
+        for cmd in (["git", "init", "--quiet"], ["git", "config", "user.email", "t@example.com"],
+                    ["git", "config", "user.name", "T"], ["git", "add", "ms/main.tex", "other/private.tex"],
+                    ["git", "commit", "--quiet", "-m", "first"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        self.first = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        self.main.write_text(TEX + "New manuscript sentence.\n", encoding="utf-8")
+        self.secret.write_text("hidden change\n", encoding="utf-8")
+        for cmd in (["git", "add", "ms/main.tex", "other/private.tex"],
+                    ["git", "commit", "--quiet", "-m", "manuscript update"]):
+            subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
+        self.latest = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+
+    def test_latest_revision_diff_is_real_and_scoped(self):
+        history = ps.revision_history(ps.cur_doc())
+        self.assertTrue(history["available"])
+        self.assertEqual(history["revisions"][0]["id"], self.latest)
+        d = ps.revision_diff(ps.cur_doc(), self.latest)
+        self.assertIn("New manuscript sentence.", d["diff"])
+        self.assertNotIn("hidden change", d["diff"])
+        self.assertNotIn("other/private.tex", d["diff"])
+        self.assertFalse(d["truncated"])
+
+    def test_http_revision_endpoints(self):
+        code, _, raw = split_resp(self.talk(req("GET", "/api/revisions")))
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(raw)["revisions"][0]["id"], self.latest)
+        code, _, raw = split_resp(self.talk(req("GET", "/api/revision-diff?commit=" + self.latest)))
+        self.assertEqual(code, 200)
+        self.assertIn("New manuscript sentence.", json.loads(raw)["diff"])
+        code, _, _ = split_resp(self.talk(req("GET", "/api/revision-diff?commit=HEAD")))
+        self.assertEqual(code, 400)
+
+    def test_rejects_arbitrary_commit_and_bad_id(self):
+        for commit in ("HEAD", "a" * 40, "--help"):
+            with self.assertRaises(ps.HTTPError):
+                ps.revision_diff(ps.cur_doc(), commit)
+
+    def test_shared_build_root_keeps_document_histories_separate(self):
+        heads = {"ms": self.main}
+        for key in ("hl", "cl"):
+            path = self.repo / key / (key + ".tex")
+            path.parent.mkdir()
+            path.write_text("\\documentclass{article}\n" + key + "\n", encoding="utf-8")
+            subprocess.run(["git", "add", str(path.relative_to(self.repo))], cwd=self.repo,
+                           check=True, capture_output=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo,
+                           check=True, capture_output=True)
+            heads[key] = path
+        docs = [ps.Doc(k, k, src=self.repo, main=path) for k, path in heads.items()]
+        for d in docs:
+            history = ps.revision_history(d)
+            self.assertTrue(history["available"])
+            self.assertEqual(history["revisions"][0]["subject"],
+                             "manuscript update" if d.key == "ms" else d.key + " update")
+        hl_head = ps.revision_history(docs[1])["revisions"][0]["id"]
+        with self.assertRaises(ps.HTTPError):
+            ps.revision_diff(docs[0], hl_head)
+
+    def test_main_path_outside_document_source_is_unavailable(self):
+        bad = ps.Doc("bad", "bad", src=self.src, main=self.secret)
+        self.assertFalse(ps.revision_history(bad)["available"])
+        link = self.src / "linked.tex"
+        link.symlink_to(self.secret)
+        linked = ps.Doc("linked", "linked", src=self.src, main=link)
+        self.assertFalse(ps.revision_history(linked)["available"])
+
+    def test_caps_large_diff(self):
+        old = ps.REVISION_DIFF_MAX
+        ps.REVISION_DIFF_MAX = 50
+        try:
+            d = ps.revision_diff(ps.cur_doc(), self.latest)
+        finally:
+            ps.REVISION_DIFF_MAX = old
+        self.assertTrue(d["truncated"])
+        self.assertLessEqual(len(d["diff"].encode("utf-8")), 53)  # UTF-8 replacement at the byte boundary
 
 
 # ---------------------------------------------------------------- §P0c-F: 에이전트 응답 다이어트
@@ -2793,6 +2943,7 @@ class FrontendVectorLogic(unittest.TestCase):
             function $(sel){return {hidden:false};}
             function dq(u){return u;}
             function vecSchedule(){}
+            function loadOutline(){}
             function vecFail(msg){throw new Error('vecFail: '+msg);}
             global.document={getElementById:(id)=>({})};
 
@@ -3841,25 +3992,76 @@ class MultiDoc(Base):
 
 
 class FrontendDocs(unittest.TestCase):
-    """문서 탭·전환(§여러 문서). 문서가 하나면 탭 줄·문서 버튼·'모든 문서' 토글이 숨어 지금 화면 그대로다."""
+    """데스크톱 문서 선택과 모바일 문서 메뉴를 구분한다."""
 
-    def test_tabs_and_doc_button_are_hidden_for_single_doc(self):
+    def test_document_selector_and_mobile_button(self):
         css = ps.HTML
-        self.assertIn("#doc-tabs{display:none;", css)
-        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}", css)   # 데스크톱·펼친 폴드
+        self.assertIn("#doc-select-wrap{display:none;", css)
+        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-select-wrap{display:flex}", css)
+        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", css)
         self.assertIn("#btn-doc{display:none;", css)
-        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)   # 접은 폴드는 문서 버튼
-        self.assertIn("body.view-only #btn-rebuild{display:none}", css)                  # 보기 전용은 재빌드 없음
+        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
+        self.assertIn("body.view-only #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
         self.assertIn("$('#all-docs').hidden=!multiDoc()", ps.HTML)
         self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", ps.HTML)
 
-    def test_tab_markup_is_an_aria_tablist(self):
-        self.assertIn('id="doc-tabs" role="tablist"', ps.HTML)
+    def test_selector_views_and_outline_are_in_pdf_area(self):
+        self.assertIn('<select id="doc-select" aria-label="문서 선택">', ps.HTML)
+        self.assertIn('id="view-manuscript" data-act="view-mode"', ps.HTML)
+        self.assertIn('id="view-revisions" data-act="view-mode"', ps.HTML)
+        self.assertIn('<nav id="outline" aria-label="원고 목차">', ps.HTML)
+        self.assertLess(ps.HTML.index('id="doc-nav"'), ps.HTML.index('id="right"'))
         body = extract_js_fn("drawDocTabs")
-        self.assertIn('role="tab"', body)
-        self.assertIn('aria-selected="', body)
-        self.assertIn("(Alt+'+(i+1)+')", body)
+        self.assertIn("box.value=DOC", body)
+        self.assertIn("DOCS.map", body)
+
+    def test_default_theme_is_light(self):
+        self.assertIn('<html lang="ko" data-theme="light">', ps.HTML)
+        self.assertIn("p={theme:'light'}", ps.HTML)
+        self.assertIn("prefs().theme||'light'", ps.HTML)
+
+    def test_pin_actions_restore_pdf_from_revision_view(self):
+        self.assertIn("setViewMode('manuscript')", extract_js_fn("jumpPin"))
+        self.assertIn("jumpPin(id)", extract_js_fn("openEdit"))
+
+    def test_revision_diff_rows_have_line_semantics_and_escape_source(self):
+        patch = ("diff --git a/ms/main.tex b/ms/main.tex\n"
+                 "index 123..456 100644\n--- a/ms/main.tex\n+++ b/ms/main.tex\n"
+                 "@@ -3,2 +3,2 @@ heading\n-old <script>alert(1)</script>\n"
+                 "+new <img src=x onerror=alert(1)>\n context\n")
+        esc = re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+        js = "\n".join([esc, extract_js_fn("renderRevisionDiff"),
+                        "console.log(JSON.stringify(renderRevisionDiff(%s)));" % json.dumps(patch)])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        rendered = json.loads(out)
+        self.assertRegex(rendered, r'rd-hunk[^>]*>.*?@@ -3,2 \+3,2 @@')
+        self.assertRegex(rendered, r'rd-del[^>]*>.*?rd-no[^>]*>3</span>')
+        self.assertRegex(rendered, r'rd-add[^>]*>.*?rd-no[^>]*>3</span>')
+        self.assertRegex(rendered, r'rd-context[^>]*>.*?rd-no[^>]*>4</span>')
+        self.assertIn('&lt;script&gt;', rendered)
+        self.assertIn('&lt;img src=x onerror=alert(1)&gt;', rendered)
+        self.assertNotIn('<script>', rendered)
+        self.assertNotIn('<img ', rendered)
+        self.assertIn('rd-meta', rendered)
+
+    def test_revision_file_selection_renders_only_selected_patch(self):
+        esc = re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+        js = "\n".join([esc, extract_js_fn("renderRevisionDiff"), extract_js_fn("renderRevisionFile"), r"""
+            let REVISION_WHOLE='+from first\n+from second', REVISION_FILES=[
+              {text:'+from first'}, {text:'+from second'}];
+            const nodes={'#revision-file':{value:'1'},'#revision-diff':{innerHTML:''}};
+            function $(selector){return nodes[selector];}
+            renderRevisionFile(); console.log(JSON.stringify(nodes['#revision-diff'].innerHTML));"""])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        rendered = json.loads(out)
+        self.assertIn('from second', rendered)
+        self.assertNotIn('from first', rendered)
+        self.assertIn('rd-add', rendered)
 
     def test_hash_dq_and_initial_doc(self):
         js = "\n".join([r"""

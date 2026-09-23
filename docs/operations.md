@@ -33,7 +33,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | --- | --- | --- | --- |
 | `--manuscript` | 예 | — | LaTeX 소스 루트 디렉토리(`<manuscript_dir>`). 프로젝트마다 다르므로 하드코딩 금지. 핀이 가리킬 수 있는 파일은 이 트리 안으로 제한된다 |
 | `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략 시 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 0개 또는 2개 이상이면 후보 목록을 출력하고 종료(에러) — 추측하지 않는다. `--doc` 과 함께 쓰면 기동 실패 |
-| `--doc` | 아니오 | (없음 = 단일 문서) | 뷰어가 탭으로 전환할 문서. 여러 번 준다. 첫 문서가 기본이다. 형식·규칙은 §여러 문서 |
+| `--doc` | 아니오 | (없음 = 단일 문서) | 뷰어에서 선택할 문서. 여러 번 준다. 첫 문서가 기본이다. 형식·규칙은 §여러 문서 |
 | `--port` | 아니오 | 자동 선택 | 미지정 시 §포트 충돌 회피에 따라 빈 포트를 탐색해 사용하고, 실제 선택된 포트를 기동 로그에 출력한다 |
 | `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/manuscript-pin-picker/<slug>` | `<slug>`는 `--manuscript`의 절대경로를 정규화·해시한 값. 같은 머신에서 원고 A·B를 동시에 열어도 상태가 섞이지 않게 하기 위함(멀티 원고·멀티 worktree 안전) |
 | `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도. 뷰어는 PDF 를 벡터로 그리므로(§뷰어 사용법) PNG 는 첫 화면과 폴백에만 쓴다 |
@@ -42,7 +42,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `--no-build` | 아니오 | (끔) | 기동 시 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도 — PDF·쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
 | `--allow` | 아니오 | (비움 = 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖이면 `403`. 신원 헤더 없이 루프백 `Host` 로 온 요청(에이전트 `curl`)은 항상 허용. 신원 헤더 없이 `*.ts.net` `Host` 로 온 요청은 `403` — tailscale 은 **태그 장치**(와 funnel)에는 신원 헤더를 붙이지 않으므로, 이를 로컬로 치면 목록을 우회한다. `--allow` 를 비우면 태그 장치 요청도 `로컬/에이전트` 로 기록된다 |
 | `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §Host·Origin 검사)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
-| `--git-pull` | 아니오 | (끔) | 모든 재빌드(동기·비동기)가 copy 단계 전에 `--manuscript` 의 git 저장소를 업스트림으로 `--ff-only` pull 한다(공저자가 PR 을 머지해도 서버 체크아웃이 그대로였던 문제, [build-sync.md](build-sync.md) §`--git-pull`). 더러움·분기·업스트림 없음·git 저장소 아님이면 건너뛰고 지금 체크아웃으로 빌드는 계속한다 — 빌드를 막지 않는다 |
+| `--git-pull` | 아니오 | (끔) | 기동 직후와 60초마다 원격 main 을 확인해 fast-forward 하고 새 커밋이면 LaTeX PDF를 다시 만든다. 수동 재빌드도 copy 전에 업스트림을 `--ff-only` pull 한다. 자동 동기화가 더러움·분기·업스트림 없음 등으로 막히면 화면에 사유를 표시한다([build-sync.md](build-sync.md) §`--git-pull`) |
 | `--pdfjs-dir` | 아니오 | 스크립트 옆 `../vendor/pdfjs`, 없으면 `./vendor/pdfjs` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`). 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG 로 보인다(동작은 그대로) |
 | `--label` | 아니오 | `--manuscript` 의 git origin 저장소 이름(40자를 넘으면 잘라 `…`), git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표(직접 줄 때는 40자 이하 — 넘으면 기동 실패, HTML 이스케이프됨). 도구 줄 칩·탭 제목·파비콘·`<state_dir>/pins.md` 머리줄에 쓰인다(§동시 인스턴스) |
 | `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받는다(형식이 아니면 기동 실패). 같은 `--label` 이면 지정하지 않는 한 항상 같은 기본색이 나온다 |
@@ -55,7 +55,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 
 ## 여러 문서 (`--doc`)
 
-논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·하이라이트, 보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소 하나로 띄우고 탭으로 전환한다. 설계와 근거는 [design.md](design.md) §여러 문서.
+논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·하이라이트, 보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소 하나로 띄우고 문서를 선택한다. 데스크톱은 PDF 영역 위 선택기, 좁은 모바일 화면은 기존 도구 줄의 문서 버튼을 쓴다. 설계와 근거는 [design.md](design.md) §여러 문서.
 
 ```bash
 # 두 번째 논문 저장소(이름표 DEMO-B)의 실제 문서 목록

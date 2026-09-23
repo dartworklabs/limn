@@ -55,7 +55,9 @@ PDF 재빌드, 뷰어 폴링, 점선 마크(`est`) 판정의 상세다. 엔드�
 
 ## `--git-pull`: 재빌드 전에 원격 main 당겨오기
 
-공저자가 PR 을 머지해도 서버 쪽 원고 체크아웃은 그대로였다 — 뷰어가 옛 원고를 계속 보여줬다. `--git-pull` 을 켜면 모든 재빌드(동기·비동기 모두)가 copy 단계 전에 `pull` phase 를 돈다.
+공저자가 PR 을 머지해도 서버 쪽 원고 체크아웃은 그대로였다 — 뷰어가 옛 원고를 계속 보여줬다. `--git-pull` 을 켜면 기동 직후와 이후 60초마다 원격 main 을 확인한다. 새 커밋을 fast-forward 하면 각 LaTeX 문서의 PDF 재빌드를 예약한다. 현재 커밋과 PDF 기준 커밋이 다르면 기동 시에도 재빌드한다(`--no-build` 포함). 다른 빌드가 진행 중이면 3초 뒤 다시 확인한다. 더러움·분기·업스트림 없음·원격 오류는 상단 상태 칩에 사유를 보이고 이전 PDF를 유지한다. 수동 재빌드(동기·비동기)도 copy 전에 기존 `pull` phase 를 돈다.
+
+자동 확인은 현재 브랜치가 `main` 이고 업스트림도 `*/main` 일 때만 fast-forward 한다. 다른 브랜치는 `blocked:not_main` 으로 보인다. 보기 전용 PDF 문서는 Git pull 이후 LaTeX 재빌드 대상이 아니다. 서버가 쓰는 원고 체크아웃은 별도로 깨끗해야 한다.
 
 1. `--manuscript` 가 속한 git 저장소 루트를 찾는다(`git -C <ms> rev-parse --show-toplevel`). 아니면 `skipped:not_git`.
 2. `git fetch --quiet`(업스트림 원격, timeout 30초). 실패·시간 초과면 `error:fetch_failed`/`error:fetch_timeout`.

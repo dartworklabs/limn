@@ -98,8 +98,8 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
      [--label <이름표>] [--accent <#rrggbb>] [--doc <키>=<이름>:<경로> ...]
    ```
 
-   - `--doc`(반복): 논문 저장소 하나의 문서 여럿을 한 뷰어·한 주소에서 탭으로 전환한다. `.tex` 는 LaTeX(빌드 루트는 그 폴더), `<빌드 루트>::<메인.tex>` 는 빌드 루트를 따로, `.pdf` 는 보기 전용. 경로는 `--manuscript` 기준. 없으면 `--main` 문서 하나(예전 그대로). 예시·규칙은 [operations.md](references/operations.md) §여러 문서.
-   - `--git-pull`: 재빌드마다 업스트림을 `--ff-only` 로 당긴다. dirty·분기면 건너뛰고 빌드는 계속한다.
+   - `--doc`(반복): 논문 저장소 하나의 문서 여럿을 한 뷰어·한 주소에서 선택한다. 데스크톱은 PDF 영역 위 문서 선택기, 모바일은 기존 도구 줄의 문서 버튼을 쓴다. `.tex` 는 LaTeX(빌드 루트는 그 폴더), `<빌드 루트>::<메인.tex>` 는 빌드 루트를 따로, `.pdf` 는 보기 전용. 경로는 `--manuscript` 기준. 없으면 `--main` 문서 하나(예전 그대로). 예시·규칙은 [operations.md](references/operations.md) §여러 문서.
+   - `--git-pull`: 기동 직후와 60초마다 원격 main 을 확인하고 새 커밋이면 PDF를 다시 만든다. 수동 재빌드도 업스트림을 `--ff-only` 로 당긴다. 자동 동기화가 dirty·분기 등으로 막히면 화면에 사유를 표시한다.
    - `--label`·`--accent`: 여러 논문 뷰어를 동시에 열었을 때 탭·이름표 칩·파비콘으로 구분한다(§동시 인스턴스, [operations.md](references/operations.md)). 생략하면 `--manuscript` 의 git 저장소 이름 → 폴더 이름 순으로 기본값을 정한다.
    - 직접 띄울 때(위 `pin-viewer` 없이) **논문마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다.
    - 다른 인자·systemd 유닛·배포 사본은 [operations.md](references/operations.md).
