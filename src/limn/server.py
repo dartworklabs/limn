@@ -20,6 +20,7 @@ Python 3.10 표준 라이브러리만 쓴다.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import html
 import json
@@ -144,6 +145,94 @@ class Cfg:
 
 
 C = Cfg()
+
+
+# ---------------------------------------------------------------- 문서(§여러 문서, references/design.md §여러 문서)
+#
+# 논문 저장소 하나에는 본문·답변서·커버레터처럼 문서가 여럿 있다. 뷰어 하나(주소 하나)가 그 문서들을 전환한다.
+# 핀 저장소(pins.jsonl·pins.seq)는 하나다 — 번호가 문서를 가로질러 유일해야 '#12 처리해줘'가 모호하지 않다.
+# 빌드·쪽 이미지·PDF 사본·빌드 이력은 문서별 폴더(Doc.dir)에 둔다. 요청 하나는 문서 하나를 다루고, 그 문서를
+# 스레드 지역 값(using_doc)으로 건다 — 빌드·쪽 함수들이 인자 없이 '지금 문서'를 보게 해 기존 경로를 그대로 쓴다.
+
+DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
+DOC_NAME_MAX = 40
+DOCS_MAX = 12
+DEFAULT_DOC_KEY = "main"
+
+
+class Doc:
+    """문서 하나. kind 는 'tex'(LaTeX, SyncTeX 로 줄을 되짚는다) 또는 'pdf'(보기 전용 — 쪽·영역만).
+
+    legacy=True 는 --doc 없이 띄운 단일 문서다. 원고 경로·상태 폴더를 C 에서 그때그때 읽는다(C.src·C.main·
+    C.state·C.build) — 옛 상태 폴더 배치를 그대로 쓰고, C 를 바꿔 끼우는 회귀 테스트도 그대로 돈다.
+    root=True 면 빌드 산출물을 상태 폴더 루트에 둔다(단일 문서와 같은 자리). --doc 에서는 키가 main 인
+    LaTeX 문서만 그렇다 — 단일 문서 인스턴스에 문서를 더해도 본문의 빌드 이력(위치 추정의 원천)이 이어진다."""
+
+    def __init__(self, key: str, name: str, kind: str = "tex", src: Path = None, main: Path = None,
+                 legacy: bool = False, root: bool = None, lock=None, bstate=None, bstate_lock=None,
+                 builds_lock=None, mcache=None):
+        self.key, self.name, self.kind = key, name, kind
+        self._src, self._main, self.legacy = src, main, legacy
+        self.root = legacy if root is None else root
+        self.lock = lock or threading.Lock()
+        self.bstate = bstate if bstate is not None else _fresh_build_state()
+        self.bstate_lock = bstate_lock or threading.Lock()
+        self.builds_lock = builds_lock or threading.Lock()
+        self.mcache = mcache if mcache is not None else [None, 0.0, 0.0]
+
+    @property
+    def src(self) -> Path:
+        """빌드 루트 — 빌드 사본으로 복사하는 범위. 보기 전용이면 PDF 가 든 폴더."""
+        return C.src if self.legacy else self._src
+
+    @property
+    def main(self) -> Path:
+        """LaTeX 면 메인 .tex, 보기 전용이면 그 PDF 파일."""
+        return C.main if self.legacy else self._main
+
+    @property
+    def dir(self) -> Path:
+        """쪽 이미지·빌드 이력·built_at 등 문서별 상태 폴더."""
+        return C.state if self.root else C.state / "docs" / self.key
+
+    @property
+    def build(self) -> Path:
+        return C.build if self.legacy else self.dir / "build"
+
+    @property
+    def main_rel(self) -> Path:
+        try:
+            return self.main.relative_to(self.src)
+        except ValueError:
+            return Path(self.main.name)
+
+    @property
+    def out(self) -> Path:
+        """latexmk 를 돌리고 PDF 가 나오는 폴더. --doc 문서는 메인 .tex 가 있는 폴더에서 돈다(평소 그 폴더에서
+        latexmk 하던 그대로 — '::' 앞의 빌드 루트는 복사 범위일 뿐이다). 단일 문서는 예전처럼 빌드 루트다."""
+        return self.build if self.legacy else self.build / self.main_rel.parent
+
+    @property
+    def pdf_name(self) -> str:
+        """쪽 디렉토리 안 PDF 사본 이름."""
+        return self.main.stem + ".pdf"
+
+    @property
+    def is_pdf(self) -> bool:
+        return self.kind == "pdf"
+
+    def rel_path(self) -> str:
+        """--manuscript 기준 상대경로(표시·pins.md 머리용). 메인 파일을 가리킨다."""
+        try:
+            return str(self.main.resolve().relative_to(C.src.resolve()))
+        except (ValueError, OSError, RuntimeError):
+            return str(self.main)
+
+
+def _fresh_build_state() -> dict:
+    return {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
+            "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
+            "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
 
 
 class HTTPError(Exception):
@@ -279,14 +368,16 @@ def build_html(label: str, accent: str) -> str:
 def cur_pages() -> Path:
     """지금 보여 줄 쪽 이미지 디렉토리. pages.cur 포인터가 가리킨다.
 
-    포인터가 없으면 옛 레이아웃(<state>/pages/)을 그대로 쓴다 — 재빌드 없이 이관된다."""
+    포인터가 없으면 옛 레이아웃(<state>/pages/)을 그대로 쓴다 — 재빌드 없이 이관된다.
+    문서마다 따로다(cur_doc().dir — 단일 문서는 상태 폴더 루트)."""
+    base = cur_doc().dir
     try:
-        name = C.pages_ptr.read_text(encoding="utf-8").strip()
+        name = (base / "pages.cur").read_text(encoding="utf-8").strip()
     except OSError:
         name = ""
-    if name and PAGES_DIR_RE.fullmatch(name) and (C.state / name).is_dir():
-        return C.state / name
-    return C.state / "pages"
+    if name and PAGES_DIR_RE.fullmatch(name) and (base / name).is_dir():
+        return base / name
+    return base / "pages"
 
 
 def valid_build_name(v) -> bool:
@@ -299,8 +390,9 @@ def pages_dir_for(name) -> Path:
     재빌드가 끝난 뒤 뷰어가 새 화면으로 바꾸기 전(폴링 틈새)의 드래그는 옛 레이아웃 좌표다 —
     그 좌표를 새 PDF 에 대 보면 다른 줄을 짚는다. 직전 빌드 디렉토리는 한 번 더 남겨 두므로
     (_build 가 현재+직전을 유지) 대개 화면과 같은 PDF 로 되짚을 수 있다."""
-    if valid_build_name(name) and (C.state / name).is_dir():
-        return C.state / name
+    base = cur_doc().dir
+    if valid_build_name(name) and (base / name).is_dir():
+        return base / name
     return cur_pages()
 
 
@@ -335,13 +427,14 @@ def build_pdf(name) -> Path:
 
     cur_pdf 와 달리 build/ 로 물러서지 않는다. build/ 의 것은 재빌드가 제자리에서 덮어써 화면의 쪽 이미지와
     어긋날 수 있다 — 뷰어가 그 위에서 좌표를 재면 PNG 와 다른 자리를 짚는다. 없으면 None."""
+    D = cur_doc()
     if name in (None, ""):
         pdir = cur_pages()
-    elif valid_build_name(name) and (C.state / name).is_dir():
-        pdir = C.state / name
+    elif valid_build_name(name) and (D.dir / name).is_dir():
+        pdir = D.dir / name
     else:
         return None
-    f = pdir / (C.main.stem + ".pdf")
+    f = pdir / D.pdf_name
     return f if f.is_file() else None
 
 
@@ -350,10 +443,13 @@ def cur_pdf(pdir: Path = None) -> Path:
 
     짝을 맞추는 이유: 빌드가 실패해도 화면은 옛 PDF 인데, pick 이 새로 깨진 PDF 를 읽으면
     보이는 것과 다른 자리를 짚는다."""
-    f = (pdir or cur_pages()) / (C.main.stem + ".pdf")
+    D = cur_doc()
+    f = (pdir or cur_pages()) / D.pdf_name
     if f.exists():
         return f
-    return C.build / (C.main.stem + ".pdf")
+    if D.is_pdf:                                          # 보기 전용: 아직 쪽을 안 그렸으면 원본 PDF
+        return D.main
+    return D.out / D.pdf_name
 
 
 def build_ref_mtime(name: str):
@@ -390,15 +486,19 @@ def migrate_pages() -> None:
 
     PDF·synctex 사본을 pages/ 에 넣어 두어야 pick 이 화면의 쪽과 같은 PDF 를 읽는다 —
     build/ 의 것은 재빌드가 제자리에서 덮어쓴다(빌드 중이거나 뒤 단계에서 실패하면 어긋난다)."""
-    legacy = C.state / "pages"
+    D = cur_doc()
+    if D.is_pdf:
+        return
+    legacy = D.dir / "pages"
     if not legacy.is_dir():
         return
-    if not C.pages_ptr.exists():
-        atomic_write(C.pages_ptr, "pages")
+    ptr = D.dir / "pages.cur"
+    if not ptr.exists():
+        atomic_write(ptr, "pages")
     if cur_pages() != legacy:
         return
     for suf in (".pdf", ".synctex.gz"):
-        src, dst = C.build / (C.main.stem + suf), legacy / (C.main.stem + suf)
+        src, dst = D.out / (D.main.stem + suf), legacy / (D.main.stem + suf)
         if src.is_file() and not dst.exists():
             tmp = dst.with_name(dst.name + ".tmp")
             try:
@@ -451,19 +551,21 @@ def run_logged(cmd: list, cwd: Path, timeout: int):
 
 
 def build_state_update(**kw) -> None:
-    with BUILD_STATE_LOCK:
-        BUILD_STATE.update(kw)
+    D = cur_doc()
+    with D.bstate_lock:
+        D.bstate.update(kw)
 
 
 def build_state_snapshot() -> dict:
     """GET /api/build 가 돌려줄 모양. 돌아가는 중이면 elapsed_s 를 지금 시각으로 다시 잰다."""
-    with BUILD_STATE_LOCK:
-        d = dict(BUILD_STATE)
+    D = cur_doc()
+    with D.bstate_lock:
+        d = dict(D.bstate)
     t0 = d.pop("start_ts", None)
     d["elapsed_s"] = round(time.time() - t0, 1) if d.get("state") == "running" and t0 else d.get("elapsed_s") or 0.0
     if d.get("built_at") is None:
         try:
-            d["built_at"] = (C.state / "built_at.txt").read_text().strip()
+            d["built_at"] = (D.dir / "built_at.txt").read_text().strip()
         except OSError:
             d["built_at"] = None
     return d
@@ -491,29 +593,33 @@ def diet_log(payload: dict, full: bool) -> dict:
 
 
 def build_all() -> dict:
-    """PDF 를 다시 만든다(동기). 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다."""
-    if not BUILD_LOCK.acquire(blocking=False):
+    """PDF 를 다시 만든다(동기). 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다.
+    잠금은 문서마다 하나다 — 서로 다른 문서는 동시에 빌드된다(빌드 폴더가 문서마다 따로다)."""
+    lock = cur_doc().lock
+    if not lock.acquire(blocking=False):
         return {"ok": False, "busy": True}
     try:
         return _build_tracked()
     finally:
-        BUILD_LOCK.release()
+        lock.release()
 
 
 def build_async() -> dict:
     """POST /api/rebuild?async=1: 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 돌아온다."""
-    if not BUILD_LOCK.acquire(blocking=False):
+    D = cur_doc()
+    if not D.lock.acquire(blocking=False):
         return {"state": "running", "busy": True}
     build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time())
 
     def worker():
-        try:
-            _build_tracked()
-        except Exception as e:                         # noqa: BLE001 — _build_tracked 자체가 죽어도 running 에 멈추지 않는다
-            finish_build({"ok": False, "state": "fail", "errors": [],
-                          "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}, None)
-        finally:
-            BUILD_LOCK.release()
+        with using_doc(D):                             # 빌드 스레드도 같은 문서를 본다
+            try:
+                _build_tracked()
+            except Exception as e:                     # noqa: BLE001 — _build_tracked 자체가 죽어도 running 에 멈추지 않는다
+                finish_build({"ok": False, "state": "fail", "errors": [],
+                              "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}, None)
+            finally:
+                D.lock.release()
     threading.Thread(target=worker, daemon=True).start()
     return {"state": "running"}
 
@@ -525,13 +631,14 @@ def _build_tracked() -> dict:
     묶어 두지 않는다 — 비동기 워커에서 이 함수가 죽으면 다음 폴링이 영원히 '만드는 중'을 보여 주게 된다.
     built_src_mtime 은 빌드 시작 시각에 실측해 두되(force=True, 2초 캐시를 건너뜀), ok|ok_errors 로
     끝났을 때만 파일에 확정한다 — 실패하면 화면은 옛 PDF 그대로이므로 '원고 수정됨' 배지가 꺼지면 안 된다."""
-    with BUILD_STATE_LOCK:
-        last_s = BUILD_STATE.get("last_s")
+    D = cur_doc()
+    with D.bstate_lock:
+        last_s = D.bstate.get("last_s")
     build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time(),
                         last_s=last_s, errors=[], log_tail="")
     src_mtime_at_start = src_mtime(force=True)
     try:
-        res = _build()
+        res = _render_pdf_doc() if D.is_pdf else _build()
     except Exception as e:                            # noqa: BLE001 — 빌드가 죽어도 running 에 멈추지 않는다
         res = {"ok": False, "state": "fail", "errors": [],
                "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
@@ -552,8 +659,9 @@ def finish_build(res: dict, src_mtime_at_start) -> None:
             "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "elapsed_s": res.get("elapsed_s", 0.0), "log_tail": str(res.get("log") or "")[-4000:],
             "head": res.get("head"), "pull": res.get("pull")}
-    with BUILD_STATE_LOCK:
-        last["started_at"] = BUILD_STATE.get("started_at")
+    D = cur_doc()
+    with D.bstate_lock:
+        last["started_at"] = D.bstate.get("started_at")
     ent = None
     if state in ("ok", "ok_errors") and res.get("build"):
         ent = {"build": res["build"], "src_mtime": src_mtime_at_start, "src_hash": res.get("src_hash"),
@@ -587,7 +695,7 @@ def _valid_build_entry(b) -> bool:
 def load_builds() -> dict:
     """{seq, builds, last, by}. 파일이 없거나 깨졌으면 빈 이력 — 이력이 없어도 서버는 돈다(추정이 보수적일 뿐)."""
     try:
-        d = json.loads(C.builds_file.read_text(encoding="utf-8"))
+        d = json.loads((cur_doc().dir / "builds.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
         d = None
     out = _empty_builds()
@@ -605,17 +713,18 @@ def load_builds() -> dict:
 def _write_builds(h: dict) -> None:
     body = {"seq": h["seq"], "last": h["last"], "builds": h["builds"][-BUILDS_KEEP:]}
     try:
-        atomic_write(C.builds_file, json.dumps(body, ensure_ascii=False, indent=1) + "\n")
+        atomic_write(cur_doc().dir / "builds.json", json.dumps(body, ensure_ascii=False, indent=1) + "\n")
     except OSError as e:
         print("경고: 빌드 이력을 쓰지 못했습니다: %s" % e, file=sys.stderr)
 
 
 def record_build(last: dict, ent) -> int:
     """끝난 빌드 하나를 이력에 더하고 새 seq 를 돌려준다. 쓰기가 실패해도 seq 는 오른다(메모리 기준)."""
-    with BUILDS_LOCK:
+    D = cur_doc()
+    with D.builds_lock:
         h = load_builds()
-        with BUILD_STATE_LOCK:
-            seq = max(h["seq"], int(BUILD_STATE.get("seq") or 0)) + 1
+        with D.bstate_lock:
+            seq = max(h["seq"], int(D.bstate.get("seq") or 0)) + 1
         h["seq"] = seq
         h["last"] = dict(last, seq=seq, build=ent["build"] if ent else None)
         if ent:
@@ -632,7 +741,8 @@ def seed_builds() -> None:
     (built_src_mtime.txt, 없으면 PDF 시각) 이하면 그 뒤로 고친 파일이 없다는 뜻이므로 지금 원고의
     지문을 그 빌드의 지문으로 삼는다 — 그래야 기동 뒤 처음 찍은 핀이 '원고를 안 바꾼 재빌드'에서
     추정으로 오탐되지 않는다. 판단이 안 서면 지문을 비워 둔다(그 빌드의 핀은 다음 빌드 뒤 보수적으로 추정)."""
-    with BUILDS_LOCK:
+    D = cur_doc()
+    with D.builds_lock:
         h = load_builds()
         cur = cur_pages()
         if cur.is_dir() and cur.name not in h["by"] and any(cur.glob("page-*.png")):
@@ -647,7 +757,7 @@ def seed_builds() -> None:
                    "finished_at": _read_built_at(), "seeded": True}
             now_m = src_mtime(force=True)
             if ref is not None and now_m <= ref + 1e-6:
-                ent["src_hash"] = source_fingerprint(C.src)
+                ent["src_hash"] = doc_fingerprint(D)
                 if ent["src_mtime"] is None:
                     ent["src_mtime"] = now_m
             h["builds"].append(ent)
@@ -667,14 +777,14 @@ def seed_builds() -> None:
 
 def _read_built_at():
     try:
-        return (C.state / "built_at.txt").read_text().strip()
+        return (cur_doc().dir / "built_at.txt").read_text().strip()
     except OSError:
         return None
 
 
 def _read_head():
     try:
-        return (C.state / "head.txt").read_text().strip()
+        return (cur_doc().dir / "head.txt").read_text().strip()
     except OSError:
         return None
 
@@ -734,18 +844,39 @@ def git_pull_phase(manuscript: Path) -> dict:
     return {"state": state, "reason": None, "head_before": head_before, "head_after": head_after}
 
 
+_PULL_LOCK = threading.Lock()
+_PULL_LAST = {"at": 0.0, "res": None}
+PULL_SHARE_S = 20                  # 초 — 이 안에 다른 문서가 이미 당겼으면 그 결과를 같이 쓴다
+
+
+def repo_pull() -> dict:
+    """--git-pull 은 저장소 단위다. 단일 문서는 빌드마다 한 번(예전 그대로). 여러 문서면 잠금 하나로 줄 세우고,
+    PULL_SHARE_S 안에 다른 문서의 빌드가 이미 당겼으면 다시 당기지 않고 그 결과(shared=True)를 쓴다 — 두 문서를
+    동시에 재빌드해도 git fetch·merge 가 겹치지 않고(.git/index.lock 충돌), 한쪽이 복사하는 중에 트리가 바뀌지 않는다."""
+    if not multi_doc():
+        return git_pull_phase(C.src)
+    with _PULL_LOCK:
+        last = _PULL_LAST["res"]
+        if last is not None and time.time() - _PULL_LAST["at"] < PULL_SHARE_S:
+            return dict(last, shared=True)
+        res = git_pull_phase(C.src)
+        _PULL_LAST.update(at=time.time(), res=res)
+        return res
+
+
 def _build() -> dict:
     """원본을 건드리지 않고 사본에서 -synctex=1 로 빌드한 뒤, 새 디렉토리에 쪽을 그리고 포인터만 바꾼다.
 
     판정은 세 가지다. fail = 새 PDF 가 없거나 시간 초과(화면은 옛 PDF 그대로),
     ok_errors = 새 PDF 는 나왔지만 LaTeX 오류('! ' 줄)가 있음, ok = 오류 없음."""
     t0 = time.time()
-    C.build.mkdir(parents=True, exist_ok=True)
+    D = cur_doc()
+    D.build.mkdir(parents=True, exist_ok=True)
     res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
 
     if C.git_pull:                                        # copy 단계 전에 원격 main 으로 fast-forward(§P0c-E)
         build_state_update(phase="pull")
-        res["pull"] = git_pull_phase(C.src)
+        res["pull"] = repo_pull()
         build_state_update(phase="copy")
 
     rs = shutil.which("rsync")
@@ -755,33 +886,34 @@ def _build() -> dict:
             for d in BUILD_EXCLUDE_DIRS:
                 excl += ["--exclude", d + "/"]
             subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
-                            str(C.src) + "/", str(C.build) + "/"], capture_output=True, timeout=300)
+                            str(D.src) + "/", str(D.build) + "/"], capture_output=True, timeout=300)
         else:                                            # rsync 없이도 돌아가야 한다
-            shutil.rmtree(C.build, ignore_errors=True)
-            shutil.copytree(C.src, C.build, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
+            shutil.rmtree(D.build, ignore_errors=True)
+            shutil.copytree(D.src, D.build, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
     except (subprocess.TimeoutExpired, OSError) as e:
         res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
     # 지문은 사본에서 뜬다 — 이 빌드가 실제로 컴파일하는 바로 그 파일들이다(원본은 그사이 또 바뀔 수 있다).
     try:
-        res["src_hash"] = source_fingerprint(C.build)
+        res["src_hash"] = source_fingerprint(D.build)
     except OSError:
         res["src_hash"] = None
 
     build_state_update(phase="latex")
+    # 단일 문서는 예전처럼 빌드 루트에서, --doc 문서는 메인 .tex 가 있는 폴더에서 돈다(Doc.out).
     _rc, out, timed_out = run_logged(
-        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", C.main.name], C.build, C.timeout)
+        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, C.timeout)
     try:
-        atomic_write(C.state / "build.log", out)
+        atomic_write(D.dir / "build.log", out)
     except OSError:
         pass
     tail = "\n".join(out.splitlines()[-40:])[-4000:]
     res["log"] = tail
 
-    pdf = C.build / (C.main.stem + ".pdf")
-    syn = C.build / (C.main.stem + ".synctex.gz")
-    texlog = C.build / (C.main.stem + ".log")
+    pdf = D.out / (D.main.stem + ".pdf")
+    syn = D.out / (D.main.stem + ".synctex.gz")
+    texlog = D.out / (D.main.stem + ".log")
     try:
         logtxt = texlog.read_text(encoding="utf-8", errors="replace") \
             if texlog.exists() and texlog.stat().st_mtime >= t0 - 1 else out
@@ -799,14 +931,34 @@ def _build() -> dict:
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
 
-    # 새 디렉토리에 그린다. 끝나기 전까지 화면은 옛 디렉토리를 계속 본다.
+    newdir, err = _render_pages(pdf, [syn])
+    if newdir is None:
+        res["log"] = err + "\n" + tail
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        return res
+    head_short = _commit_pages(newdir)
+    res["head"] = head_short
+
+    res["state"] = "ok_errors" if res["errors"] else "ok"
+    res["ok"] = True
+    res["build"] = newdir.name
+    res["pages"] = len(list(newdir.glob("page-*.png")))
+    res["elapsed_s"] = round(time.time() - t0, 1)
+    return res
+
+
+def _render_pages(pdf: Path, extra: list):
+    """새 디렉토리에 쪽을 그리고 PDF(와 extra — synctex)를 사본으로 넣는다. 끝나기 전까지 화면은 옛 디렉토리를 본다.
+    (디렉토리, None) 또는 (None, 오류 문구)."""
+    D = cur_doc()
+    D.dir.mkdir(parents=True, exist_ok=True)
     bid = time.strftime("%Y%m%d%H%M%S")
     name = "pages-" + bid
     k = 1
-    while (C.state / name).exists():
+    while (D.dir / name).exists():
         name = "pages-%s-%d" % (bid, k)
         k += 1
-    newdir = C.state / name
+    newdir = D.dir / name
     newdir.mkdir(parents=True)
     build_state_update(phase="render")
     try:
@@ -817,31 +969,100 @@ def _build() -> dict:
         ok_render = False
     if not ok_render:
         shutil.rmtree(newdir, ignore_errors=True)
-        res["log"] = "쪽 이미지를 그리지 못했습니다(pdftoppm).\n" + tail
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        return res
-    shutil.copy2(pdf, newdir / pdf.name)
-    shutil.copy2(syn, newdir / syn.name)
+        return None, "쪽 이미지를 그리지 못했습니다(pdftoppm)."
+    try:
+        shutil.copy2(pdf, newdir / D.pdf_name)
+        for f in extra:
+            shutil.copy2(f, newdir / f.name)
+    except OSError as e:
+        shutil.rmtree(newdir, ignore_errors=True)
+        return None, "PDF 사본을 쪽 디렉토리에 두지 못했습니다: %s" % e
+    return newdir, None
 
+
+def _commit_pages(newdir: Path) -> str:
+    """포인터를 새 쪽 디렉토리로 한 번에 바꾸고(원자적), 현재+직전만 남기고, built_at·head 를 쓴다. head 짧은 해시."""
+    D = cur_doc()
     prev = cur_pages().name
-    atomic_write(C.pages_ptr, name)                      # 원자적 교체 한 번
-    for d in C.state.iterdir():                          # 현재와 직전 하나만 남긴다
-        if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (name, prev):
+    atomic_write(D.dir / "pages.cur", newdir.name)       # 원자적 교체 한 번
+    for d in D.dir.iterdir():                            # 현재와 직전 하나만 남긴다
+        if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)
+    atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
+    try:
+        head = subprocess.run(["git", "-C", str(D.src), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True, timeout=10)
+        head_short = head.stdout.strip() or "-"
+    except (OSError, subprocess.SubprocessError):
+        head_short = "-"
+    atomic_write(D.dir / "head.txt", head_short)
+    return head_short
 
-    atomic_write(C.state / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
-    head = subprocess.run(["git", "-C", str(C.src), "rev-parse", "--short", "HEAD"],
-                          capture_output=True, text=True)
-    head_short = head.stdout.strip() or "-"
-    atomic_write(C.state / "head.txt", head_short)
-    res["head"] = head_short
 
-    res["state"] = "ok_errors" if res["errors"] else "ok"
-    res["ok"] = True
-    res["build"] = name
-    res["pages"] = len(list(newdir.glob("page-*.png")))
-    res["elapsed_s"] = round(time.time() - t0, 1)
+# ---------------------------------------------------------------- 보기 전용 PDF 문서
+#
+# LaTeX 소스가 없는 PDF(리뷰어 코멘트 등)는 재빌드가 없다. 대신 그 PDF 파일이 바뀌면(mtime·크기) 쪽 이미지를
+# 다시 그린다 — 같은 빌드 경로(_build_tracked → 이력·build_seq)를 타므로 뷰어는 LaTeX 재빌드와 똑같이 화면을 바꾼다.
+
+def pdf_signature(D: Doc):
+    try:
+        st = D.main.stat()
+        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+def _render_pdf_doc() -> dict:
+    """보기 전용 문서의 '빌드' — 원본 PDF 를 쪽 이미지로 그린다. LaTeX·SyncTeX·git pull 은 없다."""
+    t0 = time.time()
+    D = cur_doc()
+    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
+    sig = pdf_signature(D)
+    if sig is None:
+        res["log"] = "PDF 가 없습니다: %s" % D.main
+        return res
+    try:
+        res["src_hash"] = doc_fingerprint(D)
+    except OSError:
+        res["src_hash"] = None
+    newdir, err = _render_pages(D.main, [])
+    if newdir is None:
+        res["log"] = err
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        try:                                         # 같은 파일로 3초마다 다시 시도하지 않는다 — 파일이 바뀌면 다시 그린다
+            atomic_write(D.dir / "pdf_sig.txt", sig)
+        except OSError:
+            pass
+        return res
+    res["head"] = _commit_pages(newdir)
+    try:
+        atomic_write(D.dir / "pdf_sig.txt", sig)
+    except OSError:
+        pass
+    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
+               elapsed_s=round(time.time() - t0, 1))
     return res
+
+
+def pdf_changed(D: Doc) -> bool:
+    """보기 전용 PDF 가 지금 쪽 이미지를 그린 뒤 바뀌었는가(또는 아직 안 그렸는가)."""
+    sig = pdf_signature(D)
+    if sig is None:
+        return False
+    try:
+        done = (D.dir / "pdf_sig.txt").read_text().strip()
+    except OSError:
+        done = ""
+    return sig != done
+
+
+def refresh_pdf_doc(D: Doc) -> bool:
+    """PDF 가 바뀌었으면 백그라운드로 다시 그린다(이미 그리는 중이면 아무것도 안 한다). 시작했으면 True."""
+    if not D.is_pdf or not pdf_changed(D):
+        return False
+    with using_doc(D):
+        r = build_async()
+    return not r.get("busy")
 
 
 # ---------------------------------------------------------------- 메타
@@ -868,8 +1089,70 @@ SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
 # 빌드 산출물 디렉토리(상태 디렉토리를 원고 안에 둔 배치 대비) + 빌드 rsync 가 빼는 디렉토리.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
 
-_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시
+_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시(단일 문서의 것)
 _SRC_MTIME_LOCK = threading.Lock()
+
+# 단일 문서(--doc 없음). 모듈 전역 잠금·상태를 그대로 쥐므로 옛 경로·회귀 테스트가 보던 객체가 곧 이 문서의 것이다.
+LEGACY_DOC = Doc(DEFAULT_DOC_KEY, "본문", legacy=True, lock=BUILD_LOCK, bstate=BUILD_STATE,
+                 bstate_lock=BUILD_STATE_LOCK, builds_lock=BUILDS_LOCK, mcache=_SRC_MTIME_CACHE)
+DOCS: list = [LEGACY_DOC]
+_TL = threading.local()
+
+
+def set_docs(docs=None) -> None:
+    """문서 목록을 바꾼다(main()·테스트). 비우면 단일 문서로 돌아간다."""
+    DOCS[:] = list(docs) if docs else [LEGACY_DOC]
+
+
+def cur_doc() -> Doc:
+    """이 스레드가 다루는 문서. 요청 처리기·빌드 스레드가 using_doc 으로 건다. 없으면 첫 문서."""
+    d = getattr(_TL, "doc", None)
+    return d if d is not None else DOCS[0]
+
+
+@contextlib.contextmanager
+def using_doc(d):
+    prev = getattr(_TL, "doc", None)
+    _TL.doc = d
+    try:
+        yield d
+    finally:
+        _TL.doc = prev
+
+
+def multi_doc() -> bool:
+    return len(DOCS) > 1
+
+
+def doc_by_key(key):
+    return next((d for d in DOCS if d.key == key), None)
+
+
+def pin_doc_key(r: dict) -> str:
+    """핀이 속한 문서 키. doc 필드가 없는 옛 레코드는 첫 문서로 읽는다(이관 쓰기 없음)."""
+    k = r.get("doc")
+    return k if isinstance(k, str) and k else DOCS[0].key
+
+
+def doc_for_file(path) -> Doc:
+    """file 로만 온 요청(에이전트 curl)이 어느 LaTeX 문서의 것인지. 빌드 루트가 가장 깊게 감싸는 문서, 없으면 첫 문서."""
+    try:
+        p = Path(path) if os.path.isabs(str(path)) else C.src / str(path)
+        p = p.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return DOCS[0]
+    best, depth = None, -1
+    for d in DOCS:
+        if d.is_pdf:
+            continue
+        try:
+            p.relative_to(d.src.resolve())
+        except (ValueError, OSError, RuntimeError):
+            continue
+        n = len(d.src.resolve().parts)
+        if n > depth:
+            best, depth = d, n
+    return best or DOCS[0]
 
 
 def _excluded_dir(name: str) -> bool:
@@ -882,7 +1165,9 @@ def iter_sources(root: Path):
     src_mtime(배지·낡은 PDF 경고)과 source_fingerprint(빌드 지문)가 같은 목록을 본다 — 둘이 다른 파일을
     보면 '배지는 꺼졌는데 추정은 켜짐' 같은 어긋남이 생긴다. 점(.) 디렉토리, 빌드 산출물·빌드 rsync 가
     빼는 디렉토리(BUILD_OUTDIRS), 원고 안에 둔 상태 디렉토리, 루트의 메인 PDF 는 뺀다."""
-    main_pdf = C.main.stem + ".pdf"
+    D = cur_doc()
+    main_pdf = D.pdf_name
+    main_at = tuple(D.main_rel.parent.parts)            # 메인 .tex 옆의 PDF(빌드 산출물·커밋된 사본)는 원고가 아니다
     state_in_root = None
     try:
         state_in_root = tuple(C.state.resolve().relative_to(root.resolve()).parts)
@@ -903,11 +1188,23 @@ def iter_sources(root: Path):
                     continue
                 yield from walk(Path(e.path), parts)
             elif e.is_file(follow_symlinks=False):
-                if e.name == main_pdf and rel_parts == ():
+                if e.name == main_pdf and rel_parts == main_at:
                     continue
                 if os.path.splitext(e.name)[1].lower() in SRC_MTIME_EXTS:
                     yield "/".join(rel_parts + (e.name,)), e
     yield from walk(root, ())
+
+
+def doc_fingerprint(D: Doc) -> str:
+    """문서의 원고 지문. 보기 전용이면 그 PDF 파일 내용의 해시다."""
+    if D.is_pdf:
+        h = hashlib.sha256()
+        with open(D.main, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()[:32]
+    with using_doc(D):
+        return source_fingerprint(D.src)
 
 
 def source_fingerprint(root: Path) -> str:
@@ -935,26 +1232,34 @@ def src_mtime(force: bool = False) -> float:
     force=True 는 캐시를 건너뛰고 실측한다 — write_built_src_mtime() 이 빌드 시작 시각의 mtime 을
     남길 때 2초 캐시 값을 그대로 쓰면, 캐시가 채워진 지 2초 안에 원고를 고치고 바로 재빌드했을 때
     수정 전 mtime 이 '빌드 시작 시각'으로 잘못 기록된다."""
-    key = str(C.src)
+    D = cur_doc()
+    cache = D.mcache
+    key = str(D.src)
     if not force:
         with _SRC_MTIME_LOCK:
-            ckey, val, at = _SRC_MTIME_CACHE
+            ckey, val, at = cache
             if ckey == key and time.time() - at < 2.0:
                 return val
     newest = 0.0
-    for _rel, e in iter_sources(C.src):
+    if D.is_pdf:                                          # 보기 전용: 그 PDF 파일 하나가 원고다
         try:
-            newest = max(newest, e.stat().st_mtime)
+            newest = D.main.stat().st_mtime
         except OSError:
             pass
+    else:
+        for _rel, e in iter_sources(D.src):
+            try:
+                newest = max(newest, e.stat().st_mtime)
+            except OSError:
+                pass
     with _SRC_MTIME_LOCK:
-        _SRC_MTIME_CACHE[0], _SRC_MTIME_CACHE[1], _SRC_MTIME_CACHE[2] = key, newest, time.time()
+        cache[0], cache[1], cache[2] = key, newest, time.time()
     return newest
 
 
 def read_built_src_mtime():
     try:
-        return float(C.built_src_mtime_file.read_text().strip())
+        return float((cur_doc().dir / "built_src_mtime.txt").read_text().strip())
     except (OSError, ValueError):
         return None
 
@@ -967,7 +1272,7 @@ def write_built_src_mtime(value: float = None) -> None:
     꺼지면 안 된다."""
     try:
         v = src_mtime(force=True) if value is None else value
-        atomic_write(C.built_src_mtime_file, "%f" % v)
+        atomic_write(cur_doc().dir / "built_src_mtime.txt", "%f" % v)
     except OSError:
         pass
 
@@ -980,19 +1285,50 @@ def pins_rev() -> str:
         return "0"
 
 
+def doc_brief(D: Doc) -> dict:
+    """문서 하나의 요약 — /api/docs 와 (여러 문서일 때) /api/meta 의 docs. 쓰기를 하지 않는다(폴링에서 부른다)."""
+    with using_doc(D):
+        b = build_state_snapshot()
+        stale = (not D.is_pdf) and source_newer() > 2
+        pdir = cur_pages()
+        n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
+        return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
+                "main": D.main.name, "stale_build": stale, "src_mtime": src_mtime(),
+                "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
+                "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
+                "pages_build": pdir.name, "n_pages": n_pages}
+
+
+def docs_payload() -> dict:
+    """GET /api/docs — 문서 목록과 문서별 열린 핀 수. 핀은 읽기만 한다(sync 쓰기 없음)."""
+    rows, _ = read_pins()
+    counts: dict = {}
+    for r in rows:
+        if not r.get("done"):
+            k = pin_doc_key(r)
+            counts[k] = counts.get(k, 0) + 1
+    known = {d.key for d in DOCS}
+    return {"docs": [dict(doc_brief(d), n_open=counts.get(d.key, 0)) for d in DOCS],
+            "default": DOCS[0].key, "multi": multi_doc(),
+            "other_open": sum(v for k, v in counts.items() if k not in known)}
+
+
 def meta(actor: dict, light: bool = False) -> dict:
+    D = cur_doc()
+
     def read(f):
         try:
-            return (C.state / f).read_text().strip()
+            return (D.dir / f).read_text().strip()
         except OSError:
             return "?"
     bstate = build_state_snapshot()
     sm = src_mtime()
-    newer = source_newer()
+    newer = 0.0 if D.is_pdf else source_newer()     # 보기 전용은 PDF 가 바뀌면 서버가 알아서 다시 그린다
     out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
-           "main": C.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
+           "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
            "label": C.label, "accent": C.accent, "repo": C.repo,
-           "building": BUILD_LOCK.locked(),
+           "building": D.lock.locked(),
+           "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
            # 원고가 화면의 PDF 보다 새로운가 — 서버가 숫자로 판정한다(브라우저 시계·시간대와 무관).
            "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
            "src_mtime": sm, "build_src_mtime": read_built_src_mtime(),
@@ -1002,6 +1338,9 @@ def meta(actor: dict, light: bool = False) -> dict:
            "build_seq": bstate.get("seq", 0),
            "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
            "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
+    if multi_doc():                       # 다른 문서의 낡음·빌드 — 뷰어가 탭에 점·진행 표시를 단다
+        out["docs"] = [doc_brief(d) for d in DOCS]
+        out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"])
     if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
         return out
     rows = snapshot_pins()
@@ -1043,21 +1382,22 @@ def tex_lines(path: Path) -> list:
 
 def to_source(path: str) -> Path:
     """빌드 사본 경로를 원본 체크아웃 경로로 되돌린다."""
+    D = cur_doc()
     p = Path(path)
-    for base in (C.build, C.build.resolve()):
+    for base in (D.build, D.build.resolve()):
         try:
-            return C.src / p.relative_to(base)
+            return D.src / p.relative_to(base)
         except ValueError:
             pass
     try:
-        return C.src / p.resolve().relative_to(C.build.resolve())
+        return D.src / p.resolve().relative_to(D.build.resolve())
     except (ValueError, OSError):
         pass
     # 상태 디렉토리를 옮겼거나 복제하면 synctex 가 옛 build 경로를 가리킨다. 경로 꼬리가
     # 원고 트리 안의 실제 파일과 맞으면 그것으로 되돌린다(가장 긴 꼬리 우선, 트리 밖은 읽지 않는다).
     parts = p.parts
     for k in range(1, len(parts)):
-        cand = C.src.joinpath(*parts[k:])
+        cand = D.src.joinpath(*parts[k:])
         if cand.is_file():
             return cand
     return p
@@ -1429,7 +1769,7 @@ def sync_all(rows: list) -> bool:
     changed = False
     cache: dict = {}
     for r in rows:
-        if r.get("done"):
+        if r.get("done") or not r.get("file"):         # 보기 전용 PDF 의 핀은 줄이 없다 — 맞출 것도 없다
             continue
         f = Path(r.get("file", ""))
         if not in_tree(str(f)):
@@ -1486,11 +1826,25 @@ def valid_rec(r) -> bool:
     만들었고, 그 500 직전에 pins.jsonl 쓰기가 이미 커밋돼 재시도가 중복 핀을 만들었다(실측)."""
     if not isinstance(r, dict) or not _is_int(r.get("id")):
         return False
-    if not isinstance(r.get("file"), str) or not r["file"]:
+    if r.get("doc") is not None and not (isinstance(r["doc"], str) and DOC_KEY_RE.fullmatch(r["doc"])):
         return False
-    lo, hi = r.get("lo"), r.get("hi")
-    if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi):
-        return False
+    if is_region_pin(r):
+        # 보기 전용 PDF 의 핀: file·lo·hi 대신 pdf(절대경로)·쪽·영역(frac)이 위치다(§보기 전용 문서).
+        if not os.path.isabs(r["pdf"]) or not (_is_int(r.get("page")) and r["page"] >= 1):
+            return False
+        if r.get("lo") is not None or r.get("hi") is not None:
+            return False
+        fr = r.get("frac")
+        if not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
+            return False
+    else:
+        if not isinstance(r.get("file"), str) or not r["file"]:
+            return False
+        lo, hi = r.get("lo"), r.get("hi")
+        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi):
+            return False
+        if not os.path.isabs(r["file"]):              # 상대 경로는 서버 cwd 에 따라 다른 파일을 가리킨다
+            return False
     if "page" in r and not _is_int(r["page"]):
         return False
     if "note" in r and r["note"] is not None and not isinstance(r["note"], str):
@@ -1499,8 +1853,6 @@ def valid_rec(r) -> bool:
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
-        return False
-    if not os.path.isabs(r["file"]):                  # 상대 경로는 서버 cwd 에 따라 다른 파일을 가리킨다
         return False
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not _is_int(r[k]):
@@ -1529,6 +1881,12 @@ def valid_rec(r) -> bool:
 
 def _is_num(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def is_region_pin(r: dict) -> bool:
+    """보기 전용 PDF 문서의 핀인가 — file 이 없고 pdf 경로가 있다(레코드 모양으로만 가른다: 지금 설정에서 그 문서를
+    뺐어도 레코드는 깨진 줄이 아니다 — 깨진 줄로 치면 다음 쓰기가 그 핀을 지운다)."""
+    return isinstance(r, dict) and r.get("file") is None and isinstance(r.get("pdf"), str) and bool(r["pdf"])
 
 
 def _is_actor(v) -> bool:
@@ -1711,9 +2069,22 @@ def pin_est(r: dict, ctx: dict) -> bool:
 def pins_payload(rows: list, allp: bool) -> list:
     """GET /api/pins 응답: 저장 레코드 + 계산 필드 rel(겹침)·est(위치 추정). 둘 다 저장하지 않는다."""
     rel = overlaps_by_id(rows)
-    ctx = est_context()
-    return [dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx))
-            for r in rows if allp or not r.get("done")]
+    ctxs: dict = {}
+    out = []
+    for r in rows:
+        if not (allp or not r.get("done")):
+            continue
+        k = pin_doc_key(r)
+        if k not in ctxs:                              # 판정 재료는 문서마다(빌드 이력이 문서마다 따로다)
+            D = doc_by_key(k)
+            if D is None:
+                ctxs[k] = None
+            else:
+                with using_doc(D):
+                    ctxs[k] = est_context()
+        ctx = ctxs[k]
+        out.append(dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k))
+    return out
 
 
 def dropped_payload() -> list:
@@ -1750,6 +2121,8 @@ def overlaps_by_id(rows: list) -> dict:
         if r.get("done"):
             continue
         out.setdefault(r["id"], [])
+        if not r.get("file"):                          # 보기 전용 PDF 의 핀 — 줄 범위 겹침이 없다
+            continue
         by_file.setdefault(r.get("file"), []).append(r)
     for group in by_file.values():
         for i, a in enumerate(group):
@@ -1943,9 +2316,78 @@ def clean_loc(d: dict) -> dict:
     return out
 
 
+PDF_QUOTE_MAX = 160               # 보기 전용 핀의 영역 글자 — 줄 번호가 없으니 60자보다 넉넉히(에이전트의 판단 재료)
+REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build")
+
+
+def clean_frac(fr) -> list:
+    """보기 전용 핀의 위치는 영역뿐이라 LaTeX 핀보다 엄하게 본다: 숫자 4개, 쪽 안(0..1), 넓이가 있다."""
+    if not isinstance(fr, list) or len(fr) != 4:
+        raise HTTPError(400, "frac 은 숫자 4개 목록 [x, y, w, h](쪽 대비 비율)입니다.")
+    x, y, w, h = [_num(v, "frac") for v in fr]
+    eps = 1e-6
+    if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < w <= 1 + eps and 0 < h <= 1 + eps
+            and x + w <= 1 + eps and y + h <= 1 + eps):
+        raise HTTPError(400, "frac 이 쪽 밖입니다(0..1, 넓이 > 0).")
+    return [x, y, w, h]
+
+
+def clean_region(d: dict) -> dict:
+    """보기 전용 문서(지금 문서)의 핀 위치 — 쪽·영역. lo/hi·file 은 받지 않는다."""
+    D = cur_doc()
+    for k in ("file", "lo", "hi", "scope"):
+        if d.get(k) is not None:
+            raise HTTPError(400, "보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (D.key, k))
+    out: dict = {"pdf": str(D.main), "name": D.main.name, "kind": "region"}
+    page = _int(d.get("page"), "page")
+    want = d.get("pdf_build")
+    if want is not None and not valid_build_name(want):
+        raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+    n = len(page_list(pages_dir_for(want)))
+    if page < 1 or (n and page > n):
+        raise HTTPError(400, "page 는 1..%d 이어야 합니다." % max(n, 1))
+    out["page"] = page
+    out["frac"] = clean_frac(d.get("frac"))
+    if d.get("quote") is not None:
+        if not isinstance(d["quote"], str):
+            raise HTTPError(400, "quote 는 문자열입니다.")
+        out["quote"] = truncate_quote(norm(d["quote"]), PDF_QUOTE_MAX)
+    if want is not None:
+        out["pdf_build"] = want
+    return out
+
+
+def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
+    """요청이 가리키는 문서: ?doc= 또는 본문 doc. 둘 다 없으면 file 로 짐작하고(에이전트 curl), 그것도 없으면 첫 문서.
+    없는 키는 404 — 조용히 첫 문서로 물러서면 다른 문서에 핀이 붙는다."""
+    key = (q.get("doc") or [None])[0] if q else None
+    bkey = body.get("doc") if isinstance(body, dict) else None
+    if bkey is not None and not isinstance(bkey, str):
+        raise HTTPError(400, "doc 은 문자열이어야 합니다.")
+    if key and bkey and key != bkey:
+        raise HTTPError(400, "doc 이 주소(%s)와 본문(%s)에서 다릅니다." % (key, bkey))
+    key = key or bkey
+    if not key:
+        if file_hint and multi_doc():
+            return doc_for_file(file_hint)
+        return DOCS[0]
+    D = doc_by_key(key)
+    if D is None:
+        raise HTTPError(404, "없는 문서입니다: %s" % hdr_text(key)[:40], docs=[d.key for d in DOCS])
+    return D
+
+
 # ---------------------------------------------------------------- 핀 조작
 
 def add_pin(d: dict, actor: dict) -> int:
+    D = cur_doc()
+    want = d.get("doc")
+    if isinstance(want, str) and want != D.key:        # 본문의 doc 이 지금 문서와 다르면 그 문서로(없는 키면 404)
+        other = request_doc({}, {"doc": want})
+        with using_doc(other):
+            return add_pin(dict(d, doc=other.key), actor)
+    if D.is_pdf:
+        return _add_region_pin(d, actor)
     body = {k: d[k] for k in ADD_FIELDS if k in d}
     rec = clean_loc(body)
     note = clean_note(body.get("note"))
@@ -1965,6 +2407,26 @@ def add_pin(d: dict, actor: dict) -> int:
         # pdf_build(드래그할 때 화면에 있던 빌드)를 그대로 돌려보낸다 — 재빌드 직후 화면을 바꾸기 전의
         # 드래그도 옛 빌드로 남는다. 안 보낸 호출(에이전트 curl)은 지금 빌드다.
         rec.setdefault("pdf_build", cur_pages().name)
+        rec["doc"] = D.key
+        rec["rev"] = 0
+        rows.append(rec)
+        return rec["id"], True
+    return transact(fn)[1]
+
+
+def _add_region_pin(d: dict, actor: dict) -> int:
+    """보기 전용 문서의 핀: {doc, pdf, name, page, frac, kind:'region', quote?, note, pdf_build}. 줄·앵커가 없다."""
+    D = cur_doc()
+    rec = clean_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d})
+    note = clean_note(d.get("note"))
+
+    def fn(rows):
+        rec["note"] = note
+        rec["at"] = now_str()
+        rec["id"] = next_id(rows)
+        rec["author"] = dict(actor)
+        rec.setdefault("pdf_build", cur_pages().name)
+        rec["doc"] = D.key
         rec["rev"] = 0
         rows.append(rec)
         return rec["id"], True
@@ -2004,13 +2466,23 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     moves = loc is not None or lo is not None or hi is not None
     if not (has_note or moves or scope is not None or kind is not None or note_append is not None):
         raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append).")
-    newloc = clean_loc(loc) if loc is not None else None
-    if newloc is not None:
-        # pdf_build 는 frac 이 어느 빌드의 좌표인지다 — frac 을 새로 찍지 않은 loc 는 그 값을 못 바꾼다.
-        if "frac" in loc:
-            newloc.setdefault("pdf_build", cur_pages().name)
+    # 위치 검증·기본 빌드는 그 핀의 문서 기준이다(요청이 ?doc= 를 안 붙여도). 핀의 종류(LaTeX/보기 전용)는 바뀌지 않는다.
+    r0 = find_pin(read_pins()[0], pid)
+    region = r0 is not None and is_region_pin(r0)
+    pdoc = (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
+    if region and (lo is not None or hi is not None or scope is not None or kind is not None):
+        raise HTTPError(400, "보기 전용 문서의 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다.")
+    with using_doc(pdoc):
+        if region:
+            newloc = clean_region(loc) if loc is not None else None
         else:
-            newloc.pop("pdf_build", None)
+            newloc = clean_loc(loc) if loc is not None else None
+        if newloc is not None:
+            # pdf_build 는 frac 이 어느 빌드의 좌표인지다 — frac 을 새로 찍지 않은 loc 는 그 값을 못 바꾼다.
+            if "frac" in loc:
+                newloc.setdefault("pdf_build", cur_pages().name)
+            else:
+                newloc.pop("pdf_build", None)
 
     def fn(rows):
         r = find_pin(rows, pid)
@@ -2021,7 +2493,14 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         if base_given and int(r.get("rev") or 0) != base:
             raise HTTPError(409, "conflict", pin=public(r))
         range_changed = False
-        if newloc is not None:
+        if region:
+            if newloc is not None:                   # 영역 다시 잡기 — 쪽·영역·영역 글자·빌드만 바뀐다
+                for k in ("page", "frac", "quote", "pdf_build"):
+                    if k in newloc:
+                        r[k] = newloc[k]
+                    elif k == "quote":
+                        r.pop("quote", None)
+        elif newloc is not None:
             # loc 에 없는 page·frac 은 그대로 둔다 — 에이전트가 file/lo/hi 만 보내도 쪽이 1로 튀지 않게.
             keep = {k: r[k] for k in ("page", "frac") if k not in loc and k in r}
             for k in LOC_FIELDS:
@@ -2054,7 +2533,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 r["scope"] = scope
             if kind is not None:
                 r["kind"] = kind
-        if range_changed and in_tree(r["file"]):
+        if range_changed and not region and in_tree(r["file"]):
             f = Path(r["file"])
             r["anchor"] = anchor_of(tex_lines(f), r["lo"], r["hi"])
             r["synced_at"] = f.stat().st_mtime if f.exists() else 0
@@ -2234,8 +2713,21 @@ def md_cell(v, newline: str = " ") -> str:
     return s.replace("|", "\\|").replace("\n", newline)
 
 
+def region_text_of(r: dict) -> str:
+    """보기 전용 핀의 위치 글: '쪽 3, 영역 가로 12–55% 세로 30–48%'."""
+    fr = r.get("frac") if isinstance(r.get("frac"), list) and len(r["frac"]) == 4 else [0, 0, 0, 0]
+    try:
+        x, y, w, h = [float(v) * 100 for v in fr]
+    except (TypeError, ValueError):
+        x = y = w = h = 0.0
+    return "쪽 %s, 영역 가로 %d–%d%% 세로 %d–%d%%" % (r.get("page", "?"), round(x), round(x + w), round(y), round(y + h))
+
+
 def location_col(r: dict) -> str:
-    """C.src 기준 상대경로 — 루트 파일은 basename 과 같아서 기존 행이 변하지 않는다."""
+    """C.src 기준 상대경로 — 루트 파일은 basename 과 같아서 기존 행이 변하지 않는다.
+    보기 전용 PDF 의 핀은 줄이 없으니 '쪽 N, 영역 …' 이다(PDF 경로는 문서 소절 머리에 있다)."""
+    if is_region_pin(r):
+        return md_cell(region_text_of(r))
     f = Path(str(r.get("file", "")))
     try:
         rel = f.resolve().relative_to(C.src.resolve())
@@ -2248,6 +2740,8 @@ def location_col(r: dict) -> str:
 def range_label(r: dict) -> str:
     """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind.
     어느 분기든 md_cell 로 이스케이프한다(env 분기만 빠져 있던 것이 결함이었다)."""
+    if is_region_pin(r):
+        return "영역"
     scope = r.get("scope")
     if scope and str(scope).startswith("env"):
         k = str(r.get("kind") or "")
@@ -2260,7 +2754,11 @@ def range_label(r: dict) -> str:
 
 
 def render_quote(r: dict) -> str:
-    """«quote…» 인용 예외: 핀 범위가 한 줄이고, 그 줄이 600자를 넘고, scope 가 raw/para/없음일 때만."""
+    """«quote…» 인용 예외: 핀 범위가 한 줄이고, 그 줄이 600자를 넘고, scope 가 raw/para/없음일 때만.
+    보기 전용 PDF 의 핀은 늘 붙인다 — 줄 번호가 없어 영역 글자가 에이전트의 유일한 원문 단서다."""
+    if is_region_pin(r):
+        q = r.get("quote")
+        return "«%s» " % md_cell(q) if q else ""
     scope = r.get("scope")
     if scope not in (None, "raw", "para"):
         return ""
@@ -2295,7 +2793,10 @@ def pins_md_text(rows: list, base: str = None) -> str:
 
     base(§P0c-B): 안내 줄의 close 예시가 쓸 base URL. 안 주면(디스크에 쓰는 기본 경로) 지금처럼
     루프백이다. GET /pins.md 는 요청 Host 로 바꾼 값을 넘긴다 — 원격 base 일 때만 '원격: curl …'
-    한 줄을 안내 문단에 덧붙인다(루프백은 이미 그 파일을 읽고 있으므로 생략)."""
+    한 줄을 안내 문단에 덧붙인다(루프백은 이미 그 파일을 읽고 있으므로 생략).
+
+    여러 문서(§여러 문서): 한 장 그대로 두고 문서별 소절(## 이름 · 키 · 경로)로 묶는다. 단일 문서이고 다른 문서
+    키의 열린 핀도 없으면 소절 없이 예전 모양 그대로다."""
     loopback_base = "http://127.0.0.1:%d" % C.port
     is_remote = base is not None and base != loopback_base
     base = base or loopback_base
@@ -2311,7 +2812,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
         author_groups.add(a.get("login") if a and a.get("login") else None)
     multi_author = len(author_groups) > 1
 
-    rows_render = []
+    rows_by_doc: dict = {}
     any_symbol = False
     for r in openn:
         syms = []
@@ -2336,15 +2837,31 @@ def pins_md_text(rows: list, base: str = None) -> str:
         if q:
             any_symbol = True
             note = q + note
-        rows_render.append("| %s | %s | %s | %s | %s |" %
-                            (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
+        rows_by_doc.setdefault(pin_doc_key(r), []).append(
+            "| %s | %s | %s | %s | %s |" % (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
+
+    known = [d.key for d in DOCS]
+    sectioned = multi_doc() or any(k not in known[:1] for k in rows_by_doc)
+    n_region = sum(1 for r in openn if is_region_pin(r))
 
     out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src,
            "논문: %s · 저장소: %s" % (C.label, C.repo or "(없음)")]
-    head_short, built_at = _read_head(), _read_built_at()
-    if head_short and head_short != "-" and built_at:               # §P0c-D: 없으면 통째로 생략한다
-        out.append("기준: %s · 빌드 %s" % (head_short, built_at))
-        out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
+    if not sectioned:
+        head_short, built_at = _read_head(), _read_built_at()
+        if head_short and head_short != "-" and built_at:           # §P0c-D: 없으면 통째로 생략한다
+            out.append("기준: %s · 빌드 %s" % (head_short, built_at))
+            out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
+    else:
+        parts = []
+        for d in DOCS:
+            parts.append("%s(`%s`%s) %d건" % (md_cell(d.name), d.key, ", 보기 전용" if d.is_pdf else "",
+                                              len(rows_by_doc.get(d.key, []))))
+        for k in rows_by_doc:
+            if k not in known:
+                parts.append("설정에 없는 문서(`%s`) %d건" % (md_cell(k), len(rows_by_doc[k])))
+        out.append("문서: " + " · ".join(parts))
+        out.append("핀은 아래 문서별 소절(`## 이름 · 키 · 경로`)로 묶였다 — 위치 칸의 경로는 `--manuscript` 기준. "
+                   "소절의 `기준:` 커밋이 다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
     out.append("갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
                (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done))
     out.append("")
@@ -2357,11 +2874,41 @@ def pins_md_text(rows: list, base: str = None) -> str:
     if C.repo:
         guidance += (" · 처리 전 자기 체크아웃의 `git remote get-url origin` 이 위 저장소와 같은지 확인. "
                       "다르면 다른 논문의 핀이니 멈춘다")
+    if n_region:
+        guidance += (" · 보기 전용 PDF 의 핀은 줄 번호가 없다 — 쪽·영역 글자(«…»)·메모로 무엇을 가리키는지 판단하고, "
+                     "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)")
     out.append(guidance)
     if any_symbol:
         out.append(LEGEND)
-    out += ["", "| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
-    out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
+    header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
+    if not sectioned:
+        rows_render = rows_by_doc.get(known[0], [])
+        out += [""] + header
+        out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
+        return "\n".join(out) + "\n"
+    shown = 0
+    for d in DOCS:
+        rs = rows_by_doc.get(d.key)
+        if not rs:
+            continue
+        shown += 1
+        title = "## %s · `%s` · `%s`" % (md_cell(d.name), d.key, md_cell(d.rel_path()))
+        if d.is_pdf:
+            title += " — 보기 전용 PDF(줄 번호 없음)"
+        out += ["", title]
+        with using_doc(d):
+            head_short, built_at = _read_head(), _read_built_at()
+        if head_short and head_short != "-" and built_at:
+            out.append("기준: %s · %s %s" % (head_short, "그림" if d.is_pdf else "빌드", built_at))
+        out += [""] + header + rs
+    for k, rs in rows_by_doc.items():
+        if k in known:
+            continue
+        shown += 1
+        out += ["", "## 설정에 없는 문서 · `%s` — 이 뷰어의 --doc 목록에 없다. 처리 전에 사용자에게 확인" % md_cell(k),
+                ""] + header + rs
+    if not shown:
+        out += ["", "열린 핀 없음"]
     return "\n".join(out) + "\n"
 
 
@@ -2381,7 +2928,7 @@ def pick(d: dict) -> dict:
     if want is not None:
         if not valid_build_name(want):
             raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
-        if not (C.state / want).is_dir():
+        if not (cur_doc().dir / want).is_dir():
             return {"error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
                     "pdf_build_gone": True}
     pdir = pages_dir_for(want) if want is not None else cur_pages()
@@ -2402,9 +2949,12 @@ def pick(d: dict) -> dict:
 
     pdf = cur_pdf(pdir)
     rtext = region_text(pdf, page, x0, y0, x1, y1)
+    D = cur_doc()
+    if D.is_pdf:
+        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
     sy = by_synctex(pdf, page, x0, y0, x1, y1)
 
-    src = to_source(sy[0]) if sy else C.main
+    src = to_source(sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
         return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
                          % src.suffix}
@@ -2457,7 +3007,28 @@ def pick(d: dict) -> dict:
             "overlaps": overlaps_for_range(str(src), lo, hi), "pdf_build": pdir.name}
 
 
+def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, rtext: str) -> dict:
+    """보기 전용 문서의 pick — SyncTeX 없이 쪽·영역과 영역 글자(pdftotext)만 돌려준다.
+    frac 을 안 보냈으면(에이전트 curl) 좌표로 만든다 — 보기 전용 핀은 영역이 위치의 전부다."""
+    x0, y0, x1, y1 = box
+    pw, ph = size
+    if frac is None:
+        frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
+    text = norm(rtext)
+    warn = ""
+    if not text:
+        warn = "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요."
+    bstate = build_state_snapshot()
+    if bstate["state"] == "running":
+        warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
+    return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
+            "pdf": D.rel_path(), "name": D.main.name, "quote": truncate_quote(text, PDF_QUOTE_MAX),
+            "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
+
+
 def snippet_api(q: dict) -> dict:
+    if cur_doc().is_pdf:
+        raise HTTPError(400, "보기 전용 문서(%s)에는 원문 줄이 없습니다." % cur_doc().key)
     f = safe_src((q.get("file") or [""])[0])
     lines = tex_lines(f)
     try:
@@ -4379,6 +4950,11 @@ class Handler(BaseHTTPRequestHandler):
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
+        # 문서가 걸리는 경로는 ?doc=<키>(없으면 첫 문서)를 받아 그 문서로 처리한다(§여러 문서).
+        with using_doc(request_doc(q)):
+            return self._get_doc(actor, path, q)
+
+    def _get_doc(self, actor, path, q):
         if path == "/":
             return self._send(200, HTML.encode(), "text/html; charset=utf-8")
         if path == "/favicon.ico":
@@ -4395,7 +4971,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             allp = (q.get("all") or ["0"])[0] == "1"
-            return self._json(pins_payload(snapshot_pins(), allp))
+            rows = pins_payload(snapshot_pins(), allp)
+            if q.get("doc"):                          # ?doc=<키> 면 그 문서의 핀만(겹침·추정은 전체 기준 그대로)
+                rows = [r for r in rows if r["doc"] == cur_doc().key]
+            return self._json(rows)
+        if path == "/api/docs":
+            return self._json(docs_payload())
         if path == "/api/pins/dropped":
             return self._json({"dropped": dropped_payload()})
         if path == "/api/snippet":
@@ -4462,7 +5043,14 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path = u.path
         d = self._body()
+        if path in ("/api/pick", "/api/pin", "/api/rebuild"):
+            q = parse_qs(u.query)
+            D = request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
+            with using_doc(D):
+                return self._post_doc(actor, path, u, d)
+        return self._post_doc(actor, path, u, d)
 
+    def _post_doc(self, actor, path, u, d):
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
@@ -4491,6 +5079,9 @@ class Handler(BaseHTTPRequestHandler):
             clear_pins()
             return self._json({"ok": True})
         if path == "/api/rebuild":
+            if cur_doc().is_pdf:
+                raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."
+                                % cur_doc().key)
             full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
             if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
                 r = build_async()
@@ -4502,10 +5093,123 @@ class Handler(BaseHTTPRequestHandler):
 
 # ---------------------------------------------------------------- 진입점
 
+def parse_doc_arg(spec: str, ms: Path) -> dict:
+    """--doc <키>=<표시 이름>:<경로> 하나를 푼다. 경로는 --manuscript 기준 상대(권장) 또는 절대.
+
+    - `<키>=<이름>:a/b/main.tex` — LaTeX. 빌드 루트는 그 .tex 가 있는 폴더(a/b).
+    - `<키>=<이름>:a::b/main.tex` — LaTeX. 빌드 루트는 a(사본으로 복사하는 범위), 메인은 a/b/main.tex.
+      빌드는 메인이 있는 폴더(a/b)에서 돈다 — 메인이 ../ 로 빌드 루트 안의 다른 폴더를 읽을 때 쓴다.
+    - `<키>=<이름>:x/review.pdf` — 보기 전용 PDF(재빌드 없음, 쪽·영역 핀).
+    키는 [a-z0-9-]{1,24}, 이름은 ':' 없이 40자 이하. 경로는 --manuscript 안이어야 한다(핀이 가리킬 수 있는 파일은
+    원고 트리 안뿐이라는 보안 제약). 틀리면 ValueError(한국어 사유)."""
+    if not isinstance(spec, str) or "=" not in spec:
+        raise ValueError("--doc 는 <키>=<표시 이름>:<경로> 형식입니다: %r" % spec)
+    key, rest = spec.split("=", 1)
+    key = key.strip()
+    if not DOC_KEY_RE.fullmatch(key):
+        raise ValueError("--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: %r" % key)
+    if ":" not in rest:
+        raise ValueError("--doc %s: 표시 이름과 경로 사이에 ':' 가 없습니다: %r" % (key, spec))
+    name, path = rest.split(":", 1)
+    name = " ".join(name.split())
+    if not name:
+        raise ValueError("--doc %s: 표시 이름이 비었습니다" % key)
+    if len(name) > DOC_NAME_MAX:
+        raise ValueError("--doc %s: 표시 이름은 %d자 이하여야 합니다: %r" % (key, DOC_NAME_MAX, name))
+    path = path.strip()
+    if not path:
+        raise ValueError("--doc %s: 경로가 비었습니다" % key)
+    ms = ms.resolve()
+
+    def inside(p: Path, what: str) -> Path:
+        p = (p if p.is_absolute() else ms / p).resolve()
+        try:
+            p.relative_to(ms)
+        except ValueError:
+            raise ValueError("--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, p))
+        return p
+
+    if "::" in path:
+        root_s, main_s = path.split("::", 1)
+        if "::" in main_s or not root_s.strip() or not main_s.strip():
+            raise ValueError("--doc %s: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: %r" % (key, path))
+        root = inside(Path(root_s.strip()), "빌드 루트")
+        if not root.is_dir():
+            raise ValueError("--doc %s: 빌드 루트 폴더가 없습니다: %s" % (key, root))
+        mp = Path(main_s.strip())
+        if mp.is_absolute():
+            raise ValueError("--doc %s: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: %s" % (key, mp))
+        main = (root / mp).resolve()
+        try:
+            main.relative_to(root)
+        except ValueError:
+            raise ValueError("--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main))
+        if main.suffix.lower() != ".tex":
+            raise ValueError("--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main))
+    else:
+        main = inside(Path(path), "경로")
+        root = main.parent
+    if not main.is_file():
+        raise ValueError("--doc %s: 파일이 없습니다: %s" % (key, main))
+    suf = main.suffix.lower()
+    if suf == ".tex":
+        kind = "tex"
+    elif suf == ".pdf":
+        kind = "pdf"
+    else:
+        raise ValueError("--doc %s: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (key, main))
+    return {"key": key, "name": name, "kind": kind, "src": root, "main": main}
+
+
+def make_docs(specs: list, ms: Path) -> list:
+    """--doc 목록 → Doc 목록. 키 중복·개수 상한을 본다. 키가 main 인 LaTeX 문서는 상태 폴더 루트 배치(root)를 쓴다."""
+    if len(specs) > DOCS_MAX:
+        raise ValueError("--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, len(specs)))
+    out, seen = [], set()
+    for spec in specs:
+        p = parse_doc_arg(spec, ms)
+        if p["key"] in seen:
+            raise ValueError("--doc 키가 겹칩니다: %s" % p["key"])
+        seen.add(p["key"])
+        out.append(Doc(p["key"], p["name"], p["kind"], src=p["src"], main=p["main"],
+                       root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex")))
+    return out
+
+
+def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
+    """기동 준비 한 문서: 옛 배치 이관·빌드 이력 되살리기·(필요하면) 빌드. wait=False 면 백그라운드로 빌드한다."""
+    with using_doc(D):
+        D.dir.mkdir(parents=True, exist_ok=True)
+        if D.root:
+            migrate_pages()
+        seed_builds()
+        need = D.is_pdf and (pdf_changed(D) or not page_list())
+        if not D.is_pdf:
+            need = not no_build or not cur_pdf().exists() or not page_list()
+        if not need:
+            return {"state": "skip"}
+        return build_all() if wait else build_async()
+
+
+def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
+    """보기 전용 PDF 가 바뀌면(mtime·크기) 쪽을 다시 그린다. 재빌드 버튼 대신이다."""
+    while not stop.wait(every):
+        for D in list(DOCS):
+            if D.is_pdf:
+                try:
+                    refresh_pdf_doc(D)
+                except Exception:                     # noqa: BLE001 — 감시 스레드는 죽지 않는다
+                    traceback.print_exc(file=sys.stderr)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--manuscript", required=True, help="LaTeX 소스 루트 디렉토리")
-    ap.add_argument("--main", help="최상위 .tex 파일명 (생략 시 자동 탐지)")
+    ap.add_argument("--main", help="최상위 .tex 파일명 (생략 시 자동 탐지). --doc 과 함께 쓰지 않는다")
+    ap.add_argument("--doc", action="append", default=[], metavar="KEY=NAME:PATH",
+                    help="뷰어가 전환할 문서(여러 번). PATH 는 --manuscript 기준. .tex = LaTeX(빌드 루트는 그 폴더), "
+                         "<빌드 루트>::<메인.tex> = 빌드 루트를 따로 지정, .pdf = 보기 전용. 첫 문서가 기본이다. "
+                         "생략하면 --manuscript·--main 의 문서 하나(키 main)")
     ap.add_argument("--port", type=int, help="생략 시 18300-18400 에서 빈 포트를 고른다")
     ap.add_argument("--state-dir", help="핀·빌드 산출물 위치")
     ap.add_argument("--dpi", type=int, default=150)
@@ -4536,9 +5240,20 @@ def main() -> None:
     C.src = Path(a.manuscript).expanduser().resolve()
     if not C.src.is_dir():
         sys.exit("원고 디렉토리가 없습니다: %s" % C.src)
-    C.main = (C.src / a.main) if a.main else detect_main(C.src)
-    if not C.main.exists():
-        sys.exit("최상위 .tex 가 없습니다: %s" % C.main)
+    if a.doc:
+        if a.main:
+            sys.exit("--doc 과 --main 은 함께 쓰지 않습니다 — 메인 파일은 --doc 경로로 정합니다.")
+        try:
+            docs = make_docs(a.doc, C.src)
+        except ValueError as e:
+            sys.exit(str(e))
+        first_tex = next((d for d in docs if not d.is_pdf), docs[0])
+        C.main = first_tex.main
+    else:
+        docs = None
+        C.main = (C.src / a.main) if a.main else detect_main(C.src)
+        if not C.main.exists():
+            sys.exit("최상위 .tex 가 없습니다: %s" % C.main)
 
     default_state = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     C.state = Path(a.state_dir).expanduser().resolve() if a.state_dir \
@@ -4554,7 +5269,9 @@ def main() -> None:
     C.git_pull = a.git_pull
     C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
     C.repo = git_remote_url(C.src)
-    C.label = clean_label(a.label) if a.label else clean_label(default_label(C.src, C.repo))
+    # 기본 이름표(저장소 이름)는 길면 자른다 — 긴 저장소 이름 때문에 기동이 멈추면 안 된다(실측: 62자 저장소).
+    # 직접 준 --label 만 길이 초과로 멈춘다(오타를 조용히 자르지 않게).
+    C.label = clean_label(a.label) if a.label else clean_label(truncate_quote(default_label(C.src, C.repo), LABEL_MAX))
     if a.accent:
         if not valid_accent(a.accent):
             sys.exit("--accent 는 #rrggbb 형식이어야 합니다: %s" % a.accent)
@@ -4564,17 +5281,27 @@ def main() -> None:
     global HTML
     HTML = build_html(C.label, C.accent)
 
-    migrate_pages()
+    set_docs(docs)
     init_seq()
-    seed_builds()                    # 옛 인스턴스가 만든 지금 빌드를 이력에 올리고 마지막 빌드 결과를 되살린다
-    if not a.no_build or not cur_pdf().exists() or not page_list():
-        r = build_all()
-        if r.get("state") == "fail":
-            sys.exit("빌드 실패:\n" + r.get("log", ""))
+    if not docs:
+        migrate_pages()
+        seed_builds()                # 옛 인스턴스가 만든 지금 빌드를 이력에 올리고 마지막 빌드 결과를 되살린다
+        if not a.no_build or not cur_pdf().exists() or not page_list():
+            r = build_all()
+            if r.get("state") == "fail":
+                sys.exit("빌드 실패:\n" + r.get("log", ""))
+    else:
+        # 여러 문서: 빌드는 문서마다 백그라운드로 돌리고 서버는 바로 뜬다(문서 N개 × 수십 초를 기다리지 않는다).
+        # 실패해도 기동을 막지 않는다 — 그 문서 탭이 오류 패널을 연다.
+        for D in DOCS:
+            r = init_doc(D, a.no_build, wait=False)
+            print("문서   %-10s %s %s%s" % (D.key, "보기 전용" if D.is_pdf else "LaTeX   ", D.rel_path(),
+                                           "" if r.get("state") == "skip" else "  (빌드 시작)"))
+        threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
 
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
-    print("원고   %s" % C.main)
+    print("원고   %s" % (C.src if docs else C.main))
     print("이름표 %s (%s)%s" % (C.label, C.accent, "" if C.repo else " — git origin 없음, 폴더 이름 기본값"))
     print("상태   %s" % C.state)
     print("주소   http://127.0.0.1:%d/   (외부 노출은 tailscale serve 로만)" % C.port)
