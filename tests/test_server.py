@@ -2348,5 +2348,159 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("pullSuffix(b)", ps.HTML)
 
 
+# 모바일(갤럭시 Z 폴드 7 등) — references/design.md §모바일 레이아웃. 실측은 Playwright 로 했고, 여기서는
+# 배포되는 HTML 에 필요한 요소·문구·CSS·이벤트 경로가 있는지와 순수 로직 함수를 node 로 검사한다.
+class FrontendMobileStructure(unittest.TestCase):
+    def test_viewport_meta_allows_zoom_and_handles_keyboard_and_notch(self):
+        m = re.search(r'<meta name="viewport" content="([^"]*)"', ps.HTML)
+        self.assertIsNotNone(m)
+        v = m.group(1)
+        for part in ("width=device-width", "initial-scale=1", "viewport-fit=cover", "interactive-widget=resizes-content"):
+            self.assertIn(part, v)
+        # 핀치 확대를 막지 않는다 — 원고를 읽으려면 확대가 필요하다
+        self.assertNotIn("user-scalable=no", v)
+        self.assertNotIn("maximum-scale", v)
+
+    def test_rebuild_label_is_short_everywhere(self):
+        self.assertIn('data-act="rebuild"', ps.HTML)
+        self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*>PDF 재빌드</button>')
+        self.assertNotIn("다시 만들기", ps.HTML)
+        self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
+        skill = HERE.parent
+        for doc in [skill / "SKILL.md"] + sorted((skill / "references").glob("*.md")):
+            self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
+
+    def test_compact_toolbar_elements_and_more_menu(self):
+        for el in ('id="btn-side"', 'id="side-n"', 'id="btn-select"', 'id="btn-more"', '<dialog id="more"',
+                   'id="coach"', 'id="more-info"', 'id="m-theme"', 'id="m-done"', 'id="m-dropped"', 'id="m-jump"'):
+            self.assertIn(el, ps.HTML)
+        self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', ps.HTML).group(0))
+        # 덜 중요한 버튼은 compact 에서 숨고(.sec) [⋯] 안에 같은 data-act 로 있다
+        for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
+                         ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
+            tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
+            self.assertIn('class="sec"', tag)
+            more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
+            self.assertIn('data-act="%s"' % act, more)
+        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
+        self.assertIn("body.compact .sec{display:none}", ps.HTML)
+        for act in ("side", "selmode", "more", "more-close", "m-jump", "coach-close", "card-toggle"):
+            self.assertIn("case '%s':" % act, ps.HTML)
+
+    def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        coarse = css[css.index("@media (pointer:coarse){"):]
+        coarse = coarse[:coarse.index("\n}")]
+        self.assertIn("min-height:44px", coarse)
+        self.assertIn("input,textarea,select{font-size:16px}", coarse)
+        self.assertIn("env(safe-area-inset-bottom)", css)
+        self.assertIn("var(--kb,0px)", css)
+        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다
+        self.assertEqual(re.findall(r"([^{}]*)\{[^{}]*touch-action", css), ["\nbody.selmode .pg"])
+        self.assertIn("touch-action:pinch-zoom", css)
+        # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
+        self.assertIn("body.lay-narrow #toasts{", css)
+        self.assertIn("body.lay-mid #toasts{", css)
+
+    def test_selection_uses_pointer_events_one_path(self):
+        self.assertIn("$('#doc').addEventListener('pointerdown'", ps.HTML)
+        for ev in ("pointermove", "pointerup", "pointercancel"):
+            self.assertIn("window.addEventListener('%s'" % ev, ps.HTML)
+        self.assertIn("if(mouse||SELMODE)", ps.HTML)            # 마우스는 모드와 무관하게 예전처럼 끈다
+        self.assertIn("if(!e.isPrimary){cancelDrag()", ps.HTML)  # 두 번째 손가락(핀치)은 선택을 버린다
+        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", ps.HTML)   # 옛 마우스 전용 경로가 없다
+        self.assertIn("function quickPick(", ps.HTML)
+        self.assertIn("LONGPRESS_MS", ps.HTML)
+
+    def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
+        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
+        self.assertIn("if(touchRecent())return; armTip(", ps.HTML)
+        self.assertIn("document.addEventListener('contextmenu'", ps.HTML)
+
+    def test_keyboard_and_resize_hooks(self):
+        self.assertIn("visualViewport.addEventListener('resize',onViewport)", ps.HTML)
+        self.assertIn("new ResizeObserver(", ps.HTML)
+        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
+        self.assertIn("topAnchor()", m.group(1))
+        self.assertIn("restoreAnchor(a)", m.group(1))
+
+    def test_page_images_lazy(self):
+        self.assertIn('<img loading="lazy"', ps.HTML)
+
+
+class FrontendMobileLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_layout_for_breakpoints(self):
+        cases = [(412, True), (700, True), (701, True), (880, True), (1099, True), (1100, True), (1440, True),
+                 (412, False), (880, False), (1440, False)]
+        js = "\n".join([
+            "let innerWidth=0; const MQ_COARSE={matches:false};",
+            extract_js_fn("layoutFor"),
+            "console.log(JSON.stringify(%s.map(c=>{innerWidth=c[0];MQ_COARSE.matches=c[1];return layoutFor();})));" % json.dumps(cases),
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "wide", "wide"])
+
+    def test_quick_pick_box_is_small_and_clamped(self):
+        js = "\n".join([
+            r"""
+            const c01=v=>Math.min(1,Math.max(0,v)); const QUICK_W=0.07,QUICK_H=0.006; const out=[];
+            const pg={getBoundingClientRect:()=>({left:100,top:50,width:400,height:600})};
+            function newBox(){return {};} function finishRect(pg,box,x0,y0,x1,y1){out.push([x0,y0,x1,y1].map(v=>+v.toFixed(4)));}
+            """,
+            extract_js_fn("fracAt"), extract_js_fn("quickPick"),
+            "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660); console.log(JSON.stringify(out));",
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         [[0.43, 0.494, 0.57, 0.506], [0, 0, 0.07, 0.006], [0.93, 0.994, 1, 1]])
+
+    def test_keyboard_inset_ignores_pinch_zoom_and_desktop(self):
+        # 키보드(visualViewport 가 줄어듦)만 --kb 로 친다. 핀치 확대(scale>1)·작은 차이·마우스 기기는 0.
+        js = "\n".join([
+            r"""
+            const props={}; let active=null;
+            const document={documentElement:{clientHeight:915,style:{setProperty:(k,v)=>{props[k]=v;},getPropertyValue:k=>props[k]||''}},
+                            get activeElement(){return active;}};
+            const MQ_COARSE={matches:true}; const window={visualViewport:null};
+            const $=()=>({contains:()=>false}); function requestAnimationFrame(f){f();}
+            """,
+            extract_js_fn("onViewport"),
+            r"""
+            const out=[];
+            for(const [h,s,coarse] of [[400,1,true],[457.5,2,true],[875,1,true],[400,1,false],[915,1,true]]){
+              window.visualViewport={height:h,scale:s}; MQ_COARSE.matches=coarse; onViewport(); out.push([props['--kb'],props['--vvh']]);}
+            console.log(JSON.stringify(out));
+            """,
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         [["515px", "400px"], ["0px", "915px"], ["0px", "915px"], ["0px", "915px"], ["0px", "915px"]])
+
+    def test_card_accordion_summary_is_first_note_line(self):
+        js = "\n".join([
+            r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; let EDIT=null, PINS=[];
+            const OPEN_CARDS=new Set([2]);
+            function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
+            function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
+            function avatar(){return '';}
+            """,
+            extract_js_fn("card"),
+            r"""
+            const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
+            const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
+            const sum=s=>(/<span class="sum" data-act="card-toggle">([^<]*)<\/span>/.exec(s)||[])[1];
+            console.log(JSON.stringify([sum(a), / open"/.test(a), sum(b), / open"/.test(b), /class="tags"/.test(a),
+              /data-act="card-toggle" aria-expanded="false"/.test(a), /aria-expanded="true"/.test(b)]));
+            """,
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["첫 줄 &lt;b&gt;", False, "(메모 없음)", True, True, True, True])
+
+
 if __name__ == "__main__":
     unittest.main()

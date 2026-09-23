@@ -55,7 +55,7 @@ slash_command: true
 - 이미 닫힌 핀을 다시 닫으면 아무것도 안 바뀐다(`reply` 도 버려진다). 사유를 고치려면 `/reopen` 뒤 다시 `/close`.
 - `close`·`drop` 이 claim 을 지운다. 처리를 포기하거나 넘길 때만 `/unclaim`.
 - 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
-- 원고를 고쳤으면 PDF 를 다시 만든다(`POST /api/rebuild?async=1`). 옛 PDF 위의 pick 은 줄 번호가 어긋난다.
+- 원고를 고쳤으면 PDF 를 재빌드한다(`POST /api/rebuild?async=1`). 옛 PDF 위의 pick 은 줄 번호가 어긋난다.
 
 ## 서버 띄우기
 
@@ -100,7 +100,7 @@ slash_command: true
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제) |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
 | `POST /api/pins/{id}/drop` | 잘못 찍은 핀을 뺀다(`/restore` 로 되살림) |
-| `POST /api/rebuild?async=1` | PDF 다시 만들기. 진행은 `GET /api/build` |
+| `POST /api/rebuild?async=1` | PDF 재빌드. 진행은 `GET /api/build` |
 | `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등) |
 
 ## 참고 파일

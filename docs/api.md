@@ -32,8 +32,8 @@
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"ttl_min": 1..480}`(기본 120, 범위 밖·정수 아니면 `400`) → `{ok, pin}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다 — 요청자 신원과 무관하다(권한 제한 없음, 귀속만 기록하는 신뢰 모델). → `{ok, pin}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다. **에이전트는 쓰지 않는다** |
-| `POST` | `/api/rebuild` | PDF 다시 만들기(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
-| `POST` | `/api/rebuild?async=1` | PDF 다시 만들기(비동기) — 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}`. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행 상황은 `GET /api/build` 를 폴링한다(build-sync §비동기 재빌드) |
+| `POST` | `/api/rebuild` | PDF 재빌드(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
+| `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기) — 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}`. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행 상황은 `GET /api/build` 를 폴링한다(build-sync §비동기 재빌드) |
 | `POST` | `/api/rebuild?log=1` / `GET /api/build?log=1` | build-sync §에이전트 응답 다이어트의 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
