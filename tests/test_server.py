@@ -2545,7 +2545,7 @@ class FrontendMobileStructure(unittest.TestCase):
         for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
                          ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
-            self.assertRegex(tag, r'class="sec( btn-icon)?"')
+            self.assertRegex(tag, r'class="sec( btn-[a-z]+)*"')
             more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
@@ -4072,6 +4072,26 @@ class BadgeWording(Base):
         self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
         cmd = (HERE.parents[2] / "commands" / "manuscript-pin-picker.md").read_text(encoding="utf-8")
         self.assertIn("### 번호 칸의 표시", cmd)                        # 생성본(sync_commands.py)도 맞춰 두었다
+
+
+class FrontendToolbarOneRow(unittest.TestCase):
+    """1400px 데스크톱(기본 430px 패널)에서 긴 이름표('Long-DemoPaper1')여도 도구 줄이 한 줄이다(Playwright 실측,
+    references/design.md §디자인 토큰 · 도구 줄). [핀 다시 읽기]는 열린 핀 목록 머리로 옮겼고 compact 에서는 [더보기] 안에 있다."""
+
+    def test_reload_lives_in_list_head_not_toolbar(self):
+        bar = ps.HTML[ps.HTML.index('<div class="bar" id="bar1"'):ps.HTML.index('<div class="bar" id="bar2"')]
+        self.assertNotIn('id="btn-reload"', bar)
+        head = ps.HTML[ps.HTML.index('<div class="list-head">'):ps.HTML.index('<div id="pins">')]
+        self.assertRegex(head, r'<button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기"')
+
+    def test_label_chip_truncates_and_tip_has_full_label(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
+        self.assertIn("flex:0 1 auto;min-width:40px}", css)
+        self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
+        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)   # compact 는 이름표가 먼저 준다
+        out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
+        self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
 
 class FrontendToolbarSize(unittest.TestCase):

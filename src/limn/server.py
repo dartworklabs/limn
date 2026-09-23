@@ -3366,7 +3366,7 @@ body.resizing #left{pointer-events:none}
 #bar1 button{padding:0 var(--space-2);white-space:nowrap}
 #bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
 #bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius)}
-#bar1 .chip{height:var(--control-h-sm);display:inline-flex;align-items:center;padding:0 var(--space-2)}
+#bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* ---------------- 컴포넌트(references/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
    버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-ghost · .btn-destructive
    버튼 크기: (클래스 없음) = default(28px) · .btn-sm(24px 안팎) · .btn-icon(정사각형, .btn-sm 과 겹치면 작은 정사각형)
@@ -3649,9 +3649,11 @@ body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
 body.compact #right>*{flex:none}
 /* compact 도구 줄: 같은 높이의 한 줄 그룹. 빈칸 없이 이어 붙이고 [⋯] 도 그 흐름에 둔다(폭이 모자라면 글자가 먼저 줄어든다). */
-body.compact #bar1{flex-wrap:nowrap;gap:var(--space-2);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
+body.compact #bar1{flex-wrap:nowrap;gap:var(--space-1);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
 body.compact #bar1 .sp{display:none}
-body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 10px;overflow:hidden;text-overflow:ellipsis}
+body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
+/* 폭이 모자라면 이름표가 먼저 줄어든다(전체 이름은 설명에) — 버튼 글자가 잘려 'DF 재빌드'처럼 보이던 것을 막는다 */
+body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}
 body.compact #composer{max-height:none;overflow:visible}
 /* narrow 시트: 메모 칸을 원문보다 위로 올린다 — 시트 높이 안에서 메모 칸이 아래 동작 줄 밑에 숨었다(실측, 모바일 개선 때). */
@@ -3743,12 +3745,11 @@ body.view-only #btn-rebuild{display:none}
 <div id="right">
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
-    <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="이 창이 다루는 논문 — 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
+    <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
     <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
-    <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
     <button id="btn-zoom-out" class="sec btn-icon" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
@@ -3792,7 +3793,7 @@ body.view-only #btn-rebuild{display:none}
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
       범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
     <section class="lsec" id="sec-open" aria-labelledby="list-h">
-      <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
+      <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">다시 읽기</button><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
       <div id="pins"></div>
     </section>
     <section class="lsec arc" id="sec-done" aria-label="완료한 핀" hidden>
