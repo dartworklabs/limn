@@ -107,6 +107,7 @@ class Base(unittest.TestCase):
         C.allow = frozenset()
         C.origin_check = True
         C.git_pull = False
+        C.pdfjs_dir = None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
         ps.init_seq()
@@ -146,6 +147,18 @@ class Base(unittest.TestCase):
             a.close()
         t.join(10)
         return out
+
+
+def split_resp(out: bytes):
+    """응답 바이트 한 건을 (상태 코드, 소문자 헤더 dict, 본문) 으로 나눈다."""
+    head, _, body = out.partition(b"\r\n\r\n")
+    lines = head.decode("latin-1").split("\r\n")
+    code = int(lines[0].split()[1])
+    hdrs = {}
+    for ln in lines[1:]:
+        k, _, v = ln.partition(":")
+        hdrs[k.strip().lower()] = v.strip()
+    return code, hdrs, body
 
 
 def req(method, path, body=b"", headers=None):
@@ -353,6 +366,143 @@ class CrossOrigin(Base):
         body = b"[" * 100000 + b"]" * 100000
         out = self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))
         self.assertIn(b" 400 ", out)
+
+
+VENDOR = HERE.parent / "vendor" / "pdfjs"
+
+
+class VendorPdfjs(Base):
+    """GET /vendor/pdfjs/<파일> — 벡터 렌더링용 PDF.js 정적 서빙(MIME·캐시·경로 탈출·Host 검사)."""
+
+    def get(self, path, headers=None):
+        return split_resp(self.talk(req("GET", path, headers=headers)))
+
+    def test_serves_both_modules_as_javascript(self):
+        for name in ("pdf.min.mjs", "pdf.worker.min.mjs"):
+            code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, ps.PDFJS_VERSION))
+            self.assertEqual(code, 200, name)
+            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # 모듈 스크립트는 JS MIME 이어야 실행된다
+            self.assertEqual(h["x-content-type-options"], "nosniff")
+            self.assertEqual(h["cache-control"], "public, max-age=86400")
+            self.assertEqual(body, (VENDOR / name).read_bytes())
+
+    def test_traversal_and_non_module_names_are_404(self):
+        for path in ("/vendor/pdfjs/../scripts/pin_server.py", "/vendor/pdfjs/..%2f..%2fscripts%2fpin_server.py",
+                     "/vendor/pdfjs/%2e%2e/%2e%2e/scripts/pin_server.py", "/vendor/pdfjs/sub/pdf.min.mjs",
+                     "/vendor/pdfjs/LICENSE", "/vendor/pdfjs/README.md", "/vendor/pdfjs/.pdf.min.mjs",
+                     "/vendor/pdfjs/..mjs", "/vendor/pdfjs/", "/vendor/pdfjs//etc/passwd",
+                     "/vendor/pdfjs/pdf.min.mjs/", "/vendor/pdfjs/pdf.min.mjs%00.png"):
+            code, h, body = self.get(path)
+            self.assertEqual(code, 404, path)
+            self.assertNotIn(b"argparse", body)
+            self.assertNotIn(b"Apache License", body)
+            self.assertEqual(h["cache-control"], "no-store")
+
+    def test_symlink_out_of_vendor_dir_is_404(self):
+        d = Path(self.tmp.name) / "vend"
+        d.mkdir()
+        secret = Path(self.tmp.name) / "secret.mjs"
+        secret.write_text("secret-module", encoding="utf-8")
+        (d / "evil.mjs").symlink_to(secret)
+        (d / "ok.mjs").write_text("export const ok=1;", encoding="utf-8")
+        ps.C.pdfjs_dir = d
+        self.assertEqual(self.get("/vendor/pdfjs/ok.mjs")[0], 200)
+        code, _h, body = self.get("/vendor/pdfjs/evil.mjs")
+        self.assertEqual(code, 404)
+        self.assertNotIn(b"secret-module", body)
+
+    def test_missing_vendor_dir_is_404_not_500(self):
+        ps.C.pdfjs_dir = Path(self.tmp.name) / "nowhere"
+        code, h, _ = self.get("/vendor/pdfjs/pdf.min.mjs")
+        self.assertEqual(code, 404)                        # 뷰어는 이것을 보고 PNG 로 돌아간다
+
+    def test_host_and_origin_checked_like_other_gets(self):
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Host": "evil.example"})[0], 403)
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Origin": "https://evil.example"})[0], 403)
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Host": "box.tail1234.ts.net",
+                                                                "Origin": "https://box.tail1234.ts.net",
+                                                                "Tailscale-User-Login": "a@b"})[0], 200)
+
+    def test_version_pinned_in_vendor_html_and_readme(self):
+        head = (VENDOR / "pdf.min.mjs").read_bytes()[:2000].decode("utf-8")
+        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, head)
+        whead = (VENDOR / "pdf.worker.min.mjs").read_bytes()[:2000].decode("utf-8")
+        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, whead)
+        readme = (VENDOR / "README.md").read_text(encoding="utf-8")
+        self.assertIn("pdfjs-dist@%s" % ps.PDFJS_VERSION, readme)
+        self.assertIn("Apache License", (VENDOR / "LICENSE").read_text(encoding="utf-8"))
+
+    def test_readme_sha256_matches_files(self):
+        import hashlib
+        readme = (VENDOR / "README.md").read_text(encoding="utf-8")
+        for name in ("pdf.min.mjs", "pdf.worker.min.mjs", "LICENSE"):
+            data = (VENDOR / name).read_bytes()
+            m = re.search(r"\| `%s` \| ([\d,]+) \| `([0-9a-f]{64})` \|" % re.escape(name), readme)
+            self.assertIsNotNone(m, name)
+            self.assertEqual(int(m.group(1).replace(",", "")), len(data), name)
+            self.assertEqual(m.group(2), hashlib.sha256(data).hexdigest(), name)
+
+    def test_default_dir_finds_repo_vendor(self):
+        self.assertEqual(ps.default_pdfjs_dir().resolve(), VENDOR.resolve())
+
+
+class PdfRoute(Base):
+    """GET /pdf?build=<pages_build> — 쪽 이미지와 같은 빌드의 PDF 만 준다."""
+
+    def setUp(self):
+        super().setUp()
+        self.old, self.new = "pages-20250101000000", "pages-20260101000000"
+        for name, body in ((self.old, b"%PDF-old"), (self.new, b"%PDF-new")):
+            d = ps.C.state / name
+            d.mkdir()
+            (d / "main.pdf").write_bytes(body)
+        ps.atomic_write(ps.C.pages_ptr, self.new)
+        ps.C.build.mkdir(parents=True, exist_ok=True)
+        (ps.C.build / "main.pdf").write_bytes(b"%PDF-build-dir")
+
+    def get(self, path, headers=None):
+        return split_resp(self.talk(req("GET", path, headers=headers)))
+
+    def test_named_build_served_as_pdf(self):
+        for name, body in ((self.new, b"%PDF-new"), (self.old, b"%PDF-old")):
+            code, h, got = self.get("/pdf?build=%s&v=x" % name)
+            self.assertEqual(code, 200)
+            self.assertEqual(h["content-type"], "application/pdf")
+            self.assertEqual(h["cache-control"], "private, max-age=600")
+            self.assertEqual(got, body)                   # 직전 빌드를 물으면 직전 빌드 — 지금 것으로 바꾸지 않는다
+
+    def test_no_build_means_current(self):
+        self.assertEqual(self.get("/pdf")[2], b"%PDF-new")
+
+    def test_gone_or_bad_build_is_404_with_current_build(self):
+        for name in ("pages-20990101000000", "../../etc", "pages", "pages-1"):
+            code, _h, body = self.get("/pdf?build=%s" % name)
+            self.assertEqual(code, 404, name)
+            d = json.loads(body)
+            self.assertTrue(d["pdf_build_gone"])
+            self.assertEqual(d["pages_build"], self.new)
+            self.assertNotIn(b"%PDF", body)
+
+    def test_does_not_fall_back_to_build_dir(self):
+        (ps.C.state / self.new / "main.pdf").unlink()   # 쪽 디렉토리에 짝 PDF 가 없으면 build/ 로 물러서지 않는다
+        code, _h, body = self.get("/pdf?build=%s" % self.new)
+        self.assertEqual(code, 404)
+        self.assertNotIn(b"%PDF-build-dir", body)
+        self.assertEqual(self.get("/pdf")[0], 404)
+
+    def test_host_and_origin_checked(self):
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Host": "evil.example"})[0], 403)
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Host": "evil.example:18999",
+                                                               "Tailscale-User-Login": "x@y"})[0], 403)
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Origin": "https://evil.example"})[0], 403)
+        code, _h, body = self.get("/pdf?build=%s" % self.new, {"Host": "box.tail1234.ts.net",
+                                                               "Tailscale-User-Login": "a@b"})
+        self.assertEqual((code, body), (200, b"%PDF-new"))
+
+    def test_pages_build_in_meta_matches_pdf_route(self):
+        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertEqual(m["pages_build"], self.new)
+        self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
 
 class Store(Base):

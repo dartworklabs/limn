@@ -47,6 +47,11 @@ PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 
+# 뷰어가 PDF 를 벡터로 그리는 PDF.js(vendor/pdfjs/README.md). 버전은 브라우저 캐시를 가르는 ?v= 값이기도 하다.
+PDFJS_VERSION = "6.3.289"
+VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
+VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
+
 MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
@@ -94,6 +99,7 @@ class Cfg:
     allow: frozenset
     origin_check: bool = True
     git_pull: bool = False
+    pdfjs_dir: Path = None          # None = default_pdfjs_dir()
 
     @property
     def pins_jsonl(self) -> Path:
@@ -205,6 +211,47 @@ def pages_dir_for(name) -> Path:
     if valid_build_name(name) and (C.state / name).is_dir():
         return C.state / name
     return cur_pages()
+
+
+def default_pdfjs_dir() -> Path:
+    """레포 배치(scripts/ 옆의 vendor/pdfjs)를 먼저, 사본을 한 디렉토리에 둔 배치(pin_server.py 옆 vendor/pdfjs)를 다음으로 본다."""
+    here = Path(__file__).resolve().parent
+    for d in (here.parent / "vendor" / "pdfjs", here / "vendor" / "pdfjs"):
+        if d.is_dir():
+            return d
+    return here.parent / "vendor" / "pdfjs"
+
+
+def vendor_file(name: str):
+    """GET /vendor/pdfjs/<name> 이 줄 파일. 이름 한 칸(.mjs)만 받고 디렉토리 밖은 절대 가리키지 않는다.
+
+    이름 규칙이 '/'·'..'·'%' 를 모두 거르지만, 심볼릭 링크 등으로 밖을 가리키는 경우까지 resolve 로 한 번 더 막는다."""
+    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
+        return None
+    base = C.pdfjs_dir or default_pdfjs_dir()
+    try:
+        base = base.resolve()
+        f = (base / name).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if f.parent != base or not f.is_file():
+        return None
+    return f
+
+
+def build_pdf(name) -> Path:
+    """GET /pdf?build=<name> 이 줄 PDF — 그 빌드의 쪽 이미지와 짝인 사본(pages-<build>/<main>.pdf)만 준다.
+
+    cur_pdf 와 달리 build/ 로 물러서지 않는다. build/ 의 것은 재빌드가 제자리에서 덮어써 화면의 쪽 이미지와
+    어긋날 수 있다 — 뷰어가 그 위에서 좌표를 재면 PNG 와 다른 자리를 짚는다. 없으면 None."""
+    if name in (None, ""):
+        pdir = cur_pages()
+    elif valid_build_name(name) and (C.state / name).is_dir():
+        pdir = C.state / name
+    else:
+        return None
+    f = pdir / (C.main.stem + ".pdf")
+    return f if f.is_file() else None
 
 
 def cur_pdf(pdir: Path = None) -> Path:
@@ -3897,6 +3944,7 @@ document.addEventListener('keydown',e=>{
 });
 boot();
 </script></body></html>"""
+HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
 
 
 class Server(ThreadingHTTPServer):
@@ -3912,7 +3960,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body: bytes, ctype: str):
+    def _send(self, code, body: bytes, ctype: str, cache: str = None):
         if code >= 400:
             # 오류 뒤에는 연결을 끊는다. 요청을 끝까지 못 읽었을 수 있고, 남은 바이트가 다음 요청으로
             # 읽히면 --allow 와 작성자 기록을 우회한다(요청 밀반입).
@@ -3920,7 +3968,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "public, max-age=600" if ctype == "image/png" else "no-store")
+        if cache is None or code >= 400:
+            cache = "public, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         if self.close_connection:
             self.send_header("Connection", "close")
@@ -4049,6 +4099,33 @@ class Handler(BaseHTTPRequestHandler):
                     data = None
                 if data is not None:
                     return self._send(200, data, "image/png")
+        if path.startswith("/vendor/pdfjs/"):
+            # 뷰어의 벡터 렌더러(PDF.js). 이름 한 칸만 받는다 — 하위 경로·'..'·인코딩된 문자는 404.
+            f = vendor_file(path[len("/vendor/pdfjs/"):])
+            if f is not None:
+                try:
+                    data = f.read_bytes()
+                except OSError:
+                    data = None
+                if data is not None:
+                    # 파일 이름에 버전이 없으므로 뷰어가 ?v=<PDFJS_VERSION> 를 붙여 캐시를 가른다.
+                    return self._send(200, data, VENDOR_MIME[f.suffix], cache="public, max-age=86400")
+            raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100])
+        if path == "/pdf":
+            # 쪽 이미지와 같은 빌드의 PDF(벡터 렌더링용). 빌드 이름이 틀렸거나 이미 지워졌으면 404 — 다른 빌드로
+            # 물러서지 않는다(뷰어가 PNG 로 돌아가고 /api/meta 를 다시 읽는다).
+            name = (q.get("build") or [""])[0]
+            f = build_pdf(name)
+            data = None
+            if f is not None:
+                try:
+                    data = f.read_bytes()
+                except OSError:
+                    data = None
+            if data is None:
+                raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % hdr_text(name)[:60],
+                                pdf_build_gone=bool(name), pages_build=cur_pages().name)
+            return self._send(200, data, "application/pdf", cache="private, max-age=600")
         raise HTTPError(404, "없는 경로입니다: %s" % path)
 
     def _body(self) -> dict:
@@ -4132,6 +4209,9 @@ def main() -> None:
                     help="재빌드(동기·비동기 모두)마다 copy 단계 전에 --manuscript 의 git 저장소를 "
                          "업스트림으로 --ff-only pull 한다. 더러움·분기·업스트림 없음이면 건너뛰고 "
                          "지금 체크아웃으로 빌드는 계속한다")
+    ap.add_argument("--pdfjs-dir",
+                    help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
+                         "스크립트 옆 ../vendor/pdfjs 또는 ./vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -4153,6 +4233,7 @@ def main() -> None:
     C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
     C.origin_check = not a.no_origin_check
     C.git_pull = a.git_pull
+    C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
 
     migrate_pages()
     init_seq()
@@ -4173,6 +4254,10 @@ def main() -> None:
         print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
     if C.git_pull:
         print("git-pull  재빌드마다 업스트림으로 --ff-only pull 합니다(실패해도 지금 체크아웃으로 빌드)")
+    if vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"):
+        print("pdf.js %s (벡터 렌더링)" % C.pdfjs_dir)
+    else:
+        print("경고   pdf.js 가 없습니다(%s) — 뷰어는 PNG 로 보입니다" % C.pdfjs_dir)
     sys.stdout.flush()
     Server(("127.0.0.1", C.port), Handler).serve_forever()
 
