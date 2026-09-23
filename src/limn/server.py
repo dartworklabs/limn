@@ -3364,24 +3364,51 @@ body.resizing #left{pointer-events:none}
    그대로 받아 버튼보다 8px 크고 글자도 커서 줄의 조화가 깨졌다(저자 지적 2026-09-23). 아이콘 버튼은 정사각형이다. */
 #bar1>button,#bar1>input{height:var(--tb-h)}
 #bar1 button{padding:0 var(--space-2);white-space:nowrap}
-#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
+#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
 #bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius)}
-#bar1 input.n::placeholder{color:var(--muted-foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:inline-flex;align-items:center;padding:0 var(--space-2)}
-button{background:var(--secondary);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-1) 10px;
-  cursor:pointer;font:inherit;font-size:var(--text-base);line-height:1.4;display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1)}
+/* ---------------- 컴포넌트(references/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
+   버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-ghost · .btn-destructive
+   버튼 크기: (클래스 없음) = default(28px) · .btn-sm(24px 안팎) · .btn-icon(정사각형, .btn-sm 과 겹치면 작은 정사각형)
+   배지: .badge(= outline) · .badge-default · .badge-secondary · .badge-destructive · 상태 .badge-claimed · .badge-warning */
+button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);
+  background:var(--outline-bg);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);
+  padding:var(--space-1) 10px;cursor:pointer;font:inherit;font-size:var(--text-base);line-height:1.4;
+  transition:background-color .12s,border-color .12s,color .12s}
 /* 아이콘(Lucide, vendor/lucide/README.md): 글자색을 따르는 선 아이콘. 버튼 안에서는 글자 옆에 4px 틈으로 붙는다. */
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
-button.ib{padding:0;width:28px;min-width:28px}
 .kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
-button:hover{background:var(--accent)}
+button:hover{background:var(--accent);color:var(--accent-foreground)}
 button:disabled{opacity:.65;cursor:default}
-button.p{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
-button.x{padding:2px var(--space-2);font-size:var(--text-sm)}
-button.ghost{background:transparent;border-color:transparent}
-:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
-input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--border);border-radius:var(--radius);padding:6px var(--space-2);
+button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
+button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
+button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}
+button.btn-ghost{background:transparent;border-color:transparent}
+button.btn-ghost:hover{background:var(--accent)}
+button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
+button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}
+button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
+button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
+button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
+:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
+  background:transparent;color:var(--muted-foreground);font-size:var(--text-xs);font-weight:400;line-height:1.45;white-space:nowrap}
+.badge .ic{width:12px;height:12px}
+.badge-default{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
+.badge-destructive{border-color:var(--destructive);color:var(--destructive)}
+.badge-warning{border-color:var(--status-warning);color:var(--status-warning)}
+.badge-claimed{border-color:var(--status-claimed);color:var(--foreground)}
+.badge-claimed .ic{color:var(--status-claimed)}
+.badge-claimed.late{border-color:var(--status-warning);color:var(--status-warning)}
+.badge-claimed.late .ic{color:var(--status-warning)}
+button.badge{cursor:pointer;padding:1px 6px;border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
+button.badge:hover{background:var(--accent)}
+.card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
+input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:6px var(--space-2);
   font:inherit;width:100%}
+input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
 textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
 .sp{flex:1}
@@ -3424,7 +3451,6 @@ pre.nowrap{white-space:pre}
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .c-loc-main .loc{font-weight:600}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
-button.ico{flex:none;width:30px;min-width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center}
 .c-tools{display:flex;align-items:center;gap:var(--space-2);margin:0 0 8px}
 .step{display:inline-flex;flex:none;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 .step{align-items:stretch}
@@ -3466,14 +3492,10 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .wn{color:var(--warning)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:6px}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:6px}
-.pin{position:relative;border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-2) var(--space-3);margin-bottom:8px;background:var(--card)}
+.pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* 모양은 .card */
 /* 상태 띠(references/design.md §상태 표현): 열림은 띠 없음, 처리 중은 호박색. 닫힘(초록)·삭제(회색) 띠는 아래 보관함 행에 있다.
    테두리 폭을 바꾸면 글자가 밀리므로 카드 안쪽 왼쪽에 겹쳐 그린다. 대비(비텍스트 3:1)는 두 테마 모두 확인했다. */
 .pin.claimed::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-claimed)}
-.tag.claim{border-color:var(--status-claimed);color:var(--foreground)}
-.tag.claim .ic{color:var(--status-claimed)}
-.tag.claim.late{border-color:var(--warning);color:var(--warning)}
-.tag.claim.late .ic{color:var(--warning)}
 .pin.st{border-color:var(--warning)}
 .pin.editing{border-color:var(--primary)}
 .pin.cur{box-shadow:0 0 0 2px var(--primary)}
@@ -3491,9 +3513,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
-button.b-close{background:color-mix(in srgb,var(--primary) 14%,transparent);border-color:transparent;color:var(--primary);font-weight:600}
-button.b-drop{color:var(--destructive)}
-button.b-drop:hover{background:color-mix(in srgb,var(--destructive) 10%,transparent)}
+button.b-close{font-weight:600}   /* [완료] = secondary, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
 .edit .c-tools{margin-top:0}
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
@@ -3515,7 +3535,7 @@ button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;
   font-size:var(--text-sm);text-align:left}
 button.arc-head:hover{background:var(--accent)}
 .arc-h{font-weight:700;color:var(--foreground)}
-.arc-n{flex:none;min-width:20px;padding:0 6px;border-radius:var(--radius-lg);background:var(--secondary);color:var(--foreground);font-size:var(--text-xs);line-height:18px;text-align:center}
+.arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 6px;border-radius:var(--radius-lg);line-height:18px}
 .arc-rule{flex:1;height:1px;background:var(--border)}
 .arc-fold{flex:none;display:inline-flex;align-items:center;gap:2px}
 .arc-list{padding:6px 0 var(--space-1)}
@@ -3528,9 +3548,9 @@ button.arc-head:hover{background:var(--accent)}
 .arc-l1{display:flex;align-items:center;gap:6px;min-height:26px;white-space:nowrap}
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{color:inherit;font-size:var(--text-sm)}
-.arc-ref{flex:none;font-size:var(--text-xs);line-height:16px;padding:0 5px;border:1px solid var(--border);border-radius:var(--radius-sm);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.arc-ref{flex:none;line-height:16px;padding:0 5px;border-color:var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{font-size:var(--text-xs);min-width:0;overflow:hidden;text-overflow:ellipsis}
-button.arc-b{flex:none;background:transparent;color:var(--muted-foreground);padding:1px var(--space-2);font-size:var(--text-sm)}
+button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
 .arc-reply{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
@@ -3543,11 +3563,6 @@ button.arc-orig-t{flex:none;background:transparent;border-color:transparent;colo
 h3{margin:0 0 7px;font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
 kbd{background:var(--secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 5px;font-size:var(--text-xs)}
-.tag{font-size:var(--text-xs);padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-strong);color:var(--muted-foreground);
-  display:inline-flex;align-items:center;gap:3px}
-.tag .ic{width:12px;height:12px}
-.tag.t{border-color:var(--warning);color:var(--warning)}
-button.tag{background:none;cursor:pointer;font:inherit}
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
@@ -3583,7 +3598,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .pin .sum{display:none}
 .hint .t-touch{display:none}
 .pg{-webkit-touch-callout:none}
-#btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
+#btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}   /* 켜짐 = btn-default 모양 */
 body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-offset:3px}
 #coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:60;background:var(--primary);
   color:var(--primary-foreground);border-radius:var(--radius-lg);padding:6px 6px 6px 14px;display:flex;gap:var(--space-2);align-items:center;
@@ -3603,8 +3618,8 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-  button.x,.seg button{min-height:44px;padding:6px 10px;font-size:var(--text-base)}
-  button.tag{min-height:44px;padding:var(--space-1) 10px}
+  button.btn-sm,.seg button{min-height:44px;padding:6px 10px;font-size:var(--text-base)}
+  button.badge{min-height:44px;padding:var(--space-1) 10px}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 10px}
   input,textarea,select{font-size:var(--text-xl)}
@@ -3613,7 +3628,7 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
-  button.ico,.step button,button.ib{width:44px;min-width:44px}
+  button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
@@ -3648,7 +3663,7 @@ body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-ins
 /* compact 에서는 #right 가 스크롤 상자다 — 동작 줄을 그 바닥에 붙인다. */
 body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
 body.compact #meta-txt,body.compact #me{display:none}
-body.compact #bar2:not(:has(.tag:not([hidden]))){display:none}
+body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
@@ -3690,20 +3705,17 @@ body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}
 .dtab:hover{background:var(--accent);color:var(--foreground)}
 .dtab[aria-selected=true]{background:var(--background);border-color:var(--border);color:var(--foreground);font-weight:600;box-shadow:inset 0 3px 0 var(--brand)}
 .dtab .nm,.dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dcnt{flex:none;min-width:20px;padding:0 6px;border-radius:var(--radius-lg);background:var(--secondary);color:var(--foreground);font-size:var(--text-xs);line-height:18px;
-  font-weight:600;text-align:center}
-.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent;border:1px solid var(--border)}
+.dcnt{font-weight:600}
+.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent;border-color:var(--border)}
 .dtab[aria-selected=true] .dcnt:not(.z),.dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
-.dvo{flex:none;font-size:var(--text-xs);line-height:14px;padding:0 var(--space-1);border:1px solid var(--border-strong);border-radius:var(--radius-sm);color:var(--muted-foreground);
-  font-weight:400;letter-spacing:.02em}
+.dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
 .dtab .spin,.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
 #btn-doc{display:none;align-items:center;gap:var(--space-1)}
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
 body.view-only #btn-rebuild{display:none}
-.dchip{flex:none;font-size:var(--text-xs);line-height:16px;padding:0 6px;border-radius:var(--radius-sm);background:var(--secondary);border:1px solid var(--border);
-  color:var(--foreground);white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.dchip{flex:none;line-height:16px;border-color:var(--border);max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{border-style:dashed}
 .list-head{display:flex;align-items:center;gap:var(--space-2);margin:0 0 7px}
 .list-head h3{margin:0}
@@ -3739,17 +3751,17 @@ body.view-only #btn-rebuild{display:none}
     <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
-    <button id="btn-zoom-out" class="sec ib" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
-    <button id="btn-zoom-in" class="sec ib" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">{{ic:plus}}</button>
+    <button id="btn-zoom-out" class="sec btn-icon" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
+    <button id="btn-zoom-in" class="sec btn-icon" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">{{ic:plus}}</button>
     <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">폭</button>
-    <button id="btn-theme" class="sec ib" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">{{ic:sun-moon}}</button>
-    <button id="btn-help" class="sec ib" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
-    <button id="btn-more" class="cmp ib" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">{{ic:ellipsis}}</button>
+    <button id="btn-theme" class="sec btn-icon" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">{{ic:sun-moon}}</button>
+    <button id="btn-help" class="sec btn-icon" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
+    <button id="btn-more" class="cmp btn-icon" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">{{ic:ellipsis}}</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
-    <span id="vec-chip" class="tag t" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
-    <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
-    <button id="build-err-chip" class="tag t" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="badge badge-warning" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="badge" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
+    <span id="vec-chip" class="badge badge-warning" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
+    <span id="conn-lost" class="badge badge-warning" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
+    <button id="build-err-chip" class="badge badge-warning" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
   <div id="build-err" hidden></div>
   <div id="banner" hidden></div>
@@ -3758,8 +3770,8 @@ body.view-only #btn-rebuild{display:none}
     <div id="c-body">
       <div class="c-loc-row">
         <div class="c-loc-main"><span id="c-loc" class="loc" tabindex="0" data-tip="핀에 저장될 원문 위치입니다. 에이전트는 이 줄을 직접 열어 고칩니다. 누르면 복사"></span>
-          <span id="c-page"></span><span id="c-tag" class="tag" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
-        <button class="ico" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">{{ic:copy}}</button>
+          <span id="c-page"></span><span id="c-tag" class="badge" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
+        <button class="btn-icon" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">{{ic:copy}}</button>
       </div>
       <div id="c-warn" class="warnline" hidden></div>
       <div id="c-overlap" hidden></div>
@@ -3772,7 +3784,7 @@ body.view-only #btn-rebuild{display:none}
         <button class="tg" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">줄바꿈</button>
       </div>
       <pre id="c-snip" class="wrap"></pre>
-      <div class="snip-foot"><button class="x ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
+      <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
   </div>
@@ -3780,7 +3792,7 @@ body.view-only #btn-rebuild{display:none}
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
       범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
     <section class="lsec" id="sec-open" aria-labelledby="list-h">
-      <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="x tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
+      <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
       <div id="pins"></div>
     </section>
     <section class="lsec arc" id="sec-done" aria-label="완료한 핀" hidden>
@@ -3794,13 +3806,13 @@ body.view-only #btn-rebuild{display:none}
   </div>
   <div id="c-actions">
     <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
-    <button class="p" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)">핀 저장</button>
+    <button class="btn-default" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)">핀 저장</button>
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
-<div id="coach" role="status" hidden><span id="coach-t"></span><button class="x ib" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
+<div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
 <dialog id="more" aria-label="더보기">
-  <div class="row"><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="x" data-act="more-close">닫기</button></div>
+  <div class="row"><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm" data-act="more-close">닫기</button></div>
   <p class="more-info" id="more-info"></p>
   <div class="more-grid">
     <button data-act="reload" data-close="1">핀 다시 읽기</button>
@@ -3816,11 +3828,11 @@ body.view-only #btn-rebuild{display:none}
   </div>
 </dialog>
 <dialog id="docs-menu" aria-labelledby="docs-menu-h">
-  <div class="row"><h2 id="docs-menu-h" style="margin:0">문서</h2><span class="sp"></span><button class="x" data-act="docs-menu-close">닫기</button></div>
+  <div class="row"><h2 id="docs-menu-h" style="margin:0">문서</h2><span class="sp"></span><button class="btn-sm" data-act="docs-menu-close">닫기</button></div>
   <div class="dm-list" id="docs-menu-list" role="listbox" aria-labelledby="docs-menu-h"></div>
 </dialog>
 <dialog id="help" aria-labelledby="help-h">
-  <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="x" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
+  <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="btn-sm" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
   <h4>한 바퀴</h4>
   <ol class="help-steps">
     <li>PDF 위에서 고칠 곳을 <b>드래그</b>합니다. 점선 상자('새 핀')가 남습니다.</li>
@@ -3939,9 +3951,9 @@ function toast(msg,kind,action){
   const s=document.createElement('span'); s.textContent=msg; t.appendChild(s);
   let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
-  if(action){const b=document.createElement('button');b.className='x';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
+  if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
     b.addEventListener('click',()=>{kill();action.fn();});t.appendChild(b);}
-  const c=document.createElement('button');c.className='x ghost ib';c.innerHTML=ic('x');c.dataset.tip='알림 닫기';
+  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');c.dataset.tip='알림 닫기';
   c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);t.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
   box.appendChild(t); arm(); while(box.children.length>5) box.firstChild.remove();
@@ -4019,7 +4031,7 @@ async function loadDocs(){try{const r=(await api('/api/docs',{what:'문서 목�
 function docCount(k){return OPEN_ALL.filter(p=>pdoc(p)===k).length;}
 function docBadge(d){const n=docCount(d.key);
   return (d.building?'<span class="spin" aria-label="빌드 중"></span>':(d.stale_build?'<span class="ddot" aria-label="원고 수정됨"></span>':''))+
-    (d.view_only?'<span class="dvo" aria-label="보기 전용">PDF</span>':'')+'<span class="dcnt'+(n?'':' z')+'" aria-label="열린 핀 '+n+'">'+n+'</span>';}
+    (d.view_only?'<span class="badge dvo" aria-label="보기 전용">PDF</span>':'')+'<span class="badge badge-secondary dcnt'+(n?'':' z')+'" aria-label="열린 핀 '+n+'">'+n+'</span>';}
 function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
   (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
 function drawDocTabs(){
@@ -4108,11 +4120,11 @@ function updateStaleBadge(m){
   if(typeof m.stale_build==='boolean')stale=m.stale_build;
   else{const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
     stale=ref!=null&&typeof m.src_mtime==='number'&&m.src_mtime>ref+2;}
-  if(!stale){badge.hidden=true; btn.classList.remove('p'); return;}
+  if(!stale){badge.hidden=true; btn.classList.remove('btn-default'); return;}
   const age=(typeof m.src_age_s==='number')?m.src_age_s:(Date.now()/1000-m.src_mtime);
   const mins=Math.max(0,Math.round(age/60));
   badge.hidden=false; badge.textContent='원고 수정됨 · '+mins+'분 전';
-  btn.classList.add('p');
+  btn.classList.add('btn-default');
 }
 function drawMeta(){
   document.body.classList.toggle('view-only',!!META.view_only);
@@ -4824,9 +4836,9 @@ function renderOverlapBanner(){
   if(!ov||OVERLAP_DISMISSED===ov.id+':'+ov.rel){box.hidden=true;return;}
   box.hidden=false; box.dataset.rel=ov.rel;
   box.innerHTML='<span>열린 핀 #'+ov.id+overlapVerb(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>'+
-    '<button class="x" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
+    '<button class="btn-sm" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
     ov.id+' 메모에 덧붙이기</button>'+
-    '<button class="x" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
+    '<button class="btn-sm" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
 }
 // 위치는 한 줄: '파일 L159' + 쪽 + 일치 배지 + [⧉]. 범위 종류·줄 수는 분절 컨트롤의 고른 칸이 이미 보이므로 되풀이하지
 // 않는다(▲▼ 로 직접 맞춰 어느 칸에도 안 맞으면 '줄 직접 지정'을 쪽 옆에 붙인다). 드래그한 줄은 설명에 둔다.
@@ -4846,7 +4858,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy;
   const pg=$('#c-page'); pg.textContent=d.page+'쪽'+(curLevel(d)?'':' · 줄 직접 지정');
   pg.dataset.tip=d.page+'쪽 · '+scopeLabel(d)+' · '+(d.hi-d.lo+1)+'줄 · 드래그한 줄 '+rng(d.raw_lo,d.raw_hi);
-  const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('t',!!v.low);}
+  const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
   renderOverlapBanner();
   $('#c-levels').innerHTML=levelBtns(d,false);
@@ -4939,10 +4951,10 @@ function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by
   return {t:'처리 중',late:false,tip:head+tail};}
 function claimLabel(p,now){return claimInfo(p,now).t;}
 function claimTag(p){const c=claimInfo(p);
-  return '<span class="tag claim'+(c.late?' late':'')+'" data-claim="'+p.id+'" data-tip="'+esc(c.tip)+'">'+ic('clock')+'<span class="ct">'+esc(c.t)+'</span></span>';}
+  return '<span class="badge badge-claimed'+(c.late?' late':'')+'" data-claim="'+p.id+'" data-tip="'+esc(c.tip)+'">'+ic('clock')+'<span class="ct">'+esc(c.t)+'</span></span>';}
 // 남은 분·경과 분은 시간이 가면 바뀐다 — 30초마다 배지 글만 고친다(카드를 다시 그리지 않는다). 잠금이 풀린 핀이 있으면 목록을 다시 그린다.
 function tickClaims(){if(document.hidden)return; let gone=false;
-  $$('.tag.claim[data-claim]').forEach(el=>{const p=OPEN_ALL.find(x=>x.id===+el.dataset.claim);
+  $$('.badge-claimed[data-claim]').forEach(el=>{const p=OPEN_ALL.find(x=>x.id===+el.dataset.claim);
     if(!p||!claimActive(p)){gone=true; return;} const c=claimInfo(p); el.querySelector('.ct').textContent=c.t; el.dataset.tip=c.tip; el.classList.toggle('late',c.late);});
   if(gone)drawPins();}
 setInterval(tickClaims,30000);
@@ -4951,20 +4963,20 @@ function locText(p){return isRegion(p)?'영역':rng(p.lo,p.hi);}
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
 // 모든 문서 보기에서 카드 머리에 붙는 문서 칩. 다른 문서의 것은 점선 테두리 — 누르면 그 문서로 바뀐다.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
-  return '<span class="dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
+  return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc 은 복사 형식 그대로
-  if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
-  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
+  if(p.stale)tags.push('<span class="badge badge-warning" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
+  else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="badge" data-tip="'+
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
   const claimed=claimActive(p);
   if(claimed)tags.push(claimTag(p));
-  if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
+  if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
   const rb=relBadge(p.rel,p);
-  if(rb)tags.push('<span class="tag" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
+  if(rb)tags.push('<span class="badge" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
-  const v=viaTag(p); if(v)tags.push('<span class="tag'+(v.low?' t':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
+  const v=viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
@@ -4973,22 +4985,22 @@ function card(p){
   // compact 아코디언: 접힌 카드는 번호·위치·쪽·메모 첫 줄(.sum)만 보이고, 누르면 배지·메모·버튼이 펼쳐진다(CSS).
   // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
   const first=String(p.note||'').split('\n')[0].trim();
-  if(isRegion(p))tags.unshift('<span class="tag" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
-  return '<div class="pin'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
+  if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
+  return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
     '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
     '<span class="sp"></span>'+au+
-    '<button class="x ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
+    '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
-    '<div class="acts"><button class="x b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
-    '<button class="x b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
-    (claimed?'<button class="x b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
-    '<button class="x b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
-    '<button class="x b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
+    '<div class="acts"><button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
+    '<button class="btn-sm b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
+    (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
+    '<button class="btn-sm btn-destructive b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
+    '<button class="btn-sm btn-secondary b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
 // 보관함 행(references/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
@@ -5000,16 +5012,16 @@ function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop()
   return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
 function arcLine(key,text,tip){const open=ARC_OPEN.has(key);
   return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+esc(text)+'</span>';}
-function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
+function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
   '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
 function doneCard(p){
-  const ref=p.close_ref?'<span class="arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
+  const ref=p.close_ref?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
     '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
-    '<button class="x arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
+    '<button class="btn-sm arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+'</div>'+
     (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+'</div>';}
 function droppedCard(p){
@@ -5017,7 +5029,7 @@ function droppedCard(p){
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
     '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
-    '<button class="x arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
+    '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
@@ -5136,9 +5148,9 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<button data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">'+ic('minus')+'</button></div>'+
     '<span class="e-range loc" tabindex="0" data-tip="저장하면 핀이 가리킬 원문 줄. 누르면 복사"></span></div>'+
     '<pre class="e-snip wrap">원문 읽는 중…</pre>'+
-    '<div class="e-acts"><button class="x b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
-    '<button class="x b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
-    '<button class="x p b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
+    '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
+    '<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
+    '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
   const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
   EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''},
@@ -5188,12 +5200,12 @@ async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
 function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
 function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PDF에서 드래그하세요 · Esc 취소</span>'+
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
-  '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
+  '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
   banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+(rg?'지금 쪽 '+REPICK.from.page+' · 새 쪽 '+c.page+' 영역':'지금 L'+REPICK.from.lo+'-L'+REPICK.from.hi+' · 새 L'+lv.lo+'-L'+lv.hi)+'</span>'+
     '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):'글자 없는 영역'):(lv.label||scopeLabel(c)))+')</span><span class="sp"></span>'+
-    '<button class="x p" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
-    '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
+    '<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
+    '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 // 터치에서는 위치 다시 잡기 동안 선택 모드를 켜고, narrow 는 시트를 접어 쪽을 드러낸다(배너는 접힌 시트에도 남는다).
 async function startRepick(){if(!EDIT)return;
   if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT; await switchDoc(E.doc); if(DOC!==E.doc||EDIT!==E)return;}   // 그 핀의 문서 위에서 고른다
@@ -5235,7 +5247,7 @@ async function refreshDoc(){const a=topAnchor(),k=DOC;
 function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
   const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다';
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
-    '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
+    '<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
     '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>';
   b.hidden=false; $('#build-err-chip').hidden=true;}

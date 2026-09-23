@@ -2545,7 +2545,7 @@ class FrontendMobileStructure(unittest.TestCase):
         for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
                          ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
-            self.assertRegex(tag, r'class="sec( ib)?"')
+            self.assertRegex(tag, r'class="sec( btn-icon)?"')
             more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
             self.assertIn('data-act="%s"' % act, more)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
@@ -2639,7 +2639,7 @@ class FrontendVector(unittest.TestCase):
         fail = self.fn("vecFail")
         self.assertIn("vecReleaseAll()", fail)                  # 캔버스를 걷으면 밑의 PNG 가 보인다
         self.assertIn("$('#vec-chip')", fail)
-        self.assertIn('id="vec-chip" class="tag t" hidden', ps.HTML)
+        self.assertIn('id="vec-chip" class="badge badge-warning" hidden', ps.HTML)
         self.assertIn('<img loading="lazy"', ps.HTML)          # PNG 는 첫 화면·폴백으로 남는다
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pg.drawn>img{visibility:hidden}", css)
@@ -2942,7 +2942,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertGreater(acts, right.index('<div id="list">'))
         # 취소가 먼저, 주요 동작(핀 저장)이 오른쪽에 넓게
         self.assertLess(right.index('id="btn-cancel"', acts), right.index('id="btn-save"', acts))
-        self.assertRegex(right, r'<button class="p" id="btn-save"')
+        self.assertRegex(right, r'<button class="btn-default" id="btn-save"')   # 주요 동작 = default 변형
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("#composer[hidden]~#c-actions{display:none}", css)
         self.assertIn("grid-template-columns:1fr 2fr", css)
@@ -2974,8 +2974,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertLess(body.index('b-drop'), body.index('b-close'))         # 완료(주요)는 맨 오른쪽
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
-        self.assertIn("button.b-close{background:color-mix(in srgb,var(--primary) 14%,transparent)", css)
-        self.assertIn("button.b-drop{color:var(--destructive)}", css)
+        self.assertIn('class="btn-sm btn-secondary b-close"', body)          # 완료 = secondary, 삭제 = destructive(§컴포넌트)
+        self.assertIn('class="btn-sm btn-destructive b-drop"', body)
 
     def test_compact_toolbar_is_one_even_row(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
@@ -4084,7 +4084,7 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
         self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
-        self.assertIn("#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
+        self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
         self.assertIn("#bar1 input.n{width:52px;font-size:var(--text-xl)}", coarse)
