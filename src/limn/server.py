@@ -2223,21 +2223,38 @@ def overlaps_for_range(file: str, lo: int, hi: int) -> list:
     return out
 
 
-def rel_badge(rel: list, by_id: dict) -> str:
-    """pins.md·카드 태그용 대표 관계 하나. inside 가 있으면 범위가 가장 작은 바깥 핀을 ⊂,
-    없으면 partial 중 id 가 가장 작은 것을 ∩. contains 는 표기하지 않는다.
-    GET /api/pins 의 rel 항목은 {id,rel} 뿐이라(계약), 범위는 by_id(전체 행)에서 찾는다."""
+def josa(n, cons: str, vowel: str) -> str:
+    """숫자 뒤 조사 — '#20과'·'#2와', '#20을'·'#2를'. 한자어 읽기의 끝소리로 가른다: 0 으로 끝나면(십·백·천·만·영) 받침,
+    아니면 끝자리 1·3·6·7·8(일·삼·육·칠·팔)이 받침이다. 뷰어 josa() 와 같은 규칙."""
+    d = str(n)[-1:]
+    return cons if d == "0" or d in "13678" else vowel
+
+
+def rel_badge(rel: list, by_id: dict, me: dict = None) -> str:
+    """pins.md·카드 태그용 대표 관계 하나 — 뜻이 드러나는 짧은 말로 쓴다(예전 ⊂#N·∩#N 은 뜻을 알 수 없었다).
+
+    1. 범위가 똑같은 핀이 있으면(같은 곳을 두 번 찍음) id 가 가장 작은 것: '#N과 같은 범위'
+    2. inside 가 있으면 범위가 가장 작은 바깥 핀: '#N 범위 안'
+    3. partial 중 id 가 가장 작은 것: '#N과 일부 겹침'
+    contains(감쌈)는 표기하지 않는다. GET /api/pins 의 rel 항목은 {id,rel} 뿐이라(계약), 범위는 by_id(전체 행)에서
+    찾는다. me(이 핀)가 없으면 같은 범위를 가려내지 못하고 예전처럼 안/겹침만 본다."""
+    if me is not None:
+        same = [x for x in rel if (by_id.get(x["id"]) or {}).get("lo") == me.get("lo")
+                and (by_id.get(x["id"]) or {}).get("hi") == me.get("hi")]
+        if same:
+            n = min(x["id"] for x in same)
+            return "#%d%s 같은 범위" % (n, josa(n, "과", "와"))
     insides = [x for x in rel if x["rel"] == "inside"]
     if insides:
         def span(x):
             o = by_id.get(x["id"])
             return ((o["hi"] - o["lo"]) if o else 1 << 30, x["id"])
         best = min(insides, key=span)
-        return "⊂#%d" % best["id"]
+        return "#%d 범위 안" % best["id"]
     partials = [x for x in rel if x["rel"] == "partial"]
     if partials:
-        best = min(partials, key=lambda x: x["id"])
-        return "∩#%d" % best["id"]
+        n = min(partials, key=lambda x: x["id"])["id"]
+        return "#%d%s 일부 겹침" % (n, josa(n, "과", "와"))
     return ""
 
 
@@ -2884,9 +2901,9 @@ def render_quote(r: dict) -> str:
     return "«%s» " % md_cell(q)
 
 
-LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · 처리 중(이름, 약 N분) = 다른 에이전트가 잡음, 건너뛴다 · "
-          "✎ = 저장 뒤 메모·범위 수정됨 · "
-          "⚠ = 위치를 잃음(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
+LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다 · '#N과 일부 겹침' = 참고만, 각자 처리해도 된다 · "
+          "'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다 · '수정됨' = 저장 뒤 메모·범위가 바뀜 · "
+          "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 
 
@@ -2921,18 +2938,18 @@ def pins_md_text(rows: list, base: str = None) -> str:
     any_symbol = False
     for r in openn:
         syms = []
-        badge = rel_badge(rel.get(r["id"], []), by_id)
+        badge = rel_badge(rel.get(r["id"], []), by_id, r)
         if badge:
             syms.append(badge)
         if claim_active(r):
             syms.append(claim_md(r))
         if r.get("edited_at"):
-            syms.append("✎")
+            syms.append("수정됨")
         if r.get("stale"):
-            syms.append("⚠")
+            syms.append("위치 잃음")
         if syms:
             any_symbol = True
-        idcol = md_cell(" ".join(["%s" % r.get("id")] + syms))
+        idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
         if multi_author:
             an = (r.get("author") or {}).get("name")
@@ -3311,9 +3328,15 @@ body.resizing #left{pointer-events:none}
 #right{width:430px;min-width:280px;max-width:80vw;border-left:1px solid var(--line);background:var(--pane);
   display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-#bar1{flex-wrap:wrap;gap:4px;padding:8px 10px}   /* 좁힌 패널에서는 두 줄로 — 가로로 넘치지 않게 */
-#bar1 button{padding:4px 8px;white-space:nowrap}
-#bar1 input.n{width:44px;flex:none}
+#bar1{flex-wrap:wrap;gap:4px;padding:8px 10px;--tb-h:28px}   /* 좁힌 패널에서는 두 줄로 — 가로로 넘치지 않게 */
+/* 도구 줄은 한 높이(--tb-h: 데스크톱 28px, 터치 44px). 쪽 칸도 버튼과 같은 높이·글자 크기다 — 일반 입력 칸 규칙(14px, 6px 여백)을
+   그대로 받아 버튼보다 8px 크고 글자도 커서 줄의 조화가 깨졌다(저자 지적 2026-09-23). 아이콘 버튼은 정사각형이다. */
+#bar1>button,#bar1>input{height:var(--tb-h)}
+#bar1 button{padding:0 8px;white-space:nowrap}
+#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
+#bar1 input.n{width:40px;flex:none;padding:0 4px;font-size:12.5px;line-height:normal;border-radius:6px}
+#bar1 input.n::placeholder{color:var(--dim)}
+#bar1 .chip{height:24px;display:inline-flex;align-items:center;padding:0 8px}
 button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px;
   cursor:pointer;font:inherit;font-size:12.5px;line-height:1.4;display:inline-flex;align-items:center;justify-content:center;gap:4px}
 /* 아이콘(Lucide, vendor/lucide/README.md): 글자색을 따르는 선 아이콘. 버튼 안에서는 글자 옆에 4px 틈으로 붙는다. */
@@ -3516,6 +3539,8 @@ dialog code{font-size:12px;word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--ok);vertical-align:middle;margin-right:4px}
 .sw.w{border-color:var(--warn)}
 .sw.a{border-color:var(--acc);border-style:dashed}
+.strip{display:inline-block;width:4px;height:12px;border-radius:2px;vertical-align:middle;margin:0 4px 0 2px}
+.strip.c{background:var(--claim)} .strip.d{background:var(--ok)} .strip.x{background:var(--arc-grey)}
 /* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
    레이아웃은 JS 가 body 에 건다: lay-wide(지금 그대로) · lay-mid(700px 초과 1100px 미만 + 터치: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
@@ -3546,10 +3571,10 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   button{min-height:44px;min-width:44px;padding:8px 12px;font-size:14px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   button.x,.seg button{min-height:44px;padding:6px 10px;font-size:13px}
   button.tag{min-height:44px;padding:4px 10px}
-  #bar1 button{padding:8px 10px}
-  #bar1{flex-wrap:wrap}
+  #bar1{flex-wrap:wrap;--tb-h:44px}
+  #bar1 button{padding:0 10px}
   input,textarea,select{font-size:16px}
-  #bar1 input.n{width:60px;min-height:44px}
+  #bar1 input.n{width:52px;font-size:16px}   /* iOS 는 16px 보다 작은 입력 칸에 포커스하면 화면을 키운다 */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
   .mark b{width:26px;height:26px;left:-28px;font-size:12.5px}
   .mark b::after{content:'';position:absolute;inset:-9px}
@@ -3747,7 +3772,7 @@ body.view-only #btn-rebuild{display:none}
     <button data-act="zoom-in">확대</button>
     <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
     <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
-    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽 번호" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
+    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
     <button id="m-done" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
     <button id="m-dropped" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
     <button class="wide" data-act="help">도움말</button>
@@ -3788,12 +3813,14 @@ body.view-only #btn-rebuild{display:none}
     <tr><td>앵커</td><td>핀을 찍을 때 떠 둔 첫·끝 문장. 원고가 고쳐지면 이것으로 새 줄 번호를 찾습니다</td></tr>
     <tr><td>줄 이동</td><td>원고 수정으로 핀 위치가 밀려 다시 맞췄다는 표시('줄 +3 이동')</td></tr>
     <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
-    <tr><td>일치 % 배지</td><td>위치 옆 배지. 드래그한 글자가 그 줄 범위에 있는 비율입니다. PDF 좌표(SyncTeX)로 찾았으면 '일치', 드래그한 글자를 원문에서 찾았으면 '글자 일치'. 30% 미만이면 노란색 — 줄 범위를 눈으로 확인하세요</td></tr>
+    <tr><td>위치 불확실</td><td>드래그한 글자가 찾은 줄 범위에 90%보다 적게 들어 있을 때 붙는 배지입니다(90% 이상이면 배지가 없습니다). 30% 미만이면 노란색. 설명에 찾은 방법(좌표·글자)과 일치율이 있습니다 — 원문 칸에서 고칠 곳이 그 줄들에 있는지 확인하세요</td></tr>
+    <tr><td>#N 범위 안 · #N과 같은 범위 · #N과 일부 겹침</td><td>다른 열린 핀과 줄 범위가 겹친다는 배지. 앞의 둘은 한 번에 고치고 함께 닫는 편이 낫고, 일부 겹침은 참고만 합니다</td></tr>
     <tr><td>작성자</td><td>tailscale 로 들어온 사람은 계정 이름으로, 로컬·에이전트 요청은 '로컬/에이전트'로 기록됩니다. 기록이 생기기 전 핀은 '기록 전'</td></tr>
     <tr><td>PDF 재빌드 vs 핀 다시 읽기</td><td>앞의 것은 원고를 컴파일해 화면을 바꾸고(수십 초), 뒤의 것(구 '새로고침')은 핀 목록만 다시 읽습니다(즉시)</td></tr>
   </table>
   <h4>색</h4>
   <div style="font-size:13px"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
+  <div style="font-size:13px;margin-top:4px">핀 목록 왼쪽 띠: <span class="strip c"></span>처리 중 · <span class="strip d"></span>완료 · <span class="strip x"></span>삭제 (띠가 없으면 열린 핀)</div>
   <h4>pins.md 위치</h4>
   <code id="help-pins-md"></code>
 </dialog>
@@ -3834,8 +3861,8 @@ const T={
   esave:'수정한 내용을 저장합니다 (⌘ Enter / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
   reopen:'닫힌 핀을 다시 열어 목록과 pins.md에 올립니다',
   restore:'삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
-  synctex:'PDF 좌표(SyncTeX)로 원문 줄을 찾았습니다. %는 드래그한 글자가 이 줄 범위에서 발견된 비율입니다(드문 낱말에 가중). 30% 미만이면 줄 범위를 눈으로 확인하세요',
-  text:'드래그한 영역의 글자를 원문에서 직접 찾아 위치를 정했습니다. 표·기호표처럼 좌표 조회가 약한 곳에서 쓰입니다',
+  synctex:'PDF 좌표(SyncTeX)로 줄을 찾았지만 드래그한 글자가 이 줄 범위에 다 있지는 않습니다(드문 낱말에 가중한 비율). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
+  text:'드래그한 글자를 원문에서 직접 찾아 위치를 정했습니다(표·기호표처럼 좌표 조회가 약한 곳). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
   env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
@@ -4681,11 +4708,14 @@ function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
     if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+(ls.length-8)+'줄 접힘';}
-// 배지는 짧게('일치 93%'), 찾은 방법(좌표/글자)은 설명에 둔다. 30% 미만은 경고 색 — 줄 범위를 눈으로 확인할 자리다.
-function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100),low=pct<30;
-  if(p.via==='synctex')return {t:'일치 '+pct+'%',tip:'좌표로 찾음 · '+T.synctex,low};
-  if(p.via==='text')return {t:'글자 일치 '+pct+'%',tip:'글자로 찾음 · '+T.text,low};
-  return {t:String(p.via),tip:'찾은 방법',low:false};}
+// 위치 일치율 배지: 90% 이상이면 숨긴다(믿어도 되는 자리에 숫자를 달면 소음이다). 낮으면 '위치 불확실', 30% 미만은 경고 색.
+// 찾은 방법·일치율·무엇을 확인할지는 설명에 둔다('일치 100%' 만으로는 뜻을 알 수 없었다). 작성 패널·카드가 같이 쓴다.
+const VIA_HIDE=90,VIA_WARN=30;
+function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
+  if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
+  const how=p.via==='synctex'?'좌표로 찾음':(p.via==='text'?'글자로 찾음':'찾은 방법: '+p.via);
+  const why=p.via==='text'?T.text:T.synctex;
+  return {t:'위치 불확실',tip:how+' · 일치 '+pct+'% — '+why+(low?' 많이 어긋났을 수 있습니다.':''),low};}
 
 // ------------------------------------------------ composer
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
@@ -4744,7 +4774,9 @@ function pickOverlap(ovs){
   if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
   return null;
 }
-function overlapVerb(rel){return ({equal:'과 같은 범위입니다',inside:' 안입니다',contains:'을 감쌉니다',partial:'에 걸칩니다'})[rel]||'과 겹칩니다';}
+// 겹침 배너 문구: 선택이 그 핀과 어떤 관계인지 — '#4와 같은 범위' · '#4 범위 안' · '#4를 감쌈' · '#4와 일부 겹침'.
+function overlapVerb(rel,id){const g=(c,v)=>josa(id,c,v);
+  return ({equal:g('과','와')+' 같은 범위입니다',inside:' 범위 안입니다',contains:g('을','를')+' 감쌉니다',partial:g('과','와')+' 일부 겹칩니다'})[rel]||g('과','와')+' 겹칩니다';}
 // [별도 핀으로 저장]은 '그 핀과의 그 관계'를 끈다(id:rel). 범위를 바꿔 관계가 달라지면 다시 알리고, 새 드래그(pick)
 // 에서는 초기화한다 — 한 번 누르면 이후 선택까지 영구히 꺼지던 결함의 재발 방지.
 let OVERLAP_DISMISSED=null;
@@ -4754,7 +4786,7 @@ function renderOverlapBanner(){
   const ov=d?pickOverlap(d.overlaps):null;
   if(!ov||OVERLAP_DISMISSED===ov.id+':'+ov.rel){box.hidden=true;return;}
   box.hidden=false; box.dataset.rel=ov.rel;
-  box.innerHTML='<span>열린 핀 #'+ov.id+'(L'+ov.lo+'-L'+ov.hi+')'+overlapVerb(ov.rel)+'</span>'+
+  box.innerHTML='<span>열린 핀 #'+ov.id+overlapVerb(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>'+
     '<button class="x" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
     ov.id+' 메모에 덧붙이기</button>'+
     '<button class="x" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
@@ -4832,18 +4864,22 @@ function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' �
 // P0b-03: rel 항목 중 대표 하나 — inside 가 있으면(범위가 가장 작은 바깥 핀), 없으면 partial 중 id 가
 // 가장 작은 것. 서버 rel_badge()(pins.md)와 같은 규칙이어야 카드 태그와 pins.md 행이 어긋나지 않는다 —
 // rel 항목은 {id,rel}뿐이라 범위는 PINS(현재 로드된 열린 핀 전체)에서 id 로 찾는다.
-function relBadge(rel){
+// 배지 문구는 뜻이 드러나게: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. 같은 범위는 p(이 핀)의 lo/hi 로 가린다.
+function josa(n,c,v){const d=String(n).slice(-1); return d==='0'||'13678'.includes(d)?c:v;}
+function relBadge(rel,p){
   if(!rel||!rel.length)return null;
+  const byId=new Map(PINS.map(p=>[p.id,p]));
+  if(p){const same=rel.filter(x=>{const o=byId.get(x.id); return o&&o.lo===p.lo&&o.hi===p.hi;});
+    if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:'equal',label:'#'+n+josa(n,'과','와')+' 같은 범위'};}}
   const insides=rel.filter(x=>x.rel==='inside');
   if(insides.length){
-    const byId=new Map(PINS.map(p=>[p.id,p]));
     const span=x=>{const o=byId.get(x.id); return o?(o.hi-o.lo):Number.MAX_SAFE_INTEGER;};
     const best=insides.reduce((a,b)=>{const sa=span(a),sb=span(b);
       return (sb<sa||(sb===sa&&b.id<a.id))?b:a;});
-    return {id:best.id,label:'#'+best.id+' 안'};
+    return {id:best.id,rel:'inside',label:'#'+best.id+' 범위 안'};
   }
   const partials=rel.filter(x=>x.rel==='partial').sort((a,b)=>a.id-b.id);
-  if(partials.length)return {id:partials[0].id,label:'#'+partials[0].id+' 과 겹침'};
+  if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:'#'+n+josa(n,'과','와')+' 일부 겹침'};}
   return null;
 }
 // §P0c-C: 처리 중 표시. claim_until 은 epoch 초라 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유로
@@ -4888,8 +4924,9 @@ function card(p){
   if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
-  const rb=relBadge(p.rel);
-  if(rb)tags.push('<span class="tag" data-tip="'+esc('핀 #'+rb.id+' 과 범위가 겹칩니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
+  const rb=relBadge(p.rel,p);
+  if(rb)tags.push('<span class="tag" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
+    '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
   const v=viaTag(p); if(v)tags.push('<span class="tag'+(v.low?' t':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'

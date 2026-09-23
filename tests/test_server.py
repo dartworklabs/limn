@@ -586,8 +586,8 @@ class Store(Base):
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("%d ⚠" % pid, md)          # v2: 위치 잃음은 번호 칸의 ⚠ 기호로 표시된다
-        self.assertIn("위치를 잃음", md)          # 기호 범례 줄
+        self.assertIn("%d · 위치 잃음" % pid, md)   # 위치 잃음은 번호 칸에 말로 쓴다(예전 ⚠)
+        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)          # 표시 범례 줄
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
@@ -1343,7 +1343,8 @@ class PinsMdV2(Base):
         p1 = self.add(4, 9)
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⊂#%d" % p1, md)
+        self.assertIn("#%d 범위 안" % p1, md)
+        self.assertNotIn("⊂", md)
 
     def test_close_guidance_shows_reply_ref_body(self):
         # 결함: pins.md 의 닫기 안내가 본문 없는 curl 만 보여줘, 이 파일 하나만 읽는 에이전트는
@@ -1658,7 +1659,7 @@ class FrontendLogic(unittest.TestCase):
             let CUR=null, PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             """,
             extract_js_fn("selRel"), extract_js_fn("overlapsFor"), extract_js_fn("pickOverlap"),
-            extract_js_fn("overlapVerb"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
+            extract_js_fn("josa"), extract_js_fn("overlapVerb"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
             extract_js_fn("renderOverlapBanner"), extract_js_fn("lvOf"), extract_js_fn("useLevel"),
             r"""
             const out=[];
@@ -1739,7 +1740,7 @@ class FrontendLogic(unittest.TestCase):
         # 결함: relBadge(JS, 카드 태그)가 insides[0](서버가 보낸 순서, 임의)을 골랐는데 서버의
         # rel_badge()(pins.md)는 범위가 가장 작은 바깥 핀을 골랐다 — 카드와 pins.md 표기가 어긋났다.
         js = "\n".join([
-            extract_js_fn("relBadge"),
+            extract_js_fn("josa"), extract_js_fn("relBadge"),
             r"""
             const PINS=[{id:1,lo:1,hi:100},{id:2,lo:10,hi:20},{id:3,lo:5,hi:50}];
             // rel 배열은 실제 서버 순서를 흉내내 일부러 '가장 작은 것'을 뒤에 둔다.
@@ -1753,7 +1754,7 @@ class FrontendLogic(unittest.TestCase):
         # Python 쪽(rel_badge, pins.md)과 같은 by_id 로 같은 규칙을 비교한다.
         by_id = {1: {"lo": 1, "hi": 100}, 2: {"lo": 10, "hi": 20}, 3: {"lo": 5, "hi": 50}}
         rel = [{"id": 1, "rel": "inside"}, {"id": 3, "rel": "inside"}, {"id": 2, "rel": "inside"}]
-        self.assertEqual(ps.rel_badge(rel, by_id), "⊂#2")
+        self.assertEqual(ps.rel_badge(rel, by_id), "#2 범위 안")
 
     def test_jump_to_card_sets_cur_and_clears_highlight_after_timeout(self):
         # 결함: 배지 클릭이 .flash 만 붙였고(.cur 없음), 정적 box-shadow 라 강조가 풀리지 않았다.
@@ -2145,7 +2146,7 @@ class Claim(Base):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(Coauthor Kim)", md)                     # 예상 없이 잡으면 이름만
         self.assertNotIn("⏳", md)
-        self.assertIn("처리 중(이름, 약 N분) = 다른 에이전트가 잡음, 건너뛴다", md)
+        self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
 
     def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
         pid = self.add()
@@ -2879,13 +2880,20 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)),
                          [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"])
 
-    def test_via_tag_is_short_and_flags_low_score(self):
+    def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
+        # 90% 이상은 배지를 숨기고, 낮으면 '위치 불확실'(30% 미만은 경고 색). 방법·일치율·할 일은 설명에 둔다.
         js = "\n".join(["const T={synctex:'S',text:'X'};", extract_js_fn("viaTag"), r"""
-            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'text',score:0.2}),viaTag({})]));"""])
+            const V="const VIA_HIDE=90,VIA_WARN=30;";
+            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'synctex',score:0.884}),
+              viaTag({via:'text',score:0.2}),viaTag({via:'synctex',score:1}),viaTag({})]));"""])
+        js = js.replace("function viaTag(", "const VIA_HIDE=90,VIA_WARN=30;\nfunction viaTag(", 1)
         got = json.loads(run_node(js))
-        self.assertEqual(got[0], {"t": "일치 93%", "tip": "좌표로 찾음 · S", "low": False})
-        self.assertEqual(got[1], {"t": "글자 일치 20%", "tip": "글자로 찾음 · X", "low": True})
-        self.assertIsNone(got[2])
+        self.assertIsNone(got[0])
+        self.assertEqual(got[1], {"t": "위치 불확실", "tip": "좌표로 찾음 · 일치 88% — S", "low": False})
+        self.assertEqual(got[2], {"t": "위치 불확실", "tip": "글자로 찾음 · 일치 20% — X 많이 어긋났을 수 있습니다.", "low": True})
+        self.assertIsNone(got[3])
+        self.assertIsNone(got[4])
+        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", ps.HTML)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
@@ -3966,3 +3974,89 @@ class ClaimEtaDocs(unittest.TestCase):
         self.assertTrue(ps.valid_rec(base))
         self.assertFalse(ps.valid_rec(dict(base, eta_ts="soon")))
         self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))
+
+
+# ---------------------------------------------------------------- 배지 문구: 뜻이 드러나는 말(겹침·위치 일치율)·pins.md 표시
+# '#20 안'·'일치 100%'·'⊂#N' 은 뜻을 알 수 없었다(저자 지적 2026-09-23). 겹침은 '#20 범위 안'·'#20과 같은 범위'·'#20과 일부 겹침',
+# 위치 일치율은 90% 이상이면 숨기고 낮을 때만 '위치 불확실'. pins.md 번호 칸도 같은 말을 ' · ' 로 잇는다.
+class BadgeWording(Base):
+    NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
+
+    def test_josa_follows_korean_reading(self):
+        got = [ps.josa(n, "과", "와") for n in self.NUMS]
+        self.assertEqual(got, ["과", "와", "과", "와", "와", "과", "과", "과", "와", "과", "과", "와", "와", "와", "과", "과", "과",
+                               "과", "와"])
+        if shutil.which("node"):
+            js = extract_js_fn("josa") + "\nconsole.log(JSON.stringify(%s.map(n=>josa(n,'과','와'))));" % json.dumps(self.NUMS)
+            self.assertEqual(json.loads(run_node(js)), got)
+
+    def test_rel_badge_prefers_same_range_then_inside_then_partial(self):
+        by_id = {1: {"lo": 4, "hi": 9}, 2: {"lo": 4, "hi": 9}, 3: {"lo": 5, "hi": 6}, 20: {"lo": 8, "hi": 12}}
+        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위")
+        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위")
+        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id,
+                                      {"id": 3, "lo": 5, "hi": 6}), "#1 범위 안")
+        self.assertEqual(ps.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침")
+        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침")
+        self.assertEqual(ps.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
+
+    def test_js_rel_badge_matches_server(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("relBadge"), r"""
+            const PINS=[{id:1,lo:4,hi:9},{id:2,lo:4,hi:9},{id:3,lo:5,hi:6},{id:20,lo:8,hi:12}];
+            console.log(JSON.stringify([relBadge([{id:1,rel:'contains'}],{id:2,lo:4,hi:9}).label,
+              relBadge([{id:1,rel:'inside'},{id:2,rel:'inside'}],{id:3,lo:5,hi:6}).label,
+              relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
+            """])
+        self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
+        self.assertIn("const rb=relBadge(p.rel,p);", extract_js_fn("card"))
+
+    def test_overlap_banner_verbs(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapVerb"), r"""
+            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>'#'+a[1]+overlapVerb(a[0],a[1]))));
+            """])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["#4와 같은 범위입니다", "#20 범위 안입니다", "#4를 감쌉니다", "#20을 감쌉니다", "#2와 일부 겹칩니다"])
+
+    def test_pins_md_number_column_uses_words(self):
+        a = self.add(4, 9)
+        b = self.add(4, 9)
+        c = self.add(5, 6)
+        ps.edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(ps.LOCAL_ACTOR))
+        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *ps.clean_claim_body({"eta_min": 10}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
+        self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
+        self.assertIn("| %d · #%d 범위 안 · 처리 중(Kim, 약 10분) · 수정됨 |" % (c, a), md)
+        for sym in ("⊂", "∩", "⏳", "✎", "⚠"):
+            self.assertNotIn(sym, md)
+        self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
+
+    def test_skill_symbol_table_uses_words(self):
+        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        table = skill[skill.index("### 번호 칸의 표시"):skill.index("### 규칙")]
+        for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
+                    "| `수정됨` |", "| `위치 잃음` |"):
+            self.assertIn(row, table)
+        self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
+        cmd = (HERE.parents[2] / "commands" / "manuscript-pin-picker.md").read_text(encoding="utf-8")
+        self.assertIn("### 번호 칸의 표시", cmd)                        # 생성본(sync_commands.py)도 맞춰 두었다
+
+
+class FrontendToolbarSize(unittest.TestCase):
+    """도구 줄 '쪽' 칸이 버튼과 같은 높이·글자 크기인지(데스크톱 28px, 터치 44px). 실측은 Playwright 로 했다."""
+
+    def test_page_field_matches_toolbar_buttons(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#bar1{flex-wrap:wrap;gap:4px;padding:8px 10px;--tb-h:28px}", css)
+        self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
+        self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 4px;font-size:12.5px;", css)
+        self.assertIn("#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
+        coarse = css[css.index("@media (pointer:coarse){"):]
+        self.assertIn("#bar1{flex-wrap:wrap;--tb-h:44px}", coarse)
+        self.assertIn("#bar1 input.n{width:52px;font-size:16px}", coarse)
+        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽"')
+        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
