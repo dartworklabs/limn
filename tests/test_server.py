@@ -4272,3 +4272,136 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("#bar1 input.n{width:52px;font-size:var(--text-xl)}", coarse)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽"')
         self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
+
+
+class FrontendSaveWhilePicking(unittest.TestCase):
+    """P0c 수선: 드래그 직후 SyncTeX pick 이 끝나기 전(~1.1s)에 [핀 저장]을 누르면 CUR 이 아직 없어
+    savePin() 이 조용히 아무 일도 안 하고 메모가 사라졌다(실측). 이제는 그 요청을 큐에 담아
+    pick 이 끝나면 자동 저장한다. 구조 단언(옛 무음 조기 return 이 없어졌는지) + node 로 실제
+    savePin()/pick() 소스를 돌려 큐잉·자동저장·실패시 취소·토글 취소까지 행동으로 검증한다."""
+
+    def test_save_pin_no_longer_silently_drops_missing_cur(self):
+        body = extract_js_fn("savePin")
+        self.assertNotIn("if(!CUR||SAVING)return;", body)
+        self.assertIn("if(SAVING)return;", body)
+        self.assertIn("if(!CUR){if(PICKING)togglePendingSave(); return;}", body)
+
+    def test_pick_triggers_queued_save_on_success_and_clears_on_error(self):
+        pick_body = extract_js_fn("pick")
+        self.assertIn("if(PEND_SAVE){clearPendingSave(); savePin();}", pick_body)
+        # 실패 경로(catch·d.error)도 대기 중이던 저장을 비운다 — 조용히 저장해버리지 않는다.
+        self.assertIn("clearPendingSave();", pick_body)
+        self.assertRegex(pick_body, r"catch\(e\)\{if\(seq!==PICKSEQ\)return; setBusy\(false\); if\(!rp\)\{PICKING=false; clearPendingSave\(\);\}")
+
+    def _harness(self, extra_body):
+        stub = r"""
+            const MQ_COARSE={matches:false}; const IS_MAC=false;
+            function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
+              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
+            const els={}; const $=s=>(els[s]=els[s]||el());
+            let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
+            let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
+            function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
+            async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
+            function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
+            async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
+            const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
+            function api(url){apiCalls.push(url);
+              if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
+              if(url==='/api/pin')return new Promise(res=>{pinResolve=res;});
+              return Promise.resolve({data:{}});}
+            """
+        return "\n".join([
+            stub,
+            extract_js_fn("saveBtnLabel"), extract_js_fn("togglePendingSave"), extract_js_fn("clearPendingSave"),
+            extract_js_fn("savePin"), extract_js_fn("cancelSelection"), extract_js_fn("pick"),
+            extra_body,
+        ])
+
+    def test_queued_save_fires_automatically_once_pick_resolves(self):
+        js = self._harness(r"""
+            (async()=>{
+              const out={};
+              const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
+              await Promise.resolve(); await Promise.resolve();
+              out.pickingWhileWaiting = PICKING;
+              savePin();   // 사용자가 pick 이 끝나기 전에 [핀 저장]을 누름
+              out.queued = PEND_SAVE;
+              out.btnPendingLabel = /위치 찾는 중.*저장 대기/.test(els['#btn-save'].innerHTML);
+              out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p;
+              out.autoSaved = PEND_SAVE===false;
+              out.pinCallsAfterResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.curSetBeforeSave = !!CUR || out.pinCallsAfterResolve>0;
+              pinResolve({data:{id:42}});
+              await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
+              console.log(JSON.stringify(out));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertTrue(data["pickingWhileWaiting"])
+        self.assertTrue(data["queued"])
+        self.assertTrue(data["btnPendingLabel"])
+        self.assertEqual(data["pinCallsBeforeResolve"], 0)   # pick 해소 전엔 저장 요청을 보내지 않는다
+        self.assertTrue(data["autoSaved"])
+        self.assertEqual(data["pinCallsAfterResolve"], 1)    # pick 이 풀리자 큐에 담긴 저장이 자동으로 나간다
+        self.assertTrue(data["btnLabelRestored"])
+
+    def test_pick_failure_clears_queued_save_without_saving(self):
+        js = self._harness(r"""
+            (async()=>{
+              const out={};
+              const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
+              await Promise.resolve(); await Promise.resolve();
+              savePin();
+              out.queuedBeforeFailure = PEND_SAVE;
+              pickResolve({data:{error:'못 찾음'}});
+              await p;
+              out.queuedAfterFailure = PEND_SAVE;
+              out.pinCalls = apiCalls.filter(u=>u==='/api/pin').length;
+              out.errorShown = els['#c-err'].hidden===false && els['#c-err'].textContent==='못 찾음';
+              out.composerStillOpen = els['#composer'].hidden!==true || true;   // 실제 hidden 토글은 composer 표시측이 이미 맡는다
+              console.log(JSON.stringify(out));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertTrue(data["queuedBeforeFailure"])
+        self.assertFalse(data["queuedAfterFailure"])
+        self.assertEqual(data["pinCalls"], 0)   # pick 이 실패하면 저장하지 않는다
+        self.assertTrue(data["errorShown"])
+
+    def test_clicking_save_again_cancels_the_queued_save(self):
+        js = self._harness(r"""
+            (async()=>{
+              const out={};
+              const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
+              await Promise.resolve(); await Promise.resolve();
+              savePin();
+              out.queued = PEND_SAVE;
+              savePin();   // 같은 버튼을 다시 누르면 대기를 취소(토글)
+              out.canceled = PEND_SAVE===false;
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p;
+              out.noAutoSaveAfterCancel = apiCalls.filter(u=>u==='/api/pin').length===0;
+              console.log(JSON.stringify(out));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertTrue(data["queued"])
+        self.assertTrue(data["canceled"])
+        self.assertTrue(data["btnLabelRestored"])
+        self.assertTrue(data["noAutoSaveAfterCancel"])
