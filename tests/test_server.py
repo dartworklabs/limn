@@ -107,6 +107,7 @@ class Base(unittest.TestCase):
         C.allow = frozenset()
         C.origin_check = True
         C.git_pull = False
+        C.pdfjs_dir = None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
         ps.init_seq()
@@ -146,6 +147,18 @@ class Base(unittest.TestCase):
             a.close()
         t.join(10)
         return out
+
+
+def split_resp(out: bytes):
+    """응답 바이트 한 건을 (상태 코드, 소문자 헤더 dict, 본문) 으로 나눈다."""
+    head, _, body = out.partition(b"\r\n\r\n")
+    lines = head.decode("latin-1").split("\r\n")
+    code = int(lines[0].split()[1])
+    hdrs = {}
+    for ln in lines[1:]:
+        k, _, v = ln.partition(":")
+        hdrs[k.strip().lower()] = v.strip()
+    return code, hdrs, body
 
 
 def req(method, path, body=b"", headers=None):
@@ -353,6 +366,143 @@ class CrossOrigin(Base):
         body = b"[" * 100000 + b"]" * 100000
         out = self.talk(req("POST", "/api/pin", body, {"Content-Type": "application/json"}))
         self.assertIn(b" 400 ", out)
+
+
+VENDOR = HERE.parent / "vendor" / "pdfjs"
+
+
+class VendorPdfjs(Base):
+    """GET /vendor/pdfjs/<파일> — 벡터 렌더링용 PDF.js 정적 서빙(MIME·캐시·경로 탈출·Host 검사)."""
+
+    def get(self, path, headers=None):
+        return split_resp(self.talk(req("GET", path, headers=headers)))
+
+    def test_serves_both_modules_as_javascript(self):
+        for name in ("pdf.min.mjs", "pdf.worker.min.mjs"):
+            code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, ps.PDFJS_VERSION))
+            self.assertEqual(code, 200, name)
+            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # 모듈 스크립트는 JS MIME 이어야 실행된다
+            self.assertEqual(h["x-content-type-options"], "nosniff")
+            self.assertEqual(h["cache-control"], "public, max-age=86400")
+            self.assertEqual(body, (VENDOR / name).read_bytes())
+
+    def test_traversal_and_non_module_names_are_404(self):
+        for path in ("/vendor/pdfjs/../scripts/pin_server.py", "/vendor/pdfjs/..%2f..%2fscripts%2fpin_server.py",
+                     "/vendor/pdfjs/%2e%2e/%2e%2e/scripts/pin_server.py", "/vendor/pdfjs/sub/pdf.min.mjs",
+                     "/vendor/pdfjs/LICENSE", "/vendor/pdfjs/README.md", "/vendor/pdfjs/.pdf.min.mjs",
+                     "/vendor/pdfjs/..mjs", "/vendor/pdfjs/", "/vendor/pdfjs//etc/passwd",
+                     "/vendor/pdfjs/pdf.min.mjs/", "/vendor/pdfjs/pdf.min.mjs%00.png"):
+            code, h, body = self.get(path)
+            self.assertEqual(code, 404, path)
+            self.assertNotIn(b"argparse", body)
+            self.assertNotIn(b"Apache License", body)
+            self.assertEqual(h["cache-control"], "no-store")
+
+    def test_symlink_out_of_vendor_dir_is_404(self):
+        d = Path(self.tmp.name) / "vend"
+        d.mkdir()
+        secret = Path(self.tmp.name) / "secret.mjs"
+        secret.write_text("secret-module", encoding="utf-8")
+        (d / "evil.mjs").symlink_to(secret)
+        (d / "ok.mjs").write_text("export const ok=1;", encoding="utf-8")
+        ps.C.pdfjs_dir = d
+        self.assertEqual(self.get("/vendor/pdfjs/ok.mjs")[0], 200)
+        code, _h, body = self.get("/vendor/pdfjs/evil.mjs")
+        self.assertEqual(code, 404)
+        self.assertNotIn(b"secret-module", body)
+
+    def test_missing_vendor_dir_is_404_not_500(self):
+        ps.C.pdfjs_dir = Path(self.tmp.name) / "nowhere"
+        code, h, _ = self.get("/vendor/pdfjs/pdf.min.mjs")
+        self.assertEqual(code, 404)                        # 뷰어는 이것을 보고 PNG 로 돌아간다
+
+    def test_host_and_origin_checked_like_other_gets(self):
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Host": "evil.example"})[0], 403)
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Origin": "https://evil.example"})[0], 403)
+        self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Host": "box.tail1234.ts.net",
+                                                                "Origin": "https://box.tail1234.ts.net",
+                                                                "Tailscale-User-Login": "a@b"})[0], 200)
+
+    def test_version_pinned_in_vendor_html_and_readme(self):
+        head = (VENDOR / "pdf.min.mjs").read_bytes()[:2000].decode("utf-8")
+        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, head)
+        whead = (VENDOR / "pdf.worker.min.mjs").read_bytes()[:2000].decode("utf-8")
+        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, whead)
+        readme = (VENDOR / "README.md").read_text(encoding="utf-8")
+        self.assertIn("pdfjs-dist@%s" % ps.PDFJS_VERSION, readme)
+        self.assertIn("Apache License", (VENDOR / "LICENSE").read_text(encoding="utf-8"))
+
+    def test_readme_sha256_matches_files(self):
+        import hashlib
+        readme = (VENDOR / "README.md").read_text(encoding="utf-8")
+        for name in ("pdf.min.mjs", "pdf.worker.min.mjs", "LICENSE"):
+            data = (VENDOR / name).read_bytes()
+            m = re.search(r"\| `%s` \| ([\d,]+) \| `([0-9a-f]{64})` \|" % re.escape(name), readme)
+            self.assertIsNotNone(m, name)
+            self.assertEqual(int(m.group(1).replace(",", "")), len(data), name)
+            self.assertEqual(m.group(2), hashlib.sha256(data).hexdigest(), name)
+
+    def test_default_dir_finds_repo_vendor(self):
+        self.assertEqual(ps.default_pdfjs_dir().resolve(), VENDOR.resolve())
+
+
+class PdfRoute(Base):
+    """GET /pdf?build=<pages_build> — 쪽 이미지와 같은 빌드의 PDF 만 준다."""
+
+    def setUp(self):
+        super().setUp()
+        self.old, self.new = "pages-20250101000000", "pages-20260101000000"
+        for name, body in ((self.old, b"%PDF-old"), (self.new, b"%PDF-new")):
+            d = ps.C.state / name
+            d.mkdir()
+            (d / "main.pdf").write_bytes(body)
+        ps.atomic_write(ps.C.pages_ptr, self.new)
+        ps.C.build.mkdir(parents=True, exist_ok=True)
+        (ps.C.build / "main.pdf").write_bytes(b"%PDF-build-dir")
+
+    def get(self, path, headers=None):
+        return split_resp(self.talk(req("GET", path, headers=headers)))
+
+    def test_named_build_served_as_pdf(self):
+        for name, body in ((self.new, b"%PDF-new"), (self.old, b"%PDF-old")):
+            code, h, got = self.get("/pdf?build=%s&v=x" % name)
+            self.assertEqual(code, 200)
+            self.assertEqual(h["content-type"], "application/pdf")
+            self.assertEqual(h["cache-control"], "private, max-age=600")
+            self.assertEqual(got, body)                   # 직전 빌드를 물으면 직전 빌드 — 지금 것으로 바꾸지 않는다
+
+    def test_no_build_means_current(self):
+        self.assertEqual(self.get("/pdf")[2], b"%PDF-new")
+
+    def test_gone_or_bad_build_is_404_with_current_build(self):
+        for name in ("pages-20990101000000", "../../etc", "pages", "pages-1"):
+            code, _h, body = self.get("/pdf?build=%s" % name)
+            self.assertEqual(code, 404, name)
+            d = json.loads(body)
+            self.assertTrue(d["pdf_build_gone"])
+            self.assertEqual(d["pages_build"], self.new)
+            self.assertNotIn(b"%PDF", body)
+
+    def test_does_not_fall_back_to_build_dir(self):
+        (ps.C.state / self.new / "main.pdf").unlink()   # 쪽 디렉토리에 짝 PDF 가 없으면 build/ 로 물러서지 않는다
+        code, _h, body = self.get("/pdf?build=%s" % self.new)
+        self.assertEqual(code, 404)
+        self.assertNotIn(b"%PDF-build-dir", body)
+        self.assertEqual(self.get("/pdf")[0], 404)
+
+    def test_host_and_origin_checked(self):
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Host": "evil.example"})[0], 403)
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Host": "evil.example:18999",
+                                                               "Tailscale-User-Login": "x@y"})[0], 403)
+        self.assertEqual(self.get("/pdf?build=%s" % self.new, {"Origin": "https://evil.example"})[0], 403)
+        code, _h, body = self.get("/pdf?build=%s" % self.new, {"Host": "box.tail1234.ts.net",
+                                                               "Tailscale-User-Login": "a@b"})
+        self.assertEqual((code, body), (200, b"%PDF-new"))
+
+    def test_pages_build_in_meta_matches_pdf_route(self):
+        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertEqual(m["pages_build"], self.new)
+        self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
 
 class Store(Base):
@@ -2395,12 +2545,15 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("input,textarea,select{font-size:16px}", coarse)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다. 그 밖에는 폭·높이 손잡이
-        # 둘뿐이다(내용이 아니라 잡는 막대라, 끄는 동안 스크롤과 다투지 않게 none 을 건다).
+        # touch-action: PDF 영역(#left)은 스크롤만 넘기고 브라우저 핀치를 막는다(두 손가락은 앱 확대, §PDF 영역 전용
+        # 확대). 선택 모드의 쪽은 none(한 손가락 끌기 = 선택). 그 밖에는 폭·높이 손잡이 둘뿐이다(끄는 동안 스크롤과
+        # 다투지 않게 none). 사이드바·시트는 건드리지 않는다.
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
-                         ["#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
-        self.assertIn("touch-action:pinch-zoom", css)
+                         ["#left", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
+        self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
+        self.assertIn("body.selmode .pg{touch-action:none", css)
+        self.assertNotIn("touch-action:pinch-zoom", css)
         # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
         self.assertIn("body.lay-narrow #toasts{", css)
         self.assertIn("body.lay-mid #toasts{", css)
@@ -2430,6 +2583,172 @@ class FrontendMobileStructure(unittest.TestCase):
 
     def test_page_images_lazy(self):
         self.assertIn('<img loading="lazy"', ps.HTML)
+
+
+# 벡터 렌더링(references/design.md §벡터 렌더링) — 배포 HTML 에 PDF.js 경로·폴백·가시 영역 렌더·픽셀 상한이 있는지.
+class FrontendVector(unittest.TestCase):
+    def fn(self, name):
+        m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
+        self.assertIsNotNone(m, name)
+        return m.group(1)
+
+    def test_loads_vendored_pdfjs_same_origin_with_version(self):
+        self.assertNotIn("__PDFJS_VERSION__", ps.HTML)
+        self.assertIn("const PDFJS_V='%s'" % ps.PDFJS_VERSION, ps.HTML)
+        self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", ps.HTML)
+        self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", ps.HTML)
+        for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
+            self.assertNotIn(cdn, ps.HTML)                   # 테일넷 안에서만 돈다 — 외부 CDN 금지
+        self.assertIn("isEvalSupported:false", ps.HTML)
+        self.assertIn("useWasm:false", ps.HTML)              # wasm 은 vendor 에 없다(vendor/pdfjs/README.md)
+
+    def test_pdf_is_the_screen_build(self):
+        body = self.fn("vecOpen")
+        self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
+        self.assertIn("build=META.pages_build", body)
+        self.assertIn("doc.numPages!==n", body)                 # 쪽 수가 다르면 쓰지 않는다
+        # 재빌드 뒤 옛 문서를 닫는다. PDFDocumentProxy 에는 destroy 가 없다(실측: 'old.destroy is not a function').
+        self.assertIn("vecClose(old)", body)
+        self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
+        self.assertNotRegex(ps.HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
+
+    def test_fallback_to_png_on_any_failure(self):
+        boot = self.fn("vecBoot")
+        self.assertIn("catch(e){VEC.lib=null; vecFail(", boot)
+        self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
+        run = self.fn("vecRun")
+        self.assertIn("RenderingCancelledException", run)       # 취소는 실패가 아니다
+        self.assertIn("vecFail('쪽을 그리지 못했습니다'", run)
+        fail = self.fn("vecFail")
+        self.assertIn("vecReleaseAll()", fail)                  # 캔버스를 걷으면 밑의 PNG 가 보인다
+        self.assertIn("$('#vec-chip')", fail)
+        self.assertIn('id="vec-chip" class="tag t" hidden', ps.HTML)
+        self.assertIn('<img loading="lazy"', ps.HTML)          # PNG 는 첫 화면·폴백으로 남는다
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pg.drawn>img{visibility:hidden}", css)
+        self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)   # 드래그는 .pg 가 받는다
+
+    def test_visible_pages_only_and_release(self):
+        obs = self.fn("vecObserve")
+        self.assertIn("new IntersectionObserver(", obs)
+        self.assertIn("root:$('#left'),rootMargin:VEC_KEEP", obs)
+        self.assertIn("vecRelease(n)", obs)
+        self.assertIn("cv.width=0; cv.height=0", self.fn("vecDrop"))
+        self.assertIn("vecObserve()", self.fn("buildDoc"))
+        ref = self.fn("refreshDoc")
+        self.assertIn("vecReleaseAll()", ref)                   # 옛 PDF 로 그린 캔버스는 걷는다
+        self.assertIn("vecOpen()", ref)                         # 새 빌드의 PDF 를 다시 연다
+        self.assertIn("vecInvalidate()", self.fn("setW"))       # 확대가 바뀌면 다시 그린다
+
+    def test_no_text_layer(self):
+        for s in ("getTextContent", "TextLayer", "textLayer"):
+            self.assertNotIn(s, ps.HTML)
+
+
+class FrontendVectorLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_backing_size_is_css_times_k_until_the_pixel_cap(self):
+        js = "\n".join([
+            extract_js_fn("vecTarget"),
+            "const cap=16777216; const out=[];",
+            "for(const [cw,ch,k] of [[898,1270,2],[370,523,2.6],[1796,2540,2],[3592,5080,2],[4490,6350,2]]){",
+            "  const t=vecTarget(cw,ch,k,cap); out.push([t.bw,t.bh,t.capped,t.bw*t.bh<=cap,+(t.bw/(cw*k)).toFixed(3)]);}",
+            "console.log(JSON.stringify(out));",
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[0][:3], [1796, 2540, False])
+        self.assertEqual(out[1][:3], [962, 1360, False])
+        for row in out[:2]:
+            self.assertGreaterEqual(row[4], 1.0)               # 상한 안에서는 CSS × DPR 이상
+        for row in out[2:]:                                    # 1796×2540 CSS × DPR 2 = 18.2M 픽셀 > 16.8M
+            self.assertTrue(row[2])                            # 상한을 넘으면 낮춘다(상세 캔버스가 보이는 부분을 채운다)
+            self.assertTrue(row[3])
+
+    def test_detail_region_cover_check(self):
+        js = "\n".join([
+            extract_js_fn("vecCovers"),
+            "const reg={x:0.1,y:0.2,w:0.5,h:0.3}; const out=[];",
+            "out.push(vecCovers(reg,{x:100,y:200,w:500,h:300,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:150,y:250,w:100,h:100,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:50,y:250,w:100,h:100,cw:1000,ch:1000}));",
+            "out.push(vecCovers(reg,{x:150,y:250,w:100,h:300,cw:1000,ch:1000}));",
+            "out.push(vecCovers(null,{x:0,y:0,w:1,h:1,cw:10,ch:10}));",
+            "console.log(JSON.stringify(out));",
+        ])
+        self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
+
+
+# PDF 영역 전용 확대(references/design.md §PDF 영역 전용 확대) — 브라우저 확대 입력을 가로채 쪽 폭만 바꾸는지.
+class FrontendZoom(unittest.TestCase):
+    def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
+        self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
+        i = ps.HTML.index("L.addEventListener('wheel'")
+        self.assertIn("{passive:false}", ps.HTML[i:i + 300])
+        self.assertIn("const L=$('#left')", ps.HTML[i - 200:i])     # PDF 영역에만 — 사이드바의 휠은 그대로
+        self.assertIn("zoomTo(W*f,pt[0],pt[1])", ps.HTML)            # 포인터 기준
+
+    def test_safari_gesture_and_touch_pinch(self):
+        for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
+            self.assertIn("L.addEventListener('%s'" % ev, ps.HTML)
+        i = ps.HTML.index("L.addEventListener('touchstart'")
+        blk = ps.HTML[i:i + 400]
+        self.assertIn("e.touches.length!==2", blk)
+        self.assertIn("cancelDrag(); cancelLP();", blk)            # 핀치는 그리던 선택·길게 누르기를 버린다
+        self.assertIn("{passive:false}", blk)
+
+    def test_keyboard_zoom_skips_inputs(self):
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        body = m.group(1)
+        self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);", body)
+        self.assertIn("e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1)", body)
+        self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
+
+    def test_zoom_bounds_and_anchor(self):
+        self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", ps.HTML)
+        setw = re.search(r"\nfunction setW\(w,save\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        self.assertIn("wBounds(fitWidth())", setw)
+        self.assertNotIn("2200", setw)
+        zt = re.search(r"\nfunction zoomTo\(w,cx,cy\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setW(w)"))
+        self.assertLess(zt.index("setW(w)"), zt.index("zoomRestore(a)"))
+
+
+class FrontendZoomLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_zoom_key_map(self):
+        js = "\n".join([
+            extract_js_fn("zoomKey"),
+            "const ks=[['=','Equal'],['+','Equal'],['-','Minus'],['_','Minus'],['0','Digit0'],['+','NumpadAdd'],",
+            " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['Enter','Enter'],['a','KeyA']];",
+            "console.log(JSON.stringify(ks.map(([key,code])=>zoomKey({key,code}))));",
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", None, None, None])
+
+    def test_wheel_factor_mouse_notch_vs_trackpad_pinch(self):
+        js = "\n".join([
+            "const ZOOM_STEP=1.2;", extract_js_fn("wheelFactor"),
+            "console.log(JSON.stringify([wheelFactor(-100,0),wheelFactor(100,0),wheelFactor(-3,1),wheelFactor(0,0),",
+            " wheelFactor(-10,0),wheelFactor(10,0),wheelFactor(-49,0)].map(v=>+v.toFixed(4))));",
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[:4], [1.2, 0.8333, 1.2, 1])
+        self.assertAlmostEqual(out[4], 1.1052, places=3)          # 핀치 dy=-10 → 조금 확대
+        self.assertAlmostEqual(out[4] * out[5], 1.0, places=3)     # 벌렸다 오므리면 제자리
+        self.assertLess(out[6], 1.2)                               # 잘게 나뉜 dy 는 한 이벤트에 한 칸을 넘지 않는다
+
+    def test_width_bounds_are_half_to_five_times_fit(self):
+        js = "\n".join([
+            "const ZOOM_MIN=0.5,ZOOM_MAX=5;", extract_js_fn("wBounds"),
+            "console.log(JSON.stringify([wBounds(956),wBounds(370),wBounds(100)]));",
+        ])
+        self.assertEqual(json.loads(run_node(js)), [[478, 4780], [185, 1850], [160, 800]])
 
 
 class FrontendMobileLogic(unittest.TestCase):

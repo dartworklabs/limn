@@ -109,7 +109,7 @@ slash_command: true
 | --- | --- |
 | 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
 | 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`references/build-sync.md`](references/build-sync.md) |
-| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 알려진 제약 | [`references/design.md`](references/design.md) |
+| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`references/design.md`](references/design.md) |
 | 실행 인자 전체, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
 
 ## 연관 자산

@@ -47,6 +47,11 @@ PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 
+# 뷰어가 PDF 를 벡터로 그리는 PDF.js(vendor/pdfjs/README.md). 버전은 브라우저 캐시를 가르는 ?v= 값이기도 하다.
+PDFJS_VERSION = "6.3.289"
+VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
+VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
+
 MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
@@ -94,6 +99,7 @@ class Cfg:
     allow: frozenset
     origin_check: bool = True
     git_pull: bool = False
+    pdfjs_dir: Path = None          # None = default_pdfjs_dir()
 
     @property
     def pins_jsonl(self) -> Path:
@@ -205,6 +211,47 @@ def pages_dir_for(name) -> Path:
     if valid_build_name(name) and (C.state / name).is_dir():
         return C.state / name
     return cur_pages()
+
+
+def default_pdfjs_dir() -> Path:
+    """레포 배치(scripts/ 옆의 vendor/pdfjs)를 먼저, 사본을 한 디렉토리에 둔 배치(pin_server.py 옆 vendor/pdfjs)를 다음으로 본다."""
+    here = Path(__file__).resolve().parent
+    for d in (here.parent / "vendor" / "pdfjs", here / "vendor" / "pdfjs"):
+        if d.is_dir():
+            return d
+    return here.parent / "vendor" / "pdfjs"
+
+
+def vendor_file(name: str):
+    """GET /vendor/pdfjs/<name> 이 줄 파일. 이름 한 칸(.mjs)만 받고 디렉토리 밖은 절대 가리키지 않는다.
+
+    이름 규칙이 '/'·'..'·'%' 를 모두 거르지만, 심볼릭 링크 등으로 밖을 가리키는 경우까지 resolve 로 한 번 더 막는다."""
+    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
+        return None
+    base = C.pdfjs_dir or default_pdfjs_dir()
+    try:
+        base = base.resolve()
+        f = (base / name).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if f.parent != base or not f.is_file():
+        return None
+    return f
+
+
+def build_pdf(name) -> Path:
+    """GET /pdf?build=<name> 이 줄 PDF — 그 빌드의 쪽 이미지와 짝인 사본(pages-<build>/<main>.pdf)만 준다.
+
+    cur_pdf 와 달리 build/ 로 물러서지 않는다. build/ 의 것은 재빌드가 제자리에서 덮어써 화면의 쪽 이미지와
+    어긋날 수 있다 — 뷰어가 그 위에서 좌표를 재면 PNG 와 다른 자리를 짚는다. 없으면 None."""
+    if name in (None, ""):
+        pdir = cur_pages()
+    elif valid_build_name(name) and (C.state / name).is_dir():
+        pdir = C.state / name
+    else:
+        return None
+    f = pdir / (C.main.stem + ".pdf")
+    return f if f.is_file() else None
 
 
 def cur_pdf(pdir: Path = None) -> Path:
@@ -2474,7 +2521,8 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
-#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px}
+/* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
+#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px;touch-action:pan-x pan-y}
 /* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
    마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--line);flex:none;touch-action:none}
@@ -2505,6 +2553,11 @@ input.n{width:58px;text-align:center}
 .pg{position:relative;margin:0 auto 18px;box-shadow:0 2px 18px var(--shadow);user-select:none}
 :root[data-theme=light] .pg{border:1px solid var(--line);box-shadow:0 1px 6px var(--shadow)}
 .pg img{width:100%;height:100%;display:block}
+/* 벡터 렌더링(references/design.md §벡터 렌더링): 쪽 캔버스(.vb)는 쪽 상자를 꽉 채우고, 확대가 픽셀 상한을 넘으면
+   보이는 부분만 원래 해상도로 그린 상세 캔버스(.dt)를 쪽 안 % 좌표로 겹친다. 캔버스가 있으면 밑의 PNG 는 숨긴다. */
+.pg>canvas{position:absolute;display:block;pointer-events:none}
+.pg>canvas.vb{left:0;top:0;width:100%;height:100%}
+.pg.drawn>img{visibility:hidden}
 .pg .no{position:absolute;top:6px;left:6px;color:var(--dim);font-size:11px;background:var(--card);
   padding:1px 6px;border-radius:4px;box-shadow:0 1px 4px var(--shadow);line-height:1.5}
 .sel{position:absolute;border:2px solid var(--acc);background:var(--sel-fill);pointer-events:none}
@@ -2642,7 +2695,7 @@ dialog code{font-size:12px;word-break:break-all}
 .hint .t-touch{display:none}
 .pg{-webkit-touch-callout:none}
 #btn-select[aria-pressed=true]{background:var(--acc);color:var(--on-acc);border-color:var(--acc);font-weight:600}
-body.selmode .pg{touch-action:pinch-zoom;outline:2px dashed var(--acc);outline-offset:3px}
+body.selmode .pg{touch-action:none;outline:2px dashed var(--acc);outline-offset:3px}
 #coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:60;background:var(--acc);
   color:var(--on-acc);border-radius:10px;padding:6px 6px 6px 14px;display:flex;gap:8px;align-items:center;
   width:max-content;max-width:calc(100vw - 16px);font-size:14px;box-shadow:0 6px 20px var(--shadow)}
@@ -2745,14 +2798,15 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
-    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
-    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
-    <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다">폭</button>
+    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">−</button>
+    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">＋</button>
+    <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">폭</button>
     <button id="btn-theme" class="sec" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
     <button id="btn-help" class="sec" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
     <button id="btn-more" class="cmp" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">⋯</button>
   </div>
   <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
+    <span id="vec-chip" class="tag t" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
     <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
     <button id="build-err-chip" class="tag t" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
@@ -2826,7 +2880,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   </ol>
   <h4>휴대폰·태블릿(터치)</h4>
   <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
-    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락 확대는 그대로 됩니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
+    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
     <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
     <tr><td><kbd>⋯</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
     <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [⋯] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
@@ -2835,6 +2889,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
     <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
+    <tr><td><kbd>Ctrl/⌘ + 휠</kbd> · <kbd>Ctrl/⌘ + = − 0</kbd></td><td>PDF 위에서 확대·축소(포인터 자리 기준), 0 은 폭 맞춤. 트랙패드 핀치도 같습니다. PDF 만 커지고 패널은 그대로입니다 (입력 칸 밖에서)</td></tr>
     <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
     <tr><td>폭 손잡이</td><td>본문과 패널 사이 막대를 끌면 패널 폭이 바뀝니다. 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→ 로도 바뀝니다. 폭은 브라우저에 기억됩니다</td></tr></table>
   <h4>용어</h4>
@@ -2989,7 +3044,7 @@ async function boot(){
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
   $('#btn-save').textContent=MQ_COARSE.matches?'핀 저장':'핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
-  drawMeta(); applySideWidth(); buildDoc(); autoW(); await loadPins();
+  drawMeta(); applySideWidth(); buildDoc(); autoW(); vecBoot(); await loadPins();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_mtime;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
@@ -3191,22 +3246,215 @@ function buildDoc(){
     d.style.width=W+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     d.innerHTML='<span class="no">'+(i+1)+'</span><img loading="lazy" draggable="false" alt="'+(i+1)+'쪽" src="'+esc(pageSrc(p))+'">';
     doc.appendChild(d);});
-  marks();
+  marks(); vecObserve();
 }
 // save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
 // compact(mid·narrow)에서는 폭을 저장하지 않는다 — 접은 화면에서 맞춘 폭이 편 화면·데스크톱 설정을 덮지 않게.
-function setW(w,save){W=Math.round(Math.min(2200,Math.max(LAYOUT==='wide'?300:160,w))); $$('.pg').forEach(e=>e.style.width=W+'px');
-  if(save!==false&&LAYOUT==='wide')savePrefs({w:W});}
+// 쪽 폭 한계는 폭 맞춤 폭의 ZOOM_MIN–ZOOM_MAX 배(최소 160px)다. 넘치면 PDF 영역(#left) 안에서만 가로로 스크롤된다.
+const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
+function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
+function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
+  if(save!==false&&LAYOUT==='wide')savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
+// 폭 맞춤 폭: compact 는 본문 안쪽 폭, wide 는 #left.clientWidth 에서 48px(좌우 여백)을 뺀 값.
+function fitWidth(){return LAYOUT!=='wide'?innerW():$('#left').clientWidth-48;}
 // compact 는 늘 화면 폭에 맞춘다(사용자가 −/＋ 를 눌렀으면 그 레이아웃 동안은 그대로). wide 는 예전 그대로.
 function autoW(){if(LAYOUT!=='wide'){if(!ZOOMED)setW(innerW(),false);return;}
   if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
-function zoom(k){setW(W+k*140); if(LAYOUT!=='wide')ZOOMED=true;}
-// 폭 맞춤: #left.clientWidth 에서 48px(좌우 여백)을 뺀 값에 맞춘다.
-function fitW(){if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false); return;} const L=$('#left'); setW(L.clientWidth-48);}
+// 확대 기준점: (cx,cy) 화면 좌표 아래의 쪽과 그 쪽 안 비율. 점이 쪽 사이 여백이면 세로로 가장 가까운 쪽을 쓴다.
+// 좌표가 없으면 PDF 영역 가운데를 쓴다(키보드·버튼).
+function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
+  if(cx==null){cx=lr.left+L.clientWidth/2; cy=lr.top+L.clientHeight/2;}
+  let best=null,bd=Infinity;
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(),d=cy<r.top?r.top-cy:(cy>r.bottom?cy-r.bottom:0);
+    if(d<bd){bd=d; best={pg,r};} if(d===0)break;}
+  return best?{pg:best.pg,cx,cy,fx:(cx-best.r.left)/best.r.width,fy:(cy-best.r.top)/best.r.height}:null;}
+// 기준점의 쪽 안 비율 자리를 화면 좌표 (cx,cy) 로 되돌린다 — 확대해도 포인터 밑의 글자가 그 자리에 남는다.
+function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
+  L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
+function zoomTo(w,cx,cy){const a=zoomAnchor(cx,cy); setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(a);}
+function zoom(k){zoomTo(W*Math.pow(ZOOM_STEP,k));}
+// 폭 맞춤: 보던 쪽·자리(위쪽 기준)를 지키고 가로 스크롤을 처음으로 되돌린다.
+function fitW(){const a=topAnchor(),L=$('#left');
+  if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false);} else setW(L.clientWidth-48);
+  restoreAnchor(a); L.scrollLeft=0;}
 function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
+
+// ------------------------------------------------ 벡터 렌더링(PDF.js) — references/design.md §벡터 렌더링
+// 쪽마다 캔버스에 PDF 를 직접 그린다. 백킹 크기 = 쪽 CSS 크기 × devicePixelRatio(× 브라우저 핀치 배율)이고, 앱 확대는
+// 쪽 CSS 폭(W)에 이미 들어 있다. 쪽 상자·비율·% 좌표는 PNG 때 그대로라 드래그 frac·마크·pdf_build 가 바뀌지 않는다.
+// - 가시 영역 근처(VEC_KEEP)의 쪽만 그리고, 멀어진 쪽의 캔버스는 해제한다(IntersectionObserver).
+// - 캔버스 한 장은 VEC_PIX_CAP 픽셀을 넘지 않는다. 넘는 확대에서는 쪽 캔버스를 상한까지 낮추고, 화면에 보이는 부분만
+//   원래 해상도로 그린 상세 캔버스(.dt)를 겹친다.
+// - 확대가 바뀌면 기존 캔버스를 CSS 로 늘려 보인 채 디바운스해 다시 그린다(깜빡임 없음).
+// - pdf.js·PDF 를 못 불러오거나 그리다 실패하면 캔버스를 걷고 PNG <img> 로 돌아간 뒤 상태 칩(#vec-chip)에 알린다.
+// 글자 선택 레이어는 넣지 않는다 — 드래그가 영역 선택이라 글자 선택과 다툰다.
+const PDFJS_V='__PDFJS_VERSION__';
+const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
+const VEC={lib:null,doc:null,build:null,gen:0,failed:null,io:null,near:new Set(),st:new Map(),cur:null,
+  pumping:false,timer:0,stats:[],tFirst:null,tDoc:null};
+window.__pinVec=VEC;   // 실측(Playwright)용 — 캔버스 수·렌더 시간
+async function vecBoot(){
+  if(!window.IntersectionObserver){vecFail('이 브라우저는 IntersectionObserver 가 없습니다');return;}
+  try{VEC.lib=await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V);
+    VEC.lib.GlobalWorkerOptions.workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V;}
+  catch(e){VEC.lib=null; vecFail('pdf.js 를 불러오지 못했습니다',e); return;}
+  await vecOpen();
+}
+// 지금 화면 빌드(META.pages_build)의 PDF 를 연다. 쪽 수가 화면과 다르면 쓰지 않는다(좌표가 어긋난다).
+async function vecOpen(){
+  if(!VEC.lib||!META)return;
+  const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length; let doc;
+  vecCancel();
+  try{const r=await fetch('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||''));
+    if(!r.ok)throw new Error('PDF HTTP '+r.status);
+    const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
+    doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
+  catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
+  if(gen!==VEC.gen){vecClose(doc); return;}
+  if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
+  const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
+  VEC.st.forEach(s=>{s.stale=true;});
+  vecClose(old);
+  vecSchedule(0);
+}
+// 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
+function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
+function vecFail(msg,err){
+  VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
+  vecClose(VEC.doc); VEC.doc=null;
+  const c=$('#vec-chip'); c.hidden=false;
+  c.dataset.tip='PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — '+msg+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')+'. 확대하면 흐릴 수 있습니다';
+}
+function vecState(n){let s=VEC.st.get(n); if(!s){s={base:null,bw:0,bh:0,dt:null,reg:null,dtCw:0,dtK:0,stale:false}; VEC.st.set(n,s);} return s;}
+function vecDrop(cv){if(!cv)return; cv.width=0; cv.height=0; cv.remove();}   // 0 으로 줄여야 사파리도 메모리를 바로 돌려준다
+function vecRelease(n){if(VEC.cur&&VEC.cur.n===n)vecCancel(); const s=VEC.st.get(n); if(!s)return;
+  vecDrop(s.base); vecDrop(s.dt); VEC.st.delete(n);
+  const pg=document.getElementById('p'+n); if(pg)pg.classList.remove('drawn');}
+function vecReleaseAll(){vecCancel(); Array.from(VEC.st.keys()).forEach(vecRelease);}
+function vecCancel(){const c=VEC.cur; VEC.cur=null; if(c&&c.task){try{c.task.cancel();}catch(e){}}}
+function vecObserve(){if(VEC.io)VEC.io.disconnect(); vecReleaseAll(); VEC.near.clear(); if(!window.IntersectionObserver)return;
+  VEC.io=new IntersectionObserver(es=>{es.forEach(en=>{const n=+en.target.dataset.page;
+      if(en.isIntersecting)VEC.near.add(n); else {VEC.near.delete(n); vecRelease(n);}}); vecSchedule(0);},
+    {root:$('#left'),rootMargin:VEC_KEEP});
+  $$('.pg').forEach(pg=>VEC.io.observe(pg));}
+function vecSchedule(ms){clearTimeout(VEC.timer); VEC.timer=setTimeout(vecPump,ms||0);}
+// 확대·창 크기·DPR 이 바뀌었다 — 그리던 것은 버리고(옛 크기) 잠시 뒤 다시 그린다. 그동안은 옛 캔버스가 늘어나 보인다.
+function vecInvalidate(){if(!VEC.doc)return; vecCancel(); vecSchedule(150);}
+function vecK(){const vv=window.visualViewport; return (window.devicePixelRatio||1)*Math.max(1,(vv&&vv.scale)||1);}
+// 쪽 캔버스의 백킹 크기. 상한을 넘으면 같은 비율로 줄이고 capped 로 표시한다(상세 캔버스가 보이는 부분을 채운다).
+function vecTarget(cw,ch,k,cap){let bw=Math.round(cw*k),bh=Math.round(ch*k),capped=false;
+  if(bw*bh>cap){const f=Math.sqrt(cap/(bw*bh)); bw=Math.max(1,Math.floor(bw*f)); bh=Math.max(1,Math.floor(bh*f)); capped=true;}
+  return {cw,ch,k,bw,bh,capped};}
+function vecTargetOf(pg){const cw=pg.clientWidth,ch=pg.clientHeight; return cw&&ch?vecTarget(cw,ch,vecK(),VEC_PIX_CAP):null;}
+// 쪽 안에서 화면에 보이는 부분(쪽 CSS px). margin 은 화면 크기 대비 덧붙일 여유(상세 캔버스를 조금 넓게 그린다).
+function vecVisible(pg,margin){const L=$('#left'),lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect();
+  const ox=r.left+pg.clientLeft,oy=r.top+pg.clientTop,cw=pg.clientWidth,ch=pg.clientHeight;
+  const vx0=lr.left+L.clientLeft,vy0=lr.top+L.clientTop,vw=L.clientWidth,vh=L.clientHeight,mx=vw*margin,my=vh*margin;
+  const x0=Math.max(0,vx0-mx-ox),y0=Math.max(0,vy0-my-oy),x1=Math.min(cw,vx0+vw+mx-ox),y1=Math.min(ch,vy0+vh+my-oy);
+  return x1>x0&&y1>y0?{x:x0,y:y0,w:x1-x0,h:y1-y0,cw,ch}:null;}
+function vecCovers(reg,v){return !!reg&&reg.x<=v.x/v.cw+1e-6&&reg.y<=v.y/v.ch+1e-6&&
+  reg.x+reg.w>=(v.x+v.w)/v.cw-1e-6&&reg.y+reg.h>=(v.y+v.h)/v.ch-1e-6;}
+// 다음에 그릴 것 하나: 화면 안의 쪽 먼저(가운데에 가까운 순), 쪽 캔버스 → 상세 캔버스 순.
+function vecNextJob(){
+  if(!VEC.doc)return null;
+  const L=$('#left'),lr=L.getBoundingClientRect(),top=lr.top,bot=lr.top+L.clientHeight,cy=(top+bot)/2;
+  const list=[];
+  VEC.near.forEach(n=>{const pg=document.getElementById('p'+n); if(!pg)return; const r=pg.getBoundingClientRect();
+    list.push({n,pg,vis:r.bottom>top&&r.top<bot,d:Math.abs((r.top+r.bottom)/2-cy)});});
+  list.sort((a,b)=>(b.vis-a.vis)||(a.d-b.d));
+  for(const it of list){const s=vecState(it.n),t=vecTargetOf(it.pg); if(!t)continue;
+    if(!s.base||s.stale||s.bw!==t.bw||s.bh!==t.bh)return {n:it.n,kind:'base'};
+    if(t.capped&&it.vis){const v=vecVisible(it.pg,0);
+      if(v&&(!s.dt||s.dtCw!==t.cw||s.dtK!==t.k||!vecCovers(s.reg,v)))return {n:it.n,kind:'dt'};}
+    else if(s.dt){vecDrop(s.dt); s.dt=null; s.reg=null;}}
+  return null;
+}
+async function vecPump(){
+  if(VEC.pumping||!VEC.doc)return; VEC.pumping=true;
+  try{for(let i=0;i<400;i++){const job=vecNextJob(); if(!job)break; await vecRun(job);}}
+  finally{VEC.pumping=false;}
+}
+async function vecRun(job){
+  const n=job.n,pg=document.getElementById('p'+n),doc=VEC.doc,gen=VEC.gen; if(!pg||!doc)return;
+  let page; try{page=await doc.getPage(n);}catch(e){if(gen===VEC.gen)vecFail('쪽을 읽지 못했습니다',e); return;}
+  if(gen!==VEC.gen||!VEC.near.has(n)||!document.contains(pg))return;
+  const t=vecTargetOf(pg); if(!t)return;
+  const vp1=page.getViewport({scale:1}),cv=document.createElement('canvas'); let scale,tf,reg=null;
+  // 가로·세로를 따로 맞춘다(transform 의 세로 배율) — 쪽 상자 비율은 PNG 픽셀 수에서 왔고 PDF 쪽 비율과 0.1% 안쪽으로 다르다.
+  // PNG 도 쪽을 그 상자에 꽉 채워 그렸으므로, 이렇게 해야 캔버스의 글자가 PNG 때와 같은 % 자리에 온다.
+  if(job.kind==='base'){cv.width=t.bw; cv.height=t.bh; scale=t.bw/vp1.width; tf=[1,0,0,t.bh/(vp1.height*scale),0,0];}
+  else{const v=vecVisible(pg,VEC_DT_MARGIN); if(!v)return; let k=t.k;
+    if(v.w*v.h*k*k>VEC_PIX_CAP)k=Math.sqrt(VEC_PIX_CAP/(v.w*v.h));
+    scale=t.cw*k/vp1.width; cv.width=Math.max(1,Math.round(v.w*k)); cv.height=Math.max(1,Math.round(v.h*k));
+    tf=[1,0,0,t.ch*k/(vp1.height*scale),-v.x*k,-v.y*k];
+    reg={x:v.x/t.cw,y:v.y/t.ch,w:v.w/t.cw,h:v.h/t.ch};}
+  const ctx=cv.getContext('2d',{alpha:false}),t0=performance.now();
+  const task=page.render({canvasContext:ctx,viewport:page.getViewport({scale}),transform:tf});
+  VEC.cur={n,task};
+  try{await task.promise;}
+  catch(e){if(VEC.cur&&VEC.cur.task===task)VEC.cur=null; vecDrop(cv);
+    if(e&&e.name==='RenderingCancelledException')return;
+    if(gen===VEC.gen)vecFail('쪽을 그리지 못했습니다',e); return;}
+  if(VEC.cur&&VEC.cur.task===task)VEC.cur=null;
+  const t2=gen===VEC.gen&&VEC.near.has(n)&&document.contains(pg)?vecTargetOf(pg):null;
+  if(!t2||t2.cw!==t.cw||t2.ch!==t.ch||t2.k!==t.k){vecDrop(cv); return;}   // 그리는 사이 확대·창 크기가 바뀌었다
+  VEC.stats.push({n,kind:job.kind,ms:Math.round(performance.now()-t0),w:cv.width,h:cv.height});
+  if(VEC.stats.length>200)VEC.stats.splice(0,VEC.stats.length-200);
+  const s=vecState(n);
+  if(job.kind==='base'){vecDrop(s.base); s.base=cv; s.bw=t.bw; s.bh=t.bh; s.stale=false; cv.className='vb';
+    pg.prepend(cv); pg.classList.add('drawn'); if(VEC.tFirst===null)VEC.tFirst=performance.now();}
+  else{vecDrop(s.dt); s.dt=cv; s.reg=reg; s.dtCw=t.cw; s.dtK=t.k; cv.className='dt';
+    Object.assign(cv.style,{left:reg.x*100+'%',top:reg.y*100+'%',width:reg.w*100+'%',height:reg.h*100+'%'});
+    if(s.base)s.base.after(cv); else pg.prepend(cv);}
+}
+$('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive:true});
+// 브라우저 확대(PDF 밖의 Ctrl+휠 등)·다른 화면으로 창을 옮기면 devicePixelRatio 가 바뀐다 — 그 배율로 다시 그린다.
+(function watchDpr(){if(!window.matchMedia)return;
+  matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
+if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
+
+// ------------------------------------------------ PDF 영역 전용 확대 — references/design.md §PDF 영역 전용 확대
+// 브라우저 확대는 사이드바·도구 줄까지 키운다. PDF 영역의 확대 입력을 가로채 쪽 폭(W)만 바꾼다.
+// - 데스크톱: #left 위의 Ctrl(⌘)+휠. 트랙패드 핀치도 크롬·파이어폭스에서는 ctrlKey 가 붙은 wheel 로 온다. 포인터 기준.
+// - 사파리 트랙패드 핀치: gesturestart/gesturechange(e.scale).
+// - 키보드 Ctrl(⌘) + = / + / − / 0 → 확대·축소·폭 맞춤(입력 칸에 포커스가 있으면 가로채지 않는다 — 키 처리기 참고).
+// - 터치: #left 는 touch-action:pan-x pan-y 라 브라우저 핀치가 없다. 두 손가락 거리 비율로 W 를 바꾸고, 두 손가락
+//   가운데 점 밑의 자리를 손가락을 따라 옮긴다(확대하며 끌기). 선택 모드의 쪽은 touch-action:none 이라 같은 길로 온다.
+function zoomKey(e){const k=e.key,c=e.code;
+  if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
+  if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
+  if(k==='0'||c==='Digit0'||c==='Numpad0')return 'fit';
+  return null;}
+// 휠 한 번의 배율. 마우스 휠 한 칸(|dy|≥50 픽셀 또는 줄 단위)은 버튼 한 번과 같은 ZOOM_STEP, 트랙패드 핀치의 잘게 나뉜 dy 는
+// exp(-dy/100) 로 이어 붙인다 — 크롬이 핀치 배율을 휠로 바꿀 때 쓰는 식의 역이라 손가락 벌린 만큼 커진다.
+// 한 이벤트가 버튼 한 칸(ZOOM_STEP ≈ exp(0.18))을 넘지 않게 dy 를 ±18 로 자른다.
+function wheelFactor(dy,mode){if(!dy)return 1;
+  if(mode===1||mode===2||Math.abs(dy)>=50)return dy<0?ZOOM_STEP:1/ZOOM_STEP;
+  return Math.exp(-Math.max(-18,Math.min(18,dy))/100);}
+(function(){const L=$('#left'); let acc=1,pt=null,raf=0,G=null,TP=null;
+  const flush=()=>{raf=0; if(acc===1)return; const f=acc; acc=1; zoomTo(W*f,pt[0],pt[1]);};
+  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();
+    acc*=wheelFactor(e.deltaY,e.deltaMode); pt=[e.clientX,e.clientY]; if(!raf)raf=requestAnimationFrame(flush);},{passive:false});
+  L.addEventListener('gesturestart',e=>{e.preventDefault(); if(!TP)G={w:W};},{passive:false});
+  L.addEventListener('gesturechange',e=>{e.preventDefault(); if(G&&!TP&&e.scale>0)zoomTo(G.w*e.scale,e.clientX,e.clientY);},{passive:false});
+  L.addEventListener('gestureend',e=>{e.preventDefault(); G=null;},{passive:false});
+  const mid=(a,b)=>[(a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2];
+  const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)||1;
+  let tr=0,last=null;
+  const apply=()=>{tr=0; if(!TP||!last)return; const w=TP.w*last.d/TP.d;
+    setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(TP.a,last.m[0],last.m[1]);};
+  L.addEventListener('touchstart',e=>{if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}
+    if(e.cancelable)e.preventDefault();
+    const a=e.touches[0],b=e.touches[1],m=mid(a,b); cancelDrag(); cancelLP();
+    TP={d:dist(a,b),w:W,a:zoomAnchor(m[0],m[1])}; last={d:TP.d,m};},{passive:false});
+  L.addEventListener('touchmove',e=>{if(!TP||e.touches.length!==2)return; if(e.cancelable)e.preventDefault();
+    const a=e.touches[0],b=e.touches[1]; last={d:dist(a,b),m:mid(a,b)}; if(!tr)tr=requestAnimationFrame(apply);},{passive:false});
+  const end=e=>{if(TP&&e.touches.length<2){if(tr){cancelAnimationFrame(tr); apply();} TP=null; last=null;}};
+  L.addEventListener('touchend',end); L.addEventListener('touchcancel',end);
+})();
 
 // ------------------------------------------------ 화면 폭별 레이아웃(모바일)
 // wide: 지금까지의 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만의 터치 화면(편 폴더블) — 좁은 사이드
@@ -3314,7 +3562,7 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
 // ------------------------------------------------ 드래그 선택(마우스·터치·펜 — Pointer Events 한 경로)
 // 마우스: 예전 그대로 누르고 끌면 사각형. 터치·펜: 선택 모드(SELMODE)일 때만 끌면 사각형이고 탭하면 빠른 선택,
 // 선택 모드가 아니면 스크롤·핀치 확대가 그대로 되고 길게 누르면 빠른 선택이다. 선택 모드에서는 쪽에만
-// touch-action:pinch-zoom 을 걸어(한 손가락 끌기는 이 코드가, 두 손가락은 브라우저 확대가 가진다).
+// touch-action:none 을 건다(한 손가락 끌기는 이 코드가, 두 손가락은 앱 확대 — §PDF 영역 전용 확대 — 가 가진다).
 // 좌표는 clientX/Y 와 getBoundingClientRect 를 같은 기준(레이아웃 뷰포트)으로 나눈 쪽 안 비율이라 핀치 확대 중에도 맞다.
 let DRAG=null,LP=null;
 const c01=v=>Math.min(1,Math.max(0,v));
@@ -3808,9 +4056,10 @@ function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.p
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
 async function refreshDoc(){const a=topAnchor();
   const m=(await api('/api/meta',{what:'화면 정보 읽기'})).data; const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
-  if(same){$$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
+  // 캔버스는 옛 PDF 로 그린 것이다 — 걷어 내 새 PNG 를 먼저 보이고, 새 빌드의 PDF 를 열면 다시 그린다.
+  if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
   else buildDoc();
-  restoreAnchor(a); await loadPins();}
+  restoreAnchor(a); vecOpen(); await loadPins();}
 // ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
 // 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
 function showBuildErr(r){LAST_BUILD_ERR=r; const b=$('#build-err');
@@ -3881,6 +4130,9 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
   const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
+  // Ctrl(⌘) + = / − / 0 은 브라우저 확대 대신 PDF 쪽만 확대·축소·폭 맞춤한다. 입력 칸에서는 브라우저에 맡긴다.
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
+    if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&t.id==='note'){e.preventDefault();savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
@@ -3897,6 +4149,7 @@ document.addEventListener('keydown',e=>{
 });
 boot();
 </script></body></html>"""
+HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
 
 
 class Server(ThreadingHTTPServer):
@@ -3912,7 +4165,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body: bytes, ctype: str):
+    def _send(self, code, body: bytes, ctype: str, cache: str = None):
         if code >= 400:
             # 오류 뒤에는 연결을 끊는다. 요청을 끝까지 못 읽었을 수 있고, 남은 바이트가 다음 요청으로
             # 읽히면 --allow 와 작성자 기록을 우회한다(요청 밀반입).
@@ -3920,7 +4173,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "public, max-age=600" if ctype == "image/png" else "no-store")
+        if cache is None or code >= 400:
+            cache = "public, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
+        self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         if self.close_connection:
             self.send_header("Connection", "close")
@@ -4049,6 +4304,33 @@ class Handler(BaseHTTPRequestHandler):
                     data = None
                 if data is not None:
                     return self._send(200, data, "image/png")
+        if path.startswith("/vendor/pdfjs/"):
+            # 뷰어의 벡터 렌더러(PDF.js). 이름 한 칸만 받는다 — 하위 경로·'..'·인코딩된 문자는 404.
+            f = vendor_file(path[len("/vendor/pdfjs/"):])
+            if f is not None:
+                try:
+                    data = f.read_bytes()
+                except OSError:
+                    data = None
+                if data is not None:
+                    # 파일 이름에 버전이 없으므로 뷰어가 ?v=<PDFJS_VERSION> 를 붙여 캐시를 가른다.
+                    return self._send(200, data, VENDOR_MIME[f.suffix], cache="public, max-age=86400")
+            raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100])
+        if path == "/pdf":
+            # 쪽 이미지와 같은 빌드의 PDF(벡터 렌더링용). 빌드 이름이 틀렸거나 이미 지워졌으면 404 — 다른 빌드로
+            # 물러서지 않는다(뷰어가 PNG 로 돌아가고 /api/meta 를 다시 읽는다).
+            name = (q.get("build") or [""])[0]
+            f = build_pdf(name)
+            data = None
+            if f is not None:
+                try:
+                    data = f.read_bytes()
+                except OSError:
+                    data = None
+            if data is None:
+                raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % hdr_text(name)[:60],
+                                pdf_build_gone=bool(name), pages_build=cur_pages().name)
+            return self._send(200, data, "application/pdf", cache="private, max-age=600")
         raise HTTPError(404, "없는 경로입니다: %s" % path)
 
     def _body(self) -> dict:
@@ -4132,6 +4414,9 @@ def main() -> None:
                     help="재빌드(동기·비동기 모두)마다 copy 단계 전에 --manuscript 의 git 저장소를 "
                          "업스트림으로 --ff-only pull 한다. 더러움·분기·업스트림 없음이면 건너뛰고 "
                          "지금 체크아웃으로 빌드는 계속한다")
+    ap.add_argument("--pdfjs-dir",
+                    help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
+                         "스크립트 옆 ../vendor/pdfjs 또는 ./vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -4153,6 +4438,7 @@ def main() -> None:
     C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
     C.origin_check = not a.no_origin_check
     C.git_pull = a.git_pull
+    C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
 
     migrate_pages()
     init_seq()
@@ -4173,6 +4459,10 @@ def main() -> None:
         print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
     if C.git_pull:
         print("git-pull  재빌드마다 업스트림으로 --ff-only pull 합니다(실패해도 지금 체크아웃으로 빌드)")
+    if vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"):
+        print("pdf.js %s (벡터 렌더링)" % C.pdfjs_dir)
+    else:
+        print("경고   pdf.js 가 없습니다(%s) — 뷰어는 PNG 로 보입니다" % C.pdfjs_dir)
     sys.stdout.flush()
     Server(("127.0.0.1", C.port), Handler).serve_forever()
 
