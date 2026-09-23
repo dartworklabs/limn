@@ -10,11 +10,16 @@
 - 교차 출처 `Origin`·낯선 `Host` 는 `403` — 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사.
 - 소켓 타임아웃 30초 — 본문을 보내다 멈춘 연결과 유휴 keep-alive 가 닫힌다(재빌드처럼 오래 걸리는 처리 자체와는 무관).
 
+## 문서 매개변수 (`doc=`)
+
+여러 문서(`--doc`, [operations.md](operations.md) §여러 문서)로 띄운 뷰어는 문서가 걸리는 경로에 `doc=<키>` 를 받는다 — `GET /api/meta`·`/api/build`·`/pdf`·`/pages/<쪽>`·`/api/snippet`·`/api/overlaps`·`/api/pins`(그 문서의 핀만 거른다), `POST /api/pick`·`/api/pin`·`/api/rebuild`. POST 는 쿼리 또는 JSON 본문의 `doc` 둘 다 받고, 둘이 다르면 `400`. 없으면 첫 문서다. 단 `POST /api/pin` 에 `doc` 없이 `file` 만 오면(에이전트 `curl`) 그 파일을 빌드 루트가 가장 깊게 감싸는 LaTeX 문서로 짐작한다. 없는 키는 `404 {error, docs:[키…]}` — 조용히 첫 문서로 물러서지 않는다(다른 문서에 핀이 붙는다). 핀 id 로 가는 경로(`/api/pins/{id}/…`)는 `doc` 이 필요 없다 — 핀의 문서는 레코드에 있다. 단일 문서 뷰어는 `doc` 을 무시해도 된다(키는 `main`).
+
 ## 엔드포인트
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, operations.md §여러 논문 뷰어를 동시에 띄울 때), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(build-sync §자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(build-sync §비동기 재빌드) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, operations.md §여러 논문 뷰어를 동시에 띄울 때), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(build-sync §자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(build-sync §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수). 여러 문서면 `docs`(= `/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig`(문서마다의 `src_mtime` 을 이은 문자열 — 뷰어가 다른 문서의 원고 변화로도 목록을 다시 읽는다)가 붙는다(라이트 포함) |
+| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` = 설정에 없는 문서 키의 열린 핀 수 |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. build-sync §자동 동기화 |
 | `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — build-sync §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 build-sync §에이전트 응답 다이어트를 따른다(`state=="ok"` 면 빠지고, 아니면 40줄, `?log=1` 이면 전체) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
@@ -106,6 +111,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - 뷰어는 자동으로 합치지 않는다. "덧붙이기"는 `note_append` 로 기존 핀에 붙이고 지금 선택은 새 핀으로 만들지 않는다. [별도 핀으로 저장]은 **그 핀과의 그 관계**만 끈다 — 범위를 바꿔 관계가 달라지면 다시 알리고, 다음 드래그에서는 초기화한다.
 - `<state_dir>/pins.md` 번호 칸의 `⊂#N`(안에 있음, N 과 한 번에 고치고 둘 다 닫는다)·`∩#N`(일부만 겹침)이 이 계산의 대표값이다(§pins.md 형식).
 
+## 보기 전용 PDF 문서의 pick·핀
+
+`kind:"pdf"` 문서는 SyncTeX 이 없다. `POST /api/pick`(`doc` 이 보기 전용)은 좌표를 받아 `{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}` 를 돌려준다 — `quote` 는 영역 글자(pdftotext, 공백 정규화, 160자), `frac` 을 안 보냈으면 좌표로 만든다. 줄 범위(`lo`·`hi`·`levels`)는 없다.
+
+`POST /api/pin` 은 `{doc, page, frac, note?, quote?, pdf_build?}` 를 받는다. `frac` 은 필수이고 LaTeX 핀보다 엄하다(숫자 4개, 쪽 안 0..1, 넓이 > 0). `page` 는 1..쪽 수. `file`·`lo`·`hi`·`scope` 를 보내면 `400`. 저장 레코드는 `{id, doc, pdf:<절대경로>, name, kind:"region", page, frac, quote?, note, at, author, rev, pdf_build}` — `file`·`lo`·`hi`·`anchor` 가 없다. `/edit` 은 메모(`note`·`note_append`)와 영역 다시 잡기(`loc:{page, frac, quote?}`)만 받고 `lo`/`hi`/`scope`/`kind` 는 `400`. 닫기·claim·drop 은 LaTeX 핀과 같다. 보기 전용 문서의 `POST /api/rebuild` 는 `400`(재빌드가 없다 — 파일이 바뀌면 쪽을 저절로 다시 그린다, build-sync §보기 전용 PDF), `/api/snippet` 도 `400`.
+
 ## 핀 레코드 스키마 (`pins.jsonl`, 한 줄 = 한 레코드)
 
 ```json
@@ -123,6 +134,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 | 필드 | 뜻 |
 | --- | --- |
+| `doc` | 핀이 속한 문서 키(§문서 매개변수). 없는 옛 레코드는 첫 문서로 **읽는다** — 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
+| `pdf` | 보기 전용 PDF 문서의 핀만 — 그 PDF 의 절대경로. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`/`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
 | `scope` | `raw\|para\|env\|env2\|env3\|lines` — 저장할 때 고른 사다리 단계 |
 | `quote` | 선택 — 호출자가 붙인 짧은 인용(60자에서 자른다) |
@@ -156,4 +169,6 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - **`«…»` 인용**: 메모 앞에 최대 60자 인용이 붙는 조건부 예외다 — 핀 범위가 **한 줄**이고, 그 줄이 **600자를 넘고**(문단 하나가 줄바꿈 없이 이어지는 원고에서 줄 번호만으로는 지목한 부분을 못 찾는다), `scope` 가 `raw`/`para`/없음일 때만 붙는다. 60자를 넘어 잘렸으면 인용 끝에 `…` 를 붙인다(예: `«문장의 앞부분까지만…»`) — 잘린 인용을 완결된 문장으로 오인하지 않도록. 이 인용은 **`pdftotext` 로 렌더된 글자**다 — 검색 힌트이지 `Edit` 의 `old_string` 으로 그대로 쓸 문자열이 아니다(리거처·하이픈·공백이 원문 LaTeX 소스와 다를 수 있다). 줄 범위로 파일을 `Read` 한 뒤 그 인용을 검색해 정확한 위치를 확인한다.
 - **메모 앞 `@작성자:`**: 열린 핀의 작성자가 2명 이상이면(`author.login` 기준, 작성자 없는 옛 핀은 한 부류) 메모 앞에 `@<author.name>: ` 이 붙는다. 작성자가 1명뿐이면 토큰을 아끼려고 붙이지 않는다 — 결과 보고나 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다([design.md](design.md) §작성자 귀속). 배정 기준이 아니다.
 - **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다 — `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
+- **여러 문서**(`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있을 때): 한 장 그대로 두고 머리에 `문서: 본문(\`ms\`) 3건 · … · 리뷰어 코멘트(\`rv\`, 보기 전용) 1건` 한 줄과 소절 안내를 둔 뒤, 열린 핀이 있는 문서마다 소절 `## <이름> · \`<키>\` · \`<--manuscript 기준 경로>\``(보기 전용이면 `— 보기 전용 PDF(줄 번호 없음)`)과 그 문서의 `기준: <head> · 빌드 <built_at>`(보기 전용은 `그림`), 5열 표가 온다. 머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `## 설정에 없는 문서 · \`<키>\`` 소절로 드러난다. 단일 문서는 예전 모양 그대로다.
+- **보기 전용 핀의 행**: 위치 칸 `쪽 3, 영역 가로 10–60% 세로 20–30%`, 범위 칸 `영역`, 메모 앞에 영역 글자 `«…»`(한 줄·600자 조건 없이 늘 — 줄 번호가 없어 유일한 원문 단서다). 보기 전용 핀이 있으면 안내 문단에 "줄 번호가 없다 — 쪽·영역 글자·메모로 판단, 고칠 곳은 LaTeX 문서에서" 가 붙는다.
 - **이스케이프는 모든 칸에 같다**(`md_cell`): `|` 는 `\|`, 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호·쪽·위치·범위·인용)에서 공백. 범위 칸의 env 분기가 빠져 kind `env:x|y` 가 8열 행을 만든 적이 있어(독립 검증 실측) 칸마다 따로 처리하지 않고 한 함수로 모았다.

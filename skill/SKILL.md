@@ -18,8 +18,10 @@ slash_command: true
 
 1. **읽는다.** 원격: `curl -s <base>/pins.md`. 서버 머신: `<state_dir>/pins.md` 를 `Read`.
    - 표는 `| # | 쪽 | 위치 | 범위 | 메모 |`. `위치` 는 `--manuscript` 기준 상대경로 + `L<lo>-L<hi>`.
+   - **문서가 여럿이면** 핀이 `## <문서 이름> · \`<키>\` · \`<경로>\`` 소절로 묶인다(본문·답변서·커버레터 등). 핀 번호는 문서를 가로질러 유일하다.
+   - **보기 전용 PDF 소절**(`— 보기 전용 PDF(줄 번호 없음)`)의 핀은 줄이 없다. 위치 칸은 `쪽 N, 영역 …`, 메모 앞 `«…»` 는 그 영역의 글자다. 쪽·영역 글자·메모로 무엇을 가리키는지 판단하고 고칠 곳은 LaTeX 문서에서 찾는다. 못 찾으면 닫지 말고 보고한다.
    - **저장소를 확인한다(강제).** 머리줄 `논문: <이름표> · 저장소: <url>` 이 있으면 자기 체크아웃의 `git remote get-url origin` 과 같은지 본다. 다르면 다른 논문의 핀이니 처리하지 말고 멈추고 보고한다(여러 인스턴스가 동시에 돌 때의 안전판).
-2. **기준 커밋을 맞춘다.** 머리줄 `기준: <head> · 빌드 <built_at>` 이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다.
+2. **기준 커밋을 맞춘다.** `기준: <head> · 빌드 <built_at>` 줄(단일 문서는 머리, 여러 문서는 소절마다)이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다.
 3. **처리 범위를 정한다.**
    - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
    - 사용자가 번호를 지목했으면 그 핀만.
@@ -56,7 +58,7 @@ slash_command: true
 - 이미 닫힌 핀을 다시 닫으면 아무것도 안 바뀐다(`reply` 도 버려진다). 사유를 고치려면 `/reopen` 뒤 다시 `/close`.
 - `close`·`drop` 이 claim 을 지운다. 처리를 포기하거나 넘길 때만 `/unclaim`.
 - 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
-- 원고를 고쳤으면 PDF 를 재빌드한다(`POST /api/rebuild?async=1`). 옛 PDF 위의 pick 은 줄 번호가 어긋난다.
+- 원고를 고쳤으면 그 문서의 PDF 를 재빌드한다(`POST /api/rebuild?async=1&doc=<키>`, 단일 문서는 `doc` 생략). 옛 PDF 위의 pick 은 줄 번호가 어긋난다. 보기 전용 문서는 재빌드가 없다.
 
 ## 서버 띄우기
 
@@ -75,9 +77,10 @@ slash_command: true
    ```bash
    uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
      --manuscript <manuscript_dir> [--main <main>.tex] [--port <port>] [--git-pull] \
-     [--label <이름표>] [--accent <#rrggbb>]
+     [--label <이름표>] [--accent <#rrggbb>] [--doc <키>=<이름>:<경로> ...]
    ```
 
+   - `--doc`(반복): 논문 저장소 하나의 문서 여럿을 한 뷰어·한 주소에서 탭으로 전환한다. `.tex` 는 LaTeX(빌드 루트는 그 폴더), `<빌드 루트>::<메인.tex>` 는 빌드 루트를 따로, `.pdf` 는 보기 전용. 경로는 `--manuscript` 기준. 없으면 `--main` 문서 하나(예전 그대로). 예시·규칙은 [operations.md](references/operations.md) §여러 문서.
    - `--git-pull`: 재빌드마다 업스트림을 `--ff-only` 로 당긴다. dirty·분기면 건너뛰고 빌드는 계속한다.
    - `--label`·`--accent`: 여러 논문 뷰어를 동시에 열었을 때 탭·이름표 칩·파비콘으로 구분한다(§동시 인스턴스, [operations.md](references/operations.md)). 생략하면 `--manuscript` 의 git 저장소 이름 → 폴더 이름 순으로 기본값을 정한다.
    - 직접 띄울 때(위 `pin-viewer` 없이) **논문마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다.
@@ -105,7 +108,8 @@ slash_command: true
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제) |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
 | `POST /api/pins/{id}/drop` | 잘못 찍은 핀을 뺀다(`/restore` 로 되살림) |
-| `POST /api/rebuild?async=1` | PDF 재빌드. 진행은 `GET /api/build` |
+| `POST /api/rebuild?async=1` | PDF 재빌드. 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>` |
+| `GET /api/docs` | 문서 목록(키·이름·종류·열린 핀 수·빌드 상태) |
 | `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등) |
 
 ## 참고 파일
@@ -114,8 +118,8 @@ slash_command: true
 | --- | --- |
 | 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
 | 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`references/build-sync.md`](references/build-sync.md) |
-| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`references/design.md`](references/design.md) |
-| 실행 인자 전체, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
+| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 여러 문서·보기 전용 PDF, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`references/design.md`](references/design.md) |
+| 실행 인자 전체, `--doc` 여러 문서, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
 
 ## 연관 자산
 
