@@ -3244,10 +3244,41 @@ class PinNumberJump(unittest.TestCase):
     def test_number_is_keyboard_and_touch_reachable(self):
         src = ps.HTML
         self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
-        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
+        self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px;position:relative}", src)
+        # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
+        # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
+        # 고정 width/height 라야 짧은 번호(예: 한 자리)에서도 44 를 보장한다.
+        css = src[src.index("<style>"):src.index("</style>")]
+        self.assertIn(".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
+                      "width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}", css)
 
     def test_view_action_still_routes_to_jumppin(self):
         self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
+
+    def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
+        # 회귀: button.btn-icon.btn-sm{width:var(--control-h-sm)}(기본 규칙, 0-0-2-1) 이 터치 규칙
+        # button.btn-icon{width:var(--control-h-touch)}(0-0-1-1) 보다 구체적이라 카드 접기(.b-fold)·토스트
+        # 닫기 버튼이 터치에서도 24px 로 남았다(실측). 같은 specificity(.btn-icon.btn-sm) 로 @media(pointer:coarse)
+        # 안에 다시 못박아야 이긴다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        coarse = css[css.index("@media (pointer:coarse){"):]
+        coarse = coarse[:coarse.index("\n}\n") + 3]
+        self.assertIn("button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);"
+                      "height:var(--control-h-touch)}", coarse)
+        # 실제 사용처: 카드 접기 버튼과 토스트 닫기 버튼 둘 다 .btn-icon.btn-sm 조합을 쓴다.
+        self.assertIn('btn-icon btn-sm btn-ghost cmp b-fold', ps.HTML)
+        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", ps.HTML)
+
+    def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
+        # 회귀: body.compact #bar1 button{min-width:0}(id 포함이라 구체적) 이 터치 규칙 button{min-width:44px}
+        # 보다 이겨서, lay-mid 처럼 좁은 화면에서 [선택] 버튼이 40px 까지 줄었다(실측). 같은 selector 를
+        # @media(pointer:coarse) 안에서 다시 못박아 44px 바닥을 지킨다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.compact #bar1 button{flex:1 1 auto;min-width:0;", css)
+        self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}", css)
+        # 이 오버라이드는 위 min-width:0 규칙보다 소스상 뒤에 있어야 동률 specificity 에서 이긴다.
+        self.assertGreater(css.index("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}"),
+                            css.index("body.compact #bar1 button{flex:1 1 auto;min-width:0;"))
 
 
 # ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)

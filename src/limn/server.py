@@ -3651,11 +3651,17 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   #bar1 button{padding:0 10px}
   input,textarea,select{font-size:var(--text-xl)}
   #bar1 input.n{width:52px;font-size:var(--text-xl)}   /* iOS 는 16px 보다 작은 입력 칸에 포커스하면 화면을 키운다 */
-  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px;position:relative}
+  /* #N 은 글자 폭만큼만(26~35px) 그려 좁다 — 시각 크기는 그대로 두고 고정 44×44 히트 영역만 가운데 얹는다
+     (parent 폭에 비례하는 inset 대신 fixed size 를 써야 짧은 번호에서도 44 를 보장한다). */
+  .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
+  /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (기본 규칙, 0-0-2-1) 이 위 button.btn-icon(0-0-1-1) 보다
+     구체적이라 터치에서도 24px 로 남았다(카드 접기 .b-fold·토스트 닫기 버튼 실측) — 같은 specificity 로 다시 못박는다. */
+  button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
@@ -3681,6 +3687,10 @@ body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
 /* 폭이 모자라면 이름표가 먼저 줄어든다(전체 이름은 설명에) — 버튼 글자가 잘려 'DF 재빌드'처럼 보이던 것을 막는다 */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
+/* 위 min-width:0(body.compact #bar1 button) 은 @media(pointer:coarse) 의 button{min-width:44px}(3647) 보다
+   구체적(id 포함)이라 이겨서, 좁은 화면(lay-mid)에서 [선택] 이 40px 까지 줄던 결함(실측)의 원인이었다.
+   같은 selector 를 터치에서만 다시 못박는다 — 소스 순서가 위 규칙보다 뒤이므로 specificity 동률에서 이긴다. */
+@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
 /* 접은 폴드(narrow): 이름표 글자는 도구 줄에서 빼고 [더보기] 첫 줄에 둔다 — 28px 로 줄어 'C…' 만 남아 읽을 수 없었다(2026-09-23).
    맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다. */
 body.lay-narrow #bar1 .chip{display:none}
