@@ -1997,7 +1997,8 @@ class FrontendStructure(unittest.TestCase):
         body = m.group(1)
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
-        self.assertIn("esc(p.close_reply)", body)
+        self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # 답 한 줄은 arcLine 이 esc 를 거쳐 그린다
+        self.assertIn("esc(text)", extract_js_fn("arcLine"))
         self.assertIn("esc(p.close_ref)", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
@@ -3694,3 +3695,77 @@ class FrontendIcons(unittest.TestCase):
             tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, ps.HTML).group(0)
             self.assertIn('aria-label="%s"' % label, tag)
         self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", ps.HTML)
+
+
+# ---------------------------------------------------------------- 상태 띠·보관함(닫힌·삭제한 핀)
+# 닫힌·삭제한 핀을 펼치면 열린 카드와 모양이 같아 경계가 모호했다(저자 지적 2026-09-23). 열린 목록 뒤에 폭 전체를 쓰는
+# sticky 구획 머리('완료 N ─── 펼치기')를 두고, 그 아래는 카드가 아니라 흐린 납작한 행이다. 상태는 카드 왼쪽 띠 색으로 가른다.
+class FrontendArchive(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_rows(self, script: str):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={loc:'l',reopen:'r',restore:'s',n:'n'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
+            function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
+            """, js_icons(), extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locCopy"), extract_js_fn("docChip"),
+            "const ARC_OPEN=new Set();", extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
+            extract_js_fn("arcHead"), extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
+        return json.loads(run_node(js))
+
+    def test_done_row_is_flat_with_reply_line_and_hidden_original_request(self):
+        out = self.run_rows(r"""
+            const p={id:7,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
+              closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
+            const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
+            console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
+              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
+              /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
+              /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
+            """)
+        self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
+
+    def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
+        out = self.run_rows(r"""
+            const a=doneCard({id:3,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00'});
+            const d=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'잘못 찍음',dropped_at:'2026-09-23 09:00:00',dropped_by:{name:'김'}});
+            console.log(JSON.stringify([/설명 없이 닫힘/.test(a), /원래 요청/.test(a), /class="arc-row dropped"/.test(d), /ic-trash-2/.test(d),
+              /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d)]));
+            """)
+        self.assertEqual(out, [True, False, True, True, True, True, True, False])
+
+    def test_section_head_reads_label_count_and_fold_state(self):
+        out = self.run_rows(r"""
+            const strip=s=>s.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+            console.log(JSON.stringify([strip(arcHead('완료',18,false)), strip(arcHead('삭제',2,true)),
+              /ic-chevron-right/.test(arcHead('완료',1,false)), /ic-chevron-down/.test(arcHead('완료',1,true))]));
+            """)
+        self.assertEqual(out, ["완료 18 펼치기", "삭제 2 접기", True, True])
+
+    def test_sections_are_sticky_and_wired(self):
+        h = ps.HTML
+        for sid in ("sec-open", "sec-done", "sec-dropped"):
+            self.assertIn('id="%s"' % sid, h)
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
+        self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
+        self.assertIn("function stickTop()", h)
+        self.assertIn("case 'arc-toggle':", h)
+        body = extract_js_fn("drawPins")
+        self.assertIn("arcHead('완료',LDONE.length,SHOW_DONE)", body)
+        self.assertIn("arcHead('삭제',LDROP.length,SHOW_DROPPED)", body)
+        self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
+        # 문서 전환·모든 문서 토글에도 같은 목록 함수(listDone/listDropped)를 쓴다
+        self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
+
+    def test_status_strips_colour_open_claimed_done_dropped(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pin.claimed::before{", css)
+        self.assertIn("background:var(--claim)", css)
+        self.assertIn(".arc-row{position:relative;padding:4px 4px 6px 10px;border-left:3px solid var(--ok)", css)
+        self.assertIn(".arc-row.dropped{border-left-color:var(--arc-grey)", css)
+        self.assertEqual(css.count("--claim:"), 2)                      # 다크·라이트 둘 다
+        self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))

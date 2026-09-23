@@ -3223,11 +3223,13 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 :root{color-scheme:dark;--bg:#14161a;--pane:#1c1f25;--line:#2c313a;--line-strong:#6b7482;--fg:#e6e8ec;--dim:#98a0ad;
   --acc:#6ea8fe;--on-acc:#0b1220;--ok:#4ec9a0;--on-ok:#06231b;--warn:#e0a458;--on-warn:#2a1a04;--danger:#f0787a;
   --btn:#2a2f38;--btn-h:#343b46;--input:#12151a;--code:#0f1216;--card:#181b21;--shadow:#0008;--sel-fill:#6ea8fe22;
-  --mark-fill:#4ec9a014;--stale-fill:#e0a45814;--tip-bg:#0b0d10;--tip-fg:#e6e8ec;--acc-soft:#6ea8fe24;--danger-soft:#f0787a1a}
+  --mark-fill:#4ec9a014;--stale-fill:#e0a45814;--tip-bg:#0b0d10;--tip-fg:#e6e8ec;--acc-soft:#6ea8fe24;--danger-soft:#f0787a1a;
+  --claim:#f0b43c;--arc-grey:#7d8796;--dim2:#80889a}
 :root[data-theme=light]{color-scheme:light;--bg:#e9ebef;--pane:#ffffff;--line:#d5d9e0;--line-strong:#8a93a3;--fg:#1b1f24;
   --dim:#5b6472;--acc:#1860cf;--on-acc:#ffffff;--ok:#1a7f5a;--on-ok:#ffffff;--warn:#8a5c00;--on-warn:#ffffff;--danger:#cf222e;
   --btn:#eef0f3;--btn-h:#e2e5ea;--input:#ffffff;--code:#f6f8fa;--card:#f6f7f9;--shadow:#0002;--sel-fill:#1860cf1f;
-  --mark-fill:#1a7f5a14;--stale-fill:#8a5c0014;--tip-bg:#1b1f24;--tip-fg:#ffffff;--acc-soft:#1860cf17;--danger-soft:#cf222e12}
+  --mark-fill:#1a7f5a14;--stale-fill:#8a5c0014;--tip-bg:#1b1f24;--tip-fg:#ffffff;--acc-soft:#1860cf17;--danger-soft:#cf222e12;
+  --claim:#b86e00;--arc-grey:#7b8494;--dim2:#6e7685}
 *{box-sizing:border-box}
 :root{--brand:__ACCENT__}
 [hidden]{display:none!important}
@@ -3295,7 +3297,7 @@ input.n{width:58px;text-align:center}
   align-items:center;font-size:13px}
 #build-err{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--card);font-size:12.5px}
 #composer{flex:none;max-height:62vh;overflow:auto;padding:12px;border-bottom:1px solid var(--line);background:var(--card)}
-#list{flex:1;overflow:auto;padding:12px 12px 32px;min-height:0}
+#list{flex:1;overflow:auto;padding:0 12px 32px;min-height:0}   /* 위 여백은 구획 머리(.list-head)가 가진다 — sticky 가 여백만큼 내려앉지 않게 */
 .busy{opacity:.45}
 pre{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:9px;overflow:auto;font-size:11.5px;
   line-height:1.5;max-height:44vh;font-family:"JetBrains Mono",ui-monospace,monospace;tab-size:2;margin:6px 0}
@@ -3349,14 +3351,18 @@ button.tg[aria-pressed=true]{border-color:var(--line-strong)}
 .wn{color:var(--warn)}
 .warnline{color:var(--warn);font-size:12px;margin-top:6px}
 .errline{color:var(--danger);font-size:12.5px;margin-top:6px}
-.pin{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:8px;background:var(--card)}
+.pin{position:relative;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:8px;background:var(--card)}
+/* 상태 띠(references/design.md §상태 표현): 열림은 띠 없음, 처리 중은 호박색. 닫힘(초록)·삭제(회색) 띠는 아래 보관함 행에 있다.
+   테두리 폭을 바꾸면 글자가 밀리므로 카드 안쪽 왼쪽에 겹쳐 그린다. 대비(비텍스트 3:1)는 두 테마 모두 확인했다. */
+.pin.claimed::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:8px 0 0 8px;background:var(--claim)}
+.tag.claim{border-color:var(--claim);color:var(--fg)}
+.tag.claim .ic{color:var(--claim)}
+.tag.claim.late{border-color:var(--warn);color:var(--warn)}
 .pin.st{border-color:var(--warn)}
 .pin.editing{border-color:var(--acc)}
 .pin.cur{box-shadow:0 0 0 2px var(--acc)}
 .pin.flash{animation:pinflash 1.2s ease-in-out 1}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--acc)}50%{box-shadow:0 0 0 5px var(--acc)}}
-.pin.done{opacity:.85}
-.pin.dropped{opacity:.7;border-style:dashed}
 .pin .n{color:var(--ok);font-weight:700}
 .pin .n.go{cursor:pointer;border-radius:6px;padding:0 4px;margin:0 -4px}
 .pin .n.go:hover,.pin .n.go:focus-visible{background:var(--hover,rgba(127,127,127,.15));text-decoration:underline}
@@ -3382,6 +3388,42 @@ button.b-drop:hover{background:var(--danger-soft)}
 .av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--acc);color:var(--on-acc);
   font-size:11px;font-weight:700;font-style:normal}
 .edit{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+/* ---------------- 목록 구획(references/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
+   붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
+   --stick-top 은 compact 에서 위에 붙은 도구 줄(#bar1) 높이다(JS 가 잰다). 닫힌·삭제한 핀은 카드가 아니라 납작한 행이다. */
+.lsec{position:relative}
+.list-head{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--pane);margin:0 -12px 4px;padding:10px 12px 6px}
+.arc{margin-top:12px}
+button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:8px;width:calc(100% + 24px);
+  margin:0 -12px;padding:8px 12px;background:var(--pane);border:0;border-top:1px solid var(--line-strong);border-radius:0;color:var(--dim);
+  font-size:12px;text-align:left}
+button.arc-head:hover{background:var(--btn-h)}
+.arc-h{font-weight:700;color:var(--fg)}
+.arc-n{flex:none;min-width:20px;padding:0 6px;border-radius:10px;background:var(--btn);color:var(--fg);font-size:11px;line-height:18px;text-align:center}
+.arc-rule{flex:1;height:1px;background:var(--line)}
+.arc-fold{flex:none;display:inline-flex;align-items:center;gap:2px}
+.arc-list{padding:6px 0 4px}
+.arc-list>.dim{padding:4px 12px}
+.arc-row{position:relative;padding:4px 4px 6px 10px;border-left:3px solid var(--ok);color:var(--dim);font-size:12.5px;line-height:1.5}
+.arc-row+.arc-row{margin-top:6px}
+.arc-row.dropped{border-left-color:var(--arc-grey);color:var(--dim2)}
+.arc-row .ic{width:14px;height:14px}
+.arc-row.done .arc-l1>.ic{color:var(--ok)}
+.arc-l1{display:flex;align-items:center;gap:6px;min-height:26px;white-space:nowrap}
+.arc-l1 .n{font-weight:700}
+.arc-l1 .loc{color:inherit;font-size:12px}
+.arc-ref{flex:none;font-size:11px;line-height:16px;padding:0 5px;border:1px solid var(--line);border-radius:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.arc-t{font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+button.arc-b{flex:none;background:transparent;color:var(--dim);padding:1px 8px;font-size:11.5px}
+button.arc-b:hover{color:var(--fg)}
+.arc-l2{display:flex;align-items:baseline;gap:8px}
+.arc-reply{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.arc-reply.open{white-space:pre-wrap;overflow:visible;word-break:break-word}
+.arc-reply.none{font-style:italic;cursor:default}
+button.arc-orig-t{flex:none;background:transparent;border-color:transparent;color:var(--dim);padding:0 2px;font-size:11.5px;
+  text-decoration:underline dotted;text-underline-offset:3px}
+.arc-orig{margin:4px 0 0;padding:6px 8px;border-radius:6px;background:var(--card);border:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
+.arc-orig b{display:block;font-size:11px;font-weight:600;margin-bottom:2px}
 h3{margin:0 0 7px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--dim);font-size:13px;text-align:center;line-height:1.85}
 kbd{background:var(--btn);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11px}
@@ -3613,12 +3655,18 @@ body.view-only #btn-rebuild{display:none}
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
       범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
-    <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="x tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
-    <div id="pins"></div>
-    <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0</button>
-    <div id="done-list" hidden></div>
-    <button class="x" id="dropped-toggle" data-act="dropped-toggle" style="margin-top:8px" data-tip="삭제한 핀을 펼쳐 봅니다. 되살리기로 같은 번호 그대로 복구합니다">삭제한 핀 0</button>
-    <div id="dropped-list" hidden></div>
+    <section class="lsec" id="sec-open" aria-labelledby="list-h">
+      <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="x tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
+      <div id="pins"></div>
+    </section>
+    <section class="lsec arc" id="sec-done" aria-label="완료한 핀" hidden>
+      <button class="arc-head" id="done-toggle" data-act="done-toggle" aria-expanded="false" aria-controls="done-list" data-tip="완료한 핀을 펼치고 접습니다. 에이전트가 닫은 핀도 여기에 있습니다"></button>
+      <div id="done-list" class="arc-list" hidden></div>
+    </section>
+    <section class="lsec arc" id="sec-dropped" aria-label="삭제한 핀" hidden>
+      <button class="arc-head" id="dropped-toggle" data-act="dropped-toggle" aria-expanded="false" aria-controls="dropped-list" data-tip="삭제한 핀을 펼치고 접습니다. 되살리기로 같은 번호 그대로 복구합니다"></button>
+      <div id="dropped-list" class="arc-list" hidden></div>
+    </section>
   </div>
   <div id="c-actions">
     <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
@@ -4373,7 +4421,7 @@ function applyLayout(){const L=layoutFor(); if(L===LAYOUT)return false;
   ['wide','mid','narrow'].forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!=='wide');
   SIDE_OPEN=L==='wide'?true:(L==='mid'?!prefs().midClosed:false);
   if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // 쓰던 메모·편집은 접힌 채로 숨기지 않는다
-  applySide(); return true;}
+  applySide(); stickTop(); return true;}
 function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
   document.body.classList.toggle('side-open',open);
   const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
@@ -4383,7 +4431,13 @@ function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
   if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
-function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer();}
+function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();}
+// 목록 구획 머리(sticky)가 붙을 높이. compact 에서는 #right 가 스크롤 상자이고 그 위에 도구 줄(#bar1, narrow 는 시트 손잡이 아래)이
+// 먼저 붙어 있으니 그 아래에 붙인다. wide 는 #list 자체가 스크롤 상자라 0 이다.
+function stickTop(){let t=0; const b=$('#bar1');
+  if(LAYOUT!=='wide'&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
+  document.documentElement.style.setProperty('--stick-top',t+'px');}
+if(window.ResizeObserver)new ResizeObserver(()=>stickTop()).observe($('#bar1'));
 let RELAY=0;
 function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
 window.addEventListener('resize',scheduleRelayout);
@@ -4748,7 +4802,7 @@ function card(p){
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
   const claimed=claimActive(p);
-  if(claimed)tags.push('<span class="tag" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">'+ic('clock')+esc(claimLabel(p))+'</span>');
+  if(claimed)tags.push('<span class="tag claim" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">'+ic('clock')+esc(claimLabel(p))+'</span>');
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
   const rb=relBadge(p.rel);
@@ -4763,7 +4817,7 @@ function card(p){
   // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="tag" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
-  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
+  return '<div class="pin'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
     '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
@@ -4780,20 +4834,34 @@ function card(p){
     '<button class="x b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
-function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
-  const ref=p.close_ref?'<span class="tag" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
-  return '<div class="pin done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row">'+ic('check')+'<span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
-    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+ref+
-    '<span class="dim" data-tip="닫은 시각과 닫은 사람">'+esc(p.done_at||'')+' · '+esc(who(p.closed_by)||'기록 전')+'</span><span class="sp"></span>'+
-    '<button class="x b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
-    (p.close_reply?'<div class="note" data-tip="닫을 때 남긴 설명">'+esc(p.close_reply)+'</div>':'')+
-    (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
-function droppedCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
-  return '<div class="pin dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row">'+ic('trash-2')+'<span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
-    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
-    '<span class="dim" data-tip="삭제 시각과 삭제한 사람">'+esc(p.dropped_at||'')+' · '+esc(who(p.dropped_by)||'기록 전')+'</span><span class="sp"></span>'+
-    '<button class="x b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
-    (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
+// 보관함 행(references/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
+// 첫 줄은 아이콘·#번호·위치·참조·시각·[다시 열기|되살리기], 둘째 줄은 에이전트 답(close_reply) 한 줄 — 넘치면 말줄임, 누르면
+// 펼친다. 원래 요청 메모는 [원래 요청]을 눌러야 보인다. 펼친 줄은 ARC_OPEN('r:'|'o:'|'d:' + id)에 두어 다시 그려도 남는다.
+const ARC_OPEN=new Set();
+function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
+function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
+  return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
+function arcLine(key,text,tip){const open=ARC_OPEN.has(key);
+  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+esc(text)+'</span>';}
+function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
+  '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
+function doneCard(p){
+  const ref=p.close_ref?'<span class="arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
+  const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
+  const oo=ARC_OPEN.has('o:'+p.id);
+  return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
+    '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
+    '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
+    '<button class="x arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
+    '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+'</div>'+
+    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+'</div>';}
+function droppedCard(p){
+  const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">(메모 없음)</span>';
+  return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
+    '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
+    '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
+    '<button class="x arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
+    '<div class="arc-l2">'+line+'</div></div>';}
 async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
   let dropped=[];
@@ -4820,15 +4888,16 @@ function drawPins(){
   // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
   $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
   $('#m-dropped').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' 숨기기':' 보기');
-  $('#done-toggle').classList.toggle('sec',!SHOW_DONE); $('#dropped-toggle').classList.toggle('sec',!SHOW_DROPPED);
   $('#empty').hidden=LIST.length>0||OPEN_ALL.length>0;
   $('#pins').innerHTML=LIST.length?LIST.map(card).join(''):'<div class="dim">'+(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'이 문서에는 아직 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건':'아직 없습니다.')+'</div>';
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
-  $('#done-toggle').innerHTML='닫힌 핀 '+LDONE.length+ic(SHOW_DONE?'chevron-down':'chevron-right');
+  // 보관함 구획: 비어 있고 접혀 있으면 머리째 숨긴다. 머리는 폭 전체를 쓰는 한 줄('완료 18 ─── 펼치기')이고 스크롤해도 위에 붙는다.
+  $('#sec-done').hidden=!LDONE.length&&!SHOW_DONE; $('#sec-dropped').hidden=!LDROP.length&&!SHOW_DROPPED;
+  $('#done-toggle').innerHTML=arcHead('완료',LDONE.length,SHOW_DONE);
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=LDONE.length?LDONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
-  $('#dropped-toggle').innerHTML='삭제한 핀 '+LDROP.length+ic(SHOW_DROPPED?'chevron-down':'chevron-right');
+  $('#dropped-toggle').innerHTML=arcHead('삭제',LDROP.length,SHOW_DROPPED);
   $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
   $('#dropped-list').hidden=!SHOW_DROPPED;
   if(SHOW_DROPPED)$('#dropped-list').innerHTML=LDROP.length?LDROP.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
@@ -5066,6 +5135,7 @@ document.addEventListener('click',e=>{
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
+    case 'arc-toggle':{const k=a.dataset.key; if(!k)break; if(ARC_OPEN.has(k))ARC_OPEN.delete(k); else ARC_OPEN.add(k); drawPins(); break;}
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
     case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();if(fromMore)revealList('#done-toggle',SHOW_DONE);break;
