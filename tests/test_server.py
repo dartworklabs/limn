@@ -2361,6 +2361,50 @@ class GitPullBuildIntegration(Base):
         res = ps.build_all()
         self.assertNotIn("pull", res)
 
+    def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
+        # 결함: _build_tracked() 가 pull 전(src_mtime_at_start)을 built_src_mtime 으로 확정해서,
+        # pull 이 .tex mtime 을 앞으로 밀면(실제 fast-forward merge 가 그렇다) 빌드가 방금 그 새
+        # 원고로 끝났는데도 '원고 수정됨' 배지가 계속 떴다. 측정은 pull 뒤(복사 전)여야 한다.
+        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm 없음")
+        ps.C.git_pull = True
+
+        def fake_pull():
+            # git fast-forward 흉내 — 실제 merge 처럼 .tex mtime 을 앞으로 민다.
+            os.utime(self.main, (time.time() + 50, time.time() + 50))
+            return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
+
+        with mock.patch.object(ps, "repo_pull", side_effect=fake_pull):
+            res = ps.build_all()
+        self.assertEqual(res["state"], "ok")
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertIs(m["stale_build"], False)
+        self.assertAlmostEqual(ps.read_built_src_mtime(), ps.src_mtime(force=True), delta=1.0)
+
+    def test_edit_after_copy_phase_still_marks_stale(self):
+        # pull 뒤(또는 pull 없을 때 복사 시작 시각)의 mtime 을 쓰더라도, 복사 뒤(latex 컴파일 중) 원본을
+        # 고치면 그 편집은 이번 빌드에 안 들어갔으므로 여전히 '원고 수정됨' 배지가 떠야 한다.
+        if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm 없음")
+        ps.C.git_pull = True
+        original_run_logged = ps.run_logged
+
+        def bump_then_run(cmd, cwd, timeout):
+            os.utime(self.main, (time.time() + 50, time.time() + 50))   # 복사 끝난 뒤(latex 단계에서) 원본 편집
+            return original_run_logged(cmd, cwd, timeout)
+
+        def fake_pull():
+            return {"state": "up_to_date", "head_before": "aaa1111", "head_after": "aaa1111"}
+
+        with mock.patch.object(ps, "repo_pull", side_effect=fake_pull), \
+             mock.patch.object(ps, "run_logged", side_effect=bump_then_run):
+            res = ps.build_all()
+        self.assertEqual(res["state"], "ok")
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertIs(m["stale_build"], True)
+
 
 # ---------------------------------------------------------------- §P0c-F: 에이전트 응답 다이어트
 

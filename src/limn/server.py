@@ -676,8 +676,12 @@ def _build_tracked() -> dict:
 
     _build() 가 예상 밖 예외를 내도(예: rsync/latexmk 호출 근처의 OSError) BUILD_STATE 를 running 에
     묶어 두지 않는다 — 비동기 워커에서 이 함수가 죽으면 다음 폴링이 영원히 '만드는 중'을 보여 주게 된다.
-    built_src_mtime 은 빌드 시작 시각에 실측해 두되(force=True, 2초 캐시를 건너뜀), ok|ok_errors 로
-    끝났을 때만 파일에 확정한다 — 실패하면 화면은 옛 PDF 그대로이므로 '원고 수정됨' 배지가 꺼지면 안 된다."""
+    built_src_mtime 은 '이 빌드가 실제로 컴파일한 원고'의 mtime 으로 확정한다 — --git-pull 이면 pull 뒤
+    (fast-forward 가 .tex mtime 을 밀어 올릴 수 있다), 아니면 복사 직전 실측한 값을 _build() 가
+    res["src_mtime"] 으로 돌려준다(force=True, 2초 캐시를 건너뜀). _build() 가 그 값을 못 돌려줄 때만
+    (PDF 문서, 또는 res["src_mtime"] 이 채워지기 전에 실패) 빌드 시작 시각(src_mtime_at_start)으로
+    대신한다. ok|ok_errors 로 끝났을 때만 파일에 확정한다 — 실패하면 화면은 옛 PDF 그대로이므로
+    '원고 수정됨' 배지가 꺼지면 안 된다."""
     D = cur_doc()
     with D.bstate_lock:
         last_s = D.bstate.get("last_s")
@@ -689,14 +693,22 @@ def _build_tracked() -> dict:
     except Exception as e:                            # noqa: BLE001 — 빌드가 죽어도 running 에 멈추지 않는다
         res = {"ok": False, "state": "fail", "errors": [],
                "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
+    src_mtime_for_build = res.get("src_mtime")
+    if not _is_num(src_mtime_for_build):
+        src_mtime_for_build = src_mtime_at_start          # PDF 문서·복사 전 실패 등 res 에 못 채운 경우의 대체값
     if res.get("state") in ("ok", "ok_errors"):
-        write_built_src_mtime(src_mtime_at_start)
-    finish_build(res, src_mtime_at_start)
+        write_built_src_mtime(src_mtime_for_build)
+    finish_build(res, src_mtime_for_build)
     return res
 
 
-def finish_build(res: dict, src_mtime_at_start) -> None:
+def finish_build(res: dict, src_mtime_for_build) -> None:
     """빌드 하나가 끝났다(성공·실패 무관) — 이력에 남기고 build_seq 를 올린 뒤 BUILD_STATE 를 바꾼다.
+
+    src_mtime_for_build 는 '이 빌드가 실제로 컴파일한 원고'의 mtime(--git-pull 이면 pull 뒤,
+    아니면 복사 직전 실측 — 호출부 _build_tracked() 참조)이다. build_ref_mtime() 이 이 이력
+    엔트리를 built_src_mtime.txt 보다 먼저 찾으므로, 여기 기록되는 값이 '원고 수정됨' 배지의
+    실질적 기준선이다.
 
     build_seq 는 '끝난 빌드 수'다. 뷰어는 이 값이 바뀌었는지로 자기가 못 본 빌드를 알아챈다 —
     5초 폴링 틈새에 시작해 끝난 빌드도 running 을 한 번도 못 봤을 뿐 seq 는 올라 있다.
@@ -711,7 +723,7 @@ def finish_build(res: dict, src_mtime_at_start) -> None:
         last["started_at"] = D.bstate.get("started_at")
     ent = None
     if state in ("ok", "ok_errors") and res.get("build"):
-        ent = {"build": res["build"], "src_mtime": src_mtime_at_start, "src_hash": res.get("src_hash"),
+        ent = {"build": res["build"], "src_mtime": src_mtime_for_build, "src_hash": res.get("src_hash"),
                "finished_at": last["finished_at"]}
     seq = record_build(last, ent)
     build_state_update(state=state, phase=None, start_ts=None, seq=seq, finished_at=last["finished_at"],
@@ -925,6 +937,11 @@ def _build() -> dict:
         build_state_update(phase="pull")
         res["pull"] = repo_pull()
         build_state_update(phase="copy")
+    # 이 빌드가 실제로 컴파일할 원고의 mtime — pull 이 있었으면 pull 뒤(fast-forward 가 .tex mtime 을
+    # 밀어 올릴 수 있다), 없었으면 지금(복사 직전)을 실측한다. _build_tracked() 가 이 값을
+    # built_src_mtime/이력에 확정한다 — 빌드 시작 시각(pull 전)을 쓰면 pull 로 생긴 새 mtime이
+    # '아직 안 빌드됨'으로 잘못 잡혀 성공 직후에도 '원고 수정됨' 배지가 계속 떴다.
+    res["src_mtime"] = src_mtime(force=True)
 
     rs = shutil.which("rsync")
     try:
@@ -1314,9 +1331,10 @@ def read_built_src_mtime():
 def write_built_src_mtime(value: float = None) -> None:
     """value 를 안 주면 지금 src_mtime(force=True) 를 실측해 기록한다(2초 캐시를 건너뛴다).
 
-    호출부(_build_tracked)는 빌드 시작 시각의 mtime 을 미리 실측해 넘기고, 빌드가 ok|ok_errors 로
-    끝났을 때만 이 함수를 불러 확정한다 — 실패한 빌드는 화면이 옛 PDF 그대로이므로 '원고 수정됨' 배지가
-    꺼지면 안 된다."""
+    호출부(_build_tracked)는 '이 빌드가 실제로 컴파일한 원고'의 mtime을 넘긴다 — --git-pull 이면
+    pull 뒤(fast-forward 가 .tex mtime 을 밀어 올릴 수 있다), 아니면 복사 직전 실측한 값이다.
+    빌드가 ok|ok_errors 로 끝났을 때만 이 함수를 불러 확정한다 — 실패한 빌드는 화면이 옛 PDF
+    그대로이므로 '원고 수정됨' 배지가 꺼지면 안 된다."""
     try:
         v = src_mtime(force=True) if value is None else value
         atomic_write(cur_doc().dir / "built_src_mtime.txt", "%f" % v)
