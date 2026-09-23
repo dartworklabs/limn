@@ -2268,7 +2268,7 @@ def pick(d: dict) -> dict:
     try:
         src = safe_src(str(src))
     except HTTPError:
-        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 다시 만들기 뒤 다시 골라 보세요." % src}
+        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src}
 
     lines = tex_lines(src)
     if not lines:
@@ -2299,7 +2299,7 @@ def pick(d: dict) -> dict:
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
     if source_newer(pdir.name) > 2:
-        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 다시 만들기] 뒤에 다시 고르세요."
+        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
         warn = stale_note + (" " + warn if warn else "")
     bstate = build_state_snapshot()
     if bstate["state"] == "running" and bstate["phase"] == "latex":
@@ -2676,7 +2676,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
-    <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 다시 만들기</button>
+    <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
     <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
@@ -2687,7 +2687,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <button id="btn-help" class="sec" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
     <button id="btn-more" class="cmp" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">⋯</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 다시 만드는 중입니다"></span></span><span class="sp"></span>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
     <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
     <button id="build-err-chip" class="tag t" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
@@ -2758,7 +2758,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <li>사이드바의 <b>범위 단계</b>(드래그한 줄 / 문단 / 환경)와 ▲▼ 로 줄 범위를 맞춥니다.</li>
     <li>메모를 쓰고 <b>핀 저장</b>(⌘↵ / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</li>
     <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
-    <li><b>PDF 다시 만들기</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
+    <li><b>PDF 재빌드</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
   </ol>
   <h4>휴대폰·태블릿(터치)</h4>
   <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
@@ -2779,7 +2779,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
     <tr><td>좌표로 찾음 / 글자로 찾음</td><td>PDF 좌표(SyncTeX)로 찾았는지, 드래그한 글자를 원문에서 찾았는지. '일치 %'는 드래그한 글자가 그 범위에 있는 비율</td></tr>
     <tr><td>작성자</td><td>tailscale 로 들어온 사람은 계정 이름으로, 로컬·에이전트 요청은 '로컬/에이전트'로 기록됩니다. 기록이 생기기 전 핀은 '기록 전'</td></tr>
-    <tr><td>PDF 다시 만들기 vs 핀 다시 읽기</td><td>앞의 것(구 '재빌드')은 원고를 컴파일해 화면을 바꾸고(수십 초), 뒤의 것(구 '새로고침')은 핀 목록만 다시 읽습니다(즉시)</td></tr>
+    <tr><td>PDF 재빌드 vs 핀 다시 읽기</td><td>앞의 것은 원고를 컴파일해 화면을 바꾸고(수십 초), 뒤의 것(구 '새로고침')은 핀 목록만 다시 읽습니다(즉시)</td></tr>
   </table>
   <h4>색</h4>
   <div style="font-size:13px"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
@@ -3026,7 +3026,7 @@ function diffToast(prev,d,dropped){
 // 끝난 빌드를 놓치거나, 숨은 탭이 돌아올 때 두 경로가 같은 완료를 두 번 처리했다(실측: 토스트 ×2).
 let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
 function buildChipText(b){
-  const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'만드는 중';
+  const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'재빌드 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
   return label+' · '+el+'초'+last;
 }
@@ -3064,8 +3064,8 @@ async function pollBuildOnce(){
     LAST_BUILD_SEQ=seq;                 // await 전에 먼저 차지한다 — 같은 완료를 두 번 처리하지 않게
     try{await refreshDoc();}catch(e){}
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state==='ok'){toast('PDF 새로 만듦 · '+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; hideBuildErr();}
-    else if(b.state==='ok_errors'){toast('PDF를 만들었지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
+    if(b.state==='ok'){toast('PDF 재빌드 완료 · '+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; hideBuildErr();}
+    else if(b.state==='ok_errors'){toast('PDF를 재빌드했지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
     else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다'+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
     showBuildErr(b);   // 새로 연 탭 — 이미 실패해 있던 빌드는 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
@@ -3643,7 +3643,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     toast('핀 #'+p.id+' 위치를 L'+p.lo+'-L'+p.hi+' 로 바꿨습니다','ok'); await loadPins();
   }catch(e){}}
 
-// ------------------------------------------------ PDF 다시 만들기
+// ------------------------------------------------ PDF 재빌드
 function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
   return null;}
@@ -3657,7 +3657,7 @@ async function refreshDoc(){const a=topAnchor();
 // ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
 // 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
 function showBuildErr(r){LAST_BUILD_ERR=r; const b=$('#build-err');
-  const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 만들었지만 LaTeX 오류가 있습니다';
+  const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다';
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
     '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+
@@ -3667,8 +3667,8 @@ function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden
 // P0b-01: 재빌드는 비동기다 — POST 는 바로 돌아오고, #build-chip 폴러(startBuildPolling)가 진행 상황을
 // 보여 준 뒤 끝나면 제자리 교체와 알림을 한다. 다른 사람이 시작한 빌드도 같은 폴러가 잡아낸다.
 async function rebuild(){
-  try{const {status}=await api('/api/rebuild?async=1',{method:'POST',what:'PDF 다시 만들기',expect:[409]});
-    if(status===409){toast('이미 다른 곳에서 PDF를 만드는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
+  try{const {status}=await api('/api/rebuild?async=1',{method:'POST',what:'PDF 재빌드',expect:[409]});
+    if(status===409){toast('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
     $('#build-err').hidden=true;
     // POST 전에 떠난 조회가 있으면 끝나길 기다린 뒤 새로 묻는다 — 그 조회는 옛 상태(ok)를 들고 와 1초 폴링을
     // 걸지 않는다. 완료는 build_seq 로 가리므로 이 탭이 따로 기억할 것은 없다.
