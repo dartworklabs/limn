@@ -12,8 +12,8 @@
 
 쓰지 말아야 할 때:
 
-- 원고가 아직 SyncTeX 빌드가 안 되는 상태(구조적 컴파일 에러)면 먼저 [`latex-build-fix`](../../latex-build-fix/SKILL.md)로 빌드부터 고친다.
-- 위치가 이미 명확한 수정(예: 사용자가 이미 파일:줄 번호를 알고 있음)에는 이 스킬을 거치지 않고 바로 [`manuscript-revision`](../../manuscript-revision/SKILL.md)으로 간다 — 서버를 띄우는 오버헤드가 낭비다.
+- 원고가 아직 SyncTeX 빌드가 안 되는 상태(구조적 컴파일 에러)면 먼저 `latex-editing`으로 빌드부터 고친다.
+- 위치가 이미 명확한 수정(예: 사용자가 이미 파일:줄 번호를 알고 있음)에는 이 스킬을 거치지 않고 바로 `manuscript-revision`으로 간다 — 서버를 띄우는 오버헤드가 낭비다.
 - Typst 원고에는 적용되지 않는다 (SyncTeX은 LaTeX 전용). Typst 위치 대응은 이 스킬의 범위 밖.
 
 ## 아키텍처 개요
