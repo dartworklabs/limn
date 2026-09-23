@@ -9,17 +9,29 @@
 #   pin-viewer add <이름> --manuscript <원고 폴더> [--main <파일.tex>] [--port N] [--ts-port N]
 #                  [--git-pull] [--label <이름표>] [--accent <#rrggbb>] [--state-dir <폴더>]
 #                  [--extra "<서버 인자>"] [--no-serve] [--no-start]
+#                  [--doc <키>=<표시 이름>:<경로> ...]   (--main 과 함께 쓰지 않는다. §여러 문서)
 #   pin-viewer start <이름> [--no-serve]   설정이 이미 있는 인스턴스를 켠다(재부팅 뒤·새 기기·전환)
 #   pin-viewer stop <이름>                 유닛만 끈다(설정·포트·serve 항목은 그대로)
 #   pin-viewer update [--from <스킬 폴더>] [--force] [--no-restart]
 #                                          플러그인에서 앱 사본을 갱신하고 켜진 인스턴스를 재시작
-#   pin-viewer list                        인스턴스 표(이름표·포트·상태·열린 핀·원고)
-#   pin-viewer status [<이름>]             자세히
+#   pin-viewer list                        인스턴스 표(이름표·포트·상태·열린 핀·문서 수·원고)
+#   pin-viewer status [<이름>]             자세히(문서 목록 포함)
 #   pin-viewer url [<이름>]                테일넷 주소
 #   pin-viewer snippet <이름>              그 논문 저장소 AGENTS.md 에 붙일 안내 조각(출력만)
+#   pin-viewer doc list <이름>                            문서 키·이름·경로 표
+#   pin-viewer doc add <이름> --doc '<키>=<이름>:<경로>' [--doc …] [--restart]
+#                                          기존 인스턴스에 문서를 더한다. 단일 문서(MAIN)였다면
+#                                          본문을 첫 항목 main=본문:<MAIN> 으로 바꿔 DOCS 로 옮긴다
+#   pin-viewer doc remove <이름> <키> [--restart]   DOCS 에서 문서 하나를 뺀다(마지막 문서는 거부)
 #   pin-viewer remove <이름>               유닛 중지·비활성, serve 해제, 설정(=포트 예약) 삭제.
 #                                          상태 폴더는 지우지 않는다
 #   pin-viewer run <이름>                  (유닛 전용) 설정을 읽어 서버로 exec
+#
+# 여러 문서(--doc, DOCS=): 뷰어 하나로 본문·답변서·보기 전용 PDF 등을 탭으로 전환한다. 형식은
+# <키>=<표시 이름>:<경로>. 키는 [a-z0-9-]{1,24} 중복 금지, 문서는 12개까지, 경로는 --manuscript
+# 안이어야 한다. `<빌드 루트>::<메인.tex>` 는 복사 범위를 빌드 루트로 넓히는 확장 표기(LaTeX 전용).
+# 설정 파일에는 DOCS="<키1>=<이름1>:<경로1>;<키2>=..." 로 쓴다(`;` 로 나눔). MAIN 과 DOCS 는
+# 함께 쓰지 않는다 — 자세한 계약은 manuscript-pin-picker 스킬의 references/operations.md §여러 문서.
 #
 # 보안 규칙(바꾸지 말 것): 바인딩은 127.0.0.1 뿐(서버에 박혀 있다), 노출은 `tailscale serve`
 # 만, funnel 은 절대 쓰지 않는다, sudo 를 부르지 않는다. 이 호스트는 operator 가 이 사용자라
@@ -67,6 +79,9 @@ SKILL_REL="skills/manuscript-pin-picker"
 TS_MIN="${PIN_VIEWER_TS_MIN:-18005}"
 TS_MAX="${PIN_VIEWER_TS_MAX:-18099}"
 LOCAL_OFFSET="${PIN_VIEWER_LOCAL_OFFSET:-100}"
+# 여러 문서(--doc/DOCS=) 제약. 서버(pin_server.py) 쪽 DOC_KEY_RE·DOCS_MAX·DOC_NAME_MAX 와 맞춘다.
+DOCS_MAX=12
+DOC_NAME_MAX=40
 PYTHON="${PIN_VIEWER_PYTHON:-}"
 if [[ -z "$PYTHON" ]]; then
     if [[ -x /usr/bin/python3 ]]; then PYTHON=/usr/bin/python3; else PYTHON=$(command -v python3 || true); fi
@@ -130,6 +145,7 @@ load() { # load <이름>
     [[ -n "$C_STATE_DIR" ]] || C_STATE_DIR="$DATA_ROOT/$1"
     C_GIT_PULL=$(env_get "$f" GIT_PULL)
     C_EXTRA_ARGS=$(env_get "$f" EXTRA_ARGS)
+    C_DOCS=$(env_get "$f" DOCS)
 }
 
 safe_value() { # 설정 파일에 쓸 수 있는 값인가
@@ -142,6 +158,122 @@ emit() { # emit <KEY> <값> — 비면 줄을 만들지 않는다
     [[ -n "$2" ]] || return 0
     # 공백·`#` 이 든 값은 따옴표로 싼다(`#` 을 주석으로 읽는 파서가 있다).
     if [[ "$2" == *[[:space:]]* || "$2" == *'#'* ]]; then printf '%s="%s"\n' "$1" "$2"; else printf '%s=%s\n' "$1" "$2"; fi
+}
+
+# ── 여러 문서 (--doc / DOCS=) ──
+# 형식은 <키>=<표시 이름>:<경로>. 파싱·검증 규칙은 서버(pin_server.py 의 parse_doc_arg·make_docs)
+# 와 맞춘다 — 기동 시 서버가 다시 검증하지만, 여기서 먼저 걸러야 systemd Restart 루프 대신
+# `pin-viewer add`/`pin-viewer doc add` 시점에 분명한 오류로 멈춘다.
+join_semi() { local IFS=';'; printf '%s' "$*"; } # join_semi <항목...> -> ';' 로 이은 문자열
+valid_doc_key() { # [a-z0-9-]{1,24}
+    [[ "$1" =~ ^[a-z0-9-]+$ ]] || return 1
+    local len=${#1}
+    ((len >= 1 && len <= 24))
+}
+
+# doc_parse_kv <spec> — 성공하면 전역 DOC_KEY/DOC_NAME/DOC_PATH 를 채운다. 실패하면 die.
+doc_parse_kv() {
+    local spec=$1 rest
+    [[ "$spec" == *=* ]] || die "--doc 는 <키>=<표시 이름>:<경로> 형식입니다: $spec"
+    DOC_KEY=${spec%%=*}
+    rest=${spec#*=}
+    valid_doc_key "$DOC_KEY" || die "--doc 키는 [a-z0-9-]{1,24} 여야 합니다: $DOC_KEY"
+    [[ "$rest" == *:* ]] || die "--doc $DOC_KEY: 표시 이름과 경로 사이에 ':' 가 없습니다: $spec"
+    DOC_NAME=${rest%%:*}
+    DOC_PATH=${rest#*:}
+    [[ -n "$DOC_NAME" ]] || die "--doc $DOC_KEY: 표시 이름이 비었습니다"
+    ((${#DOC_NAME} <= DOC_NAME_MAX)) || die "--doc $DOC_KEY: 표시 이름은 ${DOC_NAME_MAX}자 이하여야 합니다: $DOC_NAME"
+    [[ -n "$DOC_PATH" ]] || die "--doc $DOC_KEY: 경로가 비었습니다"
+}
+
+# doc_check_path <원고 절대경로> — doc_parse_kv 가 채운 DOC_KEY/DOC_PATH 를 읽어 경로를 검증한다.
+# `::` 표기(<빌드 루트>::<메인.tex>)는 빌드 루트·메인 둘 다 원고 폴더 안에 있는지 본다. `../` 로
+# 원고 밖을 가리키는 문자열은 단순 접두어 비교로는 못 잡으므로(`$ms/../x` 도 문자열로는 `$ms/`
+# 로 시작한다) `cd .. && pwd -P` 로 정규화한 뒤 비교한다 — manuscript 인자 자체를 정규화하는
+# cmd_add 의 `pwd -P` 관례와 같다.
+doc_check_path() {
+    local ms=$1 path=$DOC_PATH key=$DOC_KEY root="" root_c="" main="" main_c=""
+    if [[ "$path" == *::* ]]; then
+        local root_s=${path%%::*} main_s=${path#*::}
+        [[ "$main_s" != *::* ]] || die "--doc $key: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: $path"
+        [[ -n "$root_s" && -n "$main_s" ]] || die "--doc $key: 확장 표기 형식 오류(빌드 루트나 메인이 비었습니다): $path"
+        if [[ "$root_s" == /* ]]; then root="$root_s"; else root="$ms/$root_s"; fi
+        [[ -d "$root" ]] || die "--doc $key: 빌드 루트 폴더가 없습니다: $root"
+        root_c=$(cd "$root" && pwd -P) || die "--doc $key: 빌드 루트 경로를 확인하지 못했습니다: $root"
+        case "$root_c" in
+            "$ms"/* | "$ms") ;;
+            *) die "--doc $key: 빌드 루트가 --manuscript($ms) 밖입니다: $root_c" ;;
+        esac
+        [[ "$main_s" != /* ]] || die "--doc $key: '::' 뒤 메인은 빌드 루트 기준 상대경로여야 합니다: $main_s"
+        main="$root_c/$main_s"
+        case "${main##*.}" in
+            tex) ;;
+            *) die "--doc $key: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: $main" ;;
+        esac
+    else
+        if [[ "$path" == /* ]]; then main="$path"; else main="$ms/$path"; fi
+        case "${main##*.}" in
+            tex | pdf) ;;
+            *) die "--doc $key: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: $main" ;;
+        esac
+    fi
+    [[ -f "$main" ]] || die "--doc $key: 파일이 없습니다: $main"
+    main_c="$(cd "$(dirname "$main")" && pwd -P)/$(basename "$main")" || die "--doc $key: 경로를 확인하지 못했습니다: $main"
+    case "$main_c" in
+        "$ms"/*) ;;
+        *) die "--doc $key: 경로가 --manuscript($ms) 밖입니다: $main_c" ;;
+    esac
+    if [[ -n "$root_c" ]]; then
+        case "$main_c" in
+            "$root_c"/*) ;;
+            *) die "--doc $key: 메인이 빌드 루트($root_c) 밖입니다: $main_c" ;;
+        esac
+    fi
+}
+
+# validate_doc_specs <원고 절대경로> <spec...> — 개수·키 중복·형식·경로를 전부 검증한다. 문제가
+# 있으면 die 로 즉시 멈춘다(설정을 쓰기 전에 걸러야 한다).
+validate_doc_specs() {
+    local ms=$1
+    shift
+    local n=$#
+    ((n > 0)) || die "--doc 가 최소 1개 필요합니다"
+    ((n <= DOCS_MAX)) || die "--doc 는 ${DOCS_MAX}개까지입니다(지금 ${n}개)"
+    local seen=" " spec
+    for spec in "$@"; do
+        doc_parse_kv "$spec"
+        case "$seen" in
+            *" $DOC_KEY "*) die "--doc 키가 겹칩니다: $DOC_KEY" ;;
+        esac
+        seen="$seen$DOC_KEY "
+        doc_check_path "$ms"
+    done
+}
+
+doc_count() { # doc_count <DOCS 문자열> -> 문서 개수(비어 있으면 단일 문서라 1)
+    local d=$1
+    [[ -n "$d" ]] || {
+        printf 1
+        return
+    }
+    local specs=()
+    IFS=';' read -ra specs <<< "$d"
+    printf '%d' "${#specs[@]}"
+}
+doc_keys() { # doc_keys <DOCS 문자열> -> 콤마로 이은 키 목록("main" = 단일 문서)
+    local d=$1
+    [[ -n "$d" ]] || {
+        printf main
+        return
+    }
+    local specs=() spec out=""
+    IFS=';' read -ra specs <<< "$d"
+    for spec in "${specs[@]}"; do
+        doc_parse_kv "$spec"
+        [[ -z "$out" ]] || out+=","
+        out+="$DOC_KEY"
+    done
+    printf '%s' "$out"
 }
 
 instances() { # 설정이 있는 이름들(홈 설정 + 레포 원본)
@@ -456,11 +588,27 @@ cmd_run() {
     load "$n" || die "설정이 없습니다: $(conf_of "$n")"
     [[ -f "$APP_DIR/pin_server.py" ]] || die "앱 사본이 없습니다: $APP_DIR — pin-viewer update"
     [[ -n "$C_MANUSCRIPT" && -d "$C_MANUSCRIPT" ]] || die "MANUSCRIPT 폴더가 없습니다: '$C_MANUSCRIPT'"
+    [[ -z "$C_DOCS" || -z "$C_MAIN" ]] || die "설정 오류: MAIN 과 DOCS 를 함께 쓸 수 없습니다: $C_FILE"
     [[ -z "$C_MAIN" || -f "$C_MANUSCRIPT/$C_MAIN" ]] || die "MAIN 파일이 없습니다: $C_MANUSCRIPT/$C_MAIN"
     valid_port "${C_PORT:-x}" || die "PORT 가 없거나 잘못됐습니다: '$C_PORT' (자동 선택에 맡기지 않는다 — 광고한 주소가 깨진다)"
+    local doc_args=()
+    if [[ -n "$C_DOCS" ]]; then
+        local rhelp
+        rhelp=$("$PYTHON" "$APP_DIR/pin_server.py" --help 2>&1 || true)
+        grep -q -- '--doc' <<< "$rhelp" \
+            || die "앱 사본이 여러 문서(--doc)를 모르는 옛 판입니다 — pin-viewer update 로 갱신하세요"
+        local doc_specs=() d
+        IFS=';' read -ra doc_specs <<< "$C_DOCS"
+        validate_doc_specs "$C_MANUSCRIPT" "${doc_specs[@]}"
+        for d in "${doc_specs[@]}"; do doc_args+=(--doc "$d"); done
+    fi
     local args=(--manuscript "$C_MANUSCRIPT" --port "$C_PORT" --state-dir "$C_STATE_DIR"
         --pdfjs-dir "$APP_DIR/vendor/pdfjs")
-    [[ -n "$C_MAIN" ]] && args+=(--main "$C_MAIN")
+    if [[ -n "$C_DOCS" ]]; then
+        args+=("${doc_args[@]}")
+    else
+        [[ -n "$C_MAIN" ]] && args+=(--main "$C_MAIN")
+    fi
     [[ "$C_GIT_PULL" == 1 ]] && args+=(--git-pull)
     # LABEL·ACCENT 는 앱 사본이 그 인자를 알 때만 넘긴다. 모르는 인자를 넘기면 argparse 가
     # 죽고 Restart 루프만 돈다 — 이름표 하나 때문에 뷰어가 통째로 안 뜨는 것보다 낫다.
@@ -513,10 +661,12 @@ cmd_add() {
     need_name "$n"
     shift
     local manuscript="" main="" port="" ts="" gitpull=0 label="" accent="" state="" extra_args="--no-build" serve=1 start=1
+    local docs=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --manuscript) manuscript=${2:-}; shift 2 ;;
             --main) main=${2:-}; shift 2 ;;
+            --doc) docs+=("${2:-}"); shift 2 ;;
             --port) port=${2:-}; shift 2 ;;
             --ts-port) ts=${2:-}; shift 2 ;;
             --git-pull) gitpull=1; shift ;;
@@ -532,7 +682,10 @@ cmd_add() {
     [[ -n "$manuscript" ]] || die "--manuscript <원고 폴더> 가 필요합니다"
     [[ -d "$manuscript" ]] || die "원고 폴더가 없습니다: $manuscript"
     manuscript=$(cd "$manuscript" && pwd -P)
-    if [[ -n "$main" ]]; then
+    [[ -z "$main" || ${#docs[@]} -eq 0 ]] || die "--main 과 --doc 는 함께 쓸 수 없습니다"
+    if [[ ${#docs[@]} -gt 0 ]]; then
+        validate_doc_specs "$manuscript" "${docs[@]}"
+    elif [[ -n "$main" ]]; then
         [[ "$main" != */* && -f "$manuscript/$main" ]] || die "메인 .tex 가 원고 폴더 맨 위에 없습니다: $manuscript/$main"
     else
         main=$(detect_main "$manuscript") || die "메인 .tex 자동 탐지 실패"
@@ -542,8 +695,10 @@ cmd_add() {
     [[ -n "$label" ]] || label=$n
     ((${#label} <= 40)) || die "--label 은 40자 이하: $label"
     [[ -n "$state" ]] || state="$DATA_ROOT/$n"
+    local docs_str=""
+    ((${#docs[@]} == 0)) || docs_str=$(join_semi "${docs[@]}")
     local v
-    for v in "$manuscript" "$main" "$label" "$state" "$extra_args"; do
+    for v in "$manuscript" "$main" "$label" "$state" "$extra_args" "$docs_str"; do
         safe_value "$v" || die "설정 파일에 쓸 수 없는 문자(따옴표·역슬래시·\$·백틱·줄바꿈)가 있습니다: $v"
     done
     [[ "$state" == /* ]] || die "--state-dir 는 절대경로여야 합니다: $state"
@@ -582,6 +737,7 @@ cmd_add() {
         emit ACCENT "$accent"
         emit MANUSCRIPT "$manuscript"
         emit MAIN "$main"
+        emit DOCS "$docs_str"
         emit PORT "$port"
         emit TS_PORT "$ts"
         emit STATE_DIR "$state"
@@ -670,7 +826,7 @@ cmd_update() {
 
 cmd_list() {
     local n state code
-    printf '%-14s %-16s %-6s %-6s %-9s %-5s %s\n' 이름 이름표 로컬 테일넷 상태 열린핀 원고
+    printf '%-14s %-16s %-6s %-6s %-9s %-5s %-4s %s\n' 이름 이름표 로컬 테일넷 상태 열린핀 문서 원고
     for n in $(instances); do
         load "$n" || continue
         state=$(sysu is-active "$(unit_of "$n")" 2> /dev/null)
@@ -678,8 +834,8 @@ cmd_list() {
         code=""
         [[ "$state" == active ]] && code=$(http_code "$C_PORT")
         [[ -n "$code" && "$code" != 200 ]] && state="$state/$code"
-        printf '%-14s %-16s %-6s %-6s %-9s %-5s %s\n' "$n" "${C_LABEL:--}" "$C_PORT" "$C_TS_PORT" \
-            "$state" "$(open_pins "$C_STATE_DIR")" "$C_MANUSCRIPT"
+        printf '%-14s %-16s %-6s %-6s %-9s %-5s %-4s %s\n' "$n" "${C_LABEL:--}" "$C_PORT" "$C_TS_PORT" \
+            "$state" "$(open_pins "$C_STATE_DIR")" "$(doc_count "$C_DOCS")" "$C_MANUSCRIPT"
     done
 }
 
@@ -705,7 +861,12 @@ cmd_status() {
         say "  유닛     $unit  $(sysu is-active "$unit" 2> /dev/null) / $(sysu is-enabled "$unit" 2> /dev/null)  pid=$(sysu show -p MainPID --value "$unit" 2> /dev/null)"
         say "  로컬     http://127.0.0.1:$C_PORT/  → $(http_code "$C_PORT")"
         say "  테일넷   $(url_of "$C_TS_PORT")  (serve: $(ts_proxy_of "$C_TS_PORT" | grep . || echo 없음))"
-        say "  원고     $C_MANUSCRIPT/${C_MAIN:-(자동)}"
+        if [[ -n "$C_DOCS" ]]; then
+            say "  원고     $C_MANUSCRIPT"
+            say "  문서     $(doc_count "$C_DOCS")개: $(doc_keys "$C_DOCS")"
+        else
+            say "  원고     $C_MANUSCRIPT/${C_MAIN:-(자동)}"
+        fi
         say "  상태     $C_STATE_DIR  (열린 핀 $(open_pins "$C_STATE_DIR"))"
         say "  설정     $C_FILE"
         say "  로그     journalctl --user -u $unit · $C_STATE_DIR/build.log"
@@ -735,11 +896,15 @@ cmd_snippet() {
     url=$(url_of "$C_TS_PORT")
     url=${url%/}
     origin=$(git -C "$C_MANUSCRIPT" remote get-url origin 2> /dev/null || echo '(원고 폴더가 git 저장소가 아님)')
+    local doclist=""
+    if [[ -n "$C_DOCS" ]]; then
+        doclist=$'\n'"- 문서: $(doc_keys "$C_DOCS") — \`pins.md\` 는 문서별 소절로 나뉜다. 특정 문서로 바로 열려면 \`$url/#doc=<키>\`"
+    fi
     cat << EOF
 --- 이 논문 저장소의 AGENTS.md 에 붙일 조각 (pin-viewer snippet $n) ---
 ## 원고 핀 뷰어 (${C_LABEL:-$n})
 
-- 뷰어: $url/ — 공저자가 PDF 에서 드래그해 수정할 자리를 핀으로 남긴다.
+- 뷰어: $url/ — 공저자가 PDF 에서 드래그해 수정할 자리를 핀으로 남긴다.$doclist
 - 핀 목록: \`curl -s $url/pins.md\` (같은 기기에서는 \`curl -s http://127.0.0.1:$C_PORT/pins.md\`)
 - **먼저 확인한다**: pins.md 머리의 저장소(원고 경로)가 이 체크아웃의 \`git remote get-url origin\` 과 같은지 본다.
   다르면 다른 논문의 뷰어다 — 처리하지 않는다. 이 뷰어의 원고 저장소: \`$origin\`
@@ -747,6 +912,133 @@ cmd_snippet() {
 - 처리한 핀은 pins.md 머리의 안내대로 닫는다(무엇을 고쳤는지 reply, 커밋·PR 을 ref 로).
 ---
 EOF
+}
+
+# write_conf_docs <이름> <DOCS 문자열> — 로드된 C_* (load 가 채운 것)를 그대로 두고 MAIN 자리에
+# DOCS 를 넣어 설정 파일(C_FILE — 보통 홈의 심링크, 따라가서 원본을 고친다)을 다시 쓴다.
+write_conf_docs() {
+    local n=$1 docs_str=$2 f=$C_FILE
+    {
+        printf '# pin-viewer@%s — `pin-viewer doc` 가 %s 에 고쳤다. 형식·키는 README 참고.\n' "$n" "$(date +%F)"
+        printf '# 셸로 source 하지 않는다 — 값에 셸 문법을 쓰지 말 것.\n'
+        emit LABEL "$C_LABEL"
+        emit ACCENT "$C_ACCENT"
+        emit MANUSCRIPT "$C_MANUSCRIPT"
+        emit DOCS "$docs_str"
+        emit PORT "$C_PORT"
+        emit TS_PORT "$C_TS_PORT"
+        emit STATE_DIR "$C_STATE_DIR"
+        emit GIT_PULL "$C_GIT_PULL"
+        emit EXTRA_ARGS "$C_EXTRA_ARGS"
+    } > "$f" || die "설정을 쓰지 못했습니다: $f"
+}
+
+# 재시작 안내 또는 --restart 처리 — doc add/remove 공통.
+doc_restart_or_hint() {
+    local n=$1 restart=$2
+    if [[ "$restart" == 1 ]]; then
+        sysu restart "$(unit_of "$n")" || die "재시작 실패: journalctl --user -u $(unit_of "$n")"
+        load "$n" || die "설정을 다시 읽지 못했습니다: $n"
+        if wait_ready "$n" "$C_PORT"; then say "재시작 → 127.0.0.1:$C_PORT 200"; else warn "재시작 뒤 응답 없음 — pin-viewer status $n"; fi
+    else
+        say "재시작이 필요합니다: pin-viewer stop $n && pin-viewer start $n (또는 --restart)"
+    fi
+}
+
+cmd_doc_list() {
+    local n=${1:-}
+    need_name "$n"
+    load "$n" || die "설정이 없습니다: $n"
+    if [[ -z "$C_DOCS" ]]; then
+        say "단일 문서 (MAIN=${C_MAIN:-자동 탐지})"
+        return 0
+    fi
+    local specs=() spec
+    IFS=';' read -ra specs <<< "$C_DOCS"
+    printf '%-10s %-24s %s\n' 키 이름 경로
+    for spec in "${specs[@]}"; do
+        doc_parse_kv "$spec"
+        printf '%-10s %-24s %s\n' "$DOC_KEY" "$DOC_NAME" "$DOC_PATH"
+    done
+}
+
+cmd_doc_add() {
+    local n=${1:-}
+    need_name "$n"
+    shift
+    local newdocs=() restart=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --doc) newdocs+=("${2:-}"); shift 2 ;;
+            --restart) restart=1; shift ;;
+            *) die "모르는 인자: $1" ;;
+        esac
+    done
+    ((${#newdocs[@]} > 0)) || die "--doc <키>=<표시 이름>:<경로> 가 최소 1개 필요합니다"
+    load "$n" || die "설정이 없습니다: $n"
+    [[ -n "$C_MANUSCRIPT" && -d "$C_MANUSCRIPT" ]] || die "MANUSCRIPT 폴더가 없습니다: '$C_MANUSCRIPT'"
+    local specs=()
+    if [[ -n "$C_DOCS" ]]; then
+        IFS=';' read -ra specs <<< "$C_DOCS"
+    elif [[ -n "$C_MAIN" ]]; then
+        # 단일 문서(MAIN) → 다중 문서 전환: 본문을 첫 항목 main=본문:<MAIN> 으로 옮긴다. 키가
+        # main 인 LaTeX 문서는 서버가 상태 폴더 루트(옛 자리)를 그대로 쓰므로 빌드 이력·쪽
+        # 이미지가 이어지고, doc 필드가 없는 옛 핀도 이 문서로 읽힌다(operations.md §여러 문서).
+        specs=("main=본문:$C_MAIN")
+    else
+        die "MAIN 도 DOCS 도 없는 설정입니다 — 손으로 확인하세요: $C_FILE"
+    fi
+    specs+=("${newdocs[@]}")
+    validate_doc_specs "$C_MANUSCRIPT" "${specs[@]}"
+    local docs_str
+    docs_str=$(join_semi "${specs[@]}")
+    safe_value "$docs_str" || die "설정 파일에 쓸 수 없는 문자(따옴표·역슬래시·\$·백틱·줄바꿈)가 DOCS 에 있습니다"
+    write_conf_docs "$n" "$docs_str"
+    say "DOCS 갱신: $C_FILE"
+    say "  더함: $(join_semi "${newdocs[@]}")"
+    doc_restart_or_hint "$n" "$restart"
+}
+
+cmd_doc_remove() {
+    local n=${1:-}
+    need_name "$n"
+    local key=${2:-}
+    [[ -n "$key" ]] || die "제거할 키가 필요합니다: pin-viewer doc remove <이름> <키>"
+    shift 2
+    local restart=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --restart) restart=1; shift ;;
+            *) die "모르는 인자: $1" ;;
+        esac
+    done
+    load "$n" || die "설정이 없습니다: $n"
+    [[ -n "$C_DOCS" ]] || die "'$n' 은 여러 문서 설정(DOCS)이 없습니다 — 단일 문서 인스턴스는 지울 문서가 없습니다"
+    local specs=() spec kept=() found=0
+    IFS=';' read -ra specs <<< "$C_DOCS"
+    for spec in "${specs[@]}"; do
+        doc_parse_kv "$spec"
+        if [[ "$DOC_KEY" == "$key" ]]; then found=1; else kept+=("$spec"); fi
+    done
+    ((found == 1)) || die "키를 찾지 못했습니다: $key ($(doc_keys "$C_DOCS"))"
+    ((${#kept[@]} > 0)) || die "마지막 문서는 지울 수 없습니다 — 인스턴스를 통째로 지우려면 pin-viewer remove $n"
+    validate_doc_specs "$C_MANUSCRIPT" "${kept[@]}"
+    local docs_str
+    docs_str=$(join_semi "${kept[@]}")
+    write_conf_docs "$n" "$docs_str"
+    say "DOCS 에서 제거: $key"
+    doc_restart_or_hint "$n" "$restart"
+}
+
+cmd_doc() {
+    local sub=${1:-}
+    [[ $# -gt 0 ]] && shift
+    case "$sub" in
+        list) cmd_doc_list "$@" ;;
+        add) cmd_doc_add "$@" ;;
+        remove | rm) cmd_doc_remove "$@" ;;
+        *) die "pin-viewer doc list|add|remove <이름> ... (모르는 하위 명령: '$sub')" ;;
+    esac
 }
 
 cmd_remove() {
@@ -794,6 +1086,7 @@ main() {
         status) cmd_status "$@" ;;
         url) cmd_url "$@" ;;
         snippet) cmd_snippet "$@" ;;
+        doc) cmd_doc "$@" ;;
         remove | rm) cmd_remove "$@" ;;
         run) cmd_run "$@" ;;
         -h | --help | help | "") usage ;;

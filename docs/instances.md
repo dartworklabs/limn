@@ -31,6 +31,7 @@ writing-agent-playbook 스킬 `manuscript-pin-picker` 의 서버(`pin_server.py`
 | `GIT_PULL` | `1` 이면 재빌드마다 원고 체크아웃을 `--ff-only` pull 한다 |
 | `LABEL` / `ACCENT` | 뷰어 이름표와 강조색(`#rrggbb`). **앱 사본의 `--help` 에 그 인자가 있을 때만** 넘긴다. 옛 판에 넘기면 argparse 가 죽어 뷰어가 통째로 안 뜨므로, 그때는 journal 에 경고만 남긴다 |
 | `EXTRA_ARGS` | 그 밖의 서버 인자(공백으로 나눔). `add` 기본값은 `--no-build`. 산출물이 없으면 서버가 어차피 빌드한다 |
+| `DOCS` | 여러 문서(본문·답변서·보기 전용 PDF 등)를 탭으로 전환한다. `MAIN` 과 함께 쓰지 않는다. 형식·예시는 §여러 문서 |
 
 ## 새 논문 추가 — 3단계
 
@@ -44,6 +45,42 @@ git -C ~/dotfiles add machines/example-host/pin-viewer/paper2.env
 
 `--main` 을 생략하면 원고 폴더 맨 위에서 `\documentclass` 가 있는 `.tex` 를 찾는다. 두 개 이상이면 추측하지 않고 멈춘다.
 `--label` 을 생략하면 원고 저장소 이름(`origin` URL 끝)을 쓴다. 로컬에서만 띄우려면 `--no-serve` 를 쓴다.
+
+## 여러 문서 (`DOCS=`)
+
+논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소
+하나로 띄우고 탭으로 전환한다. 서버 쪽 계약(`--doc` 인자, 키·경로 규칙, 상태 폴더 배치)의 정본은
+`manuscript-pin-picker` 스킬의 `references/operations.md` §여러 문서다 — 여기서는 `pin-viewer` CLI
+쪽 사용법만 적는다.
+
+```bash
+# 새로 추가 — 첫 --doc 이 기본 탭이다
+pin-viewer add paper2 --manuscript ~/Codes/paper2 --label Paper2 \
+  --doc 'ms=본문:manuscript::2nd/2nd_manuscript_en.tex' \
+  --doc 'rr=답변서:submission/review_response/review_response.tex' \
+  --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf'
+
+# 기존 단일 문서 인스턴스에 문서를 더한다(본문이 자동으로 main=본문:<MAIN> 으로 DOCS 맨 앞에 온다)
+pin-viewer doc add paper2 --doc 'cl=커버레터:submission/cover_letter/cover_letter.tex' --restart
+pin-viewer doc list paper2      # 키·이름·경로 표
+pin-viewer doc remove paper2 cl # 문서 하나를 뺀다(마지막 문서는 거부 — 통째로 지우려면 pin-viewer remove)
+```
+
+| 항목 | 규칙 |
+| --- | --- |
+| `--doc` 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 그 뒤 첫 `:` 앞이 이름, 나머지가 경로 |
+| 키 | `[a-z0-9-]{1,24}`, 중복 금지. 한 번 정한 키는 바꾸지 않는다(핀 레코드에 남는다) |
+| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 반드시 `--manuscript` 안이어야 한다 |
+| `x/main.tex` | LaTeX. 빌드 루트 = `x/` |
+| `root::sub/main.tex` | LaTeX. 빌드 루트 = `root/`(복사 범위를 넓힌다), 메인 = `root/sub/main.tex` |
+| `x/file.pdf` | 보기 전용(재빌드 없음, 쪽·영역 핀) |
+| 개수 | 12개까지 |
+| `MAIN` 과의 관계 | `DOCS` 와 `MAIN` 은 함께 쓰지 않는다 — `add`·`run` 이 거부한다 |
+| 설정 파일 형식 | `DOCS="<키1>=<이름1>:<경로1>;<키2>=<이름2>:<경로2>"` — 항목은 `;` 로 나눈다(이름에 공백이 있을 수 있어 `add`가 값 전체를 따옴표로 싼다) |
+| 옛 앱 사본 | `--doc` 을 모르는 판이면 `run` 이 기동을 멈추고 `pin-viewer update` 를 안내한다(단일 문서/`MAIN` 은 옛 판에서도 그대로 동작) |
+
+`pin-viewer list`·`status`는 문서 개수(또는 키 목록)를 보이고, `pin-viewer snippet`은 문서 키
+목록과 `pins.md`가 문서별 소절로 나뉜다는 안내를 한 줄 더한다.
 
 ## 동시 실행
 

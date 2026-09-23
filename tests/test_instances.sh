@@ -78,6 +78,7 @@ export PIN_VIEWER_DATA_ROOT="$T/data" PIN_VIEWER_CONFIG_DIR="$T/config" PIN_VIEW
 export PIN_VIEWER_UNITS_DIR="$T/units" PIN_VIEWER_USER_UNIT_DIR="$T/user-units"
 export PIN_VIEWER_LEDGER="$T/served/reserved-ports.txt" PIN_VIEWER_PLUGIN_ROOT="$T/plugins"
 export PIN_VIEWER_TS_MIN=18005 PIN_VIEWER_TS_MAX=18012 XDG_RUNTIME_DIR="$T/run"
+export PIN_VIEWER_WAIT=1 # doc add/remove --restart 가 200 을 기다리는 루프를 빨리 끝낸다(스텁 서버가 없다)
 mkdir -p "$T/units" "$T/run"
 # 장부에 이미 있는 유닛: 로컬 18105 를 광고한다 → 18005↔18105 짝은 못 쓴다.
 printf '[Service]\nExecStart=/usr/bin/python3 x.py --port 18105\n' > "$T/units/other-serve.service"
@@ -209,6 +210,109 @@ chk "Restart=on-failure" "grep -qx 'Restart=on-failure' '$U'"
 chk "0.0.0.0·funnel 을 쓰지 않는다" "! grep -vE '^#' '$U' | grep -qE '0\\.0\\.0\\.0|funnel'"
 chk "paper-a 은 옛 포트·상태 폴더 그대로" "grep -qx 'PORT=18104' '$C' && grep -qx 'TS_PORT=18004' '$C' && grep -qx 'STATE_DIR=/home/user/.local/share/paper-a-pin' '$C'"
 chk "paper-a 은 --no-build·git-pull·이름표 A-DEMO" "grep -qx 'EXTRA_ARGS=--no-build' '$C' && grep -qx 'GIT_PULL=1' '$C' && grep -qx 'LABEL=A-DEMO' '$C'"
+
+echo "── 8. 여러 문서(DOCS=): add --doc 검증 ──"
+mkdir -p "$ms/submission/review_response" "$ms/submission/submission_ready" "$ms/wide/deep"
+printf '\\documentclass{article}\n\\begin{document}rr\\end{document}\n' > "$ms/submission/review_response/review_response.tex"
+: > "$ms/submission/submission_ready/manuscript.pdf"
+printf '\\documentclass{article}\n\\begin{document}wide\\end{document}\n' > "$ms/wide/deep/main2.tex"
+: > "$ms/readme.md"
+
+chk "--main 과 --doc 는 함께 거부" \
+    "! '$PV' add docs-x --manuscript '$ms' --main main.tex --doc 'rr=답변서:submission/review_response/review_response.tex' --no-start >/dev/null 2>&1"
+chk "형식 오류('=' 없음) 거부" "! '$PV' add docs-x --manuscript '$ms' --doc 'badspec' --no-start >/dev/null 2>&1"
+chk "형식 오류(':' 없음) 거부" "! '$PV' add docs-x --manuscript '$ms' --doc 'rr=답변서 없는콜론' --no-start >/dev/null 2>&1"
+chk "키 규칙 위반(대문자) 거부" "! '$PV' add docs-x --manuscript '$ms' --doc 'RR=답변서:submission/review_response/review_response.tex' --no-start >/dev/null 2>&1"
+chk "키 중복 거부" \
+    "! '$PV' add docs-x --manuscript '$ms' --doc 'rr=답변서:submission/review_response/review_response.tex' --doc 'rr=중복:main.tex' --no-start >/dev/null 2>&1"
+chk "원고 밖 경로 거부(../ 는 정규화 뒤 비교)" "! '$PV' add docs-x --manuscript '$ms' --doc 'out=밖:../outside.tex' --no-start >/dev/null 2>&1"
+chk "지원하지 않는 확장자 거부" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:readme.md' --no-start >/dev/null 2>&1"
+chk "없는 파일 거부" "! '$PV' add docs-x --manuscript '$ms' --doc 'x=문서:no-such.tex' --no-start >/dev/null 2>&1"
+chk "거부된 --doc add 는 설정을 남기지 않는다" "[[ ! -e '$T/src/docs-x.env' ]]"
+
+docs13=()
+for i in $(seq 1 13); do docs13+=(--doc "d$i=문서$i:main.tex"); done
+"$PV" add docs-13 --manuscript "$ms" "${docs13[@]}" --no-start > /dev/null 2>&1
+rc13=$?
+chk "13개는 거부(12개까지)" "[[ $rc13 -ne 0 ]]"
+chk "13개 거부 후 설정을 남기지 않는다" "[[ ! -e '$T/src/docs-13.env' ]]"
+
+out=$("$PV" add docs-1 --manuscript "$ms" --label DEMO-B-test --no-serve \
+    --doc 'ms=본문:main.tex' \
+    --doc 'rr=답변서:submission/review_response/review_response.tex' \
+    --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf' \
+    --doc 'wd=넓게:wide::deep/main2.tex' \
+    --no-start 2>&1)
+rc=$?
+chk "다중 --doc add 성공(spec 예시: 공백 든 이름·:: 확장 표기·.pdf 혼합)" "[[ $rc -eq 0 ]]"
+env_docs="$T/src/docs-1.env"
+chk "DOCS 가 ';' 로 이어져 저장된다" \
+    "grep -qx 'DOCS=\"ms=본문:main.tex;rr=답변서:submission/review_response/review_response.tex;sub=제출본 PDF:submission/submission_ready/manuscript.pdf;wd=넓게:wide::deep/main2.tex\"' '$env_docs'"
+chk "DOCS 를 쓰면 MAIN 줄은 없다" "! grep -q '^MAIN=' '$env_docs'"
+chk "add 출력(snippet)이 문서 키 목록과 #doc= 링크를 보인다" "grep -q '문서: ms,rr,sub,wd' <<< \"\$out\" && grep -q '#doc=<키>' <<< \"\$out\""
+
+echo "── 9. doc list/add/remove: 단일 문서 ↔ 다중 문서 전환 ──"
+"$PV" add single-1 --manuscript "$ms" --main main.tex --no-serve --no-start > /dev/null 2>&1
+chk "단일 문서 인스턴스의 doc list 는 MAIN 을 보고한다" "'$PV' doc list single-1 | grep -q '단일 문서 (MAIN=main.tex)'"
+chk "존재하지 않는 인스턴스에 doc add 는 거부" "! '$PV' doc add nope --doc 'x=문서:main.tex' >/dev/null 2>&1"
+chk "존재하지 않는 인스턴스에 doc remove 는 거부" "! '$PV' doc remove nope x >/dev/null 2>&1"
+chk "doc 의 모르는 하위 명령은 거부" "! '$PV' doc frobnicate single-1 >/dev/null 2>&1"
+
+out=$("$PV" doc add single-1 --doc 'rr=답변서:submission/review_response/review_response.tex' 2>&1)
+rc=$?
+env_single="$T/src/single-1.env"
+chk "doc add 성공" "[[ $rc -eq 0 ]]"
+chk "MAIN 이 main=본문:<MAIN> 으로 DOCS 맨 앞에 온다(빌드 이력이 이어지는 자리)" \
+    "grep -qx 'DOCS=main=본문:main.tex;rr=답변서:submission/review_response/review_response.tex' '$env_single'"
+chk "MAIN 줄은 사라진다" "! grep -q '^MAIN=' '$env_single'"
+chk "재시작하지 않으면 안내만 한다" "grep -q '재시작이 필요합니다' <<< \"\$out\" && ! grep -q 'restart pin-viewer@single-1' '$STUB_LOG'"
+dl=$("$PV" doc list single-1 2>&1)
+chk "doc list 가 두 문서를 보인다" "grep -qE '^main[[:space:]]' <<< \"\$dl\" && grep -qE '^rr[[:space:]]' <<< \"\$dl\" && grep -q 'submission/review_response/review_response.tex' <<< \"\$dl\""
+chk "doc add 로 기존 키와 겹치면 거부" "! '$PV' doc add single-1 --doc 'rr=중복:main.tex' >/dev/null 2>&1"
+
+: > "$STUB_LOG"
+"$PV" doc add single-1 --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf' --restart > /dev/null 2>&1
+chk "--restart 는 유닛을 재시작한다" "grep -q 'restart pin-viewer@single-1.service' '$STUB_LOG'"
+chk "재시작 뒤 세 번째 문서가 반영된다(공백 든 이름이라 따옴표로 싸인다)" \
+    "grep -qx 'DOCS=\"main=본문:main.tex;rr=답변서:submission/review_response/review_response.tex;sub=제출본 PDF:submission/submission_ready/manuscript.pdf\"' '$env_single'"
+
+out=$("$PV" doc remove single-1 main 2>&1)
+chk "doc remove 성공(main 제거, rr·sub 남음)" \
+    "grep -qx 'DOCS=\"rr=답변서:submission/review_response/review_response.tex;sub=제출본 PDF:submission/submission_ready/manuscript.pdf\"' '$env_single'"
+chk "재시작하지 않으면 doc remove 도 안내만 한다" "grep -q '재시작이 필요합니다' <<< \"\$out\""
+chk "존재하지 않는 키 제거는 거부" "! '$PV' doc remove single-1 nope >/dev/null 2>&1"
+"$PV" doc remove single-1 sub > /dev/null 2>&1
+chk "마지막 문서는 제거를 거부한다" "! '$PV' doc remove single-1 rr >/dev/null 2>&1"
+chk "마지막 문서 제거 거부는 DOCS 를 바꾸지 않는다" "grep -qx 'DOCS=rr=답변서:submission/review_response/review_response.tex' '$env_single'"
+
+echo "── 10. run: 옛 앱 판 감지·MAIN/DOCS 충돌·list/status/snippet 의 문서 표시 ──"
+printf 'import sys\nprint("usage: pin_server.py [--doc KEY=NAME:PATH]")\n' > "$T/data/app/pin_server.py"
+argv=$(PIN_VIEWER_PRINT_ARGV=1 "$PV" run docs-1 2> "$T/docs-run.err")
+rc=$?
+chk "새 앱이면 run 이 --main 없이 --doc 4개를 만든다" \
+    "[[ $rc -eq 0 ]] && grep -qx -- '--doc' <<< \"\$argv\" \
+     && grep -qx 'ms=본문:main.tex' <<< \"\$argv\" \
+     && grep -qx 'rr=답변서:submission/review_response/review_response.tex' <<< \"\$argv\" \
+     && grep -qx 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf' <<< \"\$argv\" \
+     && grep -qx 'wd=넓게:wide::deep/main2.tex' <<< \"\$argv\" \
+     && ! grep -qx -- '--main' <<< \"\$argv\""
+
+printf 'MAIN=main.tex\n' >> "$T/src/docs-1.env"
+chk "설정에 MAIN 과 DOCS 가 함께 있으면 run 이 거부한다" \
+    "! PIN_VIEWER_PRINT_ARGV=1 '$PV' run docs-1 > /dev/null 2> '$T/docs-conflict.err' && grep -q 'MAIN 과 DOCS' '$T/docs-conflict.err'"
+sed -i.bak '/^MAIN=/d' "$T/src/docs-1.env" && rm -f "$T/src/docs-1.env.bak"
+
+printf 'print("usage: single-document build only")\n' > "$T/data/app/pin_server.py"
+chk "옛 앱(--doc 모름)은 여러 문서를 거부하고 update 를 안내한다" \
+    "! PIN_VIEWER_PRINT_ARGV=1 '$PV' run docs-1 > /dev/null 2> '$T/docs-old.err' && grep -q 'pin-viewer update' '$T/docs-old.err'"
+
+lst2=$("$PV" list 2>&1)
+chk "list 의 문서 열이 docs-1 을 4 로 보인다" "awk '\$1==\"docs-1\"{print \$7}' <<< \"\$lst2\" | grep -qx 4"
+st=$("$PV" status docs-1 2>&1)
+chk "status 가 문서 개수·키 목록을 보인다" "grep -q '문서     4개: ms,rr,sub,wd' <<< \"\$st\""
+snip=$("$PV" snippet docs-1 2>&1)
+chk "snippet 이 문서 키와 #doc= 링크·pins.md 소절 안내를 보인다" \
+    "grep -q '문서: ms,rr,sub,wd' <<< \"\$snip\" && grep -q '#doc=<키>' <<< \"\$snip\" && grep -q 'pins.md' <<< \"\$snip\""
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
