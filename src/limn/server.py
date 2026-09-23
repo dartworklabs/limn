@@ -3913,7 +3913,7 @@ const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
 const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
 const MQ=matchMedia('(prefers-color-scheme: light)');
-let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null;
+let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null,PICKING=false,PEND_SAVE=false;
 let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
 // 모바일: LAYOUT 은 'wide'|'mid'|'narrow', SIDE_OPEN 은 패널·시트가 펼쳐졌는가, SELMODE 는 터치 선택 모드,
 // ZOOMED 는 compact 에서 사용자가 −/＋ 로 폭을 바꿨는가(그동안은 화면 폭에 자동으로 맞추지 않는다).
@@ -4127,7 +4127,7 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 async function boot(){
   applyTheme(); applyLayout();
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
-  $('#btn-save').innerHTML=MQ_COARSE.matches?'핀 저장':'핀 저장 <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';
+  $('#btn-save').innerHTML=saveBtnLabel();
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
@@ -4799,18 +4799,19 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
-  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); $('#c-err').hidden=true; $('#c-body').hidden=false;
+  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
-  catch(e){if(seq!==PICKSEQ)return; setBusy(false);
+  catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){PICKING=false; clearPendingSave();}
     if(rp){bannerRepick();} else {if(PENDING){PENDING.remove();PENDING=null;} if(!CUR)$('#composer').hidden=true;} return;}
   if(seq!==PICKSEQ)return;
-  setBusy(false);
+  setBusy(false); if(!rp)PICKING=false;
   if(d.error){
     if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
     if(rp){bannerRepick(d.error);return;}
-    CUR=null; $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
+    // 저장 대기 중이었어도 pick 이 실패하면 저장하지 않는다 — 기존 오류 패널만 보인다(§조용한 저장 실패 방지 회귀).
+    CUR=null; clearPendingSave(); $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; if(!isRegion(d)){useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}}
   OVERLAP_DISMISSED=null;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
@@ -4822,6 +4823,8 @@ async function pick(r){
   if(LAYOUT!=='wide')$('#right').scrollTop=0;
   // 드래그 → 바로 메모 입력. 터치에서는 포커스하지 않는다 — 가상 키보드가 곧바로 올라와 범위 사다리와 쪽을 가렸다.
   if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});
+  // pick 이 늦는 사이(~1.1s) [핀 저장]을 눌렀으면 여기서 큐에 쌓인 저장을 실행한다(CUR 이 막 채워졌다).
+  if(PEND_SAVE){clearPendingSave(); savePin();}
 }
 // P0b-03: 저장 전 선택(CUR)이 열린 핀과 겹치면 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지
 // 않는다 — 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
@@ -4900,7 +4903,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 // 저장·취소·덧붙이기로 선택이 끝나면 선택 모드를 끄고(다시 스크롤되게) narrow 시트를 접는다(다시 본문이 먼저).
-function cancelSelection(clearNote){CUR=null; PICKSEQ++; if(PENDING){PENDING.remove();PENDING=null;}
+function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
@@ -4913,8 +4916,21 @@ async function appendToPin(id,text){
 async function undoAppend(id,note,rev){
   try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기'});
     toast('#'+id+' 메모를 되돌렸습니다','ok');}catch(e){} await loadPins();}
+// 핀 저장 버튼의 평상시 라벨(boot 과 대기 해제가 함께 쓴다).
+function saveBtnLabel(){return MQ_COARSE.matches?'핀 저장':'핀 저장 <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';}
+// P0c: 드래그 직후 SyncTeX pick 이 끝나기 전(~1.1s)에 [핀 저장]을 누르면 CUR 이 아직 없어 조용히 사라졌다(실측).
+// 이제는 그 순간의 저장 요청을 큐에 담아 pick 이 성공하면 자동 저장한다 — 메모는 그 저장 시점(pick 해소 시)에
+// #note 를 다시 읽는다(그 사이 사용자가 고친 글자까지 반영). pick 이 실패하거나 선택을 취소하면 큐도 함께 비운다.
+// 버튼을 다시 누르면 대기를 취소한다(토글) — 별도 취소 버튼 없이도 되돌릴 수 있게.
+function togglePendingSave(){if(PEND_SAVE){clearPendingSave();return;}
+  PEND_SAVE=true; const btn=$('#btn-save'); btn.dataset.pending='1';
+  btn.innerHTML='위치 찾는 중… 저장 대기 <span class="spin" aria-hidden="true"></span>';}
+function clearPendingSave(){if(!PEND_SAVE)return; PEND_SAVE=false;
+  const btn=$('#btn-save'); delete btn.dataset.pending; btn.innerHTML=saveBtnLabel();}
 async function savePin(){
-  if(!CUR||SAVING)return; SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
+  if(SAVING)return;
+  if(!CUR){if(PICKING)togglePendingSave(); return;}   // pick 이 아직 안 끝났다 — 큐에 담거나(토글) 대기를 취소
+  SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
   const d=CUR,note=$('#note').value.trim();
   let body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};
