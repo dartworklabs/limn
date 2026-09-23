@@ -1,6 +1,6 @@
 # PDF.js (vendored)
 
-뷰어가 원고 PDF 를 벡터로 그리는 데 쓰는 Mozilla PDF.js 빌드다. 뷰어는 테일넷 안에서만 돌기 때문에 외부 CDN 을 쓰지 않고, 서버가 `GET /vendor/pdfjs/<파일>` 로 직접 준다([`../../references/api.md`](../../references/api.md) §엔드포인트).
+뷰어가 원고 PDF 를 벡터로 그리는 데 쓰는 Mozilla PDF.js 빌드다. 뷰어는 테일넷 안에서만 돌기 때문에 외부 CDN 을 쓰지 않고, 서버가 `GET /vendor/pdfjs/<파일>` 로 직접 준다. 엔드포인트 계약은 스킬 루트의 `references/api.md`에 있다.
 
 | 항목 | 값 |
 | --- | --- |

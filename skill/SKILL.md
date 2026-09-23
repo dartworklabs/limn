@@ -1,7 +1,6 @@
 ---
-name: Manuscript Pin Picker
+name: manuscript-pin-picker
 description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 영역을 SyncTeX 역변환으로 .tex 파일·줄 번호로 되찾는다. 스크린샷 대신 파일:줄범위를 주고받아 토큰과 왕복을 줄인다. 원고 특정 위치를 지목해 수정을 요청하거나, 쌓인 핀을 에이전트가 처리할 때 활성화."
-slash_command: true
 ---
 
 # Manuscript Pin Picker
@@ -10,7 +9,7 @@ slash_command: true
 
 원고 PDF 위에서 영역을 드래그하면 SyncTeX 역변환으로 그 자리의 `.tex` 파일·줄 번호를 되찾아 메모와 함께 "핀"으로 쌓는다(핀 = 위치가 붙은 TODO). 스크린샷 한 장(1,000~1,600 토큰, 위치 불명) 대신 `manuscript_kr.tex L493-L501`(≈35 토큰) 한 줄을 받아 바로 읽고 고친다. 공저자도 같은 테일넷 주소로 핀을 남기고, 누가 남겼는지 기록된다.
 
-쓰지 않는 경우: SyncTeX 빌드가 안 되면 [`latex-build-fix`](../latex-build-fix/SKILL.md) 먼저. 파일:줄을 이미 알면 바로 [`manuscript-revision`](../manuscript-revision/SKILL.md). Typst 원고는 범위 밖이다(SyncTeX 은 LaTeX 전용).
+쓰지 않는 경우: SyncTeX 빌드가 안 되면 `latex-editing`으로 먼저 빌드를 고친다. 파일:줄을 이미 알면 바로 `manuscript-revision`으로 간다. Typst 원고는 범위 밖이다(SyncTeX 은 LaTeX 전용).
 
 ## 핀 처리 (에이전트)
 
@@ -142,5 +141,5 @@ slash_command: true
 
 ## 연관 자산
 
-- [`manuscript-revision`](../manuscript-revision/SKILL.md) — 핀을 닫으며 원고를 고칠 때의 편집 규율.
-- [`agent-operations.md`](../../rules/agent-operations.md) §4.1 — 결과물 서빙 일반 원칙. 이 스킬은 그 예외로 `127.0.0.1` + `tailscale serve` 를 고정한다([operations.md](references/operations.md) §보안 제약).
+- `manuscript-revision` — 핀을 닫으며 원고를 고칠 때의 편집 규율.
+- `writing-agent-ops` — 결과물 서빙 일반 원칙. 이 스킬은 그 예외로 `127.0.0.1` + `tailscale serve`를 고정한다([operations.md](references/operations.md) §보안 제약).
