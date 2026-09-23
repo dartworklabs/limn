@@ -36,7 +36,7 @@
 | `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref` 가 있었으면 지운다(다시 닫을 때 새로 남긴다) → `{ok, pin}` |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
-| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"ttl_min": 1..480}`(기본 120, 범위 밖·정수 아니면 `400`) → `{ok, pin}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
+| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(범위 밖·정수 아니면 `400`) → `{ok, pin}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다 — 요청자 신원과 무관하다(권한 제한 없음, 귀속만 기록하는 신뢰 모델). → `{ok, pin}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다. **에이전트는 쓰지 않는다** |
 | `POST` | `/api/rebuild` | PDF 재빌드(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
@@ -85,20 +85,36 @@ curl -s https://<기기>.<tailnet>.ts.net:<port>/pins.md
 
 ## 처리 중 표시 (`/api/pins/{id}/claim`, `/api/pins/{id}/unclaim`)
 
-두 에이전트(작성자 쪽·공저자 쪽)가 같은 핀을 동시에 고칠 수 있다. `claim` 은 **잠금이 아니라 TTL 있는 낙관적 표시**다 — 다른 사람이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다. 협업은 claim 먼저·`⏳` 건너뛰기 관례에 기댄다(SKILL.md 핀 처리 절차).
+두 에이전트(작성자 쪽·공저자 쪽)가 같은 핀을 동시에 고칠 수 있다. `claim` 은 **잠금이 아니라 TTL 있는 낙관적 표시**다 — 다른 사람이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다. 협업은 claim 먼저·`처리 중(…)` 건너뛰기 관례에 기댄다(SKILL.md 핀 처리 절차). **claim 은 고치기 직전에 그 핀만 건다** — 한꺼번에 잡으면 손대지 않은 핀까지 잠긴다(실측 2026-09-23: 23건을 `ttl_min` 480 으로 한꺼번에 잡았고, 뷰어의 `~04:02` 가 예상 완료처럼 읽혔다).
 
 ```bash
-curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: application/json' -d '{"ttl_min": 60}'
+curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: application/json' -d '{"eta_min": 15}'
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 ```
 
-- `claim` 선택 본문 `{"ttl_min": 1..480}`(기본 120분). 범위 밖이거나 정수가 아니면 `400`.
-- 신원은 작성자 귀속과 같은 방식(`Tailscale-User-Login` 또는 헤더 없으면 `로컬/에이전트`)으로 정한다. **같은 신원이 다시 걸면 연장**(`claim_until` 갱신, `rev`+1)이고, **다른 신원이 유효한(만료 안 된) claim 을 쥐고 있으면 `409`** — `{"error":"claimed","claimed_by":{...},"claim_until":...}`.
-- `claim_until` 은 epoch 초다 — 브라우저 시간대와 무관하게 비교한다(build-sync §위치 추정과 같은 이유). 만료된 claim 은 모든 표시(`<state_dir>/pins.md`·뷰어 카드·충돌 판정)에서 없는 것으로 본다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
+- 선택 본문 두 칸. 범위 밖이거나 정수가 아니면 `400` 이고 아무것도 바뀌지 않는다.
+
+  | 칸 | 범위 | 뜻 |
+  | --- | --- | --- |
+  | `eta_min` | 1..240 | **처리 예상 시간(견적)**. 레코드에 `eta_ts = 지금 + eta_min×60`(epoch 초)으로 저장한다. 견적 기준은 SKILL.md 핀 처리 4단계 |
+  | `ttl_min` | 1..120 | **잠금 자동 해제**까지의 시간(안전장치). 생략하면 `eta_min` 이 있을 때 `min(120, max(30, eta_min×2))`, 없으면 120. 상한은 480 에서 120 으로 낮췄다 — 멈춘 에이전트가 한나절 핀을 쥐지 않게 |
+
+- 신원은 작성자 귀속과 같은 방식(`Tailscale-User-Login` 또는 헤더 없으면 `로컬/에이전트`)으로 정한다. **같은 신원이 다시 걸면 연장**이다 — `claim_until` 을 지금부터 다시 재고, `eta_min` 을 주면 `eta_ts` 도 지금부터 새 견적으로 바꾼다(안 주면 앞 견적을 둔다). 시작 시각(`claimed_at`·`claim_ts`)은 그대로, `rev`+1. **다른 신원이 유효한(만료 안 된) claim 을 쥐고 있으면 `409`** — `{"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 새로 잡으면(만료된 남의 claim 포함) 옛 `eta_ts` 는 지운다.
+- `claim_until`·`claim_ts`·`eta_ts` 는 epoch 초다 — 브라우저 시간대와 무관하게 비교한다(build-sync §위치 추정과 같은 이유). 이름이 `*_at` 이 아닌 것은 일부러다: 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 보므로, 숫자 `*_at` 을 쓰면 이 필드를 모르는 옛 서버가 그 레코드를 깨진 줄로 버린다. 만료된 claim 은 모든 표시(`<state_dir>/pins.md`·뷰어 카드·충돌 판정)에서 없는 것으로 본다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
+- `claim_ts` 가 없는 옛 claim 은 `GET /api/pins` 가 `claimed_at`(서버 현지 시각 문자열)을 epoch 로 풀어 계산 필드 `claim_ts` 로 싣는다(저장하지 않는다).
 - 닫힌 핀에 `claim` 을 걸면 `409 {"error":"done","pin":...}`. 없는 id 는 기존 관례대로 `200 {"ok": false}`.
 - `unclaim` 은 요청자 신원과 무관하게 지운다 — 이 스킬의 신뢰 모델은 테일넷 구성원을 막지 않고 귀속만 기록하므로([design.md](design.md) §작성자 귀속), 처리 중 표시도 권한 검사 없이 풀 수 있다.
 - `close`·`drop` 은 claim 필드를 함께 지운다 — 닫힌·삭제된 핀에 처리 중 표시가 남지 않는다. 다른 사람이 claim 한 핀을 닫는 것 자체는 막지 않는다. 그래서 에이전트는 처리를 포기하거나 사용자에게 넘길 때만 `unclaim` 을 부른다.
-- `<state_dir>/pins.md` 번호 칸에 유효한 claim 이 있으면 `⏳<이름>` 이 붙는다(§pins.md 형식). 뷰어 카드에는 "처리 중: 이름 · ~시각" 배지와 [풀기] 버튼(unclaim) 버튼이 뜬다 — **뷰어에는 claim 을 거는 버튼이 없다**(에이전트 전용 동작이다).
+- `<state_dir>/pins.md` 번호 칸에 유효한 claim 이 있으면 `처리 중(<이름>, 약 15분)` 이 붙는다 — 남은 견적을 5분 단위로 올린 값, 넘겼으면 `예상 초과`, 견적 없이 잡았으면 `처리 중(<이름>)`(§pins.md 형식).
+- 뷰어 카드는 왼쪽에 호박색 띠를 두고 배지를 이렇게 보인다. 분과 시각은 모두 5분 단위로 올린다(견적은 대략이다). 시각은 보는 기기의 현지 시각이고, 30초마다 다시 센다.
+
+  | 상태 | 배지 |
+  | --- | --- |
+  | 견적 안 | `처리 중 · 약 15분 · 20:40쯤` |
+  | 견적 초과 | `예상보다 늦어짐 (+5분)`(초과 분) |
+  | 견적 없는 claim | `처리 중 · 20:02부터 (23분째)` |
+
+  잠금 자동 해제 시각(`claim_until`)은 배지에 쓰지 않고 설명(툴팁)에만 둔다 — 예상 완료로 읽혔다. [풀기] 버튼(unclaim)이 함께 뜬다 — **뷰어에는 claim 을 거는 버튼이 없다**(에이전트 전용 동작이다).
 
 ## 겹친 핀과 덧붙이기 (자동 병합 없음)
 
@@ -147,7 +163,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
 | `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유 — 무엇을 고쳤는지(≤500자)·참조(PR 번호 등, ≤80자). 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
-| `claimed_by` / `claimed_at` / `claim_until` | 처리 중 표시(§처리 중 표시) — `claimed_by`는 작성자 귀속과 같은 `{login,name}` 형식, `claim_until`은 epoch 초. `claim_until`이 지난 값이면 없는 것으로 본다. `close`·`drop`이 셋 다 지운다 |
+| `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시) — `claimed_by`는 작성자 귀속과 같은 `{login,name}` 형식, `claimed_at`은 시작 시각 문자열, `claim_ts`(시작)·`claim_until`(잠금 자동 해제)·`eta_ts`(예상 완료)는 epoch 초. `claim_until`이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim`이 모두 지운다 |
 
 `snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est` 는 응답에만 있고 저장하지 않는다(§겹친 핀·build-sync §위치 추정).
 
@@ -162,7 +178,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - **번호 칸의 기호** — 핀당 여러 개, 공백으로 이어 쓴다:
   - `⊂#N` — 이 핀이 열린 핀 `#N` 범위 **안**에 통째로 든다(범위가 가장 작은 바깥 핀 하나만 표시 — 뷰어 카드의 태그도 같은 규칙이라 이 파일과 화면 표기가 어긋나지 않는다). **`#N` 과 한 번에 고치고 둘 다 닫는 것을 권한다** — 따로 고치면 같은 문단을 두 번 손대거나 `#N` 의 제약을 놓칠 수 있다.
   - `∩#N` — 일부만 겹친다(`inside`/`contains` 가 없을 때만, id 가 가장 작은 상대). 참고만 하고 각자 처리해도 된다.
-  - `⏳<이름>` — 다른 에이전트가 유효한 claim 을 쥐고 있다(§처리 중 표시). 이름은 `claimed_by.name`, 헤더 없는 요청이면 `로컬/에이전트`다. **이 핀은 건너뛴다** — 처리 중인 사람과 겹치지 않도록.
+  - `처리 중(<이름>, 약 N분)` — 다른 에이전트가 유효한 claim 을 쥐고 있다(§처리 중 표시). 이름은 `claimed_by.name`, 헤더 없는 요청이면 `로컬/에이전트`다. `약 N분` 은 남은 견적(5분 단위 올림), 넘겼으면 `예상 초과`, 견적이 없으면 이름만. **이 핀은 건너뛴다** — 처리 중인 사람과 겹치지 않도록.
   - `✎` — 저장한 뒤 메모·범위를 수정했다(`edited_at` 있음).
   - `⚠` — 위치를 잃었다(`stale`). **네가 방금 그 범위를 고친 직후라면** 이미 반영됐을 수 있으니 원문을 확인하고 닫아도 된다 — 무조건 사용자에게 보고할 필요는 없다(방금 자기가 만든 변경이 원인일 때에 한한다).
   - 기호 범례 줄(`기호: ⊂#N = … · ⏳<이름> = … · ✎ = … · ⚠ = … · «…» = …`)은 열린 핀에 기호가 하나라도 있을 때만 실린다.

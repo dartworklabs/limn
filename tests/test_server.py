@@ -2094,12 +2094,13 @@ class Claim(Base):
         self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
-        for bad in (0, 481, "120", 12.5, True, None):
+        for bad in (0, 121, 480, "120", 12.5, True, None):              # 상한은 120(예전 480)
             with self.assertRaises(ps.HTTPError):
                 ps.clean_claim_ttl({"ttl_min": bad})
         self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
-        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 480}), 480)
+        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 120}), 120)
+        self.assertEqual(ps.CLAIM_TTL_MAX, 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
@@ -2142,14 +2143,15 @@ class Claim(Base):
         pid = self.add()
         ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⏳Coauthor Kim", md)
-        self.assertIn("처리 중(다른 에이전트가 잡음)", md)
+        self.assertIn("처리 중(Coauthor Kim)", md)                     # 예상 없이 잡으면 이름만
+        self.assertNotIn("⏳", md)
+        self.assertIn("처리 중(이름, 약 N분) = 다른 에이전트가 잡음, 건너뛴다", md)
 
     def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
         pid = self.add()
         ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("⏳로컬/에이전트", md)
+        self.assertIn("처리 중(로컬/에이전트)", md)
 
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
@@ -3769,3 +3771,198 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn(".arc-row.dropped{border-left-color:var(--arc-grey)", css)
         self.assertEqual(css.count("--claim:"), 2)                      # 다크·라이트 둘 다
         self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))
+
+
+# ---------------------------------------------------------------- 처리 예상 시간(eta_min) — 서버·pins.md·뷰어 표시
+# '⏳ 처리 중 · ~04:02' 가 예상 완료처럼 읽혔는데 실제로는 잠금 자동 해제 시각이었다(다른 세션이 23건을 ttl 480 분으로 한꺼번에
+# 잡음, 2026-09-23). 에이전트가 견적(eta_min)을 넣고, 화면은 5분 단위로 올린 '약 15분 · 20:40쯤'을 보인다. 잠금은 안전장치로만
+# 남고 상한은 120 분이다.
+class ClaimEta(Base):
+    A = {"login": "alice@x.com", "name": "Alice"}
+    B = {"login": "bob@x.com", "name": "Bob"}
+
+    def test_body_validation_and_derived_ttl(self):
+        self.assertEqual(ps.clean_claim_body({}), (ps.CLAIM_TTL_DEFAULT, None))
+        for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
+            self.assertEqual(ps.clean_claim_body({"eta_min": eta}), (ttl, eta), eta)
+        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # ttl 을 주면 그대로
+        for bad in (0, 241, "15", 1.5, True, None, -5):
+            with self.assertRaises(ps.HTTPError) as cm:
+                ps.clean_claim_body({"eta_min": bad})
+            self.assertEqual(cm.exception.code, 400)
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_claim_body({"eta_min": 15, "ttl_min": 121})
+
+    def test_claim_stores_eta_and_start(self):
+        pid = self.add()
+        t0 = time.time()
+        p = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
+        self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
+        self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
+        self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
+        self.assertIsInstance(p["claimed_at"], str)
+        rows, _ = ps.read_pins()                                        # 저장값이다(계산 필드가 아님)
+        self.assertIn("eta_ts", ps.find_pin(rows, pid))
+
+    def test_same_identity_reclaim_extends_and_updates_estimate(self):
+        pid = self.add()
+        first = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5}))
+        with ps.PIN_LOCK:                                              # 10분 전에 잡은 것으로 옮긴다
+            rows, _ = ps.read_pins()
+            r = ps.find_pin(rows, pid)
+            for k in ("claim_ts", "eta_ts", "claim_until"):
+                r[k] -= 600
+            ps.write_pins(rows)
+        second = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20}))
+        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # 시작 시각은 그대로
+        self.assertEqual(second["claimed_at"], first["claimed_at"])
+        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # 새 예상은 지금부터
+        self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
+        third = ps.claim_pin(pid, self.A, *ps.clean_claim_body({}))                      # 예상 없이 연장하면 앞 예상을 둔다
+        self.assertEqual(third["eta_ts"], second["eta_ts"])
+        self.assertEqual(third["rev"], second["rev"] + 1)
+
+    def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
+        pid = self.add()
+        ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))
+        self.assertEqual(cm.exception.code, 409)
+        self.assertIn("eta_ts", cm.exception.body)
+        with ps.PIN_LOCK:                                              # A 의 잠금이 풀렸다
+            rows, _ = ps.read_pins()
+            ps.find_pin(rows, pid)["claim_until"] = time.time() - 1
+            ps.write_pins(rows)
+        p = ps.claim_pin(pid, self.B, *ps.clean_claim_body({}))
+        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+        self.assertNotIn("eta_ts", p)                                   # 남의 옛 예상을 물려받지 않는다
+
+    def test_close_drop_unclaim_clear_all_claim_fields(self):
+        for how in ("close", "drop", "unclaim"):
+            pid = self.add()
+            ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 10}))
+            if how == "close":
+                rec = ps.set_done(pid, True, self.A)
+            elif how == "unclaim":
+                rec = ps.unclaim_pin(pid, self.A)
+            else:
+                ps.drop_pin(pid, self.A)
+                rec = ps.read_jsonl(ps.C.dropped)[0][-1]
+            for k in ps.CLAIM_FIELDS:
+                self.assertNotIn(k, rec, (how, k))
+
+    def test_http_claim_with_eta(self):
+        pid = self.add()
+        hj = {"Content-Type": "application/json"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"eta_min": 15}).encode(), hj))
+        code, _, body = split_resp(out)
+        self.assertEqual(code, 200)
+        pin = json.loads(body)["pin"]
+        self.assertAlmostEqual(pin["eta_ts"] - pin["claim_ts"], 900, delta=2)
+        for bad in ({"eta_min": 0}, {"eta_min": 241}, {"eta_min": "15"}, {"ttl_min": 480}):
+            out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps(bad).encode(), hj))
+            self.assertEqual(split_resp(out)[0], 400, bad)
+
+    def test_pins_payload_fills_start_for_legacy_claims(self):
+        pid = self.add()
+        with ps.PIN_LOCK:                                              # eta 이전 서버가 쓴 claim 모양
+            rows, _ = ps.read_pins()
+            r = ps.find_pin(rows, pid)
+            r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
+            ps.write_pins(rows)
+        rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
+        self.assertAlmostEqual(rec["claim_ts"], ps._epoch("2026-09-23 20:02:00"), delta=0.01)
+        self.assertNotIn("claim_ts", ps.find_pin(ps.read_pins()[0], pid))   # 계산 필드 — 저장하지 않는다
+
+    def test_pins_md_claim_text(self):
+        now = 1_790_000_000.0
+        r = {"claimed_by": {"name": "Kim"}}
+        self.assertEqual(ps.claim_md(dict(r), now), "처리 중(Kim)")
+        for left_s, want in ((14 * 60 + 10, "약 15분"), (3 * 60, "약 5분"), (15 * 60, "약 15분"), (16 * 60, "약 20분"),
+                             (-60, "예상 초과")):
+            self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *ps.clean_claim_body({"eta_min": 15}))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("처리 중(에이전트 A, 약 15분)", md)
+
+
+class FrontendClaimEta(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_info(self, script: str, tz="Asia/Seoul"):
+        js = "\n".join(["function who(a){return a?a.name:'';}", extract_js_fn("ceil5"), extract_js_fn("hhmm"),
+                        extract_js_fn("claimInfo"), extract_js_fn("claimLabel"), script])
+        return json.loads(run_node(js, tz=tz))
+
+    def test_estimate_rounds_up_to_five_minutes_and_clock(self):
+        # 20:23:00 KST 에 보고, 예상 완료는 20:37:12 → 남은 14.2분은 '약 15분', 시각은 20:40쯤.
+        out = self.run_info(r"""
+            const now=Date.parse('2026-09-23T20:23:00+09:00'), eta=Date.parse('2026-09-23T20:37:12+09:00')/1000;
+            const p={claimed_by:{name:'A'},claim_ts:Date.parse('2026-09-23T20:20:00+09:00')/1000,eta_ts:eta,
+                     claim_until:Date.parse('2026-09-23T22:20:00+09:00')/1000};
+            const a=claimInfo(p,now), b=claimInfo(Object.assign({},p,{eta_ts:(now/1000)+3*60}),now);
+            console.log(JSON.stringify([a.t,a.late,b.t,/잠금 자동 해제 22:20/.test(a.tip),/22:20/.test(a.t),/예상 완료 20:37/.test(a.tip)]));
+            """)
+        self.assertEqual(out, ["처리 중 · 약 15분 · 20:40쯤", False, "처리 중 · 약 5분 · 20:30쯤", True, False, True])
+
+    def test_overrun_reports_late_by_five_minute_steps(self):
+        out = self.run_info(r"""
+            const now=Date.parse('2026-09-23T20:45:00+09:00')/1000;
+            const p=o=>Object.assign({claimed_by:{name:'A'},claim_until:now+3600},o);
+            console.log(JSON.stringify([claimInfo(p({eta_ts:now-30}),now*1000).t, claimInfo(p({eta_ts:now-7*60}),now*1000).t,
+              claimInfo(p({eta_ts:now-30}),now*1000).late, claimLabel(p({eta_ts:now-10*60}),now*1000)]));
+            """)
+        self.assertEqual(out, ["예상보다 늦어짐 (+5분)", "예상보다 늦어짐 (+10분)", True, "예상보다 늦어짐 (+10분)"])
+
+    def test_legacy_claim_without_eta_shows_start_and_elapsed(self):
+        out = self.run_info(r"""
+            const st=Date.parse('2026-09-23T20:02:00+09:00')/1000, now=(st+22*60+30)*1000;
+            const a=claimInfo({claimed_by:{name:'A'},claim_ts:st,claim_until:st+480*60},now);
+            const b=claimInfo({claimed_by:{name:'A'},claim_until:st+480*60},now);
+            console.log(JSON.stringify([a.t, b.t, /04:02/.test(a.t), /잠금 자동 해제 04:02/.test(a.tip)]));
+            """)
+        self.assertEqual(out, ["처리 중 · 20:02부터 (23분째)", "처리 중", False, True])
+
+    def test_clock_uses_viewer_local_time(self):
+        js = r"""
+            const now=Date.parse('2026-09-23T11:23:00Z'), eta=Date.parse('2026-09-23T11:37:12Z')/1000;
+            console.log(JSON.stringify(claimInfo({claimed_by:{name:'A'},eta_ts:eta,claim_until:eta+600},now).t));
+            """
+        self.assertEqual(self.run_info(js, tz="Asia/Seoul"), "처리 중 · 약 15분 · 20:40쯤")
+        self.assertEqual(self.run_info(js, tz="America/New_York"), "처리 중 · 약 15분 · 07:40쯤")
+
+    def test_js_ceil5_matches_server(self):
+        out = self.run_info("console.log(JSON.stringify([0,0.2,5,5.01,14.9,23].map(ceil5)));")
+        self.assertEqual(out, [ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
+
+    def test_card_uses_claim_tag_and_ticker(self):
+        self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
+        self.assertIn('data-claim="', extract_js_fn("claimTag"))
+        self.assertIn("setInterval(tickClaims,30000);", ps.HTML)
+        self.assertNotIn("toLocaleTimeString", extract_js_fn("claimInfo"))
+
+
+class ClaimEtaDocs(unittest.TestCase):
+    """SKILL.md 핀 처리 절차가 '고치기 직전에 그 핀만 claim, eta_min 에 견적'을 가르치는지."""
+
+    def test_skill_claim_step_teaches_single_pin_and_estimate(self):
+        skill = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("고치기 직전에 그 핀만 claim", skill)
+        self.assertIn('"eta_min"', skill)
+        for row in ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"):
+            self.assertIn(row, skill)
+        self.assertNotIn("⏳", skill)
+        api = (HERE.parent / "references" / "api.md").read_text(encoding="utf-8")
+        self.assertIn("`eta_min` | 1..240", api)
+        self.assertIn("`ttl_min` | 1..120", api)
+        self.assertIn("min(120, max(30, eta_min×2))", api)
+
+    def test_epoch_claim_fields_are_valid_record_fields(self):
+        base = {"id": 1, "file": "/x.tex", "lo": 1, "hi": 2, "claim_ts": 1.5, "eta_ts": 2.5, "claim_until": 3.0}
+        self.assertTrue(ps.valid_rec(base))
+        self.assertFalse(ps.valid_rec(dict(base, eta_ts="soon")))
+        self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))

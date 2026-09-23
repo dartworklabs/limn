@@ -102,9 +102,12 @@ MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
 CLOSE_REF_MAX = 80                 # 같은 값(PR 번호 등)이면 UI 가 닫힌 핀을 묶어 보일 수 있는 참조
-CLAIM_TTL_DEFAULT = 120            # 분 — claim 을 걸 때 ttl_min 을 안 주면 쓰는 기본값(§P0c-C)
+CLAIM_TTL_DEFAULT = 120            # 분 — claim 을 걸 때 ttl_min·eta_min 을 둘 다 안 주면 쓰는 잠금 시간(§P0c-C)
 CLAIM_TTL_MIN = 1
-CLAIM_TTL_MAX = 480
+CLAIM_TTL_MAX = 120                # 잠금 자동 해제는 안전장치다 — 480 이면 멈춘 에이전트가 한나절 핀을 쥐었다(실측 23건)
+CLAIM_ETA_MIN = 1                  # 분 — 처리 예상 시간(eta_min). 화면은 5분 단위로 올려 보인다
+CLAIM_ETA_MAX = 240
+CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, max(이 값, eta×2)) — 짧은 견적도 30분은 쥔다
 GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
@@ -1901,7 +1904,7 @@ def valid_rec(r) -> bool:
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not _is_int(r[k]):
             return False
-    for k in ("synced_at", "score", "claim_until"):
+    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch 초 — '*_at'(문자열 시각)과 이름을 가른다
         if r.get(k) is not None and not _is_num(r[k]):
             return False
     for k in ("done", "stale"):
@@ -2127,7 +2130,12 @@ def pins_payload(rows: list, allp: bool) -> list:
                 with using_doc(D):
                     ctxs[k] = est_context()
         ctx = ctxs[k]
-        out.append(dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k))
+        rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k)
+        if claim_active(r) and not _is_num(r.get("claim_ts")):
+            ts = _epoch(r.get("claimed_at"))          # eta 이전 claim — 뷰어의 '20:02부터 (23분째)'가 쓸 시작 epoch(계산 필드)
+            if ts is not None:
+                rec["claim_ts"] = ts
+        out.append(rec)
     return out
 
 
@@ -2656,25 +2664,51 @@ def claim_active(r: dict) -> bool:
     return _is_num(cu) and float(cu) > time.time()
 
 
+CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
+
+
 def _clear_claim(r: dict) -> None:
-    r.pop("claimed_by", None)
-    r.pop("claimed_at", None)
-    r.pop("claim_until", None)
+    for k in CLAIM_FIELDS:
+        r.pop(k, None)
 
 
-def clean_claim_ttl(d: dict) -> int:
-    v = d.get("ttl_min", CLAIM_TTL_DEFAULT)
+def _claim_int(d: dict, key: str, lo: int, hi: int):
+    """본문의 선택 정수 하나. 없으면 None, 정수가 아니거나 범위 밖이면 400."""
+    if key not in d:
+        return None
+    v = d[key]
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
-        raise HTTPError(400, "ttl_min 은 정수여야 합니다.")
+        raise HTTPError(400, "%s 은 정수여야 합니다." % key)
     v = int(v)
-    if not (CLAIM_TTL_MIN <= v <= CLAIM_TTL_MAX):
-        raise HTTPError(400, "ttl_min 은 %d..%d 사이여야 합니다." % (CLAIM_TTL_MIN, CLAIM_TTL_MAX))
+    if not (lo <= v <= hi):
+        raise HTTPError(400, "%s 은 %d..%d 사이여야 합니다." % (key, lo, hi))
     return v
 
 
-def claim_pin(pid: int, actor: dict, ttl_min: int):
+def clean_claim_body(d: dict) -> tuple:
+    """claim 본문 → (ttl_min, eta_min 또는 None). 둘 다 선택이다.
+
+    eta_min(1..240)은 처리 예상 시간 — 뷰어에 '처리 중 · 약 15분 · 20:40쯤'으로 보인다. ttl_min(1..120)은 잠금 자동
+    해제까지의 시간(안전장치)이다. ttl_min 을 빼면 eta_min 이 있을 때 min(120, max(30, eta×2)), 없으면 120."""
+    eta = _claim_int(d, "eta_min", CLAIM_ETA_MIN, CLAIM_ETA_MAX)
+    ttl = _claim_int(d, "ttl_min", CLAIM_TTL_MIN, CLAIM_TTL_MAX)
+    if ttl is None:
+        ttl = min(CLAIM_TTL_MAX, max(CLAIM_TTL_FLOOR, eta * 2)) if eta is not None else CLAIM_TTL_DEFAULT
+    return ttl, eta
+
+
+def clean_claim_ttl(d: dict) -> int:
+    """예전 호출부 호환 — clean_claim_body 의 ttl 만."""
+    return clean_claim_body(d)[0]
+
+
+def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
     """처리 중 표시를 걸거나(같은 신원이면) 연장한다. 없는 id 는 (None, False) — 호출부가
-    {"ok": false} 를 낸다. 닫힌 핀이거나 다른 신원이 유효한 claim 을 쥐고 있으면 409."""
+    {"ok": false} 를 낸다. 닫힌 핀이거나 다른 신원이 유효한 claim 을 쥐고 있으면 409.
+
+    연장(같은 신원의 유효한 claim)은 시작 시각(claimed_at·claim_ts)을 그대로 두고 잠금(claim_until)을 지금부터 다시
+    잰다. eta_min 을 주면 예상(eta_ts)도 지금부터 다시 잡고, 안 주면 앞서 준 예상을 둔다 — 넘겼으면 화면이
+    '예상보다 늦어짐'으로 알린다. 새로 잡을 때 eta_min 이 없으면 eta_ts 도 없다(시작 시각과 경과 분으로 보인다)."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -2682,11 +2716,21 @@ def claim_pin(pid: int, actor: dict, ttl_min: int):
         if r.get("done"):
             raise HTTPError(409, "done", pin=public(r))
         me = who(actor)
-        if claim_active(r) and (r.get("claimed_by") or {}).get("login") != me["login"]:
-            raise HTTPError(409, "claimed", claimed_by=r["claimed_by"], claim_until=r["claim_until"])
+        mine = claim_active(r) and (r.get("claimed_by") or {}).get("login") == me["login"]
+        if claim_active(r) and not mine:
+            raise HTTPError(409, "claimed", claimed_by=r["claimed_by"], claim_until=r["claim_until"],
+                            eta_ts=r.get("eta_ts"))
+        now = time.time()
+        if not mine:
+            _clear_claim(r)
+            r["claimed_at"] = now_str()
+            r["claim_ts"] = now
+        elif not _is_num(r.get("claim_ts")):          # 옛 claim 을 연장 — 시작 시각을 epoch 로 채워 둔다
+            r["claim_ts"] = _epoch(r.get("claimed_at")) or now
         r["claimed_by"] = me
-        r["claimed_at"] = now_str()
-        r["claim_until"] = time.time() + ttl_min * 60
+        r["claim_until"] = now + ttl_min * 60
+        if eta_min is not None:
+            r["eta_ts"] = now + eta_min * 60
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     return transact(fn)[1]
@@ -2744,6 +2788,23 @@ def clear_pins() -> None:
         if C.pins_jsonl.exists():                    # 같은 초에 두 번 비워도 앞 보관본을 덮지 않는다
             C.pins_jsonl.rename(unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak"))
         render_pins_md([])
+
+
+def ceil5(minutes: float) -> int:
+    """분을 5분 단위로 올린다(최소 5). 뷰어 ceil5() 와 같은 규칙 — 견적은 대략이라 1분 단위로 보이면 거짓 정밀이다."""
+    return max(5, int(math.ceil(minutes / 5.0 - 1e-9)) * 5)
+
+
+def claim_md(r: dict, now: float = None) -> str:
+    """pins.md 번호 칸의 처리 중 표시 — '처리 중(이름, 약 15분)'. 남은 예상은 5분 단위로 올리고, 넘겼으면 '예상 초과',
+    예상 없이 잡은 옛 claim 은 이름만. 잠금 자동 해제 시각은 쓰지 않는다(예상 완료로 읽혔다)."""
+    now = time.time() if now is None else now
+    name = md_cell((r.get("claimed_by") or {}).get("name") or "?")
+    eta = r.get("eta_ts")
+    if not _is_num(eta):
+        return "처리 중(%s)" % name
+    left = (float(eta) - now) / 60.0
+    return "처리 중(%s, %s)" % (name, "약 %d분" % ceil5(left) if left > 0 else "예상 초과")
 
 
 def render_pins_md(rows: list) -> None:
@@ -2823,7 +2884,7 @@ def render_quote(r: dict) -> str:
     return "«%s» " % md_cell(q)
 
 
-LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · ⏳<이름> = 처리 중(다른 에이전트가 잡음) · "
+LEGEND = ("기호: ⊂#N = 핀 N 범위 안, N과 한 번에 고치고 둘 다 닫는다 · 처리 중(이름, 약 N분) = 다른 에이전트가 잡음, 건너뛴다 · "
           "✎ = 저장 뒤 메모·범위 수정됨 · "
           "⚠ = 위치를 잃음(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
@@ -2864,7 +2925,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
         if badge:
             syms.append(badge)
         if claim_active(r):
-            syms.append("⏳%s" % md_cell((r.get("claimed_by") or {}).get("name") or "?"))
+            syms.append(claim_md(r))
         if r.get("edited_at"):
             syms.append("✎")
         if r.get("stale"):
@@ -3358,6 +3419,7 @@ button.tg[aria-pressed=true]{border-color:var(--line-strong)}
 .tag.claim{border-color:var(--claim);color:var(--fg)}
 .tag.claim .ic{color:var(--claim)}
 .tag.claim.late{border-color:var(--warn);color:var(--warn)}
+.tag.claim.late .ic{color:var(--warn)}
 .pin.st{border-color:var(--warn)}
 .pin.editing{border-color:var(--acc)}
 .pin.cur{box-shadow:0 0 0 2px var(--acc)}
@@ -4787,9 +4849,30 @@ function relBadge(rel){
 // §P0c-C: 처리 중 표시. claim_until 은 epoch 초라 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유로
 // 벽시계 문자열 대신 숫자를 쓴다). 뷰어는 claim 을 걸지 않는다(에이전트 전용) — [풀기]만 둔다.
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
-function claimLabel(p){const w=who(p.claimed_by)||'?';
-  const t=p.claim_until?new Date(p.claim_until*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
-  return '처리 중: '+w+(t?' · ~'+t:'');}
+// 처리 예상 시간(references/api.md §처리 중 표시): 에이전트가 claim 에 eta_min 을 주면 서버가 eta_ts(epoch)을 둔다.
+// 배지는 '처리 중 · 약 15분 · 20:40쯤' — 남은 분도 시각도 5분 단위로 올린다(견적은 대략이다). 넘기면 '예상보다 늦어짐 (+5분)'.
+// eta 가 없는 옛 claim 은 '처리 중 · 20:02부터 (23분째)'. 잠금 자동 해제(claim_until)는 예상 완료로 읽혀(실측: '~04:02')
+// 화면에 쓰지 않고 설명에만 둔다. 시각은 보는 기기의 현지 시각이다. now 는 테스트가 넣는다.
+function ceil5(m){return Math.max(5,Math.ceil(m/5-1e-9)*5);}
+function hhmm(ms){const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by)||'?',st=typeof p.claim_ts==='number'?p.claim_ts*1000:null;
+  const tail=' · 잠금 자동 해제 '+hhmm(p.claim_until*1000)+'(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]';
+  const head='처리하는 쪽: '+w+(st?' · 시작 '+hhmm(st):'');
+  if(typeof p.eta_ts==='number'){const eta=p.eta_ts*1000;
+    if(now<=eta)return {t:'처리 중 · 약 '+ceil5((eta-now)/60000)+'분 · '+hhmm(Math.ceil(eta/300000)*300000)+'쯤',late:false,
+      tip:head+' · 예상 완료 '+hhmm(eta)+tail};
+    return {t:'예상보다 늦어짐 (+'+ceil5((now-eta)/60000)+'분)',late:true,tip:head+' · 예상 완료 '+hhmm(eta)+'였음'+tail};}
+  if(st)return {t:'처리 중 · '+hhmm(st)+'부터 ('+Math.max(1,Math.ceil((now-st)/60000))+'분째)',late:false,tip:head+' · 예상 시간 없음'+tail};
+  return {t:'처리 중',late:false,tip:head+tail};}
+function claimLabel(p,now){return claimInfo(p,now).t;}
+function claimTag(p){const c=claimInfo(p);
+  return '<span class="tag claim'+(c.late?' late':'')+'" data-claim="'+p.id+'" data-tip="'+esc(c.tip)+'">'+ic('clock')+'<span class="ct">'+esc(c.t)+'</span></span>';}
+// 남은 분·경과 분은 시간이 가면 바뀐다 — 30초마다 배지 글만 고친다(카드를 다시 그리지 않는다). 잠금이 풀린 핀이 있으면 목록을 다시 그린다.
+function tickClaims(){if(document.hidden)return; let gone=false;
+  $$('.tag.claim[data-claim]').forEach(el=>{const p=OPEN_ALL.find(x=>x.id===+el.dataset.claim);
+    if(!p||!claimActive(p)){gone=true; return;} const c=claimInfo(p); el.querySelector('.ct').textContent=c.t; el.dataset.tip=c.tip; el.classList.toggle('late',c.late);});
+  if(gone)drawPins();}
+setInterval(tickClaims,30000);
 // 카드의 위치 글: LaTeX 핀은 'L12-L18', 보기 전용 PDF 의 핀은 '영역'(쪽은 옆 칸). 복사 형식은 '파일 L12-L18' / 'x.pdf 쪽 3'.
 function locText(p){return isRegion(p)?'영역':rng(p.lo,p.hi);}
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
@@ -4802,7 +4885,7 @@ function card(p){
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="tag" data-tip="'+
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
   const claimed=claimActive(p);
-  if(claimed)tags.push('<span class="tag claim" data-tip="'+esc('다른 에이전트가 이 핀을 처리하고 있습니다. 급하면 [풀기]')+'">'+ic('clock')+esc(claimLabel(p))+'</span>');
+  if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="tag" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
   const rb=relBadge(p.rel);
@@ -5413,7 +5496,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
             if act == "claim":
-                pin = claim_pin(pid, actor, clean_claim_ttl(d))
+                pin = claim_pin(pid, actor, *clean_claim_body(d))
                 return self._json({"ok": pin is not None, "pin": pin})
             if act == "unclaim":
                 pin = unclaim_pin(pid, actor)
