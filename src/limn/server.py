@@ -2521,7 +2521,8 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
-#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px}
+/* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
+#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px;touch-action:pan-x pan-y}
 /* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
    마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--line);flex:none;touch-action:none}
@@ -2694,7 +2695,7 @@ dialog code{font-size:12px;word-break:break-all}
 .hint .t-touch{display:none}
 .pg{-webkit-touch-callout:none}
 #btn-select[aria-pressed=true]{background:var(--acc);color:var(--on-acc);border-color:var(--acc);font-weight:600}
-body.selmode .pg{touch-action:pinch-zoom;outline:2px dashed var(--acc);outline-offset:3px}
+body.selmode .pg{touch-action:none;outline:2px dashed var(--acc);outline-offset:3px}
 #coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:60;background:var(--acc);
   color:var(--on-acc);border-radius:10px;padding:6px 6px 6px 14px;display:flex;gap:8px;align-items:center;
   width:max-content;max-width:calc(100vw - 16px);font-size:14px;box-shadow:0 6px 20px var(--shadow)}
@@ -2797,9 +2798,9 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
     <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
-    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
-    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
-    <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다">폭</button>
+    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">−</button>
+    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">＋</button>
+    <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">폭</button>
     <button id="btn-theme" class="sec" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
     <button id="btn-help" class="sec" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
     <button id="btn-more" class="cmp" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">⋯</button>
@@ -2879,7 +2880,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   </ol>
   <h4>휴대폰·태블릿(터치)</h4>
   <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
-    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락 확대는 그대로 됩니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
+    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
     <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
     <tr><td><kbd>⋯</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
     <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [⋯] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
@@ -2888,6 +2889,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
     <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
+    <tr><td><kbd>Ctrl/⌘ + 휠</kbd> · <kbd>Ctrl/⌘ + = − 0</kbd></td><td>PDF 위에서 확대·축소(포인터 자리 기준), 0 은 폭 맞춤. 트랙패드 핀치도 같습니다. PDF 만 커지고 패널은 그대로입니다 (입력 칸 밖에서)</td></tr>
     <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
     <tr><td>폭 손잡이</td><td>본문과 패널 사이 막대를 끌면 패널 폭이 바뀝니다. 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→ 로도 바뀝니다. 폭은 브라우저에 기억됩니다</td></tr></table>
   <h4>용어</h4>
@@ -3248,15 +3250,34 @@ function buildDoc(){
 }
 // save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
 // compact(mid·narrow)에서는 폭을 저장하지 않는다 — 접은 화면에서 맞춘 폭이 편 화면·데스크톱 설정을 덮지 않게.
-function setW(w,save){W=Math.round(Math.min(2200,Math.max(LAYOUT==='wide'?300:160,w))); $$('.pg').forEach(e=>e.style.width=W+'px');
+// 쪽 폭 한계는 폭 맞춤 폭의 ZOOM_MIN–ZOOM_MAX 배(최소 160px)다. 넘치면 PDF 영역(#left) 안에서만 가로로 스크롤된다.
+const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
+function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
+function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
   if(save!==false&&LAYOUT==='wide')savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
+// 폭 맞춤 폭: compact 는 본문 안쪽 폭, wide 는 #left.clientWidth 에서 48px(좌우 여백)을 뺀 값.
+function fitWidth(){return LAYOUT!=='wide'?innerW():$('#left').clientWidth-48;}
 // compact 는 늘 화면 폭에 맞춘다(사용자가 −/＋ 를 눌렀으면 그 레이아웃 동안은 그대로). wide 는 예전 그대로.
 function autoW(){if(LAYOUT!=='wide'){if(!ZOOMED)setW(innerW(),false);return;}
   if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
-function zoom(k){setW(W+k*140); if(LAYOUT!=='wide')ZOOMED=true;}
-// 폭 맞춤: #left.clientWidth 에서 48px(좌우 여백)을 뺀 값에 맞춘다.
-function fitW(){if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false); return;} const L=$('#left'); setW(L.clientWidth-48);}
+// 확대 기준점: (cx,cy) 화면 좌표 아래의 쪽과 그 쪽 안 비율. 점이 쪽 사이 여백이면 세로로 가장 가까운 쪽을 쓴다.
+// 좌표가 없으면 PDF 영역 가운데를 쓴다(키보드·버튼).
+function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
+  if(cx==null){cx=lr.left+L.clientWidth/2; cy=lr.top+L.clientHeight/2;}
+  let best=null,bd=Infinity;
+  for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(),d=cy<r.top?r.top-cy:(cy>r.bottom?cy-r.bottom:0);
+    if(d<bd){bd=d; best={pg,r};} if(d===0)break;}
+  return best?{pg:best.pg,cx,cy,fx:(cx-best.r.left)/best.r.width,fy:(cy-best.r.top)/best.r.height}:null;}
+// 기준점의 쪽 안 비율 자리를 화면 좌표 (cx,cy) 로 되돌린다 — 확대해도 포인터 밑의 글자가 그 자리에 남는다.
+function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
+  L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
+function zoomTo(w,cx,cy){const a=zoomAnchor(cx,cy); setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(a);}
+function zoom(k){zoomTo(W*Math.pow(ZOOM_STEP,k));}
+// 폭 맞춤: 보던 쪽·자리(위쪽 기준)를 지키고 가로 스크롤을 처음으로 되돌린다.
+function fitW(){const a=topAnchor(),L=$('#left');
+  if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false);} else setW(L.clientWidth-48);
+  restoreAnchor(a); L.scrollLeft=0;}
 function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
@@ -3292,16 +3313,18 @@ async function vecOpen(){
     const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
     doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
   catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
-  if(gen!==VEC.gen){doc.destroy(); return;}
-  if(doc.numPages!==n){doc.destroy(); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
+  if(gen!==VEC.gen){vecClose(doc); return;}
+  if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
   VEC.st.forEach(s=>{s.stale=true;});
-  if(old)old.destroy();
+  vecClose(old);
   vecSchedule(0);
 }
+// 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
+function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
-  if(VEC.doc){try{VEC.doc.destroy();}catch(e){} VEC.doc=null;}
+  vecClose(VEC.doc); VEC.doc=null;
   const c=$('#vec-chip'); c.hidden=false;
   c.dataset.tip='PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — '+msg+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')+'. 확대하면 흐릴 수 있습니다';
 }
@@ -3392,6 +3415,46 @@ $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive
 (function watchDpr(){if(!window.matchMedia)return;
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
 if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
+
+// ------------------------------------------------ PDF 영역 전용 확대 — references/design.md §PDF 영역 전용 확대
+// 브라우저 확대는 사이드바·도구 줄까지 키운다. PDF 영역의 확대 입력을 가로채 쪽 폭(W)만 바꾼다.
+// - 데스크톱: #left 위의 Ctrl(⌘)+휠. 트랙패드 핀치도 크롬·파이어폭스에서는 ctrlKey 가 붙은 wheel 로 온다. 포인터 기준.
+// - 사파리 트랙패드 핀치: gesturestart/gesturechange(e.scale).
+// - 키보드 Ctrl(⌘) + = / + / − / 0 → 확대·축소·폭 맞춤(입력 칸에 포커스가 있으면 가로채지 않는다 — 키 처리기 참고).
+// - 터치: #left 는 touch-action:pan-x pan-y 라 브라우저 핀치가 없다. 두 손가락 거리 비율로 W 를 바꾸고, 두 손가락
+//   가운데 점 밑의 자리를 손가락을 따라 옮긴다(확대하며 끌기). 선택 모드의 쪽은 touch-action:none 이라 같은 길로 온다.
+function zoomKey(e){const k=e.key,c=e.code;
+  if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
+  if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
+  if(k==='0'||c==='Digit0'||c==='Numpad0')return 'fit';
+  return null;}
+// 휠 한 번의 배율. 마우스 휠 한 칸(|dy|≥50 픽셀 또는 줄 단위)은 버튼 한 번과 같은 ZOOM_STEP, 트랙패드 핀치의 잘게 나뉜 dy 는
+// exp(-dy/100) 로 이어 붙인다 — 크롬이 핀치 배율을 휠로 바꿀 때 쓰는 식의 역이라 손가락 벌린 만큼 커진다.
+// 한 이벤트가 버튼 한 칸(ZOOM_STEP ≈ exp(0.18))을 넘지 않게 dy 를 ±18 로 자른다.
+function wheelFactor(dy,mode){if(!dy)return 1;
+  if(mode===1||mode===2||Math.abs(dy)>=50)return dy<0?ZOOM_STEP:1/ZOOM_STEP;
+  return Math.exp(-Math.max(-18,Math.min(18,dy))/100);}
+(function(){const L=$('#left'); let acc=1,pt=null,raf=0,G=null,TP=null;
+  const flush=()=>{raf=0; if(acc===1)return; const f=acc; acc=1; zoomTo(W*f,pt[0],pt[1]);};
+  L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();
+    acc*=wheelFactor(e.deltaY,e.deltaMode); pt=[e.clientX,e.clientY]; if(!raf)raf=requestAnimationFrame(flush);},{passive:false});
+  L.addEventListener('gesturestart',e=>{e.preventDefault(); if(!TP)G={w:W};},{passive:false});
+  L.addEventListener('gesturechange',e=>{e.preventDefault(); if(G&&!TP&&e.scale>0)zoomTo(G.w*e.scale,e.clientX,e.clientY);},{passive:false});
+  L.addEventListener('gestureend',e=>{e.preventDefault(); G=null;},{passive:false});
+  const mid=(a,b)=>[(a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2];
+  const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)||1;
+  let tr=0,last=null;
+  const apply=()=>{tr=0; if(!TP||!last)return; const w=TP.w*last.d/TP.d;
+    setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(TP.a,last.m[0],last.m[1]);};
+  L.addEventListener('touchstart',e=>{if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}
+    if(e.cancelable)e.preventDefault();
+    const a=e.touches[0],b=e.touches[1],m=mid(a,b); cancelDrag(); cancelLP();
+    TP={d:dist(a,b),w:W,a:zoomAnchor(m[0],m[1])}; last={d:TP.d,m};},{passive:false});
+  L.addEventListener('touchmove',e=>{if(!TP||e.touches.length!==2)return; if(e.cancelable)e.preventDefault();
+    const a=e.touches[0],b=e.touches[1]; last={d:dist(a,b),m:mid(a,b)}; if(!tr)tr=requestAnimationFrame(apply);},{passive:false});
+  const end=e=>{if(TP&&e.touches.length<2){if(tr){cancelAnimationFrame(tr); apply();} TP=null; last=null;}};
+  L.addEventListener('touchend',end); L.addEventListener('touchcancel',end);
+})();
 
 // ------------------------------------------------ 화면 폭별 레이아웃(모바일)
 // wide: 지금까지의 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만의 터치 화면(편 폴더블) — 좁은 사이드
@@ -3499,7 +3562,7 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
 // ------------------------------------------------ 드래그 선택(마우스·터치·펜 — Pointer Events 한 경로)
 // 마우스: 예전 그대로 누르고 끌면 사각형. 터치·펜: 선택 모드(SELMODE)일 때만 끌면 사각형이고 탭하면 빠른 선택,
 // 선택 모드가 아니면 스크롤·핀치 확대가 그대로 되고 길게 누르면 빠른 선택이다. 선택 모드에서는 쪽에만
-// touch-action:pinch-zoom 을 걸어(한 손가락 끌기는 이 코드가, 두 손가락은 브라우저 확대가 가진다).
+// touch-action:none 을 건다(한 손가락 끌기는 이 코드가, 두 손가락은 앱 확대 — §PDF 영역 전용 확대 — 가 가진다).
 // 좌표는 clientX/Y 와 getBoundingClientRect 를 같은 기준(레이아웃 뷰포트)으로 나눈 쪽 안 비율이라 핀치 확대 중에도 맞다.
 let DRAG=null,LP=null;
 const c01=v=>Math.min(1,Math.max(0,v));
@@ -4067,6 +4130,9 @@ document.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
   const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
+  // Ctrl(⌘) + = / − / 0 은 브라우저 확대 대신 PDF 쪽만 확대·축소·폭 맞춤한다. 입력 칸에서는 브라우저에 맡긴다.
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
+    if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&t.id==='note'){e.preventDefault();savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}

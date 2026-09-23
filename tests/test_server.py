@@ -2545,12 +2545,15 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("input,textarea,select{font-size:16px}", coarse)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다. 그 밖에는 폭·높이 손잡이
-        # 둘뿐이다(내용이 아니라 잡는 막대라, 끄는 동안 스크롤과 다투지 않게 none 을 건다).
+        # touch-action: PDF 영역(#left)은 스크롤만 넘기고 브라우저 핀치를 막는다(두 손가락은 앱 확대, §PDF 영역 전용
+        # 확대). 선택 모드의 쪽은 none(한 손가락 끌기 = 선택). 그 밖에는 폭·높이 손잡이 둘뿐이다(끄는 동안 스크롤과
+        # 다투지 않게 none). 사이드바·시트는 건드리지 않는다.
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
-                         ["#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
-        self.assertIn("touch-action:pinch-zoom", css)
+                         ["#left", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
+        self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
+        self.assertIn("body.selmode .pg{touch-action:none", css)
+        self.assertNotIn("touch-action:pinch-zoom", css)
         # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
         self.assertIn("body.lay-narrow #toasts{", css)
         self.assertIn("body.lay-mid #toasts{", css)
@@ -2604,6 +2607,10 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
         self.assertIn("build=META.pages_build", body)
         self.assertIn("doc.numPages!==n", body)                 # 쪽 수가 다르면 쓰지 않는다
+        # 재빌드 뒤 옛 문서를 닫는다. PDFDocumentProxy 에는 destroy 가 없다(실측: 'old.destroy is not a function').
+        self.assertIn("vecClose(old)", body)
+        self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
+        self.assertNotRegex(ps.HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
 
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("vecBoot")
@@ -2672,6 +2679,76 @@ class FrontendVectorLogic(unittest.TestCase):
             "console.log(JSON.stringify(out));",
         ])
         self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
+
+
+# PDF 영역 전용 확대(references/design.md §PDF 영역 전용 확대) — 브라우저 확대 입력을 가로채 쪽 폭만 바꾸는지.
+class FrontendZoom(unittest.TestCase):
+    def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
+        self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
+        i = ps.HTML.index("L.addEventListener('wheel'")
+        self.assertIn("{passive:false}", ps.HTML[i:i + 300])
+        self.assertIn("const L=$('#left')", ps.HTML[i - 200:i])     # PDF 영역에만 — 사이드바의 휠은 그대로
+        self.assertIn("zoomTo(W*f,pt[0],pt[1])", ps.HTML)            # 포인터 기준
+
+    def test_safari_gesture_and_touch_pinch(self):
+        for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
+            self.assertIn("L.addEventListener('%s'" % ev, ps.HTML)
+        i = ps.HTML.index("L.addEventListener('touchstart'")
+        blk = ps.HTML[i:i + 400]
+        self.assertIn("e.touches.length!==2", blk)
+        self.assertIn("cancelDrag(); cancelLP();", blk)            # 핀치는 그리던 선택·길게 누르기를 버린다
+        self.assertIn("{passive:false}", blk)
+
+    def test_keyboard_zoom_skips_inputs(self):
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        body = m.group(1)
+        self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);", body)
+        self.assertIn("e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1)", body)
+        self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
+
+    def test_zoom_bounds_and_anchor(self):
+        self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", ps.HTML)
+        setw = re.search(r"\nfunction setW\(w,save\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        self.assertIn("wBounds(fitWidth())", setw)
+        self.assertNotIn("2200", setw)
+        zt = re.search(r"\nfunction zoomTo\(w,cx,cy\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setW(w)"))
+        self.assertLess(zt.index("setW(w)"), zt.index("zoomRestore(a)"))
+
+
+class FrontendZoomLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_zoom_key_map(self):
+        js = "\n".join([
+            extract_js_fn("zoomKey"),
+            "const ks=[['=','Equal'],['+','Equal'],['-','Minus'],['_','Minus'],['0','Digit0'],['+','NumpadAdd'],",
+            " ['Process','Equal'],['Process','Minus'],['Process','Digit0'],['1','Digit1'],['Enter','Enter'],['a','KeyA']];",
+            "console.log(JSON.stringify(ks.map(([key,code])=>zoomKey({key,code}))));",
+        ])
+        self.assertEqual(json.loads(run_node(js)),
+                         ["in", "in", "out", "out", "fit", "in", "in", "out", "fit", None, None, None])
+
+    def test_wheel_factor_mouse_notch_vs_trackpad_pinch(self):
+        js = "\n".join([
+            "const ZOOM_STEP=1.2;", extract_js_fn("wheelFactor"),
+            "console.log(JSON.stringify([wheelFactor(-100,0),wheelFactor(100,0),wheelFactor(-3,1),wheelFactor(0,0),",
+            " wheelFactor(-10,0),wheelFactor(10,0),wheelFactor(-49,0)].map(v=>+v.toFixed(4))));",
+        ])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[:4], [1.2, 0.8333, 1.2, 1])
+        self.assertAlmostEqual(out[4], 1.1052, places=3)          # 핀치 dy=-10 → 조금 확대
+        self.assertAlmostEqual(out[4] * out[5], 1.0, places=3)     # 벌렸다 오므리면 제자리
+        self.assertLess(out[6], 1.2)                               # 잘게 나뉜 dy 는 한 이벤트에 한 칸을 넘지 않는다
+
+    def test_width_bounds_are_half_to_five_times_fit(self):
+        js = "\n".join([
+            "const ZOOM_MIN=0.5,ZOOM_MAX=5;", extract_js_fn("wBounds"),
+            "console.log(JSON.stringify([wBounds(956),wBounds(370),wBounds(100)]));",
+        ])
+        self.assertEqual(json.loads(run_node(js)), [[478, 4780], [185, 1850], [160, 800]])
 
 
 class FrontendMobileLogic(unittest.TestCase):
