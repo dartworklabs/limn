@@ -87,26 +87,19 @@ pin-viewer update --from <skills/manuscript-pin-picker 폴더>   # 특정 판(�
 - **sudo 를 부르지 않는다.** tailscale operator 설정도 바꾸지 않는다. 이 호스트는 operator 가 `alice` 이라 serve 가 sudo 없이 걸린다. 안 걸리면 멈추고 오류를 보인다.
 - 남의 serve 항목을 덮거나 내리지 않는다. `serve reset` 은 쓰지 않는다. 머신 단위 공유 상태라 다른 서빙까지 날아간다.
 
-## paper-a 전환 (옛 전용 유닛 → `pin-viewer@paper-a`)
+## paper-a 전환 — 완료 (2026-09-23)
 
-옛 `paper-a-pin-serve.service` 는 이 변경이 들어가도 그대로 돈다. 설정 `paper-a.env` 는 옛 유닛과 **같은 포트(18104/18004)와
-같은 상태 폴더**(`~/.local/share/paper-a-pin`)를 쓰므로 핀·빌드·주소가 그대로 이어진다. 전환 순서는 다음과 같다.
+옛 전용 유닛 `paper-a-pin-serve.service` 는 `pin-viewer@paper-a` 로 옮겨졌고, 유닛 파일과 `install.sh` 의 배선은
+지웠다. 전환은 같은 포트(18104/18004)와 같은 상태 폴더(`~/.local/share/paper-a-pin`)를 그대로 써서 주소·핀이 이어졌다
+(전환 전후 `pins.jsonl` md5 동일, 41건). 상태 폴더 안의 옛 `pin_server.py`·`vendor/` 사본과 `_old/` 백업은 더는 쓰이지
+않지만 핀 파일과 섞여 있으므로 폴더째 지우지 않는다.
+
+같은 방식으로 다른 논문의 옛 전용 유닛을 옮길 때의 순서:
 
 ```bash
-git -C ~/dotfiles pull --ff-only && (cd ~/dotfiles && ./install.sh)   # CLI·템플릿·paper-a.env 링크 (인스턴스는 안 켠다)
-pin-viewer update --no-restart && cat ~/.local/share/pin-viewer/app/SOURCE   # 앱 사본 설치
-sed -n 6p ~/.local/share/paper-a-pin/pins.md                        # 전환 전 핀 수 기록(디스크, 서버를 찌르지 않는다)
-systemctl --user disable --now paper-a-pin-serve.service                # 옛 유닛 중지·비활성
-ss -ltnH 'sport = :18104'                                                   # 비었는지 확인
-pin-viewer start paper-a                                                      # enable·start, 18004 serve 는 "이미 있음"
-pin-viewer status paper-a                                                     # active/enabled, 로컬 200
-curl -s -o /dev/null -w '%{http_code}\n' https://host.tail0000.ts.net:18004/   # 테일넷 200
-sed -n 6p ~/.local/share/paper-a-pin/pins.md                        # 핀 수가 전환 전과 같은지(새 서버가 기동 때 다시 그린다)
+sed -n 6p <옛 STATE_DIR>/pins.md                        # 전환 전 핀 수 기록(디스크, 서버를 찌르지 않는다)
+systemctl --user disable --now <옛 유닛>                 # 옛 유닛 중지·비활성
+ss -ltnH 'sport = :<PORT>'                               # 비었는지 확인
+pin-viewer start <이름>                                   # 설정의 PORT·TS_PORT·STATE_DIR 를 옛 값 그대로 두면 주소·핀이 이어진다
+pin-viewer status <이름>                                  # active/enabled, 로컬 200 · 테일넷 200 · 핀 수 동일 확인
 ```
-
-되돌리기: `systemctl --user disable --now pin-viewer@paper-a && systemctl --user enable --now paper-a-pin-serve.service`.
-
-전환 뒤 후속 PR 에서 `machines/example-host/systemd/paper-a-pin-serve.service`, `install.sh` 의 `_serve_units` 한 줄과
-그 옆 전환 가드, 홈의 `~/.config/systemd/user/paper-a-pin-serve.service` 링크를 지운다. 가드가 있는 동안에는
-`install.sh` 를 다시 돌려도 `pin-viewer@paper-a` 이 enabled 이면 옛 유닛을 되살리지 않는다. 상태 폴더 안의 옛
-`pin_server.py`·`vendor/` 사본은 더는 쓰이지 않는다. 핀 파일과 섞여 있으므로 폴더째 지우지 않는다.
