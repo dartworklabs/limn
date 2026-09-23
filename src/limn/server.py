@@ -2458,7 +2458,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
  var t=p.theme,eff=t;if(t==='system'){eff=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
 </script>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>원고 핀</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2a10 10 0 0 0-10 10c0 7 10 18 10 18s10-11 10-18A10 10 0 0 0 16 2z' fill='%234ec9a0'/%3E%3Ccircle cx='16' cy='12' r='4' fill='%2306231b'/%3E%3C/svg%3E">
 <style>
@@ -2473,7 +2473,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
-  display:flex;height:100vh;overflow:hidden}
+  display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
 #left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px}
 #grip{width:6px;cursor:col-resize;background:var(--line);flex:none}
 #grip:hover,#grip.on{background:var(--line-strong)}
@@ -2529,7 +2529,7 @@ pre.nowrap{white-space:pre}
 #c-snip.open{max-height:44vh}
 /* 저장 줄은 컴포저 바닥에 붙인다 — 작은 창에서도 드래그 → 메모 → 저장이 안쪽 스크롤 없이 닿게 */
 #c-actions{position:sticky;bottom:-10px;margin:7px 0 -10px;padding:6px 0 10px;background:var(--card);z-index:1}
-.loc{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px;cursor:copy}
+.loc{font-family:ui-monospace,monospace;color:var(--acc);font-size:13px;cursor:copy;overflow-wrap:anywhere}
 .dim{color:var(--dim);font-size:12px}
 .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .seg{display:flex;flex-wrap:wrap;gap:4px;margin:7px 0 4px}
@@ -2569,7 +2569,7 @@ button.tag{background:none;cursor:pointer;font:inherit}
 #toasts{position:fixed;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:50;max-width:min(480px,60vw)}
 .toast{display:flex;align-items:center;gap:8px;background:var(--pane);color:var(--fg);border:1px solid var(--line-strong);
   border-left:4px solid var(--ok);border-radius:7px;padding:7px 8px 7px 10px;box-shadow:0 4px 16px var(--shadow);font-size:13px}
-.toast span{flex:1}
+.toast span{flex:1;min-width:0;overflow-wrap:anywhere}
 .toast.warn{border-left-color:var(--warn)}
 .toast.err{border-left-color:var(--danger)}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tip-bg);color:var(--tip-fg);font-size:12px;line-height:1.5;
@@ -2585,6 +2585,88 @@ dialog code{font-size:12px;word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--ok);vertical-align:middle;margin-right:4px}
 .sw.w{border-color:var(--warn)}
 .sw.a{border-color:var(--acc);border-style:dashed}
+/* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
+   레이아웃은 JS 가 body 에 건다: lay-wide(지금 그대로) · lay-mid(700px 초과 1100px 미만 + 터치: 좁은 사이드 패널) ·
+   lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
+   접힌 상태에는 도구 줄(#bar1)과 상태 칩(#bar2)·위치 다시 잡기 배너만 남는다. */
+.cmp,.tch{display:none}
+.pin .sum{display:none}
+.pin .tags{display:contents}
+.hint .t-touch{display:none}
+.pg{-webkit-touch-callout:none}
+#btn-select[aria-pressed=true]{background:var(--acc);color:var(--on-acc);border-color:var(--acc);font-weight:600}
+body.selmode .pg{touch-action:pinch-zoom;outline:2px dashed var(--acc);outline-offset:3px}
+#coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));z-index:60;background:var(--acc);
+  color:var(--on-acc);border-radius:10px;padding:6px 6px 6px 14px;display:flex;gap:8px;align-items:center;
+  width:max-content;max-width:calc(100vw - 16px);font-size:14px;box-shadow:0 6px 20px var(--shadow)}
+#coach button{background:transparent;color:inherit;border-color:transparent}
+body.lay-mid.side-open #coach{left:calc((100vw - clamp(300px,38vw,360px))/2);max-width:calc(100vw - clamp(300px,38vw,360px) - 16px)}
+#more{max-width:440px}
+#more .more-info{font-size:12.5px;color:var(--dim);overflow-wrap:anywhere;margin:0 0 10px}
+#more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#more .more-grid .wide{grid-column:1/-1}
+#more .jump-row{display:flex;gap:8px}
+#more .jump-row input{flex:1;min-width:0}
+@media (pointer:coarse){
+  button.tch{display:inline-block}
+  .hint .t-touch{display:inline}
+  .hint .t-mouse{display:none}
+  button{min-height:44px;min-width:44px;padding:8px 12px;font-size:14px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  button.x,.seg button{min-height:44px;padding:6px 10px;font-size:13px}
+  button.tag{min-height:44px;padding:4px 10px}
+  #bar1 button{padding:8px 10px}
+  #bar1{flex-wrap:wrap}
+  input,textarea,select{font-size:16px}
+  #bar1 input.n{width:60px;min-height:44px}
+  .loc,.pg-link{display:inline-flex;align-items:center;min-height:44px}
+  .mark b{width:26px;height:26px;left:-28px;font-size:12.5px}
+  .mark b::after{content:'';position:absolute;inset:-9px}
+  #tip{max-width:min(300px,calc(100vw - 16px))}
+}
+body.compact #grip{display:none}
+body.compact button.cmp{display:inline-block}
+body.compact .sec{display:none}
+body.compact #left{padding:12px max(10px,env(safe-area-inset-right)) 60vh max(30px,env(safe-area-inset-left));min-width:0}
+body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
+body.compact #right>*{flex:none}
+body.compact #bar1{flex-wrap:nowrap;gap:6px;position:sticky;top:0;z-index:3;background:var(--pane)}
+body.compact #bar1 .sp{min-width:0}
+body.compact #composer{max-height:none;overflow:visible;display:flex;flex-direction:column}
+/* compact: 메모 칸과 저장 줄을 원문 스니펫보다 위로 올린다 — 시트 높이 안에서 메모 칸이 저장 줄 밑에 숨었다(실측). */
+body.compact #c-body{display:contents}
+body.compact #c-actions{order:4}
+body.compact #c-snip,body.compact #c-expand{order:5}
+body.compact #c-expand{align-self:flex-start;margin-bottom:6px}
+body.compact #c-snip:not(.open){max-height:calc(7.5em + 20px)}
+body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+body.compact #c-actions{bottom:0;margin:7px 0 0;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
+body.compact #meta-txt,body.compact #me{display:none}
+body.compact #bar2:not(:has(.tag:not([hidden]))){display:none}
+body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner){display:none}
+body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
+/* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
+body.lay-narrow #toasts{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));bottom:auto;max-width:none}
+body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));max-width:calc(100vw - 400px)}
+body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--dim);cursor:pointer}
+body.compact .pin .head{flex-wrap:nowrap}
+body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp){display:none}
+body.compact .pin.open .head,body.compact .pin.editing .head{flex-wrap:wrap}
+body.compact .pin .head .tags{display:flex;flex-wrap:wrap;gap:6px;order:10;flex-basis:100%}
+body.compact .pin .head .tags:empty{display:none}
+body.compact .pin .au .au-n{display:none}
+body.lay-narrow{display:block}
+body.lay-narrow #left{height:100%}
+body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
+  max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--line-strong);border-radius:14px 14px 0 0;
+  box-shadow:0 -6px 24px var(--shadow);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+body.lay-narrow.side-open #right{height:min(64dvh,calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow #bar1{border-radius:14px 14px 0 0}
+body.lay-mid.side-open #right{width:clamp(300px,38vw,360px)!important}
+body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-inset-right));
+  bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
+  border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 6px 24px var(--shadow);z-index:20;overflow:hidden}
+body.lay-mid:not(.side-open) #bar1{border-radius:12px}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style></head><body>
 <div id="left"><div id="doc"></div></div>
@@ -2592,17 +2674,20 @@ dialog code{font-size:12px;word-break:break-all}
 <div id="grip" data-tip="끌어서 사이드바 폭을 조절합니다"></div>
 <div id="right">
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
+    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
+    <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 다시 만들기</button>
-    <button id="btn-reload" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
+    <button id="btn-reload" class="sec" data-act="reload" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">핀 다시 읽기</button>
     <span class="sp"></span>
-    <input class="n" id="jump" placeholder="쪽" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
-    <button id="btn-zoom-out" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
-    <button id="btn-zoom-in" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
-    <button id="btn-fit" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다">폭</button>
-    <button id="btn-theme" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
-    <button id="btn-help" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
+    <input class="n sec" id="jump" placeholder="쪽" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
+    <button id="btn-zoom-out" class="sec" data-act="zoom-out" aria-label="축소" data-tip="축소">−</button>
+    <button id="btn-zoom-in" class="sec" data-act="zoom-in" aria-label="확대" data-tip="확대">＋</button>
+    <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다">폭</button>
+    <button id="btn-theme" class="sec" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">◐</button>
+    <button id="btn-help" class="sec" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">?</button>
+    <button id="btn-more" class="cmp" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">⋯</button>
   </div>
-  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 다시 만드는 중입니다"></span></span><span class="sp"></span>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="tag t" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 다시 만들기]를 누르세요">원고가 더 새롭습니다</span> <span id="build-chip" class="tag" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 다시 만드는 중입니다"></span></span><span class="sp"></span>
     <span id="conn-lost" class="tag t" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
     <button id="build-err-chip" class="tag t" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
@@ -2638,8 +2723,8 @@ dialog code{font-size:12px;word-break:break-all}
     </div>
   </div>
   <div id="list">
-    <div id="empty" class="hint" hidden>PDF 위에서 <b>드래그</b>해 영역을 고르면 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
-      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><kbd>?</kbd> 를 누르면 도움말.</div>
+    <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
+      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [⋯] → 도움말.</span></div>
     <h3 id="list-h">열린 핀</h3>
     <div id="pins"></div>
     <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0 ▸</button>
@@ -2649,6 +2734,22 @@ dialog code{font-size:12px;word-break:break-all}
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
+<div id="coach" role="status" hidden><span id="coach-t"></span><button class="x" data-act="coach-close" aria-label="안내 닫기">×</button></div>
+<dialog id="more" aria-label="더보기">
+  <div class="row"><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="x" data-act="more-close">닫기</button></div>
+  <p class="more-info" id="more-info"></p>
+  <div class="more-grid">
+    <button data-act="reload" data-close="1">핀 다시 읽기</button>
+    <button id="m-theme" data-act="theme">테마: 시스템</button>
+    <button data-act="zoom-out" aria-label="축소">축소 −</button>
+    <button data-act="zoom-in" aria-label="확대">확대 ＋</button>
+    <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
+    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽 번호" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
+    <button id="m-done" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
+    <button id="m-dropped" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
+    <button class="wide" data-act="help">도움말</button>
+  </div>
+</dialog>
 <dialog id="help" aria-labelledby="help-h">
   <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="x" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
   <h4>한 바퀴</h4>
@@ -2659,6 +2760,12 @@ dialog code{font-size:12px;word-break:break-all}
     <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
     <li><b>PDF 다시 만들기</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
   </ol>
+  <h4>휴대폰·태블릿(터치)</h4>
+  <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
+    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락 확대는 그대로 됩니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
+    <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
+    <tr><td><kbd>⋯</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·이 도움말</td></tr>
+    <tr><td>설명 보기</td><td>버튼을 길게 누르면 설명이 뜹니다</td></tr></table>
   <h4>단축키</h4>
   <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
     <tr><td><kbd>⌘↵</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
@@ -2689,6 +2796,11 @@ const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smoo
 const MQ=matchMedia('(prefers-color-scheme: light)');
 let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null;
 let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
+// 모바일: LAYOUT 은 'wide'|'mid'|'narrow', SIDE_OPEN 은 패널·시트가 펼쳐졌는가, SELMODE 는 터치 선택 모드,
+// ZOOMED 는 compact 에서 사용자가 −/＋ 로 폭을 바꿨는가(그동안은 화면 폭에 자동으로 맞추지 않는다).
+const MQ_COARSE=matchMedia('(pointer:coarse)');
+let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
+const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
 window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
 
 const T={
@@ -2721,7 +2833,8 @@ function applyTheme(){let t=prefs().theme||'system'; if(!THEME_LABEL[t])t='syste
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
   document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.textContent=THEME_LABEL[t];
   b.setAttribute('aria-label','화면 테마: '+THEME_NAME[t]);
-  b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';}
+  b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';
+  const m=$('#m-theme'); if(m)m.textContent='테마: '+THEME_NAME[t]+' '+THEME_LABEL[t];}
 MQ.addEventListener('change',applyTheme);
 function cycleTheme(){const t=prefs().theme||'system';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
@@ -2771,22 +2884,47 @@ function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))r
   const left=Math.min(Math.max(4,cx-tw/2),innerWidth-tw-4);
   TIP.style.left=left+'px'; TIP.style.top=top+'px';}
 function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; tipT=setTimeout(()=>showTip(el),300);}
-document.addEventListener('mouseover',e=>armTip(e.target.closest?e.target.closest('[data-tip]'):null));
+// 터치 직후에는 호버·포커스 툴팁을 띄우지 않는다 — 모바일 크롬은 탭마다 mouseover·focusin 을 흉내 내서, 버튼을
+// 누를 때마다 설명이 튀어나왔다. 터치에서는 길게 누르기(아래)로 본다.
+const touchRecent=()=>Date.now()-LAST_TOUCH_T<1500;
+document.addEventListener('pointerdown',e=>{LAST_PTR=e.pointerType||'mouse'; if(LAST_PTR!=='mouse')LAST_TOUCH_T=Date.now();},true);
+document.addEventListener('mouseover',e=>{if(touchRecent())return; armTip(e.target.closest?e.target.closest('[data-tip]'):null);});
 // 입력 칸(textarea)에는 포커스 툴팁을 띄우지 않는다 — 타이핑 중 스니펫을 가리고, 첫 Esc 를 툴팁이 먹어
 // '취소하려고 Esc → Ctrl+Enter' 가 버리려던 핀을 저장했다(실측).
-document.addEventListener('focusin',e=>{const t=e.target; if(t&&t.tagName==='TEXTAREA'){hideTip();return;}
+document.addEventListener('focusin',e=>{const t=e.target;
+  if((t&&t.tagName==='TEXTAREA')||touchRecent()){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
+// 길게 누르기 툴팁(터치·펜): 500ms 누르고 있으면 설명을 띄우고, 손을 뗀 뒤의 click 한 번은 삼킨다(버튼이 눌리지 않게).
+// 쪽 이미지 위는 빠른 선택(길게 누르기 = 그 문단)이 쓰므로 배지(.mark b)만 해당한다. 입력 칸은 붙여넣기 메뉴를 살린다.
+let PRESS=null,SWALLOW_CLICK=0;
+function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
+  if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
+  if(el.closest('.pg')&&!el.closest('.mark b'))return null; return el;}
+document.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse')return; if(!TIP.hidden)hideTip();
+  const el=pressTarget(e.target); if(!el)return;
+  PRESS={el,x:e.clientX,y:e.clientY,t:setTimeout(()=>{showTip(el); PRESS.shown=true; SWALLOW_CLICK=Date.now()+900;
+    setTimeout(()=>{if(!TIP.hidden&&TIP.textContent===el.dataset.tip)hideTip();},4000);},500)};},true);
+function endPress(){if(PRESS){clearTimeout(PRESS.t); PRESS=null;}}
+document.addEventListener('pointermove',e=>{if(PRESS&&Math.hypot(e.clientX-PRESS.x,e.clientY-PRESS.y)>10)endPress();},true);
+document.addEventListener('pointerup',endPress,true);
+document.addEventListener('pointercancel',endPress,true);
+document.addEventListener('click',e=>{if(Date.now()<SWALLOW_CLICK){SWALLOW_CLICK=0;e.preventDefault();e.stopImmediatePropagation();}},true);
+document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const t=e.target;
+  if(t&&t.closest&&(t.closest('.pg')||pressTarget(t)))e.preventDefault();});
 document.addEventListener('input',hideTip,true);
 document.addEventListener('focusout',hideTip);
 document.addEventListener('scroll',hideTip,true);
-document.addEventListener('mousedown',hideTip,true);
+// 길게 누르기로 띄운 직후 손을 떼면 크롬이 흉내 mousedown 을 보낸다 — 그것으로는 닫지 않는다.
+document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
 
 // ------------------------------------------------ 문서
 async function boot(){
-  applyTheme();
-  $('#btn-save').textContent='핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
+  applyTheme(); applyLayout();
+  // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
+  $('#btn-save').textContent=MQ_COARSE.matches?'핀 저장':'핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
   try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
   drawMeta(); buildDoc(); autoW(); applySideWidth(); await loadPins();
+  if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_mtime;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
   startLightPolling(); startBuildPolling();
@@ -2814,6 +2952,9 @@ function drawMeta(){
   $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
   updateStaleBadge(META);
   $('#help-pins-md').textContent=META.pins_md||'';
+  // compact 에서는 #bar2 의 파일·커밋·시각·작성자 줄을 숨기고 [⋯] 안에 한 줄로 보인다(긴 파일 이름이 넘치지 않게).
+  $('#more-info').textContent=[META.main,META.pages.length+'쪽',META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
+    '나: '+(me.name||me.login||'')].filter(Boolean).join(' · ');
 }
 
 // ------------------------------------------------ 자동 동기화(P0b-02) — 가벼운 meta 폴링
@@ -2952,14 +3093,78 @@ function buildDoc(){
   marks();
 }
 // save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
-function setW(w,save){W=Math.round(Math.min(2200,Math.max(300,w))); $$('.pg').forEach(e=>e.style.width=W+'px'); if(save!==false)savePrefs({w:W});}
-function autoW(){if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
-let autoT=null; window.addEventListener('resize',()=>{clearTimeout(autoT); autoT=setTimeout(()=>{autoW();applySideWidth();},150);});
-function zoom(k){setW(W+k*140);}
+// compact(mid·narrow)에서는 폭을 저장하지 않는다 — 접은 화면에서 맞춘 폭이 편 화면·데스크톱 설정을 덮지 않게.
+function setW(w,save){W=Math.round(Math.min(2200,Math.max(LAYOUT==='wide'?300:160,w))); $$('.pg').forEach(e=>e.style.width=W+'px');
+  if(save!==false&&LAYOUT==='wide')savePrefs({w:W});}
+function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
+// compact 는 늘 화면 폭에 맞춘다(사용자가 −/＋ 를 눌렀으면 그 레이아웃 동안은 그대로). wide 는 예전 그대로.
+function autoW(){if(LAYOUT!=='wide'){if(!ZOOMED)setW(innerW(),false);return;}
+  if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
+function zoom(k){setW(W+k*140); if(LAYOUT!=='wide')ZOOMED=true;}
 // 폭 맞춤: #left.clientWidth 에서 48px(좌우 여백)을 뺀 값에 맞춘다.
-function fitW(){const L=$('#left'); setW(L.clientWidth-48);}
-function goPage(){const el=document.getElementById('p'+parseInt($('#jump').value,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
+function fitW(){if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false); return;} const L=$('#left'); setW(L.clientWidth-48);}
+function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
+$('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
+
+// ------------------------------------------------ 화면 폭별 레이아웃(모바일)
+// wide: 지금까지의 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만의 터치 화면(편 폴더블) — 좁은 사이드
+// 패널, 접으면 오른쪽 아래 도구 줄만 남는다. narrow: 700px 이하(접은 폴더블·휴대폰) — 하단 시트, 기본은 접힘.
+// 접기·펴기로 폭이 도중에 바뀌면 레이아웃을 다시 고르고, 보던 자리(topAnchor)를 지킨 채 쪽 폭을 다시 맞춘다.
+// 마크·선택 상자는 쪽 안의 % 좌표라 쪽 폭만 맞으면 저절로 제자리다.
+function layoutFor(){const w=innerWidth; if(w<=700)return 'narrow'; if(w<1100&&MQ_COARSE.matches)return 'mid'; return 'wide';}
+function applyLayout(){const L=layoutFor(); if(L===LAYOUT)return false;
+  LAYOUT=L; const b=document.body; ZOOMED=false;
+  ['wide','mid','narrow'].forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!=='wide');
+  SIDE_OPEN=L==='wide'?true:(L==='mid'?!prefs().midClosed:false);
+  if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // 쓰던 메모·편집은 접힌 채로 숨기지 않는다
+  applySide(); return true;}
+function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
+  document.body.classList.toggle('side-open',open);
+  const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
+  $('#side-arrow').textContent=LAYOUT==='narrow'?(open?'▾':'▴'):(open?'▸':'◂');
+  btn.setAttribute('aria-label',(open?'패널 접기':'패널 펴기')+' · 열린 핀 '+PINS.length);}
+// remember: mid 에서 사용자가 직접 접고 편 것만 기억한다(narrow 는 늘 접힌 채 시작).
+function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
+  if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
+  if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
+function relayout(){const a=topAnchor(); applyLayout(); autoW(); applySideWidth(); restoreAnchor(a); hideTip();}
+let RELAY=0;
+function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
+window.addEventListener('resize',scheduleRelayout);
+MQ_COARSE.addEventListener('change',scheduleRelayout);
+// 패널을 펴고 접어 #left 폭만 바뀌어도(compact) 쪽 폭을 다시 맞춘다. 콜백에서 바로 레이아웃을 바꾸지 않고
+// 다음 프레임으로 미룬다(ResizeObserver 루프 경고 방지). wide 는 예전처럼 창 크기 변화에만 반응한다.
+if(window.ResizeObserver)new ResizeObserver(()=>{if(LAYOUT&&LAYOUT!=='wide')scheduleRelayout();}).observe($('#left'));
+
+// 가상 키보드: 크롬 안드로이드는 viewport meta 의 interactive-widget=resizes-content 로 레이아웃 자체가 줄어든다.
+// 그 값을 모르는 브라우저는 visualViewport 로 키보드 높이(--kb)를 재서 화면 전체를 그만큼 올린다. 핀치 확대로 줄어든
+// visualViewport 는 키보드가 아니다(scale 을 곱해 되돌린다). 입력 칸이 포커스돼 있으면 보이는 자리로 끌어온다.
+function onViewport(){const vv=window.visualViewport; if(!vv)return;
+  const lh=document.documentElement.clientHeight;
+  let kb=Math.round(lh-vv.height*vv.scale); if(!(kb>=80)||!MQ_COARSE.matches)kb=0;
+  const R=document.documentElement.style, prev=R.getPropertyValue('--kb');
+  R.setProperty('--kb',kb+'px'); R.setProperty('--vvh',(lh-kb)+'px');
+  const a=document.activeElement;
+  if(prev!==kb+'px'&&a&&(a.tagName==='TEXTAREA'||a.tagName==='INPUT')&&$('#right').contains(a))
+    requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
+if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); visualViewport.addEventListener('scroll',onViewport);}
+document.addEventListener('focusin',e=>{const t=e.target;
+  if(LAYOUT!=='wide'&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>t.scrollIntoView({block:'center'}),350);});
+
+// 처음 한 번만 뜨는 안내(localStorage pinPrefs.coach 에 본 것을 기억한다).
+let COACH_T=null;
+function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
+  $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
+function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
+  const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.textContent=SELMODE?'선택 중':'선택';
+  if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); d.showModal();}
+// [⋯] 에서 닫힌 핀·삭제한 핀을 펼치면 패널을 펴고 그 목록으로 스크롤한다.
+function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
+// 대화상자 밖(배경)을 누르면 닫는다 — dialog 자신이 target 인 click 중 상자 사각형 밖인 것만.
+$('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)return; const r=d.getBoundingClientRect();
+  if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
 
 (function(){let on=false;
   $('#grip').addEventListener('mousedown',e=>{on=true;$('#grip').classList.add('on');document.body.style.userSelect='none';e.preventDefault();});
@@ -2969,28 +3174,67 @@ $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
     savePrefs({side:parseInt(getComputedStyle($('#right')).width,10)});});
 })();
 
-// ------------------------------------------------ 드래그 선택
-let DRAG=null;
+// ------------------------------------------------ 드래그 선택(마우스·터치·펜 — Pointer Events 한 경로)
+// 마우스: 예전 그대로 누르고 끌면 사각형. 터치·펜: 선택 모드(SELMODE)일 때만 끌면 사각형이고 탭하면 빠른 선택,
+// 선택 모드가 아니면 스크롤·핀치 확대가 그대로 되고 길게 누르면 빠른 선택이다. 선택 모드에서는 쪽에만
+// touch-action:pinch-zoom 을 걸어(한 손가락 끌기는 이 코드가, 두 손가락은 브라우저 확대가 가진다).
+// 좌표는 clientX/Y 와 getBoundingClientRect 를 같은 기준(레이아웃 뷰포트)으로 나눈 쪽 안 비율이라 핀치 확대 중에도 맞다.
+let DRAG=null,LP=null;
 const c01=v=>Math.min(1,Math.max(0,v));
-$('#doc').addEventListener('mousedown',e=>{if(e.button!==0)return; const pg=e.target.closest('.pg'); if(!pg)return;
-  const r=pg.getBoundingClientRect();
-  DRAG={pg,sx:c01((e.clientX-r.left)/r.width),sy:c01((e.clientY-r.top)/r.height),box:document.createElement('div')};
-  DRAG.box.className='sel'; pg.appendChild(DRAG.box); e.preventDefault();});
-window.addEventListener('mousemove',e=>{if(!DRAG)return; const r=DRAG.pg.getBoundingClientRect();
-  const x=c01((e.clientX-r.left)/r.width),y=c01((e.clientY-r.top)/r.height);
-  Object.assign(DRAG.box.style,{left:Math.min(DRAG.sx,x)*100+'%',top:Math.min(DRAG.sy,y)*100+'%',
-    width:Math.abs(x-DRAG.sx)*100+'%',height:Math.abs(y-DRAG.sy)*100+'%'});});
-window.addEventListener('mouseup',e=>{if(!DRAG)return; const {pg,sx,sy,box}=DRAG; DRAG=null;
-  const r=pg.getBoundingClientRect(),x=c01((e.clientX-r.left)/r.width),y=c01((e.clientY-r.top)/r.height);
+const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006;
+function fracAt(pg,cx,cy){const r=pg.getBoundingClientRect(); return [c01((cx-r.left)/r.width),c01((cy-r.top)/r.height)];}
+function newBox(pg){const b=document.createElement('div'); b.className='sel'; pg.appendChild(b); return b;}
+function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',
+  width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
+function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
+function cancelLP(){if(LP){clearTimeout(LP.t); LP=null;}}
+// 예전 mousedown 처럼 쪽 위 마우스 누름의 기본 동작(포커스 이동·이미지 끌기)을 막는다 — 메모 칸 포커스가 유지된다.
+$('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.pg'))e.preventDefault();});
+$('#doc').addEventListener('pointerdown',e=>{
+  if(e.target.closest('.mark b'))return;
+  if(!e.isPrimary){cancelDrag(); cancelLP(); return;}   // 두 번째 손가락 = 핀치 — 그리던 상자를 버린다
+  const pg=e.target.closest('.pg'); if(!pg)return;
+  const mouse=e.pointerType==='mouse';
+  if(mouse&&e.button!==0)return;
+  if(mouse||SELMODE){const [sx,sy]=fracAt(pg,e.clientX,e.clientY);
+    DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse?newBox(pg):null};
+    if(!mouse){try{pg.setPointerCapture(e.pointerId);}catch(_){}}
+    return;}
+  cancelLP();
+  LP={id:e.pointerId,pg,cx:e.clientX,cy:e.clientY,t:setTimeout(()=>{const L=LP; LP=null; if(L)quickPick(L.pg,L.cx,L.cy);},LONGPRESS_MS)};
+});
+window.addEventListener('pointermove',e=>{
+  if(LP&&e.pointerId===LP.id&&Math.hypot(e.clientX-LP.cx,e.clientY-LP.cy)>10)cancelLP();
+  if(!DRAG||e.pointerId!==DRAG.id)return;
+  if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
+  const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
+window.addEventListener('pointerup',e=>{
+  if(LP&&e.pointerId===LP.id)cancelLP();
+  if(!DRAG||e.pointerId!==DRAG.id)return;
+  const D=DRAG; DRAG=null;
+  if(!D.box){quickPick(D.pg,e.clientX,e.clientY);return;}   // 선택 모드의 탭 = 빠른 선택
+  const [x,y]=fracAt(D.pg,e.clientX,e.clientY); finishRect(D.pg,D.box,D.sx,D.sy,x,y);});
+window.addEventListener('pointercancel',e=>{if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();});
+// 빠른 선택: 누른 점 둘레의 작은 상자(쪽 폭 ±7%, 높이 ±0.6% ≈ 한 줄)로 기존 /api/pick 을 부른다. 서버의 기본 단계가
+// 본문이면 '문단', 그림·표 안이면 '환경'이라 그대로 쓰면 되고, 범위 사다리로 넓히고 좁힌다.
+function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy);
+  finishRect(pg,newBox(pg),c01(x-QUICK_W),c01(y-QUICK_H),c01(x+QUICK_W),c01(y+QUICK_H));}
+function finishRect(pg,box,sx,sy,x,y){
   const w=Math.abs(x-sx),h=Math.abs(y-sy);
   if(w<0.004&&h<0.004){box.remove();return;}
-  Object.assign(box.style,{left:Math.min(sx,x)*100+'%',top:Math.min(sy,y)*100+'%',width:w*100+'%',height:h*100+'%'});
+  drawBox(box,sx,sy,x,y);
   box.classList.add('pending');
   if(REPICK){ if(REPICK.box)REPICK.box.remove(); REPICK.box=box; box.innerHTML='<i>새 위치</i>'; }
   else { if(PENDING)PENDING.remove(); PENDING=box; box.innerHTML='<i>새 핀</i>'; }
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
-    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined});});
+    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined});}
+// 시트·패널이 선택 상자를 가리면 상자가 보이는 곳까지 본문을 올린다(compact 전용).
+function revealBox(box){if(!box||LAYOUT==='wide'||!document.contains(box))return;
+  const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect();
+  let bottom=lr.bottom; if(LAYOUT==='narrow'&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
+  const top=lr.top+28; if(br.top>=top&&br.bottom<=bottom-8)return;
+  L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
 
 // ------------------------------------------------ 범위 단계
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
@@ -3028,7 +3272,8 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
-  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); $('#c-err').hidden=true;}
+  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); $('#c-err').hidden=true;
+    if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false);
@@ -3047,7 +3292,9 @@ async function pick(r){
   if((d.overlaps||[]).some(o=>!PINS.some(p=>p.id===o.id)))loadPins();
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
-  $('#note').focus({preventScroll:true});   // 드래그 → 바로 메모 입력
+  if(LAYOUT!=='wide')$('#right').scrollTop=0;
+  // 드래그 → 바로 메모 입력. 터치에서는 포커스하지 않는다 — 가상 키보드가 곧바로 올라와 범위 사다리와 쪽을 가렸다.
+  if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});
 }
 // P0b-03: 저장 전 선택(CUR)이 열린 핀과 겹치면 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지
 // 않는다 — 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
@@ -3106,8 +3353,10 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-expand').hidden=!many; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기';
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
+// 저장·취소·덧붙이기로 선택이 끝나면 선택 모드를 끄고(다시 스크롤되게) narrow 시트를 접는다(다시 본문이 먼저).
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';
+  if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -3180,12 +3429,18 @@ function card(p){
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
-  const editing=EDIT&&EDIT.id===p.id;
-  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+'" data-id="'+p.id+'" data-tip="'+tip+'">'+
-    '<div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
+  const editing=!!(EDIT&&EDIT.id===p.id),open=OPEN_CARDS.has(p.id);
+  // compact 아코디언: 접힌 카드는 번호·위치·쪽·메모 첫 줄(.sum)만 보이고, 누르면 태그·메모·버튼이 펼쳐진다(CSS).
+  // wide 에서는 .sum·접기 버튼이 숨어 예전 카드 그대로다.
+  const first=String(p.note||'').split('\n')[0].trim();
+  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-tip="'+tip+'">'+
+    '<div class="row head"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
     '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
-    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+tags.join('')+
-    '<span class="sp"></span>'+au+'</div>'+
+    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
+    '<span class="sum" data-act="card-toggle">'+(p.stale?'⚠ ':'')+(claimed?'⏳ ':'')+(first?esc(first):'(메모 없음)')+'</span>'+
+    '<span class="tags">'+tags.join('')+'</span>'+
+    '<span class="sp"></span>'+au+
+    '<button class="x ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+(open||editing?'▾':'▸')+'</button></div>'+
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
     '<div class="row acts"><button class="x b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
@@ -3224,6 +3479,11 @@ async function loadPins(){let d;
 }
 function drawPins(){
   $('#list-h').textContent='열린 핀 '+PINS.length;
+  $('#side-n').textContent=PINS.length; applySide();
+  // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
+  $('#m-done').textContent='닫힌 핀 '+DONE.length+(SHOW_DONE?' 숨기기':' 보기');
+  $('#m-dropped').textContent='삭제한 핀 '+DROPPED.length+(SHOW_DROPPED?' 숨기기':' 보기');
+  $('#done-toggle').classList.toggle('sec',!SHOW_DONE); $('#dropped-toggle').classList.toggle('sec',!SHOW_DROPPED);
   $('#empty').hidden=PINS.length>0;
   $('#pins').innerHTML=PINS.length?PINS.map(card).join(''):'<div class="dim">아직 없습니다.</div>';
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
@@ -3257,6 +3517,9 @@ $('#doc').addEventListener('mousedown',e=>{
 },true);
 // 배지 클릭 → 카드로 스크롤 + .cur 강조(스펙) + 1.2초 깜빡임. 강조는 그대로 남지 않고 풀린다 —
 // 정적 box-shadow 였을 때는 다음 클릭 전까지 카드에 계속 남아 있었다.
+// compact: 배지를 누르면 패널·시트를 펴고 그 카드를 펼친 뒤 jumpToCard 로 스크롤한다.
+function revealCard(id){if(LAYOUT==='wide')return; setSide(true);
+  if(!OPEN_CARDS.has(id)&&PINS.some(p=>p.id===id)){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){
   const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
   el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
@@ -3266,6 +3529,7 @@ function jumpToCard(id){
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
 function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
+  if(LAYOUT==='narrow')setSide(false);   // 시트가 쪽을 가리지 않게 접고 나서 잰다
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();
@@ -3360,8 +3624,11 @@ function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c;
     '<span class="dim">('+esc(lv.label||scopeLabel(c))+')</span><span class="sp"></span>'+
     '<button class="x p" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
     '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
-function startRepick(){if(!EDIT)return; REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi},box:null,cand:null}; bannerRepick();}
-function cancelRepick(){if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;}
+// 터치에서는 위치 다시 잡기 동안 선택 모드를 켜고, narrow 는 시트를 접어 쪽을 드러낸다(배너는 접힌 시트에도 남는다).
+function startRepick(){if(!EDIT)return; REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi},box:null,cand:null}; bannerRepick();
+  if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT==='narrow')setSide(false);}
+function cancelRepick(){const was=!!REPICK; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;
+  if(was){if(!CUR)setSelMode(false); if(EDIT&&LAYOUT!=='wide')setSide(true);}}
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
   const loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
     scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
@@ -3419,7 +3686,15 @@ document.addEventListener('click',e=>{
   const cp=e.target.closest('[data-copy]'); if(cp){copyText(cp.dataset.copy);return;}
   const a=e.target.closest('[data-act]'); if(!a)return;
   const host=a.closest('[data-id]'),id=host?+host.dataset.id:null,inEdit=!!a.closest('.edit');
+  const fromMore=!!a.closest('#more');
+  if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   switch(a.dataset.act){
+    case 'side':setSide(!SIDE_OPEN,true);break;
+    case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT==='narrow'&&!CUR&&!EDIT)setSide(false);break;
+    case 'more':openMore();break; case 'more-close':$('#more').close();break;
+    case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
+    case 'coach-close':$('#coach').hidden=true;break;
+    case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
@@ -3434,13 +3709,13 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'mark-jump':jumpToCard(id);break;
+    case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
-    case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();break;
-    case 'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins();break;
+    case 'done-toggle':SHOW_DONE=!SHOW_DONE;drawPins();if(fromMore)revealList('#done-toggle',SHOW_DONE);break;
+    case 'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins();if(fromMore)revealList('#dropped-toggle',SHOW_DROPPED);break;
     case 'err-close':hideBuildErr();break;
     case 'build-err-reopen':if(LAST_BUILD_ERR)showBuildErr(LAST_BUILD_ERR);break;
   }
@@ -3454,7 +3729,7 @@ document.addEventListener('keydown',e=>{
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
   if(e.key==='Escape'){
-    if($('#help').open)return;
+    if($('#help').open||$('#more').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}
     if(REPICK){cancelRepick();return;}
     if(EDIT){cancelEdit();return;}
