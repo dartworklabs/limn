@@ -2558,7 +2558,8 @@ class FrontendMobileStructure(unittest.TestCase):
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}")]
         self.assertIn("min-height:44px", coarse)
-        self.assertIn("input,textarea,select{font-size:16px}", coarse)
+        self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)   # iOS 확대 방지 — 16px 이상
+        self.assertIn("--text-xl:16px", css)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
         # touch-action: PDF 영역(#left)은 스크롤만 넘기고 브라우저 핀치를 막는다(두 손가락은 앱 확대, §PDF 영역 전용
@@ -2973,8 +2974,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertLess(body.index('b-drop'), body.index('b-close'))         # 완료(주요)는 맨 오른쪽
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
-        self.assertIn("button.b-close{background:var(--acc-soft)", css)
-        self.assertIn("button.b-drop{color:var(--danger)}", css)
+        self.assertIn("button.b-close{background:color-mix(in srgb,var(--primary) 14%,transparent)", css)
+        self.assertIn("button.b-drop{color:var(--destructive)}", css)
 
     def test_compact_toolbar_is_one_even_row(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
@@ -3776,10 +3777,10 @@ class FrontendArchive(unittest.TestCase):
     def test_status_strips_colour_open_claimed_done_dropped(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin.claimed::before{", css)
-        self.assertIn("background:var(--claim)", css)
-        self.assertIn(".arc-row{position:relative;padding:4px 4px 6px 10px;border-left:3px solid var(--ok)", css)
-        self.assertIn(".arc-row.dropped{border-left-color:var(--arc-grey)", css)
-        self.assertEqual(css.count("--claim:"), 2)                      # 다크·라이트 둘 다
+        self.assertIn("background:var(--status-claimed)", css)
+        self.assertIn(".arc-row{position:relative;padding:var(--space-1) var(--space-1) 6px 10px;border-left:3px solid var(--status-closed)", css)
+        self.assertIn(".arc-row.dropped{border-left-color:var(--status-dropped)", css)
+        self.assertEqual(css.count("--status-claimed:"), 2)             # 다크·라이트 둘 다
         self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))
 
 
@@ -4078,12 +4079,14 @@ class FrontendToolbarSize(unittest.TestCase):
 
     def test_page_field_matches_toolbar_buttons(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn("#bar1{flex-wrap:wrap;gap:4px;padding:8px 10px;--tb-h:28px}", css)
+        self.assertIn("#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2) 10px;--tb-h:var(--control-h)}", css)
+        self.assertIn("--control-h:28px", css)
+        self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
-        self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 4px;font-size:12.5px;", css)
+        self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.ib{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
-        self.assertIn("#bar1{flex-wrap:wrap;--tb-h:44px}", coarse)
-        self.assertIn("#bar1 input.n{width:52px;font-size:16px}", coarse)
+        self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
+        self.assertIn("#bar1 input.n{width:52px;font-size:var(--text-xl)}", coarse)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽"')
         self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
