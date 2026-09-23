@@ -140,3 +140,10 @@ ss -ltnH 'sport = :<PORT>'                               # 비었는지 확인
 pin-viewer start <이름>                                   # 설정의 PORT·TS_PORT·STATE_DIR 를 옛 값 그대로 두면 주소·핀이 이어진다
 pin-viewer status <이름>                                  # active/enabled, 로컬 200 · 테일넷 200 · 핀 수 동일 확인
 ```
+
+## 인스턴스 목록
+
+| 이름 | 이름표 | 로컬/테일넷 | 원고 저장소 | 문서 |
+|---|---|---|---|---|
+| `paper-a` | A-DEMO | 18104 / 18004 | example-lab/paper-a (`paper/manuscript/1st`) | 본문 1 |
+| `paper-b` | Long-DemoPaper1 | 18105 / 18005 | example-lab/paper-b | 본문·답변서·커버레터·제출본 PDF(보기 전용) |
