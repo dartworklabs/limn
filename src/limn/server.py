@@ -3692,8 +3692,11 @@ body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
    같은 selector 를 터치에서만 다시 못박는다 — 소스 순서가 위 규칙보다 뒤이므로 specificity 동률에서 이긴다. */
 @media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
 /* 접은 폴드(narrow): 이름표 글자는 도구 줄에서 빼고 [더보기] 첫 줄에 둔다 — 28px 로 줄어 'C…' 만 남아 읽을 수 없었다(2026-09-23).
-   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다. */
-body.lay-narrow #bar1 .chip{display:none}
+   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다.
+   편 폴드(mid, 884px)도 같은 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄었다(실측) — 같은 처방을
+   그대로 편다. #more-label(더보기 첫 줄)이 두 레이아웃 모두에 이미 있어(레이아웃 조건 없는 공용 마크업) 별도
+   시트 없이도 전체 이름을 볼 수 있다. */
+body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}

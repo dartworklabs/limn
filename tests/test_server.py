@@ -4377,15 +4377,22 @@ class FrontendToolbarOneRow(unittest.TestCase):
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
         # 접은 폴드(344px)에서 이름표가 'C…', 문서 버튼이 '본..' 으로 줄어 읽을 수 없었다(2026-09-23).
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip{display:none}", css)
+        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
         self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
-        self.assertNotIn("body.lay-mid #bar1 .chip{display:none}", css)          # 편 폴드·데스크톱은 그대로
         more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))]
         self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
         out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
         self.assertIn("#more .more-head .chip{background:var(--brand);", css)
+
+    def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
+        # 회귀: 펼친 폴드(884px)도 #bar1 이 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄어
+        # 읽을 수 없었다(터치 QA 실측). narrow 와 같은 처방 — 도구 줄 칩은 숨기고 [더보기] 안 #more-label 로만
+        # 전체 이름을 보인다. #more(더보기) 는 레이아웃 조건 없는 공용 마크업이라 mid 에서도 그대로 쓸 수 있다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
+        self.assertIn('id="btn-more" class="cmp btn-icon"', ps.HTML)   # [더보기] 는 compact(=mid·narrow) 공용
 
 
 class FrontendToolbarSize(unittest.TestCase):
