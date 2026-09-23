@@ -145,5 +145,7 @@ pin-viewer status <이름>                                  # active/enabled, �
 
 | 이름 | 이름표 | 로컬/테일넷 | 원고 저장소 | 문서 |
 |---|---|---|---|---|
-| `paper-a` | A-DEMO | 18104 / 18004 | example-lab/paper-a (`paper/manuscript/1st`) | 본문 1 |
-| `paper-b` | Long-DemoPaper1 | 18105 / 18005 | example-lab/paper-b | 본문·답변서·커버레터·제출본 PDF(보기 전용) |
+| `paper-a` | A-DEMO | 18104 / 18004 | example-lab/paper-a (`paper/`) | 본문·하이라이트·커버레터 |
+| `paper-b` | Long-DemoPaper1 | 18105 / 18005 | example-lab/paper-b | 본문·답변서·하이라이트·커버레터·제출본 PDF(보기 전용) |
+
+기본 탭 순서: 본문 · 답변서(수정 단계, `reviews/` 가 있을 때) · 하이라이트 · 커버레터 · 그 밖(보기 전용 PDF 등). 문서가 늘거나 줄어도 자리를 바꾸지 않는다.
