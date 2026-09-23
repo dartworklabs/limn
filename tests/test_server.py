@@ -2395,8 +2395,11 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("input,textarea,select{font-size:16px}", coarse)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다
-        self.assertEqual(re.findall(r"([^{}]*)\{[^{}]*touch-action", css), ["\nbody.selmode .pg"])
+        # touch-action 은 선택 모드의 쪽에만 건다 — 평소에는 스크롤·확대를 막지 않는다. 그 밖에는 폭·높이 손잡이
+        # 둘뿐이다(내용이 아니라 잡는 막대라, 끄는 동안 스크롤과 다투지 않게 none 을 건다).
+        css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
+                         ["#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
         self.assertIn("touch-action:pinch-zoom", css)
         # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
         self.assertIn("body.lay-narrow #toasts{", css)
@@ -2489,7 +2492,7 @@ class FrontendMobileLogic(unittest.TestCase):
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             """,
-            extract_js_fn("card"),
+            extract_js_fn("rng"), extract_js_fn("card"),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -2500,6 +2503,139 @@ class FrontendMobileLogic(unittest.TestCase):
         ])
         self.assertEqual(json.loads(run_node(js)),
                          ["첫 줄 &lt;b&gt;", False, "(메모 없음)", True, True, True, True])
+
+
+# 패널 정리·폭 조절(references/design.md §패널 정리와 폭 조절). 실측은 Playwright(펼친 화면 880×790·접은 화면 412×915·
+# 데스크톱 1440×900)로 했고, 여기서는 한계·단계·라벨 같은 순수 로직을 node 로, 배치·배선을 HTML 문자열로 본다.
+class FrontendPanelWidthLogic(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_side_bounds_per_layout(self):
+        js = "\n".join([extract_js_fn("sideBounds"), r"""
+            console.log(JSON.stringify([sideBounds('mid',880),sideBounds('mid',760),sideBounds('mid',701),
+                                        sideBounds('wide',1440),sideBounds('wide',1100),sideBounds('wide',700)]));"""])
+        got = json.loads(run_node(js))
+        # 펼친 화면: 최소 300(도구 줄이 한 줄), 최대 60%(본문 320px 이상), 기본은 예전 clamp(300,38vw,360) 그대로
+        self.assertEqual(got[0], {"min": 300, "max": 528, "def": 334, "presets": [300, 334, 440]})
+        self.assertEqual(got[1]["max"], 440)
+        self.assertEqual(got[2], {"min": 300, "max": 381, "def": 300, "presets": [300, 300, 351]})
+        # 데스크톱: 기본 430 과 최소 280 은 예전 그대로, 최대는 본문 480px + 손잡이를 남긴다
+        self.assertEqual(got[3], {"min": 280, "max": 954, "def": 430, "presets": [320, 430, 605]})
+        self.assertEqual(got[4]["max"], 614)
+        self.assertEqual(got[5], {"min": 280, "max": 280, "def": 280, "presets": [280, 280, 280]})
+        for b in got:
+            self.assertTrue(all(b["min"] <= w <= b["max"] for w in b["presets"] + [b["def"]]), b)
+
+    def test_clamp_and_preset_cycle(self):
+        js = "\n".join([extract_js_fn("clampSide"), extract_js_fn("nextPreset"), extract_js_fn("presetIndex"), r"""
+            const b={min:300,max:528},P=[300,334,440];
+            console.log(JSON.stringify([[100,300.4,420,999].map(w=>clampSide(w,b)),
+              [300,334,420,440,500,302].map(w=>nextPreset(P,w)), [300,331,338,420,440].map(w=>presetIndex(P,w))]));"""])
+        self.assertEqual(json.loads(run_node(js)),
+                         [[300, 300, 420, 528], [334, 440, 440, 300, 300, 334], [0, 1, 1, -1, 2]])
+
+    def test_level_name_is_short_and_disambiguates_nested_same_env(self):
+        js = "\n".join([extract_js_fn("levelName"), extract_js_fn("rng"), r"""
+            const A=[{level:'para',label:'문단'},{level:'env',label:'환경 abstract',env:'abstract'},
+                     {level:'env2',label:'환경 frontmatter (바깥)',env:'frontmatter'}];
+            const B=[{level:'env',label:'환경 itemize',env:'itemize'},{level:'env2',label:'환경 itemize (바깥)',env:'itemize'}];
+            console.log(JSON.stringify([A.map(l=>levelName(l,A)),B.map(l=>levelName(l,B)),rng(159,159),rng(155,173)]));"""])
+        self.assertEqual(json.loads(run_node(js)),
+                         [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"])
+
+    def test_via_tag_is_short_and_flags_low_score(self):
+        js = "\n".join(["const T={synctex:'S',text:'X'};", extract_js_fn("viaTag"), r"""
+            console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'text',score:0.2}),viaTag({})]));"""])
+        got = json.loads(run_node(js))
+        self.assertEqual(got[0], {"t": "일치 93%", "tip": "좌표로 찾음 · S", "low": False})
+        self.assertEqual(got[1], {"t": "글자 일치 20%", "tip": "글자로 찾음 · X", "low": True})
+        self.assertIsNone(got[2])
+
+
+class FrontendPanelTidyStructure(unittest.TestCase):
+    def test_grip_is_one_pointer_events_separator(self):
+        tag = re.search(r'<div id="grip"[^>]*>', ps.HTML).group(0)
+        for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
+            self.assertIn(part, tag)
+        self.assertIn("$('#grip'); let D=null;", ps.HTML)
+        self.assertIn("g.setPointerCapture(e.pointerId)", ps.HTML)
+        self.assertNotIn("$('#grip').addEventListener('mousedown'", ps.HTML)   # 옛 마우스 전용 경로가 없다
+        self.assertNotIn("body.compact #grip{display:none}", ps.HTML)          # mid 에서도 보인다
+        self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", ps.HTML)
+
+    def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
+        self.assertIn("function sideKey(){return LAYOUT==='mid'?'sideMid':'side';}", ps.HTML)
+        m = re.search(r"\nfunction setSideWidth\(w\)\{(.*?)\}\n", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn("savePrefs({[sideKey()]:w})", m.group(1))
+        self.assertIn("relayout()", m.group(1))
+        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
+        body = m.group(1)
+        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))   # 패널 폭을 먼저 정해야 쪽 폭이 맞는다
+        # 끄는 동안에는 ResizeObserver 가 매 프레임 다시 맞추지 않는다
+        self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", ps.HTML)
+        self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", ps.HTML)
+
+    def test_sheet_grip_and_size_presets_in_more(self):
+        tag = re.search(r'<div id="sheet-grip"[^>]*>', ps.HTML).group(0)
+        self.assertIn('role="separator"', tag)
+        self.assertIn('aria-orientation="horizontal"', tag)
+        self.assertIn(":not(#sheet-grip){display:none}", ps.HTML)   # 접힌 시트에서도 손잡이가 남는다
+        self.assertIn("var(--sheet-f,.64)", ps.HTML)
+        more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
+        self.assertIn('id="m-size"', more)
+        self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", ps.HTML)
+        self.assertIn("renderSizeSeg(); d.showModal()", ps.HTML)
+
+    def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
+        right = ps.HTML[ps.HTML.index('<div id="right">'):ps.HTML.index('<div id="tip"')]
+        comp = right[right.index('<div id="composer"'):right.index('<div id="list">')]
+        self.assertNotIn('id="btn-save"', comp)
+        acts = right.index('<div id="c-actions">')
+        self.assertGreater(acts, right.index('<div id="list">'))
+        # 취소가 먼저, 주요 동작(핀 저장)이 오른쪽에 넓게
+        self.assertLess(right.index('id="btn-cancel"', acts), right.index('id="btn-save"', acts))
+        self.assertRegex(right, r'<button class="p" id="btn-save"')
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#composer[hidden]~#c-actions{display:none}", css)
+        self.assertIn("grid-template-columns:1fr 2fr", css)
+        self.assertIn("body.compact #c-actions{position:sticky;bottom:0", css)
+        self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)   # 고르는 중에는 도움말 문단을 숨긴다
+
+    def test_composer_is_one_loc_line_segmented_ladder_and_folded_snippet(self):
+        self.assertNotIn('id="c-meta"', ps.HTML)            # 위치 정보 세 번 반복 → 한 줄
+        self.assertNotIn("드래그한 줄 L'+d.raw_lo", ps.HTML)
+        row = ps.HTML[ps.HTML.index('<div class="c-loc-row">'):ps.HTML.index('<div id="c-warn"')]
+        for el in ('id="c-loc"', 'id="c-page"', 'id="c-tag"', 'id="c-copy"'):
+            self.assertIn(el, row)
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        seg = re.search(r"\n\.seg\{([^}]*)\}", css).group(1)
+        self.assertIn("flex-wrap:nowrap", seg)
+        self.assertIn("overflow-x:auto", seg)
+        self.assertIn('<div class="step" role="group"', ps.HTML)
+        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 18px);overflow:hidden}", css)
+        m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
+        # narrow 시트에서는 메모 칸이 원문보다 위(동작 줄 밑에 숨지 않게)
+        self.assertIn("body.lay-narrow #note{order:1", css)
+
+    def test_card_head_tags_row_and_action_grid(self):
+        m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", ps.HTML, re.S)
+        body = m.group(1)
+        self.assertNotIn('<span class="tags">', body)                        # 배지는 머리 줄 안이 아니라
+        self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))   # 머리(접기 버튼) 뒤 한 줄
+        self.assertLess(body.index('b-drop'), body.index('b-close'))         # 완료(주요)는 맨 오른쪽
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
+        self.assertIn("button.b-close{background:var(--acc-soft)", css)
+        self.assertIn("button.b-drop{color:var(--danger)}", css)
+
+    def test_compact_toolbar_is_one_even_row(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.compact #bar1 .sp{display:none}", css)
+        self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
 
 if __name__ == "__main__":
