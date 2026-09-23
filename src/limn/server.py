@@ -3586,6 +3586,9 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   button.ico,.step button,button.ib{width:44px;min-width:44px}
   #c-actions button{min-height:48px;font-size:15px}
   .pin .acts button{min-height:44px}
+  /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
+  button.arc-orig-t{min-height:28px;min-width:0;padding:0 4px;position:relative;font-size:13px}
+  button.arc-orig-t::after{content:'';position:absolute;left:-4px;right:-4px;top:-8px;bottom:-8px}
   #grip::after{left:-9px;right:-9px}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
