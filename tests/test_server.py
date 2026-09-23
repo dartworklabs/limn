@@ -2680,6 +2680,20 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
         self.assertNotRegex(ps.HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
 
+    def test_stale_doc_detached_before_awaiting_new_pdf(self):
+        # 다른 문서/재빌드로 캐시 미스가 나면, fetch 가 끝날 때까지 VEC.doc 를 비워 둔다 —
+        # 그 사이 IntersectionObserver 가 큐에 넣는 vecRun 이 옛 PDFDocumentProxy 를 잘못된
+        # 쪽 번호로 건드리지 않게 한다(다른 문서 오염·'Invalid page request' 로 PNG 에 고착).
+        body = self.fn("vecOpen")
+        i_if = body.index("if(!doc){")
+        i_null = body.index("VEC.doc=null")
+        i_fetch = body.index("await fetch(")
+        self.assertLess(i_if, i_null)
+        self.assertLess(i_null, i_fetch)
+        self.assertIn("if(prev&&!vecCached(prev))vecClose(prev)", body)
+        # old 는 이미 null 일 수 있다(위에서 비웠으므로) — null 가드 없이 vecClose(null) 을 부르면 안 된다
+        self.assertIn("if(old&&old!==doc&&!vecCached(old))vecClose(old)", body)
+
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("vecBoot")
         self.assertIn("catch(e){VEC.lib=null; vecFail(", boot)
@@ -2734,6 +2748,62 @@ class FrontendVectorLogic(unittest.TestCase):
         for row in out[2:]:                                    # 1796×2540 CSS × DPR 2 = 18.2M 픽셀 > 16.8M
             self.assertTrue(row[2])                            # 상한을 넘으면 낮춘다(상세 캔버스가 보이는 부분을 채운다)
             self.assertTrue(row[3])
+
+    def test_vecopen_stale_doc_not_touched_while_new_pdf_is_fetching(self):
+        # 실측 재현: VEC.doc 가 옛 문서(1쪽)를 가리킨 채 27쪽짜리 새 문서를 vecOpen 하면,
+        # fetch 가 끝나기 전에는 VEC.doc 가 null 이어야 하고(=vecNextJob 이 아무 일도 못 뽑는다),
+        # 그 사이 걸린 vecRun 도 옛 doc.getPage 를 부르면 안 된다(불렀다면 여기서 던진다).
+        js = "\n".join([
+            "const VEC_CACHE_MAX=3;",
+            extract_js_fn("vecCacheKey"),
+            extract_js_fn("vecCachePut"),
+            extract_js_fn("vecCached"),
+            extract_js_fn("vecForget"),
+            extract_js_fn("vecClose"),
+            extract_js_fn("vecCancel"),
+            extract_js_fn("vecNextJob"),
+            extract_js_fn("vecOpen"),
+            r"""
+            function $(sel){return {hidden:false};}
+            function dq(u){return u;}
+            function vecSchedule(){}
+            function vecFail(msg){throw new Error('vecFail: '+msg);}
+            global.document={getElementById:(id)=>({})};
+
+            let oldClosed=false;
+            const oldDoc={numPages:1, loadingTask:{destroy(){oldClosed=true;}},
+              getPage(){throw new Error('옛(다른 문서/옛 빌드) doc.getPage 가 불렸다');}};
+            const VEC={lib:null, doc:oldDoc, build:'old', gen:0, failed:null, tDoc:0,
+              st:new Map(), cur:null, cache:new Map(), near:new Set([2])};
+            const DOC='doc1';
+            const META={pages_build:'new', pages:new Array(27).fill(0), built_at:'v2'};
+
+            let resolveFetch, resolveGetDoc;
+            global.fetch=function(){return new Promise(res=>{resolveFetch=res;});};
+            VEC.lib={getDocument(){return {promise:new Promise(res=>{resolveGetDoc=res;})};}};
+
+            const p=vecOpen();
+            const results={};
+            results.docNulledBeforeFetch=(VEC.doc===null);
+            results.oldClosedImmediately=oldClosed;
+            results.noJobWhileDocNull=(vecNextJob()===null);
+
+            resolveFetch({ok:true, arrayBuffer:()=>Promise.resolve(new ArrayBuffer(8))});
+            setTimeout(()=>{
+              resolveGetDoc({numPages:27, loadingTask:{destroy(){}}});
+              p.then(()=>{
+                results.newDocInstalled=(VEC.doc&&VEC.doc.numPages===27);
+                console.log(JSON.stringify(results));
+              }).catch(e=>{results.error=String(e); console.log(JSON.stringify(results));});
+            },10);
+            """,
+        ])
+        out = json.loads(run_node(js))
+        self.assertNotIn("error", out, out)
+        self.assertTrue(out["docNulledBeforeFetch"])
+        self.assertTrue(out["oldClosedImmediately"])
+        self.assertTrue(out["noJobWhileDocNull"])
+        self.assertTrue(out["newDocInstalled"])
 
     def test_detail_region_cover_check(self):
         js = "\n".join([
