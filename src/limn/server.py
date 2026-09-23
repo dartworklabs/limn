@@ -3553,7 +3553,11 @@ button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive —
 .arc{margin-top:12px}
 button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:var(--space-2);width:calc(100% + 24px);
   margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border-strong);border-radius:0;color:var(--muted-foreground);
-  font-size:var(--text-sm);text-align:left}
+  font-size:var(--text-sm);text-align:left;scroll-margin-top:var(--stick-top,0px)}
+/* scroll-margin-top 은 revealList() 의 scrollIntoView({block:'start'}) 와 짝이다 — 이게 없으면 브라우저는 이 머리의
+   '흐름상 정적 위치'를 뷰포트 맨 위(0)로 맞추는데, 그 위치는 스티키 계산상 다시 stick-top 만큼 아래로 밀려 그려진다.
+   그 사이 빈 틈(0~stick-top)에 다음 줄(예: 되살리기 버튼이 있는 첫 행)의 흐름 위치가 들어가 #bar1 에 완전히
+   가려졌다(elementFromPoint 가 #bar1 을 반환 — 터치 회귀). 여백을 stick-top 만큼 미리 줘 두 위치를 맞춘다. */
 button.arc-head:hover{background:var(--accent)}
 .arc-h{font-weight:700;color:var(--foreground)}
 .arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 6px;border-radius:var(--radius-lg);line-height:18px}

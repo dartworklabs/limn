@@ -4012,6 +4012,11 @@ class FrontendArchive(unittest.TestCase):
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
         self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
+        # 회귀: revealList() 의 scrollIntoView({block:'start'}) 는 이 헤더의 '스티키 미보정' 정적 위치를 뷰포트
+        # 맨 위(0)로 맞춘다. scroll-margin-top 이 없으면 그 정적 위치가 실제 스티키 고정 위치(stick-top)보다
+        # 위라서, 헤더 바로 다음 행(되살리기 버튼)이 #bar1 뒤로 가려졌다(터치 QA 실측). scroll-margin-top 을
+        # 같은 --stick-top 변수로 둬 둘을 맞춘다.
+        self.assertRegex(css, r"button\.arc-head\{[^}]*scroll-margin-top:var\(--stick-top,0px\)")
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
