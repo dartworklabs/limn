@@ -14,7 +14,7 @@
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(build-sync §자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(build-sync §비동기 재빌드) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, operations.md §여러 논문 뷰어를 동시에 띄울 때), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(build-sync §자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(build-sync §비동기 재빌드) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. build-sync §자동 동기화 |
 | `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — build-sync §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 build-sync §에이전트 응답 다이어트를 따른다(`state=="ok"` 면 빠지고, 아니면 40줄, `?log=1` 이면 전체) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
@@ -142,7 +142,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 `<state_dir>/pins.md` 는 5열 표다: `| # | 쪽 | 위치 | 범위 | 메모 |`(옛 `종류` 열이 `범위` 로 바뀌었다. `작성` 열은 v2 에서 없앴다 — 작성자는 `GET /api/pins`·뷰어 카드에서만 본다. 닫힌 핀도 마찬가지다). 스니펫은 일부러 넣지 않는다 — 줄 범위만 있으면 에이전트가 원본을 `Read`로 직접 읽는 편이 항상 더 싸고 정확하다(스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다).
 
-- **머리줄**: `head.txt`·`built_at.txt` 가 둘 다 있으면 `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 두 줄이 원고 줄 바로 다음에 온다. 없으면(git 저장소가 아니거나 아직 안 빌드) 통째로 생략한다.
+- **머리줄**: `원고: <경로>` 바로 다음 줄이 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 다(operations.md §여러 논문 뷰어를 동시에 띄울 때) — 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않도록, `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 두 줄이 온다. 없으면(git 저장소가 아니거나 아직 안 빌드) 그 두 줄만 생략한다.
 - **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename 과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`/`\include` 로 쪼개진 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명에 `|` 가 있으면 `\|` 로 이스케이프한다(아래 이스케이프 규칙).
 - **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`/`lines`→`lines`, 없으면 옛 `kind` 값을 그대로 쓴다.
 - **줄 번호 시점**: `<state_dir>/pins.md` 갱신 시각 기준이다. 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.

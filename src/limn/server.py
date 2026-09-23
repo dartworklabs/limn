@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import math
 import os
@@ -38,7 +39,7 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 FLOAT_KINDS = ("figure", "table", "algorithm")
@@ -71,6 +72,15 @@ LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
 BUILD_EXCLUDE_DIRS = ("diff", "diff_temporary")
 BUILDS_KEEP = 200                  # builds.json 에 남길 성공 빌드 수(한 건 200바이트 안팎)
 
+# 여러 논문 뷰어를 동시에 열어도 탭을 헷갈리지 않게 다는 이름표(§동시 인스턴스). 길이 제한은 도구 줄·탭
+# 제목이 한 논문 이름으로 끝없이 길어지지 않게 하는 안전판이다.
+LABEL_MAX = 40
+ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+# 다크·라이트 테마 배경(--bg #14161a / #e9ebef) 모두에서, 그리고 흰 글자(칩 텍스트) 아래에서도 대비가
+# 충분한 채도 높은 "700번대" 팔레트. 이름표 문자열의 해시로 하나를 고른다 — 같은 이름표는 항상 같은 색.
+ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9",
+                   "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
+
 # 핀 파일을 만지는 모든 경로가 이 잠금 하나를 거친다. 잠금 없이 읽고-고치고-쓰면
 # 동시에 저장한 핀 30건 중 2건만 남는다(실측) — 나머지는 서로의 쓰기에 덮인다.
 PIN_LOCK = threading.RLock()
@@ -100,6 +110,9 @@ class Cfg:
     origin_check: bool = True
     git_pull: bool = False
     pdfjs_dir: Path = None          # None = default_pdfjs_dir()
+    label: str = "원고"             # 여러 인스턴스를 구분하는 이름표(§동시 인스턴스). main() 이 채운다
+    accent: str = ACCENT_PALETTE[0]  # 이름표의 강조색(#rrggbb)
+    repo: str = None                # --manuscript 의 git origin URL. 없으면 None
 
     @property
     def pins_jsonl(self) -> Path:
@@ -181,6 +194,84 @@ def free_port(start: int = 18300, end: int = 18400) -> int:
 def state_slug(src: Path) -> str:
     """원고마다 상태를 분리한다 — 원고 A·B 를 동시에 열어도 핀이 섞이지 않게."""
     return "%s-%s" % (src.name, hashlib.sha1(str(src).encode()).hexdigest()[:8])
+
+
+# ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)
+
+def git_remote_url(src: Path):
+    """--manuscript 의 git origin URL. git 저장소가 아니거나 origin 이 없으면 None — 실패해도 기동을 막지 않는다."""
+    if not shutil.which("git"):
+        return None
+    try:
+        r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    url = r.stdout.strip()
+    return url if r.returncode == 0 and url else None
+
+
+def repo_name_from_url(url: str) -> str:
+    """git remote URL 마지막 조각에서 저장소 이름만 뽑는다(.git 접미사·트레일링 슬래시 제거).
+
+    scp 스타일(user@host:name, '/' 없이 ':' 로만 경로를 구분)도 받는다 — '/' 가 있으면 그걸 기준으로
+    자르고, 없을 때만 ':' 기준으로 자른다(호스트명의 ':' 를 이름으로 착각하지 않게)."""
+    tail = url.rstrip("/")
+    tail = tail.rsplit("/", 1)[-1] if "/" in tail else tail.rsplit(":", 1)[-1]
+    if tail.endswith(".git"):
+        tail = tail[:-4]
+    return tail
+
+
+def default_label(src: Path, repo_url) -> str:
+    """--label 이 없을 때 쓸 기본 이름표: git 저장소 이름, 없으면 원고 폴더 이름."""
+    if repo_url:
+        name = repo_name_from_url(repo_url)
+        if name:
+            return name
+    return src.name
+
+
+def clean_label(v) -> str:
+    """이름표를 검증한다. 줄바꿈·과도한 길이는 도구 줄·탭 제목을 깨뜨리므로 여기서 막는다."""
+    v = "" if v is None else str(v).strip()
+    v = " ".join(v.split())         # 줄바꿈·탭·중복 공백을 한 칸으로
+    if not v:
+        v = "원고"
+    if len(v) > LABEL_MAX:
+        sys.exit("--label 은 %d자 이하여야 합니다: %r" % (LABEL_MAX, v))
+    return v
+
+
+def pick_accent(label: str) -> str:
+    """이름표 문자열의 해시로 팔레트에서 하나를 고른다 — 같은 이름표는 항상 같은 색."""
+    idx = int(hashlib.sha1(label.encode("utf-8")).hexdigest(), 16) % len(ACCENT_PALETTE)
+    return ACCENT_PALETTE[idx]
+
+
+def valid_accent(v) -> bool:
+    return isinstance(v, str) and ACCENT_RE.fullmatch(v) is not None
+
+
+def favicon_href(label: str, accent: str) -> str:
+    """이름표 첫 글자를 강조색 원 안에 넣은 SVG data URL. data: 안의 특수문자는 quote 로 인코딩한다."""
+    ch = (label.strip()[:1] or "?").upper()
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+           '<circle cx="16" cy="16" r="16" fill="%s"/>'
+           '<text x="16" y="21" text-anchor="middle" font-family="sans-serif" font-size="16" '
+           'font-weight="700" fill="#ffffff">%s</text></svg>') % (accent, html.escape(ch, quote=True))
+    return "data:image/svg+xml," + quote(svg, safe="")
+
+
+def build_html(label: str, accent: str) -> str:
+    """뷰어 HTML 템플릿의 __LABEL__·__ACCENT__·__FAVICON_HREF__ 자리표시자를 채운다.
+
+    실행 인자(라벨·강조색)에 좌우되므로 argparse 뒤(main())에서 호출한다 — 모듈 로드 시점에 정해지는
+    __PDFJS_VERSION__ 과 달리 이건 C 가 채워진 다음에만 값이 있다."""
+    out = HTML.replace("__LABEL__", html.escape(label, quote=True))
+    out = out.replace("__ACCENT__", accent)
+    out = out.replace("__FAVICON_HREF__", favicon_href(label, accent))
+    return out
 
 
 # ---------------------------------------------------------------- 쪽 이미지 버전 디렉토리
@@ -900,6 +991,7 @@ def meta(actor: dict, light: bool = False) -> dict:
     newer = source_newer()
     out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
            "main": C.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
+           "label": C.label, "accent": C.accent, "repo": C.repo,
            "building": BUILD_LOCK.locked(),
            # 원고가 화면의 PDF 보다 새로운가 — 서버가 숫자로 판정한다(브라우저 시계·시간대와 무관).
            "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
@@ -2247,7 +2339,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
         rows_render.append("| %s | %s | %s | %s | %s |" %
                             (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
 
-    out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src]
+    out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src,
+           "논문: %s · 저장소: %s" % (C.label, C.repo or "(없음)")]
     head_short, built_at = _read_head(), _read_built_at()
     if head_short and head_short != "-" and built_at:               # §P0c-D: 없으면 통째로 생략한다
         out.append("기준: %s · 빌드 %s" % (head_short, built_at))
@@ -2261,6 +2354,9 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % base)
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
+    if C.repo:
+        guidance += (" · 처리 전 자기 체크아웃의 `git remote get-url origin` 이 위 저장소와 같은지 확인. "
+                      "다르면 다른 논문의 핀이니 멈춘다")
     out.append(guidance)
     if any_symbol:
         out.append(LEGEND)
@@ -2506,8 +2602,8 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
 </script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-<title>원고 핀</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2a10 10 0 0 0-10 10c0 7 10 18 10 18s10-11 10-18A10 10 0 0 0 16 2z' fill='%234ec9a0'/%3E%3Ccircle cx='16' cy='12' r='4' fill='%2306231b'/%3E%3C/svg%3E">
+<title>__LABEL__ · 원고 핀</title>
+<link rel="icon" href="__FAVICON_HREF__">
 <style>
 :root{color-scheme:dark;--bg:#14161a;--pane:#1c1f25;--line:#2c313a;--line-strong:#6b7482;--fg:#e6e8ec;--dim:#98a0ad;
   --acc:#6ea8fe;--on-acc:#0b1220;--ok:#4ec9a0;--on-ok:#06231b;--warn:#e0a458;--on-warn:#2a1a04;--danger:#f0787a;
@@ -2787,13 +2883,21 @@ body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-
   border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 6px 24px var(--shadow);z-index:20;overflow:hidden}
 body.lay-mid:not(.side-open) #bar1{border-radius:12px}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* 이름표 칩·띠(§동시 인스턴스): 여러 논문 뷰어를 동시에 열었을 때 탭을 구분하는 용도라 강조색은
+   고정 배경(인라인 style)으로 박는다 — 테마가 바뀌어도 이름표 색은 그대로여야 한다. */
+#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none}
+.chip{flex:none;color:#fff;font-weight:700;font-size:12px;line-height:1.4;padding:3px 8px;border-radius:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+@media (max-width:480px){.chip{max-width:64px;font-size:11px;padding:2px 6px}}
 </style></head><body>
+<div id="brand-stripe" style="background:__ACCENT__"></div>
 <div id="left"><div id="doc"></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
+    <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="이 창이 다루는 논문 — 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
@@ -3881,7 +3985,7 @@ async function loadPins(){let d;
   if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   drawPins(); marks();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
-  if(META)document.title='원고 핀 · '+META.main+' · 열린 '+PINS.length;
+  if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+META.main+' · 열린 '+PINS.length;
 }
 function drawPins(){
   $('#list-h').textContent='열린 핀 '+PINS.length;
@@ -4421,6 +4525,12 @@ def main() -> None:
     ap.add_argument("--pdfjs-dir",
                     help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
                          "스크립트 옆 ../vendor/pdfjs 또는 ./vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
+    ap.add_argument("--label",
+                    help="여러 논문 뷰어를 동시에 열었을 때 탭·도구 줄을 구분할 이름표(%d자 이하). 생략 시 "
+                         "--manuscript 의 git origin 저장소 이름, git 이 아니면 폴더 이름" % LABEL_MAX)
+    ap.add_argument("--accent",
+                    help="이름표의 강조색(#rrggbb). 생략 시 이름표 문자열의 해시로 고정 팔레트에서 고른다"
+                         "(같은 이름표는 항상 같은 색)")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
@@ -4443,6 +4553,16 @@ def main() -> None:
     C.origin_check = not a.no_origin_check
     C.git_pull = a.git_pull
     C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
+    C.repo = git_remote_url(C.src)
+    C.label = clean_label(a.label) if a.label else clean_label(default_label(C.src, C.repo))
+    if a.accent:
+        if not valid_accent(a.accent):
+            sys.exit("--accent 는 #rrggbb 형식이어야 합니다: %s" % a.accent)
+        C.accent = a.accent.lower()
+    else:
+        C.accent = pick_accent(C.label)
+    global HTML
+    HTML = build_html(C.label, C.accent)
 
     migrate_pages()
     init_seq()
@@ -4455,6 +4575,7 @@ def main() -> None:
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
     print("원고   %s" % C.main)
+    print("이름표 %s (%s)%s" % (C.label, C.accent, "" if C.repo else " — git origin 없음, 폴더 이름 기본값"))
     print("상태   %s" % C.state)
     print("주소   http://127.0.0.1:%d/   (외부 노출은 tailscale serve 로만)" % C.port)
     if C.allow:

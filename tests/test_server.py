@@ -108,6 +108,7 @@ class Base(unittest.TestCase):
         C.origin_check = True
         C.git_pull = False
         C.pdfjs_dir = None
+        C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
         ps.init_seq()
@@ -2976,3 +2977,221 @@ class PinNumberJump(unittest.TestCase):
 
     def test_view_action_still_routes_to_jumppin(self):
         self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
+
+
+# ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)
+
+class RepoNameFromUrl(unittest.TestCase):
+    def test_https_url(self):
+        self.assertEqual(ps.repo_name_from_url("https://github.com/example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_ssh_url_with_path(self):
+        self.assertEqual(ps.repo_name_from_url("git@github.com:example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_scp_style_without_slash(self):
+        self.assertEqual(ps.repo_name_from_url("git@host:reponame.git"), "reponame")
+
+    def test_no_git_suffix(self):
+        self.assertEqual(ps.repo_name_from_url("https://github.com/org/name"), "name")
+
+    def test_trailing_slash(self):
+        self.assertEqual(ps.repo_name_from_url("https://github.com/org/name/"), "name")
+
+
+class DefaultLabel(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_uses_repo_name_when_remote_given(self):
+        src = self.root / "some-checkout-dir"
+        src.mkdir()
+        self.assertEqual(ps.default_label(src, "git@github.com:example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_falls_back_to_folder_name_without_remote(self):
+        src = self.root / "my-manuscript"
+        src.mkdir()
+        self.assertEqual(ps.default_label(src, None), "my-manuscript")
+
+    def test_git_remote_url_none_when_not_a_repo(self):
+        if not shutil.which("git"):
+            self.skipTest("git 없음")
+        src = self.root / "plain-dir"
+        src.mkdir()
+        self.assertIsNone(ps.git_remote_url(src))
+
+    def test_git_remote_url_reads_origin(self):
+        if not shutil.which("git"):
+            self.skipTest("git 없음")
+        src = self.root / "repo"
+        src.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=src, check=True)
+        subprocess.run(["git", "remote", "add", "origin", "git@example.com:org/paper-x.git"],
+                       cwd=src, check=True)
+        self.assertEqual(ps.git_remote_url(src), "git@example.com:org/paper-x.git")
+        self.assertEqual(ps.default_label(src, ps.git_remote_url(src)), "paper-x")
+
+
+class LabelValidation(unittest.TestCase):
+    def test_strips_and_collapses_whitespace(self):
+        self.assertEqual(ps.clean_label("  A-DEMO  "), "A-DEMO")
+        self.assertEqual(ps.clean_label("A\nPPTL"), "A DEMO")
+
+    def test_empty_becomes_default_placeholder(self):
+        self.assertEqual(ps.clean_label(""), "원고")
+        self.assertEqual(ps.clean_label(None), "원고")
+
+    def test_over_length_exits(self):
+        with self.assertRaises(SystemExit):
+            ps.clean_label("x" * (ps.LABEL_MAX + 1))
+
+    def test_exactly_max_length_ok(self):
+        v = "x" * ps.LABEL_MAX
+        self.assertEqual(ps.clean_label(v), v)
+
+
+class AccentValidation(unittest.TestCase):
+    def test_valid_format(self):
+        self.assertTrue(ps.valid_accent("#1d4ed8"))
+        self.assertTrue(ps.valid_accent("#AABBCC"))
+
+    def test_invalid_formats_rejected(self):
+        for bad in ("1d4ed8", "#1d4ed", "#1d4ed8ff", "#gggggg", "red", "", None):
+            self.assertFalse(ps.valid_accent(bad))
+
+    def test_pick_accent_is_deterministic_for_same_label(self):
+        a = ps.pick_accent("A-DEMO")
+        b = ps.pick_accent("A-DEMO")
+        self.assertEqual(a, b)
+        self.assertIn(a, ps.ACCENT_PALETTE)
+
+    def test_pick_accent_differs_for_different_labels_usually(self):
+        # 팔레트가 8색이라 100% 보장은 못 하지만, 서로 다른 이름표 몇 개가 전부 같은 색으로
+        # 뭉치면 해시 분산이 깨진 것이다.
+        colors = {ps.pick_accent(lbl) for lbl in ("A-DEMO", "paper-b", "grant-2026", "thesis")}
+        self.assertGreater(len(colors), 1)
+
+
+class BuildHtmlSubstitution(unittest.TestCase):
+    def test_label_and_accent_appear_in_output(self):
+        out = ps.build_html("A-DEMO", "#1d4ed8")
+        self.assertIn("<title>A-DEMO · 원고 핀</title>", out)
+        self.assertIn('id="brand-chip" class="chip" style="background:#1d4ed8"', out)
+        self.assertIn(">A-DEMO</span>", out)
+        self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
+        self.assertNotIn("__LABEL__", out)
+        self.assertNotIn("__ACCENT__", out)
+        self.assertNotIn("__FAVICON_HREF__", out)
+
+    def test_label_is_html_escaped(self):
+        out = ps.build_html("<script>alert(1)</script>", "#1d4ed8")
+        self.assertNotIn("<script>alert(1)</script>", out)
+        self.assertIn("&lt;script&gt;", out)
+
+    def test_favicon_is_data_svg_with_first_letter(self):
+        out = ps.favicon_href("paper-a", "#1d4ed8")
+        self.assertTrue(out.startswith("data:image/svg+xml,"))
+        self.assertIn("circle", out)
+        # 대문자로 바꾼 첫 글자가 (url-인코딩된) svg 안에 있어야 한다
+        from urllib.parse import unquote
+        self.assertIn(">A<", unquote(out))
+
+    def test_favicon_escapes_label_first_char(self):
+        # 첫 글자가 '<' 처럼 XML 을 깨는 문자라도 안전해야 한다
+        out = ps.favicon_href("<x", "#1d4ed8")
+        from urllib.parse import unquote
+        self.assertIn("&lt;", unquote(out))
+
+
+class HtmlTemplateStructure(unittest.TestCase):
+    """모듈 로드 시점(main() 실행 전)의 ps.HTML 에 이름표 자리·마크업이 있는지 — 구조 검증은 실제
+    치환값과 무관하게 항상 참이어야 한다."""
+
+    def test_title_has_label_placeholder(self):
+        self.assertIn("<title>__LABEL__ · 원고 핀</title>", ps.HTML)
+
+    def test_favicon_placeholder(self):
+        self.assertIn('<link rel="icon" href="__FAVICON_HREF__">', ps.HTML)
+
+    def test_brand_stripe_present(self):
+        self.assertIn('id="brand-stripe"', ps.HTML)
+        self.assertIn("#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px", ps.HTML)
+
+    def test_brand_chip_is_first_child_of_bar1(self):
+        m = re.search(r'<div class="bar" id="bar1"[^>]*>\s*(<span id="brand-chip"[^>]*>[^<]*</span>)',
+                      ps.HTML)
+        self.assertIsNotNone(m, "brand-chip 이 #bar1 의 첫 자식이어야 한다")
+
+    def test_chip_narrow_screen_css_keeps_it_visible(self):
+        self.assertIn("@media (max-width:480px){.chip{", ps.HTML)
+        self.assertNotIn("display:none", re.search(r"\.chip\{[^}]*\}", ps.HTML).group(0))
+
+    def test_document_title_prefixes_label(self):
+        self.assertIn(
+            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+META.main+' · 열린 '+PINS.length;",
+            ps.HTML)
+
+
+class InstanceMeta(Base):
+    def test_meta_exposes_label_accent_repo(self):
+        ps.C.label, ps.C.accent, ps.C.repo = "A-DEMO", "#1d4ed8", "git@example.com:org/a-demo.git"
+        d = ps.meta(dict(ps.LOCAL_ACTOR))
+        self.assertEqual(d["label"], "A-DEMO")
+        self.assertEqual(d["accent"], "#1d4ed8")
+        self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
+
+    def test_meta_repo_is_none_without_remote(self):
+        ps.C.repo = None
+        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertIsNone(d["repo"])
+
+    def test_meta_endpoint_serves_new_fields(self):
+        ps.C.label, ps.C.accent = "A-DEMO", "#1d4ed8"
+        out = self.talk(req("GET", "/api/meta"))
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(data["label"], "A-DEMO")
+        self.assertEqual(data["accent"], "#1d4ed8")
+        self.assertIn("repo", data)
+
+
+class InstanceIdInPinsMd(Base):
+    def test_disk_header_has_paper_and_repo_line(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        lines = md.splitlines()
+        src_idx = next(i for i, l in enumerate(lines) if l.startswith("원고: `"))
+        self.assertEqual(lines[src_idx + 1],
+                         "논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git")
+
+    def test_header_shows_placeholder_without_repo(self):
+        ps.C.label, ps.C.repo = "paper-a", None
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("논문: paper-a · 저장소: (없음)", md)
+
+    def test_guidance_mentions_remote_check_only_when_repo_known(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("git remote get-url origin", md)
+        self.assertIn("다르면 다른 논문의 핀이니 멈춘다", md)
+
+    def test_guidance_omits_remote_check_without_repo(self):
+        ps.C.label, ps.C.repo = "paper-a", None
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("git remote get-url origin", md)
+
+    def test_get_pins_md_endpoint_also_has_id_line(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        out = self.talk(req("GET", "/pins.md"))
+        body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
+        self.assertIn("논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git", body)
