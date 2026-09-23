@@ -23,7 +23,9 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   [--allow <login>,<login>] \
   [--no-origin-check] \
   [--git-pull] \
-  [--pdfjs-dir <dir>]
+  [--pdfjs-dir <dir>] \
+  [--label <이름표>] \
+  [--accent <#rrggbb>]
 ```
 
 | 인자 | 필수 | 기본값 | 설명 |
@@ -40,6 +42,8 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §Host·Origin 검사)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
 | `--git-pull` | 아니오 | (끔) | 모든 재빌드(동기·비동기)가 copy 단계 전에 `--manuscript` 의 git 저장소를 업스트림으로 `--ff-only` pull 한다(공저자가 PR 을 머지해도 서버 체크아웃이 그대로였던 문제, [build-sync.md](build-sync.md) §`--git-pull`). 더러움·분기·업스트림 없음·git 저장소 아님이면 건너뛰고 지금 체크아웃으로 빌드는 계속한다 — 빌드를 막지 않는다 |
 | `--pdfjs-dir` | 아니오 | 스크립트 옆 `../vendor/pdfjs`, 없으면 `./vendor/pdfjs` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`). 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG 로 보인다(동작은 그대로) |
+| `--label` | 아니오 | `--manuscript` 의 git origin 저장소 이름, git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표(40자 이하, HTML 이스케이프됨). 도구 줄 칩·탭 제목·파비콘·`<state_dir>/pins.md` 머리줄에 쓰인다(§동시 인스턴스) |
+| `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받는다(형식이 아니면 기동 실패). 같은 `--label` 이면 지정하지 않는 한 항상 같은 기본색이 나온다 |
 
 **바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§보안 제약)
 
@@ -60,7 +64,39 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 - 새 버전 서버로 바꿔 띄울 때 상태 디렉토리는 그대로 둔다. 옛 레이아웃(`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`)을 `--no-build` 로도 재빌드 없이 읽는다. 기동 때 `pages.cur`(내용 `pages`)와 `pins.seq`(기존 최대 id)를 만들고 `<state_dir>/pins.md` 를 다시 그린다. 옛 `pages/` 는 다음 재빌드가 `pages-<build_id>/` 로 교체한 뒤 직전 1개로 남았다가 그다음 재빌드에서 지워진다.
 - **배포 경로**: 상시(systemd) 인스턴스는 이 레포의 `scripts/pin_server.py` 를 직접 실행하지 않고, `%h/.local/share/<name>/pin_server.py` 처럼 **`<state_dir>` 안에 둔 사본**을 실행한다(§상시로 띄울 때). 그래서 이 파일을 고친 뒤 실사용 인스턴스에 반영하려면 그 상태 디렉토리의 사본을 새 버전으로 덮어써야 한다 — 레포만 고치고 재시작해도 사본이 그대로면 옛 버전이 계속 돈다. 사본 옆에는 `vendor/pdfjs/` 도 함께 둔다(`<사본 디렉토리>/vendor/pdfjs/`) — 아니면 `--pdfjs-dir` 로 레포의 `vendor/pdfjs` 를 가리킨다. 둘 다 없으면 뷰어가 PNG 로 돌아가 흐리게 보인다.
 
-## 보안 제약 (Hard Rule)
+## 여러 논문 뷰어를 동시에 띄울 때
+
+곧 논문마다 뷰어 인스턴스가 따로 돈다 — 논문마다 저장소·포트·테일넷 주소가 다르다. 같은 서버 프로세스는
+`--manuscript` 하나만 다루므로, 논문 N개를 동시에 보려면 프로세스도 N개다.
+
+### 동시 실행 조건 — 겹치면 안 되는 세 가지
+
+| 자원 | 규칙 |
+| --- | --- |
+| 포트 | 인스턴스마다 다른 `--port`(비우면 자동 배정, §포트 충돌 회피). 같은 포트를 두 인스턴스가 쓸 수 없다 |
+| 상태 디렉토리(`--state-dir`) | 인스턴스마다 다른 경로. 기본값(`<slug>` = 원고 경로 해시)은 `--manuscript` 가 다르면 자동으로 갈리지만, 같은 원고를 다른 브랜치·워크트리로 두 번 열면 슬러그가 같아져 핀이 섞인다 — 그때는 `--state-dir` 을 명시로 분리한다 |
+| 빌드 폴더(`<state_dir>/build/`) | `--state-dir` 을 분리하면 자동으로 따라온다. latexmk 두 개가 같은 `build/` 를 밟으면 서로의 `.aux` 를 덮어쓴다(§빌드 잠금) |
+
+`pin-viewer add <이름> --manuscript <dir>` (dotfiles 의 systemd 템플릿 유닛)를 쓰면 포트·상태 디렉토리를
+논문별로 자동 분리한다 — 직접 `pin_server.py` 를 띄울 때만 위 표를 손으로 맞춘다.
+
+### `--label`·`--accent` — 탭을 헷갈리지 않게
+
+뷰어가 여러 개 뜨면 화면이 똑같아 탭을 헷갈리기 쉽다. `--label`(이름표, 기본은 `--manuscript` 의 git
+origin 저장소 이름 → 폴더 이름)과 `--accent`(강조색 `#rrggbb`, 기본은 이름표 해시로 고른 고정 팔레트
+색 — 같은 이름표는 항상 같은 색)가 다음 자리에 나타난다.
+
+| 자리 | 무엇이 보이나 |
+| --- | --- |
+| 도구 줄(데스크톱 사이드바 머리, 펼친·접은 폴드 공통 `#bar1`) | 맨 앞에 강조색 배경의 이름표 칩. 좁은 화면에서는 폭이 줄지만 사라지지 않는다 |
+| 화면 맨 위 | 강조색 얇은 띠(4px) |
+| 브라우저 탭 제목 | `<이름표> · 원고 핀 · 열린 N` |
+| 파비콘 | 강조색 원 안에 이름표 첫 글자 |
+| `GET /api/meta` | `label`·`accent`·`repo`(git origin URL, 없으면 `null`) 필드 |
+| `<state_dir>/pins.md` 머리(디스크·`GET /pins.md` 둘 다) | `원고:` 줄 다음 `논문: <이름표> · 저장소: <repo 또는 (없음)>` 한 줄. `저장소` 가 있으면 안내 문단에 "처리 전 `git remote get-url origin` 확인, 다르면 멈춘다" 가 붙는다(다른 논문의 핀을 잘못 처리하는 사고 방지) |
+
+`--label` 은 40자 이하로 자르고 HTML 이스케이프한다. `--accent` 는 `#` 뒤 6자리 16진수만 받고, 그 외
+형식이면 기동을 멈춘다.
 
 | 항목 | 규칙 |
 | --- | --- |

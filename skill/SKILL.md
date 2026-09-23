@@ -18,6 +18,7 @@ slash_command: true
 
 1. **읽는다.** 원격: `curl -s <base>/pins.md`. 서버 머신: `<state_dir>/pins.md` 를 `Read`.
    - 표는 `| # | 쪽 | 위치 | 범위 | 메모 |`. `위치` 는 `--manuscript` 기준 상대경로 + `L<lo>-L<hi>`.
+   - **저장소를 확인한다(강제).** 머리줄 `논문: <이름표> · 저장소: <url>` 이 있으면 자기 체크아웃의 `git remote get-url origin` 과 같은지 본다. 다르면 다른 논문의 핀이니 처리하지 말고 멈추고 보고한다(여러 인스턴스가 동시에 돌 때의 안전판).
 2. **기준 커밋을 맞춘다.** 머리줄 `기준: <head> · 빌드 <built_at>` 이 있고 다른 체크아웃에서 처리하면, `git rev-parse --short HEAD` 가 같은지 먼저 본다.
 3. **처리 범위를 정한다.**
    - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
@@ -68,14 +69,18 @@ slash_command: true
    - 같은 `--manuscript` 의 이전 인스턴스면 그대로 쓴다. 새로 띄우지 않는다.
    - `--port` 를 빼면 서버가 빈 포트를 골라 기동 로그에 찍는다.
    - 내릴 때 `pkill -f pin_server.py` 금지. `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
+   - **논문마다 뷰어 인스턴스가 따로 도는 머신**(dotfiles 의 `pin-viewer@<이름>` 템플릿 유닛이 있는 곳)에서는 직접 띄우지 말고 `pin-viewer add <이름> --manuscript <manuscript_dir>` 를 먼저 쓴다 — 포트를 자동 배정하고 상태 디렉토리를 논문별로 분리한다.
 2. **실행한다.**
 
    ```bash
    uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
-     --manuscript <manuscript_dir> [--main <main>.tex] [--port <port>] [--git-pull]
+     --manuscript <manuscript_dir> [--main <main>.tex] [--port <port>] [--git-pull] \
+     [--label <이름표>] [--accent <#rrggbb>]
    ```
 
    - `--git-pull`: 재빌드마다 업스트림을 `--ff-only` 로 당긴다. dirty·분기면 건너뛰고 빌드는 계속한다.
+   - `--label`·`--accent`: 여러 논문 뷰어를 동시에 열었을 때 탭·이름표 칩·파비콘으로 구분한다(§동시 인스턴스, [operations.md](references/operations.md)). 생략하면 `--manuscript` 의 git 저장소 이름 → 폴더 이름 순으로 기본값을 정한다.
+   - 직접 띄울 때(위 `pin-viewer` 없이) **논문마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다.
    - 다른 인자·systemd 유닛·배포 사본은 [operations.md](references/operations.md).
 3. **노출한다 — Hard Rule.**
 
