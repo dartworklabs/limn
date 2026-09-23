@@ -1951,6 +1951,32 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("function hideBuildErr()", ps.HTML)
         self.assertIn("case 'err-close':hideBuildErr()", ps.HTML)
 
+    def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
+        # 회귀: switchDoc() 이 캐시된 문서에서 동기로 drawDocTabs→drawDocsMenu 까지 돌면 열린 #docs-menu 를
+        # 다시 그려 클릭된 <a> 를 DOM 에서 떼어낸다. switchDoc() 호출 뒤에 a.closest() 를 부르면 null 이
+        # 나와 메뉴가 열린 채 남는다 — inMenu 는 반드시 switchDoc() 호출 '전'에 정해야 한다.
+        m = re.search(r"case 'doc':\{(.*?)\}", ps.HTML, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        js = ("""
+            (async()=>{
+              const out={};
+              const docsMenu={closed:false,close(){this.closed=true;}};
+              function $(sel){return sel==='#docs-menu'?docsMenu:{};}
+              let detached=false;
+              function switchDoc(k){detached=true;}   // 캐시된 문서: 동기로 끝나며 a 를 떼어낸 것을 흉내
+              const a={dataset:{doc:'ms'},closest(sel){return (!detached&&sel==='#docs-menu')?{}:null;}};
+              switch('doc'){case 'doc':{%s}}
+              out.closed=docsMenu.closed;
+              console.log(JSON.stringify(out));
+            })();
+            """ % body)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertTrue(data["closed"], "캐시된 문서를 골라도 #docs-menu 가 닫혀야 한다")
+
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1)
@@ -3219,9 +3245,43 @@ class PinNumberJump(unittest.TestCase):
         src = ps.HTML
         self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
         self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
+        # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
+        # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
+        # 고정 width/height 라야 짧은 번호(예: 한 자리)에서도 44 를 보장한다. position:relative 는 .n.go 에만
+        # 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 ::before 위로 올라와
+        # 오른쪽 절반의 히트 테스트를 가로챘다(브라우저 실측으로 발견해 되돌린 회귀).
+        css = src[src.index("<style>"):src.index("</style>")]
+        self.assertIn(".pin .n.go{position:relative}", css)
+        self.assertIn(".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
+                      "width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}", css)
 
     def test_view_action_still_routes_to_jumppin(self):
         self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
+
+    def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
+        # 회귀: button.btn-icon.btn-sm{width:var(--control-h-sm)}(기본 규칙, 0-0-2-1) 이 터치 규칙
+        # button.btn-icon{width:var(--control-h-touch)}(0-0-1-1) 보다 구체적이라 카드 접기(.b-fold)·토스트
+        # 닫기 버튼이 터치에서도 24px 로 남았다(실측). 같은 specificity(.btn-icon.btn-sm) 로 @media(pointer:coarse)
+        # 안에 다시 못박아야 이긴다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        coarse = css[css.index("@media (pointer:coarse){"):]
+        coarse = coarse[:coarse.index("\n}\n") + 3]
+        self.assertIn("button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);"
+                      "height:var(--control-h-touch)}", coarse)
+        # 실제 사용처: 카드 접기 버튼과 토스트 닫기 버튼 둘 다 .btn-icon.btn-sm 조합을 쓴다.
+        self.assertIn('btn-icon btn-sm btn-ghost cmp b-fold', ps.HTML)
+        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", ps.HTML)
+
+    def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
+        # 회귀: body.compact #bar1 button{min-width:0}(id 포함이라 구체적) 이 터치 규칙 button{min-width:44px}
+        # 보다 이겨서, lay-mid 처럼 좁은 화면에서 [선택] 버튼이 40px 까지 줄었다(실측). 같은 selector 를
+        # @media(pointer:coarse) 안에서 다시 못박아 44px 바닥을 지킨다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.compact #bar1 button{flex:1 1 auto;min-width:0;", css)
+        self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}", css)
+        # 이 오버라이드는 위 min-width:0 규칙보다 소스상 뒤에 있어야 동률 specificity 에서 이긴다.
+        self.assertGreater(css.index("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}"),
+                            css.index("body.compact #bar1 button{flex:1 1 auto;min-width:0;"))
 
 
 # ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)
@@ -3986,6 +4046,11 @@ class FrontendArchive(unittest.TestCase):
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
         self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
+        # 회귀: revealList() 의 scrollIntoView({block:'start'}) 는 이 헤더의 '스티키 미보정' 정적 위치를 뷰포트
+        # 맨 위(0)로 맞춘다. scroll-margin-top 이 없으면 그 정적 위치가 실제 스티키 고정 위치(stick-top)보다
+        # 위라서, 헤더 바로 다음 행(되살리기 버튼)이 #bar1 뒤로 가려졌다(터치 QA 실측). scroll-margin-top 을
+        # 같은 --stick-top 변수로 둬 둘을 맞춘다.
+        self.assertRegex(css, r"button\.arc-head\{[^}]*scroll-margin-top:var\(--stick-top,0px\)")
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
@@ -4315,15 +4380,22 @@ class FrontendToolbarOneRow(unittest.TestCase):
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
         # 접은 폴드(344px)에서 이름표가 'C…', 문서 버튼이 '본..' 으로 줄어 읽을 수 없었다(2026-09-23).
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn("body.lay-narrow #bar1 .chip{display:none}", css)
+        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
         self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
-        self.assertNotIn("body.lay-mid #bar1 .chip{display:none}", css)          # 편 폴드·데스크톱은 그대로
         more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))]
         self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
         out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
         self.assertIn("#more .more-head .chip{background:var(--brand);", css)
+
+    def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
+        # 회귀: 펼친 폴드(884px)도 #bar1 이 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄어
+        # 읽을 수 없었다(터치 QA 실측). narrow 와 같은 처방 — 도구 줄 칩은 숨기고 [더보기] 안 #more-label 로만
+        # 전체 이름을 보인다. #more(더보기) 는 레이아웃 조건 없는 공용 마크업이라 mid 에서도 그대로 쓸 수 있다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
+        self.assertIn('id="btn-more" class="cmp btn-icon"', ps.HTML)   # [더보기] 는 compact(=mid·narrow) 공용
 
 
 class FrontendToolbarSize(unittest.TestCase):
@@ -4475,3 +4547,39 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["canceled"])
         self.assertTrue(data["btnLabelRestored"])
         self.assertTrue(data["noAutoSaveAfterCancel"])
+
+    def test_reselecting_during_pick_queues_save_for_new_location_not_stale_one(self):
+        # 회귀: 이미 CUR 이 있는 상태(첫 선택 완료)에서 다시 길게 눌러 새 선택을 시작하면, 그 응답이 오기 전에
+        # [핀 저장]을 눌러도 옛 CUR 이 즉시 저장되지 않고 PEND_SAVE 큐로 가서 새 위치가 저장돼야 한다.
+        js = self._harness(r"""
+            (async()=>{
+              const out={};
+              const p1 = pick({page:1,x0:0,y0:0.3,x1:1,y1:0.31});
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:717,hi:741,raw_lo:717,raw_hi:741,page:5,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p1;
+              out.curAfterFirstPick = CUR && CUR.lo;
+              const p2 = pick({page:1,x0:0,y0:0.7,x1:1,y1:0.71});
+              await Promise.resolve(); await Promise.resolve();
+              out.curClearedOnNewPick = (CUR===null);
+              savePin();   // 스피너가 도는 동안(새 위치 응답 전) [핀 저장]을 누름
+              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='/api/pin').length;
+              out.queued = PEND_SAVE;
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:900,hi:920,raw_lo:900,raw_hi:920,page:5,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p2;
+              out.autoSaved = PEND_SAVE===false;
+              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              console.log(JSON.stringify(out));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertEqual(data["curAfterFirstPick"], 717)
+        self.assertTrue(data["curClearedOnNewPick"])
+        self.assertEqual(data["pinCallsWhileWaiting"], 0)   # 새 응답 전엔 옛 CUR 로 저장하지 않는다
+        self.assertTrue(data["queued"])
+        self.assertTrue(data["autoSaved"])
+        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # 새 위치 응답이 오자 큐에 담긴 저장이 나간다

@@ -3553,7 +3553,11 @@ button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive —
 .arc{margin-top:12px}
 button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:var(--space-2);width:calc(100% + 24px);
   margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border-strong);border-radius:0;color:var(--muted-foreground);
-  font-size:var(--text-sm);text-align:left}
+  font-size:var(--text-sm);text-align:left;scroll-margin-top:var(--stick-top,0px)}
+/* scroll-margin-top 은 revealList() 의 scrollIntoView({block:'start'}) 와 짝이다 — 이게 없으면 브라우저는 이 머리의
+   '흐름상 정적 위치'를 뷰포트 맨 위(0)로 맞추는데, 그 위치는 스티키 계산상 다시 stick-top 만큼 아래로 밀려 그려진다.
+   그 사이 빈 틈(0~stick-top)에 다음 줄(예: 되살리기 버튼이 있는 첫 행)의 흐름 위치가 들어가 #bar1 에 완전히
+   가려졌다(elementFromPoint 가 #bar1 을 반환 — 터치 회귀). 여백을 stick-top 만큼 미리 줘 두 위치를 맞춘다. */
 button.arc-head:hover{background:var(--accent)}
 .arc-h{font-weight:700;color:var(--foreground)}
 .arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 6px;border-radius:var(--radius-lg);line-height:18px}
@@ -3648,10 +3652,19 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
   input,textarea,select{font-size:var(--text-xl)}
   #bar1 input.n{width:52px;font-size:var(--text-xl)}   /* iOS 는 16px 보다 작은 입력 칸에 포커스하면 화면을 키운다 */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
+  /* #N 은 글자 폭만큼만(26~35px) 그려 좁다 — 시각 크기는 그대로 두고 고정 44×44 히트 영역만 가운데 얹는다
+     (parent 폭에 비례하는 inset 대신 fixed size 를 써야 짧은 번호에서도 44 를 보장한다). position:relative 는
+     .n.go 에만 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 .n.go 의
+     ::before 위로 올라와 오른쪽 절반의 히트 테스트를 가로챘다(실측: cx+21 이 '#N' 대신 '.loc' 을 반환).  */
+  .pin .n.go{position:relative}
+  .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
+  /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (기본 규칙, 0-0-2-1) 이 위 button.btn-icon(0-0-1-1) 보다
+     구체적이라 터치에서도 24px 로 남았다(카드 접기 .b-fold·토스트 닫기 버튼 실측) — 같은 specificity 로 다시 못박는다. */
+  button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
@@ -3677,9 +3690,16 @@ body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
 /* 폭이 모자라면 이름표가 먼저 줄어든다(전체 이름은 설명에) — 버튼 글자가 잘려 'DF 재빌드'처럼 보이던 것을 막는다 */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
+/* 위 min-width:0(body.compact #bar1 button) 은 @media(pointer:coarse) 의 button{min-width:44px}(3647) 보다
+   구체적(id 포함)이라 이겨서, 좁은 화면(lay-mid)에서 [선택] 이 40px 까지 줄던 결함(실측)의 원인이었다.
+   같은 selector 를 터치에서만 다시 못박는다 — 소스 순서가 위 규칙보다 뒤이므로 specificity 동률에서 이긴다. */
+@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
 /* 접은 폴드(narrow): 이름표 글자는 도구 줄에서 빼고 [더보기] 첫 줄에 둔다 — 28px 로 줄어 'C…' 만 남아 읽을 수 없었다(2026-09-23).
-   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다. */
-body.lay-narrow #bar1 .chip{display:none}
+   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다.
+   편 폴드(mid, 884px)도 같은 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄었다(실측) — 같은 처방을
+   그대로 편다. #more-label(더보기 첫 줄)이 두 레이아웃 모두에 이미 있어(레이아웃 조건 없는 공용 마크업) 별도
+   시트 없이도 전체 이름을 볼 수 있다. */
+body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}
@@ -4802,7 +4822,10 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
-  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
+  // 새 선택(재짚기 아님)이 시작되면 이전 CUR 을 즉시 비운다 — 그래야 이 창(~1.1s) 사이의 [핀 저장]이
+  // 낡은 CUR 을 조용히 저장하지 않고 PEND_SAVE 큐로 가서(§P0c) 방금 고른 새 위치를 저장한다(회귀: 재선택 시
+  // 구 위치가 저장되던 결함).
+  if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
@@ -5346,7 +5369,10 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
-    case 'doc':switchDoc(a.dataset.doc);if(a.closest('#docs-menu'))$('#docs-menu').close();break;
+    case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
+    // ^ inMenu 는 switchDoc() 호출 전에 정한다 — 캐시된 문서는 switchDoc 이 동기로 drawDocTabs 까지 끝내고,
+    //   그 안에서 열린 #docs-menu 를 다시 그려(drawDocsMenu) a 를 DOM 에서 떼어낸다. switchDoc 이후에
+    //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
