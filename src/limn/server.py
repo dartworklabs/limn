@@ -3185,11 +3185,14 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="dark"><head><meta charset=
   --btn:#eef0f3;--btn-h:#e2e5ea;--input:#ffffff;--code:#f6f8fa;--card:#f6f7f9;--shadow:#0002;--sel-fill:#1860cf1f;
   --mark-fill:#1a7f5a14;--stale-fill:#8a5c0014;--tip-bg:#1b1f24;--tip-fg:#ffffff;--acc-soft:#1860cf17;--danger-soft:#cf222e12}
 *{box-sizing:border-box}
+:root{--brand:__ACCENT__}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
 /* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
-#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px;touch-action:pan-x pan-y}
+/* #main = 문서 탭 줄 + PDF 영역(§여러 문서). 폭·높이 규칙은 #main 이 받고 #left 는 그 안에서 스크롤한다. */
+#main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
+#left{flex:1;overflow:auto;padding:16px 16px 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
 /* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
    마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--line);flex:none;touch-action:none}
@@ -3407,6 +3410,7 @@ body.lay-mid #grip.on::before{background:var(--acc)}
 body.compact button.cmp{display:inline-block}
 body.compact .sec{display:none}
 body.compact #left{padding:12px max(10px,env(safe-area-inset-right)) 60vh max(30px,env(safe-area-inset-left));min-width:0}
+body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
 body.compact #right>*{flex:none}
 /* compact 도구 줄: 같은 높이의 한 줄 그룹. 빈칸 없이 이어 붙이고 [⋯] 도 그 흐름에 둔다(폭이 모자라면 글자가 먼저 줄어든다). */
@@ -3436,6 +3440,7 @@ body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
 body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp){display:none}
 body.compact .pin .au .au-n{display:none}
 body.lay-narrow{display:block}
+body.lay-narrow #main{height:100%}
 body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
   max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--line-strong);border-radius:14px 14px 0 0;
@@ -3453,6 +3458,44 @@ body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-
   bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
   border:1px solid var(--line-strong);border-radius:12px;box-shadow:0 6px 24px var(--shadow);z-index:20;overflow:hidden}
 body.lay-mid:not(.side-open) #bar1{border-radius:12px}
+/* 문서 탭(§여러 문서, references/design.md §여러 문서): PDF 영역 위 한 줄. 문서가 하나면 숨긴다(지금 화면 그대로).
+   지금 탭은 PDF 영역과 같은 바탕(--bg)으로 이어 붙이고 위에 이름표 색 띠를 둔다. 넘치면 가로로 스크롤한다.
+   접은 폴드(narrow)는 탭 줄 대신 도구 줄의 [문서 ▾] 버튼 → 아래 시트 목록이다. */
+#doc-tabs{display:none;flex:none;gap:2px;align-items:flex-end;overflow-x:auto;overflow-y:hidden;padding:6px 12px 0 36px;
+  background:var(--pane);border-bottom:1px solid var(--line);scrollbar-width:none;overscroll-behavior-x:contain}
+#doc-tabs::-webkit-scrollbar{display:none}
+body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}
+.dtab{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:260px;margin-bottom:-1px;padding:6px 12px;
+  background:transparent;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;color:var(--dim);font-size:13px}
+.dtab:hover{background:var(--btn-h);color:var(--fg)}
+.dtab[aria-selected=true]{background:var(--bg);border-color:var(--line);color:var(--fg);font-weight:600;box-shadow:inset 0 3px 0 var(--brand)}
+.dtab .nm,.dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dcnt{flex:none;min-width:20px;padding:0 6px;border-radius:10px;background:var(--btn);color:var(--fg);font-size:11px;line-height:18px;
+  font-weight:600;text-align:center}
+.dcnt.z{color:var(--dim);font-weight:400;background:transparent;border:1px solid var(--line)}
+.dtab[aria-selected=true] .dcnt:not(.z),.dm-item.on .dcnt:not(.z){background:var(--brand);color:#fff}
+.dvo{flex:none;font-size:10px;line-height:14px;padding:0 4px;border:1px solid var(--line-strong);border-radius:4px;color:var(--dim);
+  font-weight:400;letter-spacing:.02em}
+.ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+.dtab .spin,.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
+#btn-doc{display:none;align-items:center;gap:4px}
+#btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
+body.view-only #btn-rebuild{display:none}
+.dchip{flex:none;font-size:10.5px;line-height:16px;padding:0 6px;border-radius:5px;background:var(--btn);border:1px solid var(--line);
+  color:var(--fg);white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.dchip.other{border-style:dashed}
+.list-head{display:flex;align-items:center;gap:8px;margin:0 0 7px}
+.list-head h3{margin:0}
+#docs-menu{margin:auto auto 0;width:100%;max-width:560px;border-radius:14px 14px 0 0;padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
+#docs-menu .dm-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.dm-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px}
+.dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.dm-item .ph{font-size:11.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-item.on{border-color:var(--brand);box-shadow:inset 3px 0 0 var(--brand)}
+/* 보기 전용 PDF 문서의 선택: 범위 사다리·스테퍼·원문 펼치기가 없다(줄이 없다). 원문 칸에는 영역 글자를 보인다. */
+#composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
+.edit.region .e-levels,.edit.region .c-tools .step{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* 이름표 칩·띠(§동시 인스턴스): 여러 논문 뷰어를 동시에 열었을 때 탭을 구분하는 용도라 강조색은
    고정 배경(인라인 style)으로 박는다 — 테마가 바뀌어도 이름표 색은 그대로여야 한다. */
@@ -3462,13 +3505,14 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
 @media (max-width:480px){.chip{max-width:64px;font-size:11px;padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="left"><div id="doc"></div></div>
+<div id="main"><div id="doc-tabs" role="tablist" aria-label="문서" aria-orientation="horizontal"></div><div id="left"><div id="doc"></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <span id="brand-chip" class="chip" style="background:__ACCENT__" data-tip="이 창이 다루는 논문 — 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span>
+    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span><span aria-hidden="true">▾</span></button>
     <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b> <span id="side-arrow" aria-hidden="true">▴</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
@@ -3515,7 +3559,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
       범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [⋯] → 도움말.</span></div>
-    <h3 id="list-h">열린 핀</h3>
+    <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button class="x tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
     <div id="pins"></div>
     <button class="x" id="done-toggle" data-act="done-toggle" style="margin-top:8px" data-tip="완료된 핀을 펼쳐 봅니다. 에이전트가 닫은 핀도 여기에 있습니다">닫힌 핀 0 ▸</button>
     <div id="done-list" hidden></div>
@@ -3545,6 +3589,10 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <button class="wide" data-act="help">도움말</button>
   </div>
 </dialog>
+<dialog id="docs-menu" aria-labelledby="docs-menu-h">
+  <div class="row"><h2 id="docs-menu-h" style="margin:0">문서</h2><span class="sp"></span><button class="x" data-act="docs-menu-close">닫기</button></div>
+  <div class="dm-list" id="docs-menu-list" role="listbox" aria-labelledby="docs-menu-h"></div>
+</dialog>
 <dialog id="help" aria-labelledby="help-h">
   <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="x" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
   <h4>한 바퀴</h4>
@@ -3568,6 +3616,7 @@ body.lay-mid:not(.side-open) #bar1{border-radius:12px}
     <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
     <tr><td><kbd>Ctrl/⌘ + 휠</kbd> · <kbd>Ctrl/⌘ + = − 0</kbd></td><td>PDF 위에서 확대·축소(포인터 자리 기준), 0 은 폭 맞춤. 트랙패드 핀치도 같습니다. PDF 만 커지고 패널은 그대로입니다 (입력 칸 밖에서)</td></tr>
     <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
+    <tr><td><kbd>Ctrl+PgUp</kbd>/<kbd>PgDn</kbd> · <kbd>Alt+1…9</kbd></td><td>문서 전환(문서가 여럿일 때, 입력 칸 밖에서). 브라우저가 이 키를 먼저 가져가면 PDF 위 문서 탭을 누르세요. 문서마다 보던 자리·확대를 기억합니다</td></tr>
     <tr><td>폭 손잡이</td><td>본문과 패널 사이 막대를 끌면 패널 폭이 바뀝니다. 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→ 로도 바뀝니다. 폭은 브라우저에 기억됩니다</td></tr></table>
   <h4>용어</h4>
   <table>
@@ -3599,6 +3648,12 @@ let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
 const MQ_COARSE=matchMedia('(pointer:coarse)');
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
+// 여러 문서(§여러 문서, references/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
+// 없는 옛 핀이 속하는 첫 문서. OPEN_ALL = 모든 문서의 열린 핀(PINS 는 그중 지금 문서의 것 — 마크·겹침·편집은 PINS 만 본다).
+// META_BY = 문서별 meta 캐시(탭 전환을 즉시), VIEW_BY = 문서별 보던 자리·확대, BUILD_ERR_BY = 문서별 마지막 빌드 오류,
+// DOC_SEQ = 다른 문서의 끝난 빌드 수(배경에서 끝난 빌드를 알린다).
+let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
+const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
 window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
 
 const T={
@@ -3715,16 +3770,102 @@ document.addEventListener('scroll',hideTip,true);
 // 길게 누르기로 띄운 직후 손을 떼면 크롬이 흉내 mousedown 을 보낸다 — 그것으로는 닫지 않는다.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
 
+// ------------------------------------------------ 여러 문서 — 목록·탭·전환(references/design.md §여러 문서)
+function multiDoc(){return DOCS.length>1;}
+function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
+function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}
+function isRegion(p){return !!p&&(p.kind==='region'||(!p.file&&!!p.pdf));}
+// 문서가 걸리는 경로에 ?doc=<키> 를 붙인다(서버는 없으면 첫 문서로 본다).
+function dq(u,k){k=k||DOC; if(!k)return u; return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
+function hashDoc(){const m=/(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash||''); return m?m[1]:null;}
+function setHash(k){if(!multiDoc())return; const h='#doc='+k; if(location.hash!==h)history.replaceState(null,'',location.pathname+location.search+h);}
+// 처음 볼 문서: URL 해시(링크 공유·새로고침) > 이 기기에서 마지막으로 본 문서 > 첫 문서.
+function initialDoc(){const h=hashDoc(); if(h&&docInfo(h))return h; const l=prefs().lastDoc; if(l&&docInfo(l))return l;
+  return DOCS.length?DOCS[0].key:null;}
+async function loadDocs(){try{const r=(await api('/api/docs',{what:'문서 목록',silent:true})).data;
+    DOCS=Array.isArray(r.docs)?r.docs:[]; DEFAULT_DOC=r.default||(DOCS[0]&&DOCS[0].key)||'main';}catch(e){DOCS=[];}
+  document.body.classList.toggle('docs-multi',multiDoc()); $('#all-docs').hidden=!multiDoc();}
+function docCount(k){return OPEN_ALL.filter(p=>pdoc(p)===k).length;}
+function docBadge(d){const n=docCount(d.key);
+  return (d.building?'<span class="spin" aria-label="빌드 중"></span>':(d.stale_build?'<span class="ddot" aria-label="원고 수정됨"></span>':''))+
+    (d.view_only?'<span class="dvo" aria-label="보기 전용">PDF</span>':'')+'<span class="dcnt'+(n?'':' z')+'" aria-label="열린 핀 '+n+'">'+n+'</span>';}
+function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
+  (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
+function drawDocTabs(){
+  const box=$('#doc-tabs'); if(!multiDoc()){box.innerHTML=''; return;}
+  box.innerHTML=DOCS.map((d,i)=>{const on=d.key===DOC;
+    return '<button class="dtab" role="tab" id="dtab-'+esc(d.key)+'" aria-selected="'+on+'" tabindex="'+(on?0:-1)+'" aria-controls="left" data-act="doc" data-doc="'+esc(d.key)+'" data-tip="'+
+      esc(docTip(d)+(i<9?' (Alt+'+(i+1)+')':''))+'"><span class="nm">'+esc(d.name)+'</span>'+docBadge(d)+'</button>';}).join('');
+  const on=box.querySelector('[aria-selected=true]'); if(on)segReveal(box);
+  const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:'문서';
+  $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
+  if($('#docs-menu').open)drawDocsMenu();}
+function drawDocsMenu(){
+  $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
+    return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
+      '<span class="tx"><span class="nm">'+esc(d.name)+(on?' ✓':'')+'</span><span class="ph">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
+function openDocsMenu(){const d=$('#docs-menu'); if(d.open)return; hideTip(); drawDocsMenu(); d.showModal();
+  const on=d.querySelector('.dm-item.on'); if(on)on.focus();}
+// 보던 자리: 위쪽 기준 쪽·비율, 쪽 폭, compact 에서 손으로 확대했는가, 가로 스크롤. 새로고침에도 남게 sessionStorage 에 둔다.
+function saveView(){if(!DOC||!META||!$('#doc .pg'))return; const a=topAnchor();
+  VIEW_BY.set(DOC,{page:a?a.page:1,frac:a?a.frac:0,w:W,zoomed:ZOOMED,sl:$('#left').scrollLeft,lay:LAYOUT});
+  if(multiDoc()){try{sessionStorage.setItem('pinDocView',JSON.stringify(Array.from(VIEW_BY.entries())));}catch(e){}}}
+function loadViews(){if(!multiDoc())return; try{const a=JSON.parse(sessionStorage.getItem('pinDocView')||'[]');
+  if(Array.isArray(a))a.forEach(x=>{if(Array.isArray(x)&&docInfo(x[0])&&x[1]&&typeof x[1]==='object')VIEW_BY.set(x[0],x[1]);});}catch(e){}}
+// 쪽 폭을 먼저 정한다(buildDoc 이 W 로 쪽을 만든다). 같은 레이아웃에서 본 폭만 되살린다 — 접은 화면에서 맞춘 폭을 데스크톱에 쓰지 않게.
+function applyViewWidth(v){if(v&&typeof v.w==='number'&&v.lay===LAYOUT&&(LAYOUT==='wide'||v.zoomed)){W=v.w; ZOOMED=LAYOUT!=='wide'&&!!v.zoomed; return true;}
+  ZOOMED=false; return false;}
+function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
+addEventListener('pagehide',saveView);
+// 문서를 바꾼다. 지금 문서의 보던 자리를 기억하고, 쓰던 선택·위치 다시 잡기는 거둔다(메모 글은 남긴다).
+// meta 캐시가 있으면 기다리지 않고 바로 그 문서를 그리고, 뒤에서 최신 meta 를 받아 빌드가 바뀌었으면 쪽만 바꾼다.
+async function switchDoc(k){
+  if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
+  saveView(); cancelRepick(); if(CUR||!$('#composer').hidden)cancelSelection(false);
+  if(EDIT&&!editDirty())cancelEdit();
+  let m=META_BY.get(k),cached=!!m;
+  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기'})).data;}catch(e){return;} if(seq!==SWITCHSEQ)return;}
+  DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
+  hideTip(); showDoc(VIEW_BY.get(k));
+  if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
+    if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
+      META_BY.set(k,f); if(changed)await refreshDoc(); else{META=f; drawMeta();}}}catch(e){}}
+}
+// 지금 META 로 화면을 새로 그린다(탭 전환). 빌드 칩·오류 패널·자동 폴링 기준값도 그 문서의 것으로 바꾼다.
+function showDoc(v){
+  drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
+  if(!v&&$('#left'))$('#left').scrollTop=0;
+  PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks(); drawDocTabs();
+  vecOpen();
+  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;} $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
+  LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
+  if(LAST_BUILD_ERR)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
+  BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // 옛 문서의 조회가 떠 있으면 그 뒤에
+  document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
+}
+function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key===DOC);
+  switchDoc(DOCS[(i+step+DOCS.length)%DOCS.length].key);}
+window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docInfo(k))switchDoc(k);});
+// 다른 문서 핀의 #번호·[보기]·[수정]: 그 문서로 바꾼 뒤 then 을 다시 부른다(jumpPin·openEdit 이 맨 앞에서 쓴다). 바꿨으면 true.
+function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
+  if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
+  const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
+
 // ------------------------------------------------ 문서
 async function boot(){
   applyTheme(); applyLayout();
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
   $('#btn-save').textContent=MQ_COARSE.matches?'핀 저장':'핀 저장 '+(IS_MAC?'⌘↵':'Ctrl+Enter');
-  try{META=(await api('/api/meta',{what:'화면 정보 읽기'})).data;}catch(e){return;}
-  drawMeta(); applySideWidth(); buildDoc(); autoW(); vecBoot(); await loadPins();
+  await loadDocs(); DOC=initialDoc();
+  try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
+  if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
+  if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
+  drawMeta(); applySideWidth(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); await loadPins();
+  restoreView(v); drawDocTabs();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
-  LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_mtime;
+  LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
+  (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling();
 }
 function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
@@ -3743,6 +3884,7 @@ function updateStaleBadge(m){
   btn.classList.add('p');
 }
 function drawMeta(){
+  document.body.classList.toggle('view-only',!!META.view_only);
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
@@ -3766,13 +3908,16 @@ function pollLight(){
   return LIGHT_INFLIGHT;
 }
 async function pollLightOnce(){
-  let d;
-  try{d=(await api('/api/meta?light=1',{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
+  let d; const k=DOC;
+  try{d=(await api(dq('/api/meta?light=1'),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   $('#conn-lost').hidden=true;
-  updateStaleBadge(d);
-  if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||d.src_mtime!==LAST_SRC_MTIME)) await loadPins();
-  LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=d.src_mtime;
+  if(k!==DOC)return;                    // 기다리는 사이 문서를 바꿨다 — 옛 문서의 상태로 화면을 칠하지 않는다
+  updateStaleBadge(d); noteOtherDocs(d.docs);
+  // 여러 문서면 src_sig(문서마다의 src_mtime)가 바뀌어도 다시 읽는다 — 다른 문서의 원고가 바뀌어도 그 핀들의 줄이 밀린다.
+  const sig=d.src_sig||d.src_mtime;
+  if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME)) await loadPins();
+  LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;
   // 다른 세션·에이전트가 curl 로 시작한 빌드도 light meta 의 build.state 로 잡아낸다 — 1초 폴링은
   // 그때만(또는 이 탭에서 직접 rebuild() 를 눌렀을 때만) 돈다.
   if(d.build&&d.build.state==='running'&&!BUILD_TIMER)pollBuild();
@@ -3780,6 +3925,16 @@ async function pollLightOnce(){
   // 못 본 빌드가 있었다는 뜻이다 — 상세를 받아 화면·배너·칩을 맞춘다.
   else if(typeof d.build_seq==='number'&&d.build_seq!==LAST_BUILD_SEQ)pollBuild();
 }
+// 다른 문서의 낡음·빌드 중을 탭에 반영하고, 그 문서의 빌드가 뒤에서 끝났으면 알린 뒤 meta 캐시를 버린다(돌아가면 새 쪽).
+function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let redraw=false;
+  list.forEach(n=>{const d=docInfo(n.key); if(!d)return;
+    if(d.stale_build!==n.stale_build||d.building!==n.building){d.stale_build=n.stale_build; d.building=n.building; redraw=true;}
+    const was=DOC_SEQ.get(n.key); DOC_SEQ.set(n.key,n.build_seq);
+    if(n.key===DOC||was===undefined||was===n.build_seq)return;
+    META_BY.delete(n.key); redraw=true;
+    if(n.last_state==='ok')toast(d.name+' PDF '+(d.view_only?'쪽을 새로 그렸습니다':'재빌드 완료'),'ok',{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(n.key)});
+    else if(n.last_state==='ok_errors'||n.last_state==='fail')toast(d.name+(n.last_state==='fail'?' 빌드 실패':' 빌드에 LaTeX 오류'),n.last_state==='fail'?'err':'warn',{label:'열기',tip:'그 문서로 바꿔 오류를 봅니다',fn:()=>switchDoc(n.key)});});
+  if(redraw)drawDocTabs();}
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
@@ -3845,8 +4000,9 @@ function pollBuild(){
   return BUILD_INFLIGHT;
 }
 async function pollBuildOnce(){
-  let b;
-  try{b=(await api('/api/build?log=1',{what:'빌드 상태',silent:true})).data;}catch(e){return;}
+  let b; const k=DOC;
+  try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
+  if(k!==DOC)return;                    // 문서를 바꿨다 — 새 문서는 showDoc 이 다시 묻는다
   const chip=$('#build-chip');
   if(b.state==='running'){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
@@ -3860,9 +4016,11 @@ async function pollBuildOnce(){
   if(LAST_BUILD_SEQ===null)LAST_BUILD_SEQ=seq;
   if(seq!==LAST_BUILD_SEQ){
     LAST_BUILD_SEQ=seq;                 // await 전에 먼저 차지한다 — 같은 완료를 두 번 처리하지 않게
+    DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
+    if(k!==DOC)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state==='ok'){toast('PDF 재빌드 완료 · '+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; hideBuildErr();}
+    if(b.state==='ok'){toast((META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다 · ':'PDF 재빌드 완료 · ')+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
     else if(b.state==='ok_errors'){toast('PDF를 재빌드했지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
     else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다'+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
@@ -3916,7 +4074,7 @@ function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LA
   else{names=['좁게','보통','넓게']; cur=presetIndex(sideBounds(LAYOUT,innerWidth).presets,curSideW());}
   box.innerHTML=names.map((n,i)=>'<button class="'+(i===cur?'on':'')+'" aria-pressed="'+(i===cur)+'" data-act="size-preset" data-i="'+i+'">'+n+'</button>').join('');}
 function sizePreset(i){if(LAYOUT==='narrow'){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}
-function pageSrc(p){return '/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at);}
+function pageSrc(p){return dq('/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
 function buildDoc(){
   const doc=$('#doc'); doc.innerHTML=''; PENDING=null;
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
@@ -3971,7 +4129,17 @@ $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close
 const PDFJS_V='__PDFJS_VERSION__';
 const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
 const VEC={lib:null,doc:null,build:null,gen:0,failed:null,io:null,near:new Set(),st:new Map(),cur:null,
-  pumping:false,timer:0,stats:[],tFirst:null,tDoc:null};
+  pumping:false,timer:0,stats:[],tFirst:null,tDoc:null,cache:new Map()};
+// 여러 문서: 연 PDF 문서 객체를 '문서|빌드' 로 최근 VEC_CACHE_MAX 개까지 들고 있다 — 탭을 되돌리면 다시 받지 않고 바로 그린다.
+// 넘치면 가장 오래 안 쓴 것부터 닫는다(워커 메모리). 같은 문서의 옛 빌드는 새 빌드를 열 때 닫는다.
+const VEC_CACHE_MAX=3;
+function vecCacheKey(k,b){return (k||'')+'|'+(b||'');}
+function vecCachePut(key,doc){const c=VEC.cache; c.delete(key); c.set(key,doc);
+  const pre=key.split('|')[0]+'|';
+  Array.from(c.keys()).forEach(x=>{if(x!==key&&x.startsWith(pre)){const d=c.get(x); c.delete(x); if(d!==VEC.doc)vecClose(d);}});
+  while(c.size>VEC_CACHE_MAX){const x=c.keys().next().value,d=c.get(x); c.delete(x); if(d!==VEC.doc&&d!==doc)vecClose(d);}}
+function vecCached(doc){for(const d of VEC.cache.values())if(d===doc)return true; return false;}
+function vecForget(doc){VEC.cache.forEach((d,x)=>{if(d===doc)VEC.cache.delete(x);});}
 window.__pinVec=VEC;   // 실측(Playwright)용 — 캔버스 수·렌더 시간
 async function vecBoot(){
   if(!window.IntersectionObserver){vecFail('이 브라우저는 IntersectionObserver 가 없습니다');return;}
@@ -3983,25 +4151,29 @@ async function vecBoot(){
 // 지금 화면 빌드(META.pages_build)의 PDF 를 연다. 쪽 수가 화면과 다르면 쓰지 않는다(좌표가 어긋난다).
 async function vecOpen(){
   if(!VEC.lib||!META)return;
-  const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length; let doc;
+  const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
   vecCancel();
-  try{const r=await fetch('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||''));
-    if(!r.ok)throw new Error('PDF HTTP '+r.status);
-    const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
-    doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
-  catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
-  if(gen!==VEC.gen){vecClose(doc); return;}
-  if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
+  if(!doc){
+    try{const r=await fetch(dq('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||'')));
+      if(!r.ok)throw new Error('PDF HTTP '+r.status);
+      const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
+      doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
+    catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
+    if(gen!==VEC.gen){vecClose(doc); return;}
+    if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
+    vecCachePut(key,doc);
+  }else vecCachePut(key,doc);           // 최근에 쓴 것으로 올린다
+  if(gen!==VEC.gen)return;
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
   VEC.st.forEach(s=>{s.stale=true;});
-  vecClose(old);
+  if(old!==doc&&!vecCached(old))vecClose(old);
   vecSchedule(0);
 }
 // 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
-  vecClose(VEC.doc); VEC.doc=null;
+  vecForget(VEC.doc); vecClose(VEC.doc); VEC.doc=null;
   const c=$('#vec-chip'); c.hidden=false;
   c.dataset.tip='PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — '+msg+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')+'. 확대하면 흐릴 수 있습니다';
 }
@@ -4290,7 +4462,7 @@ function finishRect(pg,box,sx,sy,x,y){
   else { if(PENDING)PENDING.remove(); PENDING=box; box.innerHTML='<i>새 핀</i>'; }
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
-    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined});}
+    frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}
 // 시트·패널이 선택 상자를 가리면 상자가 보이는 곳까지 본문을 올린다(compact 전용).
 function revealBox(box){if(!box||LAYOUT==='wide'||!document.contains(box))return;
   const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect();
@@ -4332,7 +4504,7 @@ function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
   if(lo===o.lo&&hi===o.hi)return false; o.lo=lo;o.hi=hi;o.scope='lines';o.env=null;return true;}
 let snipT=null;
 function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
-  try{const {data}=await api('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,{what:'원문 읽기'});
+  try{const {data}=await api(dq('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,o.doc),{what:'원문 읽기'});
     if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+(ls.length-8)+'줄 접힘';}
@@ -4359,7 +4531,7 @@ async function pick(r){
     if(rp){bannerRepick(d.error);return;}
     CUR=null; $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
-  CUR=d; CUR.scope=null; useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}
+  CUR=d; CUR.scope=null; if(!isRegion(d)){useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}}
   OVERLAP_DISMISSED=null;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
   CUR.overlaps=overlapsFor(CUR,PINS);
   // 서버가 본 겹친 핀이 이 탭의 PINS 에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다 — loadPins 가 겹침도 다시 센다.
@@ -4382,7 +4554,7 @@ function selRel(lo,hi,blo,bhi){
   if(lo<=blo&&bhi<=hi)return 'contains';
   return 'partial';
 }
-function overlapsFor(o,pins){const out=[];
+function overlapsFor(o,pins){const out=[]; if(!o||!o.file)return out;   // 보기 전용 PDF 의 선택은 줄이 없다
   (pins||[]).forEach(p=>{if(p.done||p.file!==o.file)return; const rel=selRel(o.lo,o.hi,p.lo,p.hi);
     if(rel)out.push({id:p.id,lo:p.lo,hi:p.hi,rel:rel});});
   return out;}
@@ -4416,7 +4588,18 @@ function renderOverlapBanner(){
 }
 // 위치는 한 줄: '파일 L159' + 쪽 + 일치 배지 + [⧉]. 범위 종류·줄 수는 분절 컨트롤의 고른 칸이 이미 보이므로 되풀이하지
 // 않는다(▲▼ 로 직접 맞춰 어느 칸에도 안 맞으면 '줄 직접 지정'을 쪽 옆에 붙인다). 드래그한 줄은 설명에 둔다.
+// 보기 전용 PDF 의 선택: 위치는 '쪽 N · 영역', 원문 칸에는 영역 글자(pdftotext)를 보인다. 범위 사다리·스테퍼는 숨긴다.
+function renderRegionComposer(d){
+  $('#composer').classList.add('region');
+  $('#c-loc').textContent=d.name+' · 쪽 '+d.page+' 영역'; $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
+  const pg=$('#c-page'); pg.textContent='보기 전용'; pg.dataset.tip='LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
+  $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||''; $('#c-overlap').hidden=true;
+  $('#c-levels').innerHTML='';
+  const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?'영역 글자: '+d.quote:'(이 영역에는 글자가 없습니다)';
+  $('#c-expand').hidden=true;}
 function renderComposer(){const d=CUR; if(!d)return;
+  if(isRegion(d)){renderRegionComposer(d); return;}
+  $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy;
   const pg=$('#c-page'); pg.textContent=d.page+'쪽'+(curLevel(d)?'':' · 줄 직접 지정');
@@ -4450,9 +4633,11 @@ async function undoAppend(id,note,rev){
 async function savePin(){
   if(!CUR||SAVING)return; SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
   const d=CUR,note=$('#note').value.trim();
-  const body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
+  let body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
+  if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // 보기 전용: 쪽·영역만
+  body.doc=d.doc||DOC||undefined;
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
     toast('핀 #'+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
@@ -4494,6 +4679,12 @@ function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Da
 function claimLabel(p){const w=who(p.claimed_by)||'?';
   const t=p.claim_until?new Date(p.claim_until*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
   return '처리 중: '+w+(t?' · ~'+t:'');}
+// 카드의 위치 글: LaTeX 핀은 'L12-L18', 보기 전용 PDF 의 핀은 '영역'(쪽은 옆 칸). 복사 형식은 '파일 L12-L18' / 'x.pdf 쪽 3'.
+function locText(p){return isRegion(p)?'영역':rng(p.lo,p.hi);}
+function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
+// 모든 문서 보기에서 카드 머리에 붙는 문서 칩. 다른 문서의 것은 점선 테두리 — 누르면 그 문서로 바뀐다.
+function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
+  return '<span class="dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc 은 복사 형식 그대로
   if(p.stale)tags.push('<span class="tag t" data-tip="'+esc(T.stale)+'">위치 잃음</span>');
@@ -4514,9 +4705,10 @@ function card(p){
   // compact 아코디언: 접힌 카드는 번호·위치·쪽·메모 첫 줄(.sum)만 보이고, 누르면 배지·메모·버튼이 펼쳐진다(CSS).
   // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
   const first=String(p.note||'').split('\n')[0].trim();
-  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
-    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+rng(p.lo,p.hi)+'</span>'+
+  if(isRegion(p))tags.unshift('<span class="tag" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
+  return '<div class="pin'+(p.stale?' st':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
+    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(p.stale?'⚠ ':'')+(claimed?'⏳ ':'')+(first?esc(first):'(메모 없음)')+'</span>'+
     '<span class="sp"></span>'+au+
@@ -4531,17 +4723,17 @@ function card(p){
     '<button class="x b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
-function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
+function doneCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
   const ref=p.close_ref?'<span class="tag" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
-  return '<div class="pin done" data-id="'+p.id+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
-    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+ref+
+  return '<div class="pin done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+ref+
     '<span class="dim" data-tip="닫은 시각과 닫은 사람">'+esc(p.done_at||'')+' · '+esc(who(p.closed_by)||'기록 전')+'</span><span class="sp"></span>'+
     '<button class="x b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     (p.close_reply?'<div class="note" data-tip="닫을 때 남긴 설명">'+esc(p.close_reply)+'</div>':'')+
     (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
-function droppedCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc='L'+p.lo+'-L'+p.hi;
-  return '<div class="pin dropped" data-id="'+p.id+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+
-    '<span class="loc" tabindex="0" data-copy="'+esc(name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
+function droppedCard(p){const name=p.name||String(p.file||'').split('/').pop(),loc=isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi;
+  return '<div class="pin dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'"><div class="row"><span class="n" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(T.loc)+'">'+loc+'</span>'+
     '<span class="dim" data-tip="삭제 시각과 삭제한 사람">'+esc(p.dropped_at||'')+' · '+esc(who(p.dropped_by)||'기록 전')+'</span><span class="sp"></span>'+
     '<button class="x b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     (p.note?'<div class="note">'+esc(p.note)+'</div>':'')+'</div>';}
@@ -4549,33 +4741,40 @@ async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
   let dropped=[];
   try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
-  const prevOpen=PINS;
-  const nextOpen=d.filter(p=>!p.done); DONE=d.filter(p=>p.done); DROPPED=dropped;
+  // 여러 문서: 목록은 모든 문서의 것(diffToast 도 전부 본다). PINS·DONE 은 지금 문서의 것, SHOW_ALL 이면 목록만 전부 그린다.
+  const prevOpen=OPEN_ALL;
+  const nextOpen=d.filter(p=>!p.done); DONE_ALL=d.filter(p=>p.done); DROPPED=dropped;
   diffToast(prevOpen,d,dropped);
-  PINS=nextOpen;
-  if(EDIT&&!PINS.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
-  drawPins(); marks();
+  OPEN_ALL=nextOpen; PINS=nextOpen.filter(p=>pdoc(p)===DOC||!DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC||!DOC);
+  if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
+  drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
-  if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+META.main+' · 열린 '+PINS.length;
+  if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
 }
+// 사이드바에 그릴 목록: 기본은 지금 문서, '모든 문서'면 전부. 편집 중인 핀은 다른 문서여도 남긴다(쓰던 글이 사라지지 않게).
+function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
+function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
+function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 function drawPins(){
-  $('#list-h').textContent='열린 핀 '+PINS.length;
+  const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
+  $('#list-h').textContent=(SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 ':'열린 핀 ')+LIST.length;
+  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.textContent=SHOW_ALL?'모든 문서 ✓':'모든 문서';
   $('#side-n').textContent=PINS.length; applySide();
   // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
-  $('#m-done').textContent='닫힌 핀 '+DONE.length+(SHOW_DONE?' 숨기기':' 보기');
-  $('#m-dropped').textContent='삭제한 핀 '+DROPPED.length+(SHOW_DROPPED?' 숨기기':' 보기');
+  $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
+  $('#m-dropped').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' 숨기기':' 보기');
   $('#done-toggle').classList.toggle('sec',!SHOW_DONE); $('#dropped-toggle').classList.toggle('sec',!SHOW_DROPPED);
-  $('#empty').hidden=PINS.length>0;
-  $('#pins').innerHTML=PINS.length?PINS.map(card).join(''):'<div class="dim">아직 없습니다.</div>';
+  $('#empty').hidden=LIST.length>0||OPEN_ALL.length>0;
+  $('#pins').innerHTML=LIST.length?LIST.map(card).join(''):'<div class="dim">'+(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'이 문서에는 아직 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건':'아직 없습니다.')+'</div>';
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
-  $('#done-toggle').textContent='닫힌 핀 '+DONE.length+(SHOW_DONE?' ▾':' ▸');
+  $('#done-toggle').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' ▾':' ▸');
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
   $('#done-list').hidden=!SHOW_DONE;
-  if(SHOW_DONE)$('#done-list').innerHTML=DONE.length?DONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
-  $('#dropped-toggle').textContent='삭제한 핀 '+DROPPED.length+(SHOW_DROPPED?' ▾':' ▸');
+  if(SHOW_DONE)$('#done-list').innerHTML=LDONE.length?LDONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
+  $('#dropped-toggle').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' ▾':' ▸');
   $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
   $('#dropped-list').hidden=!SHOW_DROPPED;
-  if(SHOW_DROPPED)$('#dropped-list').innerHTML=DROPPED.length?DROPPED.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
+  if(SHOW_DROPPED)$('#dropped-list').innerHTML=LDROP.length?LDROP.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
 }
 // 위치 추정(.est, 점선)은 서버가 판정해 /api/pins 의 est 로 싣는다(pin_est — 핀을 찍은 빌드와 지금 빌드의
 // 원고 지문 비교). 뷰어가 벽시계로 판정하던 때는 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은
@@ -4609,7 +4808,7 @@ function jumpToCard(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
-function jumpPin(id){const p=PINS.find(x=>x.id===id); if(!p)return;
+function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(LAYOUT==='narrow')setSide(false);   // 시트가 쪽을 가리지 않게 접고 나서 잰다
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
   if(m){
@@ -4642,7 +4841,7 @@ async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'
   markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
 
 // ------------------------------------------------ 편집
-function openEdit(id){const p=PINS.find(x=>x.id===id); if(!p)return;
+function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(EDIT&&EDIT.id===id)return;
   const el=document.createElement('div'); el.className='edit';
   el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘↵ / Ctrl+Enter 저장, Esc 취소"></textarea>'+
@@ -4658,14 +4857,20 @@ function openEdit(id){const p=PINS.find(x=>x.id===id); if(!p)return;
     '<button class="x b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
     '<button class="x p b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
   const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
-  EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file).split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
-    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''}};
+  EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
+    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''},
+    doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||''};
+  if(EDIT.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
+// 편집 칸에 저장 안 한 변경이 있는가(문서를 바꿀 때 편집을 닫아도 되는지).
+function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelector('.e-note');
+  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
-  try{const {status,data}=await api('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),
+  if(E.region){E.snippet=E.quote?'영역 글자: '+E.quote:'(영역 글자 없음)'; renderEdit(); return;}   // 보기 전용: 원문 줄이 없다
+  try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
       {what:'원문 읽기',expect:[400]});
     if(EDIT!==E)return;
     if(status===400){E.snippet='원문을 읽지 못했습니다 — '+(data&&data.error||'')+'\n위치 다시 잡기로 고치세요.'; renderEdit(); return;}
@@ -4674,8 +4879,8 @@ async function editSnip(withLevels){const E=EDIT; if(!E)return;
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
-  el.querySelector('.e-range').textContent=rng(E.lo,E.hi);
-  el.querySelector('.e-range').dataset.copy=E.name+' L'+E.lo+'-L'+E.hi;
+  el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
+  el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false);}
 function cancelEdit(){EDIT=null; drawPins();}
@@ -4701,28 +4906,31 @@ function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
 function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PDF에서 드래그하세요 · Esc 취소</span>'+
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
   '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
-function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c;
-  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">L'+REPICK.from.lo+'-L'+REPICK.from.hi+' → L'+lv.lo+'-L'+lv.hi+'</span>'+
-    '<span class="dim">('+esc(lv.label||scopeLabel(c))+')</span><span class="sp"></span>'+
+function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
+  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+(rg?'쪽 '+REPICK.from.page+' → 쪽 '+c.page+' 영역':'L'+REPICK.from.lo+'-L'+REPICK.from.hi+' → L'+lv.lo+'-L'+lv.hi)+'</span>'+
+    '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):'글자 없는 영역'):(lv.label||scopeLabel(c)))+')</span><span class="sp"></span>'+
     '<button class="x p" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
     '<button class="x" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 // 터치에서는 위치 다시 잡기 동안 선택 모드를 켜고, narrow 는 시트를 접어 쪽을 드러낸다(배너는 접힌 시트에도 남는다).
-function startRepick(){if(!EDIT)return; REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi},box:null,cand:null}; bannerRepick();
+async function startRepick(){if(!EDIT)return;
+  if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT; await switchDoc(E.doc); if(DOC!==E.doc||EDIT!==E)return;}   // 그 핀의 문서 위에서 고른다
+  REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi,page:EDIT.page},box:null,cand:null}; bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT==='narrow')setSide(false);}
 function cancelRepick(){const was=!!REPICK; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;
   if(was){if(!CUR)setSelMode(false); if(EDIT&&LAYOUT!=='wide')setSide(true);}}
 async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.cand,lv=lvOf(c,c.default_level)||c;
-  const loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
+  let loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
     scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
   if(!loc.scope)delete loc.scope;
+  if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // 보기 전용: 영역만 다시 잡는다
   const base=EDIT&&EDIT.id===R.id?EDIT.base_rev:0;
   try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',expect:[409]});
     if(status===409){toast(data&&data.error==='done'?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다','warn');
       if(EDIT&&data.pin){EDIT.base_rev=data.pin.rev;} cancelRepick(); await loadPins(); return;}
     const p=data.pin; cancelRepick();
-    if(EDIT&&EDIT.id===p.id){Object.assign(EDIT,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null});
+    if(EDIT&&EDIT.id===p.id){Object.assign(EDIT,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:p.page,quote:p.quote||''});
       EDIT.orig.lo=p.lo;EDIT.orig.hi=p.hi;EDIT.orig.scope=p.scope||null; editSnip(true);}
-    toast('핀 #'+p.id+' 위치를 L'+p.lo+'-L'+p.hi+' 로 바꿨습니다','ok'); await loadPins();
+    toast('핀 #'+p.id+' 위치를 '+(isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi)+' 로 바꿨습니다','ok'); await loadPins();
   }catch(e){}}
 
 // ------------------------------------------------ PDF 재빌드
@@ -4731,15 +4939,17 @@ function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
   return null;}
 function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
-async function refreshDoc(){const a=topAnchor();
-  const m=(await api('/api/meta',{what:'화면 정보 읽기'})).data; const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
+async function refreshDoc(){const a=topAnchor(),k=DOC;
+  const m=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data; META_BY.set(k,m);
+  if(k!==DOC)return;                    // 기다리는 사이 다른 문서로 바꿨다 — 캐시만 새로 둔다
+  const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // 캔버스는 옛 PDF 로 그린 것이다 — 걷어 내 새 PNG 를 먼저 보이고, 새 빌드의 PDF 를 열면 다시 그린다.
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
   else buildDoc();
   restoreAnchor(a); vecOpen(); await loadPins();}
 // ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
 // 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
-function showBuildErr(r){LAST_BUILD_ERR=r; const b=$('#build-err');
+function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
   const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다';
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
     '<button class="x" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
@@ -4750,7 +4960,7 @@ function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden
 // P0b-01: 재빌드는 비동기다 — POST 는 바로 돌아오고, #build-chip 폴러(startBuildPolling)가 진행 상황을
 // 보여 준 뒤 끝나면 제자리 교체와 알림을 한다. 다른 사람이 시작한 빌드도 같은 폴러가 잡아낸다.
 async function rebuild(){
-  try{const {status}=await api('/api/rebuild?async=1',{method:'POST',what:'PDF 재빌드',expect:[409]});
+  try{const {status}=await api(dq('/api/rebuild?async=1'),{method:'POST',what:'PDF 재빌드',expect:[409]});
     if(status===409){toast('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
     $('#build-err').hidden=true;
     // POST 전에 떠난 조회가 있으면 끝나길 기다린 뒤 새로 묻는다 — 그 조회는 옛 상태(ok)를 들고 와 1초 폴링을
@@ -4793,6 +5003,9 @@ document.addEventListener('click',e=>{
     case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
+    case 'doc':switchDoc(a.dataset.doc);if(a.closest('#docs-menu'))$('#docs-menu').close();break;
+    case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
+    case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
@@ -4810,6 +5023,16 @@ document.addEventListener('keydown',e=>{
   // Ctrl(⌘) + = / − / 0 은 브라우저 확대 대신 PDF 쪽만 확대·축소·폭 맞춤한다. 입력 칸에서는 브라우저에 맡긴다.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
     if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
+  // 문서 전환(여러 문서): Ctrl+PgUp/PgDn 은 이전·다음, Alt+1…9 는 그 번째(e.code — 맥의 Option+숫자는 다른 글자를 낸다).
+  // 탭에 포커스가 있으면 ←/→/Home/End 로 옮긴다(ARIA 탭 패턴, 자동 활성화). 입력 칸에서는 하지 않는다.
+  if(multiDoc()&&!inField){
+    if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); cycleDoc(e.key==='PageDown'?1:-1); return;}
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
+    if(t&&t.classList&&t.classList.contains('dtab')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();
+      const i=DOCS.findIndex(d=>d.key===t.dataset.doc),n=DOCS.length;
+      const j=e.key==='Home'?0:e.key==='End'?n-1:(i+(e.key==='ArrowRight'?1:-1)+n)%n;
+      switchDoc(DOCS[j].key).then(()=>{const b=document.getElementById('dtab-'+DOCS[j].key); if(b)b.focus();}); return;}
+  }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&t.id==='note'){e.preventDefault();savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
@@ -4818,7 +5041,7 @@ document.addEventListener('keydown',e=>{
   // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
-    if($('#help').open||$('#more').open)return;
+    if($('#help').open||$('#more').open||$('#docs-menu').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}
     if(REPICK){cancelRepick();return;}
     if(EDIT){cancelEdit();return;}

@@ -1689,6 +1689,8 @@ class FrontendLogic(unittest.TestCase):
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
+            // 여러 문서(§여러 문서) 전역 — 단일 문서 뷰어와 같은 값
+            const DOC='main', DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
             """,
             extract_js_fn("buildChipText"), extract_js_fn("pullSuffix"), extract_js_fn("pollBuild"),
             extract_js_fn("pollBuildOnce"),
@@ -1979,7 +1981,7 @@ class FrontendStructure(unittest.TestCase):
         m = re.search(r"function drawPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn("DROPPED.length", body)
+        self.assertRegex(body, r"(DROPPED|LDROP)\.length")   # LDROP = listDropped()(지금 문서 또는 모든 문서)
         self.assertIn("droppedCard", body)
 
     def test_done_card_shows_close_reply_and_ref(self):
@@ -2812,8 +2814,10 @@ class FrontendMobileLogic(unittest.TestCase):
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
+            let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             """,
-            extract_js_fn("rng"), extract_js_fn("card"),
+            extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -3134,8 +3138,10 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertNotIn("display:none", re.search(r"\.chip\{[^}]*\}", ps.HTML).group(0))
 
     def test_document_title_prefixes_label(self):
+        # 여러 문서면 메인 파일 이름 대신 문서 이름(META.doc_name)을 쓴다 — 이름표 접두는 그대로다.
         self.assertIn(
-            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+META.main+' · 열린 '+PINS.length;",
+            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)"
+            "+' · 열린 '+PINS.length;",
             ps.HTML)
 
 
@@ -3531,3 +3537,88 @@ class MultiDoc(Base):
             self.assertEqual(ps.build_state_snapshot()["seq"], 2)
             b = ps.load_builds()["by"]
             self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages().name]["src_hash"])   # 위치 추정의 원천
+
+
+class FrontendDocs(unittest.TestCase):
+    """문서 탭·전환(§여러 문서). 문서가 하나면 탭 줄·문서 버튼·'모든 문서' 토글이 숨어 지금 화면 그대로다."""
+
+    def test_tabs_and_doc_button_are_hidden_for_single_doc(self):
+        css = ps.HTML
+        self.assertIn("#doc-tabs{display:none;", css)
+        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}", css)   # 데스크톱·펼친 폴드
+        self.assertIn("#btn-doc{display:none;", css)
+        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)   # 접은 폴드는 문서 버튼
+        self.assertIn("body.view-only #btn-rebuild{display:none}", css)                  # 보기 전용은 재빌드 없음
+        self.assertIn('id="all-docs"', css)
+        self.assertIn("$('#all-docs').hidden=!multiDoc()", ps.HTML)
+        self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", ps.HTML)
+
+    def test_tab_markup_is_an_aria_tablist(self):
+        self.assertIn('id="doc-tabs" role="tablist"', ps.HTML)
+        body = extract_js_fn("drawDocTabs")
+        self.assertIn('role="tab"', body)
+        self.assertIn('aria-selected="', body)
+        self.assertIn("(Alt+'+(i+1)+')", body)
+
+    def test_hash_dq_and_initial_doc(self):
+        js = "\n".join([r"""
+            const DOCS=[{key:'ms'},{key:'rr'},{key:'rv'}]; let DOC='ms'; let _prefs={}; function prefs(){return _prefs;}
+            const location={hash:''};
+            """, extract_js_fn("docInfo"), extract_js_fn("dq"), extract_js_fn("hashDoc"), extract_js_fn("initialDoc"), r"""
+            const out=[];
+            out.push(dq('/api/meta'), dq('/api/meta?light=1'), dq('/pdf?build=x','rr'));
+            location.hash='#doc=rr'; out.push(initialDoc());
+            location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
+            location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
+            location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
+            console.log(JSON.stringify(out));
+            """])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        self.assertEqual(json.loads(out), ["/api/meta?doc=ms", "/api/meta?light=1&doc=ms", "/pdf?build=x&doc=rr",
+                                           "rr", "rv", "ms", "rv"])
+
+    def test_switch_shortcuts_skip_input_fields(self):
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        body = m.group(1)
+        i = body.index("if(multiDoc()&&!inField){")
+        self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
+        self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
+        self.assertLess(body.index("const t=e.target,inField="), i)
+
+    def test_view_memory_and_pdfjs_cache_are_bounded(self):
+        self.assertIn("const VEC_CACHE_MAX=3;", ps.HTML)
+        put = extract_js_fn("vecCachePut")
+        self.assertIn("while(c.size>VEC_CACHE_MAX)", put)
+        self.assertIn("vecClose(d)", put)
+        sw = extract_js_fn("switchDoc")
+        self.assertIn("saveView();", sw)
+        self.assertIn("setHash(k)", sw)
+        self.assertIn("savePrefs({lastDoc:k})", sw)
+        show = extract_js_fn("showDoc")
+        self.assertIn("restoreView(v)", show)
+        self.assertIn("vecOpen()", show)
+
+    def test_cross_doc_card_actions_switch_first(self):
+        self.assertIn("function jumpPin(id){if(viaDoc(id,jumpPin))return;", ps.HTML)
+        self.assertIn("function openEdit(id){if(viaDoc(id,openEdit))return;", ps.HTML)
+        js = "\n".join([r"""
+            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms'; const DEFAULT_DOC='ms';
+            const DOCS=[{key:'ms'},{key:'rr'}]; const seen=[];
+            function switchDoc(k){seen.push('switch:'+k); DOC=k; return Promise.resolve();}
+            """, extract_js_fn("docInfo"), extract_js_fn("pdoc"), extract_js_fn("viaDoc"), r"""
+            (async()=>{const out=[viaDoc(1,()=>{}), viaDoc(3,()=>{}), viaDoc(2,id=>seen.push('then:'+id))];
+              await Promise.resolve(); await Promise.resolve(); out.push(seen); console.log(JSON.stringify(out));})();
+            """])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        self.assertEqual(json.loads(out), [False, False, True, ["switch:rr", "then:2"]])
+
+    def test_region_selection_saves_page_and_frac_only(self):
+        body = extract_js_fn("savePin")
+        self.assertIn("if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};", body)
+        self.assertIn("body.doc=d.doc||DOC||undefined;", body)
+        self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
+        self.assertIn("#composer.region #c-levels", ps.HTML)
