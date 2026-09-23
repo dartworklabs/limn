@@ -2974,7 +2974,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertLess(body.index('b-drop'), body.index('b-close'))         # 완료(주요)는 맨 오른쪽
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
-        self.assertIn('class="btn-sm btn-secondary b-close"', body)          # 완료 = secondary, 삭제 = destructive(§컴포넌트)
+        self.assertIn('class="btn-sm btn-soft b-close"', body)               # 완료 = soft(옅은 파랑, 저자 지정 09-23), 삭제 = destructive
+        self.assertNotIn('btn-secondary b-close', body)
+        self.assertIn("button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)", css)
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
 
     def test_compact_toolbar_is_one_even_row(self):
@@ -3073,7 +3075,7 @@ class FrontendDesignTokens(unittest.TestCase):
 
     def test_component_variants_exist(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        for cls in ("button.btn-default{", "button.btn-secondary{", "button.btn-ghost{", "button.btn-destructive{",
+        for cls in ("button.btn-default{", "button.btn-secondary{", "button.btn-soft{", "button.btn-ghost{", "button.btn-destructive{",
                     "button.btn-sm{", "button.btn-icon{", ".badge{", ".badge-default{", ".badge-secondary{",
                     ".badge-destructive{", ".badge-claimed{", ".badge-warning{", ".card{"):
             self.assertIn(cls, css)

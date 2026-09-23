@@ -3368,7 +3368,7 @@ body.resizing #left{pointer-events:none}
 #bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
 /* ---------------- 컴포넌트(references/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
-   버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-ghost · .btn-destructive
+   버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-soft([완료]) · .btn-ghost · .btn-destructive
    버튼 크기: (클래스 없음) = default(28px) · .btn-sm(24px 안팎) · .btn-icon(정사각형, .btn-sm 과 겹치면 작은 정사각형)
    배지: .badge(= outline) · .badge-default · .badge-secondary · .badge-destructive · 상태 .badge-claimed · .badge-warning */
 button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);
@@ -3386,6 +3386,9 @@ button.btn-secondary{background:var(--secondary);color:var(--secondary-foregroun
 button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}
 button.btn-ghost{background:transparent;border-color:transparent}
 button.btn-ghost:hover{background:var(--accent)}
+/* soft: 옅은 강조(주 색 틴트). 카드의 [완료] 전용 — 저자 지정 2026-09-23(옅은 파랑). secondary 토큰은 셈 배지가 쓰므로 건드리지 않는다 */
+button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
+button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}   /* 바탕을 더 칠하면 라이트 글자 대비가 4.5 아래로 — 테두리로 표시 */
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
 button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}
 button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
@@ -3513,7 +3516,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
-button.b-close{font-weight:600}   /* [완료] = secondary, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
+button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
 .edit .c-tools{margin-top:0}
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
@@ -5001,7 +5004,7 @@ function card(p){
     '<button class="btn-sm b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
     (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
     '<button class="btn-sm btn-destructive b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
-    '<button class="btn-sm btn-secondary b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
+    '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
 // 보관함 행(references/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
