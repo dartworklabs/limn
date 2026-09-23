@@ -111,6 +111,7 @@ class Base(unittest.TestCase):
         C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
+        ps.set_docs(None)                          # 단일 문서(--doc 없음)로 시작 — 여러 문서 테스트가 남긴 목록을 지운다
         ps.init_seq()
 
     def tearDown(self):
@@ -1688,6 +1689,8 @@ class FrontendLogic(unittest.TestCase):
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
+            // 여러 문서(§여러 문서) 전역 — 단일 문서 뷰어와 같은 값
+            const DOC='main', DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
             """,
             extract_js_fn("buildChipText"), extract_js_fn("pullSuffix"), extract_js_fn("pollBuild"),
             extract_js_fn("pollBuildOnce"),
@@ -1978,7 +1981,7 @@ class FrontendStructure(unittest.TestCase):
         m = re.search(r"function drawPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn("DROPPED.length", body)
+        self.assertRegex(body, r"(DROPPED|LDROP)\.length")   # LDROP = listDropped()(지금 문서 또는 모든 문서)
         self.assertIn("droppedCard", body)
 
     def test_done_card_shows_close_reply_and_ref(self):
@@ -2811,8 +2814,10 @@ class FrontendMobileLogic(unittest.TestCase):
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
+            let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             """,
-            extract_js_fn("rng"), extract_js_fn("card"),
+            extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -3133,8 +3138,10 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertNotIn("display:none", re.search(r"\.chip\{[^}]*\}", ps.HTML).group(0))
 
     def test_document_title_prefixes_label(self):
+        # 여러 문서면 메인 파일 이름 대신 문서 이름(META.doc_name)을 쓴다 — 이름표 접두는 그대로다.
         self.assertIn(
-            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+META.main+' · 열린 '+PINS.length;",
+            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)"
+            "+' · 열린 '+PINS.length;",
             ps.HTML)
 
 
@@ -3195,3 +3202,423 @@ class InstanceIdInPinsMd(Base):
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
         self.assertIn("논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git", body)
+
+
+# ---------------------------------------------------------------- §여러 문서(--doc) — 한 뷰어 안에서 문서 전환
+
+# pdftoppm·pdftotext 가 읽는 가장 작은 PDF(한 쪽, 글자 한 줄). xref 는 poppler 가 스스로 다시 세운다.
+MINI_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+            b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R"
+            b"/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
+            b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 20 150 Td (Reviewer one) Tj ET\nendstream endobj\n"
+            b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+def jreq(method, path, obj=None, headers=None):
+    body = json.dumps(obj).encode() if obj is not None else b""
+    h = {"Content-Type": "application/json"} if obj is not None else {}
+    h.update(headers or {})
+    return req(method, path, body, h)
+
+
+class DocArgs(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ms = Path(self.tmp.name) / "repo"
+        (self.ms / "manuscript" / "2nd").mkdir(parents=True)
+        (self.ms / "manuscript" / "2nd" / "m.tex").write_text(TEX, encoding="utf-8")
+        (self.ms / "sub" / "rr").mkdir(parents=True)
+        (self.ms / "sub" / "rr" / "rr.tex").write_text(TEX, encoding="utf-8")
+        (self.ms / "sub" / "review.pdf").write_bytes(MINI_PDF)
+        (self.ms / "notes.txt").write_text("x")
+        (Path(self.tmp.name) / "outside.tex").write_text(TEX)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_simple_tex_uses_its_folder_as_build_root(self):
+        d = ps.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
+        self.assertEqual((d["key"], d["name"], d["kind"]), ("rr", "답변서", "tex"))
+        self.assertEqual(d["src"], (self.ms / "sub" / "rr").resolve())
+        self.assertEqual(d["main"], (self.ms / "sub" / "rr" / "rr.tex").resolve())
+
+    def test_extended_form_sets_build_root_separately(self):
+        d = ps.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
+        self.assertEqual(d["src"], (self.ms / "manuscript").resolve())
+        self.assertEqual(d["main"], (self.ms / "manuscript" / "2nd" / "m.tex").resolve())
+        doc = ps.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms)[0]
+        self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
+        ps.C.state = Path(self.tmp.name) / "st"
+        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk 는 메인이 있는 폴더에서
+
+    def test_pdf_is_view_only(self):
+        d = ps.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
+        self.assertEqual(d["kind"], "pdf")
+        self.assertEqual(d["name"], "리뷰어 코멘트")                  # 이름 안의 공백은 그대로
+
+    def test_absolute_path_inside_manuscript_is_accepted(self):
+        d = ps.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
+        self.assertEqual(d["kind"], "tex")
+
+    def test_rejects_bad_specs(self):
+        bad = ["rr답변서:sub/rr/rr.tex",               # '=' 없음
+               "RR=답변서:sub/rr/rr.tex",              # 대문자 키
+               "a" * 25 + "=x:sub/rr/rr.tex",          # 키 25자
+               "rr=답변서",                            # ':' 없음
+               "rr=:sub/rr/rr.tex",                    # 이름 빔
+               "rr=" + "가" * 41 + ":sub/rr/rr.tex",   # 이름 41자
+               "rr=답변서:",                           # 경로 빔
+               "rr=답변서:../outside.tex",             # --manuscript 밖
+               "rr=답변서:sub/rr/none.tex",            # 없는 파일
+               "rr=답변서:notes.txt",                  # 확장자
+               "rv=코멘트:sub::review.pdf",            # '::' 는 LaTeX 전용
+               "ms=본문:manuscript::../outside.tex",   # 메인이 빌드 루트 밖
+               "ms=본문:manuscript::2nd/m.tex::x",     # '::' 두 번
+               "ms=본문:nope::2nd/m.tex"]              # 빌드 루트 없음
+        for spec in bad:
+            with self.assertRaises(ValueError, msg=spec):
+                ps.parse_doc_arg(spec, self.ms)
+
+    def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
+        with self.assertRaises(ValueError):
+            ps.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms)
+        docs = ps.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms)
+        self.assertEqual([d.root for d in docs], [True, False, False])    # 키 main 인 LaTeX 문서만 상태 폴더 루트 배치
+        self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
+        with self.assertRaises(ValueError):
+            ps.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(ps.DOCS_MAX + 1)], self.ms)
+
+
+class MultiDoc(Base):
+    """ms(본문, 키 main 아님)·rr(답변서, 다른 폴더)·rv(보기 전용 PDF) 세 문서."""
+
+    def setUp(self):
+        super().setUp()
+        (self.src / "rr").mkdir()
+        self.rr = self.src / "rr" / "rr.tex"
+        self.rr.write_text(TEX, encoding="utf-8")
+        self.pdf = self.src / "review.pdf"
+        self.pdf.write_bytes(MINI_PDF)
+        self.docs = ps.make_docs(["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src)
+        ps.set_docs(self.docs)
+        self.ms, self.rrd, self.rv = self.docs
+
+    def tearDown(self):
+        ps.set_docs(None)
+        super().tearDown()
+
+    def fake_pages(self, D, name="pages-20260101000000", n=1):
+        """빌드 없이 쪽 디렉토리 하나를 그 문서에 둔다(1x1 PNG 헤더 + PDF 사본)."""
+        d = D.dir / name
+        d.mkdir(parents=True, exist_ok=True)
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (417).to_bytes(4, "big") + (417).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+        for i in range(1, n + 1):
+            (d / ("page-%d.png" % i)).write_bytes(png)
+        (d / D.pdf_name).write_bytes(MINI_PDF)
+        ps.atomic_write(D.dir / "pages.cur", name)
+        return d
+
+    def test_state_layout_per_doc(self):
+        self.assertEqual(self.ms.dir, ps.C.state / "docs" / "ms")
+        self.assertEqual(self.rv.dir, ps.C.state / "docs" / "rv")
+        with ps.using_doc(self.rrd):
+            self.assertEqual(ps.cur_pages(), ps.C.state / "docs" / "rr" / "pages")
+        self.assertEqual(ps.C.pins_jsonl, ps.C.state / "pins.jsonl")          # 핀 저장소는 하나
+
+    def test_single_doc_mode_keeps_legacy_paths(self):
+        ps.set_docs(None)
+        self.assertFalse(ps.multi_doc())
+        self.assertIs(ps.cur_doc(), ps.LEGACY_DOC)
+        self.assertEqual(ps.cur_pages(), ps.C.state / "pages")
+        self.assertEqual(ps.LEGACY_DOC.build, ps.C.build)
+        self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)                        # 옛 전역 잠금·상태가 곧 이 문서의 것
+        self.assertIs(ps.LEGACY_DOC.bstate, ps.BUILD_STATE)
+        pid = self.add()
+        self.assertEqual(self.pin(pid)["doc"], "main")
+        md = ps.pins_md_text(ps.snapshot_pins())
+        self.assertNotIn("## ", md)                                             # 소절 없이 예전 모양
+        self.assertIn("| # | 쪽 | 위치 | 범위 | 메모 |", md)
+
+    def test_old_pin_without_doc_reads_as_first_doc_without_rewrite(self):
+        rec = {"id": 1, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "옛 핀", "at": "2026-09-01 10:00:00"}
+        ps.C.pins_jsonl.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
+        rows = ps.pins_payload(ps.read_pins()[0], True)
+        self.assertEqual(rows[0]["doc"], "ms")                                  # 첫 문서
+        self.assertNotIn('"doc"', ps.C.pins_jsonl.read_text(encoding="utf-8"))  # 이관 쓰기 없음
+        self.assertEqual(ps.docs_payload()["docs"][0]["n_open"], 1)
+
+    def test_api_docs_lists_kind_and_counts(self):
+        ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR))
+        with ps.using_doc(self.rrd):
+            ps.add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR))
+        code, _, body = split_resp(self.talk(req("GET", "/api/docs")))
+        self.assertEqual(code, 200)
+        d = json.loads(body)
+        self.assertTrue(d["multi"])
+        self.assertEqual([(x["key"], x["kind"], x["view_only"], x["n_open"]) for x in d["docs"]],
+                         [("ms", "tex", False, 0), ("rr", "tex", False, 2), ("rv", "pdf", True, 0)])
+        self.assertEqual(d["docs"][1]["path"], "rr/rr.tex")
+
+    def test_meta_and_pages_follow_doc_param(self):
+        self.fake_pages(self.rrd, n=2)
+        code, _, body = split_resp(self.talk(req("GET", "/api/meta?doc=rr")))
+        m = json.loads(body)
+        self.assertEqual((m["doc"], m["main"], len(m["pages"]), m["kind"], m["multi"]), ("rr", "rr.tex", 2, "tex", True))
+        self.assertEqual([x["key"] for x in m["docs"]], ["ms", "rr", "rv"])
+        self.assertIn("rr=", m["src_sig"])
+        code, _, _ = split_resp(self.talk(req("GET", "/pages/page-2.png?doc=rr")))
+        self.assertEqual(code, 200)
+        code, _, _ = split_resp(self.talk(req("GET", "/pages/page-2.png?doc=ms")))   # ms 에는 쪽이 없다
+        self.assertEqual(code, 404)
+        code, hdrs, _ = split_resp(self.talk(req("GET", "/pdf?doc=rr")))
+        self.assertEqual((code, hdrs["content-type"]), (200, "application/pdf"))
+        code, _, body = split_resp(self.talk(req("GET", "/api/meta?doc=nope")))
+        self.assertEqual(code, 404)
+        self.assertEqual(json.loads(body)["docs"], ["ms", "rr", "rv"])
+
+    def test_pin_doc_is_inferred_from_file_and_body_query_must_agree(self):
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "rr/rr.tex", "lo": 4, "hi": 5})))
+        self.assertEqual(code, 200)
+        self.assertEqual(self.pin(json.loads(body)["id"])["doc"], "rr")     # 에이전트 curl — file 로 짐작
+        code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin?doc=ms", {"file": "main.tex", "lo": 4, "hi": 5, "doc": "rr"})))
+        self.assertEqual(code, 400)
+        code, _, body = split_resp(self.talk(jreq("GET", "/api/pins?doc=rr")))
+        self.assertEqual([p["doc"] for p in json.loads(body)], ["rr"])
+
+    def test_view_only_pick_returns_region_without_synctex(self):
+        self.fake_pages(self.rv)
+        with mock.patch.object(ps, "region_text", return_value="Reviewer   one\n comment"), \
+                mock.patch.object(ps, "by_synctex", side_effect=AssertionError("SyncTeX 를 부르면 안 된다")):
+            code, _, body = split_resp(self.talk(jreq("POST", "/api/pick", {"doc": "rv", "page": 1, "x0": 10, "y0": 20,
+                                                                            "x1": 110, "y1": 60})))
+        self.assertEqual(code, 200)
+        d = json.loads(body)
+        self.assertEqual((d["kind"], d["view_only"], d["page"], d["quote"], d["pdf"]),
+                         ("region", True, 1, "Reviewer one comment", "review.pdf"))
+        self.assertNotIn("lo", d)
+        self.assertEqual(len(d["frac"]), 4)                                     # frac 없이 와도 좌표로 만든다
+
+    def test_view_only_pin_save_validation_and_pins_md(self):
+        self.fake_pages(self.rv, n=3)
+        ok = {"doc": "rv", "page": 2, "frac": [0.1, 0.2, 0.5, 0.1], "note": "R1 코멘트 답변", "quote": "Reviewer one"}
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", ok)))
+        self.assertEqual(code, 200, body)
+        pid = json.loads(body)["id"]
+        rec = self.pin(pid)
+        self.assertEqual((rec["doc"], rec["kind"], rec["page"], rec["pdf"]), ("rv", "region", 2, str(self.pdf)))
+        self.assertNotIn("file", rec)
+        self.assertNotIn("lo", rec)
+        self.assertTrue(ps.valid_rec(rec))
+        for bad in ({"lo": 3, "hi": 4}, {"file": "main.tex"}, {"frac": [0.9, 0.2, 0.5, 0.1]}, {"frac": [0.1, 0.2, 0, 0.1]},
+                    {"frac": None}, {"page": 9}):
+            code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", dict(ok, **bad))))
+            self.assertEqual(code, 400, bad)
+        # LaTeX 문서의 검증은 그대로 — lo/hi 없는 핀은 400
+        code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
+        self.assertEqual(code, 400)
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR))
+        md = ps.pins_md_text(ps.snapshot_pins())
+        self.assertIn("## 본문 · `ms` · `main.tex`", md)
+        self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
+        self.assertIn("| %d | 2 | 쪽 2, 영역 가로 10–60%% 세로 20–30%% | 영역 | «Reviewer one» R1 코멘트 답변 |" % pid, md)
+        self.assertIn("문서: 본문(`ms`) 1건 · 답변서(`rr`) 0건 · 리뷰어 코멘트(`rv`, 보기 전용) 1건", md)
+        self.assertNotIn("## 답변서", md)                                        # 열린 핀 없는 문서는 소절을 안 만든다
+        self.assertIn("보기 전용 PDF 의 핀은 줄 번호가 없다", md)
+        for line in md.splitlines():
+            if line.startswith("| ") and not line.startswith("|---"):
+                self.assertEqual(line.count(" | ") + 2, 6, line)               # 5열 그대로
+
+    def test_view_only_pin_edit_note_and_region_only(self):
+        self.fake_pages(self.rv)
+        with ps.using_doc(self.rv):
+            pid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR))
+        rev = self.pin(pid)["rev"]
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(cm.exception.code, 400)
+        p = ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR))   # 요청에 doc 이 없어도 핀의 문서로
+        self.assertEqual(p["note"], "b")
+        p = ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"}, "base_rev": p["rev"]},
+                        dict(ps.LOCAL_ACTOR))
+        self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
+        self.assertTrue(ps.valid_rec(self.pin(pid)))
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))                            # 닫기·drop 은 문서와 무관하게 id 로
+        self.assertTrue(self.pin(pid)["done"])
+
+    def test_region_record_validation_is_by_shape(self):
+        base = {"id": 1, "pdf": str(self.pdf), "page": 1, "frac": [0, 0, 0.5, 0.5], "kind": "region", "doc": "gone"}
+        self.assertTrue(ps.valid_rec(base))                                     # 설정에서 뺀 문서여도 깨진 줄이 아니다
+        self.assertFalse(ps.valid_rec(dict(base, lo=1, hi=2)))
+        self.assertFalse(ps.valid_rec(dict(base, frac=None)))
+        self.assertFalse(ps.valid_rec(dict(base, pdf="review.pdf")))            # 상대 경로
+        self.assertFalse(ps.valid_rec(dict(base, doc="Bad Key")))
+        # 설정에 없는 문서의 핀은 pins.md 에 따로 드러난다(숨지 않는다)
+        ps.C.pins_jsonl.write_text(json.dumps(base) + "\n")
+        md = ps.pins_md_text(ps.read_pins()[0])
+        self.assertIn("## 설정에 없는 문서 · `gone`", md)
+
+    def test_sync_and_overlaps_skip_region_pins(self):
+        self.fake_pages(self.rv)
+        with ps.using_doc(self.rv):
+            rid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR))
+        tid = self.add(4, 5)
+        self.main.write_text("\n" + TEX, encoding="utf-8")                     # 줄이 밀린다
+        os.utime(self.main, (time.time() + 5, time.time() + 5))
+        rows = ps.pins_payload(ps.snapshot_pins(), False)
+        by = {r["id"]: r for r in rows}
+        self.assertEqual((by[tid]["lo"], by[tid]["hi"]), (5, 6))
+        self.assertEqual(by[rid]["rel"], [])
+        self.assertNotIn("lo", by[rid])
+
+    def test_view_only_rebuild_is_refused_and_pick_snippet_guarded(self):
+        code, _, body = split_resp(self.talk(req("POST", "/api/rebuild?doc=rv")))
+        self.assertEqual(code, 400)
+        code, _, _ = split_resp(self.talk(req("GET", "/api/snippet?doc=rv&file=main.tex&lo=1&hi=2")))
+        self.assertEqual(code, 400)
+
+    def test_build_lock_is_per_doc(self):
+        gate = threading.Event()
+
+        def slow_build():
+            gate.wait(5)
+            return {"ok": False, "state": "fail", "errors": [], "log": "x", "elapsed_s": 0.0}
+        with mock.patch.object(ps, "_build", side_effect=slow_build):
+            with ps.using_doc(self.ms):
+                self.assertEqual(ps.build_async(), {"state": "running"})
+                self.assertTrue(ps.build_async().get("busy"))                  # 같은 문서는 한 번에 하나
+                self.assertTrue(ps.build_all().get("busy"))
+            with ps.using_doc(self.rrd):
+                self.assertEqual(ps.build_async(), {"state": "running"})       # 다른 문서는 동시에
+            self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
+            self.assertFalse(ps.BUILD_LOCK.locked())                           # 단일 문서의 전역 잠금은 안 건드린다
+            gate.set()
+            for _ in range(100):
+                if not (self.ms.lock.locked() or self.rrd.lock.locked()):
+                    break
+                time.sleep(0.05)
+        self.assertFalse(self.ms.lock.locked() or self.rrd.lock.locked())
+        with ps.using_doc(self.ms):
+            self.assertEqual(ps.build_state_snapshot()["state"], "fail")
+        with ps.using_doc(self.rv):
+            self.assertEqual(ps.build_state_snapshot()["state"], "idle")      # 빌드 상태도 문서마다
+
+    def test_git_pull_is_shared_across_docs(self):
+        calls = []
+        with mock.patch.object(ps, "git_pull_phase", side_effect=lambda m: calls.append(m) or {"state": "up_to_date"}):
+            ps._PULL_LAST.update(at=0.0, res=None)
+            a = ps.repo_pull()
+            b = ps.repo_pull()
+        self.assertEqual(len(calls), 1)                                         # 저장소 단위로 한 번
+        self.assertNotIn("shared", a)
+        self.assertTrue(b["shared"])
+        ps.set_docs(None)
+        with mock.patch.object(ps, "git_pull_phase", side_effect=lambda m: calls.append(m) or {"state": "ok"}):
+            ps.repo_pull(), ps.repo_pull()
+        self.assertEqual(len(calls), 3)                                         # 단일 문서는 빌드마다(예전 그대로)
+
+    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm 이 없다")
+    def test_view_only_pdf_renders_and_rerenders_on_change(self):
+        with ps.using_doc(self.rv):
+            self.assertTrue(ps.pdf_changed(self.rv))                           # 아직 안 그렸다
+            res = ps._build_tracked()
+            self.assertEqual(res["state"], "ok", res.get("log"))
+            first = ps.cur_pages().name
+            self.assertTrue((ps.cur_pages() / "review.pdf").is_file())
+            self.assertFalse(ps.pdf_changed(self.rv))
+            self.assertFalse(ps.refresh_pdf_doc(self.rv))                      # 그대로면 다시 그리지 않는다
+            self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
+            os.utime(self.pdf, (time.time() + 3, time.time() + 3))
+            self.assertTrue(ps.pdf_changed(self.rv))
+            time.sleep(1.1)                                                    # 쪽 디렉토리 이름은 초 단위
+            res = ps._build_tracked()
+            self.assertEqual(res["state"], "ok")
+            self.assertNotEqual(ps.cur_pages().name, first)
+            self.assertEqual(ps.build_state_snapshot()["seq"], 2)
+            b = ps.load_builds()["by"]
+            self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages().name]["src_hash"])   # 위치 추정의 원천
+
+
+class FrontendDocs(unittest.TestCase):
+    """문서 탭·전환(§여러 문서). 문서가 하나면 탭 줄·문서 버튼·'모든 문서' 토글이 숨어 지금 화면 그대로다."""
+
+    def test_tabs_and_doc_button_are_hidden_for_single_doc(self):
+        css = ps.HTML
+        self.assertIn("#doc-tabs{display:none;", css)
+        self.assertIn("body.docs-multi:not(.lay-narrow) #doc-tabs{display:flex}", css)   # 데스크톱·펼친 폴드
+        self.assertIn("#btn-doc{display:none;", css)
+        self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)   # 접은 폴드는 문서 버튼
+        self.assertIn("body.view-only #btn-rebuild{display:none}", css)                  # 보기 전용은 재빌드 없음
+        self.assertIn('id="all-docs"', css)
+        self.assertIn("$('#all-docs').hidden=!multiDoc()", ps.HTML)
+        self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", ps.HTML)
+
+    def test_tab_markup_is_an_aria_tablist(self):
+        self.assertIn('id="doc-tabs" role="tablist"', ps.HTML)
+        body = extract_js_fn("drawDocTabs")
+        self.assertIn('role="tab"', body)
+        self.assertIn('aria-selected="', body)
+        self.assertIn("(Alt+'+(i+1)+')", body)
+
+    def test_hash_dq_and_initial_doc(self):
+        js = "\n".join([r"""
+            const DOCS=[{key:'ms'},{key:'rr'},{key:'rv'}]; let DOC='ms'; let _prefs={}; function prefs(){return _prefs;}
+            const location={hash:''};
+            """, extract_js_fn("docInfo"), extract_js_fn("dq"), extract_js_fn("hashDoc"), extract_js_fn("initialDoc"), r"""
+            const out=[];
+            out.push(dq('/api/meta'), dq('/api/meta?light=1'), dq('/pdf?build=x','rr'));
+            location.hash='#doc=rr'; out.push(initialDoc());
+            location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
+            location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
+            location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
+            console.log(JSON.stringify(out));
+            """])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        self.assertEqual(json.loads(out), ["/api/meta?doc=ms", "/api/meta?light=1&doc=ms", "/pdf?build=x&doc=rr",
+                                           "rr", "rv", "ms", "rv"])
+
+    def test_switch_shortcuts_skip_input_fields(self):
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        body = m.group(1)
+        i = body.index("if(multiDoc()&&!inField){")
+        self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
+        self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
+        self.assertLess(body.index("const t=e.target,inField="), i)
+
+    def test_view_memory_and_pdfjs_cache_are_bounded(self):
+        self.assertIn("const VEC_CACHE_MAX=3;", ps.HTML)
+        put = extract_js_fn("vecCachePut")
+        self.assertIn("while(c.size>VEC_CACHE_MAX)", put)
+        self.assertIn("vecClose(d)", put)
+        sw = extract_js_fn("switchDoc")
+        self.assertIn("saveView();", sw)
+        self.assertIn("setHash(k)", sw)
+        self.assertIn("savePrefs({lastDoc:k})", sw)
+        show = extract_js_fn("showDoc")
+        self.assertIn("restoreView(v)", show)
+        self.assertIn("vecOpen()", show)
+
+    def test_cross_doc_card_actions_switch_first(self):
+        self.assertIn("function jumpPin(id){if(viaDoc(id,jumpPin))return;", ps.HTML)
+        self.assertIn("function openEdit(id){if(viaDoc(id,openEdit))return;", ps.HTML)
+        js = "\n".join([r"""
+            const OPEN_ALL=[{id:1,doc:'ms'},{id:2,doc:'rr'},{id:3}]; let DOC='ms'; const DEFAULT_DOC='ms';
+            const DOCS=[{key:'ms'},{key:'rr'}]; const seen=[];
+            function switchDoc(k){seen.push('switch:'+k); DOC=k; return Promise.resolve();}
+            """, extract_js_fn("docInfo"), extract_js_fn("pdoc"), extract_js_fn("viaDoc"), r"""
+            (async()=>{const out=[viaDoc(1,()=>{}), viaDoc(3,()=>{}), viaDoc(2,id=>seen.push('then:'+id))];
+              await Promise.resolve(); await Promise.resolve(); out.push(seen); console.log(JSON.stringify(out));})();
+            """])
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        self.assertEqual(json.loads(out), [False, False, True, ["switch:rr", "then:2"]])
+
+    def test_region_selection_saves_page_and_frac_only(self):
+        body = extract_js_fn("savePin")
+        self.assertIn("if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};", body)
+        self.assertIn("body.doc=d.doc||DOC||undefined;", body)
+        self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
+        self.assertIn("#composer.region #c-levels", ps.HTML)

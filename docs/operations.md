@@ -25,13 +25,15 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   [--git-pull] \
   [--pdfjs-dir <dir>] \
   [--label <이름표>] \
-  [--accent <#rrggbb>]
+  [--accent <#rrggbb>] \
+  [--doc <키>=<표시 이름>:<경로> ...]
 ```
 
 | 인자 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |
 | `--manuscript` | 예 | — | LaTeX 소스 루트 디렉토리(`<manuscript_dir>`). 프로젝트마다 다르므로 하드코딩 금지. 핀이 가리킬 수 있는 파일은 이 트리 안으로 제한된다 |
-| `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략 시 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 0개 또는 2개 이상이면 후보 목록을 출력하고 종료(에러) — 추측하지 않는다 |
+| `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략 시 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 0개 또는 2개 이상이면 후보 목록을 출력하고 종료(에러) — 추측하지 않는다. `--doc` 과 함께 쓰면 기동 실패 |
+| `--doc` | 아니오 | (없음 = 단일 문서) | 뷰어가 탭으로 전환할 문서. 여러 번 준다. 첫 문서가 기본이다. 형식·규칙은 §여러 문서 |
 | `--port` | 아니오 | 자동 선택 | 미지정 시 §포트 충돌 회피에 따라 빈 포트를 탐색해 사용하고, 실제 선택된 포트를 기동 로그에 출력한다 |
 | `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/manuscript-pin-picker/<slug>` | `<slug>`는 `--manuscript`의 절대경로를 정규화·해시한 값. 같은 머신에서 원고 A·B를 동시에 열어도 상태가 섞이지 않게 하기 위함(멀티 원고·멀티 worktree 안전) |
 | `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도. 뷰어는 PDF 를 벡터로 그리므로(§뷰어 사용법) PNG 는 첫 화면과 폴백에만 쓴다 |
@@ -42,7 +44,7 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 | `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §Host·Origin 검사)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
 | `--git-pull` | 아니오 | (끔) | 모든 재빌드(동기·비동기)가 copy 단계 전에 `--manuscript` 의 git 저장소를 업스트림으로 `--ff-only` pull 한다(공저자가 PR 을 머지해도 서버 체크아웃이 그대로였던 문제, [build-sync.md](build-sync.md) §`--git-pull`). 더러움·분기·업스트림 없음·git 저장소 아님이면 건너뛰고 지금 체크아웃으로 빌드는 계속한다 — 빌드를 막지 않는다 |
 | `--pdfjs-dir` | 아니오 | 스크립트 옆 `../vendor/pdfjs`, 없으면 `./vendor/pdfjs` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`). 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG 로 보인다(동작은 그대로) |
-| `--label` | 아니오 | `--manuscript` 의 git origin 저장소 이름, git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표(40자 이하, HTML 이스케이프됨). 도구 줄 칩·탭 제목·파비콘·`<state_dir>/pins.md` 머리줄에 쓰인다(§동시 인스턴스) |
+| `--label` | 아니오 | `--manuscript` 의 git origin 저장소 이름(40자를 넘으면 잘라 `…`), git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표(직접 줄 때는 40자 이하 — 넘으면 기동 실패, HTML 이스케이프됨). 도구 줄 칩·탭 제목·파비콘·`<state_dir>/pins.md` 머리줄에 쓰인다(§동시 인스턴스) |
 | `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받는다(형식이 아니면 기동 실패). 같은 `--label` 이면 지정하지 않는 한 항상 같은 기본색이 나온다 |
 
 **바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§보안 제약)
@@ -50,6 +52,50 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
 ### 설계 초안과의 차이
 
 이 스킬의 설계 초안은 `*.ts.net` 외의 도메인을 개별 허용하는 `--allow-host HOST`(여러 번 가능)와, `Host`/`Origin` 검사를 따로 끄는 `--no-host-check`, 요청 헤더를 로깅하는 `--log-headers` 를 별도로 두는 안이었다. 실제 구현은 그 세 개를 만들지 않고 위 `--allow`(로그인 기반 허용목록)·`--no-origin-check`(Host·Origin 검사를 한 번에 끔) 로 갈음했다 — 허용 호스트 집합 자체(`127.0.0.1`·`localhost`·`::1`·`*.ts.net`)는 하드코딩이고 커스텀 도메인을 추가로 허용할 길이 없다. 커스텀 `--allow-host` 가 필요해지면 별도로 구현해야 한다.
+
+## 여러 문서 (`--doc`)
+
+논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·하이라이트, 보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소 하나로 띄우고 탭으로 전환한다. 설계와 근거는 [design.md](design.md) §여러 문서.
+
+```bash
+# 두 번째 논문 저장소(이름표 DEMO-B)의 실제 문서 목록
+uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
+  --manuscript <저장소 루트> --state-dir <state_dir> --port <port> --git-pull --label DEMO-B \
+  --doc 'ms=본문:manuscript::2nd/2nd_manuscript_en.tex' \
+  --doc 'rr=답변서:submission/review_response/review_response.tex' \
+  --doc 'cl=커버레터:submission/cover_letter/cover_letter.tex' \
+  --doc 'hl=하이라이트:submission/highlights/highlights.tex' \
+  --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf'
+```
+
+본문은 `\graphicspath{{./images/}{../1st/images/}}` 로 옆 폴더의 그림을 읽으므로 빌드 루트를 `manuscript/` 로 넓히고(`::`) 빌드는 `2nd/` 에서 돈다. 나머지는 `.tex` 가 있는 폴더 하나로 충분하다. 2026-09-23 이 머신의 TeX Live 2025 로 네 LaTeX 문서가 모두 빌드됐다(오류 0) — 본문 43쪽 24초, 답변서 111쪽 44초, 커버레터 1쪽 4초, 제출본 PDF 27쪽 그리기 10초.
+
+| 항목 | 규칙 |
+| --- | --- |
+| 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 그 뒤 첫 `:` 앞이 이름, 나머지가 경로 |
+| 키 | `[a-z0-9-]{1,24}`, 중복 금지. URL 해시(`#doc=<키>`)·API(`doc=<키>`)·pins.md 소절에 쓰인다. 핀 레코드에 남으므로 **한 번 정한 키는 바꾸지 않는다** |
+| 이름 | 탭·목록·pins.md 소절 머리에 보인다. 40자 이하, `:` 없이 |
+| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 어느 쪽이든 `--manuscript` 안이어야 한다(밖이면 기동 실패 — 핀이 가리킬 수 있는 파일은 원고 트리 안뿐) |
+| `x/main.tex` | LaTeX 문서. 빌드 루트(사본으로 복사하는 범위) = `x/`, 빌드도 `x/` 에서 |
+| `root::sub/main.tex` | LaTeX 문서. 빌드 루트 = `root/`, 메인 = `root/sub/main.tex`, 빌드는 `root/sub/` 에서. 메인이 `../` 로 빌드 루트 안의 다른 폴더를 읽을 때 쓴다. `::` 는 한 번만, 메인은 빌드 루트 안 |
+| `x/file.pdf` | 보기 전용. 재빌드가 없고, 파일이 바뀌면(3초마다 확인) 쪽을 다시 그린다. 핀은 쪽·영역 |
+| 개수 | 12개까지. Alt+1…9 는 앞의 아홉 개 |
+| `--doc` 없음 | 예전 그대로 `--manuscript`·`--main` 의 문서 하나(키 `main`), 상태 폴더 배치도 그대로(§상태 파일 레이아웃) |
+| 기동 빌드 | 여러 문서면 문서마다 백그라운드로 빌드하고 서버가 바로 뜬다. 한 문서가 실패해도 기동은 계속된다(그 탭이 오류 패널). `--no-build` 는 쪽이 이미 있는 문서만 건너뛴다 |
+| `--git-pull` | 저장소 단위로 한 번. 두 문서를 동시에 재빌드해도 fetch·merge 는 한 번이고 다른 쪽은 그 결과(`pull.shared: true`)를 쓴다 |
+
+**단일 문서 인스턴스에 문서를 더할 때**는 본문을 첫 번째 `--doc main=<이름>:<본문 경로>` 로 둔다. 키 `main` 인 LaTeX 문서는 상태 폴더 루트(옛 자리)를 그대로 써서 빌드 이력·쪽 이미지가 이어지고, `doc` 필드가 없는 옛 핀도 첫 문서(=본문)로 읽힌다. 키를 다르게 주면 본문이 `docs/<키>/` 에서 새로 빌드되고 옛 핀의 마크는 한 번 점선(추정)이 된다.
+
+### 인스턴스 도구(dotfiles `pin-viewer@<이름>`)와의 계약
+
+논문별 인스턴스 설정(환경 파일 등)은 다음 값만 서버에 넘기면 된다. 서버 쪽 인자 계약은 위 표가 정본이다.
+
+| 설정 키(제안) | 서버 인자 | 비고 |
+| --- | --- | --- |
+| `MANUSCRIPT=<저장소 루트>` | `--manuscript` | 여러 문서면 문서들을 모두 감싸는 폴더(보통 저장소 루트) |
+| `MAIN=<메인.tex>` | `--main` | 단일 문서일 때만. `DOCS` 와 함께 쓰지 않는다 |
+| `DOCS="ms=본문:manuscript::2nd/2nd_manuscript_en.tex;rr=답변서:submission/review_response/review_response.tex"` | `--doc` 반복 | 항목 구분은 `;`(경로·이름에 `;` 를 쓰지 않는다). 공백이 든 이름이 있으니 셸 단어 분리에 맡기지 말고 `IFS=';' read -ra` 로 나눠 항목마다 `--doc "$x"` 로 넘긴다 |
+| `PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL=1` | `--port`·`--state-dir`·`--label`·`--accent`·`--git-pull` | 예전 그대로 |
 
 ## 포트 충돌 회피 (강제)
 
@@ -163,6 +209,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 
 ## 상태 파일 레이아웃
 
+단일 문서(`--doc` 없음 — 옛 상태 폴더와 같은 배치):
+
 ```
 <state_dir>/
 ├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
@@ -180,6 +228,16 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── built_at.txt
 ├── built_src_mtime.txt       # 빌드 시작 시각의 src_mtime — 자동 동기화 배지 기준(build-sync §자동 동기화, 없어도 동작)
 └── head.txt                  # 빌드 시점 커밋(짧은 해시) — 원고 repo가 git이면
+```
+
+여러 문서(`--doc`): 핀 파일은 루트에 하나, 문서별 빌드 산출물은 `docs/<키>/` 에 둔다. 키가 `main` 인 LaTeX 문서만 위 단일 문서 자리(루트)를 쓴다.
+
+```
+<state_dir>/
+├── pins.jsonl · pins.seq · pins.dropped.jsonl · pins.md   # 문서 전체에 하나(핀 번호가 문서를 가로질러 유일)
+└── docs/
+    ├── rr/                   # build/ · pages.cur · pages-<build_id>/ · builds.json · built_at.txt · head.txt …(위와 같은 이름)
+    └── rv/                   # 보기 전용: pages.cur · pages-<id>/(쪽 PNG + PDF 사본) · builds.json · pdf_sig.txt(그린 PDF 의 mtime:크기)
 ```
 
 ## 뷰어 사용법 (사용자)
@@ -200,6 +258,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 | 확대·축소 | PDF 위에서 Ctrl/⌘+휠 또는 트랙패드 핀치(포인터 자리 기준), Ctrl/⌘ + `=`·`−`, [＋]·[−]. PDF 쪽만 커지고 패널·도구 줄은 그대로다. 폭 맞춤의 0.5–5배. 넘치면 PDF 영역 안에서만 가로로 스크롤된다. 입력 칸에 포커스가 있을 때와 패널 위의 Ctrl+휠은 브라우저 확대다([design.md](design.md) §PDF 영역 전용 확대) |
 | 선명도 | 쪽은 PDF.js 로 화면 해상도에 맞춰 벡터로 그린다(확대해도 글자가 선명하다). 처음 몇 백 ms 는 PNG 가 먼저 보인다. 벡터로 못 그리면 도구 줄 옆에 'PNG 보기' 칩이 뜨고 PNG 로 보인다 |
 | 패널 폭 | 본문과 패널 사이 손잡이를 끈다(280px ~ 본문 480px 를 남기는 폭). 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→. 폭은 브라우저에 기억된다([design.md](design.md) §패널 정리와 폭 조절) |
+| 문서 전환(여러 문서) | PDF 위 탭을 누른다. 접은 폴드는 도구 줄의 [문서 이름 ▾] → 목록. Ctrl+PgUp/PgDn·Alt+1…9(입력 칸 밖). 문서마다 보던 자리·확대가 남고, 주소 `#doc=<키>` 로 링크·새로고침이 된다. 탭의 점은 원고 수정됨(재빌드 필요), 스피너는 빌드 중, `PDF` 는 보기 전용 |
+| 모든 문서 | 핀 목록 머리의 [모든 문서] — 다른 문서의 열린 핀도 보이고 카드에 문서 칩이 붙는다. 그 카드의 `#번호`·[보기]·[수정]은 그 문서로 바꾼 뒤 그 자리로 간다 |
+| 보기 전용 PDF | 드래그·길게 누르기로 영역을 고르면 '쪽 N 영역'과 영역 글자가 보인다(범위 단계 없음). 메모를 달아 저장한다. [PDF 재빌드]는 숨고, 파일이 바뀌면 저절로 다시 그린다 |
 | 도움말 | `?` 키 또는 [?] — 흐름·단축키·용어·`<state_dir>/pins.md` 경로 |
 | Esc | 열린 것부터 닫는다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 → 선택. 입력 칸에 있을 때는 툴팁을 닫는 데 한 번을 쓰지 않는다(메모 칸에서 Esc 한 번이면 선택이 취소된다) |
 

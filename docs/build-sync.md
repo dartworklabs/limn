@@ -41,7 +41,7 @@ PDF 재빌드, 뷰어 폴링, 점선 마크(`est`) 판정의 상세다. 엔드�
 
 ## 재빌드 (`/api/rebuild`, 동기)
 
-잠금 하나로 한 번에 하나만 돈다. 이미 빌드 중이면 기다리지 않고 `409 {"ok": false, "busy": true}`.
+잠금 하나로 한 번에 하나만 돈다. 이미 빌드 중이면 기다리지 않고 `409 {"ok": false, "busy": true}`. 여러 문서(`--doc`)면 잠금·빌드 상태(`GET /api/build?doc=`)·빌드 이력·`build_seq` 가 **문서마다** 따로다 — 서로 다른 문서는 동시에 빌드된다(빌드 폴더가 문서마다 따로라 `.aux` 를 밟지 않는다). `--git-pull` 은 저장소 단위로 한 번이다(§`--git-pull`).
 
 | `state` | 조건 | 화면 |
 | --- | --- | --- |
@@ -64,8 +64,14 @@ PDF 재빌드, 뷰어 폴링, 점선 마크(`est`) 판정의 상세다. 엔드�
 5. `git merge --ff-only @{u}` — 분기했으면(실패) `skipped:diverged`. 리베이스·머지 커밋을 대신 만들지 않는다.
 6. 결과 `{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}` 가 빌드 결과(`/api/rebuild` 응답·`/api/build`·`builds.json` 마지막 결과)의 `pull` 필드에 실린다. `ok` 는 fast-forward 로 커밋이 바뀜, `up_to_date` 는 저장소는 정상이지만 새 커밋이 없었음이다.
 
+여러 문서면 pull 을 잠금 하나로 줄 세우고, 20초 안에 다른 문서의 빌드가 이미 당겼으면 다시 당기지 않고 그 결과에 `shared: true` 를 붙여 쓴다 — 두 문서를 동시에 재빌드해도 fetch·merge 가 겹치지 않고(`.git/index.lock`) 한 문서가 복사하는 중에 트리가 바뀌지 않는다. 단일 문서는 예전처럼 빌드마다 당긴다.
+
 **pull 이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한다** — pull 은 있으면 좋은 것이지 빌드의 전제조건이 아니다. 모든 git 호출은 `subprocess.run([...])` 로 쉘 없이 돌고, 인자에 사용자 입력을 넣지 않는다. 뷰어는 pull 이 `skipped`/`error` 면 빌드 완료 토스트에 사유를 한 줄 붙이고(`git pull 건너뜀(dirty)` 등), `ok` 면 `원격 반영 <head_before>→<head_after>` 를 붙인다. `up_to_date` 는 알릴 변화가 없으므로 덧붙이지 않는다.
 
 ## 에이전트 응답 다이어트
 
 동기 `/api/rebuild` 는 성공 때도 `log` 에 폰트 경로 등으로 수 KB가 실려 에이전트 토큰을 낭비했다. 지금은 `state=="ok"` 면 `log`(`/api/rebuild`)·`log_tail`(`GET /api/build`)을 응답에서 뺀다. `ok_errors`·`fail` 이면 마지막 40줄로 줄인다. `?log=1` 을 붙이면(둘 다) 다이어트를 끄고 전체 꼬리(4000자)를 그대로 받는다 — 뷰어의 오류 패널은 이 플래그를 항상 붙여 동작이 그대로다. 내부 상태(`BUILD_STATE`·`builds.json`)는 다이어트와 무관하게 풀 로그를 보관한다.
+
+## 보기 전용 PDF 문서
+
+`--doc` 의 `.pdf` 문서는 LaTeX 빌드가 없다. 감시 스레드가 3초마다 그 PDF 의 `mtime:크기` 를 보고, 쪽을 그린 때(`docs/<키>/pdf_sig.txt`)와 다르면 백그라운드로 쪽을 다시 그린다 — 같은 빌드 경로(`_build_tracked`)를 타므로 `GET /api/build?doc=<키>` 의 `state`·`phase:"render"`·`build_seq`·빌드 이력이 LaTeX 문서와 똑같이 움직이고, 뷰어도 재빌드가 끝난 것처럼 화면을 바꾼다. 지문은 PDF 내용의 해시라, 바뀐 PDF 위의 옛 핀은 점선(추정)이 된다(§위치 추정). 그리기가 실패해도 같은 파일로 되풀이하지 않는다(파일이 바뀌면 다시 시도). `stale_build` 는 늘 `false` 다. `POST /api/rebuild?doc=<키>` 는 `400`.
