@@ -4802,7 +4802,10 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
-  if(rp){banner('<span>되짚는 중…</span>');} else {$('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
+  // 새 선택(재짚기 아님)이 시작되면 이전 CUR 을 즉시 비운다 — 그래야 이 창(~1.1s) 사이의 [핀 저장]이
+  // 낡은 CUR 을 조용히 저장하지 않고 PEND_SAVE 큐로 가서(§P0c) 방금 고른 새 위치를 저장한다(회귀: 재선택 시
+  // 구 위치가 저장되던 결함).
+  if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}

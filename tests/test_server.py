@@ -4475,3 +4475,39 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["canceled"])
         self.assertTrue(data["btnLabelRestored"])
         self.assertTrue(data["noAutoSaveAfterCancel"])
+
+    def test_reselecting_during_pick_queues_save_for_new_location_not_stale_one(self):
+        # 회귀: 이미 CUR 이 있는 상태(첫 선택 완료)에서 다시 길게 눌러 새 선택을 시작하면, 그 응답이 오기 전에
+        # [핀 저장]을 눌러도 옛 CUR 이 즉시 저장되지 않고 PEND_SAVE 큐로 가서 새 위치가 저장돼야 한다.
+        js = self._harness(r"""
+            (async()=>{
+              const out={};
+              const p1 = pick({page:1,x0:0,y0:0.3,x1:1,y1:0.31});
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:717,hi:741,raw_lo:717,raw_hi:741,page:5,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p1;
+              out.curAfterFirstPick = CUR && CUR.lo;
+              const p2 = pick({page:1,x0:0,y0:0.7,x1:1,y1:0.71});
+              await Promise.resolve(); await Promise.resolve();
+              out.curClearedOnNewPick = (CUR===null);
+              savePin();   // 스피너가 도는 동안(새 위치 응답 전) [핀 저장]을 누름
+              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='/api/pin').length;
+              out.queued = PEND_SAVE;
+              pickResolve({data:{file:'/m.tex',name:'m.tex',lo:900,hi:920,raw_lo:900,raw_hi:920,page:5,
+                default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
+              await p2;
+              out.autoSaved = PEND_SAVE===false;
+              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              console.log(JSON.stringify(out));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node 가 없다")
+        data = json.loads(out)
+        self.assertEqual(data["curAfterFirstPick"], 717)
+        self.assertTrue(data["curClearedOnNewPick"])
+        self.assertEqual(data["pinCallsWhileWaiting"], 0)   # 새 응답 전엔 옛 CUR 로 저장하지 않는다
+        self.assertTrue(data["queued"])
+        self.assertTrue(data["autoSaved"])
+        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # 새 위치 응답이 오자 큐에 담긴 저장이 나간다
