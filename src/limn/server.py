@@ -5100,6 +5100,9 @@ body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
    시트 없이도 전체 이름을 볼 수 있다. */
 body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
+/* 접은 폴드: 검토 대기 수는 [핀 N] 오른쪽 위 모서리의 작은 알약 — 줄 안에 두면 좁은 도구 줄에서 버튼 글자가 잘렸다('핀 02', 실측 344px). */
+body.lay-narrow #bar1 #btn-side{position:relative}
+body.lay-narrow #side-rv{position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;margin:0}
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
 body.compact #bar1 #btn-more{flex:0 0 44px;padding:0}
 body.compact #composer{max-height:none;overflow:visible}
