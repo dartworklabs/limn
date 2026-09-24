@@ -3519,6 +3519,31 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.compact #bar1 .sp{display:none}", css)
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
+    def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
+        # 펼친 폴드·태블릿(mid): 동작 줄은 패널을 따라다니지 않고 화면 아래 전체 폭에, 탐색 줄은 위 전체 폭에 고정한다
+        # (references/design.md §펼친 화면 레이아웃). 브라우저 실측은 FrontendResponsiveBrowser 에 있다.
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
+        self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
+        self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)     # 본문·패널은 둘 사이에만
+        self.assertIn("@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}", css)
+        # 엄지 순서: [선택] 왼쪽 끝, [핀 N] 오른쪽 끝. DOM 은 narrow 시트와 공유하므로 order 로만 바꾼다.
+        self.assertIn("body.lay-mid #btn-select{order:1}", css)
+        self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)
+        # 도구 줄은 #right 의 fixed 자식이다 — #right 에 기준 상자를 만드는 속성을 주면 동작 줄이 패널과 함께 움직인다
+        for sel, body in re.findall(r"([^{}]*#right[^{}]*)\{([^{}]*)\}", css_nc):
+            if "lay-mid" in sel:
+                self.assertIsNone(re.search(r"(?:^|;)(?:transform|translate|filter|opacity|contain|will-change|perspective)\s*:", body), sel)
+        self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")      # 여는 움직임은 right 로만
+        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 narrow 처럼 위로.
+        self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
+        self.assertIn("body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top)", css)
+        # 문서 링크가 넘치면 흐린 끝으로 알린다(스크롤바 대신)
+        self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
+        self.assertIn("function docLinksFade(){", ps.HTML)
+        self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", ps.HTML)
+
 
 
 # ---------------------------------------------------------------- 디자인 토큰 가드(references/design.md §디자인 토큰)
@@ -5149,6 +5174,43 @@ class FrontendResponsiveBrowser(unittest.TestCase):
                         self.assertEqual(toggle.get_attribute('aria-expanded'), 'false')
                         toggle.press('Enter')
                         self.assertEqual(toggle.get_attribute('aria-expanded'), 'true')
+
+    def test_mid_action_bar_and_tabs_stay_put_when_panel_toggles(self):
+        # 회귀(2026-09-24, 폴드 7 사용자): mid 에서 [핀 N] 이 패널을 펴면 오른쪽 위(y 56), 접으면 오른쪽 아래(y 693)로
+        # 뛰었고, 문서 옆 패널(901–1099px)이 탐색 줄을 패널 폭만큼 잘랐다. 지금은 동작 줄이 화면 아래 전체 폭에 고정되고
+        # 탐색 줄은 위 전체 폭이며, 패널은 그 사이에서만 편다.
+        probe = """() => {
+          const r = s => document.querySelector(s).getBoundingClientRect();
+          const hit = e => {const b=e.getBoundingClientRect(), p=e.closest('#doc-links'), q=p?p.getBoundingClientRect():b;
+            if(b.right<=q.left||b.left>=q.right)return true;   // 가로로 밀려 난 링크는 스크롤 영역 밖이다
+            const x=Math.max(q.left+2,Math.min(q.right-2,b.left+b.width/2)), h=document.elementFromPoint(x,b.top+b.height/2);
+            return !!h&&(h===e||e.contains(h));};
+          const ctl = [...document.querySelectorAll('#bar1 button,#doc-nav button')].filter(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden');
+          return {side:r('#btn-side'), bar:r('#bar1'), nav:r('#doc-nav'), right:r('#right'), open:SIDE_OPEN,
+                  pos:getComputedStyle(document.querySelector('#bar1')).position,
+                  blocked:ctl.filter(e=>!hit(e)).map(e=>e.id||e.textContent.trim()),
+                  clipped:ctl.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.id||e.textContent.trim())};
+        }"""
+        for width in (720, 820, 884, 968, 1024):
+            with self.subTest(width=width):
+                page = self.open_viewer(width, True)
+                a = page.evaluate(probe)
+                page.locator('#btn-side').click()
+                b = page.evaluate(probe)
+                self.assertNotEqual(a['open'], b['open'])
+                for s in (a, b):
+                    self.assertEqual(s['pos'], 'fixed')
+                    self.assertEqual((s['bar']['x'], s['bar']['width'], s['bar']['y'] + s['bar']['height']), (0, width, 900))
+                    self.assertEqual((s['nav']['x'], s['nav']['width']), (0, width))
+                    self.assertEqual(s['blocked'], [])
+                    self.assertEqual(s['clipped'], [])
+                    self.assertLess(s['side']['x'] + s['side']['width'], width)
+                    self.assertGreater(s['side']['x'] + s['side']['width'], width - 40)   # 오른쪽 아래 끝(오른손 엄지)
+                opened = a if a['open'] else b
+                self.assertGreaterEqual(opened['right']['y'], opened['nav']['y'] + opened['nav']['height'] - 1)
+                self.assertLessEqual(opened['right']['y'] + opened['right']['height'], opened['bar']['y'] + 1)
+                for k in ('x', 'y', 'width', 'height'):
+                    self.assertAlmostEqual(a['side'][k], b['side'][k], delta=1)
 
     def test_overlay_defaults_follow_width_but_explicit_choice_and_draft_survive(self):
         page = self.open_viewer(820)
