@@ -3545,9 +3545,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
             if "lay-mid" in sel:
                 self.assertIsNone(re.search(r"(?:^|;)(?:transform|translate|filter|opacity|contain|will-change|perspective)\s*:", body), sel)
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")      # 여는 움직임은 right 로만
-        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 narrow 처럼 위로.
+        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 동작 줄 바로 위 패널 쪽(FrontendToasts).
         self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
-        self.assertIn("body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top)", css)
+        self.assertIn("body.lay-mid #toasts{", css)
         # 문서 링크가 넘치면 흐린 끝으로 알린다(스크롤바 대신)
         self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
         self.assertIn("function docLinksFade(){", ps.HTML)
@@ -3650,6 +3650,62 @@ class FrontendDesignTokens(unittest.TestCase):
             self.assertIn(cls, css)
         for old in ("button.p{", "button.x{", "button.ghost{", "button.ib{", "button.ico{", ".tag{", ".tag.t{"):
             self.assertNotIn(old, css)                                # 옛 표시 전용 클래스는 없앴다
+
+
+
+# ---------------------------------------------------------------- 알림(토스트) — references/design.md §알림
+# 저자 지적(2026-09-24): 핀을 저장하면 '되돌리기' 알림이 오른쪽 패널에서 너무 먼 왼쪽 아래(1,100px+)에 떴고, 왼쪽 색 띠가
+# 촌스러웠다. 이제 방금 누른 자리(패널 열의 오른쪽 아래, 동작 줄 바로 위 · narrow 는 시트 위)에 sonner 모양으로 뜬다.
+class FrontendToasts(unittest.TestCase):
+    css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+
+    def rules(self, pat):
+        return [(sel, dict(d)) for sel, d in css_rules() if re.search(pat, sel)]
+
+    def test_toast_has_no_left_stripe_and_is_a_single_floating_surface(self):
+        for sel, d in self.rules(r"\.toast"):
+            self.assertFalse([k for k in d if k.startswith("border-left")], sel)
+        base = dict(self.rules(r"^\.toast$")[0][1])
+        self.assertEqual(base["border"], "1px solid var(--border)")
+        self.assertEqual(base["border-radius"], "var(--radius-lg)")
+        self.assertEqual(base["background"], "var(--popover)")
+        self.assertIn("box-shadow", base)
+        # 상태는 앞머리 아이콘 색으로 — 띠가 아니다
+        for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
+            self.assertIn("%s:()=>ic('%s')" % (kind, icon), ps.HTML)
+        self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
+        self.assertIn(".toast.err>.ic{color:var(--destructive)}", self.css)
+
+    def test_toast_anchored_per_layout_near_the_action(self):
+        box = dict(self.rules(r"^#toasts$")[0][1])
+        self.assertEqual(box["right"], "var(--toast-r,var(--space-3))")
+        self.assertEqual(box["bottom"], "var(--toast-b,var(--space-3))")
+        self.assertNotIn("left", box)                                  # 예전: 왼쪽 아래 고정
+        self.assertIn("body.lay-narrow #toasts{", self.css)
+        self.assertIn("body.lay-mid #toasts{", self.css)
+        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")   # 예전: 본문 왼쪽 위
+        body = extract_js_fn("placeToasts")
+        self.assertIn("'#c-actions'", body)                           # 저장·취소 버튼을 가리지 않는다
+        self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # 아래 도구 줄을 가리지 않는다
+        self.assertIn("right.getBoundingClientRect().top", body)      # narrow: 시트 위
+        self.assertIn("innerWidth-rr.right+12", body)                 # 패널 열 안 오른쪽
+        for v in ("--toast-b", "--toast-r", "--toast-w"):
+            self.assertIn("setProperty('%s'" % v, body)
+
+    def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
+        body = extract_js_fn("toast")
+        self.assertIn("box.insertBefore(t,box.firstChild)", body)
+        self.assertIn("setTimeout(kill,6000)", body)
+        self.assertIn("#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}", self.css)
+        self.assertIn("@keyframes toast-in", self.css)
+        self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
+
+    def test_toast_title_and_description_split(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = extract_js_fn("toastSplit") + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함'].map(toastSplit)));"
+        self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""]])
+
 
 if __name__ == "__main__":
     unittest.main()

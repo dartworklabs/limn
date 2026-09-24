@@ -71,8 +71,10 @@ LUCIDE = {
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     "chevron-up": '<path d="m18 15-6-6-6 6"/>',
+    "circle-check": '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
     "circle-question-mark": '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'
                             '<path d="M12 17h.01"/>',
+    "circle-x": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
     "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
     "copy": '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
             '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
@@ -4988,12 +4990,26 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
-#toasts{position:fixed;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:50;max-width:min(480px,60vw)}
-.toast{display:flex;align-items:center;gap:var(--space-2);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);
-  border-left:4px solid var(--success);border-radius:var(--radius);padding:7px var(--space-2) 7px 10px;box-shadow:var(--shadow);font-size:var(--text-base)}
-.toast span{flex:1;min-width:0;overflow-wrap:anywhere}
-.toast.warn{border-left-color:var(--warning)}
-.toast.err{border-left-color:var(--destructive)}
+/* 알림(토스트, references/design.md §알림): 방금 누른 자리 가까이 뜬다 — 예전에는 왼쪽 아래(데스크톱)·본문 왼쪽 위(mid)에 떠서
+   오른쪽 패널에서 [핀 저장]을 누른 눈길과 1,100px 넘게 떨어졌다(2026-09-24 실측). 가로 자리(--toast-r·--toast-w)와 바닥
+   높이(--toast-b)는 placeToasts() 가 잰다: wide·mid 는 패널 열 안 오른쪽 아래, 동작 줄·저장 버튼 바로 위 · narrow 는 시트 위.
+   모양은 sonner 처럼 떠 있는 면 하나(가는 테두리 + 그림자, 떠 있는 면만 그림자를 쓴다). 상태는 색 띠 대신 앞머리 아이콘.
+   새 알림이 맨 위에 쌓이고 3개가 넘으면 나머지는 접힌다(마우스를 올리면 펼친다). */
+#toasts{position:fixed;z-index:50;right:var(--toast-r,var(--space-3));bottom:var(--toast-b,var(--space-3));width:var(--toast-w,360px);
+  max-width:calc(100vw - 2 * var(--space-2));display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none}
+#toasts.at-top{bottom:auto;top:calc(var(--space-2) + env(safe-area-inset-top))}
+.toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:var(--space-2);
+  padding:var(--space-3);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow);font-size:var(--text-base);line-height:1.45;animation:toast-in .16s ease-out}
+.toast>.ic{margin-top:1px;color:var(--success)}
+.toast.warn>.ic{color:var(--warning)}
+.toast.err>.ic{color:var(--destructive)}
+.toast .t-body{min-width:0;overflow-wrap:anywhere}
+.toast .t-title{font-weight:600}
+.toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
+.toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
+#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
+@keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:6px 9px;border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
 dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);max-width:680px;
@@ -5118,9 +5134,9 @@ body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
-/* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
-body.lay-narrow #toasts{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));bottom:auto;max-width:none}
-body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top) + var(--space-2));bottom:auto;max-width:calc(100vw - var(--side-w,360px) - 40px)}
+/* 알림 자리(placeToasts): narrow 는 시트 바로 위 화면 폭, mid 는 동작 줄 바로 위 패널 쪽(패널이 열려 있으면 그 열 안). */
+body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
+body.lay-mid #toasts{max-width:calc(100vw - 2 * var(--space-3))}
 body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
@@ -5470,19 +5486,45 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
+// 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '·' · ' 에서 제목과 설명으로 가른다.
+const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
+function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?)( — | · )(.+)$/.exec(msg); return m?[m[1],m[3]]:[msg,''];}
 function toast(msg,kind,action){
-  const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+(kind||'ok');
-  const s=document.createElement('span'); s.textContent=msg; t.appendChild(s);
+  kind=TOAST_IC[kind]?kind:'ok';
+  const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+kind;
+  const [title,desc]=toastSplit(msg);
+  t.innerHTML=TOAST_IC[kind]()+'<div class="t-body"><div class="t-title"></div>'+(desc?'<div class="t-desc"></div>':'')+'</div><div class="t-acts"></div>';
+  t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
+  const acts=t.querySelector('.t-acts');
   let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
-    b.addEventListener('click',()=>{kill();action.fn();});t.appendChild(b);}
-  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');c.dataset.tip='알림 닫기';
-  c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);t.appendChild(c);
+    b.addEventListener('click',()=>{kill();action.fn();});acts.appendChild(b);}
+  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');
+  c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);acts.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
-  box.appendChild(t); arm(); while(box.children.length>5) box.firstChild.remove();
+  placeToasts(); box.insertBefore(t,box.firstChild); arm(); while(box.children.length>6) box.lastChild.remove();
+  watchToasts();
   return t;
 }
+// 알림 자리: 방금 누른 곳 가까이. wide·mid 는 패널 열의 오른쪽 아래 — 보이는 동작 줄(#c-actions: 저장·취소, mid 의 아래 도구 줄,
+// 접힌 mid 에 뜬 상태 칩)의 윗변 바로 위. narrow 는 시트 윗변 바로 위(시트가 거의 화면을 채우면 화면 위로). 떠 있는 동안
+// 패널이 열리고 닫히거나 작성 패널이 뜨면 자리를 다시 잰다(watchToasts) — 저장·취소 버튼과 아래 도구 줄을 가리지 않게.
+function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right)return;
+  const R=document.documentElement.style,gap=8,vh=innerHeight;
+  const shown=el=>{if(!el||el.hidden)return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')return false;
+    const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
+  let top=vh,r=12,w=360,atTop=false;
+  if(LAYOUT==='narrow'){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
+    if(top<vh*0.3)atTop=true;}
+  else{const open=LAYOUT==='wide'||SIDE_OPEN,rr=right.getBoundingClientRect();
+    if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);} else w=Math.min(360,innerWidth-24);
+    ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],LAYOUT==='mid'&&!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
+      if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
+  box.classList.toggle('at-top',atTop);
+  R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
+let TOAST_WATCH=0;
+function watchToasts(){if(TOAST_WATCH)return; TOAST_WATCH=setInterval(()=>{if(!$('#toasts').children.length){clearInterval(TOAST_WATCH);TOAST_WATCH=0;return;} placeToasts();},250);}
 async function copyText(s){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
