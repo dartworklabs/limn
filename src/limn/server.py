@@ -5629,17 +5629,18 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
-// 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '·' · ' 에서 제목과 설명으로 가른다.
+// 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '(없으면 첫 ' · ')에서 제목과 설명으로 가른다.
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
-function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?)( — | · )(.+)$/.exec(msg); return m?[m[1],m[3]]:[msg,''];}
+// ' — ' 가 있으면 그 앞이 제목('핀 #10 · 본문 — 서준님이 불렀습니다: …' 의 제목은 '핀 #10 · 본문'), 없으면 첫 ' · ' 앞.
+function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?) — (.+)$/.exec(msg)||/^(.+?) · (.+)$/.exec(msg); return m?[m[1],m[2]]:[msg,''];}
 // 같은 핀의 같은 전환을 두 번 알리지 않는다(QA: 포커스된 탭에 '핀 #37 · 본문 — 검토 대기: …' 와 '#37 이 검토 대기로 넘어왔습니다'
 // 가 함께 떴다). dd={keys:['review_requested:37'],rank}: 8초 안에 같은 열쇠의 알림이 떠 있으면, 새 것이 더 높은 rank 면 옛 것을 걷고,
-// 아니면 새 것을 띄우지 않는다. 브라우저 알림 경로(notifyShow, rank 2)가 목록 비교 알림(rank 1)을 이긴다.
+// 더 낮으면 띄우지 않는다. 같은 rank(같은 경로)는 다른 사건이라 둘 다 띄운다(다시 연 뒤 두 번째 검토 대기 등). 브라우저 알림 경로(notifyShow, rank 2)가 목록 비교 알림(rank 1)을 이긴다.
 const TOAST_KEYS=[];
 function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=Date.now(),rank=dd.rank||1;
   for(let i=TOAST_KEYS.length-1;i>=0;i--){const x=TOAST_KEYS[i]; if(now-x.t>8000||!x.el.isConnected){TOAST_KEYS.splice(i,1);continue;}
     if(!dd.keys.some(k=>x.keys.includes(k)))continue;
-    if(x.rank>=rank&&dd.keys.every(k=>x.keys.includes(k)))return true;
+    if(x.rank>rank&&dd.keys.every(k=>x.keys.includes(k)))return true;   // 같은 경로(같은 rank)의 새 알림은 다른 사건이다 — 막지 않는다
     if(rank>x.rank){x.el.remove(); TOAST_KEYS.splice(i,1);}}
   return false;}
 function toast(msg,kind,action,dd){

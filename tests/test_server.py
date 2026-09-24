@@ -3707,8 +3707,9 @@ class FrontendToasts(unittest.TestCase):
     def test_toast_title_and_description_split(self):
         if not shutil.which("node"):
             self.skipTest("node 없음")
-        js = extract_js_fn("toastSplit") + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함'].map(toastSplit)));"
-        self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""]])
+        js = extract_js_fn("toastSplit") + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함','핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요'].map(toastSplit)));"
+        self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""],
+                                                          ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"]])
 
 
 # ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(references/design.md §한 겹 담기)
@@ -3778,8 +3779,9 @@ class FrontendSemanticAudit(unittest.TestCase):
             const b=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:2,el:b,t:Date.now()});
             const r2=toastDup({keys:['review_requested:37'],rank:1});           // 뒤늦은 목록 비교 알림은 띄우지 않는다
             const r3=toastDup({keys:['reopened:37'],rank:1}), r4=toastDup(null);
-            console.log(JSON.stringify([r1,a.removed,r2,r3,r4]));"""])
-        self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False])
+            const r5=toastDup({keys:['review_requested:37'],rank:2});           // 같은 경로의 다음 사건(두 번째 검토 대기)은 막지 않는다
+            console.log(JSON.stringify([r1,a.removed,r2,r3,r4,r5]));"""])
+        self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
         self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
         self.assertIn("{keys:reviewed.map(i=>'review_requested:'+i)}", extract_js_fn("diffToast"))
         self.assertIn("{keys:['reopened:'+p.id]}", extract_js_fn("reviewToast"))
