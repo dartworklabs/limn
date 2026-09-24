@@ -4768,19 +4768,21 @@ button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
-.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
-  background:transparent;color:var(--muted-foreground);font-size:var(--text-xs);font-weight:400;line-height:1.45;white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border:1px solid transparent;border-radius:var(--radius-sm);
+  background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
+/* 배지는 테두리 없는 옅은 채움이다(shadcn secondary 배지) — 테두리 있는 카드 안에 테두리 있는 배지를 또 그리지 않는다(저자 지적 2026-09-24:
+   외곽선 안에 외곽선). 뜻 있는 배지는 그 색의 옅은 틴트 바탕 + 그 색 글자. */
 .badge .ic{width:12px;height:12px}
-.badge-default{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.badge-default{background:var(--primary);color:var(--primary-foreground)}
 .badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
-.badge-destructive{border-color:var(--destructive);color:var(--destructive)}
-.badge-warning{border-color:var(--status-warning);color:var(--status-warning)}
-.badge-claimed{border-color:var(--status-claimed);color:var(--foreground)}
+.badge-destructive{background:color-mix(in srgb,var(--destructive) 14%,transparent);color:var(--destructive)}
+.badge-warning{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-claimed{background:color-mix(in srgb,var(--status-claimed) 16%,transparent);color:var(--foreground)}
 .badge-claimed .ic{color:var(--status-claimed)}
-.badge-claimed.late{border-color:var(--status-warning);color:var(--status-warning)}
+.badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
 button.badge{cursor:pointer;padding:1px 6px;border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
-button.badge:hover{background:var(--accent)}
+button.badge:hover{background:var(--accent);border-color:var(--border-strong)}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:6px var(--space-2);
   font:inherit;width:100%}
@@ -4819,7 +4821,7 @@ input.n{width:58px;text-align:center}
 #composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border);background:var(--card)}
 #list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* 위 여백은 구획 머리(.list-head)가 가진다 — sticky 가 여백만큼 내려앉지 않게 */
 .busy{opacity:.45}
-pre{background:var(--code);border:1px solid var(--border);border-radius:var(--radius);padding:9px;overflow:auto;font-size:var(--text-sm);
+pre{background:var(--code);border:0;border-radius:var(--radius);padding:9px;overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:6px 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
@@ -4832,13 +4834,11 @@ pre.nowrap{white-space:pre}
 .c-tools{display:flex;align-items:center;gap:var(--space-2);margin:0 0 8px}
 /* [줄바꿈] 은 한 줄로 둔다 — 330px 패널(터치)에서 '줄바/꿈' 두 줄로 꺾여 옆 스테퍼보다 높아졌다(2026-09-24 실측) */
 .c-tools button.tg{white-space:nowrap;flex:none}
-.step{display:inline-flex;flex:none;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.step{display:inline-flex;flex:none;border:0;border-radius:var(--radius-lg);overflow:hidden;background:var(--muted);padding:2px;gap:2px}
 .step{align-items:stretch}
-.step button{border:0;border-radius:0;min-width:30px;padding:3px 6px}
-.step button+button{border-left:1px solid var(--border)}
-.step .sl{display:inline-flex;align-items:center;padding:0 6px;font-size:var(--text-sm);color:var(--muted-foreground);background:var(--field)}
-.step .sl+button{border-left:1px solid var(--border)}
-.step button+.sl{border-left:1px solid var(--border)}
+.step button{border:0;border-radius:var(--radius);min-width:30px;padding:3px 6px;background:transparent}
+.step button:hover{background:var(--popover)}
+.step .sl{display:inline-flex;align-items:center;padding:0 6px;font-size:var(--text-sm);color:var(--muted-foreground)}
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip,.e-snip{margin:0}
@@ -4849,7 +4849,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .snip-foot{display:flex;justify-content:flex-end}
 .snip-foot button{color:var(--muted-foreground)}
 #note{margin-top:8px}
-#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;padding:var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius-lg);font-size:var(--text-base)}
+#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* 상자 없이 글 + 버튼 두 개 */
 #c-overlap>span{flex-basis:100%}
 #c-overlap button{flex:1 1 0;min-width:0}
 /* 동작 줄은 패널 바닥에 고정한다(목록을 스크롤해도, 가상 키보드가 올라와도 보인다). 작성 패널이 닫히면 함께 숨는다. */
@@ -4861,12 +4861,12 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .dim{color:var(--muted-foreground);font-size:var(--text-sm)}
 .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 /* 분절 컨트롤(범위 사다리·패널 폭): 한 줄, 넘치면 가로 스크롤. 고른 칸은 강조 색이 아니라 한 단계 밝은 면으로 보인다. */
-.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:2px;border:1px solid var(--border);
-  border-radius:var(--radius-lg);background:var(--field);scrollbar-width:none;overscroll-behavior-x:contain}
+.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:3px;border:0;
+  border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: 채운 틀 하나, 고른 칸은 떠 있는 면 */
 .seg::-webkit-scrollbar{display:none}
 .seg button{flex:1 0 auto;background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:3px 10px;
   white-space:nowrap;color:var(--muted-foreground)}
-.seg button.on{background:var(--accent);border-color:var(--border-strong);color:var(--foreground);font-weight:600}
+.seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-sm)}
 .seg button .k{font-weight:400;color:var(--muted-foreground)}
 .seg button .k.wn{color:var(--warning)}
 .wn{color:var(--warning)}
@@ -4882,8 +4882,8 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .st-dot.lost{background:var(--status-warning)}
 .st-dot.done{background:var(--status-closed)}
 .st-dot.dropped{background:var(--status-dropped)}
-.badge-reopen{border-color:var(--status-warning);color:var(--status-warning)}
-.badge-review{border-color:var(--status-review);color:var(--status-review)}
+.badge-reopen{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-review{background:color-mix(in srgb,var(--status-review) 14%,transparent);color:var(--status-review)}
 button.badge-review{font-weight:600}
 .rv-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:2px;border-radius:var(--radius-lg);
   background:var(--status-review);color:var(--status-review-foreground);font-size:var(--text-xs);font-weight:700;line-height:1}
@@ -4906,24 +4906,30 @@ button.badge-review{font-weight:600}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
-button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
+button.b-close{font-weight:600}
+/* 카드 안 버튼은 테두리 없이 채운다(secondary) — 테두리 있는 카드 안에 테두리 있는 버튼 여섯 개가 늘어서지 않게. [완료]만 soft 강조,
+   [삭제]는 바탕 없는 위험 색 글자라 가장 눈에 띄는 버튼이 되지 않는다. 입력 칸 옆 [취소]도 같은 채움이다. */
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}
+.pin .acts button.btn-destructive{background:transparent}
+.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
 /* 핀 종류(수정 요청 / 질문)와 스레드(references/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
 .kind-seg{margin:8px 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 6px}
-.badge-question{border-color:var(--primary);color:var(--primary)}
-.badge-mention{border-color:var(--primary);color:var(--foreground)}
+.badge-question{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
+.badge-mention{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground)}
 .badge-mention .ic{color:var(--primary)}
 .mention{color:var(--primary);font-weight:600}
 /* @태그 자동 완성: 입력 칸 바로 아래(자리가 없으면 위)에 뜨는 목록. 입력 칸의 포커스를 뺏지 않는다(pointerdown 을 막는다). */
 #mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1);background:var(--popover);
-  color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+  color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 #mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;background:transparent;text-align:left;padding:6px var(--space-2)}
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mention-pop .dim{padding:6px var(--space-2)}
-.thread{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
+.thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* 구분선 하나 — 상자가 아니다 */
 .thread:empty{display:none}
 .msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
 .msg .av{width:20px;height:20px;margin-top:1px}
@@ -4939,7 +4945,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
 .reply-box textarea{min-height:3.2em}
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
-.arc-thread{margin:4px 0 0;padding:6px var(--space-2);border-radius:var(--radius);background:var(--card);border:1px solid var(--border)}
+.arc-thread{margin:4px 0 0 var(--space-5)}   /* 들여쓰기만 — 상자 없음 */
 .arc-thread .thread{margin:0;padding:0;border:0}
 .edit .c-tools{margin-top:0}
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
@@ -4949,7 +4955,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
 .av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:var(--primary-foreground);
   font-size:var(--text-xs);font-weight:700;font-style:normal}
-.edit{margin-top:6px;border-top:1px dashed var(--border);padding-top:6px}
+.edit{margin-top:var(--space-2)}
 /* ---------------- 목록 구획(references/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
    붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
    --stick-top 은 compact 에서 위에 붙은 도구 줄(#bar1) 높이다(JS 가 잰다). 닫힌·삭제한 핀은 카드가 아니라 납작한 행이다. */
@@ -4957,7 +4963,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .list-head{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar);margin:0 -12px 4px;padding:10px var(--space-3) 6px}
 .arc{margin-top:12px}
 button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:var(--space-2);width:calc(100% + 24px);
-  margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border-strong);border-radius:0;color:var(--muted-foreground);
+  margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border);border-radius:0;color:var(--muted-foreground);
   font-size:var(--text-sm);text-align:left;scroll-margin-top:var(--stick-top,0px)}
 /* scroll-margin-top 은 revealList() 의 scrollIntoView({block:'start'}) 와 짝이다 — 이게 없으면 브라우저는 이 머리의
    '흐름상 정적 위치'를 뷰포트 맨 위(0)로 맞추는데, 그 위치는 스티키 계산상 다시 stick-top 만큼 아래로 밀려 그려진다.
@@ -4979,7 +4985,7 @@ button.arc-head:hover{background:var(--accent)}
 .arc-l1{display:flex;align-items:center;gap:6px;min-height:26px;white-space:nowrap}
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{color:inherit;font-size:var(--text-sm)}
-.arc-ref{flex:none;line-height:16px;padding:0 5px;border-color:var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.arc-ref{flex:none;line-height:16px;padding:0 5px;max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{font-size:var(--text-xs);min-width:0;overflow:hidden;text-overflow:ellipsis}
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
@@ -4989,7 +4995,7 @@ button.arc-b:hover{color:var(--foreground)}
 .arc-reply.none{font-style:italic;cursor:default}
 button.arc-orig-t{flex:none;background:transparent;border-color:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);
   text-decoration:underline dotted;text-underline-offset:3px}
-.arc-orig{margin:4px 0 0;padding:6px var(--space-2);border-radius:var(--radius);background:var(--card);border:1px solid var(--border);white-space:pre-wrap;word-break:break-word}
+.arc-orig{margin:4px 0 0 var(--space-5);white-space:pre-wrap;word-break:break-word;color:var(--card-foreground)}
 .arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
 h3{margin:0 0 7px;font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
@@ -5019,7 +5025,7 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:6px 9px;border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
-dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);max-width:680px;
+dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;
   width:92vw;padding:var(--space-4) 22px;max-height:88vh}
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 8px}
@@ -5225,7 +5231,7 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 /* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
-.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent;border-color:var(--border)}
+.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
 .dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
 .dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
@@ -5234,8 +5240,8 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
 body.view-only #btn-rebuild{display:none}
-.dchip{flex:none;line-height:16px;border-color:var(--border);max-width:110px;overflow:hidden;text-overflow:ellipsis}
-.dchip.other{border-style:dashed}
+.dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* 다른 문서 = 점선 테두리(뜻이 있는 테두리) */
 .list-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0 0 7px}
 .list-head h3,.list-head button{white-space:nowrap}
 .list-head h3{margin:0}
@@ -5244,7 +5250,8 @@ body.view-only #btn-rebuild{display:none}
 .dm-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dm-item.on{border-color:var(--brand)}
+.dm-item{border-color:transparent;background:transparent}
+.dm-item.on{background:var(--accent)}
 /* 보기 전용 PDF 문서의 선택: 범위 사다리·스테퍼·원문 펼치기가 없다(줄이 없다). 원문 칸에는 영역 글자를 보인다. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
@@ -5338,20 +5345,20 @@ body.view-only #btn-rebuild{display:none}
 <div id="mention-pop" role="listbox" aria-label="부를 사람" hidden></div>
 <div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
 <dialog id="more" aria-label="더보기 · __LABEL__">
-  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm" data-act="more-close">닫기</button></div>
+  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm btn-ghost" data-act="more-close">닫기</button></div>
   <p class="more-info" id="more-info"></p>
   <div class="more-grid">
-    <button data-act="reload" data-close="1">핀 다시 읽기</button>
-    <button id="m-theme" data-act="theme">테마: 시스템</button>
-    <button id="m-notify" class="wide" data-act="notify-toggle">알림 켜기</button>
-    <button data-act="zoom-out">축소</button>
-    <button data-act="zoom-in">확대</button>
-    <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
+    <button class="btn-secondary" data-act="reload" data-close="1">핀 다시 읽기</button>
+    <button id="m-theme" class="btn-secondary" data-act="theme">테마: 시스템</button>
+    <button id="m-notify" class="btn-secondary wide" data-act="notify-toggle">알림 켜기</button>
+    <button class="btn-secondary" data-act="zoom-out">축소</button>
+    <button class="btn-secondary" data-act="zoom-in">확대</button>
+    <button class="btn-secondary wide" data-act="fit" data-close="1">폭 맞춤</button>
     <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
-    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
-    <button id="m-done" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
-    <button id="m-dropped" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
-    <button class="wide" data-act="help">도움말</button>
+    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button class="btn-secondary" data-act="m-jump">이동</button></div>
+    <button id="m-done" class="btn-secondary" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
+    <button id="m-dropped" class="btn-secondary" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
+    <button class="btn-secondary wide" data-act="help">도움말</button>
   </div>
 </dialog>
 <dialog id="docs-menu" aria-labelledby="docs-menu-h">

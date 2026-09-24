@@ -3708,6 +3708,46 @@ class FrontendToasts(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""]])
 
 
+# ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(references/design.md §한 겹 담기)
+# 저자 지적(2026-09-24): 테두리 상자 안에 또 테두리 상자를 그리는 방식이 촌스럽다. 담는 층은 하나 — 카드(가는 테두리 하나)
+# 또는 떠 있는 면(대화상자·알림·@목록). 그 안의 배지·버튼·분절 컨트롤·스테퍼·원문·겹침 안내·스레드는 채움·간격·구분선으로만 가른다.
+class FrontendNoNestedOutlines(unittest.TestCase):
+    INNER = re.compile(r"^(?:\.badge|\.seg|\.step|pre\b|#c-overlap|\.thread|\.edit\b|\.arc-thread|\.arc-orig|\.arc-row|\.msg|\.reply-box)")
+    SEPARATORS = {".thread": "border-top", ".arc-row+.arc-row": "border-top"}
+
+    def test_inner_components_draw_no_outline_box(self):
+        bad = []
+        for sel, decls in css_rules():
+            for part in [x.strip() for x in sel.split(",")]:
+                if not self.INNER.match(part) or part.startswith(".dchip"):
+                    continue
+                for k, v in decls:
+                    if k == "border" and v not in ("0", "none", "1px solid transparent"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+                    if re.fullmatch(r"border-(?:top|right|bottom|left)", k) and self.SEPARATORS.get(part) != k and v not in ("0", "none"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+                    if k == "border-color" and v != "transparent" and not part.startswith("button.badge"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+        self.assertEqual(bad, [])
+
+    def test_card_buttons_are_filled_and_destructive_is_quiet(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);"
+                      "color:var(--secondary-foreground);border-color:transparent}", css)
+        self.assertIn(".pin .acts button.btn-destructive{background:transparent}", css)
+        self.assertIn(".seg button.on{background:var(--popover);border-color:transparent;", css)
+        more = ps.HTML[ps.HTML.index('<div class="more-grid">'):]
+        more = more[:more.index("</dialog>")]
+        for tag in re.findall(r"<button[^>]*>", more):
+            self.assertIn("btn-secondary", tag)                      # 대화상자 안 버튼도 테두리 없이 채운다
+
+    def test_floating_surfaces_are_the_only_shadows_with_hairlines(self):
+        for sel in ("dialog", "#mention-pop"):
+            d = dict(dict(css_rules())[sel])
+            self.assertEqual(d["border"], "1px solid var(--border)", sel)
+            self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
+
+
 if __name__ == "__main__":
     unittest.main()
 
