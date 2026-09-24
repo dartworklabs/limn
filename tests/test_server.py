@@ -5494,6 +5494,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("rta.focus()", dp)
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
+        self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
         self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc 가 입력 칸부터 닫는다
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
@@ -5682,6 +5683,13 @@ class FrontendReview(unittest.TestCase):
         self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
         self.assertIn('id="sec-review"', ps.HTML)
         self.assertIn('id="side-rv"', ps.HTML)
+
+    def test_review_card_reply_hint_and_reopen_hint(self):
+        # 결함 실측: 검토 대기 카드의 답글 칸이 일반 답글과 같은 안내를 써서, 답글을 남겨도 에이전트가
+        # 다시 집지 않는다는 사실이 드러나지 않았다(§검토 대기 — 다시 처리하지 않는다).
+        body = extract_js_fn("replyEl")
+        self.assertIn("review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글", body)
+        self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
 
 
 # ---------------------------------------------------------------- [변경 보기](references/design.md §변경 보기)
