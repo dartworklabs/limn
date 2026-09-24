@@ -4921,7 +4921,20 @@ button.b-close{font-weight:600}
 .badge-question{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
 .badge-mention{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground)}
 .badge-mention .ic{color:var(--primary)}
-.mention{color:var(--primary);font-weight:600}
+.mention{color:var(--primary);font-weight:600;background:color-mix(in srgb,var(--primary) 12%,transparent);border-radius:var(--radius-sm);padding:0 3px;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone}
+/* 풀린 @태그 = 주 색 글자 + 옅은 틴트 알약(Slack·GitHub 처럼). 나를 부른 태그는 한 단계 진하다. 풀리지 않은 '@말'은 평문이다. */
+.mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
+.mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
+.m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:6px;font-size:var(--text-sm)}
+.m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
+.m-preview .m-lab .ic{width:12px;height:12px}
+.m-preview .m-note{color:var(--muted-foreground)}
+body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
+/* 글 속 '#12' = 그 핀으로 가는 링크(이동하는 글자는 점선 밑줄, hover 에 실선 — .pg-link·#번호와 같은 말) */
+.pin-ref{color:inherit;font-weight:600;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.pin-ref:hover,.pin-ref:focus-visible{text-decoration-style:solid;color:var(--primary)}
+.arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
 /* @태그 자동 완성: 입력 칸 바로 아래(자리가 없으면 위)에 뜨는 목록. 입력 칸의 포커스를 뺏지 않는다(pointerdown 을 막는다). */
 #mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1);background:var(--popover);
   color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
@@ -5314,7 +5327,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -6845,7 +6858,7 @@ function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW==='question'?'질문: 무엇이 궁금한지 적습니다 (답이 이 핀의 스레드에 달립니다)':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; setKind('fix');}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
@@ -6963,12 +6976,28 @@ function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){c
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
-// 글 속 '@이름'(풀린 mentions 만)을 강조한다. 글은 먼저 esc() 를 거치고, 이름도 esc() 한 모양으로 찾는다.
+// 글 속 '@이름'(풀린 mentions 만)과 '#번호'(있는 핀)를 토큰으로 바꾼다(references/design.md §@태그). 글은 먼저 esc() 를 거치고,
+// 이름·번호는 그 이스케이프된 글에서 찾아 감싼다 — 사람이 쓴 글이 HTML 로 새지 않는다. 이름은 서버 resolve_mentions() 와 같은 글자
+// (이름 전체·로그인·로그인의 @ 앞·이름 첫 단어)를 긴 것부터, 대소문자 없이 찾는다. '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문으로
+// 끝나는 이름 뒤에 영문이 이어지면(@Alicex) 다른 말이다. 풀리지 않은 '@말' 은 그대로 평문이다 — 부른 것처럼 보이면 안 된다.
 function peopleName(login){const x=PEOPLE.find(p=>p.login===login); return x?x.name:login;}
-function fmtText(text,logins){let h=esc(text); const names=(logins||[]).map(peopleName).filter(Boolean).sort((a,b)=>b.length-a.length),hit=[];
-  // 긴 이름부터 자리표(\u0001번호\u0002)로 바꿔 둔다 — '@Alice Kim' 를 바꾼 뒤 '@Alice' 이 그 안을 다시 바꾸지 않게.
-  names.forEach(n=>{const t='@'+esc(n); if(h.indexOf(t)<0)return; hit.push(t); h=h.split(t).join('\u0001'+(hit.length-1)+'\u0002');});
-  return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>'<span class="mention">'+hit[+k]+'</span>');}
+function mentionToks(logins){const out=[]; (logins||[]).forEach(lg=>{const x=PEOPLE.find(p=>p.login===lg),nm=String((x&&x.name)||'');
+    const w=nm.split(/\s+/).filter(Boolean); [nm,lg,String(lg).split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach((t,k)=>{if(t&&t.length>=2)out.push({t:esc(t),lg,k});});});
+  return out.sort((a,b)=>b.t.length-a.t.length||a.k-b.k);}   // 같은 글자면 이름 전체 > 로그인 > 첫 단어
+function reEsc(t){return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!=='local'?me.login:null;}
+function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hit=[],me=meLogin();
+  if(toks.length){const re=new RegExp('@('+toks.map(x=>reEsc(x.t)).join('|')+')','gi');
+    // 자리표(\u0001번호\u0002)로 먼저 바꿔 둔다 — 긴 이름을 감싼 뒤 짧은 이름이 그 안을 다시 감싸지 않게.
+    h=h.replace(re,(m,t,off,all)=>{const prev=off>0?all[off-1]:''; if(prev&&/[0-9A-Za-z가-힣._-]/.test(prev))return m;
+      const nx=all.charAt(off+m.length); if(/[A-Za-z0-9]$/.test(t)&&/[A-Za-z0-9_]/.test(nx))return m;
+      const tk=toks.find(x=>x.t.toLowerCase()===t.toLowerCase()); if(!tk)return m; hit.push({m,lg:tk.lg}); return '\u0001'+(hit.length-1)+'\u0002';});}
+  // '#12' — 있는 핀이면 그 핀으로 가는 링크. '&#39;' 같은 이스케이프(앞이 &)와 '#12;' 는 건드리지 않는다.
+  h=h.replace(/(^|[^&0-9A-Za-z#])#(\d{1,6})(?![\d;])/g,(m,pre,n)=>{const id=+n; if(!pinRefExists(id))return m;
+    return pre+'<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="'+id+'" data-tip="핀 #'+id+' 로 갑니다">#'+id+'</span>';});
+  return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
+    return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
+function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login==='local')return false;
   return (p.mentions||[]).includes(me.login)||threadOf(p).some(m=>(m.mentions||[]).includes(me.login));}
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
@@ -7021,7 +7050,7 @@ function card(p){
     '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
-    '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?esc(first):'(메모 없음)')+'</span>'+
+    '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
     '<span class="sp"></span>'+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
@@ -7037,7 +7066,7 @@ function card(p){
     '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
-    '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
+    '<span class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
     '<span class="sp"></span>'+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
@@ -7059,13 +7088,14 @@ const ARC_OPEN=new Set();
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
   return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
-function arcLine(key,text,tip){const open=ARC_OPEN.has(key);
-  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+esc(text)+'</span>';}
+function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
+  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+fmtText(text,logins)+'</span>';}
+function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
   '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
 function doneCard(p){
   const ref=p.close_ref?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
-  const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
+  const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
   // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=tn&&ARC_OPEN.has('t:'+p.id);
@@ -7076,10 +7106,10 @@ function doneCard(p){
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
-    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+
+    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
     (to?'<div class="arc-thread"><div class="thread">'+th.map(msgHtml).join('')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
-  const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">(메모 없음)</span>';
+  const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
     '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
@@ -7188,6 +7218,15 @@ function jumpToCard(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
+// 글 속 '#12' 링크: 그 핀의 카드·보관함 행을 펴고 스크롤해 반짝인다. 다른 문서의 핀이면 '모든 문서'를 켠다.
+function gotoPinRef(id){const p=findAnyPin(id)||DROPPED.find(x=>x.id===id); if(!p)return;
+  const st=DROPPED.includes(p)?'dropped':pinState(p);
+  if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
+  if(st==='done')SHOW_DONE=true; else if(st==='dropped')SHOW_DROPPED=true; else OPEN_CARDS.add(id);
+  if(LAYOUT!=='wide')setSide(true); drawPins();
+  requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
+    el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
   if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q)))switchDoc(pdoc(q)).then(()=>{if(DOC===pdoc(q))jumpPin(id);}); return;}
   if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
@@ -7242,21 +7281,40 @@ function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
 function mentionHints(ta){if(!ta||!ta._mentions)return []; const v=ta.value;
   return Array.from(ta._mentions).filter(l=>v.includes('@'+peopleName(l)));}
 function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
+// 입력 칸 아래 한 줄: 저장하면 알림이 갈 사람(풀린 @이름)과 풀리지 않을 '@말'(등록된 사람이 아님). textarea 안은 색을 칠할 수 없어
+// 여기서 미리 보인다 — 저장 전에 부른 것이 실제로 알림이 되는지 안다. 규칙은 서버 resolve_mentions() 와 같다(fmtText 주석).
+function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(PEOPLE.map(p=>p.login)).map(x=>({t:x.t.toLowerCase(),lg:x.lg}));
+  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set();
+  for(let i=0;i<text.length;i++){if(text[i]!=='@'||(i>0&&/[0-9A-Za-z가-힣._-]/.test(text[i-1])))continue;
+    const rest=low.slice(i+1); let got=null;
+    for(const x of toks){const t=x.t.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      if(!rest.startsWith(t))continue; const nx=rest.charAt(t.length); if(/[a-z0-9]$/.test(t)&&/[a-z0-9_]/.test(nx))continue;
+      const all=toks.filter(y=>y.t===x.t).map(y=>y.lg),pick=all.length===1?all:all.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
+    if(got)got.forEach(l=>{if(!hit.includes(l))hit.push(l);});
+    else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
+  return {hit,bad};}
+function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
+  const r=mentionScan(ta.value,ta._mentions),me=meLogin();
+  if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' (나 — 알림 없음)':'')+'</span>').join(''):'')+
+    r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
+    (r.bad.length?'<span class="m-note">등록된 사람이 아님</span>':'');
+  box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);
   MENTION.sel=Math.min(MENTION.sel,Math.max(0,MENTION.items.length-1));
   const pop=$('#mention-pop');
   pop.innerHTML=MENTION.items.length?MENTION.items.map((p,i)=>'<button type="button" role="option" aria-selected="'+(i===MENTION.sel)+'" data-act="mention-pick" data-i="'+i+'">'+
     avatar(p)+'<span>'+esc(p.name)+'</span><span class="ml">'+esc(p.login)+'</span></button>').join(''):
-    '<div class="dim">부를 수 있는 사람이 없습니다 — 이 뷰어를 연 테일넷 사람만 보입니다</div>';
+    '<div class="dim">'+(q.q?'\''+esc(q.q)+'\' 와 맞는 사람이 없습니다 — ':'부를 수 있는 사람이 없습니다 — ')+'이 뷰어를 연 테일넷 사람만 부를 수 있습니다</div>';
   pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth;
   const below=r.bottom+4+h<=((window.visualViewport&&visualViewport.height)||innerHeight);
   pop.style.top=Math.max(4,below?r.bottom+4:r.top-4-h)+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta);}
+  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{if(isMentionField(e.target))mentionUpdate(e.target);});
+document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
@@ -7271,7 +7329,7 @@ $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 // 5초 자동 동기화가 목록을 다시 그려도 쓰던 글·커서가 사라지지 않게(포커스도 되돌린다). mode 는 'reply' | 'reopen'(다시 여는 이유).
 function replyEl(mode){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
   el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="'+(ro?'다시 여는 이유':'답글')+'" placeholder="'+
-    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea>'+
+    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
     '<button class="btn-sm btn-default" data-act="reply-send" data-tip="'+(ro?'이유를 스레드에 남기고 핀을 다시 엽니다':'답글을 스레드에 남깁니다')+'">'+(ro?'다시 열기':'보내기')+'</button></div>';
   return el;}
@@ -7279,7 +7337,7 @@ function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
   if(REPLY&&REPLY.id===id&&REPLY.mode===mode){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
   REPLY={id,mode,el:replyEl(mode)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
-  const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); ta.focus();
+  const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); mentionPreview(ta); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
   if(ta&&ta.value.trim())REPLY_DRAFT.set(REPLY.mode+':'+REPLY.id,ta.value); else REPLY_DRAFT.delete(REPLY.mode+':'+REPLY.id);
@@ -7302,7 +7360,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   const el=document.createElement('div'); el.className='edit';
   el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
     '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
-    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
+    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
@@ -7314,7 +7372,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
     '<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
     '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
-  const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
+  const ta=el.querySelector('.e-note'); ta.value=p.note||''; ta._mentions=new Set(p.mentions||[]); autoGrow(ta); mentionPreview(ta);
   EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
     kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix'},
     doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?'question':'fix'};
@@ -7477,6 +7535,7 @@ document.addEventListener('click',e=>{
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(+a.dataset.i);break;
+    case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
@@ -7520,7 +7579,7 @@ document.addEventListener('keydown',e=>{
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
   // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
-  if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
+  if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}

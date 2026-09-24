@@ -64,8 +64,8 @@ def js_thread() -> str:
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
     return "\n".join([ev, st, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
-        "isQuestion", "stDot", "reopenedTurn", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "fmtText", "mentionsMe", "addressedTag")])
+        "isQuestion", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag")])
 
 
 def run_node(js: str, tz: str = None):
@@ -2051,7 +2051,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
         self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # 답 한 줄은 arcLine 이 esc 를 거쳐 그린다
-        self.assertIn("esc(text)", extract_js_fn("arcLine"))
+        self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))   # fmtText 가 먼저 esc 를 거친다
         self.assertIn("esc(p.close_ref)", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
@@ -3762,7 +3762,7 @@ class PinNumberJump(unittest.TestCase):
 
     def test_number_is_keyboard_and_touch_reachable(self):
         src = ps.HTML
-        self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
+        self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
         self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
         # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
         # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
@@ -5961,7 +5961,10 @@ class FrontendMentions(unittest.TestCase):
             let PEOPLE=[{login:'w@x',name:'Alice Kim'},{login:'wo@x',name:'Alice'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
             let META={me:{login:'s@x',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
-            """] + [extract_js_fn(n) for n in ("peopleName", "fmtText", "mentionsMe", "mentionQuery", "mentionMatches", "mentionHints")]
+            const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
+            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
+            """] + [extract_js_fn(n) for n in ("peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe",
+                                               "mentionQuery", "mentionMatches", "mentionHints", "mentionScan")]
             + [script])
         return json.loads(run_node(js))
 
@@ -5969,8 +5972,47 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Alice Kim 와 @Alice <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
               fmtText('@Bob Park',[])]));""")
-        self.assertEqual(out, ['<span class="mention">@Alice Kim</span> 와 <span class="mention">@Alice</span> &lt;i&gt;',
-                               '<span class="mention">@김&lt;b&gt;</span> 안녕', '@Bob Park'])
+        tip = lambda n: ' data-tip="@태그 — %s에게 알림이 갑니다"' % n
+        self.assertEqual(out, ['<span class="mention"%s>@Alice Kim</span> 와 <span class="mention"%s>@Alice</span> &lt;i&gt;' % (tip("Alice Kim"), tip("Alice")),
+                               '<span class="mention"%s>@김&lt;b&gt;</span> 안녕' % tip("김&lt;b&gt;"), '@Bob Park'])
+
+    def test_mention_of_me_is_stronger_and_unresolved_stays_plain(self):
+        # 저자 지적(2026-09-24): 부른 것인지 평문인지 구분이 안 됐다. 풀린 태그만 토큰, 나를 부르면 .me, 풀리지 않은 '@말'은 평문.
+        out = self.run_js(r"""
+            console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@x']), fmtText('mail a@Bob Park',['s@x']),
+              fmtText('@Bob Parkx',['s@x']), fmtText('@bob park',['s@x'])]));""")
+        self.assertEqual(out[0], '<span class="mention me" data-tip="나를 부름 — 이 핀 알림이 나에게 옵니다">@Bob Park</span> 봐 주세요 @홍길동')
+        self.assertEqual(out[1], 'mail a@Bob Park')                       # 메일 주소 모양은 태그가 아니다
+        self.assertNotIn("mention", out[2])                                   # 이름 뒤에 영문이 이어지면 다른 말
+        self.assertIn('class="mention me"', out[3])                          # 대소문자 없이(서버와 같다)
+
+    def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
+        out = self.run_js(r"""
+            console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
+        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12·3·40(삭제한 핀) — 없는 99 는 평문
+        self.assertIn('data-ref="12"', out[0]); self.assertIn('data-ref="40"', out[0]); self.assertNotIn('data-ref="99"', out[0])
+        self.assertIn("it&#39;s", out[0])                                     # 이스케이프 &#39; 는 링크가 아니다
+        self.assertNotIn("pin-ref", out[1])
+
+    def test_scan_lists_who_gets_notified_and_unresolved_words(self):
+        out = self.run_js(r"""
+            console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Alice Kim',new Set()), mentionScan('a@b.com',new Set()),
+              mentionScan('@Alice 봐',new Set(['wo@x']))]));""")
+        self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"]})
+        self.assertEqual(out[1], {"hit": [], "bad": []})
+        self.assertEqual(out[2]["hit"][0], "wo@x")
+
+    def test_preview_row_under_every_mention_field(self):
+        h = ps.HTML
+        self.assertIn('<div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>', h)
+        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)   # 편집·답글
+        body = extract_js_fn("mentionPreview")
+        self.assertIn("등록된 사람이 아님", body)
+        self.assertIn("ic('at-sign')+'알림</span>'", body)
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertRegex(css, r"\.mention\{color:var\(--primary\);font-weight:600;background:color-mix\(in srgb,var\(--primary\) 12%")
+        self.assertIn(".mention.me{background:color-mix(in srgb,var(--primary) 28%", css)
+        self.assertIn(".mention-bad{", css)
 
     def test_query_matches_and_hints(self):
         out = self.run_js(r"""
