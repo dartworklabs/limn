@@ -24,7 +24,8 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 3. **처리 범위를 정한다.**
    - 부탁받은 쪽이 그 시점 열린 핀을 **전부** 처리한다. 누가 남겼는지와 무관하다(저자 결정 2026-09-22).
    - 사용자가 번호를 지목했으면 그 핀만.
-   - `처리 중(<이름>, …)`(다른 쪽이 claim)은 건너뛴다. 뺏지 않는다.
+   - **건너뛴다**: `처리 중(<이름>, …)`(다른 쪽이 claim — 뺏지 않는다), 맨 아래 `## 검토 대기` 소절의 핀(이미 처리했고 사람의 확인을 기다린다), 번호 칸에 `→ @이름` 이 붙은 핀(사람을 부른 핀 — 사용자가 그 핀을 명시적으로 시킬 때만 처리).
+   - 번호 칸의 `질문` 은 고칠 곳이 아니라 물음이다(6단계). `다시 열림` 은 검토에서 되돌아온 핀이다 — 메모 칸의 `다시 연 이유` 대로 다시 고친다.
 4. **고치기 직전에 그 핀만 claim 한다.** 여러 핀을 한꺼번에 잡지 않는다 — 아직 손대지 않은 핀까지 잠겨 다른 쪽이 못 가져간다(실측 2026-09-23: 23건을 한꺼번에 잡았다). 견적(분)을 `eta_min` 에 넣는다. 뷰어에 `처리 중 · 약 15분 · 20:40쯤` 으로 보인다.
 
    ```bash
@@ -43,12 +44,18 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
    - 늦어지면 같은 신원으로 다시 claim 해 새 견적을 넣는다(연장). 안 그러면 뷰어에 `예상보다 늦어짐 (+5분)` 이 뜬다.
    - 잠금은 `ttl_min`(생략하면 견적의 두 배, 30–120분)이 지나면 저절로 풀린다. 안전장치일 뿐이니 견적 대신 쓰지 않는다.
 5. **고친다.** `L<lo>-L<hi>` 를 `Read` 로 열어 문맥을 확인하고 메모대로 고친다. 앞 핀을 고쳐 줄이 밀렸을 수 있으면 `GET <base>/api/pins` 로 맞춘 값을 다시 받는다.
-6. **닫는다.** 무엇을 고쳤는지(`reply` ≤500자)와 PR 번호(`ref` ≤80자)를 남긴다.
+6. **닫는다.** 에이전트가 닫은 핀은 완료가 아니라 **검토 대기**로 간다 — 사람이 뷰어에서 [확인]하면 완료, [다시 열기]면 이유와 함께 열린 핀으로 돌아온다.
+   - **수정 요청 핀**: 고친 뒤 무엇을 고쳤는지(`reply` ≤500자)와 PR 번호·커밋(`ref` ≤80자)을 남겨 닫는다. `ref` 는 뷰어의 [변경 보기]가 그 커밋을 찾는 단서다.
+   - **질문 핀**: 원고는 고치지 않는다(질문이 수정을 뜻할 때만). 답을 답글로 남긴 뒤 닫는다.
+   - 테일넷 주소(`https://…ts.net`)로 닫으면 요청이 사람 신원을 달고 가 바로 완료가 된다 — 본문에 `"review": true` 를 넣는다(로컬 `127.0.0.1` 은 넣지 않아도 검토 대기).
 
    ```bash
    curl -s -X POST <base>/api/pins/3/close \
      -H 'Content-Type: application/json' \
-     -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
+     -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227", "review": true}'
+   curl -s -X POST <base>/api/pins/4/reply \
+     -H 'Content-Type: application/json' \
+     -d '{"text": "구간은 95% 신뢰구간이다. 0 을 포함하면 효과가 유의하지 않다는 뜻"}'
    ```
 
 7. **확인한다.** 여러 핀을 처리했으면 1단계처럼 핀 표를 다시 읽는다. 열린 핀이 0(또는 전부 처리 중)인지 확인해 사용자에게 보고한다.
@@ -67,6 +74,9 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 | `위치 잃음` | 위치를 잃었다(stale) | 아래 stale 규칙 |
 | `«…»` | 렌더된 글자 인용(≤60자, 잘리면 `…`) | 검색 힌트로만 쓴다. `Edit` 의 `old_string` 으로 쓰지 않는다 |
 | `@작성자:` | 작성자가 2명 이상일 때 메모 앞에 붙는다 | 배정 기준이 아니다. 보고·`reply` 참고용 |
+| `질문` | 고칠 곳이 아니라 물음 | 답글로 답하고 닫는다(원고는 질문이 수정을 뜻할 때만) |
+| `다시 열림` | 검토에서 되돌아왔다 | 메모 칸 `[스레드 N건] 다시 연 이유(…)` 대로 다시 고친다 |
+| `→ @이름` | 사람을 부른 핀(@태그) | 사용자가 명시적으로 시키지 않으면 건너뛴다 |
 
 ### 규칙
 
@@ -122,20 +132,24 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 | `GET /api/pins` | 열린 핀 JSON(`rev` 포함). `?all=1` 이면 닫힌 핀까지 |
 | `POST /api/pins/{id}/claim` | 처리 중 표시. 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(둘 다 선택, 상한을 넘으면 깎는다) — 견적과 잠금 |
 | `POST /api/pins/{id}/unclaim` | 처리 중 표시를 푼다 |
-| `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref"}` |
-| `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제) |
+| `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref", "review"}` — 에이전트가 닫으면 검토 대기 |
+| `POST /api/pins/{id}/reply` | 답글 `{"text"}`(≤1000자). 상태는 그대로 |
+| `GET /api/pins/{id}` | 핀 한 건(스레드 전부) — pins.md 가 스레드를 3건까지만 실을 때 |
+| `POST /api/pins/{id}/confirm` | 검토 대기 → 완료(사람이 누른다) |
+| `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제). 선택 `{"reason"}` 은 스레드에 남는다 |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
 | `POST /api/pins/{id}/drop` | 잘못 찍은 핀을 뺀다(`/restore` 로 되살림) |
 | `POST /api/rebuild?async=1` | PDF 재빌드. 진행은 `GET /api/build`. 여러 문서면 둘 다 `&doc=<키>` |
 | `GET /api/docs` | 문서 목록(키·이름·종류·열린 핀 수·빌드 상태) |
-| `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등) |
+| `GET /api/meta?light=1` | 쓰기 없는 상태 조회(`stale_build` 등). `&ev=<seq>` 면 나에게 온 이벤트(브라우저 알림용) |
 
 ## 참고 파일
 
 | 할 일 | 열 파일 |
 | --- | --- |
-| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
+| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 스레드·검토 대기·@태그·이벤트, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
 | 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`references/build-sync.md`](references/build-sync.md) |
+| 스레드·검토 대기 화면, [변경 보기], @태그, 브라우저 알림(https 테일넷·127.0.0.1 에서만) | [`references/design.md`](references/design.md) |
 | 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 상태 표현(띠·배지)·보관함·아이콘(Lucide), 여러 문서·보기 전용 PDF, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`references/design.md`](references/design.md) |
 | 실행 인자 전체, `--doc` 여러 문서, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
 

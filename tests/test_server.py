@@ -59,6 +59,14 @@ def js_icons() -> str:
     return m.group(0) + "\n" + extract_js_fn("ic")
 
 
+def js_thread() -> str:
+    """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
+    ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
+    return "\n".join([ev, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
+        "isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+        "peopleName", "fmtText", "mentionsMe", "addressedTag")])
+
+
 def run_node(js: str, tz: str = None):
     """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
 
@@ -1342,7 +1350,7 @@ class PinsMdV2(Base):
         before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
-            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # 사람이 닫음 = 완료(에이전트가 닫으면 검토 대기로 표에 남는다)
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -3363,9 +3371,10 @@ class FrontendMobileLogic(unittest.TestCase):
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
+            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set();
             """,
             extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
-            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"), js_icons(),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), js_thread(), extract_js_fn("card"), js_icons(),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -4510,7 +4519,8 @@ class FrontendArchive(unittest.TestCase):
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             """, js_icons(), extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
             extract_js_fn("locCopy"), extract_js_fn("docChip"),
-            "const ARC_OPEN=new Set();", extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
+            "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
+            extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"), js_thread(),
             extract_js_fn("arcHead"), extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
         return json.loads(run_node(js))
 
@@ -4947,6 +4957,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
+            let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
@@ -5250,3 +5261,740 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertEqual(page.locator('#right').bounding_box()['width'], 390)
         page.locator('#btn-doc').click()
         self.assertTrue(page.locator('#docs-menu').is_visible())
+
+
+# ---------------------------------------------------------------- 핀 종류(수정 요청/질문)·스레드·답글(references/api.md §스레드)
+# A-DEMO 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었다(#30 '구간이 0을 포함한다는 게 뭐지?' 등). 답을 남길 곳이 닫기 사유 한 칸뿐이라
+# 되물을 수 없었다. kind_req 로 종류를 가르고, 핀마다 thread 를 두어 사람·에이전트가 주고받는다. 새 필드는 모두 선택이다.
+class KindAndThread(Base):
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def post(self, path, body, headers=None):
+        h = {"Content-Type": "application/json"}
+        h.update(headers or {})
+        out = self.talk(req("POST", path, json.dumps(body).encode(), h))
+        code, _, raw = split_resp(out)
+        return code, json.loads(raw)
+
+    def test_kind_req_stored_only_when_given_and_validated(self):
+        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+                       dict(self.S))
+        f = self.add()
+        self.assertEqual(self.pin(q)["kind_req"], "question")
+        self.assertNotIn("kind_req", self.pin(f))                 # 옛 호출(에이전트 curl)은 필드가 없다 = 수정 요청
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S))
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_edit_switches_kind_even_on_closed_pin(self):
+        pid = self.add()
+        p = ps.edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S))
+        self.assertEqual(p["kind_req"], "question")
+        ps.set_done(pid, True, dict(self.S))
+        p = ps.edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S))
+        self.assertEqual(p["kind_req"], "fix")
+
+    def test_reply_endpoint_appends_message_with_header_identity(self):
+        pid = self.add()
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "  0 은 전 구간 평균입니다\r\n두 번째 줄 "},
+                            {"Tailscale-User-Login": self.S["login"], "Tailscale-User-Name": self.S["name"]})
+        self.assertEqual(code, 200)
+        self.assertTrue(d["ok"])
+        self.assertEqual(d["msg"]["id"], 1)
+        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")   # CRLF → LF, 앞뒤 공백 제거
+        self.assertEqual(d["msg"]["by"], {"login": self.S["login"], "name": self.S["name"]})
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "에이전트 답"})
+        self.assertEqual(d["msg"]["id"], 2)
+        self.assertEqual(d["msg"]["by"]["login"], "local")
+        p = self.pin(pid)
+        self.assertEqual([m["id"] for m in p["thread"]], [1, 2])
+        self.assertFalse(p.get("done"))                          # 답글은 상태를 바꾸지 않는다
+        self.assertEqual(p["rev"], 2)
+
+    def test_reply_validation(self):
+        pid = self.add()
+        for body in ({}, {"text": ""}, {"text": "   "}, {"text": 5}, {"text": "x" * (ps.THREAD_TEXT_MAX + 1)}):
+            code, d = self.post("/api/pins/%d/reply" % pid, body)
+            self.assertEqual(code, 400, body)
+        self.assertNotIn("thread", self.pin(pid))
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * ps.THREAD_TEXT_MAX})
+        self.assertEqual(code, 200)
+        code, d = self.post("/api/pins/999/reply", {"text": "없음"})
+        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # 없는 id 는 다른 경로와 같은 관례
+
+    def test_control_characters_are_stripped_but_newlines_kept(self):
+        self.assertEqual(ps.clean_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
+
+    def test_thread_is_capped(self):
+        pid = self.add()
+        with mock.patch.object(ps, "THREAD_MAX", 2):
+            ps.reply_pin(pid, "1", dict(self.S))
+            ps.reply_pin(pid, "2", dict(self.S))
+            with self.assertRaises(ps.HTTPError) as cm:
+                ps.reply_pin(pid, "3", dict(self.S))
+            self.assertEqual(cm.exception.code, 409)
+            ps.set_done(pid, True, dict(self.S), "닫음")          # 상태 전환 기록은 상한과 무관하다
+        self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
+
+    def test_close_reply_is_appended_to_thread_once(self):
+        pid = self.add()
+        ps.reply_pin(pid, "질문이 있어요", dict(self.S))
+        ps.set_done(pid, True, dict(self.S), "제목을 고침", "PR #227")
+        ps.set_done(pid, True, dict(self.S), "두 번째 닫기")      # 이미 닫힘 — 아무것도 붙지 않는다
+        th = self.pin(pid)["thread"]
+        self.assertEqual([(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
+                         [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")])
+        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")   # 옛 필드도 그대로 남는다(옛 뷰어·에이전트 호환)
+
+    def test_bodyless_close_still_works_and_records_event(self):
+        pid = self.add()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out)
+        th = self.pin(pid)["thread"]
+        self.assertEqual([(m.get("ev"), m["text"]) for m in th], [("close", "")])
+
+    def test_single_pin_route_and_state_field(self):
+        pid = self.add()
+        code, _, raw = split_resp(self.talk(req("GET", "/api/pins/%d" % pid)))
+        d = json.loads(raw)
+        self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
+        code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
+        self.assertEqual(code, 404)
+        ps.set_done(pid, True, dict(self.S))
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertNotIn("state", ps.read_pins()[0][0])           # 계산 필드 — 저장하지 않는다
+
+    def test_malformed_thread_is_a_broken_line(self):
+        for th in ("x", [{"id": "1", "text": "a", "at": "t", "by": {}}], [{"id": 1, "text": 3, "at": "t", "by": {}}],
+                   [{"id": 1, "text": "a", "at": "t", "by": {"name": 3}}], [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}]):
+            r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
+            self.assertFalse(ps.valid_rec(r), th)
+        ok = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "kind_req": "question",
+              "thread": [{"id": 1, "text": "a", "at": "2026-09-24 10:00:00", "by": {"login": "x", "name": "X"}, "ev": "close", "ref": "PR #1"}]}
+        self.assertTrue(ps.valid_rec(ok))
+        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
+
+    def test_legacy_records_are_not_rewritten_by_reads(self):
+        legacy = {"id": 7, "file": str(self.main), "name": "main.tex", "lo": 4, "hi": 5, "page": 1, "note": "옛 핀",
+                  "at": "2026-09-21 20:00:00", "done": True, "done_at": "2026-09-21 21:00:00",
+                  "close_reply": "고침", "anchor": ps.anchor_of(ps.tex_lines(self.main), 4, 5),
+                  "synced_at": self.main.stat().st_mtime + 10}
+        ps.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
+        before = ps.C.pins_jsonl.read_bytes()
+        mtime = ps.C.pins_jsonl.stat().st_mtime_ns
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.talk(req("GET", "/api/pins?all=1"))
+        self.talk(req("GET", "/pins.md"))
+        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.C.pins_jsonl.stat().st_mtime_ns, mtime)
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertNotIn("thread", rows[0])
+
+    def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
+        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+                       dict(self.S))
+        for i in range(5):
+            ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        self.assertIn("| %d · 질문 |" % q, row)
+        self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
+        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)   # 줄바꿈은 접고 | 는 이스케이프
+        self.assertNotIn("답글 1", row)
+        self.assertEqual(row.count("|") - row.count("\\|"), 6)          # 5열 표 그대로
+        self.assertIn("/api/pins/N/reply", md)
+        self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
+        ps.set_done(q, True, dict(self.S), "답했다")
+        ps.set_done(q, False, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        self.assertNotIn("[스레드", row)                                  # 닫기 전 차례의 글은 싣지 않는다
+
+
+class FrontendThread(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_js(self, script, layout="wide"):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            function who(a){return (a&&(a.name||a.login))||'';} function avatar(){return '<i class="av"></i>';}
+            let LAYOUT='%s', REPLY=null, META=null; const THREAD_OPEN=new Set();
+            """ % layout, js_icons(), extract_js_fn("arcTime"), js_thread(), script])
+        return json.loads(run_node(js))
+
+    def test_wide_shows_last_three_compact_shows_last_one(self):
+        out = self.run_js(r"""
+            const th=[1,2,3,4,5].map(i=>({id:i,by:{name:'S'},at:'2026-09-24 10:0'+i+':00',text:'m'+i}));
+            const p={id:9,thread:th};
+            const w=threadHtml(p,true), c=threadHtml(p,false); THREAD_OPEN.add(9); const all=threadHtml(p,false);
+            const n=s=>(s.match(/class="msg"/g)||[]).length;
+            console.log(JSON.stringify([n(w),/이전 2건 보기/.test(w),/m5/.test(w),/m2/.test(w),n(c),/이전 4건 보기/.test(c),/m5/.test(c),
+              n(all),/스레드 접기/.test(all),threadHtml({id:1},true)]));
+            """)
+        self.assertEqual(out, [3, True, True, False, 1, True, True, 5, True, ""])
+
+    def test_messages_escape_and_events_read_as_history(self):
+        out = self.run_js(r"""
+            const a=msgHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'});
+            const b=msgHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'});
+            const c=msgHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'});
+            console.log(JSON.stringify([/&lt;img/.test(a),!/<img/.test(a),/&lt;b&gt;x/.test(a),/class="msg ev ev-close"/.test(b),
+              /닫음 · PR #9/.test(b),/>고쳤다</.test(b),/>확인</.test(c),!/msg-t/.test(c),/09-24 10:05/.test(b)]));
+            """)
+        self.assertEqual(out, [True] * 9)
+
+    def test_reply_slot_rendered_for_open_editor(self):
+        out = self.run_js(r"""
+            REPLY={id:4,mode:'reply'};
+            console.log(JSON.stringify([/reply-slot/.test(threadHtml({id:4},true)),threadHtml({id:5},true)]));
+            """)
+        self.assertEqual(out, [True, ""])
+
+    def test_card_has_question_badge_reply_button_and_thread_count(self):
+        body = extract_js_fn("card")
+        self.assertIn("if(isQuestion(p))tags.unshift(", body)
+        self.assertIn('data-act="reply-open"', body)
+        self.assertIn("threadHtml(p,LAYOUT==='wide')", body)
+        self.assertIn("ic('message-square')", body)
+
+    def test_reply_editor_survives_redraw_and_save_sends_kind(self):
+        dp = extract_js_fn("drawPins")
+        self.assertIn("slot.replaceWith(REPLY.el)", dp)
+        self.assertIn("rta.focus()", dp)
+        self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
+        self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
+        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc 가 입력 칸부터 닫는다
+        self.assertIn('id="c-kind"', ps.HTML)
+        send = extract_js_fn("sendReply")
+        self.assertIn("'/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply')", send)
+        self.assertIn("{reason:text}", send)
+
+    def test_compact_collapsed_card_hides_thread(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)
+
+
+# ---------------------------------------------------------------- 검토 대기(references/api.md §검토 대기)
+# 에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 에이전트(신원 헤더 없음)가
+# 닫으면 done=true·review=true(검토 대기), 테일넷 사람이 닫으면 바로 완료다. review 가 없는 옛 done:true 는 그대로 완료다.
+class ReviewState(Base):
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+    W = {"login": "alice@example.com", "name": "Alice Kim"}
+
+    def post(self, path, body=None, headers=None):
+        h = {"Content-Type": "application/json"} if body is not None else {}
+        h.update(headers or {})
+        out = self.talk(req("POST", path, json.dumps(body).encode() if body is not None else b"", h))
+        code, _, raw = split_resp(out)
+        return code, json.loads(raw)
+
+    def test_agent_close_goes_to_review_human_close_to_done(self):
+        a, b = self.add(), self.add(note="m")
+        code, d = self.post("/api/pins/%d/close" % a, {"reply": "고침", "ref": "PR #9"})
+        self.assertEqual((code, d["state"], d["pin"]["review"], d["pin"]["done"]), (200, "review", True, True))
+        code, d = self.post("/api/pins/%d/close" % b, None, {"Tailscale-User-Login": self.S["login"]})
+        self.assertEqual(d["state"], "done")
+        self.assertNotIn("review", d["pin"])
+
+    def test_explicit_review_flag_wins(self):
+        a, b = self.add(), self.add(note="m")
+        code, d = self.post("/api/pins/%d/close" % a, {"review": True}, {"Tailscale-User-Login": self.S["login"]})
+        self.assertEqual(d["state"], "review")                      # 테일넷 주소로 닫는 원격 에이전트
+        code, d = self.post("/api/pins/%d/close" % b, {"review": False})
+        self.assertEqual(d["state"], "done")
+        code, d = self.post("/api/pins/%d/close" % self.add(), {"review": "yes"})
+        self.assertEqual(code, 400)
+
+    def test_review_pins_are_not_open_for_agents(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
+        self.assertEqual(json.loads(raw), [])                         # 열린 핀 목록(옛 계약)에 없다
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30)
+        self.assertEqual(cm.exception.body["error"], "done")
+        m = ps.meta(dict(ps.LOCAL_ACTOR))
+        self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
+
+    def test_confirm_and_idempotence(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, {"Tailscale-User-Login": self.W["login"],
+                                                                 "Tailscale-User-Name": self.W["name"]})
+        self.assertEqual((code, d["state"]), (200, "done"))
+        p = self.pin(pid)
+        self.assertEqual(p["confirmed_by"], self.W)                   # 작성자가 아니어도 확인할 수 있다
+        self.assertTrue(p["confirmed_at"])
+        self.assertEqual(p["thread"][-1]["ev"], "confirm")
+        rev = p["rev"]
+        code, d = self.post("/api/pins/%d/confirm" % pid)
+        self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # 이미 완료 — 그대로
+        code, d = self.post("/api/pins/%d/confirm" % self.add())
+        self.assertEqual((code, d["error"]), (409, "open"))
+        code, d = self.post("/api/pins/999/confirm")
+        self.assertEqual((code, d["ok"]), (200, False))
+
+    def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "식 번호가 아직 틀림"},
+                            {"Tailscale-User-Login": self.S["login"], "Tailscale-User-Name": self.S["name"]})
+        self.assertEqual(d["state"], "open")
+        p = self.pin(pid)
+        self.assertNotIn("review", p)
+        self.assertEqual([(m.get("ev"), m["text"]) for m in p["thread"]], [("close", "고침"), ("reopen", "식 번호가 아직 틀림")])
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        self.assertIn("다시 열림", row)
+        self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (ps.THREAD_TEXT_MAX + 1)})
+        self.assertEqual(code, 400)
+        code, d = self.post("/api/pins/%d/reopen" % pid)              # 본문 없는 옛 reopen 도 된다(이미 열림 — 스레드 그대로)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(self.pin(pid)["thread"]), 2)
+
+    def test_reopen_after_confirm_drops_confirmation(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        ps.confirm_pin(pid, dict(self.S))
+        ps.set_done(pid, False, dict(self.S), reason="다시")
+        p = self.pin(pid)
+        self.assertNotIn("confirmed_by", p)
+        self.assertEqual(ps.pin_state(p), "open")
+
+    def test_legacy_done_is_done_not_review(self):
+        self.assertEqual(ps.pin_state({"done": True}), "done")
+        self.assertEqual(ps.pin_state({"done": True, "review": False}), "done")
+        self.assertEqual(ps.pin_state({"done": True, "review": True}), "review")
+        self.assertEqual(ps.pin_state({"review": True}), "open")    # 열린 핀에 남은 review 는 뜻이 없다
+        self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
+
+    def test_pins_md_review_section_and_header(self):
+        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S))
+        b = self.add(8, 9)
+        ps.set_done(a, True, dict(ps.LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
+        sec = md[md.index("## 검토 대기 1건"):]
+        self.assertIn("| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", sec)
+        self.assertIn("| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec)
+        opn = md[:md.index("## 검토 대기")]
+        starts = [l.split("|")[1].strip() for l in opn.splitlines() if l.startswith("| ") and not l.startswith("| #")]
+        self.assertEqual(starts, [str(b)])                             # 열린 표에는 열린 핀만
+        self.assertIn("`\"review\":true`", md)
+        self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
+        ps.confirm_pin(a, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("## 검토 대기", md)
+        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)                # 검토 대기가 없으면 머리줄은 예전 모양
+
+
+class FrontendReview(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_review_card_suggests_author_and_offers_confirm_reopen(self):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',rvReopen:'o',reply:'y'};
+            let EDIT=null, PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}};
+            const OPEN_CARDS=new Set();
+            function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
+            function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
+            let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
+            const THREAD_OPEN=new Set();
+            """, extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("arcTime"), js_thread(),
+            extract_js_fn("card"), js_icons(), r"""
+            const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
+              closed_by:{login:'local',name:'로컬/에이전트'},thread:[{id:1,by:{name:'로컬/에이전트'},at:'2026-09-24 10:00:00',text:'고침',ev:'close'}]};
+            const mine=card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}}));
+            const other=card(Object.assign({},base,{author:{login:'w@x',name:'Alice Kim'}}));
+            const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
+            console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
+              /Alice Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),/data-act="rv-reopen"/.test(other),
+              !/data-act="close"/.test(other),!/data-act="drop"/.test(other),/ev-close/.test(other),!/review/.test(open)]));
+            """])
+        self.assertEqual(json.loads(run_node(js)), [True] * 10)
+
+    def test_review_toast_and_partition(self):
+        js = "\n".join([r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(m,k){TOASTS.push(m);} function restorePin(){}
+            const MY_ACTIONS=new Map();
+            """, extract_js_fn("markMine"), extract_js_fn("consumeMine"), extract_js_fn("diffToast"), extract_js_fn("pinState"),
+            extract_js_fn("reviewToast"), r"""
+            diffToast([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
+            reviewToast([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
+            markMine(8); reviewToast([{id:8}],[{id:8,done:true}]);
+            console.log(JSON.stringify(TOASTS));
+            """])
+        out = json.loads(run_node(js))
+        self.assertEqual(out, ["#2 이 완료되었습니다", "#1 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요",
+                               "#5 확인됨 · W", "#6 다시 열림"])
+        body = extract_js_fn("loadPins")
+        self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)==='review')", body)
+        self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
+        self.assertIn('id="sec-review"', ps.HTML)
+        self.assertIn('id="side-rv"', ps.HTML)
+
+
+# ---------------------------------------------------------------- [변경 보기](references/design.md §변경 보기)
+class FrontendChangeView(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_js(self, script):
+        js = "\n".join([extract_js_fn(n) for n in ("matchRevision", "pinFileIndex", "hunkRanges", "touchesPin", "revisionFiles")]
+                       + [script])
+        return json.loads(run_node(js))
+
+    def test_ref_picks_commit_by_sha_then_pr_number(self):
+        revs = [{"id": "0a569cc" + "1" * 33, "subject": "Clarify experimental questions (#238)"},
+                {"id": "2cb7240" + "2" * 33, "subject": "Resolve manuscript viewer pins 19–41 (#236)"},
+                {"id": "f47c6bf" + "3" * 33, "subject": "manuscript: 원고 핀 12건 반영 (#235)"},
+                {"id": "1d422a6" + "4" * 33, "subject": "Merge pull request #203 from example-lab/docs"}]
+        out = self.run_js("const revs=%s; console.log(JSON.stringify(['PR #235 (f47c6bf)','paper PR #236; code PR #75',"
+                          "'paper PR #236','#203','PR #999','', 'abcdef1'].map(r=>{const m=matchRevision(r,revs);return m&&[m.id.slice(0,7),m.via];})));"
+                          % json.dumps(revs))
+        self.assertEqual(out, [["f47c6bf", "sha"], ["2cb7240", "pr"], ["2cb7240", "pr"], ["1d422a6", "pr"], None, None, None])
+
+    def test_pin_file_and_line_overlap(self):
+        patch = ("diff --git a/manuscript/1st/x.tex b/manuscript/1st/x.tex\n--- a/manuscript/1st/x.tex\n+++ b/manuscript/1st/x.tex\n"
+                 "@@ -10,3 +10,4 @@ ctx\n a\n+b\n c\n d\n@@ -80 +81 @@\n-x\n+y\n"
+                 "diff --git a/manuscript/1st/y.tex b/manuscript/1st/y.tex\n@@ -1 +1 @@\n-q\n+r\n")
+        out = self.run_js("const f=revisionFiles(%s); console.log(JSON.stringify([pinFileIndex(f,'/home/u/paper/manuscript/1st/x.tex'),"
+                          "pinFileIndex(f,'/home/u/paper/manuscript/1st/zz.tex'), hunkRanges(f[0].text),"
+                          "touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:15,hi:16}), touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:40,hi:41}),"
+                          "touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:84,hi:90}), touchesPin(f,{file:'/p/other.tex',lo:1,hi:1})]));"
+                          % json.dumps(patch))
+        self.assertEqual(out, [0, -1, [[10, 13], [81, 81]], True, False, True, False])
+
+    def test_wiring(self):
+        h = ps.HTML
+        self.assertIn('data-act="change"', extract_js_fn("doneCard"))
+        self.assertIn('data-act="change"', extract_js_fn("card"))
+        self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
+        self.assertIn('id="revision-pin"', h)
+        self.assertIn("showRevision(pick.id,'source')", extract_js_fn("loadRevisions"))
+        fmt = extract_js_fn("setRevisionFormat")
+        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # 비교 PDF 는 그 형식을 볼 때만 만든다
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertIn("body.revision-open #revision-view{display:block}", css)   # 접은 폴드에서도 열린다
+
+
+# ---------------------------------------------------------------- @태그·people.json·events.jsonl(references/api.md §@태그·사람·이벤트)
+class MentionsPeopleEvents(Base):
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+    W = {"login": "alice@example.com", "name": "Alice Kim"}
+    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
+    HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def events(self):
+        return ps._read_events()[0]
+
+    def post(self, path, body=None, headers=None):
+        h = {"Content-Type": "application/json"} if body is not None else {}
+        h.update(headers or {})
+        code, _, raw = split_resp(self.talk(req("POST", path, json.dumps(body).encode() if body is not None else b"", h)))
+        return code, json.loads(raw)
+
+    def people(self, extra=()):
+        d = {p["login"]: dict(p) for p in (self.S, self.W) + tuple(extra)}
+        return d
+
+    def test_resolve_mentions_rules(self):
+        ppl = self.people(({"login": "wkim@x.com", "name": "Alice Kim"}, {"login": "sy@x.com", "name": "박서준"}))
+        R = ps.resolve_mentions
+        self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
+        self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])            # 대소문자·한글 조사
+        self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])               # 이름 첫 단어(하나뿐)
+        self.assertEqual(R("@Alice 어때요", ppl), [])                                   # 첫 단어가 둘 — 모호하면 풀지 않는다
+        self.assertEqual(R("@Alice 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # 뷰어가 고른 힌트로 가른다
+        self.assertEqual(R("메일 bob@example.com 로", ppl), [])                     # 메일 주소는 태그가 아니다
+        self.assertEqual(R("@Bobx", ppl), [])                                         # 영문 이름 뒤 영문 = 다른 말
+        self.assertEqual(R("@박서준님 @Alice Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
+        self.assertEqual(R("@nobody", ppl), [])
+
+    def test_people_json_records_humans_only_and_throttles(self):
+        self.assertFalse(ps.record_person(dict(ps.LOCAL_ACTOR)))
+        self.assertFalse(ps.C.people_file.exists())
+        self.assertTrue(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
+        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))   # 10분 안 같은 값 — 쓰지 않는다
+        self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))        # 이름이 바뀌면 쓴다
+        self.assertTrue(ps.record_person(dict(self.W), now=2000))
+        d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
+        self.assertEqual(d["version"], 1)
+        self.assertEqual([p["login"] for p in d["people"]], [self.S["login"], self.W["login"]])
+        s = d["people"][0]
+        self.assertEqual((s["name"], s["pic"]), ("Bob P.", "https://p/s.png"))
+        self.assertTrue(s["first_seen"] <= s["last_seen"])
+
+    def test_people_json_write_is_atomic(self):
+        ps.record_person(dict(self.S), now=1000)
+        before = ps.C.people_file.read_bytes()
+        with mock.patch.object(ps.os, "replace", side_effect=OSError("disk full")):
+            self.assertFalse(ps.record_person(dict(self.W), now=2000))
+        self.assertEqual(ps.C.people_file.read_bytes(), before)         # 옛 파일 그대로(반쪽 파일 없음)
+        with mock.patch.object(ps.os, "replace", side_effect=OSError("disk full")):
+            ps.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
+        self.assertFalse(ps.C.events_file.exists())
+
+    def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
+        self.talk(req("GET", "/", headers=self.HW))
+        self.talk(req("GET", "/api/meta?light=1", headers=self.HS))     # 폴링은 쓰지 않는다
+        self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S))
+        code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
+        d = json.loads(raw)
+        self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
+        self.assertEqual(d["me"]["login"], self.W["login"])
+        self.assertNotIn("local", [p["login"] for p in d["people"]])
+
+    def test_mentions_stored_on_pin_and_message_with_events(self):
+        ps.record_person(dict(self.W))
+        code, d = self.post("/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "kind_req": "question",
+                                        "note": "@Alice Kim 구간의 정의는?"}, self.HS)
+        pid = d["id"]
+        p = self.pin(pid)
+        self.assertEqual(p["mentions"], [self.W["login"]])
+        self.assertEqual(p["note"], "@Alice Kim 구간의 정의는?")       # 글은 그대로
+        ev = self.events()
+        self.assertEqual([(e["type"], e["pin"], e["to"], e["by"]["login"]) for e in ev],
+                         [("mention", pid, [self.W["login"]], self.S["login"])])
+        self.assertEqual(ev[0]["kind_req"], "question")
+        self.assertEqual(ev[0]["seq"], 1)
+        self.assertIn("구간의 정의는?", ev[0]["excerpt"])
+        # 에이전트 답글 → 작성자와 불린 사람에게 replied
+        self.post("/api/pins/%d/reply" % pid, {"text": "구간은 95% 신뢰구간입니다"})
+        e = self.events()[-1]
+        self.assertEqual((e["type"], sorted(e["to"]), e["msg"]), ("replied", sorted([self.S["login"], self.W["login"]]), 1))
+        # 불린 사람이 답하면 자기 자신은 빠진다
+        self.post("/api/pins/%d/reply" % pid, {"text": "@Bob Park 맞아요"}, self.HW)
+        types = [(x["type"], x["to"]) for x in self.events()[2:]]
+        self.assertEqual(types, [("mention", [self.S["login"]])])       # 이 글로 불린 작성자는 mention 하나만(replied 와 겹치지 않는다)
+        self.assertEqual(self.pin(pid)["thread"][-1]["mentions"], [self.S["login"]])
+        # 에이전트가 닫으면 작성자에게 review_requested, 작성자가 이유와 함께 다시 열면 reopened 는 자기 자신이라 없다
+        self.post("/api/pins/%d/close" % pid, {"reply": "답함"})
+        self.assertEqual(self.events()[-1]["type"], "review_requested")
+        self.assertEqual(self.events()[-1]["to"], [self.S["login"]])
+        n = len(self.events())
+        self.post("/api/pins/%d/reopen" % pid, {"reason": "@Alice Kim 한 번 더 봐 주세요"}, self.HS)
+        tail = self.events()[n:]
+        self.assertEqual([(x["type"], x["to"]) for x in tail], [])       # 민수은 이미 불렸고, 작성자는 자기 자신
+        self.post("/api/pins/%d/close" % pid, {"reply": "다시 답함"})
+        self.post("/api/pins/%d/reopen" % pid, {"reason": "아직"}, self.HW)
+        self.assertEqual((self.events()[-1]["type"], self.events()[-1]["to"]), ("reopened", [self.S["login"]]))
+        seqs = [x["seq"] for x in self.events()]
+        self.assertEqual(seqs, list(range(1, len(seqs) + 1)))
+
+    def test_edit_adds_mention_event_only_for_new_names(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR))
+        ps.edit_pin(pid, {"note": "@Alice Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual([(e["type"], e["to"]) for e in self.events()],
+                         [("mention", [self.W["login"]]), ("mention", [self.S["login"]])])
+        ps.edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(ps.LOCAL_ACTOR))
+        self.assertNotIn("mentions", self.pin(pid))
+
+    def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
+        ps.record_person(dict(self.W))
+        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 이 구간 맞나요?", "kind_req": "question"},
+                       dict(self.S))
+        self.add(8, 9)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
+        self.assertIn("| %d · 질문 · → @Alice Kim |" % a, row)
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람을 부른 핀이다", md)
+        self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
+
+    def test_addressed_counts_current_round_only(self):
+        r = {"mentions": [], "thread": [{"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
+                                        {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
+                                        {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
+        self.assertEqual(ps.addressed_to(r), ["b"])
+        self.assertEqual(ps.pin_mentions_all(r), ["a", "b"])
+
+    def test_mention_hints_validated(self):
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_mention_hints("x")
+        with self.assertRaises(ps.HTTPError):
+            ps.clean_mention_hints(["a"] * (ps.MENTION_MAX + 1))
+        self.assertEqual(ps.clean_mention_hints(None), [])
+
+    def test_events_are_capped_but_seq_keeps_rising(self):
+        with mock.patch.object(ps, "EVENTS_KEEP", 3):
+            for i in range(5):
+                ps.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
+        self.assertEqual([e["seq"] for e in self.events()], [3, 4, 5])
+
+
+class FrontendMentions(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_js(self, script):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            let PEOPLE=[{login:'w@x',name:'Alice Kim'},{login:'wo@x',name:'Alice'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
+            let META={me:{login:'s@x',name:'Bob Park'}};
+            function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
+            """] + [extract_js_fn(n) for n in ("peopleName", "fmtText", "mentionsMe", "mentionQuery", "mentionMatches", "mentionHints")]
+            + [script])
+        return json.loads(run_node(js))
+
+    def test_highlight_does_not_double_wrap_and_escapes(self):
+        out = self.run_js(r"""
+            console.log(JSON.stringify([fmtText('@Alice Kim 와 @Alice <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
+              fmtText('@Bob Park',[])]));""")
+        self.assertEqual(out, ['<span class="mention">@Alice Kim</span> 와 <span class="mention">@Alice</span> &lt;i&gt;',
+                               '<span class="mention">@김&lt;b&gt;</span> 안녕', '@Bob Park'])
+
+    def test_query_matches_and_hints(self):
+        out = self.run_js(r"""
+            const ta=(v,pos)=>({value:v,selectionStart:pos==null?v.length:pos,selectionEnd:pos==null?v.length:pos});
+            const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch'))];
+            const m=mentionMatches('won',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
+            const t=ta('@Alice Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
+            console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
+              mentionsMe({mentions:['s@x']}),mentionsMe({thread:[{mentions:['s@x']}]}),mentionsMe({mentions:['w@x']})]));""")
+        self.assertEqual(out, [[{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None], ["wo@x", "w@x"], False,
+                               ["w@x"], True, True, False])
+
+    def test_wiring(self):
+        h = ps.HTML
+        self.assertIn('id="mention-pop"', h)
+        self.assertIn('id="mention-filter"', h)
+        self.assertIn("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;", extract_js_fn("savePin"))
+        self.assertIn("mentionHints(ta)", extract_js_fn("sendReply"))
+        self.assertIn("fmtText(p.note,p.mentions)", extract_js_fn("card"))
+        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # 자동 완성이 Enter·Esc 를 먼저 받는다(capture)
+
+
+# ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+class NotifyServer(Base):
+    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
+    HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._EVENTS_CACHE.clear()
+
+    def get(self, path, headers=None):
+        code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))
+        return code, h, raw
+
+    def test_service_worker_route(self):
+        code, h, raw = self.get("/sw.js")
+        self.assertEqual(code, 200)
+        self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
+        self.assertEqual(h["cache-control"], "no-cache")
+        js = raw.decode()
+        self.assertIn("showNotification" if False else "notificationclick", js)
+        self.assertIn("clients.openWindow", js)
+        self.assertIn("postMessage({type:'open-pin'", js)
+        self.assertNotIn("'fetch'", js)                                   # 앱 데이터를 캐시하지 않는다
+        code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
+        self.assertEqual(code, 403)
+        if shutil.which("node"):
+            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_event_cursor_in_light_meta(self):
+        ps.emit_events([{"type": "mention", "pin": 1, "doc": "main", "to": ["alice@example.com"], "by": {"login": "bob@example.com"}},
+                        {"type": "replied", "pin": 1, "doc": "main", "to": ["bob@example.com"], "by": {"login": "local"}},
+                        {"type": "mention", "pin": 2, "doc": "main", "to": ["alice@example.com"], "by": {"login": "alice@example.com"}}])
+        _, _, raw = self.get("/api/meta?light=1", self.HW)
+        d = json.loads(raw)
+        self.assertEqual(d["ev_seq"], 3)
+        self.assertNotIn("events", d)                                     # 커서 없이는 싣지 않는다
+        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HW)
+        self.assertEqual([(e["seq"], e["type"], e["doc_name"]) for e in json.loads(raw)["events"]], [(1, "mention", "본문")])
+        _, _, raw = self.get("/api/meta?light=1&ev=1", self.HW)
+        self.assertEqual(json.loads(raw)["events"], [])                   # 자기 자신이 한 일(seq 3)은 오지 않는다
+        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HS)
+        self.assertEqual([e["seq"] for e in json.loads(raw)["events"]], [2])
+        _, _, raw = self.get("/api/meta?light=1&ev=0")
+        self.assertEqual(json.loads(raw)["events"], [])                   # 로컬/에이전트에게는 싣지 않는다
+        code, _, _ = self.get("/api/meta?light=1&ev=x", self.HW)
+        self.assertEqual(code, 400)
+        before = sorted(p.name for p in ps.C.state.iterdir())
+        self.get("/api/meta?light=1&ev=0", self.HW)
+        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)   # 폴링은 쓰지 않는다
+
+
+class FrontendNotify(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def harness(self, script):
+        rank = re.search(r"^const NOTIFY_RANK=.*;$", ps.HTML, re.M).group(0)
+        return "\n".join([rank, r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
+            let NOTIFY=true; function notifyOn(){return NOTIFY;}
+            let META={me:{login:'w@x',name:'Alice Kim'},label:'DEMO-B'}; const SHOWN=[];
+            function notifyShow(e){SHOWN.push([e.pin,e.type]);}
+            """] + [extract_js_fn(n) for n in ("notifyCursor", "setNotifyCursor", "notifyQuery", "pickNotifications",
+                                               "notifyText", "notifyHandle")] + [script])
+
+    def test_trigger_selection_self_suppression_and_dedupe(self):
+        js = self.harness(r"""
+            const me={login:'w@x'}, S={login:'s@x',name:'Bob Park'};
+            const evs=[{seq:1,type:'replied',pin:5,to:['w@x'],by:S},{seq:2,type:'mention',pin:5,to:['w@x'],by:S},
+              {seq:3,type:'review_requested',pin:6,to:['w@x'],by:{login:'local'}},{seq:4,type:'replied',pin:7,to:['s@x'],by:S},
+              {seq:5,type:'mention',pin:8,to:['w@x'],by:{login:'w@x'}},{seq:6,type:'confirmed',pin:9,to:['w@x'],by:S},
+              {seq:7,type:'reopened',pin:6,to:['w@x'],by:S}];
+            const a=pickNotifications(evs,me,0).map(e=>[e.pin,e.type]);
+            const b=pickNotifications(evs,me,2).map(e=>[e.pin,e.type]);
+            const c=pickNotifications(evs,{login:'local'},0);
+            console.log(JSON.stringify([a,b,c,notifyText(evs[1]),notifyText({type:'review_requested',pin:6,excerpt:'답했다\n둘째',doc_name:'본문'})]));
+            """)
+        out = json.loads(run_node(js))
+        self.assertEqual(out[0], [[5, "mention"], [6, "reopened"]])          # 핀마다 하나 — 부름·다시 엶이 이긴다
+        self.assertEqual(out[1], [[6, "reopened"]])
+        self.assertEqual(out[2], [])
+        self.assertEqual(out[3], {"title": "핀 #5 · DEMO-B", "body": "Bob Park님이 불렀습니다: "})
+        self.assertEqual(out[4], {"title": "핀 #6 · 본문", "body": "검토 대기: 답했다"})
+
+    def test_cursor_prevents_refire_across_reloads_and_tabs(self):
+        js = self.harness(r"""
+            const S={login:'s@x',name:'S'};
+            notifyHandle({ev_seq:4});                                   // 처음 켠 브라우저 — 지난 이벤트는 건너뛴다
+            const c0=notifyCursor(), q=notifyQuery();
+            const d={ev_seq:6,events:[{seq:5,type:'mention',pin:1,to:['w@x'],by:S},{seq:6,type:'replied',pin:2,to:['w@x'],by:S}]};
+            notifyHandle(d);                                            // 탭 A
+            notifyHandle(d);                                            // 탭 B 가 같은 응답을 늦게 받음(같은 localStorage)
+            notifyHandle({ev_seq:6,events:[]});                         // 새로고침 뒤
+            NOTIFY=false; notifyHandle({ev_seq:9,events:[{seq:9,type:'mention',pin:3,to:['w@x'],by:S}]});
+            console.log(JSON.stringify([c0,q,SHOWN,notifyCursor(),notifyQuery()]));
+            """)
+        self.assertEqual(json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"]], 6, ""])
+
+    def test_wiring(self):
+        h = ps.HTML
+        self.assertIn('id="m-notify"', h)
+        self.assertIn('id="btn-notify"', h)
+        tog = extract_js_fn("notifyToggle")
+        self.assertIn("Notification.requestPermission()", tog)
+        self.assertEqual(html_without_comments(h).count("requestPermission("), 1)   # 클릭 경로에서만 묻는다
+        self.assertIn("reg.showNotification(", extract_js_fn("notifyShow"))
+        self.assertNotIn("new Notification(", html_without_comments(h))
+        self.assertIn("tag:'pin-'+e.pin", extract_js_fn("notifyShow"))
+        self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
+        self.assertIn("notifyQuery()", extract_js_fn("pollLightOnce"))
+        self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))

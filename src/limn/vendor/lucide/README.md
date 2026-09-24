@@ -16,13 +16,17 @@
 
 | 이름 | 쓰는 곳 |
 | --- | --- |
+| `at-sign` | '나를 부름'·'@이름' 배지, [나를 부른 핀 N] |
+| `bell` · `bell-off` | 브라우저 알림 켜짐·꺼짐(데스크톱 도구 줄) |
 | `check` | 닫힌 핀 행의 머리, 문서 목록에서 지금 문서 |
 | `chevron-down` · `chevron-right` | 보관함 구획 머리의 접기·펼치기, 카드 접기(좁은 화면), [문서] 버튼 |
 | `chevron-up` · `chevron-left` | [핀 N] 패널·시트 펴기·접기 방향 |
-| `circle-question-mark` | 도움말 버튼 |
+| `circle-question-mark` | 도움말 버튼, '질문' 배지 |
+| `message-square` | 카드 머리의 답글 수 |
 | `clock` | '처리 중' 배지 |
 | `copy` | 위치 복사 버튼 |
 | `ellipsis` | 더보기 버튼(좁은 화면) |
+| `eye` | '검토 대기' 배지(누가 확인할 차례인지) |
 | `minus` · `plus` | PDF 축소·확대, 범위 한 줄씩 좁히기·넓히기 |
 | `moon` · `sun` · `sun-moon` | 화면 테마(어둡게·밝게·시스템) |
 | `move-vertical` | '줄 +N 이동' 배지 |
