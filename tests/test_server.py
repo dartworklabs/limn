@@ -63,8 +63,9 @@ def js_thread() -> str:
     """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, st, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
-        "isQuestion", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+    mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
+    return "\n".join([ev, st, mo, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
+        "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
         "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag")])
 
 
@@ -3748,6 +3749,81 @@ class FrontendNoNestedOutlines(unittest.TestCase):
             self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
 
 
+# ---------------------------------------------------------------- 뜻·기능 점검(references/design.md §뜻과 모양) + UX QA(2026-09-24)
+class FrontendSemanticAudit(unittest.TestCase):
+    css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+
+    def test_relative_time_with_absolute_on_hover(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join(["const esc=t=>String(t==null?'':t);", extract_js_fn("relTime"), extract_js_fn("relSpan"), r"""
+            const now=new Date(2026,8,24,15,0).getTime();
+            console.log(JSON.stringify(['2026-09-24 15:00:10','2026-09-24 14:57:00','2026-09-24 11:00:00','2026-09-21 10:00:00','2026-09-01 10:00:00','x']
+              .map(s=>relTime(s,now)).concat([relSpan('2026-09-01 10:00','arc-t','닫은 시각')])));"""])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
+        self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
+        self.assertIn("setInterval(tickRel,60000);", ps.HTML)
+        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)   # 예전: '09-24 1…'
+
+    def test_one_toast_per_event_notify_wins(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join(["const TOAST_KEYS=[];", extract_js_fn("toastDup"), r"""
+            const el=()=>({isConnected:true,removed:false,remove(){this.removed=true;this.isConnected=false;}});
+            const a=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:1,el:a,t:Date.now()});
+            const r1=toastDup({keys:['review_requested:37'],rank:2});           // 알림 경로가 이긴다 — 옛 것을 걷고 띄운다
+            const b=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:2,el:b,t:Date.now()});
+            const r2=toastDup({keys:['review_requested:37'],rank:1});           // 뒤늦은 목록 비교 알림은 띄우지 않는다
+            const r3=toastDup({keys:['reopened:37'],rank:1}), r4=toastDup(null);
+            console.log(JSON.stringify([r1,a.removed,r2,r3,r4]));"""])
+        self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False])
+        self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
+        self.assertIn("{keys:reviewed.map(i=>'review_requested:'+i)}", extract_js_fn("diffToast"))
+        self.assertIn("{keys:['reopened:'+p.id]}", extract_js_fn("reviewToast"))
+
+    def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
+        body = extract_js_fn("card")
+        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", body)
+        self.assertIn("const v=closedCard?null:viaTag(p);", body)
+        self.assertIn('class="th-n" role="button" tabindex="0" data-act="reply-open"', body)
+
+    def test_long_messages_clamp_and_identity_marks(self):
+        self.assertIn(".msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;", self.css)
+        self.assertIn("data-act=\"msg-more\"", extract_js_fn("msgBody"))
+        self.assertIn("if(isAgent(a))return '<span class=\"av i agent\" aria-hidden=\"true\">'+ic('bot')+'</span>';", extract_js_fn("avatar"))
+        self.assertIn("(나)", extract_js_fn("msgHtml"))
+        self.assertIn("(나)", extract_js_fn("card"))
+
+    def test_touch_targets_in_archive_rows(self):
+        coarse = self.css[self.css.index("@media (pointer:coarse){"):]
+        coarse = coarse[:coarse.index("\n}")]
+        self.assertIn("button.arc-orig-t{min-height:44px;min-width:44px;", coarse)
+        self.assertIn(".arc-reply{min-height:44px;", coarse)
+        self.assertIn(".th-n{min-height:44px;min-width:44px;", coarse)
+
+    def test_review_count_labels_scope_and_filter_is_compact(self):
+        self.assertIn("' (이 문서 '+here+')'", extract_js_fn("updateReviewCount"))
+        body = extract_js_fn("drawPins")
+        self.assertIn("mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);", body)
+
+    def test_revision_note_wraps_and_returns_to_previous_doc(self):
+        self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
+        self.assertIn("data-act=\"rev-back\"", extract_js_fn("revTargetNote"))
+        self.assertIn("REV_BACK=DOC", extract_js_fn("showChange"))
+        self.assertIn("case 'rev-back':", ps.HTML)
+
+    def test_source_diff_wrap_toggle_defaults_on_touch(self):
+        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', ps.HTML)
+        self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
+        self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
+
+    def test_navigation_text_is_dotted_and_pending_looks_pending(self):
+        self.assertIn(".pin .n.go{text-decoration:underline dotted;", self.css)
+        self.assertIn(".pin-ref{color:inherit;font-weight:600;cursor:pointer;text-decoration:underline dotted;", self.css)
+        self.assertIn("button[data-pending]{cursor:progress;", self.css)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -4627,7 +4703,7 @@ class FrontendArchive(unittest.TestCase):
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
             const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
-              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
+              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
               /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
@@ -4947,7 +5023,7 @@ class BadgeWording(Base):
               relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
             """])
         self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
-        self.assertIn("const rb=relBadge(p.rel,p);", extract_js_fn("card"))
+        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", extract_js_fn("card"))
 
     def test_overlap_banner_verbs(self):
         if not shutil.which("node"):

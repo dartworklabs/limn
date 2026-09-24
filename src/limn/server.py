@@ -66,6 +66,7 @@ LUCIDE = {
             '13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 '
                 '.258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/>',
+    "bot": '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     "check": '<path d="M20 6 9 17l-5-5"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
@@ -98,6 +99,7 @@ LUCIDE = {
     "sun-moon": '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 '
                 '5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/>'
                 '<path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
+    "text-wrap": '<path d="m16 16-3 3 3 3"/><path d="M3 12h14.5a1 1 0 0 1 0 7H13"/><path d="M3 19h6"/><path d="M3 5h18"/>',
     "trash-2": '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
                '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'
@@ -4685,7 +4687,9 @@ body.revision-open #left{display:none}
    이 안내의 [원고로]가 돌아가는 길이다. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:6px var(--space-4);background:var(--card);
   border-bottom:1px solid var(--border);font-size:var(--text-sm)}
-#revision-pin .rp-msg{color:var(--muted-foreground)}
+#revision-pin .rp-msg{color:var(--muted-foreground);min-width:0;flex:1 1 12em;overflow-wrap:anywhere}
+#revision-pin>span:first-child{min-width:0;overflow-wrap:anywhere}
+#revision-pin button{flex:none;margin-left:auto}   /* 글이 길면 글이 줄바꿈된다 — 버튼은 잘리지 않는다(QA: 842px 에서 [원고로]가 화면 밖) */
 #revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}
@@ -4704,6 +4708,9 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
   text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
 #revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+#revision-diff.wrap .rd-line{display:flex;width:auto}
+#revision-diff.wrap .rd-no{flex:none}
+#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
 #revision-diff .rd-file{background:var(--muted);font-weight:600}
 #revision-diff .rd-meta{color:var(--muted-foreground)}
 #revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
@@ -4752,7 +4759,8 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
 .kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
 button:hover{background:var(--accent);color:var(--accent-foreground)}
-button:disabled{opacity:.65;cursor:default}
+button:disabled{opacity:.65;cursor:not-allowed}
+button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]의 '저장 대기' — 눌린 채 기다리는 모양 */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
 button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
@@ -4896,11 +4904,13 @@ button.badge-review{font-weight:600}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
 .pin .n{color:var(--card-foreground);font-weight:700}
 .pin .n.go{cursor:pointer;border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
-.pin .n.go:hover,.pin .n.go:focus-visible{background:var(--accent);text-decoration:underline}
+.pin .n.go{text-decoration:underline dotted;text-underline-offset:3px}
+.pin .n.go:hover,.pin .n.go:focus-visible{background:var(--accent);text-decoration-style:solid}   /* 이동하는 글자 = 점선 밑줄(#번호·N쪽·글 속 #12) */
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
 /* 카드 머리: 왼쪽에 번호·범위·쪽, 오른쪽에 작성자·접기. 배지는 머리 아래 한 줄. 동작은 같은 폭 격자, 완료만 강조·삭제는 위험 색. */
 .pin .head{flex-wrap:nowrap;gap:var(--space-2);min-height:28px}
 .pin .head .loc{white-space:nowrap}
+.pin .head .pg-link{white-space:nowrap;flex:none}
 .pin .head .au{flex:none}
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:4px}
 .pin .tags:empty{display:none}
@@ -4950,10 +4960,13 @@ body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
 .msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg-h b{color:var(--foreground);font-weight:600}
 .msg-t{white-space:pre-wrap;word-break:break-word}
+.msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* 1,000자 답글 하나가 카드를 1,390px 로 늘렸다(QA) */
+button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foreground)}
 .msg.ev{display:block;padding-left:28px;color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
 button.th-more{align-self:flex-start;color:var(--muted-foreground)}
-.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs)}
+.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
+.th-n:hover{background:var(--accent);color:var(--foreground)}
 .th-n .ic{width:12px;height:12px}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
 .reply-box textarea{min-height:3.2em}
@@ -4968,6 +4981,9 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
 .av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:var(--primary-foreground);
   font-size:var(--text-xs);font-weight:700;font-style:normal}
+.av.agent{background:var(--muted);color:var(--muted-foreground)}
+.av.agent .ic{width:13px;height:13px}
+.me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
 /* ---------------- 목록 구획(references/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
    붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
@@ -4999,7 +5015,8 @@ button.arc-head:hover{background:var(--accent)}
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{color:inherit;font-size:var(--text-sm)}
 .arc-ref{flex:none;line-height:16px;padding:0 5px;max-width:120px;overflow:hidden;text-overflow:ellipsis}
-.arc-t{font-size:var(--text-xs);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* 시각은 줄이지 않는다 — 짧은 상대 시각이라 늘 읽힌다(예전 '09-24 1…') */
+.arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
@@ -5108,8 +5125,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
-  button.arc-orig-t{min-height:28px;min-width:0;padding:0 var(--space-1);position:relative;font-size:var(--text-base)}
-  button.arc-orig-t::after{content:'';position:absolute;left:-4px;right:-4px;top:-8px;bottom:-8px}
+  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* 상자 자체가 44px(QA: 58×28 이었다) */
+  .arc-reply{min-height:44px;display:flex;align-items:center}
+  .arc-reply.open{display:block;padding:10px 0}
+  .th-n{min-height:44px;min-width:44px;justify-content:center}
   #grip::after{left:-9px;right:-9px}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
@@ -5277,7 +5296,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button><button id="revision-wrap" class="tg btn-sm" data-act="diff-wrap" aria-pressed="false" data-tip="긴 줄을 화면 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고는 켜 두세요">{{ic:text-wrap}}줄바꿈</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -5515,7 +5534,18 @@ async function api(url,o){o=o||{};
 // 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '·' · ' 에서 제목과 설명으로 가른다.
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
 function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?)( — | · )(.+)$/.exec(msg); return m?[m[1],m[3]]:[msg,''];}
-function toast(msg,kind,action){
+// 같은 핀의 같은 전환을 두 번 알리지 않는다(QA: 포커스된 탭에 '핀 #37 · 본문 — 검토 대기: …' 와 '#37 이 검토 대기로 넘어왔습니다'
+// 가 함께 떴다). dd={keys:['review_requested:37'],rank}: 8초 안에 같은 열쇠의 알림이 떠 있으면, 새 것이 더 높은 rank 면 옛 것을 걷고,
+// 아니면 새 것을 띄우지 않는다. 브라우저 알림 경로(notifyShow, rank 2)가 목록 비교 알림(rank 1)을 이긴다.
+const TOAST_KEYS=[];
+function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=Date.now(),rank=dd.rank||1;
+  for(let i=TOAST_KEYS.length-1;i>=0;i--){const x=TOAST_KEYS[i]; if(now-x.t>8000||!x.el.isConnected){TOAST_KEYS.splice(i,1);continue;}
+    if(!dd.keys.some(k=>x.keys.includes(k)))continue;
+    if(x.rank>=rank&&dd.keys.every(k=>x.keys.includes(k)))return true;
+    if(rank>x.rank){x.el.remove(); TOAST_KEYS.splice(i,1);}}
+  return false;}
+function toast(msg,kind,action,dd){
+  if(toastDup(dd))return null;
   kind=TOAST_IC[kind]?kind:'ok';
   const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+kind;
   const [title,desc]=toastSplit(msg);
@@ -5530,6 +5560,7 @@ function toast(msg,kind,action){
   c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);acts.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
   placeToasts(); box.insertBefore(t,box.firstChild); arm(); while(box.children.length>6) box.lastChild.remove();
+  if(dd&&dd.keys&&dd.keys.length)TOAST_KEYS.push({keys:dd.keys.slice(),rank:dd.rank||1,el:t,t:Date.now()});
   watchToasts();
   return t;
 }
@@ -5654,6 +5685,11 @@ function revisionFiles(patch){
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
     name:n>=0?s.head.slice(n+3):'파일 '+(i+1),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
+// 소스 diff 줄바꿈: 터치 기기는 기본 켬(문단 = 한 줄 원고라 폰에서 6,273px 폭이었다, QA). 켜고 끈 값은 pinPrefs.diffWrap.
+let DIFF_WRAP=null;
+function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); const d=$('#revision-diff'); if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
+  const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
+function initDiffWrap(){const v=prefs().diffWrap; setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches);}
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
   let oldLine=null,newLine=null,inHunk=false;
@@ -5763,7 +5799,7 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
   let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
     (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 파일의 처음을 보입니다':'강조한 줄이 핀 범위입니다'));
   box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
-    '<span class="sp"></span><button class="btn-sm" data-act="view-mode" data-mode="manuscript" data-tip="원고 보기로 돌아갑니다">원고로</button>';
+    '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name+' 원고 보기로 돌아갑니다':'원고 보기로 돌아갑니다')+'">'+(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?esc(docInfo(REV_BACK).name)+'(으)로':'원고로')+'</button>';
   box.hidden=false;}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
@@ -5773,7 +5809,8 @@ function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=nu
     else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
   revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
-async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p);
+let REV_BACK=null;   // [변경 보기]를 누를 때 보던 문서 — [원고로]가 그 문서로 돌아간다(QA: 커버레터 핀에서 열면 커버레터에 남았다)
+async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
   if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV_TARGET.ref); REV_TARGET.tokOf=m?m[0]:'';
@@ -5885,7 +5922,7 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 
 // ------------------------------------------------ 문서
 async function boot(){
-  applyTheme(); applyLayout();
+  applyTheme(); applyLayout(); initDiffWrap();
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
   $('#btn-save').innerHTML=saveBtnLabel();
   await loadDocs(); DOC=initialDoc();
@@ -6011,7 +6048,7 @@ function diffToast(prev,d,dropped){
     if(n&&n.done){if(!consumeMine(id))(n.review?reviewed:closed).push(id);}
     else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
   if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
-  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok');
+  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok',null,{keys:reviewed.map(i=>'review_requested:'+i)});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
     toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
   (d||[]).filter(p=>!p.done).forEach(p=>{const was=byId.get(p.id); if(!was)return;
@@ -6025,7 +6062,7 @@ function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?'review':'done'):
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
     if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
-    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn');});}
+    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
 // ------------------------------------------------ 브라우저 알림(references/design.md §브라우저 알림) — 탭이 살아 있는 동안만
 // 기기마다 켠다(pinPrefs.notify). 켜는 것은 [알림 켜기] 클릭에서만 Notification.requestPermission() 을 부른다. 서버가 5초 폴링
@@ -6053,7 +6090,7 @@ function notifyText(e){const nm=who(e.by)||'누군가',ex=String(e.excerpt||'').
     replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:'')}[e.type]||ex;
   return {title:'핀 #'+e.pin+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
 async function notifyShow(e){const t=notifyText(e);
-  if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)});return;}
+  if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)},{keys:[e.type+':'+e.pin],rank:2});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=icon]')||{}).href,
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
@@ -6903,7 +6940,10 @@ async function savePin(){
 // ------------------------------------------------ 핀 목록
 function who(a){return (a&&(a.name||a.login))||'';}
 const BADPIC=new Set();   // 한 번 실패한 아바타 주소는 다시 요청하지 않는다(재렌더마다 콘솔 오류가 쌓인다)
-function avatar(a){if(!a||!(a.name||a.login))return ''; const ini=esc((who(a).trim()[0]||'?').toUpperCase());
+// 사람 = 사진 또는 머리글자 원(주 색), 로컬/에이전트 = 로봇 아이콘의 흐린 원 — 사람과 에이전트를 한눈에 가른다.
+function isAgent(a){return !!a&&a.login==='local';}
+function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<span class="av i agent" aria-hidden="true">'+ic('bot')+'</span>';
+  const ini=esc((who(a).trim()[0]||'?').toUpperCase());
   return a.pic&&!BADPIC.has(a.pic)?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
     :'<span class="av i" aria-hidden="true">'+ini+'</span>';}
 document.addEventListener('error',e=>{const t=e.target;
@@ -7005,15 +7045,20 @@ function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
   return (mine?'<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">'+ic('at-sign')+'나를 부름</span>':'')+
     (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+esc(others.map(peopleName).join(', '))+'</span>':'');}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
-function msgHtml(m){const by=m.by||{},nm=who(by)||'?',t=arcTime(m.at);
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(m.ref?' · '+esc(m.ref):'')+'</span><span>'+esc(t)+'</span></div>'+
-    (m.text?'<div class="msg-t">'+msgText(m)+'</div>':'')+'</div>';
-  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(t)+'</span></div><div class="msg-t">'+msgText(m)+'</div></div></div>';}
+// 긴 글은 6줄에서 접고 [더 보기](MSG_OPEN 에 'id:번째'). 글쓴이가 나면 '(나)'.
+const MSG_OPEN=new Set();
+function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
+  return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
+    (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}
+function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> (나)</span>':'';
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(m.ref?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
+    (m.text?msgBody(m,key):'')+'</div>';
+  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
   let h='';
   if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">이전 '+hide+'건 보기</button>';
   else if(all&&th.length>keep)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>';
-  h+=th.slice(hide).map(msgHtml).join('');
+  h+=th.slice(hide).map((m,i)=>msgHtml(m,p.id+':'+(i+hide))).join('');
   if(REPLY&&REPLY.id===p.id)h+='<div class="reply-slot"></div>';
   return h?'<div class="thread">'+h+'</div>':'';}
 function card(p){
@@ -7025,12 +7070,13 @@ function card(p){
   if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
-  const rb=relBadge(p.rel,p);
+  const closedCard=pinState(p)!=='open';   // 검토 대기·완료 카드에는 겹침·위치 확실도 배지가 뜻이 없다(줄 맞춤을 하지 않는다, QA)
+  const rb=closedCard?null:relBadge(p.rel,p);
   if(rb)tags.push('<span class="badge" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
-  const v=viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
+  const v=closedCard?null:viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
-  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
+  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
   const editing=!!(EDIT&&EDIT.id===p.id),open=OPEN_CARDS.has(p.id);
   // 머리 한 줄: 왼쪽에 번호·줄 범위·쪽, 오른쪽에 작성자·접기. 배지(.tags)는 머리 아래 한 줄로 내린다.
@@ -7045,7 +7091,7 @@ function card(p){
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc('검토에서 되돌아온 핀 — '+(who(ro.by)||'?')+' · '+arcTime(ro.at)+(ro.text?' · 이유: '+ro.text:''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
   const nr=replyCount(p);
-  const thn=nr?'<span class="th-n" aria-label="답글 '+nr+'건" data-tip="이 핀의 답글 '+nr+'건">'+ic('message-square')+nr+'</span>':'';
+  const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="답글 '+nr+'건 — 답글 쓰기" data-tip="이 핀의 답글 '+nr+'건 — 누르면 카드를 펴고 답글 칸을 엽니다">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
     '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
@@ -7085,6 +7131,15 @@ function card(p){
 // 첫 줄은 아이콘·#번호·위치·참조·시각·[다시 열기|되살리기], 둘째 줄은 에이전트 답(close_reply) 한 줄 — 넘치면 말줄임, 누르면
 // 펼친다. 원래 요청 메모는 [원래 요청]을 눌러야 보인다. 펼친 줄은 ARC_OPEN('r:'|'o:'|'d:' + id)에 두어 다시 그려도 남는다.
 const ARC_OPEN=new Set();
+// 상대 시각(references/design.md §시각): '방금'·'N분 전'·'N시간 전'·'N일 전', 일주일 넘으면 'M-D'. 절대 시각은 설명(hover)에.
+// data-at 에 원래 문자열을 두고 60초마다 다시 센다(tickRel).
+function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
+  const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
+  if(d<1)return '방금'; if(d<60)return Math.floor(d)+'분 전'; if(d<24*60)return Math.floor(d/60)+'시간 전'; if(d<7*24*60)return Math.floor(d/1440)+'일 전';
+  return (+m[2])+'-'+(+m[3]);}
+function relSpan(s,cls,tip){return '<span class="rt'+(cls?' '+cls:'')+'" data-at="'+esc(s||'')+'" data-tip="'+esc((tip?tip+' ':'')+(s||'?'))+'">'+esc(relTime(s))+'</span>';}
+function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const v=relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
+setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
   return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
@@ -7101,18 +7156,18 @@ function doneCard(p){
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=tn&&ARC_OPEN.has('t:'+p.id);
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
-    '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
+    relSpan(p.done_at,'arc-t','닫은 사람 '+(who(p.closed_by)||'기록 전')+' · 닫은 시각')+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
     (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
-    (to?'<div class="arc-thread"><div class="thread">'+th.map(msgHtml).join('')+'</div></div>':'')+'</div>';}
+    (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
-    '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
+    relSpan(p.dropped_at,'arc-t','삭제한 사람 '+(who(p.dropped_by)||'기록 전')+' · 삭제한 시각')+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 // 사람 목록이 바뀌면(새 사람·이름) 목록을 다시 그린다 — 첫 그리기는 이름 대신 로그인으로 보일 수 있다.
@@ -7142,7 +7197,7 @@ function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p
 // 검토 대기 수: 문서를 가로질러 센다(사람이 확인할 일감 상자). [핀 N] 옆 보라 숫자(compact)·도구 줄 칩(wide).
 function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
   pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label','검토 대기 '+n);
-  chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n;}
+  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n+(multiDoc()&&here!==n?' (이 문서 '+here+')':'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // 검토 대기 카드의 검토자 표시: 작성자에게 권한다(누구나 확인할 수 있다 — 신뢰 모델). 내가 작성자면 '내 확인 차례'.
@@ -7154,7 +7209,7 @@ function drawPins(){
   // '나를 부른 핀' 거르기: 모든 문서의 열린·검토 대기 핀 중 나를 @태그한 것만(문서를 가로지른 알림함이다).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
-  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+'나를 부른 핀 '+MINE.length;
+  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // 답글 입력 칸에 커서가 있었으면 다시 그린 뒤 그 자리로 돌려놓는다(자동 동기화가 목록을 다시 그려도 타이핑이 끊기지 않게).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
@@ -7528,6 +7583,7 @@ document.addEventListener('click',e=>{
     //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
+    case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
     case 'outline':toggleOutline();break;
     case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
@@ -7536,6 +7592,8 @@ document.addEventListener('click',e=>{
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(+a.dataset.i);break;
     case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
+    case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
+    case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
