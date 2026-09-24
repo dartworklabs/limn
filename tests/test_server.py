@@ -62,8 +62,9 @@ def js_icons() -> str:
 def js_thread() -> str:
     """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
-        "isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+    st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
+    return "\n".join([ev, st, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
+        "isQuestion", "stDot", "reopenedTurn", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
         "peopleName", "fmtText", "mentionsMe", "addressedTag")])
 
 
@@ -4630,14 +4631,26 @@ class FrontendArchive(unittest.TestCase):
         # 문서 전환·모든 문서 토글에도 같은 목록 함수(listDone/listDropped)를 쓴다
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
 
-    def test_status_strips_colour_open_claimed_done_dropped(self):
+    def test_status_without_stripes_dot_badge_and_icons(self):
+        # 저자 지적(2026-09-24): 왼쪽 색 띠는 촌스럽다. 상태는 카드 머리의 점 + 같은 뜻의 배지, 보관함은 앞머리 아이콘.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn(".pin.claimed::before{", css)
-        self.assertIn("background:var(--status-claimed)", css)
-        self.assertIn(".arc-row{position:relative;padding:var(--space-1) var(--space-1) 6px 10px;border-left:3px solid var(--status-closed)", css)
-        self.assertIn(".arc-row.dropped{border-left-color:var(--status-dropped)", css)
+        for sel, decls in css_rules():
+            if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
+                keys = [k for k, _ in decls]
+                self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
+                self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))   # 겹쳐 그린 띠도 없다
+                for k, v in decls:
+                    self.assertNotRegex(v, r"inset \d+px 0 0", sel)          # box-shadow 로 그린 띠도 없다
+        self.assertNotIn(".strip{", css)
+        for st in ("claimed", "review", "lost", "done", "dropped"):
+            self.assertIn(".st-dot.%s{background:var(--status-" % st, css)
         self.assertEqual(css.count("--status-claimed:"), 2)             # 다크·라이트 둘 다
-        self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))
+        body = extract_js_fn("card")
+        self.assertIn("(claimed?' claimed':'')", body)
+        self.assertIn("stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')", body)
+        self.assertIn("aria-label=\"상태: '+ST_NAME[st]+'\"", extract_js_fn("stDot"))   # 색만으로 가르지 않는다
+        self.assertIn("ic('rotate-ccw')+'다시 열림", body)
+        self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
 
 # ---------------------------------------------------------------- 처리 예상 시간(eta_min) — 서버·pins.md·뷰어 표시

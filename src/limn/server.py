@@ -91,6 +91,7 @@ LUCIDE = {
     "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 '
               '.623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    "rotate-ccw": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>'
            '<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/>'
            '<path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
@@ -4683,9 +4684,9 @@ body.revision-open #left{display:none}
 /* [변경 보기]가 가리키는 핀(references/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
    이 안내의 [원고로]가 돌아가는 길이다. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:6px var(--space-4);background:var(--card);
-  border-bottom:1px solid var(--border);border-left:3px solid var(--status-review);font-size:var(--text-sm)}
+  border-bottom:1px solid var(--border);font-size:var(--text-sm)}
 #revision-pin .rp-msg{color:var(--muted-foreground)}
-#revision-diff .rd-pin{box-shadow:inset 3px 0 0 var(--status-review);background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
+#revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}
 body.lay-narrow #revision-view{height:100%}
@@ -4872,11 +4873,16 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:6px}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:6px}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* 모양은 .card */
-/* 상태 띠(references/design.md §상태 표현): 열림은 띠 없음, 처리 중은 호박색. 닫힘(초록)·삭제(회색) 띠는 아래 보관함 행에 있다.
-   테두리 폭을 바꾸면 글자가 밀리므로 카드 안쪽 왼쪽에 겹쳐 그린다. 대비(비텍스트 3:1)는 두 테마 모두 확인했다. */
-.pin.claimed::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-claimed)}
-/* 검토 대기(references/design.md §스레드와 검토): 에이전트가 닫고 사람의 [확인]을 기다리는 카드 — 보라 띠. 처리 중(호박)·닫힘(초록)과 가른다. */
-.pin.review::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-review)}
+/* 상태(references/design.md §상태 표현): 왼쪽 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽다). 카드 머리 맨 앞의 작은 점 색 +
+   같은 뜻의 배지(글자·아이콘)로 가른다 — 색만으로 가르지 않는다. 열림 초록 · 처리 중 호박 · 검토 대기 보라 · 위치 잃음 경고색.
+   닫힘·삭제는 카드가 아니라 흐린 보관함 행이고 앞머리 아이콘(check·trash-2)이 상태다. */
+.st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
+.st-dot.claimed{background:var(--status-claimed)}
+.st-dot.review{background:var(--status-review)}
+.st-dot.lost{background:var(--status-warning)}
+.st-dot.done{background:var(--status-closed)}
+.st-dot.dropped{background:var(--status-dropped)}
+.badge-reopen{border-color:var(--status-warning);color:var(--status-warning)}
 .badge-review{border-color:var(--status-review);color:var(--status-review)}
 button.badge-review{font-weight:600}
 .rv-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:2px;border-radius:var(--radius-lg);
@@ -4888,7 +4894,7 @@ button.badge-review{font-weight:600}
 .pin.cur{box-shadow:0 0 0 2px var(--primary)}
 .pin.flash{animation:pinflash 1.2s ease-in-out 1}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
-.pin .n{color:var(--status-open);font-weight:700}
+.pin .n{color:var(--card-foreground);font-weight:700}
 .pin .n.go{cursor:pointer;border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
 .pin .n.go:hover,.pin .n.go:focus-visible{background:var(--accent);text-decoration:underline}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
@@ -4964,9 +4970,10 @@ button.arc-head:hover{background:var(--accent)}
 .arc-fold{flex:none;display:inline-flex;align-items:center;gap:2px}
 .arc-list{padding:6px 0 var(--space-1)}
 .arc-list>.dim{padding:var(--space-1) var(--space-3)}
-.arc-row{position:relative;padding:var(--space-1) var(--space-1) 6px 10px;border-left:3px solid var(--status-closed);color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
-.arc-row+.arc-row{margin-top:6px}
-.arc-row.dropped{border-left-color:var(--status-dropped);color:var(--subtle-foreground)}
+.arc-row{position:relative;padding:6px 0;color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
+.arc-row+.arc-row{border-top:1px solid var(--border)}   /* 납작한 행 — 구분선 하나, 띠·상자 없음 */
+.arc-row.dropped{color:var(--subtle-foreground)}
+.arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
 .arc-row .ic{width:14px;height:14px}
 .arc-row.done .arc-l1>.ic{color:var(--status-closed)}
 .arc-l1{display:flex;align-items:center;gap:6px;min-height:26px;white-space:nowrap}
@@ -5026,8 +5033,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:4px}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
-.strip{display:inline-block;width:4px;height:12px;border-radius:var(--radius-sm);vertical-align:middle;margin:0 4px 0 2px}
-.strip.c{background:var(--status-claimed)} .strip.d{background:var(--status-closed)} .strip.x{background:var(--status-dropped)} .strip.r{background:var(--status-review)}
+dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
 /* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
    레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
@@ -5238,7 +5244,7 @@ body.view-only #btn-rebuild{display:none}
 .dm-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dm-item.on{border-color:var(--brand);box-shadow:inset 3px 0 0 var(--brand)}
+.dm-item.on{border-color:var(--brand)}
 /* 보기 전용 PDF 문서의 선택: 범위 사다리·스테퍼·원문 펼치기가 없다(줄이 없다). 원문 칸에는 영역 글자를 보인다. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
@@ -5393,7 +5399,7 @@ body.view-only #btn-rebuild{display:none}
   </table>
   <h4>색</h4>
   <div class="help-legend"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
-  <div class="help-legend">핀 목록 왼쪽 띠: <span class="strip c"></span>처리 중 · <span class="strip r"></span>검토 대기 · <span class="strip d"></span>완료 · <span class="strip x"></span>삭제 (띠가 없으면 열린 핀)</div>
+  <div class="help-legend">카드 머리의 점: <span class="st-dot"></span>열림 · <span class="st-dot claimed"></span>처리 중 · <span class="st-dot review"></span>검토 대기 · <span class="st-dot lost"></span>위치 잃음 — 같은 뜻의 배지가 함께 붙는다. 완료·삭제는 목록 아래 흐린 행({{ic:check}} 완료 · {{ic:trash-2}} 삭제)</div>
   <h4>pins.md 위치</h4>
   <code id="help-pins-md"></code>
 </dialog>
@@ -6942,6 +6948,11 @@ function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p
 // 스레드(references/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
 // wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
+// 상태 점(references/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
+const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
+function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
+// 지금 차례가 다시 열기로 시작했나(검토에서 되돌아온 핀) — 스레드의 마지막 닫기·다시 열기 기록이 다시 열기면 그렇다.
+function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e==='close'||e==='reopen')return e==='reopen'?th[i]:null;} return null;}
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
@@ -6995,10 +7006,12 @@ function card(p){
   const adr=addressedTag(p); if(adr)tags.push(adr);
   const rv=pinState(p)==='review';
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
+  const ro=!rv&&reopenedTurn(p);
+  if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc('검토에서 되돌아온 핀 — '+(who(ro.by)||'?')+' · '+arcTime(ro.at)+(ro.text?' · 이유: '+ro.text:''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
   const nr=replyCount(p);
   const thn=nr?'<span class="th-n" aria-label="답글 '+nr+'건" data-tip="이 핀의 답글 '+nr+'건">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?esc(first):'(메모 없음)')+'</span>'+
@@ -7014,7 +7027,7 @@ function card(p){
     '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
     '</div></div>';
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
