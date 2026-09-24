@@ -62,7 +62,8 @@ def js_icons() -> str:
 def js_thread() -> str:
     """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev] + [extract_js_fn(n) for n in ("isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml")])
+    return "\n".join([ev] + [extract_js_fn(n) for n in ("isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml",
+                                                          "pinState", "isMe", "reviewerLabel")])
 
 
 def run_node(js: str, tz: str = None):
@@ -5473,3 +5474,169 @@ class FrontendThread(unittest.TestCase):
     def test_compact_collapsed_card_hides_thread(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)
+
+
+# ---------------------------------------------------------------- 검토 대기(references/api.md §검토 대기)
+# 에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 에이전트(신원 헤더 없음)가
+# 닫으면 done=true·review=true(검토 대기), 테일넷 사람이 닫으면 바로 완료다. review 가 없는 옛 done:true 는 그대로 완료다.
+class ReviewState(Base):
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+    W = {"login": "alice@example.com", "name": "Alice Kim"}
+
+    def post(self, path, body=None, headers=None):
+        h = {"Content-Type": "application/json"} if body is not None else {}
+        h.update(headers or {})
+        out = self.talk(req("POST", path, json.dumps(body).encode() if body is not None else b"", h))
+        code, _, raw = split_resp(out)
+        return code, json.loads(raw)
+
+    def test_agent_close_goes_to_review_human_close_to_done(self):
+        a, b = self.add(), self.add(note="m")
+        code, d = self.post("/api/pins/%d/close" % a, {"reply": "고침", "ref": "PR #9"})
+        self.assertEqual((code, d["state"], d["pin"]["review"], d["pin"]["done"]), (200, "review", True, True))
+        code, d = self.post("/api/pins/%d/close" % b, None, {"Tailscale-User-Login": self.S["login"]})
+        self.assertEqual(d["state"], "done")
+        self.assertNotIn("review", d["pin"])
+
+    def test_explicit_review_flag_wins(self):
+        a, b = self.add(), self.add(note="m")
+        code, d = self.post("/api/pins/%d/close" % a, {"review": True}, {"Tailscale-User-Login": self.S["login"]})
+        self.assertEqual(d["state"], "review")                      # 테일넷 주소로 닫는 원격 에이전트
+        code, d = self.post("/api/pins/%d/close" % b, {"review": False})
+        self.assertEqual(d["state"], "done")
+        code, d = self.post("/api/pins/%d/close" % self.add(), {"review": "yes"})
+        self.assertEqual(code, 400)
+
+    def test_review_pins_are_not_open_for_agents(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
+        self.assertEqual(json.loads(raw), [])                         # 열린 핀 목록(옛 계약)에 없다
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30)
+        self.assertEqual(cm.exception.body["error"], "done")
+        m = ps.meta(dict(ps.LOCAL_ACTOR))
+        self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
+
+    def test_confirm_and_idempotence(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, {"Tailscale-User-Login": self.W["login"],
+                                                                 "Tailscale-User-Name": self.W["name"]})
+        self.assertEqual((code, d["state"]), (200, "done"))
+        p = self.pin(pid)
+        self.assertEqual(p["confirmed_by"], self.W)                   # 작성자가 아니어도 확인할 수 있다
+        self.assertTrue(p["confirmed_at"])
+        self.assertEqual(p["thread"][-1]["ev"], "confirm")
+        rev = p["rev"]
+        code, d = self.post("/api/pins/%d/confirm" % pid)
+        self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # 이미 완료 — 그대로
+        code, d = self.post("/api/pins/%d/confirm" % self.add())
+        self.assertEqual((code, d["error"]), (409, "open"))
+        code, d = self.post("/api/pins/999/confirm")
+        self.assertEqual((code, d["ok"]), (200, False))
+
+    def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "식 번호가 아직 틀림"},
+                            {"Tailscale-User-Login": self.S["login"], "Tailscale-User-Name": self.S["name"]})
+        self.assertEqual(d["state"], "open")
+        p = self.pin(pid)
+        self.assertNotIn("review", p)
+        self.assertEqual([(m.get("ev"), m["text"]) for m in p["thread"]], [("close", "고침"), ("reopen", "식 번호가 아직 틀림")])
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        self.assertIn("다시 열림", row)
+        self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (ps.THREAD_TEXT_MAX + 1)})
+        self.assertEqual(code, 400)
+        code, d = self.post("/api/pins/%d/reopen" % pid)              # 본문 없는 옛 reopen 도 된다(이미 열림 — 스레드 그대로)
+        self.assertEqual(code, 200)
+        self.assertEqual(len(self.pin(pid)["thread"]), 2)
+
+    def test_reopen_after_confirm_drops_confirmation(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        ps.confirm_pin(pid, dict(self.S))
+        ps.set_done(pid, False, dict(self.S), reason="다시")
+        p = self.pin(pid)
+        self.assertNotIn("confirmed_by", p)
+        self.assertEqual(ps.pin_state(p), "open")
+
+    def test_legacy_done_is_done_not_review(self):
+        self.assertEqual(ps.pin_state({"done": True}), "done")
+        self.assertEqual(ps.pin_state({"done": True, "review": False}), "done")
+        self.assertEqual(ps.pin_state({"done": True, "review": True}), "review")
+        self.assertEqual(ps.pin_state({"review": True}), "open")    # 열린 핀에 남은 review 는 뜻이 없다
+        self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
+
+    def test_pins_md_review_section_and_header(self):
+        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S))
+        b = self.add(8, 9)
+        ps.set_done(a, True, dict(ps.LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
+        sec = md[md.index("## 검토 대기 1건"):]
+        self.assertIn("| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", sec)
+        self.assertIn("| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec)
+        opn = md[:md.index("## 검토 대기")]
+        starts = [l.split("|")[1].strip() for l in opn.splitlines() if l.startswith("| ") and not l.startswith("| #")]
+        self.assertEqual(starts, [str(b)])                             # 열린 표에는 열린 핀만
+        self.assertIn("`\"review\":true`", md)
+        self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
+        ps.confirm_pin(a, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("## 검토 대기", md)
+        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)                # 검토 대기가 없으면 머리줄은 예전 모양
+
+
+class FrontendReview(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_review_card_suggests_author_and_offers_confirm_reopen(self):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',rvReopen:'o',reply:'y'};
+            let EDIT=null, PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}};
+            const OPEN_CARDS=new Set();
+            function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
+            function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
+            let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
+            const THREAD_OPEN=new Set();
+            """, extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("arcTime"), js_thread(),
+            extract_js_fn("card"), js_icons(), r"""
+            const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
+              closed_by:{login:'local',name:'로컬/에이전트'},thread:[{id:1,by:{name:'로컬/에이전트'},at:'2026-09-24 10:00:00',text:'고침',ev:'close'}]};
+            const mine=card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}}));
+            const other=card(Object.assign({},base,{author:{login:'w@x',name:'Alice Kim'}}));
+            const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
+            console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
+              /Alice Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),/data-act="rv-reopen"/.test(other),
+              !/data-act="close"/.test(other),!/data-act="drop"/.test(other),/ev-close/.test(other),!/review/.test(open)]));
+            """])
+        self.assertEqual(json.loads(run_node(js)), [True] * 10)
+
+    def test_review_toast_and_partition(self):
+        js = "\n".join([r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const TOASTS=[]; function toast(m,k){TOASTS.push(m);} function restorePin(){}
+            const MY_ACTIONS=new Map();
+            """, extract_js_fn("markMine"), extract_js_fn("consumeMine"), extract_js_fn("diffToast"), extract_js_fn("pinState"),
+            extract_js_fn("reviewToast"), r"""
+            diffToast([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
+            reviewToast([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
+            markMine(8); reviewToast([{id:8}],[{id:8,done:true}]);
+            console.log(JSON.stringify(TOASTS));
+            """])
+        out = json.loads(run_node(js))
+        self.assertEqual(out, ["#2 이 완료되었습니다", "#1 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요",
+                               "#5 확인됨 · W", "#6 다시 열림"])
+        body = extract_js_fn("loadPins")
+        self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)==='review')", body)
+        self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
+        self.assertIn('id="sec-review"', ps.HTML)
+        self.assertIn('id="side-rv"', ps.HTML)

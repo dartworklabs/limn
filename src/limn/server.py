@@ -73,6 +73,8 @@ LUCIDE = {
     "copy": '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
             '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "ellipsis": '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    "eye": '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/>'
+           '<circle cx="12" cy="12" r="3"/>',
     "message-square": '<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 '
                       '2-2h16a2 2 0 0 1 2 2z"/>',
     "minus": '<path d="M5 12h14"/>',
@@ -2075,8 +2077,10 @@ def meta(actor: dict, light: bool = False) -> dict:
     if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
         return out
     rows = snapshot_pins()
-    out["n_open"] = sum(1 for r in rows if not r.get("done"))
-    out["n_done"] = sum(1 for r in rows if r.get("done"))
+    states = [pin_state(r) for r in rows]
+    out["n_open"] = states.count("open")
+    out["n_done"] = states.count("done")          # 완료만 — 검토 대기(done=true·review=true)는 n_review
+    out["n_review"] = states.count("review")
     return out
 
 
@@ -2598,7 +2602,7 @@ def valid_rec(r) -> bool:
     for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch 초 — '*_at'(문자열 시각)과 이름을 가른다
         if r.get(k) is not None and not _is_num(r[k]):
             return False
-    for k in ("done", "stale"):
+    for k in ("done", "stale", "review"):
         if r.get(k) is not None and not isinstance(r[k], bool):
             return False
     for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build"):
@@ -2827,8 +2831,14 @@ def pin_est(r: dict, ctx: dict) -> bool:
 
 
 def pin_state(r: dict) -> str:
-    """'open' | 'done' — 저장하지 않는 계산 필드. 옛 레코드는 done 만 본다."""
-    return "done" if r.get("done") else "open"
+    """'open' | 'review' | 'done' — 저장하지 않는 계산 필드(references/api.md §검토 대기).
+
+    검토 대기는 done=true 에 review=true 를 더한 모양이다. done 이 true 라서 옛 계약이 그대로 선다 — GET /api/pins(열린 핀만)·
+    pins.md 열린 표·claim(409 done)·줄 맞춤·겹침 계산이 모두 검토 대기 핀을 '에이전트 몫이 끝난 핀'으로 본다. 옛 서버·옛 뷰어가
+    읽으면 완료로 보일 뿐 깨지지 않는다. review 가 없는 옛 done:true 레코드는 그대로 완료다 — 읽을 때 이관 쓰기를 하지 않는다."""
+    if not r.get("done"):
+        return "open"
+    return "review" if r.get("review") is True else "done"
 
 
 def pins_payload(rows: list, allp: bool) -> list:
@@ -3433,12 +3443,31 @@ def reply_pin(pid: int, text: str, actor: dict):
     return transact(fn)[1]
 
 
-def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = None):
+def is_agent(actor: dict) -> bool:
+    """신원 헤더 없는 요청(로컬 curl·에이전트, 헤더 없는 태그 장치) = 에이전트. 권한이 아니라 기본값을 가르는 데만 쓴다."""
+    return (actor or {}).get("login", "local") == LOCAL_ACTOR["login"]
+
+
+def clean_review_flag(d: dict):
+    """close 본문의 선택 review — true 면 검토 대기로, false 면 바로 완료로. 없으면 None(닫는 쪽으로 정한다)."""
+    v = d.get("review")
+    if v is not None and not isinstance(v, bool):
+        raise HTTPError(400, "review 는 true/false 입니다.")
+    return v
+
+
+def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = None, review: bool = None,
+             reason: str = None):
     """열기·닫기. `reply`/`ref`(이미 clean_close_body 로 검증된 값)는 닫을 때만 쓰고 첫 닫기에만 적힌다.
 
     이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다(§P0b-보완 D) — 두 번째 닫기가 done_at·closed_by 를
     덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막는다. rev 도 그대로다. reply 를 다시 남기려면
-    한 번 열고 닫아야 한다 — 그래서 다시 열 때 옛 close_reply/close_ref 를 지운다(다음 닫기가 새로 채운다)."""
+    한 번 열고 닫아야 한다 — 그래서 다시 열 때 옛 close_reply/close_ref 를 지운다(다음 닫기가 새로 채운다).
+
+    검토 대기(§검토 대기): 에이전트(신원 헤더 없음)가 닫으면 review=true 로 남아 사람이 [확인]할 때까지 완료가 아니다 — 에이전트가
+    닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 테일넷 사람이 닫으면
+    그 사람이 검토자이므로 바로 완료다. 본문 review 가 있으면 그것을 따른다 — 테일넷 주소로 닫는 원격 에이전트는 요청이 사람 신원을
+    달고 오므로 review=true 를 보낸다. 다시 열면 review·확인 기록을 지우고, 닫혀 있던 핀이면 다시 연 이유(reason)를 스레드에 남긴다."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -3453,14 +3482,43 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 r["close_reply"] = reply
             if ref:
                 r["close_ref"] = ref
+            if review if review is not None else is_agent(actor):
+                r["review"] = True
             _thread_append(r, actor, reply or "", ev="close", ref=ref)   # 닫기 사유도 스레드에 — 이력이 한 줄이다
             _clear_claim(r)                       # 닫으면 처리 중 표시도 함께 지운다(§P0c-C)
         else:
+            was_done = bool(r.get("done"))
             r["done"] = False
             r["reopened_at"] = now_str()
             r["reopened_by"] = who(actor)
             r.pop("close_reply", None)
             r.pop("close_ref", None)
+            for k in ("review", "confirmed_by", "confirmed_at"):
+                r.pop(k, None)
+            if was_done:
+                _thread_append(r, actor, reason or "", ev="reopen")
+        r["rev"] = int(r.get("rev") or 0) + 1
+        return public(r), True
+    return transact(fn)[1]
+
+
+def confirm_pin(pid: int, actor: dict):
+    """검토 대기 → 완료. 누구나 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델). confirmed_by·confirmed_at 을 남기고
+    스레드에 ev=confirm 을 붙인다. 이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open.
+    없는 id 는 None."""
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return None, False
+        st = pin_state(r)
+        if st == "open":
+            raise HTTPError(409, "open", pin=public(r), detail="열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다.")
+        if st == "done":
+            return public(r), False
+        r.pop("review", None)
+        r["confirmed_by"] = who(actor)
+        r["confirmed_at"] = now_str()
+        _thread_append(r, actor, "", ev="confirm")
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     return transact(fn)[1]
@@ -3734,7 +3792,7 @@ def _flat(s, n: int) -> str:
 def thread_md(r: dict) -> str:
     """pins.md 메모 칸 뒤에 붙는 지금 차례의 스레드(마지막 닫기 뒤): '[스레드 2건] 서준: … ⏎ 다시 연 이유(서준): …'.
     에이전트가 질문의 되물음이나 다시 연 이유를 놓치지 않게 싣는다. 길면 뒤 THREAD_MD_SHOW 건만, 나머지는 GET /api/pins/N."""
-    msgs = [m for m in thread_round(r) if m.get("ev") != "close"]
+    msgs = [m for m in thread_round(r) if m.get("ev") != "close" and (m.get("text") or not m.get("ev"))]
     if not msgs:
         return ""
     shown = msgs[-THREAD_MD_SHOW:]
@@ -3742,10 +3800,30 @@ def thread_md(r: dict) -> str:
     for m in shown:
         name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
         label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else name
-        parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS) or "(사유 없음)"))
+        parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS)))
     more = len(msgs) - len(shown)
     head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
     return head + " " + " ⏎ ".join(parts)
+
+
+def review_md(rows: list, sectioned: bool) -> list:
+    """pins.md 맨 아래 '검토 대기' 소절 — 에이전트가 닫았고 사람이 아직 확인하지 않은 핀. 열린 표와 다른 4열 표라 열린 핀으로
+    잘못 읽히지 않는다. 확인할 사람은 작성자다(누구나 확인할 수 있지만 뷰어가 작성자를 권한다). 비어 있으면 소절이 없다."""
+    if not rows:
+        return []
+    out = ["", "## 검토 대기 %d건 — 사람이 확인할 차례. 에이전트는 다시 처리하지 않는다(다시 열리면 위 열린 표로 돌아온다)" % len(rows),
+           "", "| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", "|---|---|---|---|"]
+    for r in sorted(rows, key=lambda x: x["id"]):
+        syms = ["%s" % r.get("id")] + (["질문"] if r.get("kind_req") == "question" else [])
+        loc = location_col(r)
+        if sectioned:
+            loc = "`%s` · %s" % (md_cell(pin_doc_key(r)), loc)
+        who_ = (r.get("author") or {}).get("name") or (r.get("author") or {}).get("login") or "작성자 기록 없음"
+        ans = _flat(r.get("close_reply"), THREAD_MD_CHARS) or "(설명 없이 닫힘)"
+        if r.get("close_ref"):
+            ans += " (%s)" % _flat(r["close_ref"], 80)
+        out.append("| %s | %s | %s | %s |" % (md_cell(" · ".join(syms)), loc, md_cell(who_), md_cell(ans)))
+    return out
 
 
 def pins_md_text(rows: list, base: str = None) -> str:
@@ -3764,7 +3842,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
     is_remote = base is not None and base != loopback_base
     base = base or loopback_base
     openn = [r for r in rows if not r.get("done")]
-    n_done = len(rows) - len(openn)
+    reviewn = [r for r in rows if pin_state(r) == "review"]
+    n_done = len(rows) - len(openn) - len(reviewn)
     rel = overlaps_by_id(rows)
     by_id = {r["id"]: r for r in rows}
 
@@ -3833,15 +3912,18 @@ def pins_md_text(rows: list, base: str = None) -> str:
         out.append("문서: " + " · ".join(parts))
         out.append("핀은 아래 문서별 소절(`## 이름 · 키 · 경로`)로 묶였다 — 위치 칸의 경로는 `--manuscript` 기준. "
                    "소절의 `기준:` 커밋이 다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
-    out.append("갱신: %s  ·  열린 핀 %d건  ·  닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
-               (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn), n_done))
+    out.append("갱신: %s  ·  열린 핀 %d건  ·  %s닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
+               (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn),
+                "검토 대기 %d건(맨 아래, 처리하지 않는다)  ·  " % len(reviewn) if reviewn else "", n_done))
     out.append("")
     guidance = ("처리한 핀은 닫는다 — `curl -X POST -H 'Content-Type: application/json' "
                 "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"커밋/PR(≤80자)\"}' "
                 "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘) · "
                 "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · "
                 "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
-                "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다" % (base, base))
+                "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다 · "
+                "에이전트가 닫은 핀은 완료가 아니라 검토 대기로 간다(사람이 뷰어에서 [확인]) — 테일넷 주소로 닫는 에이전트는 "
+                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다" % (base, base))
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
     if C.repo:
@@ -3858,7 +3940,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
         rows_render = rows_by_doc.get(known[0], [])
         out += [""] + header
         out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
-        return "\n".join(out) + "\n"
+        return "\n".join(out + review_md(reviewn, sectioned)) + "\n"
     shown = 0
     for d in DOCS:
         rs = rows_by_doc.get(d.key)
@@ -3882,7 +3964,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 ""] + header + rs
     if not shown:
         out += ["", "열린 핀 없음"]
-    return "\n".join(out) + "\n"
+    return "\n".join(out + review_md(reviewn, sectioned)) + "\n"
 
 
 # ---------------------------------------------------------------- 선택 해석
@@ -4163,6 +4245,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
   --success:#4ec9a0;--success-foreground:#06231b;--warning:#e0a458;--warning-foreground:#2a1a04;
   --status-open:var(--success);--status-open-foreground:var(--success-foreground);--status-claimed:#f0b43c;
   --status-closed:var(--success);--status-dropped:#71717a;--status-warning:var(--warning);
+  --status-review:#b197fc;--status-review-foreground:#1e1033;
   --tooltip:#09090b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color)}
 :root[data-theme=light]{color-scheme:light;
@@ -4175,6 +4258,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
   --destructive:#cf222e;--destructive-foreground:#ffffff;
   --success:#1a7f5a;--success-foreground:#ffffff;--warning:#8a5c00;--warning-foreground:#ffffff;
   --status-claimed:#b86e00;--status-dropped:#71717a;
+  --status-review:#6d28d9;--status-review-foreground:#ffffff;
   --tooltip:#18181b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color)}
 /* 테마와 무관한 척도: radius 3단(원형 점·아바타만 50%), 글자 5단, 간격 6단, 컨트롤 높이. 이름표 색(--brand)은 인스턴스마다
@@ -4378,6 +4462,8 @@ input.n{width:58px;text-align:center}
 .mark b{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
   width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);pointer-events:auto;cursor:pointer}
 .mark.st b{background:var(--warning);color:var(--warning-foreground)}
+.mark.rv{border-color:var(--status-review);background:color-mix(in srgb,var(--status-review) 8%,transparent)}
+.mark.rv b{background:var(--status-review);color:var(--status-review-foreground)}
 .mark.flash{animation:flash .6s ease-in-out 3}
 @keyframes flash{50%{box-shadow:0 0 0 5px var(--primary)}}
 #banner{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);display:flex;gap:6px;flex-wrap:wrap;
@@ -4443,6 +4529,14 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 /* 상태 띠(references/design.md §상태 표현): 열림은 띠 없음, 처리 중은 호박색. 닫힘(초록)·삭제(회색) 띠는 아래 보관함 행에 있다.
    테두리 폭을 바꾸면 글자가 밀리므로 카드 안쪽 왼쪽에 겹쳐 그린다. 대비(비텍스트 3:1)는 두 테마 모두 확인했다. */
 .pin.claimed::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-claimed)}
+/* 검토 대기(references/design.md §스레드와 검토): 에이전트가 닫고 사람의 [확인]을 기다리는 카드 — 보라 띠. 처리 중(호박)·닫힘(초록)과 가른다. */
+.pin.review::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-review)}
+.badge-review{border-color:var(--status-review);color:var(--status-review)}
+button.badge-review{font-weight:600}
+.rv-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:2px;border-radius:var(--radius-lg);
+  background:var(--status-review);color:var(--status-review-foreground);font-size:var(--text-xs);font-weight:700;line-height:1}
+.rv-close{margin-top:4px;color:var(--muted-foreground);font-size:var(--text-sm)}
+.rv-close b{color:var(--card-foreground);font-weight:600}
 .pin.st{border-color:var(--warning)}
 .pin.editing{border-color:var(--primary)}
 .pin.cur{box-shadow:0 0 0 2px var(--primary)}
@@ -4563,7 +4657,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
 .strip{display:inline-block;width:4px;height:12px;border-radius:var(--radius-sm);vertical-align:middle;margin:0 4px 0 2px}
-.strip.c{background:var(--status-claimed)} .strip.d{background:var(--status-closed)} .strip.x{background:var(--status-dropped)}
+.strip.c{background:var(--status-claimed)} .strip.d{background:var(--status-closed)} .strip.x{background:var(--status-dropped)} .strip.r{background:var(--status-review)}
 /* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
    레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
@@ -4790,7 +4884,7 @@ body.view-only #btn-rebuild{display:none}
   <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
   <div class="bar" id="bar1" role="toolbar" aria-label="도구">
     <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
-    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다">핀 <b id="side-n">0</b><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
+    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다">핀 <b id="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
     <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">선택</button>
     <button id="btn-rebuild" data-act="rebuild" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">PDF 재빌드</button>
     <span class="sp"></span>
@@ -4806,6 +4900,7 @@ body.view-only #btn-rebuild{display:none}
     <span id="vec-chip" class="badge badge-warning" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
     <span id="conn-lost" class="badge badge-warning" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
     <button id="build-err-chip" class="badge badge-warning" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
+    <button id="rv-chip" class="badge badge-review" hidden data-act="goto-review" data-tip="에이전트가 닫고 사람의 확인을 기다리는 핀입니다. 누르면 목록의 '검토 대기'로 갑니다"></button>
     <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
   <div id="build-err" hidden></div>
   <div id="banner" hidden></div>
@@ -4839,6 +4934,10 @@ body.view-only #btn-rebuild{display:none}
     <section class="lsec" id="sec-open" aria-labelledby="list-h">
       <div class="list-head"><h3 id="list-h">열린 핀</h3><span class="sp"></span><button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">다시 읽기</button><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
       <div id="pins"></div>
+    </section>
+    <section class="lsec" id="sec-review" aria-labelledby="review-h" hidden>
+      <div class="list-head"><h3 id="review-h">검토 대기</h3><span class="sp"></span></div>
+      <div id="review-pins"></div>
     </section>
     <section class="lsec arc" id="sec-done" aria-label="완료한 핀" hidden>
       <button class="arc-head" id="done-toggle" data-act="done-toggle" aria-expanded="false" aria-controls="done-list" data-tip="완료한 핀을 펼치고 접습니다. 에이전트가 닫은 핀도 여기에 있습니다"></button>
@@ -4906,6 +5005,7 @@ body.view-only #btn-rebuild{display:none}
     <tr><td>핀</td><td>원문 위치(파일·줄 범위)에 붙인 수정 요청 메모. 번호(#N)는 다시 쓰이지 않습니다</td></tr>
     <tr><td>수정 요청 · 질문</td><td>핀을 저장할 때 고릅니다. 질문 핀은 에이전트가 원고를 고치지 않고 스레드에 답을 단 뒤 닫습니다</td></tr>
     <tr><td>스레드 · 답글</td><td>카드 아래의 대화. 사람과 에이전트가 [답글]로 주고받고, 닫기·다시 열기·확인도 한 줄씩 남습니다</td></tr>
+    <tr><td>검토 대기</td><td>에이전트가 닫은 핀은 바로 완료가 되지 않고 여기서 사람의 [확인]을 기다립니다. 작성자에게 권하지만 누구나 누를 수 있습니다. [다시 열기]는 이유 한 줄을 스레드에 남기고 열린 핀으로 되돌립니다. 테일넷 사람이 [완료]를 누르면 그 사람이 검토자라 바로 완료입니다</td></tr>
     <tr><td>앵커</td><td>핀을 찍을 때 떠 둔 첫·끝 문장. 원고가 고쳐지면 이것으로 새 줄 번호를 찾습니다</td></tr>
     <tr><td>줄 이동</td><td>원고 수정으로 핀 위치가 밀려 다시 맞췄다는 표시('줄 +3 이동')</td></tr>
     <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
@@ -4916,7 +5016,7 @@ body.view-only #btn-rebuild{display:none}
   </table>
   <h4>색</h4>
   <div class="help-legend"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
-  <div class="help-legend">핀 목록 왼쪽 띠: <span class="strip c"></span>처리 중 · <span class="strip d"></span>완료 · <span class="strip x"></span>삭제 (띠가 없으면 열린 핀)</div>
+  <div class="help-legend">핀 목록 왼쪽 띠: <span class="strip c"></span>처리 중 · <span class="strip r"></span>검토 대기 · <span class="strip d"></span>완료 · <span class="strip x"></span>삭제 (띠가 없으면 열린 핀)</div>
   <h4>pins.md 위치</h4>
   <code id="help-pins-md"></code>
 </dialog>
@@ -4949,6 +5049,8 @@ const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // META_BY = 문서별 meta 캐시(탭 전환을 즉시), VIEW_BY = 문서별 보던 자리·확대, BUILD_ERR_BY = 문서별 마지막 빌드 오류,
 // DOC_SEQ = 다른 문서의 끝난 빌드 수(배경에서 끝난 빌드를 알린다).
 let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
+// 검토 대기(에이전트가 닫고 사람의 [확인]을 기다리는 핀, state==='review'). DONE_ALL 에는 넣지 않는다 — 완료 보관함과 따로 그린다.
+let REVIEW_ALL=[];
 const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
 window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
 
@@ -4971,6 +5073,9 @@ const T={
   cur:'지금 핀이 가리키는 범위 그대로입니다',
   undo:'방금 한 저장·완료·삭제를 되돌립니다',
   question:'고칠 곳이 아니라 묻는 핀입니다. 답은 아래 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다',
+  review:'에이전트가 닫은 핀입니다. 사람이 결과를 보고 [확인]하면 완료로, [다시 열기]면 이유와 함께 열린 핀으로 돌아갑니다',
+  confirm:'결과를 확인했다고 기록하고 완료로 옮깁니다. 작성자에게 권하지만 누구나 누를 수 있고, 누른 사람이 기록됩니다',
+  rvReopen:'이유 한 줄을 스레드에 남기고 열린 핀으로 되돌립니다. 에이전트가 그 이유를 읽고 다시 고칩니다',
   reply:'이 핀에 답글을 답니다. 사람과 에이전트가 같은 스레드에서 주고받습니다 (⌘ Enter / Ctrl+Enter 보내기)'
 };
 
@@ -5408,11 +5513,12 @@ function diffToast(prev,d,dropped){
   const byId=new Map(prev.map(p=>[p.id,p]));
   const known=new Map((d||[]).map(p=>[p.id,p]));
   const dropById=new Map((dropped||[]).map(p=>[p.id,p]));
-  const closed=[],droppedIds=[];
+  const closed=[],droppedIds=[],reviewed=[];
   byId.forEach((_,id)=>{const n=known.get(id);
-    if(n&&n.done){if(!consumeMine(id))closed.push(id);}
+    if(n&&n.done){if(!consumeMine(id))(n.review?reviewed:closed).push(id);}
     else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
   if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
+  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok');
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
     toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
   (d||[]).filter(p=>!p.done).forEach(p=>{const was=byId.get(p.id); if(!was)return;
@@ -5420,6 +5526,13 @@ function diffToast(prev,d,dropped){
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
     if(m&&(!wm||wm[1]!==m[1]))toast('#'+p.id+' 줄 '+m[1]+' 이동','ok');});
 }
+
+// 검토 대기였던 핀이 다른 쪽에서 확인됐거나(완료) 다시 열렸으면 알린다. 이 탭이 한 동작(markMine)은 삼킨다.
+function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?'review':'done'):'open');}
+function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
+  prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
+    if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
+    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn');});}
 
 // ------------------------------------------------ 비동기 빌드 진행 칩(P0b-01)
 // BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
@@ -6333,8 +6446,25 @@ function card(p){
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
+  const rv=pinState(p)==='review';
+  if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const nr=replyCount(p);
   const thn=nr?'<span class="th-n" aria-label="답글 '+nr+'건" data-tip="이 핀의 답글 '+nr+'건">'+ic('message-square')+nr+'</span>':'';
+  if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
+    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
+    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
+    '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?esc(first):'(메모 없음)')+'</span>'+
+    '<span class="sp"></span>'+thn+au+
+    '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
+    '<div class="tags">'+tags.join('')+'</div>'+
+    '<div class="note">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
+    threadHtml(p,LAYOUT==='wide')+
+    '<div class="acts">'+
+    '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
+    '<button class="btn-sm b-rv-reopen" data-act="rv-reopen" data-tip="'+esc(T.rvReopen)+'">다시 열기</button>'+
+    '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
+    '</div></div>';
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
     '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
@@ -6391,19 +6521,30 @@ async function loadPins(){let d;
   let dropped=[];
   try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
   // 여러 문서: 목록은 모든 문서의 것(diffToast 도 전부 본다). PINS·DONE 은 지금 문서의 것, SHOW_ALL 이면 목록만 전부 그린다.
-  const prevOpen=OPEN_ALL;
-  const nextOpen=d.filter(p=>!p.done); DONE_ALL=d.filter(p=>p.done); DROPPED=dropped;
-  diffToast(prevOpen,d,dropped);
+  const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
+  const nextOpen=d.filter(p=>!p.done); REVIEW_ALL=d.filter(p=>pinState(p)==='review'); DONE_ALL=d.filter(p=>pinState(p)==='done'); DROPPED=dropped;
+  diffToast(prevOpen,d,dropped); reviewToast(prevReview,d);
   OPEN_ALL=nextOpen; PINS=nextOpen.filter(p=>pdoc(p)===DOC||!DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC||!DOC);
   if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
   if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
+  if(META&&REVIEW_ALL.length)document.title+=' · 검토 '+REVIEW_ALL.length;
 }
 // 사이드바에 그릴 목록: 기본은 지금 문서, '모든 문서'면 전부. 편집 중인 핀은 다른 문서여도 남긴다(쓰던 글이 사라지지 않게).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
+function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
+// 검토 대기 수: 문서를 가로질러 센다(사람이 확인할 일감 상자). [핀 N] 옆 보라 숫자(compact)·도구 줄 칩(wide).
+function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
+  pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label','검토 대기 '+n);
+  chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n;}
+function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
+  setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
+// 검토 대기 카드의 검토자 표시: 작성자에게 권한다(누구나 확인할 수 있다 — 신뢰 모델). 내가 작성자면 '내 확인 차례'.
+function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!=='local'&&a.login===me.login);}
+function reviewerLabel(p){if(!p.author||!(p.author.name||p.author.login))return '확인 필요'; return isMe(p.author)?'내 확인 차례':who(p.author)+'님 확인 필요';}
 function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
@@ -6415,9 +6556,14 @@ function drawPins(){
   // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
   $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
   $('#m-dropped').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' 숨기기':' 보기');
-  $('#empty').hidden=LIST.length>0||OPEN_ALL.length>0;
+  $('#empty').hidden=LIST.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
   $('#pins').innerHTML=LIST.length?LIST.map(card).join(''):'<div class="dim">'+(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'이 문서에는 아직 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건':'아직 없습니다.')+'</div>';
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
+  // 검토 대기 구획: 열린 핀과 완료 사이. 비면 숨긴다. 카드 모양은 열린 핀과 같고(스레드·답글) 동작만 [확인]·[다시 열기]다.
+  const LREV=listReview();
+  $('#sec-review').hidden=!LREV.length; $('#review-h').textContent='검토 대기 '+LREV.length;
+  $('#review-pins').innerHTML=LREV.map(card).join('');
+  updateReviewCount();
   // 보관함 구획: 비어 있고 접혀 있으면 머리째 숨긴다. 머리는 폭 전체를 쓰는 한 줄('완료 18 ─── 펼치기')이고 스크롤해도 위에 붙는다.
   $('#sec-done').hidden=!LDONE.length&&!SHOW_DONE; $('#sec-dropped').hidden=!LDROP.length&&!SHOW_DROPPED;
   $('#done-toggle').innerHTML=arcHead('완료',LDONE.length,SHOW_DONE);
@@ -6437,9 +6583,10 @@ function drawPins(){
 function isEstimated(p){return p.est===true;}
 function marks(){
   $$('.mark').forEach(m=>m.remove());
-  PINS.forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
+  // 검토 대기 핀도 보라 마크로 그린다 — 검토자가 무엇이 고쳐졌는지 그 자리에서 본다(열린 핀의 겹침·편집과는 무관하다).
+  PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
     const est=isEstimated(p);
-    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':''); m.dataset.pin=p.id;
+    const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':'')+(p.done?' rv':''); m.dataset.pin=p.id;
     Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)')+(est?' (PDF가 새로 만들어져 위치는 추정입니다)':'');
@@ -6454,7 +6601,7 @@ $('#doc').addEventListener('mousedown',e=>{
 // 정적 box-shadow 였을 때는 다음 클릭 전까지 카드에 계속 남아 있었다.
 // compact: 배지를 누르면 패널·시트를 펴고 그 카드를 펼친 뒤 jumpToCard 로 스크롤한다.
 function revealCard(id){if(LAYOUT==='wide')return; setSide(true);
-  if(!OPEN_CARDS.has(id)&&PINS.some(p=>p.id===id)){OPEN_CARDS.add(id); drawPins();}}
+  if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){
   const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
   el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
@@ -6463,7 +6610,8 @@ function jumpToCard(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
-function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id); if(!p)return;
+function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
+  if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q)))switchDoc(pdoc(q)).then(()=>{if(DOC===pdoc(q))jumpPin(id);}); return;}
   if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
   if(LAYOUT==='narrow')setSide(false);   // 시트가 쪽을 가리지 않게 접고 나서 잰다
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
@@ -6485,7 +6633,13 @@ $('#pins').addEventListener('mouseout',e=>{const c=e.target.closest('.pin'); if(
   markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.remove('hi');});});
 async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
   if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
-  else {markMine(id); toast('핀 #'+id+' 완료','ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}}catch(e){} await loadPins();}
+  else {markMine(id); toast(data.state==='review'?'핀 #'+id+' 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #'+id+' 완료',
+    'ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}}catch(e){} await loadPins();}
+// 검토 대기 → 완료. 확인한 사람(confirmed_by)이 남는다.
+async function confirmPin(id){try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409]});
+  if(data&&data.error==='open')toast('핀 #'+id+' 은 이미 다시 열렸습니다','warn');
+  else if(!data.ok)toast('확인 실패 — 핀 #'+id+' 이 없습니다','err');
+  else{markMine(id); toast('핀 #'+id+' 확인 · 완료로 옮겼습니다','ok');}}catch(e){} await loadPins();}
 async function reopenPin(id,undo){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
   markMine(id); toast(undo?'핀 #'+id+' 완료를 되돌렸습니다':'핀 #'+id+' 다시 열림','ok');}catch(e){} await loadPins();}
 async function dropPin(id,undoSave){try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
@@ -6710,6 +6864,9 @@ document.addEventListener('click',e=>{
     case 'kind':setKind(a.dataset.kind);break;
     case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind==='question'?'question':'fix'; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id,'reply');break;
+    case 'rv-reopen':if(id!=null)openReply(id,'reopen');break;
+    case 'confirm':if(id!=null)confirmPin(id);break;
+    case 'goto-review':gotoReview();break;
     case 'reply-cancel':closeReply();break; case 'reply-send':sendReply();break;
     case 'thread-more':if(id==null)break; if(THREAD_OPEN.has(id))THREAD_OPEN.delete(id); else THREAD_OPEN.add(id); drawPins();break;
     case 'arc-toggle':{const k=a.dataset.key; if(!k)break; if(ARC_OPEN.has(k))ARC_OPEN.delete(k); else ARC_OPEN.add(k); drawPins(); break;}
@@ -6999,12 +7156,15 @@ class Handler(BaseHTTPRequestHandler):
         return self._post_doc(actor, path, u, d)
 
     def _post_doc(self, actor, path, u, d):
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim|reply)", path)
+        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim|reply|confirm)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
             if act == "reply":
                 pin, msg = reply_pin(pid, clean_thread_text(d.get("text")), actor)
                 return self._json({"ok": pin is not None, "pin": pin, "msg": msg})
+            if act == "confirm":
+                pin = confirm_pin(pid, actor)
+                return self._json({"ok": pin is not None, "pin": pin, "state": pin_state(pin) if pin else None})
             if act == "drop":
                 return self._json({"ok": drop_pin(pid, actor)})
             if act == "restore":
@@ -7021,11 +7181,14 @@ class Handler(BaseHTTPRequestHandler):
             if act == "unclaim":
                 pin = unclaim_pin(pid, actor)
                 return self._json({"ok": pin is not None, "pin": pin})
-            reply = ref = None
+            reply = ref = review = reason = None
             if act == "close":
                 reply, ref = clean_close_body(d)
-            pin = set_done(pid, act == "close", actor, reply, ref)
-            return self._json({"ok": pin is not None, "pin": pin})
+                review = clean_review_flag(d)
+            else:                                 # reopen — 선택 본문 {"reason"}: 다시 여는 이유(스레드에 남는다)
+                reason = clean_thread_text(d.get("reason"), "reason", required=False)
+            pin = set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason)
+            return self._json({"ok": pin is not None, "pin": pin, "state": pin_state(pin) if pin else None})
         if path == "/api/pick":
             return self._json(pick(d))
         if path == "/api/pin":
