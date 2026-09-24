@@ -31,6 +31,10 @@
 | `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
 | `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`, 선택 `pdf_build` = 드래그할 때 화면의 빌드 id — 그 빌드의 PDF 로 되짚는다. 이미 지워진 빌드면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 는 [design.md](design.md) §범위 사다리·§역변환이 두 경로인 이유 |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, build-sync §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
+| `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}` — `GET /api/pins?all=1` 한 항목과 같은 모양(스레드 전부·계산 필드 포함). 없으면 `404` |
+| `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?}` → `{ok, pin, msg}` — §스레드 |
+| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료 → `{ok, pin, state}` — §검토 대기 |
+| `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?}], me}` — §@태그·사람·이벤트. 쓰기 없음 |
 | `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(build-sync §자동 동기화)이 이것을 쓴다 |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([design.md](design.md) §벡터 렌더링). `build` 를 빼면 지금 빌드. 이름이 틀렸거나 이미 지워졌거나 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` — `build/` 나 다른 빌드로 물러서지 않는다(화면의 쪽 이미지와 어긋나면 좌표가 틀린다). `Range` 는 받지 않는다(통째로 준다). Host/Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`, 뷰어가 `?v=<버전>` 을 붙여 캐시를 가른다). 이름 한 칸의 `.mjs` 만 받는다 — 하위 경로·`..`·점으로 시작하는 이름·`%` 인코딩·디렉토리 밖을 가리키는 심볼릭 링크·`.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 `404`. 디렉토리는 `--pdfjs-dir`([operations.md](operations.md) §실행 인자), 출처·버전은 [`vendor/pdfjs/README.md`](../vendor/pdfjs/README.md). Host/Origin 검사는 다른 `GET` 과 같다 |
@@ -38,8 +42,8 @@
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}` — 뷰어는 쓰지 않고(§겹친 핀) 에이전트·옛 뷰어 호환용으로 남긴다 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — 아래 §핀 수정 |
-| `POST` | `/api/pins/{id}/close` | 핀 1건을 처리 완료로 표시(`done: true`, `closed_by`). 선택 본문 `{"reply", "ref"}` — 아래 §닫을 때 사유 남기기. 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주되 아무 필드도 바꾸지 않는다**(rev 도 그대로) — §닫을 때 사유 남기기 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref` 가 있었으면 지운다(다시 닫을 때 새로 남긴다) → `{ok, pin}` |
+| `POST` | `/api/pins/{id}/close` | 핀 1건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 테일넷 사람이 닫으면 완료 — §검토 대기. 선택 본문 `{"reply", "ref", "review"}` — 아래 §닫을 때 사유 남기기. 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주되 아무 필드도 바꾸지 않는다**(rev 도 그대로) — §닫을 때 사유 남기기 |
+| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref`·`review`·`confirmed_*` 가 있었으면 지운다(다시 닫을 때 새로 남긴다). 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}` |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(정수가 아니거나 1 보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다) → `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
@@ -87,6 +91,54 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
 - 성공하면 핀에 `close_reply`/`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI 가 묶어 보일 수 있다.
 - **이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다** — `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref` 모두 첫 닫기 값 그대로고, 두 번째 호출의 `reply`/`ref` 는 버려진다(적용되지 않는다). 두 번째 닫기가 `done_at`·`closed_by` 를 덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막기 위해서다. **reply 를 새로 남기려면 `/reopen` 으로 한 번 열고 다시 `/close` 한다** — `reopen` 이 옛 `close_reply`/`close_ref` 를 지우므로 다음 닫기가 새 사유로 채운다.
 - 에이전트의 `curl` 은 신원 헤더가 없으므로 `closed_by` 가 `로컬/에이전트` 로 남는다.
+
+## 스레드 (`/api/pins/{id}/reply`)
+
+A-DEMO 핀 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었는데(#30 '구간이 0을 포함한다는 게 뭐지?' 등) 답을 남길 곳이 닫기 사유 한 칸뿐이라 되물을 수 없었다. 핀마다 선택 필드 `thread` 를 두고 사람·에이전트가 같은 경로로 글을 단다.
+
+```bash
+curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d '{"text": "95% 신뢰구간이다"}'
+```
+
+- `text` 는 문자열 1..1000자(앞뒤 공백을 걷은 뒤, CRLF→LF, 줄바꿈·탭 밖의 제어 문자는 뺀다). 틀리면 `400`, 없는 id 는 `200 {"ok": false}`, 답글이 200건이면 `409 {"error":"full"}`.
+- 메시지 `{id, by:{login,name,pic?}, at, text, mentions?, ev?, ref?}`. `id` 는 핀 안에서 1부터 오른다. 상태 전환도 한 줄씩 남는다 — `ev` 가 `close`(글 = 닫기 사유, `ref`), `reopen`(글 = 다시 연 이유), `confirm`. 닫기 사유는 옛 `close_reply`/`close_ref` 에도 그대로 적힌다(옛 뷰어·에이전트 호환).
+- 답글은 상태를 바꾸지 않는다. 질문 핀은 답글을 단 뒤 따로 닫는다.
+- 핀 종류는 `kind_req`(`fix`|`question`, 없으면 fix)다. `POST /api/pin`·`/edit` 이 받는다(`/edit` 는 닫힌 핀에서도 된다). 옛 `kind`(범위 종류)와는 다른 필드다.
+
+## 검토 대기 (`close` → `review` → `confirm`)
+
+에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다.
+
+| 전환 | 조건 | 결과 |
+| --- | --- | --- |
+| 닫기 | 신원 헤더 없음(로컬 curl·에이전트, 헤더 없는 태그 장치) | `done:true` + `review:true` = **검토 대기** |
+| 닫기 | 테일넷 사람(헤더 있음) | `done:true` = 완료(그 사람이 검토자다) |
+| 닫기 | 본문 `"review": true`/`false` | 그 값을 따른다 — 테일넷 주소로 닫는 원격 에이전트는 `true` 를 보낸다 |
+| `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`). 누구나 누를 수 있다 — 뷰어는 작성자를 권할 뿐이다 |
+| `POST /confirm` | 완료 / 열림 / 없음 | 그대로 `{ok:true}`(멱등) / `409 {"error":"open"}` / `200 {"ok":false}` |
+| `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen`(선택 `{"reason"}` ≤1000자가 글) |
+
+- **하위 호환**: 검토 대기가 `done:true` 라서 옛 계약이 그대로 선다 — `GET /api/pins`(열린 핀만)에 없고, `claim` 은 `409 done`, 줄 맞춤·겹침 계산은 건너뛰고, 옛 서버·옛 탭은 완료로 본다. `review` 가 없는 옛 `done:true` 는 완료다. 읽을 때 이관 쓰기를 하지 않는다.
+- 응답과 `GET /api/pins` 항목에는 계산 필드 `state`(`open`|`review`|`done`)가 붙는다(저장하지 않는다). `/api/meta` 는 `n_open`·`n_review`·`n_done`(완료만).
+- 두 번째 닫기는 예전처럼 아무것도 바꾸지 않는다 — 검토 대기 핀을 에이전트가 다시 닫아도 그대로다.
+
+## @태그·사람·이벤트
+
+뷰어 안에서만 부른다. 바깥 알림(GitHub·Telegram·메일)은 보내지 않고, 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
+
+- **사람**(`<state_dir>/people.json`, `{"version":1,"people":[{login,name,pic?,first_seen,last_seen}]}`): 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 또는 쓰기 요청을 보낸 테일넷 사람. 로컬/에이전트는 적지 않는다. 같은 값이면 10분에 한 번만 다시 쓴다(`/api/meta?light=1` 폴링은 쓰지 않는다). `GET /api/people` 은 이것과 핀의 작성자·행위자·스레드 글쓴이를 합친다.
+- **풀기**: 서버가 글에서 `@이름` 을 로그인으로 푼다 — 이름 전체, 로그인, 로그인의 `@` 앞, 겹치지 않는 이름 첫 단어. 대소문자는 가리지 않고 한글 조사(`@서준님`)는 붙어도 된다. `@` 앞이 글자면(메일 주소) 태그가 아니고, 영문 이름 뒤에 영문이 이어지면(`@Alicex`) 다른 말이다. 뷰어가 고른 로그인은 본문 `mentions`(≤10개)로 오지만 첫 단어가 여럿과 겹칠 때 가르는 힌트일 뿐이다. 글은 `@이름` 그대로 두고 풀린 로그인은 핀(메모) `mentions`·메시지 `mentions` 에 둔다.
+- **사람을 부른 핀**: 계산 필드 `addressed` = 메모의 `mentions` + 지금 차례(마지막 닫기 뒤) 스레드 글의 `mentions`. pins.md 번호 칸의 `→ @이름` 이 이것이다.
+- **이벤트**(`<state_dir>/events.jsonl`, 한 줄 한 건, 추가 전용): `{seq, type, pin, doc, to:[login], by:{login,name}, at, ts, kind_req?, msg?, excerpt?}`.
+
+  | `type` | 언제 | `to` |
+  | --- | --- | --- |
+  | `mention` | 메모(저장·수정)·답글·다시 연 이유가 새로 누군가를 부름 | 새로 불린 사람 |
+  | `review_requested` | 핀이 검토 대기로 감 | 작성자 |
+  | `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람(이 글로 새로 불린 사람은 `mention` 하나만) |
+  | `reopened` | 닫힌 핀을 다시 엶 | 작성자 |
+
+  `to` 에서 행위자 자신과 `local` 은 빠지고, 비면 적지 않는다. 핀 쓰기가 커밋된 뒤 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다(앞부분은 그대로 — 추가 전용). 최근 5000건만 남기되 `seq` 는 계속 오른다 — 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
 
 ## 원격 에이전트 진입점 (`GET /pins.md`)
 
@@ -182,9 +234,14 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
 | `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유 — 무엇을 고쳤는지(≤500자)·참조(PR 번호 등, ≤80자). 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
+| `kind_req` | `fix`\|`question` — 핀 종류(§스레드). 없으면 fix |
+| `thread` | 답글과 상태 전환 기록 `[{id, by, at, text, mentions?, ev?, ref?}]`(§스레드) |
+| `mentions` | 메모가 부른 사람의 로그인 목록(§@태그·사람·이벤트) |
+| `review` | `true` = 검토 대기(`done:true` 와 함께만 뜻이 있다, §검토 대기) |
+| `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람·시각 |
 | `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시) — `claimed_by`는 작성자 귀속과 같은 `{login,name}` 형식, `claimed_at`은 시작 시각 문자열, `claim_ts`(시작)·`claim_until`(잠금 자동 해제)·`eta_ts`(예상 완료)는 epoch 초. `claim_until`이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim`이 모두 지운다 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est` 는 응답에만 있고 저장하지 않는다(§겹친 핀·build-sync §위치 추정).
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀·build-sync §위치 추정).
 
 ## pins.md 형식
 
@@ -204,6 +261,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
   - 표시 범례 줄(`표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …`)은 열린 핀에 표시가 하나라도 있을 때만 실린다.
 - **`«…»` 인용**: 메모 앞에 최대 60자 인용이 붙는 조건부 예외다 — 핀 범위가 **한 줄**이고, 그 줄이 **600자를 넘고**(문단 하나가 줄바꿈 없이 이어지는 원고에서 줄 번호만으로는 지목한 부분을 못 찾는다), `scope` 가 `raw`/`para`/없음일 때만 붙는다. 60자를 넘어 잘렸으면 인용 끝에 `…` 를 붙인다(예: `«문장의 앞부분까지만…»`) — 잘린 인용을 완결된 문장으로 오인하지 않도록. 이 인용은 **`pdftotext` 로 렌더된 글자**다 — 검색 힌트이지 `Edit` 의 `old_string` 으로 그대로 쓸 문자열이 아니다(리거처·하이픈·공백이 원문 LaTeX 소스와 다를 수 있다). 줄 범위로 파일을 `Read` 한 뒤 그 인용을 검색해 정확한 위치를 확인한다.
 - **메모 앞 `@작성자:`**: 열린 핀의 작성자가 2명 이상이면(`author.login` 기준, 작성자 없는 옛 핀은 한 부류) 메모 앞에 `@<author.name>: ` 이 붙는다. 작성자가 1명뿐이면 토큰을 아끼려고 붙이지 않는다 — 결과 보고나 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다([design.md](design.md) §작성자 귀속). 배정 기준이 아니다.
+- **질문·다시 열림·사람을 부른 핀**: 번호 칸에 `질문`, `다시 열림`(지금 차례가 다시 열기로 시작), `→ @이름`(§@태그·사람·이벤트 — 에이전트는 사용자가 시키지 않으면 건너뛴다)이 붙는다. 메모 칸 뒤에는 지금 차례의 스레드가 `[스레드 N건] 이름: … ⏎ 다시 연 이유(이름): …` 로 붙는다(뒤 3건, 한 건 200자 — 나머지는 `GET /api/pins/{id}`). 사람을 부른 핀이 있으면 안내 문단에 건너뛰기 규칙이 붙는다.
+- **검토 대기**: 열린 표에서 빠지고 맨 아래 `## 검토 대기 N건 — …처리하지 않는다` 소절의 4열 표 `| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |` 에 실린다(여러 문서면 위치 앞에 문서 키). 있을 때만 머리줄에 `검토 대기 N건(맨 아래, 처리하지 않는다)` 이 끼고, 없으면 머리줄은 예전 모양 그대로다.
 - **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다 — `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
 - **여러 문서**(`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있을 때): 한 장 그대로 두고 머리에 `문서: 본문(\`ms\`) 3건 · … · 리뷰어 코멘트(\`rv\`, 보기 전용) 1건` 한 줄과 소절 안내를 둔 뒤, 열린 핀이 있는 문서마다 소절 `## <이름> · \`<키>\` · \`<--manuscript 기준 경로>\``(보기 전용이면 `— 보기 전용 PDF(줄 번호 없음)`)과 그 문서의 `기준: <head> · 빌드 <built_at>`(보기 전용은 `그림`), 5열 표가 온다. 머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `## 설정에 없는 문서 · \`<키>\`` 소절로 드러난다. 단일 문서는 예전 모양 그대로다.
 - **보기 전용 핀의 행**: 위치 칸 `쪽 3, 영역 가로 10–60% 세로 20–30%`, 범위 칸 `영역`, 메모 앞에 영역 글자 `«…»`(한 줄·600자 조건 없이 늘 — 줄 번호가 없어 유일한 원문 단서다). 보기 전용 핀이 있으면 안내 문단에 "줄 번호가 없다 — 쪽·영역 글자·메모로 판단, 고칠 곳은 LaTeX 문서에서" 가 붙는다.
