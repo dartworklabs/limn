@@ -64,9 +64,9 @@ def js_thread() -> str:
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
     mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, st, mo, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
+    return "\n".join([ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
         "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag")])
+        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
 def run_node(js: str, tz: str = None):
@@ -2923,23 +2923,25 @@ class RebuildLogDiet(Base):
 # ---------------------------------------------------------------- §P0c-G: 작성자 표시(필요할 때만)
 
 class AuthorPrefixInPinsMd(Base):
+    # 작성자 접두는 '[이름] ' 형식이다(§api.md 메모 앞 [작성자]) — '@이름: '이던 예전 모양은 @태그로 잘못
+    # 읽혔다(실측: pins.md 의 '@Alice Kim: …'가 멘션처럼 보임).
     def test_single_author_has_no_prefix(self):
         self.add(note="n", actor={"login": "alice@x.com", "name": "Alice"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Alice:", md)
+        self.assertNotIn("[Alice]", md)
 
     def test_multiple_authors_get_prefix(self):
         self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("@Alice: n1", md)
-        self.assertIn("@Bob: n2", md)
+        self.assertIn("[Alice] n1", md)
+        self.assertIn("[Bob] n2", md)
 
     def test_same_author_twice_does_not_trigger_prefix(self):
         self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
         self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Alice"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Alice:", md)
+        self.assertNotIn("[Alice]", md)
 
     def test_legacy_pin_without_author_counts_as_one_group(self):
         pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
@@ -2951,8 +2953,8 @@ class AuthorPrefixInPinsMd(Base):
         ps.write_pins(rows)
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("@Bob: n2", md)
-        self.assertNotIn("@None", md)
+        self.assertIn("[Bob] n2", md)
+        self.assertNotIn("[None]", md)
         self.assertIn("legacy", md)
 
     def test_closed_pins_excluded_from_author_count(self):
@@ -2961,7 +2963,7 @@ class AuthorPrefixInPinsMd(Base):
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Bob:", md)
+        self.assertNotIn("[Bob]", md)
 
 
 # ---------------------------------------------------------------- 뷰어 구조 — claim UI·log=1
@@ -4703,11 +4705,37 @@ class FrontendArchive(unittest.TestCase):
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
             const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
-              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
+              /data-act="rv-reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
               /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
+
+    def test_done_row_reopen_reuses_reason_ui_not_bare_reopen(self):
+        # 결함 실측: 완료 행의 [다시 열기]가 이유를 묻지 않고 곧장 /reopen 을 불렀다. 이제 review 카드와
+        # 같은 openReply(id,'reopen') 경로(data-act="rv-reopen")를 쓰고, 입력 칸을 스레드 안 .reply-slot 에 낀다.
+        out = self.run_rows(r"""
+            const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
+              closed_by:{name:'에이전트'},close_reply:'고침',thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'}]};
+            const idle=doneCard(p);
+            REPLY={id:9,mode:'reopen',el:null};
+            const reopening=doneCard(p);
+            console.log(JSON.stringify([!/data-act="reopen"/.test(idle), /data-act="rv-reopen"/.test(idle),
+              /class="reply-slot"/.test(idle), /class="reply-slot"/.test(reopening), /class="arc-thread"/.test(reopening)]));
+            """)
+        self.assertEqual(out, [True, True, False, True, True])
+
+    def test_placeholder_ref_dash_is_hidden(self):
+        # 결함 실측: QA 스크립트·옛 호출이 ref 자리에 '-'를 넣으면 '닫음 · -' 처럼 의미 없는 참조가 떴다.
+        out = self.run_rows(r"""
+            const dash=doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'});
+            const real=doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'});
+            const evDash=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'});
+            const evReal=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'});
+            console.log(JSON.stringify([/arc-ref/.test(dash), /arc-ref/.test(real), /PR #9/.test(real),
+              / · -</.test(evDash), evDash.includes(' · -'), evReal.includes(' · abc1234')]));
+            """)
+        self.assertEqual(out, [False, True, True, False, False, True])
 
     def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
         out = self.run_rows(r"""
@@ -5651,6 +5679,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("rta.focus()", dp)
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
+        self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
         self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc 가 입력 칸부터 닫는다
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
@@ -5707,20 +5736,33 @@ class ReviewState(Base):
     def test_confirm_and_idempotence(self):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
-        code, d = self.post("/api/pins/%d/confirm" % pid, None, {"Tailscale-User-Login": self.W["login"],
-                                                                 "Tailscale-User-Name": self.W["name"]})
+        W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
         p = self.pin(pid)
         self.assertEqual(p["confirmed_by"], self.W)                   # 작성자가 아니어도 확인할 수 있다
         self.assertTrue(p["confirmed_at"])
         self.assertEqual(p["thread"][-1]["ev"], "confirm")
         rev = p["rev"]
-        code, d = self.post("/api/pins/%d/confirm" % pid)
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # 이미 완료 — 그대로
-        code, d = self.post("/api/pins/%d/confirm" % self.add())
+        code, d = self.post("/api/pins/%d/confirm" % self.add(), None, W)
         self.assertEqual((code, d["error"]), (409, "open"))
-        code, d = self.post("/api/pins/999/confirm")
+        code, d = self.post("/api/pins/999/confirm", None, W)
         self.assertEqual((code, d["ok"]), (200, False))
+
+    def test_agent_cannot_confirm(self):
+        # 결함 실측: 신원 헤더 없는(에이전트/로컬 curl) 요청이 /confirm 을 성공시켰다 — 검토 대기는 '사람이
+        # 봤다'는 기록이라 에이전트 스스로의 확인은 그 취지를 무너뜨린다.
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/confirm" % pid)             # 헤더 없음 = 에이전트
+        self.assertEqual(code, 403)
+        self.assertIn("확인은 사람이 합니다", d.get("error", ""))
+        self.assertEqual(ps.pin_state(self.pin(pid)), "review")       # 상태는 바뀌지 않는다
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.confirm_pin(pid, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(cm.exception.code, 403)
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
@@ -5826,6 +5868,13 @@ class FrontendReview(unittest.TestCase):
         self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
         self.assertIn('id="sec-review"', ps.HTML)
         self.assertIn('id="side-rv"', ps.HTML)
+
+    def test_review_card_reply_hint_and_reopen_hint(self):
+        # 결함 실측: 검토 대기 카드의 답글 칸이 일반 답글과 같은 안내를 써서, 답글을 남겨도 에이전트가
+        # 다시 집지 않는다는 사실이 드러나지 않았다(§검토 대기 — 다시 처리하지 않는다).
+        body = extract_js_fn("replyEl")
+        self.assertIn("review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글", body)
+        self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
 
 
 # ---------------------------------------------------------------- [변경 보기](references/design.md §변경 보기)
@@ -5999,18 +6048,45 @@ class MentionsPeopleEvents(Base):
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
-        self.assertIn("| %d · 질문 · → @Alice Kim |" % a, row)
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람을 부른 핀이다", md)
+        self.assertIn("| %d · → @Alice Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람에게 물은", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
-    def test_addressed_counts_current_round_only(self):
-        r = {"mentions": [], "thread": [{"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
-                                        {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
-                                        {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
+    def test_addressed_counts_current_round_only_and_needs_question_kind(self):
+        r = {"kind_req": "question", "mentions": [],
+             "thread": [{"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
+                        {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
+                        {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
         self.assertEqual(ps.addressed_to(r), ["b"])
         self.assertEqual(ps.pin_mentions_all(r), ["a", "b"])
+        self.assertEqual(ps.fyi_mentions_to(r), [])       # 질문 핀은 fyi 가 아니라 addressed 로만 잡힌다
+        fix = dict(r, kind_req="fix")
+        self.assertEqual(ps.addressed_to(fix), [])         # 수정 요청 핀은 @태그가 있어도 건너뛰지 않는다
+        self.assertEqual(ps.fyi_mentions_to(fix), ["b"])   # 대신 참고용으로만 잡힌다
+
+    def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
+        # 결함 실측: 확인(confirm) 뒤 다시 열면 차례가 [confirm, reopen, ...] 로 시작해 '다시 열림' 표시가
+        # 빠졌다(옛 판정은 '차례의 첫 글이 reopen 인가'만 봤다). pin_reopened_in_round() 는 confirm 을 건너뛴다.
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        ps.confirm_pin(pid, dict(self.S))
+        ps.set_done(pid, False, dict(self.S), reason="다시 봐 주세요")
+        self.assertTrue(ps.pin_reopened_in_round(self.pin(pid)))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        self.assertIn("다시 열림", row)
+
+    def test_self_mention_never_becomes_addressed(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 셀프 태그",
+                          "kind_req": "question"}, dict(self.W))
+        p = self.pin(pid)
+        self.assertNotIn("mentions", p)                    # 자기 자신 @태그는 저장되지 않는다
+        self.assertEqual(ps.addressed_to(p), [])
+        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Alice Kim", dict(self.W))[1]
+        self.assertEqual(msg["mentions"], [self.S["login"]])  # 답글 글쓴이 자신(W)은 빠진다
 
     def test_mention_hints_validated(self):
         with self.assertRaises(ps.HTTPError):
@@ -6097,9 +6173,11 @@ class FrontendMentions(unittest.TestCase):
             const m=mentionMatches('won',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
             const t=ta('@Alice Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
             console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
-              mentionsMe({mentions:['s@x']}),mentionsMe({thread:[{mentions:['s@x']}]}),mentionsMe({mentions:['w@x']})]));""")
+              mentionsMe({addressed:['s@x']}),mentionsMe({addressed:['w@x']}),mentionsMe({mentions:['s@x'],thread:[{mentions:['s@x']}]})]));""")
         self.assertEqual(out, [[{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None], ["wo@x", "w@x"], False,
-                               ["w@x"], True, True, False])
+                               ["w@x"], True, False, False])
+        # mentionsMe 는 서버가 미리 계산한 p.addressed(질문 핀·현재 차례)만 본다 — 옛 mentions/thread 전체 훑기가 아니다
+        # (결함 실측: 옛 차례의 @태그가 다시 열려도 계속 '나를 부른 핀'으로 남았다).
 
     def test_wiring(self):
         h = ps.HTML

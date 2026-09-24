@@ -48,6 +48,7 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
    - **수정 요청 핀**: 고친 뒤 무엇을 고쳤는지(`reply` ≤500자)와 PR 번호·커밋(`ref` ≤80자)을 남겨 닫는다. `ref` 는 뷰어의 [변경 보기]가 그 커밋을 찾는 단서다.
    - **질문 핀**: 원고는 고치지 않는다(질문이 수정을 뜻할 때만). 답을 답글로 남긴 뒤 닫는다.
    - 테일넷 주소(`https://…ts.net`)로 닫으면 요청이 사람 신원을 달고 가 바로 완료가 된다 — 본문에 `"review": true` 를 넣는다(로컬 `127.0.0.1` 은 넣지 않아도 검토 대기).
+   - **에이전트는 확인(confirm)하지 않는다** — `POST /api/pins/{id}/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403 이다. 검토 대기는 에이전트가 닫은 핀을 사람이 봤다는 기록이라, 에이전트 스스로의 확인은 그 취지를 무너뜨린다.
 
    ```bash
    curl -s -X POST <base>/api/pins/3/close \
@@ -135,7 +136,7 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 | `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref", "review"}` — 에이전트가 닫으면 검토 대기 |
 | `POST /api/pins/{id}/reply` | 답글 `{"text"}`(≤1000자). 상태는 그대로 |
 | `GET /api/pins/{id}` | 핀 한 건(스레드 전부) — pins.md 가 스레드를 3건까지만 실을 때 |
-| `POST /api/pins/{id}/confirm` | 검토 대기 → 완료(사람이 누른다) |
+| `POST /api/pins/{id}/confirm` | 검토 대기 → 완료(**사람만** — 신원 헤더 없으면 403) |
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref` 삭제). 선택 `{"reason"}` 은 스레드에 남는다 |
 | `POST /api/pins/{id}/edit` | 메모·범위 수정(`base_rev` 필수) 또는 `note_append` |
 | `POST /api/pins/{id}/drop` | 잘못 찍은 핀을 뺀다(`/restore` 로 되살림) |

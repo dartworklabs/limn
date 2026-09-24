@@ -2882,7 +2882,7 @@ def pins_payload(rows: list, allp: bool) -> list:
                     ctxs[k] = est_context()
         ctx = ctxs[k]
         rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k, state=pin_state(r),
-                   addressed=addressed_to(r))
+                   addressed=addressed_to(r), fyi=fyi_mentions_to(r))
         if claim_active(r) and not _is_num(r.get("claim_ts")):
             ts = _epoch(r.get("claimed_at"))          # eta 이전 claim — 뷰어의 '20:02부터 (23분째)'가 쓸 시작 epoch(계산 필드)
             if ts is not None:
@@ -3465,10 +3465,26 @@ def thread_replies(r: dict) -> list:
 
 def thread_round(r: dict) -> list:
     """지금 열린 차례의 스레드 — 마지막 닫기(ev=close) 뒤의 글. 한 번도 닫힌 적 없으면 전부.
-    다시 열린 핀이면 다시 연 이유(ev=reopen)부터 시작한다 — 에이전트가 다시 고칠 때 읽어야 하는 부분이다."""
+    다시 열린 핀이면 다시 연 이유(ev=reopen)부터 시작한다(포함) — 에이전트가 다시 고칠 때 읽어야 하는
+    부분이다. 마지막 다시 엶이 마지막 닫기보다 나중이어야 그렇다 — 아니면(검토 중이라 아직 다시 열리지
+    않았으면) 그대로 마지막 닫기 뒤부터다. 이걸 안 가르면, 검토 중(닫힘~다시 엶 사이)에 단 답글이 다시
+    엶 뒤의 새 차례로 새는 결함이 있었다(예: 그 답글의 @태그가 엉뚱하게 새 차례의 addressed_to 에 남음)."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
-    last = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    return [m for m in th[last + 1:] if isinstance(m, dict)]
+    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
+    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    start = last_reopen if last_reopen > last_close else last_close + 1
+    return [m for m in th[start:] if isinstance(m, dict)]
+
+
+def pin_reopened_in_round(r: dict) -> bool:
+    """마지막으로 완료된 뒤(마지막 close) 다시 열린 적이 있는가 — pins.md '다시 열림' 표시(§검토 대기).
+    thread_round() 가 지금 차례를 다시 엶부터 잡으므로 사실상 같은 조건이지만, 둘의 정의가 갈릴 미래를
+    대비해 따로 둔다(예전엔 '차례의 첫 글이 다시 엶인가'만 봐서 다시 엶 뒤 확인(ev=confirm)이 낀 차례를
+    놓쳤다 — 확인 후 다시 열면 차례가 [확인, 다시 엶, …]이 아니라 [다시 엶, …]부터 시작해야 맞다)."""
+    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
+    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    return last_reopen > last_close
 
 
 # ---------------------------------------------------------------- 사람·@태그·이벤트(references/api.md §@태그·사람·이벤트)
@@ -3559,10 +3575,11 @@ def _mention_tokens(people: dict) -> list:
     return sorted(toks.items(), key=lambda kv: -len(kv[0]))
 
 
-def resolve_mentions(text: str, people: dict, hints=None) -> list:
+def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -> list:
     """'@이름' 을 로그인으로 푼다(글은 그대로 둔다). '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문 글자로 끝나는 이름 뒤에 영문
     글자가 이어지면(@Alicex) 다른 말로 본다. 한글 조사('@서준님')는 붙어도 된다. 한 글자가 여러 사람을 가리키면(이름 첫 단어가 같다)
-    뷰어가 고른 hints 에 든 사람만 넣는다. 반환은 처음 나온 순서, 중복 없음."""
+    뷰어가 고른 hints 에 든 사람만 넣는다. 반환은 처음 나온 순서, 중복 없음. `exclude`(대개 글쓴이 자신의 로그인)는 결과에서
+    뺀다 — 자기 자신을 @태그해도 '사람을 부른 핀'·'나를 부름'이 되지 않게(실측: 자기 언급이 addressed 로 잡혔다)."""
     text = str(text or "")
     if "@" not in text or not people:
         return []
@@ -3580,7 +3597,7 @@ def resolve_mentions(text: str, people: dict, hints=None) -> list:
                 continue
             pick = logins if len(logins) == 1 else logins & hints
             for lg in sorted(pick):
-                if lg not in found:
+                if lg != exclude and lg not in found:
                     found.append(lg)
             if pick:
                 break
@@ -3605,15 +3622,33 @@ def pin_mentions_all(r: dict) -> list:
     return out
 
 
-def addressed_to(r: dict) -> list:
-    """사람에게 묻거나 부른 핀인가 — 메모의 @태그 + 지금 차례 스레드 글의 @태그. pins.md 가 '→ @이름'으로 표시하고 에이전트는
-    (요청한 사용자가 따로 시키지 않으면) 건너뛴다. 닫고 다시 열린 핀은 옛 차례의 글을 세지 않는다."""
+def _round_mentions(r: dict) -> list:
+    """메모의 @태그 + 지금 차례(thread_round) 스레드 글의 @태그 — addressed_to·fyi_mentions_to 공통 재료."""
     out = list(r.get("mentions") or [])
     for m in thread_round(r):
         for lg in m.get("mentions") or []:
             if lg not in out:
                 out.append(lg)
     return out
+
+
+def addressed_to(r: dict) -> list:
+    """사람에게 **물은** 핀인가 — 질문(kind_req=question) 핀에서만 뜻이 있다. pins.md 가 '→ @이름'으로 표시하고
+    에이전트는(요청한 사용자가 따로 시키지 않으면) 건너뛴다. 수정 요청(fix) 핀의 @태그는 참고일 뿐 사람이
+    답해야 끝나는 것이 아니므로 여기 안 넣는다 — fyi_mentions_to() 가 그쪽을 맡는다(실측: FYI로 사람을
+    태그한 수정 요청 핀이 '→ @이름'으로 잡혀 에이전트가 영영 건너뛰었다). 닫고 다시 열린 핀은 옛 차례의
+    글을 세지 않는다(thread_round)."""
+    if r.get("kind_req") != "question":
+        return []
+    return _round_mentions(r)
+
+
+def fyi_mentions_to(r: dict) -> list:
+    """수정 요청(kind_req != question) 핀에서 참고로 부른 사람 — 건너뛰지 않는다, pins.md 에 '참고 @이름'으로만
+    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀)."""
+    if r.get("kind_req") == "question":
+        return []
+    return _round_mentions(r)
 
 
 def _excerpt(s, n: int = 140) -> str:
@@ -3685,7 +3720,7 @@ def _read_events() -> tuple:
 def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> None:
     """메모의 @태그를 풀어 r['mentions'] 에 둔다(없으면 필드를 뺀다). 새로 불린 사람에게 mention 이벤트를 쌓는다."""
     old = set(r.get("mentions") or [])
-    new = resolve_mentions(r.get("note") or "", known_people(rows), hints)
+    new = resolve_mentions(r.get("note") or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
     if new:
         r["mentions"] = new
     else:
@@ -3748,7 +3783,7 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None):
         if len(thread_replies(r)) >= THREAD_MAX:
             raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
         before = set(pin_mentions_all(r))
-        ment = resolve_mentions(text, known_people(rows), hints)
+        ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
         msg = _thread_append(r, actor, text, mentions=ment)
         r["rev"] = int(r.get("rev") or 0) + 1
         evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
@@ -3819,7 +3854,7 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 r.pop(k, None)
             if was_done:
                 before = set(pin_mentions_all(r))
-                ment = resolve_mentions(reason or "", known_people(rows), hints)
+                ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
                 msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
                 evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
                 evs.append(make_event("reopened", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
@@ -3832,9 +3867,13 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
 
 
 def confirm_pin(pid: int, actor: dict):
-    """검토 대기 → 완료. 누구나 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델). confirmed_by·confirmed_at 을 남기고
-    스레드에 ev=confirm 을 붙인다. 이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open.
-    없는 id 는 None."""
+    """검토 대기 → 완료. **사람만** 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델. 신원 헤더 없는
+    요청(에이전트·로컬 curl)은 403 — 검토 대기는 애초에 에이전트가 닫은 핀을 사람이 봤다는 기록이라, 에이전트가
+    스스로 확인하면 그 취지가 무너진다). confirmed_by·confirmed_at 을 남기고 스레드에 ev=confirm 을 붙인다.
+    이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open. 없는 id 는 None."""
+    if is_agent(actor):
+        raise HTTPError(403, "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요.")
+
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -4108,7 +4147,8 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
           "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "'질문' = 고칠 곳이 아니라 물음이다, 답글(reply)로 답하고 닫는다 · "
           "'다시 열림' = 검토에서 되돌아온 핀, 메모 칸의 '다시 연 이유'대로 다시 고친다 · "
-          "'→ @이름' = 사람을 부른 핀, 사용자가 따로 시키지 않으면 건너뛴다 · "
+          "'→ @이름' = 사람에게 물은 질문 핀, 사용자가 따로 시키지 않으면 건너뛴다 · "
+          "'참고 @이름' = 수정 요청 핀에 딸린 참고용 태그일 뿐이다, 건너뛰지 않는다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 THREAD_MD_SHOW = 3                 # pins.md 메모 칸에 싣는 지금 차례 스레드 글 수(뒤에서부터)
 THREAD_MD_CHARS = 200              # 그 글 하나의 글자 수 — 전부는 GET /api/pins/N
@@ -4190,15 +4230,19 @@ def pins_md_text(rows: list, base: str = None) -> str:
     n_human = 0
     for r in openn:
         syms = []
-        if r.get("kind_req") == "question":
-            syms.append("질문")
+        # 번호 칸 우선순위(다시 열림 > → @ > 질문): 가장 급하게 다시 봐야 할 신호부터 왼쪽에 둔다.
+        if pin_reopened_in_round(r):
+            syms.append("다시 열림")
         to = addressed_to(r)
-        if to:                                    # 사람을 부른 핀 — 에이전트는 건너뛴다(요청한 사용자가 따로 시키면 예외)
+        if to:                                    # 질문 핀이 사람을 불렀다 — 에이전트는 건너뛴다(요청한 사용자가 따로 시키면 예외)
             n_human += 1
             syms.append("→ " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in to))
-        rnd = thread_round(r)
-        if rnd and rnd[0].get("ev") == "reopen":
-            syms.append("다시 열림")
+        else:
+            fyi = fyi_mentions_to(r)
+            if fyi:                                # 수정 요청 핀의 참고용 @태그 — 건너뛰지 않는다
+                syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
+        if r.get("kind_req") == "question":
+            syms.append("질문")
         badge = rel_badge(rel.get(r["id"], []), by_id, r)
         if badge:
             syms.append(badge)
@@ -4217,8 +4261,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
             note = (note + " ⏎ " if note else "") + md_cell(th)
         if multi_author:
             an = (r.get("author") or {}).get("name")
-            if an:
-                note = "@%s: " % md_cell(an) + note
+            if an:                                 # '@이름' 이 아니라 '[이름]' — @태그로 잘못 읽히지 않게(실측)
+                note = "[%s] " % md_cell(an) + note
         q = render_quote(r)
         if q:
             any_symbol = True
@@ -4259,10 +4303,11 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
                 "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다 · "
                 "에이전트가 닫은 핀은 완료가 아니라 검토 대기로 간다(사람이 뷰어에서 [확인]) — 테일넷 주소로 닫는 에이전트는 "
-                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다" % (base, base))
+                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다 · "
+                "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403" % (base, base))
     if n_human:
-        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 사람을 부른 핀이다(질문·확인 요청) — 요청한 사용자가 그 핀을 "
-                     "명시적으로 시키지 않으면 건너뛴다" % n_human)
+        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 사람에게 물은 질문 핀이다 — 요청한 사용자가 그 핀을 "
+                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 수정 요청 핀의 참고용 태그일 뿐이라 건너뛰지 않는다)" % n_human)
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
     if C.repo:
@@ -5797,7 +5842,7 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
   const via={sha:'참조의 커밋 '+(tg.tokOf||''),pr:'참조의 PR',lines:'이 줄을 바꾼 가장 최근 커밋',latest:'참조로 커밋을 찾지 못해 가장 최근 커밋'}[tg.via]||'';
   const where=tg.region?'쪽 '+tg.page+' 영역':tg.name+' '+rng(tg.lo,tg.hi);
   let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
-    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 파일의 처음을 보입니다':'강조한 줄이 핀 범위입니다'));
+    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
     '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name+' 원고 보기로 돌아갑니다':'원고 보기로 돌아갑니다')+'">'+(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?esc(docInfo(REV_BACK).name)+'(으)로':'원고로')+'</button>';
   box.hidden=false;}
@@ -5987,10 +6032,31 @@ let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_I
 // 단일 비행: pollBuild 와 같은 패턴 — visibilitychange·focus·5초 타이머가 겹쳐 불러도(예: 탭 전환과
 // 동시에 포커스가 돌아오면) /api/meta·loadPins 는 한 번만 나간다(결함 실측: 겹치면 loadPins 3회).
 function pollLight(){
-  if(document.hidden)return Promise.resolve();   // 탭이 숨으면 요청 자체를 보내지 않는다
+  if(document.hidden)return Promise.resolve();   // 무거운 갱신(목록 다시 그리기 포함)은 탭이 숨으면 보내지 않는다
   if(LIGHT_INFLIGHT)return LIGHT_INFLIGHT;
   LIGHT_INFLIGHT=pollLightOnce().finally(()=>{LIGHT_INFLIGHT=null;});
   return LIGHT_INFLIGHT;
+}
+// 탭이 숨어 있는 동안에는 목록을 다시 그리지 않되(결함 실측: 숨은 탭이 알림을 전혀 못 받았다), 알림이 켜져
+// 있으면(notifyOn) /api/meta?light=1 을 가볍게(느리게, 브라우저가 어차피 죈다) 불러 이벤트만 알림으로 보인다.
+// pollLight 의 document.hidden 회피와 같은 자리에서 갈라지는 알림 전용 갈래 — 화면은 건드리지 않는다.
+let NOTIFY_HIDDEN_TIMER=null,NOTIFY_HIDDEN_INFLIGHT=null;
+const NOTIFY_HIDDEN_INTERVAL_MS=20000;
+function pollHiddenNotify(){
+  if(!document.hidden||!notifyOn())return Promise.resolve();
+  if(NOTIFY_HIDDEN_INFLIGHT)return NOTIFY_HIDDEN_INFLIGHT;
+  NOTIFY_HIDDEN_INFLIGHT=pollHiddenNotifyOnce().finally(()=>{NOTIFY_HIDDEN_INFLIGHT=null;});
+  return NOTIFY_HIDDEN_INFLIGHT;
+}
+async function pollHiddenNotifyOnce(){
+  let d;
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'알림 확인',silent:true})).data;}catch(e){return;}
+  if(document.hidden)notifyHandle(d);   // 기다리는 사이 탭이 돌아왔으면 일반 폴링이 이미 처리한다
+}
+// 알림이 켜진 채 탭이 숨으면 느린 타이머를 켜고, 돌아오거나 알림을 끄면 끈다(중복 폴링 방지).
+function syncHiddenNotifyTimer(){
+  clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=null;
+  if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
 }
 async function pollLightOnce(){
   let d; const k=DOC;
@@ -6023,8 +6089,9 @@ function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let r
   if(redraw)drawDocTabs();}
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight(); syncHiddenNotifyTimer();});
   window.addEventListener('focus',()=>pollLight());
+  syncHiddenNotifyTimer();   // 부팅 시 이미 숨어 있고(드문 경우) 알림이 켜져 있으면 바로 잡는다
 }
 // 자기 탭이 방금 한 close/drop/reopen/restore 는 로컬 토스트를 이미 띄웠으니 다음 loadPins() 의
 // diffToast 에서 같은 전환을 또 알리지 않는다 — markMine(id) 직후 첫 diffToast 판정 한 번만 삼키고
@@ -6103,24 +6170,30 @@ function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   list.forEach(notifyShow);}
 async function notifyRegister(){if(!notifySupported())return null;
   try{SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}); return SW_REG;}catch(e){return null;}}
-function notifyState(){if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
+// 로컬 신원(테일넷 로그인 없음)은 서버가 events_since() 에서 아예 이벤트를 안 실어(§@태그·사람·이벤트) 알림이
+// 영영 오지 않는다 — 브라우저 권한을 얻어도 소용없으므로 켜는 것 자체를 막고 이유를 알린다.
+function isLocalIdentity(){const me=META&&META.me; return !me||!me.login||me.login==='local';}
+function notifyState(){if(isLocalIdentity())return 'local'; if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
   if(pm==='denied')return 'blocked'; return prefs().notify&&pm==='granted'?'on':'off';}
 function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify');
-  const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨'}[st];
+  const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨',local:'알림: 테일넷 주소에서만'}[st];
   const tip={on:'이 기기에서 켜져 있습니다. 누르면 끕니다',off:'누르면 이 기기에서 켭니다(브라우저가 허용을 묻습니다)',
     blocked:'브라우저가 이 사이트의 알림을 막았습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 다시 누르세요',
-    unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다'}[st];
+    unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다',
+    local:'테일넷 주소로 열면 켤 수 있습니다'}[st];
   b.innerHTML=st==='on'?ic('bell'):ic('bell-off'); b.setAttribute('aria-label','브라우저 '+lab); b.setAttribute('aria-pressed',String(st==='on')); b.dataset.tip=lab+' — '+tip;
+  b.disabled=st==='local'; m.disabled=st==='local';
   m.textContent=st==='on'?'알림 끄기 (켜짐)':st==='off'?'알림 켜기':lab; m.dataset.tip=tip;}
 async function notifyToggle(){const st=notifyState();
-  if(st==='on'){savePrefs({notify:false}); drawNotify(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
+  if(st==='local'){toast('테일넷 주소로 열면 켤 수 있습니다','warn'); return;}
+  if(st==='on'){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
   if(st==='unsupported'){toast('브라우저 알림은 https 테일넷 주소나 http://127.0.0.1 에서만 됩니다','warn'); return;}
   if(st==='blocked'){toast('브라우저가 알림을 막았습니다 — 주소창 자물쇠 → 알림 → 허용으로 바꾼 뒤 다시 누르세요','warn'); return;}
   let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // 이 클릭 안에서만 묻는다
   if(pm!=='granted'){drawNotify(); toast(pm==='denied'?'알림을 허용하지 않아 켜지 않았습니다':'알림 허용을 고르지 않았습니다','warn'); return;}
   await notifyRegister(); savePrefs({notify:true});
   try{const d=(await api(dq('/api/meta?light=1'),{silent:true})).data; if(notifyCursor()==null)setNotifyCursor(d.ev_seq);}catch(e){}
-  drawNotify(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
+  drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
 // 알림을 누르면(서비스 워커 → postMessage, 또는 새 탭의 #doc=<키>&pin=<번호>) 그 문서로 바꿔 그 핀을 연다.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
 async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
@@ -6893,7 +6966,7 @@ function renderComposer(){const d=CUR; if(!d)return;
 // 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW==='question'?'질문: 무엇이 궁금한지 적습니다 (답이 이 핀의 스레드에 달립니다)':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
+  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
@@ -7038,12 +7111,21 @@ function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hi
   return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
     return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
 function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
+// [나를 부른 핀] 필터(references/design.md §@태그): 배지·pins.md 의 '→ @이름'과 같은 재료(p.addressed, 서버가
+// thread_round 로 지금 차례만 센다)를 쓴다 — 예전엔 스레드 전체를 훑어(threadOf(p).some(...)) 옛 차례의 @태그가
+// 다시 열려도 계속 '나를 부른 핀'으로 남는 결함이 있었다(실측). addressed_to() 는 질문 핀에서만 값이 있다.
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login==='local')return false;
-  return (p.mentions||[]).includes(me.login)||threadOf(p).some(m=>(m.mentions||[]).includes(me.login));}
+  return (p.addressed||[]).includes(me.login);}
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
   const me=META&&META.me&&META.me.login,mine=to.includes(me),others=to.filter(x=>x!==me);
   return (mine?'<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">'+ic('at-sign')+'나를 부름</span>':'')+
     (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+esc(others.map(peopleName).join(', '))+'</span>':'');}
+// 수정 요청 핀의 참고용 @태그(건너뛰지 않는다) — p.addressed(질문 핀 전용)와 갈라 p.fyi 에 따로 담아 보낸다.
+function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
+  return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+'참고 '+esc(to.map(peopleName).join(', '))+'</span>';}
+// 참조(ref)가 뜻이 있는 값인가 — '-'는 QA 스크립트·옛 호출이 "참조 없음" 자리채움으로 넣는 값이라 그대로 보이면
+// '닫음 · -' 처럼 의미 없는 글자가 뜬다(결함 실측). 빈 문자열·공백뿐인 값도 같이 가린다.
+function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
 // 긴 글은 6줄에서 접고 [더 보기](MSG_OPEN 에 'id:번째'). 글쓴이가 나면 '(나)'.
 const MSG_OPEN=new Set();
@@ -7051,7 +7133,7 @@ function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text|
   return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
     (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}
 function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> (나)</span>':'';
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(m.ref?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
     (m.text?msgBody(m,key):'')+'</div>';
   return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
@@ -7085,7 +7167,7 @@ function card(p){
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
-  const adr=addressedTag(p); if(adr)tags.push(adr);
+  const adr=addressedTag(p); if(adr)tags.push(adr); const fyi=fyiTag(p); if(fyi)tags.push(fyi);
   const rv=pinState(p)==='review';
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
@@ -7149,20 +7231,24 @@ function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(
 function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
   '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
 function doneCard(p){
-  const ref=p.close_ref?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
+  const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
   // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.
-  const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=tn&&ARC_OPEN.has('t:'+p.id);
+  // [다시 열기]는 review 카드와 같은 이유-입력 UI(openReply(id,'reopen'))를 쓴다(§스레드와 검토) — 이유 없이
+  // 곧장 다시 여는 옛 동작은 pins.md 에 '다시 열림'이 안 뜨고(서버는 reason 없어도 ev=reopen 은 남기지만)
+  // 에이전트가 무엇을 다시 봐야 하는지 스레드에 남지 않았다(결함 실측). 입력 칸을 보이려면 스레드를 펴 둔다.
+  const reopening=REPLY&&REPLY.id===p.id&&REPLY.mode==='reopen';
+  const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=(tn&&ARC_OPEN.has('t:'+p.id))||reopening;
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
     relSpan(p.done_at,'arc-t','닫은 사람 '+(who(p.closed_by)||'기록 전')+' · 닫은 시각')+'<span class="sp"></span>'+
-    '<button class="btn-sm arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
+    '<button class="btn-sm arc-b b-reopen" data-act="rv-reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
     (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
-    (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+'</div></div>':'')+'</div>';}
+    (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+(reopening?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
@@ -7382,16 +7468,19 @@ $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 // ------------------------------------------------ 답글·다시 열기 입력 칸(references/design.md §스레드와 검토)
 // 입력 칸은 하나만 연다. DOM 을 REPLY.el 에 들고 있다가 drawPins() 가 카드를 다시 그리면 .reply-slot 에 다시 끼운다 —
 // 5초 자동 동기화가 목록을 다시 그려도 쓰던 글·커서가 사라지지 않게(포커스도 되돌린다). mode 는 'reply' | 'reopen'(다시 여는 이유).
-function replyEl(mode){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
+function replyEl(mode,review){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
+  // 검토 대기 카드의 답글은 에이전트가 다시 집지 않는다(§검토 대기 — 다시 처리하지 않는다) — 자리표시글로
+  // 그 사실과 대안([다시 열기])을 알린다(결함 실측: 검토 대기 카드에 답글을 남겨도 에이전트가 못 보고 지나갔다).
   el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="'+(ro?'다시 여는 이유':'답글')+'" placeholder="'+
-    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
+    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
     '<button class="btn-sm btn-default" data-act="reply-send" data-tip="'+(ro?'이유를 스레드에 남기고 핀을 다시 엽니다':'답글을 스레드에 남깁니다')+'">'+(ro?'다시 열기':'보내기')+'</button></div>';
   return el;}
 function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
   if(REPLY&&REPLY.id===id&&REPLY.mode===mode){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
-  REPLY={id,mode,el:replyEl(mode)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
+  const p=findAnyPin(id),review=mode==='reply'&&!!p&&pinState(p)==='review';
+  REPLY={id,mode,el:replyEl(mode,review)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
   const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); mentionPreview(ta); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
