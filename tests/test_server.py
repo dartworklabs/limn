@@ -64,7 +64,7 @@ def js_thread() -> str:
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     return "\n".join([ev, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
         "isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "fmtText", "mentionsMe", "addressedTag")])
+        "peopleName", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
 def run_node(js: str, tz: str = None):
@@ -2921,23 +2921,25 @@ class RebuildLogDiet(Base):
 # ---------------------------------------------------------------- §P0c-G: 작성자 표시(필요할 때만)
 
 class AuthorPrefixInPinsMd(Base):
+    # 작성자 접두는 '[이름] ' 형식이다(§api.md 메모 앞 [작성자]) — '@이름: '이던 예전 모양은 @태그로 잘못
+    # 읽혔다(실측: pins.md 의 '@Alice Kim: …'가 멘션처럼 보임).
     def test_single_author_has_no_prefix(self):
         self.add(note="n", actor={"login": "alice@x.com", "name": "Alice"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Alice:", md)
+        self.assertNotIn("[Alice]", md)
 
     def test_multiple_authors_get_prefix(self):
         self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("@Alice: n1", md)
-        self.assertIn("@Bob: n2", md)
+        self.assertIn("[Alice] n1", md)
+        self.assertIn("[Bob] n2", md)
 
     def test_same_author_twice_does_not_trigger_prefix(self):
         self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
         self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Alice"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Alice:", md)
+        self.assertNotIn("[Alice]", md)
 
     def test_legacy_pin_without_author_counts_as_one_group(self):
         pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
@@ -2949,8 +2951,8 @@ class AuthorPrefixInPinsMd(Base):
         ps.write_pins(rows)
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("@Bob: n2", md)
-        self.assertNotIn("@None", md)
+        self.assertIn("[Bob] n2", md)
+        self.assertNotIn("[None]", md)
         self.assertIn("legacy", md)
 
     def test_closed_pins_excluded_from_author_count(self):
@@ -2959,7 +2961,7 @@ class AuthorPrefixInPinsMd(Base):
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("@Bob:", md)
+        self.assertNotIn("[Bob]", md)
 
 
 # ---------------------------------------------------------------- 뷰어 구조 — claim UI·log=1
@@ -5814,18 +5816,45 @@ class MentionsPeopleEvents(Base):
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
-        self.assertIn("| %d · 질문 · → @Alice Kim |" % a, row)
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람을 부른 핀이다", md)
+        self.assertIn("| %d · → @Alice Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람에게 물은", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
-    def test_addressed_counts_current_round_only(self):
-        r = {"mentions": [], "thread": [{"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
-                                        {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
-                                        {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
+    def test_addressed_counts_current_round_only_and_needs_question_kind(self):
+        r = {"kind_req": "question", "mentions": [],
+             "thread": [{"id": 1, "mentions": ["a"], "text": "", "at": "", "by": {}},
+                        {"id": 2, "ev": "close", "text": "", "at": "", "by": {}},
+                        {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
         self.assertEqual(ps.addressed_to(r), ["b"])
         self.assertEqual(ps.pin_mentions_all(r), ["a", "b"])
+        self.assertEqual(ps.fyi_mentions_to(r), [])       # 질문 핀은 fyi 가 아니라 addressed 로만 잡힌다
+        fix = dict(r, kind_req="fix")
+        self.assertEqual(ps.addressed_to(fix), [])         # 수정 요청 핀은 @태그가 있어도 건너뛰지 않는다
+        self.assertEqual(ps.fyi_mentions_to(fix), ["b"])   # 대신 참고용으로만 잡힌다
+
+    def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
+        # 결함 실측: 확인(confirm) 뒤 다시 열면 차례가 [confirm, reopen, ...] 로 시작해 '다시 열림' 표시가
+        # 빠졌다(옛 판정은 '차례의 첫 글이 reopen 인가'만 봤다). pin_reopened_in_round() 는 confirm 을 건너뛴다.
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        ps.confirm_pin(pid, dict(self.S))
+        ps.set_done(pid, False, dict(self.S), reason="다시 봐 주세요")
+        self.assertTrue(ps.pin_reopened_in_round(self.pin(pid)))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        self.assertIn("다시 열림", row)
+
+    def test_self_mention_never_becomes_addressed(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 셀프 태그",
+                          "kind_req": "question"}, dict(self.W))
+        p = self.pin(pid)
+        self.assertNotIn("mentions", p)                    # 자기 자신 @태그는 저장되지 않는다
+        self.assertEqual(ps.addressed_to(p), [])
+        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Alice Kim", dict(self.W))[1]
+        self.assertEqual(msg["mentions"], [self.S["login"]])  # 답글 글쓴이 자신(W)은 빠진다
 
     def test_mention_hints_validated(self):
         with self.assertRaises(ps.HTTPError):
@@ -5870,9 +5899,11 @@ class FrontendMentions(unittest.TestCase):
             const m=mentionMatches('won',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
             const t=ta('@Alice Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
             console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
-              mentionsMe({mentions:['s@x']}),mentionsMe({thread:[{mentions:['s@x']}]}),mentionsMe({mentions:['w@x']})]));""")
+              mentionsMe({addressed:['s@x']}),mentionsMe({addressed:['w@x']}),mentionsMe({mentions:['s@x'],thread:[{mentions:['s@x']}]})]));""")
         self.assertEqual(out, [[{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None], ["wo@x", "w@x"], False,
-                               ["w@x"], True, True, False])
+                               ["w@x"], True, False, False])
+        # mentionsMe 는 서버가 미리 계산한 p.addressed(질문 핀·현재 차례)만 본다 — 옛 mentions/thread 전체 훑기가 아니다
+        # (결함 실측: 옛 차례의 @태그가 다시 열려도 계속 '나를 부른 핀'으로 남았다).
 
     def test_wiring(self):
         h = ps.HTML
