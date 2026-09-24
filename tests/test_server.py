@@ -65,7 +65,7 @@ def js_thread() -> str:
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
     mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
     return "\n".join([ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
-        "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+        "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "assigneeOf", "assignChip", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
         "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
@@ -5171,6 +5171,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
+            const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
@@ -6049,10 +6050,73 @@ class MentionsPeopleEvents(Base):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
         self.assertIn("| %d · → @Alice Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람에게 물은", md)
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
+
+    # ---- 담당(assignee) — references/api.md §담당. 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43).
+    def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
+        legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W))
+        person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W))
+        agent = ps.add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
+                            "assignee": "agent"}, dict(self.W))
+        rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
+        self.assertNotIn("assignee", rows[legacy])                        # 옛 핀: 필드 없음 → #87 추론(수정 요청 = 참고)
+        self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
+        self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
+        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # 질문이어도 담당이 에이전트면 참고
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        line = lambda i: next(l for l in md.splitlines() if l.startswith("| %d " % i))
+        self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
+        self.assertIn("| %d · → @Bob Park |" % person, line(person))
+        self.assertIn("| %d · 참고 @Bob Park · 질문 |" % agent, line(agent))
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
+        self.assertIn("'→ @이름' = 담당이 사람인 핀", md)
+
+    def test_assignee_validation_and_events(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
+        for bad in ("nobody@x.com", "local", 3, ""):
+            code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
+            self.assertEqual(code, 400, bad)
+            self.assertTrue("assignee" in d["error"] or "담당" in d["error"], d)
+        code, d = self.post("/api/pin", dict(base, assignee=self.S["login"]), self.HW)
+        self.assertEqual(code, 200)
+        pid = d["id"]
+        self.assertEqual(self.pin(pid)["assignee"], self.S["login"])
+        self.assertEqual(sorted((e["type"], tuple(e["to"])) for e in self.events()),
+                         [("assigned", (self.S["login"],)), ("mention", (self.S["login"],))])   # 불린 사람은 알림도 받는다
+        self.assertNotIn("thread", self.pin(pid))                        # 만들 때의 담당은 스레드 기록이 아니다
+        # 담당을 에이전트로 바꾸면 ev=assign 이 남고 이벤트는 없다. 다시 사람으로 바꾸면 assigned.
+        n = len(self.events())
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "agent", "base_rev": 0}, self.HW)
+        self.assertEqual(code, 200)
+        p = self.pin(pid)
+        self.assertEqual((p["assignee"], p["thread"][-1]["ev"], p["thread"][-1]["text"]), ("agent", "assign", "담당: 에이전트"))
+        self.assertEqual(self.events()[n:], [])
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": self.S["login"], "base_rev": 1}, self.HW)
+        self.assertEqual(self.pin(pid)["thread"][-1]["text"], "담당: @Bob Park")
+        self.assertEqual([(e["type"], e["to"]) for e in self.events()[n:]], [("assigned", [self.S["login"]])])
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "ghost", "base_rev": 2}, self.HW)
+        self.assertEqual(code, 400)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("담당 바꿈(Alice Kim): 담당: @Bob Park", md)
+        self.assertIn("assigned", ps.NOTIFY_TYPES)
+
+    def test_legacy_pins_read_without_rewrite(self):
+        ps.record_person(dict(self.S))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W))
+        f = ps.C.pins_jsonl
+        before = f.read_bytes()
+        for _ in range(2):
+            ps.pins_payload(ps.snapshot_pins(), True)
+            self.talk(req("GET", "/api/pins?all=1"))
+            self.talk(req("GET", "/pins.md"))
+        self.assertEqual(f.read_bytes(), before)
+        self.assertNotIn("assignee", self.pin(pid))
 
     def test_addressed_counts_current_round_only_and_needs_question_kind(self):
         r = {"kind_req": "question", "mentions": [],
@@ -6116,7 +6180,7 @@ class FrontendMentions(unittest.TestCase):
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
             function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
             """] + [extract_js_fn(n) for n in ("peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe",
-                                               "mentionQuery", "mentionMatches", "mentionHints", "mentionScan")]
+                                               "mentionQuery", "mentionMatches", "mentionHints", "mentionScan", "defaultAssignee", "assignPeople")]
             + [script])
         return json.loads(run_node(js))
 
@@ -6150,9 +6214,36 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Alice Kim',new Set()), mentionScan('a@b.com',new Set()),
               mentionScan('@Alice 봐',new Set(['wo@x']))]));""")
-        self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"]})
-        self.assertEqual(out[1], {"hit": [], "bad": []})
+        self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"], "first": "s@x"})
+        self.assertEqual(out[1], {"hit": [], "bad": [], "first": None})
         self.assertEqual(out[2]["hit"][0], "wo@x")
+
+    def test_default_assignee_rules(self):
+        # 메모가 풀린 @태그로 시작하면 그 사람 · 아니면 질문 핀의 첫 @태그 · 아니면 에이전트. 나(s@x)는 고를 수 없다.
+        out = self.run_js(r"""
+            console.log(JSON.stringify([
+              defaultAssignee('@Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('  @Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이거 콜링 작동하나 @Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이 구간이 뭔가요 @Alice Kim','question',new Set()),
+              defaultAssignee('@Bob Park 메모','fix',new Set()),
+              defaultAssignee('@Bob Park @Alice Kim 뭔가요','question',new Set()),
+              defaultAssignee('@홍길동 확인','fix',new Set()),
+              defaultAssignee('그냥 메모','question',new Set()),
+              assignPeople('@Bob Park @Alice Kim 봐 주세요',new Set()),
+              assignPeople('메모',new Set(),'k@x')]));""")
+        self.assertEqual(out, ["w@x", "w@x", "agent", "w@x", "agent", "w@x", "agent", "agent", ["w@x"], ["k@x"]])
+
+    def test_assign_controls_in_composer_edit_and_card(self):
+        h = ps.HTML
+        self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
+        self.assertIn("'<div class=\"e-assign assign-row\" role=\"radiogroup\" aria-label=\"담당\" hidden></div>'", h)
+        self.assertIn("body.assignee=ASSIGN_NEW.v||'agent';", extract_js_fn("savePin"))
+        self.assertIn("if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit"))
+        self.assertIn("assignChip(p)+thn+au", extract_js_fn("card"))
+        self.assertIn("const adr=p.assignee?'':addressedTag(p);", extract_js_fn("card"))
+        self.assertIn("assigned:5", h)
+        self.assertIn("assign:'담당 바꿈'", h)
 
     def test_preview_row_under_every_mention_field(self):
         h = ps.HTML

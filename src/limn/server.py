@@ -131,12 +131,15 @@ CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, ma
 KIND_REQS = ("fix", "question")    # 없으면 fix — 옛 핀은 모두 수정 요청이다
 THREAD_TEXT_MAX = 1000             # 답글 한 건 — 메모(NOTE_MAX)처럼 문자열·길이만 보고 화면에서 esc() 로 그린다
 THREAD_MAX = 200                   # 핀 하나의 스레드 상한(답글). 상태 전환 기록(닫기·다시 열기·확인)은 상한과 무관하게 붙는다
-THREAD_EVENTS = ("close", "reopen", "confirm")
+THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
+# 담당(references/api.md §담당). 누가 이 핀을 처리하나 — "agent" 또는 사람 로그인. 없으면 옛 핀이라 addressed_to() 의 추론(질문 핀의
+# @태그)을 그대로 쓴다. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43: 수정 요청 핀의 '@서준 확인 부탁'이 사람에게 맡긴 것).
+ASSIGNEE_AGENT = "agent"
 # @태그(references/api.md §@태그·사람·이벤트). 뷰어 안에서만 부른다 — 바깥 알림은 보내지 않고 events.jsonl 에 적어 둔다.
 MENTION_MAX = 10                   # 글 하나의 mentions 힌트 개수 상한
 PEOPLE_TOUCH_S = 600               # people.json 의 last_seen 을 이 간격보다 자주 다시 쓰지 않는다(폴링마다 쓰지 않게)
 EVENTS_KEEP = 5000                 # events.jsonl 에 남기는 최근 이벤트 수. seq 는 계속 오른다(소비자는 seq 로 따라온다)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened")
+EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
 GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
 REVISION_DIFF_MAX = 256 * 1024     # 응답·메모리 상한. 큰 변경은 저장소에서 검토한다.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
@@ -2615,6 +2618,8 @@ def valid_rec(r) -> bool:
         return False
     if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
         return False
+    if r.get("assignee") is not None and not (isinstance(r["assignee"], str) and r["assignee"]):
+        return False
     if r.get("thread") is not None and not _valid_thread(r["thread"]):
         return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
@@ -3091,6 +3096,35 @@ def clean_close_body(d: dict) -> tuple:
     return reply, ref
 
 
+def clean_assignee(v, rows: list = None):
+    """담당 — "agent" 또는 이 뷰어가 아는 사람(known_people)의 로그인. 없으면 None(보내지 않음 = 그대로)."""
+    if v is None:
+        return None
+    if v == ASSIGNEE_AGENT:
+        return v
+    if not isinstance(v, str) or not v or v == LOCAL_ACTOR["login"]:
+        raise HTTPError(400, "assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.")
+    if v not in known_people(rows):
+        raise HTTPError(400, "담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v)
+    return v
+
+
+def _set_assignee(r: dict, value, actor: dict, evs: list, record: bool) -> None:
+    """담당을 바꾼다. 바뀌면(record=True 일 때) 스레드에 ev=assign 한 줄을 남기고, 사람이 새로 담당이 되면 assigned 이벤트를 쌓는다."""
+    if value is None or r.get("assignee") == value:
+        return
+    before = r.get("assignee")
+    r["assignee"] = value
+    if record:
+        _thread_append(r, actor, "담당: " + ("에이전트" if value == ASSIGNEE_AGENT else "@" + _person_name(value)), ev="assign")
+    if value != ASSIGNEE_AGENT and value != before:
+        evs.append(make_event("assigned", r, actor, [value], text=r.get("note")))
+
+
+def _person_name(login: str) -> str:
+    return (known_people().get(login) or {}).get("name") or login
+
+
 def clean_kind_req(v):
     """핀 종류 — 'fix'(수정 요청) | 'question'(질문). 없으면 None(= fix, 옛 핀과 같다)."""
     if v is None:
@@ -3243,6 +3277,7 @@ def add_pin(d: dict, actor: dict) -> int:
     note = clean_note(body.get("note"))
     kind_req = clean_kind_req(d.get("kind_req"))
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))
     if "kind" not in rec:
         rec["kind"] = "lines"
     f = Path(rec["file"])
@@ -3257,6 +3292,7 @@ def add_pin(d: dict, actor: dict) -> int:
         if kind_req:
             rec["kind_req"] = kind_req
         _set_note_mentions(rec, rows, hints, actor, evs)
+        _set_assignee(rec, assignee, actor, evs, record=False)
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
         # frac 이 어느 빌드의 레이아웃 좌표인지를 빌드 신원으로 못박는다(§위치 추정). 뷰어는 pick 응답의
@@ -3280,6 +3316,7 @@ def _add_region_pin(d: dict, actor: dict) -> int:
     note = clean_note(d.get("note"))
     kind_req = clean_kind_req(d.get("kind_req"))
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))
     evs = []
 
     def fn(rows):
@@ -3293,6 +3330,7 @@ def _add_region_pin(d: dict, actor: dict) -> int:
         rec["doc"] = D.key
         rec["rev"] = 0
         _set_note_mentions(rec, rows, hints, actor, evs)
+        _set_assignee(rec, assignee, actor, evs, record=False)
         rows.append(rec)
         return rec["id"], True
     with PIN_LOCK:
@@ -3329,14 +3367,16 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         raise HTTPError(400, "kind 가 올바르지 않습니다.")
     kind_req = clean_kind_req(d.get("kind_req"))   # 핀 종류(수정 요청/질문) — 닫힌 핀에서도 바꿀 수 있는 메모 수준 값
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))   # 담당 — kind_req 처럼 닫힌 핀에서도 바꿀 수 있다. 바뀌면 스레드에 ev=assign
     evs = []
     base_given = "base_rev" in d
     if not base_given and note_append is None:
         raise HTTPError(400, "base_rev 가 필요합니다(카드를 열 때 받은 rev).")
     base = _int(d["base_rev"], "base_rev") if base_given else None
     moves = loc is not None or lo is not None or hi is not None
-    if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None):
-        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req).")
+    if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None
+            or assignee is not None):
+        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).")
     # 위치 검증·기본 빌드는 그 핀의 문서 기준이다(요청이 ?doc= 를 안 붙여도). 핀의 종류(LaTeX/보기 전용)는 바뀌지 않는다.
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
@@ -3422,6 +3462,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             r["kind_req"] = kind_req
         if has_note or note_append is not None:
             _set_note_mentions(r, rows, hints, actor, evs)
+        _set_assignee(r, assignee, actor, evs, record=True)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
         r["rev"] = int(r.get("rev") or 0) + 1
@@ -3638,6 +3679,9 @@ def addressed_to(r: dict) -> list:
     답해야 끝나는 것이 아니므로 여기 안 넣는다 — fyi_mentions_to() 가 그쪽을 맡는다(실측: FYI로 사람을
     태그한 수정 요청 핀이 '→ @이름'으로 잡혀 에이전트가 영영 건너뛰었다). 닫고 다시 열린 핀은 옛 차례의
     글을 세지 않는다(thread_round)."""
+    a = r.get("assignee")
+    if a:                                   # 담당이 정해진 핀: 사람이면 그 사람에게 맡긴 것, 에이전트면 아무도 부르지 않았다
+        return [] if a == ASSIGNEE_AGENT else [a]
     if r.get("kind_req") != "question":
         return []
     return _round_mentions(r)
@@ -3645,7 +3689,10 @@ def addressed_to(r: dict) -> list:
 
 def fyi_mentions_to(r: dict) -> list:
     """수정 요청(kind_req != question) 핀에서 참고로 부른 사람 — 건너뛰지 않는다, pins.md 에 '참고 @이름'으로만
-    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀)."""
+    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀). 담당이 정해진 핀은 담당이 아닌 @태그 전부가 참고다."""
+    if r.get("assignee"):
+        to = addressed_to(r)
+        return [lg for lg in _round_mentions(r) if lg not in to]
     if r.get("kind_req") == "question":
         return []
     return _round_mentions(r)
@@ -3728,7 +3775,7 @@ def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> No
     evs.append(make_event("mention", r, actor, [lg for lg in new if lg not in old], text=r.get("note")))
 
 
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened")
+NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
 EVENTS_SINCE_MAX = 20
 
 
@@ -4147,8 +4194,8 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
           "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "'질문' = 고칠 곳이 아니라 물음이다, 답글(reply)로 답하고 닫는다 · "
           "'다시 열림' = 검토에서 되돌아온 핀, 메모 칸의 '다시 연 이유'대로 다시 고친다 · "
-          "'→ @이름' = 사람에게 물은 질문 핀, 사용자가 따로 시키지 않으면 건너뛴다 · "
-          "'참고 @이름' = 수정 요청 핀에 딸린 참고용 태그일 뿐이다, 건너뛰지 않는다 · "
+          "'→ @이름' = 담당이 사람인 핀(담당 없는 옛 핀은 사람에게 물은 질문 핀), 사용자가 따로 시키지 않으면 건너뛴다 · "
+          "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 THREAD_MD_SHOW = 3                 # pins.md 메모 칸에 싣는 지금 차례 스레드 글 수(뒤에서부터)
 THREAD_MD_CHARS = 200              # 그 글 하나의 글자 수 — 전부는 GET /api/pins/N
@@ -4169,7 +4216,7 @@ def thread_md(r: dict) -> str:
     parts = []
     for m in shown:
         name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
-        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else name
+        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else "담당 바꿈(%s)" % name if m.get("ev") == "assign" else name
         parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS)))
     more = len(msgs) - len(shown)
     head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
@@ -4234,13 +4281,12 @@ def pins_md_text(rows: list, base: str = None) -> str:
         if pin_reopened_in_round(r):
             syms.append("다시 열림")
         to = addressed_to(r)
-        if to:                                    # 질문 핀이 사람을 불렀다 — 에이전트는 건너뛴다(요청한 사용자가 따로 시키면 예외)
+        if to:                                    # 사람에게 맡긴 핀(담당 = 사람, 또는 옛 핀의 질문 @태그) — 에이전트는 건너뛴다
             n_human += 1
             syms.append("→ " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in to))
-        else:
-            fyi = fyi_mentions_to(r)
-            if fyi:                                # 수정 요청 핀의 참고용 @태그 — 건너뛰지 않는다
-                syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
+        fyi = fyi_mentions_to(r)
+        if fyi:                                    # 참고용 @태그 — 알림만 갔다, 건너뛰지 않는다
+            syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
         if r.get("kind_req") == "question":
             syms.append("질문")
         badge = rel_badge(rel.get(r["id"], []), by_id, r)
@@ -4306,8 +4352,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다 · "
                 "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403" % (base, base))
     if n_human:
-        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 사람에게 물은 질문 핀이다 — 요청한 사용자가 그 핀을 "
-                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 수정 요청 핀의 참고용 태그일 뿐이라 건너뛰지 않는다)" % n_human)
+        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 담당이 사람인 핀이다 — 요청한 사용자가 그 핀을 "
+                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 알림만 간 참고용 태그라 건너뛰지 않는다)" % n_human)
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
     if C.repo:
@@ -4980,6 +5026,12 @@ button.b-close{font-weight:600}
   -webkit-box-decoration-break:clone;box-decoration-break:clone}
 /* 풀린 @태그 = 주 색 글자 + 옅은 틴트 알약(Slack·GitHub 처럼). 나를 부른 태그는 한 단계 진하다. 풀리지 않은 '@말'은 평문이다. */
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
+.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 1 auto;min-width:0;max-width:10em;overflow:hidden;text-overflow:ellipsis}
+.badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
+.assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:6px}
+.assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
+.assign-row .as-seg{flex:1;min-width:0;margin:0}
+body.lay-narrow #c-assign{order:1;margin:0 0 8px}
 .mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
 .m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:6px;font-size:var(--text-sm)}
 .m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
@@ -5391,7 +5443,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -6137,7 +6189,7 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
 // localStorage 에 둬 새로고침·탭 두 개가 같은 이벤트를 두 번 알리지 않는다. 표시는 늘 서비스 워커의 showNotification()(안드로이드
 // 크롬은 new Notification() 을 막는다), tag 는 핀 번호라 같은 핀은 한 칸으로 겹친다. 탭이 보이고 포커스가 있으면 알림 대신 토스트.
 // 보안 컨텍스트(https 테일넷 주소, http://127.0.0.1·localhost)에서만 된다 — 다른 호스트의 plain http 는 브라우저가 막는다.
-const NOTIFY_RANK={mention:4,reopened:3,review_requested:2,replied:1};
+const NOTIFY_RANK={assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
 let SW_REG=null;
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
 function notifyPerm(){return 'Notification' in window?Notification.permission:'unsupported';}
@@ -6154,7 +6206,7 @@ function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||l
   return Array.from(by.values()).sort((a,b)=>a.seq-b.seq);}
 function notifyText(e){const nm=who(e.by)||'누군가',ex=String(e.excerpt||'').split('\n')[0].slice(0,80);
   const body={mention:nm+'님이 불렀습니다: '+ex,review_requested:'검토 대기: '+(ex||'설명 없이 닫힘'),
-    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:'')}[e.type]||ex;
+    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:''),assigned:nm+'님이 담당으로 지정했습니다: '+ex}[e.type]||ex;
   return {title:'핀 #'+e.pin+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)},{keys:[e.type+':'+e.pin],rank:2});return;}
@@ -6966,9 +7018,9 @@ function renderComposer(){const d=CUR; if(!d)return;
 // 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
+  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew();}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; mentionPreview($('#note')); setKind('fix');}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
@@ -7003,6 +7055,7 @@ async function savePin(){
   body.doc=d.doc||DOC||undefined;
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
+  renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // 뷰어가 만든 핀은 늘 담당을 적는다(없으면 옛 핀의 추론 규칙)
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
     toast((q?'질문 #':'핀 #')+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
@@ -7081,6 +7134,13 @@ function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p
 // 스레드(references/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
 // wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
+// 지금 담당 — 적힌 값(p.assignee), 없는 옛 핀은 서버가 추론한 사람(p.addressed 의 첫 사람), 그것도 없으면 에이전트.
+function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
+// 카드 머리의 담당 칩: 담당이 사람일 때만(에이전트는 기본이라 표시하지 않는다). 작성자(또는 신원 없는 로컬 화면)는 눌러 [수정]에서 바꾼다.
+function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+peopleName(p.assignee);
+  const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
+  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</button>'
+    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</span>';}
 // 상태 점(references/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
@@ -7126,7 +7186,7 @@ function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
 // 참조(ref)가 뜻이 있는 값인가 — '-'는 QA 스크립트·옛 호출이 "참조 없음" 자리채움으로 넣는 값이라 그대로 보이면
 // '닫음 · -' 처럼 의미 없는 글자가 뜬다(결함 실측). 빈 문자열·공백뿐인 값도 같이 가린다.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
-const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
+const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담당 바꿈'};
 // 긴 글은 6줄에서 접고 [더 보기](MSG_OPEN 에 'id:번째'). 글쓴이가 나면 '(나)'.
 const MSG_OPEN=new Set();
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
@@ -7167,7 +7227,7 @@ function card(p){
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
-  const adr=addressedTag(p); if(adr)tags.push(adr); const fyi=fyiTag(p); if(fyi)tags.push(fyi);
+  const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // 담당이 적힌 핀은 머리의 담당 칩이 같은 말을 한다 const fyi=fyiTag(p); if(fyi)tags.push(fyi);
   const rv=pinState(p)==='review';
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
@@ -7179,7 +7239,7 @@ function card(p){
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
-    '<span class="sp"></span>'+thn+au+
+    '<span class="sp"></span>'+assignChip(p)+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     '<div class="note">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
@@ -7195,7 +7255,7 @@ function card(p){
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
-    '<span class="sp"></span>'+thn+au+
+    '<span class="sp"></span>'+assignChip(p)+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
@@ -7425,15 +7485,37 @@ function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // 입력 칸 아래 한 줄: 저장하면 알림이 갈 사람(풀린 @이름)과 풀리지 않을 '@말'(등록된 사람이 아님). textarea 안은 색을 칠할 수 없어
 // 여기서 미리 보인다 — 저장 전에 부른 것이 실제로 알림이 되는지 안다. 규칙은 서버 resolve_mentions() 와 같다(fmtText 주석).
 function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(PEOPLE.map(p=>p.login)).map(x=>({t:x.t.toLowerCase(),lg:x.lg}));
-  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set();
+  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
   for(let i=0;i<text.length;i++){if(text[i]!=='@'||(i>0&&/[0-9A-Za-z가-힣._-]/.test(text[i-1])))continue;
     const rest=low.slice(i+1); let got=null;
     for(const x of toks){const t=x.t.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
       if(!rest.startsWith(t))continue; const nx=rest.charAt(t.length); if(/[a-z0-9]$/.test(t)&&/[a-z0-9_]/.test(nx))continue;
       const all=toks.filter(y=>y.t===x.t).map(y=>y.lg),pick=all.length===1?all:all.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
-    if(got)got.forEach(l=>{if(!hit.includes(l))hit.push(l);});
+    if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
-  return {hit,bad};}
+  return {hit,bad,first};}
+// 담당(references/design.md §담당): 누가 이 핀을 처리하나. 기본값 — 메모가 풀린 @태그로 시작하면 그 사람, 아니면 질문 핀의 첫
+// @태그, 아니면 에이전트. 나는 고를 수 없다(서버가 나를 부른 태그를 빼듯이). @태그가 없으면 고를 것도 없다(에이전트).
+function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
+  if(r.first&&r.first!==me)return r.first; if(kind==='question'&&hit.length)return hit[0]; return 'agent';}
+function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
+  if(keep&&keep!=='agent'&&!out.includes(keep))out.push(keep); return out;}
+function assignSeg(people,value,act){if(!people.length)return '';
+  const opt=(v,label,tip)=>'<button type="button" role="radio" data-act="'+act+'" data-v="'+esc(v)+'" aria-checked="'+(v===value)+'"'+(v===value?' class="on"':'')+
+    ' data-tip="'+esc(tip)+'">'+label+'</button>';
+  return '<span class="as-lab">담당</span><div class="seg as-seg">'+opt('agent','에이전트','에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다')+
+    people.map(l=>opt(l,'@'+esc(peopleName(l)),peopleName(l)+'에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다')).join('')+'</div>';}
+// 작성 패널의 담당: 사용자가 고르기 전(touched=false)에는 메모가 바뀔 때마다 기본값을 다시 고른다. 고른 사람이 메모에서 빠지면 기본값으로.
+const ASSIGN_NEW={v:'agent',touched:false};
+function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
+  const ppl=assignPeople(ta.value,ta._mentions);
+  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!=='agent'&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,ta._mentions); ASSIGN_NEW.touched=false;}
+  if(!ppl.length){ASSIGN_NEW.v='agent'; box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
+function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
+  const ppl=assignPeople(ta.value,ta._mentions,E.assignee);
+  if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,ta._mentions),me=meLogin();
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
@@ -7453,9 +7535,11 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   pop.style.top=Math.max(4,below?r.bottom+4:r.top-4-h)+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);}
+  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);
+  if(ta.id==='note')renderAssignNew(); else if(ta.classList.contains('e-note'))renderAssignEdit();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);}});
+document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);
+  if(e.target.id==='note')renderAssignNew(); else if(e.target.classList.contains('e-note'))renderAssignEdit();}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
@@ -7505,6 +7589,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
     '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
     '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
+    '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
@@ -7518,14 +7603,15 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
   const ta=el.querySelector('.e-note'); ta.value=p.note||''; ta._mentions=new Set(p.mentions||[]); autoGrow(ta); mentionPreview(ta);
   EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
-    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix'},
+    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix',assignee:assigneeOf(p)},
+    assignee:assigneeOf(p),
     doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?'question':'fix'};
   if(EDIT.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
 // 편집 칸에 저장 안 한 변경이 있는가(문서를 바꿀 때 편집을 닫아도 되는지).
 function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelector('.e-note');
-  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req;}
+  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req||E.assignee!==E.orig.assignee;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.classList.contains('r-text')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
@@ -7543,12 +7629,13 @@ function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
   el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false);}
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();}
 function cancelEdit(){EDIT=null; drawPins();}
 async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
+  if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;
   if(body.note!==undefined){const mh=mentionHints(E.el.querySelector('.e-note')); if(mh.length)body.mentions=mh;}
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(E.scope||null)!==(E.orig.scope||null)){body.lo=E.lo;body.hi=E.hi;
     if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
@@ -7559,7 +7646,7 @@ async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
       if(data&&data.error==='done'){toast('핀 #'+E.id+' 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다','warn'); EDIT=null; await loadPins(); return;}
       const p=data.pin; toast('다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다','warn');
       E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file;
-      E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''}; editSnip(true); await loadPins(); return;}
+      E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true); await loadPins(); return;}
     EDIT=null; toast('핀 #'+E.id+' 수정됨','ok'); await loadPins();
   }catch(e){} finally{ESAVING=false;}
 }
@@ -7681,6 +7768,8 @@ document.addEventListener('click',e=>{
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(+a.dataset.i);break;
     case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
+    case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); break;
+    case 'assign-edit':if(EDIT){EDIT.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
     case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
