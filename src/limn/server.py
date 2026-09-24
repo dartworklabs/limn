@@ -5211,7 +5211,8 @@ body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
 body.view-only #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;border-color:var(--border);max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .dchip.other{border-style:dashed}
-.list-head{display:flex;align-items:center;gap:var(--space-2);margin:0 0 7px}
+.list-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0 0 7px}
+.list-head h3,.list-head button{white-space:nowrap}
 .list-head h3{margin:0}
 #docs-menu{margin:auto auto 0;width:100%;max-width:560px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:10px 12px calc(12px + env(safe-area-inset-bottom))}
 #docs-menu .dm-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
@@ -7019,7 +7020,9 @@ function droppedCard(p){
     '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
     '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
-async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data; if(Array.isArray(r.people))PEOPLE=r.people;}catch(e){}}
+// 사람 목록이 바뀌면(새 사람·이름) 목록을 다시 그린다 — 첫 그리기는 이름 대신 로그인으로 보일 수 있다.
+async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
+  if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}
 async function loadPins(){let d;
   try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
   loadPeople();
