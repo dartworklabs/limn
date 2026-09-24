@@ -33,7 +33,7 @@
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, build-sync §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}` — `GET /api/pins?all=1` 한 항목과 같은 모양(스레드 전부·계산 필드 포함). 없으면 `404` |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?}` → `{ok, pin, msg}` — §스레드 |
-| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료 → `{ok, pin, state}` — §검토 대기 |
+| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료(사람만, 아니면 403) → `{ok, pin, state}` — §검토 대기 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없다 — 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?}], me}` — §@태그·사람·이벤트. 쓰기 없음 |
 | `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(build-sync §자동 동기화)이 이것을 쓴다 |
@@ -115,8 +115,8 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | 닫기 | 신원 헤더 없음(로컬 curl·에이전트, 헤더 없는 태그 장치) | `done:true` + `review:true` = **검토 대기** |
 | 닫기 | 테일넷 사람(헤더 있음) | `done:true` = 완료(그 사람이 검토자다) |
 | 닫기 | 본문 `"review": true`/`false` | 그 값을 따른다 — 테일넷 주소로 닫는 원격 에이전트는 `true` 를 보낸다 |
-| `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`). 누구나 누를 수 있다 — 뷰어는 작성자를 권할 뿐이다 |
-| `POST /confirm` | 완료 / 열림 / 없음 | 그대로 `{ok:true}`(멱등) / `409 {"error":"open"}` / `200 {"ok":false}` |
+| `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`). **사람만** 누를 수 있다 — 신원 헤더 없는 요청(에이전트·로컬 curl)은 `403 {"error":"확인은 사람이 합니다"}`(뷰어는 작성자를 권할 뿐, 아무 테일넷 사람이나 누를 수 있다) |
+| `POST /confirm` | 완료 / 열림 / 없음(사람 신원) | 그대로 `{ok:true}`(멱등) / `409 {"error":"open"}` / `200 {"ok":false}` |
 | `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen`(선택 `{"reason"}` ≤1000자가 글) |
 
 - **하위 호환**: 검토 대기가 `done:true` 라서 옛 계약이 그대로 선다 — `GET /api/pins`(열린 핀만)에 없고, `claim` 은 `409 done`, 줄 맞춤·겹침 계산은 건너뛰고, 옛 서버·옛 탭은 완료로 본다. `review` 가 없는 옛 `done:true` 는 완료다. 읽을 때 이관 쓰기를 하지 않는다.

@@ -3862,9 +3862,13 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
 
 
 def confirm_pin(pid: int, actor: dict):
-    """검토 대기 → 완료. 누구나 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델). confirmed_by·confirmed_at 을 남기고
-    스레드에 ev=confirm 을 붙인다. 이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open.
-    없는 id 는 None."""
+    """검토 대기 → 완료. **사람만** 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델. 신원 헤더 없는
+    요청(에이전트·로컬 curl)은 403 — 검토 대기는 애초에 에이전트가 닫은 핀을 사람이 봤다는 기록이라, 에이전트가
+    스스로 확인하면 그 취지가 무너진다). confirmed_by·confirmed_at 을 남기고 스레드에 ev=confirm 을 붙인다.
+    이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open. 없는 id 는 None."""
+    if is_agent(actor):
+        raise HTTPError(403, "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요.")
+
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -4294,7 +4298,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
                 "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다 · "
                 "에이전트가 닫은 핀은 완료가 아니라 검토 대기로 간다(사람이 뷰어에서 [확인]) — 테일넷 주소로 닫는 에이전트는 "
-                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다" % (base, base))
+                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다 · "
+                "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403" % (base, base))
     if n_human:
         guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 사람에게 물은 질문 핀이다 — 요청한 사용자가 그 핀을 "
                      "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 수정 요청 핀의 참고용 태그일 뿐이라 건너뛰지 않는다)" % n_human)

@@ -5538,20 +5538,33 @@ class ReviewState(Base):
     def test_confirm_and_idempotence(self):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
-        code, d = self.post("/api/pins/%d/confirm" % pid, None, {"Tailscale-User-Login": self.W["login"],
-                                                                 "Tailscale-User-Name": self.W["name"]})
+        W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
         p = self.pin(pid)
         self.assertEqual(p["confirmed_by"], self.W)                   # 작성자가 아니어도 확인할 수 있다
         self.assertTrue(p["confirmed_at"])
         self.assertEqual(p["thread"][-1]["ev"], "confirm")
         rev = p["rev"]
-        code, d = self.post("/api/pins/%d/confirm" % pid)
+        code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # 이미 완료 — 그대로
-        code, d = self.post("/api/pins/%d/confirm" % self.add())
+        code, d = self.post("/api/pins/%d/confirm" % self.add(), None, W)
         self.assertEqual((code, d["error"]), (409, "open"))
-        code, d = self.post("/api/pins/999/confirm")
+        code, d = self.post("/api/pins/999/confirm", None, W)
         self.assertEqual((code, d["ok"]), (200, False))
+
+    def test_agent_cannot_confirm(self):
+        # 결함 실측: 신원 헤더 없는(에이전트/로컬 curl) 요청이 /confirm 을 성공시켰다 — 검토 대기는 '사람이
+        # 봤다'는 기록이라 에이전트 스스로의 확인은 그 취지를 무너뜨린다.
+        pid = self.add()
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
+        code, d = self.post("/api/pins/%d/confirm" % pid)             # 헤더 없음 = 에이전트
+        self.assertEqual(code, 403)
+        self.assertIn("확인은 사람이 합니다", d.get("error", ""))
+        self.assertEqual(ps.pin_state(self.pin(pid)), "review")       # 상태는 바뀌지 않는다
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.confirm_pin(pid, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(cm.exception.code, 403)
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
