@@ -5002,7 +5002,7 @@ button.badge-review{font-weight:600}
 .pin .head{flex-wrap:nowrap;gap:var(--space-2);min-height:28px}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
-.pin .head .au{flex:none}
+.pin .head .au{flex:0 1 auto;min-width:22px;overflow:hidden}   /* 좁으면 작성자 이름이 먼저 줄어든다(담당 칩·줄 범위는 그대로) */
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:4px}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
@@ -5026,7 +5026,7 @@ button.b-close{font-weight:600}
   -webkit-box-decoration-break:clone;box-decoration-break:clone}
 /* 풀린 @태그 = 주 색 글자 + 옅은 틴트 알약(Slack·GitHub 처럼). 나를 부른 태그는 한 단계 진하다. 풀리지 않은 '@말'은 평문이다. */
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
-.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 1 auto;min-width:0;max-width:10em;overflow:hidden;text-overflow:ellipsis}
+.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:9em;overflow:hidden;text-overflow:ellipsis;justify-content:flex-start}
 .badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
 .assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:6px}
 .assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
@@ -5070,7 +5070,8 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
 .arc-thread{margin:4px 0 0 var(--space-5)}   /* 들여쓰기만 — 상자 없음 */
 .arc-thread .thread{margin:0;padding:0;border:0}
-.edit .c-tools{margin-top:0}
+.edit .c-tools{margin-top:0;flex-wrap:wrap}
+.edit .c-tools .e-range{white-space:nowrap}   /* 줄 범위가 글자마다 꺾이지 않게 — 자리가 모자라면 줄째 아래로 */
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
 .au{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
 .au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -7137,7 +7138,7 @@ function isQuestion(p){return !!p&&p.kind_req==='question';}
 // 지금 담당 — 적힌 값(p.assignee), 없는 옛 핀은 서버가 추론한 사람(p.addressed 의 첫 사람), 그것도 없으면 에이전트.
 function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
 // 카드 머리의 담당 칩: 담당이 사람일 때만(에이전트는 기본이라 표시하지 않는다). 작성자(또는 신원 없는 로컬 화면)는 눌러 [수정]에서 바꾼다.
-function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+peopleName(p.assignee);
+function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // 칩은 이름 첫 단어, 전체 이름은 설명에
   const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
   return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</button>'
     :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</span>';}
