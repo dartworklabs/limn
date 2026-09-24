@@ -3005,7 +3005,7 @@ class FrontendMobileStructure(unittest.TestCase):
 
     def test_rebuild_label_is_short_everywhere(self):
         self.assertIn('data-act="rebuild"', ps.HTML)
-        self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*>PDF 재빌드</button>')
+        self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*aria-label="PDF 재빌드"[^>]*><svg class="ic ic-refresh-cw"[^>]*>(?:(?!</svg>).)*</svg><span class="lbl">PDF 재빌드</span></button>')
         self.assertNotIn("다시 만들기", ps.HTML)
         self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
         skill = SKILL
@@ -3064,7 +3064,10 @@ class FrontendMobileStructure(unittest.TestCase):
     def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
-        self.assertIn("if(touchRecent())return; armTip(", ps.HTML)
+        self.assertIn("if(touchRecent()||MQ_NOHOVER.matches)return; armTip(", ps.HTML)
+        # 호버 없는 기기에서는 포커스 툴팁도 띄우지 않는다(QA 폰: 탭 뒤 설명이 목록 위에 남았다). 카드 전체에는 설명을 달지 않는다.
+        self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", ps.HTML)
+        self.assertNotIn('data-doc="\'+esc(pdoc(p))+\'" data-tip="\'+tip+\'"', extract_js_fn("card"))
         self.assertIn("document.addEventListener('contextmenu'", ps.HTML)
 
     def test_keyboard_and_resize_hooks(self):
@@ -3382,13 +3385,13 @@ class FrontendMobileLogic(unittest.TestCase):
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
-            const sum=s=>(/<span class="sum" data-act="card-toggle">([^<]*)<\/span>/.exec(s)||[])[1];
+            const sum=s=>(/<div class="sum" data-act="card-toggle">((?:[^<]|<span class="dim">|<\/span>)*)<\/div>/.exec(s)||[])[1];
             console.log(JSON.stringify([sum(a), / open"/.test(a), sum(b), / open"/.test(b), /class="tags"/.test(a),
               /data-act="card-toggle" aria-expanded="false"/.test(a), /aria-expanded="true"/.test(b)]));
             """,
         ])
         self.assertEqual(json.loads(run_node(js)),
-                         ["첫 줄 &lt;b&gt;", False, "(메모 없음)", True, True, True, True])
+                         ["첫 줄 &lt;b&gt;", False, '<span class="dim">(메모 없음)</span>', True, True, True, True])
 
 
 # 패널 정리·폭 조절(references/design.md §패널 정리와 폭 조절). 실측은 Playwright(펼친 화면 880×790·접은 화면 412×915·
@@ -3824,9 +3827,15 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
-    def test_navigation_text_is_dotted_and_pending_looks_pending(self):
-        self.assertIn(".pin .n.go{text-decoration:underline dotted;", self.css)
-        self.assertIn(".pin-ref{color:inherit;font-weight:600;cursor:pointer;text-decoration:underline dotted;", self.css)
+    def test_references_share_one_link_style_and_pending_looks_pending(self):
+        # 링크 한 벌(QA 2026-09-24): #번호·줄 범위·N쪽·글 속 #12 는 같은 모양 — 주 색, 쉴 때 밑줄 없음, 가리키면 실선 밑줄.
+        # 예전에는 굵은 점선 · 파랑 · 회색 점선 세 모양이었다. 점선 밑줄은 이제 '풀리지 않은 @말'(.mention-bad)만 쓴다.
+        self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
+        self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}", self.css)
+        for rule in (".pin .n.go{cursor:pointer;color:var(--primary);", ".pin-ref{color:var(--primary);", ".pg-link{color:var(--primary);"):
+            self.assertIn(rule, self.css)
+        dotted = [r for r in re.findall(r"[^{}]+\{[^}]*underline dotted[^}]*\}", self.css)]
+        self.assertEqual([r.split("{")[0].strip() for r in dotted], [".mention-bad"])
         self.assertIn("button[data-pending]{cursor:progress;", self.css)
 
 
@@ -5134,16 +5143,17 @@ class FrontendToolbarSize(unittest.TestCase):
 
     def test_page_field_matches_toolbar_buttons(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn("#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2) 10px;--tb-h:var(--control-h)}", css)
+        self.assertIn("#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}", css)
         self.assertIn("--control-h:28px", css)
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
-        self.assertIn("#bar1 input.n{width:40px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
+        # '쪽' 한 글자 칸은 버튼처럼 읽혔다(QA 2026-09-24) — 입력 칸답게 왼쪽 정렬 '쪽 이동'. 높이·글자 크기는 버튼과 같다.
+        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 6px;font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
-        self.assertIn("#bar1 input.n{width:52px;font-size:var(--text-xl)}", coarse)
-        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽"')
+        self.assertIn("#bar1 input.n{width:84px;font-size:var(--text-xl)}", coarse)
+        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
         self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
 
 
