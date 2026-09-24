@@ -4532,11 +4532,25 @@ class FrontendArchive(unittest.TestCase):
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
             const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
-              /data-act="reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
+              /data-act="rv-reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
               /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
+
+    def test_done_row_reopen_reuses_reason_ui_not_bare_reopen(self):
+        # 결함 실측: 완료 행의 [다시 열기]가 이유를 묻지 않고 곧장 /reopen 을 불렀다. 이제 review 카드와
+        # 같은 openReply(id,'reopen') 경로(data-act="rv-reopen")를 쓰고, 입력 칸을 스레드 안 .reply-slot 에 낀다.
+        out = self.run_rows(r"""
+            const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
+              closed_by:{name:'에이전트'},close_reply:'고침',thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'}]};
+            const idle=doneCard(p);
+            REPLY={id:9,mode:'reopen',el:null};
+            const reopening=doneCard(p);
+            console.log(JSON.stringify([!/data-act="reopen"/.test(idle), /data-act="rv-reopen"/.test(idle),
+              /class="reply-slot"/.test(idle), /class="reply-slot"/.test(reopening), /class="arc-thread"/.test(reopening)]));
+            """)
+        self.assertEqual(out, [True, True, False, True, True])
 
     def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
         out = self.run_rows(r"""
