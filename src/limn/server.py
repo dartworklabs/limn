@@ -4226,6 +4226,8 @@ pre.nowrap{white-space:pre}
 .c-loc-main .loc{font-weight:600}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 .c-tools{display:flex;align-items:center;gap:var(--space-2);margin:0 0 8px}
+/* [줄바꿈] 은 한 줄로 둔다 — 330px 패널(터치)에서 '줄바/꿈' 두 줄로 꺾여 옆 스테퍼보다 높아졌다(2026-09-24 실측) */
+.c-tools button.tg{white-space:nowrap;flex:none}
 .step{display:inline-flex;flex:none;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
 .step{align-items:stretch}
 .step button{border:0;border-radius:0;min-width:30px;padding:3px 6px}
@@ -4384,7 +4386,6 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
 #coach button{background:transparent;color:inherit;border-color:transparent}
 body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
 body:not(.lay-narrow) #coach button{pointer-events:auto}
-body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-width:calc(100vw - var(--side-w,340px) - 16px)}
 #more{max-width:440px}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
 #more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
@@ -4474,7 +4475,7 @@ body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#she
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
 /* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
 body.lay-narrow #toasts{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));bottom:auto;max-width:none}
-body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));max-width:calc(100vw - var(--side-w,360px) - 40px)}
+body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top) + var(--space-2));bottom:auto;max-width:calc(100vw - var(--side-w,360px) - 40px)}
 body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
@@ -4494,22 +4495,65 @@ body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radi
 body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:24px;padding-top:0}
+/* ---- 펼친 폴드·태블릿(mid): 위는 문서 탐색 줄, 아래는 동작 줄 — 둘 다 화면 전체 폭에 고정하고 패널은 그 사이에 편다
+   (references/design.md §펼친 화면 레이아웃). 예전에는 도구 줄이 패널을 따라다녀 [핀] 이 펴면 오른쪽 위, 접으면 오른쪽
+   아래로 뛰었고(842×758 실측 y 56→693), 문서 옆 패널(901–1099px)은 탐색 줄을 패널 폭만큼 잘랐다(968px 에서 630px).
+   두 손으로 쥔 화면에서 엄지가 닿는 곳은 아래 양 끝이다 — 자주 쓰는 [선택] 은 왼쪽 아래, 패널 토글 [핀 N] 은 패널이
+   나오는 오른쪽 아래 끝에 두고, 패널 여닫기와 무관하게 같은 자리에 남긴다. 저장·취소(#c-actions)는 패널 바닥, 곧 동작 줄
+   바로 위라 오른손 엄지 거리다. 도구 줄(#bar1)은 DOM 으로는 #right 안에 그대로 두고 position:fixed 로 뺀다 — narrow
+   시트는 같은 마크업을 손잡이 아래 sticky 로 쓰기 때문이다. 그래서 #right 에 transform·filter·opacity 를 주지 않는다
+   (fixed 자식의 기준 상자가 바뀌어 동작 줄이 패널과 함께 움직인다). */
+body.lay-mid{--mbar-tb:var(--control-h);--mbar-h:calc(var(--mbar-tb) + 2 * var(--space-2) + 1px + env(safe-area-inset-bottom));
+  --mid-top:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}
+@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}
+body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
+  gap:var(--space-2);padding:var(--space-2) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
+  background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
+/* 버튼은 제 글자 폭 그대로(줄어들거나 늘어나지 않는다). 순서는 엄지 기준: [선택] ···· [PDF 재빌드] [⋯] [핀 N].
+   DOM 순서는 narrow 시트와 공유하므로 CSS order 로만 바꾼다. */
+body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
+body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
+body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
+body.lay-mid #btn-select{order:1}
+body.lay-mid #btn-rebuild{order:3}
+body.lay-mid #btn-more{order:4}
+body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
+body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
 body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
-body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-inset-right));
-  bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
-  border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);z-index:20;overflow:hidden}
-body.lay-mid:not(.side-open) #bar1{border-radius:var(--radius-lg)}
-/* 중간 폭은 목차를 문서 위에 펼친다. 좁은 태블릿은 핀도 겹쳐 본문 폭을 보존한다. */
+/* 접힌 패널: #right 는 보이지 않는 틀로 남아 상태 칩(#bar2)·위치 다시 잡기 배너(#banner)만 동작 줄 바로 위 오른쪽에 띄운다.
+   틀 자체는 입력을 받지 않아 그 뒤의 PDF 를 가리지 않는다. */
+body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(var(--space-3),env(safe-area-inset-right));
+  bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));width:auto!important;height:auto;max-width:calc(100vw - 2 * var(--space-3));
+  display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);
+  background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
+body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#banner{pointer-events:auto;background:var(--sidebar);
+  border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+/* 탐색 줄: 화면 전체 폭에 고정한다(패널이 자르지 않는다). 문서 링크가 넘치면 그 줄 안에서 가로로 밀고, 넘친 쪽 끝을 흐리게 한다
+   (fade-l·fade-r, docLinksFade). 지금 문서 링크는 늘 보이는 자리로 끌어온다. */
 body.lay-mid #paper-identity{display:none}
-body.lay-mid #doc-nav{gap:var(--space-2);padding:0 var(--space-3)}
-body.lay-mid #doc-links{gap:var(--space-3);margin-right:0}
+body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
+  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+body.lay-mid #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
+body.lay-mid #doc-links::-webkit-scrollbar{display:none}
+body.lay-mid #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
+body.lay-mid #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
+body.lay-mid #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
 body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
 body.lay-mid #doc-nav button{white-space:nowrap}
-body.lay-mid #outline{position:absolute;left:0;top:var(--doc-nav-h);bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+/* 중간 폭은 목차를 문서 위에 펼친다(#main 이 이미 탐색 줄 아래에서 시작한다). 좁은 태블릿은 핀도 겹쳐 본문 폭을 보존한다. */
+body.lay-mid #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
+/* 첫 안내: 동작 줄 바로 위 왼쪽, 곧 안내가 가리키는 [선택] 위에 작은 칩으로 뜬다 — 탐색 줄·패널을 가리지 않는다. */
+body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
+  max-width:calc(100vw - 2 * var(--space-3));padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);font-size:var(--text-base)}
+body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
+@keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
+@keyframes mid-grip-in{from{opacity:0}}
 @media (min-width:701px) and (max-width:900px){
-  body.lay-mid.side-open #right{position:fixed;right:0;top:var(--doc-nav-h);bottom:var(--kb,0px);z-index:20;box-shadow:var(--shadow)}
-  body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--doc-nav-h);bottom:var(--kb,0px);z-index:21}
+  body.lay-mid.side-open #right{position:fixed;right:0;top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
+    animation:mid-panel-in .18s ease-out}
+  body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
+    animation:mid-grip-in .18s ease-out}
 }
 /* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -4848,7 +4892,19 @@ function drawDocTabs(){
   $('#doc-links').innerHTML=DOCS.map(d=>'<button data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+d.n_pages+'쪽</span>':'')+'</button>').join('');
   const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:'문서';
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
+  if(DOC!==DOC_LINK_SHOWN){DOC_LINK_SHOWN=DOC; docLinksReveal();} else docLinksFade();
   if($('#docs-menu').open)drawDocsMenu();}
+// 문서 링크 줄이 넘칠 때(mid 의 5개 문서 등): 넘친 쪽 끝을 흐리게(fade-l·fade-r) 해 더 있다는 것을 보이고, 문서가 바뀌면
+// 지금 문서 링크를 보이는 자리로 끌어온다. 폴링으로 다시 그릴 때는 사용자가 민 자리를 건드리지 않는다(문서가 바뀔 때만).
+let DOC_LINK_SHOWN=null;
+function docLinksFade(){const d=$('#doc-links'); if(!d)return; const over=d.scrollWidth-d.clientWidth;
+  d.classList.toggle('fade-l',over>1&&d.scrollLeft>1); d.classList.toggle('fade-r',over>1&&over-d.scrollLeft>1);}
+function docLinksReveal(){const d=$('#doc-links'),a=d&&d.querySelector('[aria-current=page]');
+  if(a&&d.scrollWidth>d.clientWidth){const dr=d.getBoundingClientRect(),ar=a.getBoundingClientRect(),pad=40;
+    if(ar.left<dr.left+pad)d.scrollLeft-=dr.left+pad-ar.left; else if(ar.right>dr.right-pad)d.scrollLeft+=ar.right-(dr.right-pad);}
+  docLinksFade();}
+$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});
+if(window.ResizeObserver)new ResizeObserver(()=>docLinksReveal()).observe($('#doc-links'));
 let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='',REVISION_COMMIT='',REVISION_SOURCE_COMMIT='',REVISION_FORMAT='pdf';
 const REV_PDF={doc:null,loading:null,observer:null,tasks:new Set()};
 function revisionFiles(patch){
