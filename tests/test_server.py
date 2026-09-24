@@ -59,6 +59,12 @@ def js_icons() -> str:
     return m.group(0) + "\n" + extract_js_fn("ic")
 
 
+def js_thread() -> str:
+    """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
+    ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
+    return "\n".join([ev] + [extract_js_fn(n) for n in ("isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml")])
+
+
 def run_node(js: str, tz: str = None):
     """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
 
@@ -1342,7 +1348,7 @@ class PinsMdV2(Base):
         before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
-            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # 사람이 닫음 = 완료(에이전트가 닫으면 검토 대기로 표에 남는다)
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -3363,9 +3369,10 @@ class FrontendMobileLogic(unittest.TestCase):
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
+            let LAYOUT='mid', REPLY=null; const THREAD_OPEN=new Set();
             """,
             extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
-            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("card"), js_icons(),
+            extract_js_fn("locText"), extract_js_fn("locCopy"), extract_js_fn("docChip"), js_thread(), extract_js_fn("card"), js_icons(),
             r"""
             const a=card({id:1,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:'첫 줄 <b>\n둘째 줄'});
             const b=card({id:2,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,note:''});
@@ -4510,7 +4517,8 @@ class FrontendArchive(unittest.TestCase):
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             """, js_icons(), extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
             extract_js_fn("locCopy"), extract_js_fn("docChip"),
-            "const ARC_OPEN=new Set();", extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
+            "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
+            extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"), js_thread(),
             extract_js_fn("arcHead"), extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
         return json.loads(run_node(js))
 
@@ -4947,6 +4955,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
+            let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
@@ -5250,3 +5259,217 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertEqual(page.locator('#right').bounding_box()['width'], 390)
         page.locator('#btn-doc').click()
         self.assertTrue(page.locator('#docs-menu').is_visible())
+
+
+# ---------------------------------------------------------------- 핀 종류(수정 요청/질문)·스레드·답글(references/api.md §스레드)
+# A-DEMO 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었다(#30 '구간이 0을 포함한다는 게 뭐지?' 등). 답을 남길 곳이 닫기 사유 한 칸뿐이라
+# 되물을 수 없었다. kind_req 로 종류를 가르고, 핀마다 thread 를 두어 사람·에이전트가 주고받는다. 새 필드는 모두 선택이다.
+class KindAndThread(Base):
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    def post(self, path, body, headers=None):
+        h = {"Content-Type": "application/json"}
+        h.update(headers or {})
+        out = self.talk(req("POST", path, json.dumps(body).encode(), h))
+        code, _, raw = split_resp(out)
+        return code, json.loads(raw)
+
+    def test_kind_req_stored_only_when_given_and_validated(self):
+        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+                       dict(self.S))
+        f = self.add()
+        self.assertEqual(self.pin(q)["kind_req"], "question")
+        self.assertNotIn("kind_req", self.pin(f))                 # 옛 호출(에이전트 curl)은 필드가 없다 = 수정 요청
+        with self.assertRaises(ps.HTTPError) as cm:
+            ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S))
+        self.assertEqual(cm.exception.code, 400)
+
+    def test_edit_switches_kind_even_on_closed_pin(self):
+        pid = self.add()
+        p = ps.edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S))
+        self.assertEqual(p["kind_req"], "question")
+        ps.set_done(pid, True, dict(self.S))
+        p = ps.edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S))
+        self.assertEqual(p["kind_req"], "fix")
+
+    def test_reply_endpoint_appends_message_with_header_identity(self):
+        pid = self.add()
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "  0 은 전 구간 평균입니다\r\n두 번째 줄 "},
+                            {"Tailscale-User-Login": self.S["login"], "Tailscale-User-Name": self.S["name"]})
+        self.assertEqual(code, 200)
+        self.assertTrue(d["ok"])
+        self.assertEqual(d["msg"]["id"], 1)
+        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")   # CRLF → LF, 앞뒤 공백 제거
+        self.assertEqual(d["msg"]["by"], {"login": self.S["login"], "name": self.S["name"]})
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "에이전트 답"})
+        self.assertEqual(d["msg"]["id"], 2)
+        self.assertEqual(d["msg"]["by"]["login"], "local")
+        p = self.pin(pid)
+        self.assertEqual([m["id"] for m in p["thread"]], [1, 2])
+        self.assertFalse(p.get("done"))                          # 답글은 상태를 바꾸지 않는다
+        self.assertEqual(p["rev"], 2)
+
+    def test_reply_validation(self):
+        pid = self.add()
+        for body in ({}, {"text": ""}, {"text": "   "}, {"text": 5}, {"text": "x" * (ps.THREAD_TEXT_MAX + 1)}):
+            code, d = self.post("/api/pins/%d/reply" % pid, body)
+            self.assertEqual(code, 400, body)
+        self.assertNotIn("thread", self.pin(pid))
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * ps.THREAD_TEXT_MAX})
+        self.assertEqual(code, 200)
+        code, d = self.post("/api/pins/999/reply", {"text": "없음"})
+        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # 없는 id 는 다른 경로와 같은 관례
+
+    def test_control_characters_are_stripped_but_newlines_kept(self):
+        self.assertEqual(ps.clean_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
+
+    def test_thread_is_capped(self):
+        pid = self.add()
+        with mock.patch.object(ps, "THREAD_MAX", 2):
+            ps.reply_pin(pid, "1", dict(self.S))
+            ps.reply_pin(pid, "2", dict(self.S))
+            with self.assertRaises(ps.HTTPError) as cm:
+                ps.reply_pin(pid, "3", dict(self.S))
+            self.assertEqual(cm.exception.code, 409)
+            ps.set_done(pid, True, dict(self.S), "닫음")          # 상태 전환 기록은 상한과 무관하다
+        self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
+
+    def test_close_reply_is_appended_to_thread_once(self):
+        pid = self.add()
+        ps.reply_pin(pid, "질문이 있어요", dict(self.S))
+        ps.set_done(pid, True, dict(self.S), "제목을 고침", "PR #227")
+        ps.set_done(pid, True, dict(self.S), "두 번째 닫기")      # 이미 닫힘 — 아무것도 붙지 않는다
+        th = self.pin(pid)["thread"]
+        self.assertEqual([(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
+                         [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")])
+        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")   # 옛 필드도 그대로 남는다(옛 뷰어·에이전트 호환)
+
+    def test_bodyless_close_still_works_and_records_event(self):
+        pid = self.add()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out)
+        th = self.pin(pid)["thread"]
+        self.assertEqual([(m.get("ev"), m["text"]) for m in th], [("close", "")])
+
+    def test_single_pin_route_and_state_field(self):
+        pid = self.add()
+        code, _, raw = split_resp(self.talk(req("GET", "/api/pins/%d" % pid)))
+        d = json.loads(raw)
+        self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
+        code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
+        self.assertEqual(code, 404)
+        ps.set_done(pid, True, dict(self.S))
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertNotIn("state", ps.read_pins()[0][0])           # 계산 필드 — 저장하지 않는다
+
+    def test_malformed_thread_is_a_broken_line(self):
+        for th in ("x", [{"id": "1", "text": "a", "at": "t", "by": {}}], [{"id": 1, "text": 3, "at": "t", "by": {}}],
+                   [{"id": 1, "text": "a", "at": "t", "by": {"name": 3}}], [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}]):
+            r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
+            self.assertFalse(ps.valid_rec(r), th)
+        ok = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "kind_req": "question",
+              "thread": [{"id": 1, "text": "a", "at": "2026-09-24 10:00:00", "by": {"login": "x", "name": "X"}, "ev": "close", "ref": "PR #1"}]}
+        self.assertTrue(ps.valid_rec(ok))
+        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
+
+    def test_legacy_records_are_not_rewritten_by_reads(self):
+        legacy = {"id": 7, "file": str(self.main), "name": "main.tex", "lo": 4, "hi": 5, "page": 1, "note": "옛 핀",
+                  "at": "2026-09-21 20:00:00", "done": True, "done_at": "2026-09-21 21:00:00",
+                  "close_reply": "고침", "anchor": ps.anchor_of(ps.tex_lines(self.main), 4, 5),
+                  "synced_at": self.main.stat().st_mtime + 10}
+        ps.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
+        before = ps.C.pins_jsonl.read_bytes()
+        mtime = ps.C.pins_jsonl.stat().st_mtime_ns
+        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        self.talk(req("GET", "/api/pins?all=1"))
+        self.talk(req("GET", "/pins.md"))
+        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.C.pins_jsonl.stat().st_mtime_ns, mtime)
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertNotIn("thread", rows[0])
+
+    def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
+        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+                       dict(self.S))
+        for i in range(5):
+            ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        self.assertIn("| %d · 질문 |" % q, row)
+        self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
+        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)   # 줄바꿈은 접고 | 는 이스케이프
+        self.assertNotIn("답글 1", row)
+        self.assertEqual(row.count("|") - row.count("\\|"), 6)          # 5열 표 그대로
+        self.assertIn("/api/pins/N/reply", md)
+        self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
+        ps.set_done(q, True, dict(self.S), "답했다")
+        ps.set_done(q, False, dict(self.S))
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        self.assertNotIn("[스레드", row)                                  # 닫기 전 차례의 글은 싣지 않는다
+
+
+class FrontendThread(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_js(self, script, layout="wide"):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            function who(a){return (a&&(a.name||a.login))||'';} function avatar(){return '<i class="av"></i>';}
+            let LAYOUT='%s', REPLY=null; const THREAD_OPEN=new Set();
+            """ % layout, js_icons(), extract_js_fn("arcTime"), js_thread(), script])
+        return json.loads(run_node(js))
+
+    def test_wide_shows_last_three_compact_shows_last_one(self):
+        out = self.run_js(r"""
+            const th=[1,2,3,4,5].map(i=>({id:i,by:{name:'S'},at:'2026-09-24 10:0'+i+':00',text:'m'+i}));
+            const p={id:9,thread:th};
+            const w=threadHtml(p,true), c=threadHtml(p,false); THREAD_OPEN.add(9); const all=threadHtml(p,false);
+            const n=s=>(s.match(/class="msg"/g)||[]).length;
+            console.log(JSON.stringify([n(w),/이전 2건 보기/.test(w),/m5/.test(w),/m2/.test(w),n(c),/이전 4건 보기/.test(c),/m5/.test(c),
+              n(all),/스레드 접기/.test(all),threadHtml({id:1},true)]));
+            """)
+        self.assertEqual(out, [3, True, True, False, 1, True, True, 5, True, ""])
+
+    def test_messages_escape_and_events_read_as_history(self):
+        out = self.run_js(r"""
+            const a=msgHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'});
+            const b=msgHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'});
+            const c=msgHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'});
+            console.log(JSON.stringify([/&lt;img/.test(a),!/<img/.test(a),/&lt;b&gt;x/.test(a),/class="msg ev ev-close"/.test(b),
+              /닫음 · PR #9/.test(b),/>고쳤다</.test(b),/>확인</.test(c),!/msg-t/.test(c),/09-24 10:05/.test(b)]));
+            """)
+        self.assertEqual(out, [True] * 9)
+
+    def test_reply_slot_rendered_for_open_editor(self):
+        out = self.run_js(r"""
+            REPLY={id:4,mode:'reply'};
+            console.log(JSON.stringify([/reply-slot/.test(threadHtml({id:4},true)),threadHtml({id:5},true)]));
+            """)
+        self.assertEqual(out, [True, ""])
+
+    def test_card_has_question_badge_reply_button_and_thread_count(self):
+        body = extract_js_fn("card")
+        self.assertIn("if(isQuestion(p))tags.unshift(", body)
+        self.assertIn('data-act="reply-open"', body)
+        self.assertIn("threadHtml(p,LAYOUT==='wide')", body)
+        self.assertIn("ic('message-square')", body)
+
+    def test_reply_editor_survives_redraw_and_save_sends_kind(self):
+        dp = extract_js_fn("drawPins")
+        self.assertIn("slot.replaceWith(REPLY.el)", dp)
+        self.assertIn("rta.focus()", dp)
+        self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
+        self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
+        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc 가 입력 칸부터 닫는다
+        self.assertIn('id="c-kind"', ps.HTML)
+        send = extract_js_fn("sendReply")
+        self.assertIn("'/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply')", send)
+        self.assertIn("{reason:text}", send)
+
+    def test_compact_collapsed_card_hides_thread(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)

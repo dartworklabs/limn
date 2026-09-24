@@ -73,6 +73,8 @@ LUCIDE = {
     "copy": '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
             '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "ellipsis": '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    "message-square": '<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 '
+                      '2-2h16a2 2 0 0 1 2 2z"/>',
     "minus": '<path d="M5 12h14"/>',
     "moon": '<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268'
             'c.344-.215.825-.004.803.401"/>',
@@ -112,6 +114,12 @@ CLAIM_TTL_MAX = 120                # 잠금 자동 해제는 안전장치다 —
 CLAIM_ETA_MIN = 1                  # 분 — 처리 예상 시간(eta_min). 화면은 5분 단위로 올려 보인다
 CLAIM_ETA_MAX = 240
 CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, max(이 값, eta×2)) — 짧은 견적도 30분은 쥔다
+# 핀 종류와 스레드(references/api.md §스레드). 핀의 24%(A-DEMO 42건 중 10건)가 고칠 곳이 아니라 질문이었는데 답을 남길 곳이
+# 닫기 사유(close_reply) 한 칸뿐이라 되물을 수 없었다. kind_req 는 옛 kind(범위 종류)와 이름이 겹치지 않게 따로 둔다.
+KIND_REQS = ("fix", "question")    # 없으면 fix — 옛 핀은 모두 수정 요청이다
+THREAD_TEXT_MAX = 1000             # 답글 한 건 — 메모(NOTE_MAX)처럼 문자열·길이만 보고 화면에서 esc() 로 그린다
+THREAD_MAX = 200                   # 핀 하나의 스레드 상한(답글). 상태 전환 기록(닫기·다시 열기·확인)은 상한과 무관하게 붙는다
+THREAD_EVENTS = ("close", "reopen", "confirm")
 GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
 REVISION_DIFF_MAX = 256 * 1024     # 응답·메모리 상한. 큰 변경은 저장소에서 검토한다.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
@@ -2575,6 +2583,13 @@ def valid_rec(r) -> bool:
     for k in ("close_reply", "close_ref"):
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
+    # 새 필드(kind_req·thread·mentions·review)는 모두 선택이다. 뷰어가 그대로 그리는 값이라 모양이 틀리면 깨진 줄로 본다.
+    if r.get("kind_req") is not None and r["kind_req"] not in KIND_REQS:
+        return False
+    if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
+        return False
+    if r.get("thread") is not None and not _valid_thread(r["thread"]):
+        return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
         return False
     for k in ("raw_lo", "raw_hi", "rev"):
@@ -2615,6 +2630,28 @@ def is_region_pin(r: dict) -> bool:
 def _is_actor(v) -> bool:
     """author·*_by 는 {login,name,pic?} 문자열 사전이어야 한다 — UI 가 name.trim() 을 부른다."""
     return isinstance(v, dict) and all(v.get(k) is None or isinstance(v[k], str) for k in ("login", "name", "pic"))
+
+
+def _is_str_list(v) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _valid_thread(th) -> bool:
+    """thread = [{id, by, at, text, ev?, ref?, mentions?}] — 뷰어가 by.name·text 를 그대로 그린다."""
+    if not isinstance(th, list):
+        return False
+    for m in th:
+        if not isinstance(m, dict) or not _is_int(m.get("id")) or not isinstance(m.get("text"), str):
+            return False
+        if not isinstance(m.get("at"), str) or not _is_actor(m.get("by")):
+            return False
+        if m.get("ev") is not None and m["ev"] not in THREAD_EVENTS:
+            return False
+        if m.get("ref") is not None and not isinstance(m["ref"], str):
+            return False
+        if m.get("mentions") is not None and not _is_str_list(m["mentions"]):
+            return False
+    return True
 
 
 def in_tree(p: str) -> bool:
@@ -2789,8 +2826,13 @@ def pin_est(r: dict, ctx: dict) -> bool:
     return not same_source(ctx["by"].get(b), ctx["by"].get(ctx["cur"]))
 
 
+def pin_state(r: dict) -> str:
+    """'open' | 'done' — 저장하지 않는 계산 필드. 옛 레코드는 done 만 본다."""
+    return "done" if r.get("done") else "open"
+
+
 def pins_payload(rows: list, allp: bool) -> list:
-    """GET /api/pins 응답: 저장 레코드 + 계산 필드 rel(겹침)·est(위치 추정). 둘 다 저장하지 않는다."""
+    """GET /api/pins 응답: 저장 레코드 + 계산 필드 rel(겹침)·est(위치 추정)·state. 모두 저장하지 않는다."""
     rel = overlaps_by_id(rows)
     ctxs: dict = {}
     out = []
@@ -2806,7 +2848,7 @@ def pins_payload(rows: list, allp: bool) -> list:
                 with using_doc(D):
                     ctxs[k] = est_context()
         ctx = ctxs[k]
-        rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k)
+        rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k, state=pin_state(r))
         if claim_active(r) and not _is_num(r.get("claim_ts")):
             ts = _epoch(r.get("claimed_at"))          # eta 이전 claim — 뷰어의 '20:02부터 (23분째)'가 쓸 시작 epoch(계산 필드)
             if ts is not None:
@@ -3015,6 +3057,35 @@ def clean_close_body(d: dict) -> tuple:
     return reply, ref
 
 
+def clean_kind_req(v):
+    """핀 종류 — 'fix'(수정 요청) | 'question'(질문). 없으면 None(= fix, 옛 핀과 같다)."""
+    if v is None:
+        return None
+    if v not in KIND_REQS:
+        raise HTTPError(400, "kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS))
+    return v
+
+
+def clean_thread_text(v, what: str = "text", required: bool = True):
+    """답글·다시 열기 사유 한 건. 메모처럼 문자열·길이만 본다(화면은 esc() 로 그린다). 줄바꿈은 \\n 으로 맞추고
+    제어 문자(줄바꿈·탭 말고)는 뺀다 — pins.md 표와 알림 본문이 깨지지 않게. 앞뒤 공백을 걷은 뒤 비면 400(required)."""
+    if v is None:
+        if required:
+            raise HTTPError(400, "%s 가 필요합니다." % what)
+        return None
+    if not isinstance(v, str):
+        raise HTTPError(400, "%s 는 문자열이어야 합니다." % what)
+    v = v.replace("\r\n", "\n").replace("\r", "\n")
+    v = "".join(ch for ch in v if ch in "\n\t" or not (ord(ch) < 32 or 127 <= ord(ch) < 160)).strip()
+    if len(v) > THREAD_TEXT_MAX:
+        raise HTTPError(400, "%s 가 너무 깁니다(%d자 이하)." % (what, THREAD_TEXT_MAX))
+    if not v:
+        if required:
+            raise HTTPError(400, "%s 가 비어 있습니다." % what)
+        return None
+    return v
+
+
 def clean_loc(d: dict) -> dict:
     """위치 필드를 검증해 저장할 모양으로 만든다. file 은 원고 트리 안, 1 ≤ lo ≤ hi ≤ 줄 수."""
     out: dict = {}
@@ -3136,6 +3207,7 @@ def add_pin(d: dict, actor: dict) -> int:
     body = {k: d[k] for k in ADD_FIELDS if k in d}
     rec = clean_loc(body)
     note = clean_note(body.get("note"))
+    kind_req = clean_kind_req(d.get("kind_req"))
     if "kind" not in rec:
         rec["kind"] = "lines"
     f = Path(rec["file"])
@@ -3146,6 +3218,8 @@ def add_pin(d: dict, actor: dict) -> int:
         rec["at"] = now_str()
         rec["id"] = next_id(rows)
         rec["author"] = dict(actor)
+        if kind_req:
+            rec["kind_req"] = kind_req
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
         # frac 이 어느 빌드의 레이아웃 좌표인지를 빌드 신원으로 못박는다(§위치 추정). 뷰어는 pick 응답의
@@ -3164,12 +3238,15 @@ def _add_region_pin(d: dict, actor: dict) -> int:
     D = cur_doc()
     rec = clean_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d})
     note = clean_note(d.get("note"))
+    kind_req = clean_kind_req(d.get("kind_req"))
 
     def fn(rows):
         rec["note"] = note
         rec["at"] = now_str()
         rec["id"] = next_id(rows)
         rec["author"] = dict(actor)
+        if kind_req:
+            rec["kind_req"] = kind_req
         rec.setdefault("pdf_build", cur_pages().name)
         rec["doc"] = D.key
         rec["rev"] = 0
@@ -3204,13 +3281,14 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         raise HTTPError(400, "kind 가 올바르지 않습니다.")
+    kind_req = clean_kind_req(d.get("kind_req"))   # 핀 종류(수정 요청/질문) — 닫힌 핀에서도 바꿀 수 있는 메모 수준 값
     base_given = "base_rev" in d
     if not base_given and note_append is None:
         raise HTTPError(400, "base_rev 가 필요합니다(카드를 열 때 받은 rev).")
     base = _int(d["base_rev"], "base_rev") if base_given else None
     moves = loc is not None or lo is not None or hi is not None
-    if not (has_note or moves or scope is not None or kind is not None or note_append is not None):
-        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append).")
+    if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None):
+        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req).")
     # 위치 검증·기본 빌드는 그 핀의 문서 기준이다(요청이 ?doc= 를 안 붙여도). 핀의 종류(LaTeX/보기 전용)는 바뀌지 않는다.
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
@@ -3292,10 +3370,66 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             if len(merged) > NOTE_MAX:
                 raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (len(merged), NOTE_MAX))
             r["note"] = merged
+        if kind_req is not None:
+            r["kind_req"] = kind_req
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
+    return transact(fn)[1]
+
+
+def _msg_by(actor: dict) -> dict:
+    """스레드 글쓴이 — who() 에 아바타(pic)를 더한다(카드가 22px 원을 그린다)."""
+    out = who(actor)
+    if isinstance(actor.get("pic"), str) and actor["pic"]:
+        out["pic"] = actor["pic"]
+    return out
+
+
+def _thread_append(r: dict, actor: dict, text: str = "", ev: str = None, ref: str = None, mentions=None) -> dict:
+    """스레드에 한 건을 덧붙인다(호출부가 검증을 끝낸 뒤, transact 안에서만). id 는 핀 안에서 1부터 늘어나고 다시 쓰지 않는다.
+
+    ev(close·reopen·confirm)는 상태 전환 기록이다 — 닫기 사유(reply)·다시 연 이유가 답글과 한 줄의 이력으로 남는다."""
+    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    mid = max((m.get("id", 0) for m in th if isinstance(m, dict) and _is_int(m.get("id"))), default=0) + 1
+    msg = {"id": mid, "by": _msg_by(actor), "at": now_str(), "text": text or ""}
+    if ev:
+        msg["ev"] = ev
+    if ref:
+        msg["ref"] = ref
+    if mentions:
+        msg["mentions"] = list(mentions)
+    r["thread"] = th + [msg]
+    return msg
+
+
+def thread_replies(r: dict) -> list:
+    """상태 전환 기록(ev)을 뺀 답글만."""
+    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    return [m for m in th if isinstance(m, dict) and not m.get("ev")]
+
+
+def thread_round(r: dict) -> list:
+    """지금 열린 차례의 스레드 — 마지막 닫기(ev=close) 뒤의 글. 한 번도 닫힌 적 없으면 전부.
+    다시 열린 핀이면 다시 연 이유(ev=reopen)부터 시작한다 — 에이전트가 다시 고칠 때 읽어야 하는 부분이다."""
+    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    last = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
+    return [m for m in th[last + 1:] if isinstance(m, dict)]
+
+
+def reply_pin(pid: int, text: str, actor: dict):
+    """답글 한 건(사람·에이전트 모두). 상태는 바꾸지 않는다 — 질문 핀이면 에이전트는 답글을 단 뒤 따로 닫는다.
+    없는 id 는 (None, None). 스레드가 가득 찼으면 409."""
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return (None, None), False
+        if len(thread_replies(r)) >= THREAD_MAX:
+            raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
+        msg = _thread_append(r, actor, text)
+        r["rev"] = int(r.get("rev") or 0) + 1
+        return (public(r), msg), True
     return transact(fn)[1]
 
 
@@ -3319,6 +3453,7 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 r["close_reply"] = reply
             if ref:
                 r["close_ref"] = ref
+            _thread_append(r, actor, reply or "", ev="close", ref=ref)   # 닫기 사유도 스레드에 — 이력이 한 줄이다
             _clear_claim(r)                       # 닫으면 처리 중 표시도 함께 지운다(§P0c-C)
         else:
             r["done"] = False
@@ -3584,7 +3719,33 @@ def render_quote(r: dict) -> str:
 LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다 · '#N과 일부 겹침' = 참고만, 각자 처리해도 된다 · "
           "'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다 · '수정됨' = 저장 뒤 메모·범위가 바뀜 · "
           "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
+          "'질문' = 고칠 곳이 아니라 물음이다, 답글(reply)로 답하고 닫는다 · "
+          "'다시 열림' = 검토에서 되돌아온 핀, 메모 칸의 '다시 연 이유'대로 다시 고친다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
+THREAD_MD_SHOW = 3                 # pins.md 메모 칸에 싣는 지금 차례 스레드 글 수(뒤에서부터)
+THREAD_MD_CHARS = 200              # 그 글 하나의 글자 수 — 전부는 GET /api/pins/N
+
+
+def _flat(s, n: int) -> str:
+    """공백·줄바꿈을 한 칸으로 접고 n 자에서 자른다(잘렸으면 …)."""
+    return truncate_quote(" ".join(str(s or "").split()), n)
+
+
+def thread_md(r: dict) -> str:
+    """pins.md 메모 칸 뒤에 붙는 지금 차례의 스레드(마지막 닫기 뒤): '[스레드 2건] 서준: … ⏎ 다시 연 이유(서준): …'.
+    에이전트가 질문의 되물음이나 다시 연 이유를 놓치지 않게 싣는다. 길면 뒤 THREAD_MD_SHOW 건만, 나머지는 GET /api/pins/N."""
+    msgs = [m for m in thread_round(r) if m.get("ev") != "close"]
+    if not msgs:
+        return ""
+    shown = msgs[-THREAD_MD_SHOW:]
+    parts = []
+    for m in shown:
+        name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
+        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else name
+        parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS) or "(사유 없음)"))
+    more = len(msgs) - len(shown)
+    head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
+    return head + " " + " ⏎ ".join(parts)
 
 
 def pins_md_text(rows: list, base: str = None) -> str:
@@ -3618,6 +3779,11 @@ def pins_md_text(rows: list, base: str = None) -> str:
     any_symbol = False
     for r in openn:
         syms = []
+        if r.get("kind_req") == "question":
+            syms.append("질문")
+        rnd = thread_round(r)
+        if rnd and rnd[0].get("ev") == "reopen":
+            syms.append("다시 열림")
         badge = rel_badge(rel.get(r["id"], []), by_id, r)
         if badge:
             syms.append(badge)
@@ -3631,6 +3797,9 @@ def pins_md_text(rows: list, base: str = None) -> str:
             any_symbol = True
         idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
         note = md_cell(r.get("note") or "", newline=" ⏎ ")
+        th = thread_md(r)
+        if th:
+            note = (note + " ⏎ " if note else "") + md_cell(th)
         if multi_author:
             an = (r.get("author") or {}).get("name")
             if an:
@@ -3670,7 +3839,9 @@ def pins_md_text(rows: list, base: str = None) -> str:
     guidance = ("처리한 핀은 닫는다 — `curl -X POST -H 'Content-Type: application/json' "
                 "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"커밋/PR(≤80자)\"}' "
                 "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘) · "
-                "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다" % base)
+                "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · "
+                "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
+                "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다" % (base, base))
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
     if C.repo:
@@ -4291,6 +4462,29 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
 button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
+/* 핀 종류(수정 요청 / 질문)와 스레드(references/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
+.kind-seg{margin:8px 0 0}
+.kind-seg button{flex:1 1 0}
+.edit .kind-seg{margin:0 0 6px}
+.badge-question{border-color:var(--primary);color:var(--primary)}
+.thread{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
+.thread:empty{display:none}
+.msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
+.msg .av{width:20px;height:20px;margin-top:1px}
+.msg-b{flex:1;min-width:0}
+.msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
+.msg-h b{color:var(--foreground);font-weight:600}
+.msg-t{white-space:pre-wrap;word-break:break-word}
+.msg.ev{display:block;padding-left:28px;color:var(--muted-foreground);font-size:var(--text-sm)}
+.msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
+button.th-more{align-self:flex-start;color:var(--muted-foreground)}
+.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs)}
+.th-n .ic{width:12px;height:12px}
+.reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
+.reply-box textarea{min-height:3.2em}
+.r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
+.arc-thread{margin:4px 0 0;padding:6px var(--space-2);border-radius:var(--radius);background:var(--card);border:1px solid var(--border)}
+.arc-thread .thread{margin:0;padding:0;border:0}
 .edit .c-tools{margin-top:0}
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
 .au{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
@@ -4479,7 +4673,7 @@ body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid
 body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
-body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp){display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
 body.compact .pin .au .au-n{display:none}
 body.lay-narrow{display:block}
 body.lay-narrow #main{height:100%}
@@ -4636,6 +4830,7 @@ body.view-only #btn-rebuild{display:none}
       <pre id="c-snip" class="wrap"></pre>
       <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
+    <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
     <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
   </div>
   <div id="list">
@@ -4709,6 +4904,8 @@ body.view-only #btn-rebuild{display:none}
   <h4>용어</h4>
   <table>
     <tr><td>핀</td><td>원문 위치(파일·줄 범위)에 붙인 수정 요청 메모. 번호(#N)는 다시 쓰이지 않습니다</td></tr>
+    <tr><td>수정 요청 · 질문</td><td>핀을 저장할 때 고릅니다. 질문 핀은 에이전트가 원고를 고치지 않고 스레드에 답을 단 뒤 닫습니다</td></tr>
+    <tr><td>스레드 · 답글</td><td>카드 아래의 대화. 사람과 에이전트가 [답글]로 주고받고, 닫기·다시 열기·확인도 한 줄씩 남습니다</td></tr>
     <tr><td>앵커</td><td>핀을 찍을 때 떠 둔 첫·끝 문장. 원고가 고쳐지면 이것으로 새 줄 번호를 찾습니다</td></tr>
     <tr><td>줄 이동</td><td>원고 수정으로 핀 위치가 밀려 다시 맞췄다는 표시('줄 +3 이동')</td></tr>
     <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
@@ -4742,6 +4939,11 @@ const MQ_COARSE=matchMedia('(pointer:coarse)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
+// 핀 종류·스레드(references/design.md §스레드와 검토): KIND_NEW = 작성 패널의 종류(fix|question), REPLY = 열린 답글·다시 열기
+// 입력 칸 {id,mode,el}(EDIT 처럼 DOM 을 들고 있다가 목록을 다시 그리면 제자리에 끼운다), THREAD_OPEN = 스레드를 다 펼친 카드,
+// REPLY_DRAFT = 닫은 입력 칸의 쓰던 글('reply:12').
+let KIND_NEW='fix',REPLY=null;
+const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // 여러 문서(§여러 문서, references/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
 // 없는 옛 핀이 속하는 첫 문서. OPEN_ALL = 모든 문서의 열린 핀(PINS 는 그중 지금 문서의 것 — 마크·겹침·편집은 PINS 만 본다).
 // META_BY = 문서별 meta 캐시(탭 전환을 즉시), VIEW_BY = 문서별 보던 자리·확대, BUILD_ERR_BY = 문서별 마지막 빌드 오류,
@@ -4767,7 +4969,9 @@ const T={
   para:'드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
   env:'감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
   cur:'지금 핀이 가리키는 범위 그대로입니다',
-  undo:'방금 한 저장·완료·삭제를 되돌립니다'
+  undo:'방금 한 저장·완료·삭제를 되돌립니다',
+  question:'고칠 곳이 아니라 묻는 핀입니다. 답은 아래 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다',
+  reply:'이 핀에 답글을 답니다. 사람과 에이전트가 같은 스레드에서 주고받습니다 (⌘ Enter / Ctrl+Enter 보내기)'
 };
 
 // ------------------------------------------------ 설정(병합 저장)
@@ -5977,8 +6181,12 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 // 저장·취소·덧붙이기로 선택이 끝나면 선택 모드를 끄고(다시 스크롤되게) narrow 시트를 접는다(다시 본문이 먼저).
+// 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
+function setKind(k){KIND_NEW=k==='question'?'question':'fix';
+  $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
+  $('#note').placeholder=KIND_NEW==='question'?'질문: 무엇이 궁금한지 적습니다 (답이 이 핀의 스레드에 달립니다)':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote)$('#note').value='';
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
@@ -6011,9 +6219,10 @@ async function savePin(){
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
   if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // 보기 전용: 쪽·영역만
   body.doc=d.doc||DOC||undefined;
+  body.kind_req=KIND_NEW;
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
-    const id=data.id; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
-    toast('핀 #'+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
+    const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
+    toast((q?'질문 #':'핀 #')+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
     await loadPins();
   }catch(e){} finally{SAVING=false; btn.disabled=false;}
 }
@@ -6083,6 +6292,24 @@ function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(
 // 모든 문서 보기에서 카드 머리에 붙는 문서 칩. 다른 문서의 것은 점선 테두리 — 누르면 그 문서로 바뀐다.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
+// 스레드(references/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
+// wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
+function isQuestion(p){return !!p&&p.kind_req==='question';}
+function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
+function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
+function msgText(m){return esc(m.text);}
+const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
+function msgHtml(m){const by=m.by||{},nm=who(by)||'?',t=arcTime(m.at);
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(m.ref?' · '+esc(m.ref):'')+'</span><span>'+esc(t)+'</span></div>'+
+    (m.text?'<div class="msg-t">'+msgText(m)+'</div>':'')+'</div>';
+  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(t)+'</span></div><div class="msg-t">'+msgText(m)+'</div></div></div>';}
+function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
+  let h='';
+  if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">이전 '+hide+'건 보기</button>';
+  else if(all&&th.length>keep)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>';
+  h+=th.slice(hide).map(msgHtml).join('');
+  if(REPLY&&REPLY.id===p.id)h+='<div class="reply-slot"></div>';
+  return h?'<div class="thread">'+h+'</div>':'';}
 function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc 은 복사 형식 그대로
   if(p.stale)tags.push('<span class="badge badge-warning" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
@@ -6105,18 +6332,23 @@ function card(p){
   // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
+  if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
+  const nr=replyCount(p);
+  const thn=nr?'<span class="th-n" aria-label="답글 '+nr+'건" data-tip="이 핀의 답글 '+nr+'건">'+ic('message-square')+nr+'</span>':'';
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
     '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
     '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
-    '<span class="sp"></span>'+au+
+    '<span class="sp"></span>'+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
+    threadHtml(p,LAYOUT==='wide')+
     '<div class="acts"><button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
     '<button class="btn-sm b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
+    '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
     (claimed?'<button class="btn-sm b-unclaim" data-act="unclaim" data-tip="'+esc('처리 중 표시를 풉니다(에이전트가 멈췄거나 잘못 잡은 경우)')+'">풀기</button>':'')+
     '<button class="btn-sm btn-destructive b-drop" data-act="drop" data-tip="'+esc(T.drop)+'">삭제</button>'+
     '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
@@ -6137,12 +6369,16 @@ function doneCard(p){
   const ref=p.close_ref?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
+  // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.
+  const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=tn&&ARC_OPEN.has('t:'+p.id);
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
     '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
     '<button class="btn-sm arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
-    '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+'</div>'+
-    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+'</div>';}
+    '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
+    (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
+    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+
+    (to?'<div class="arc-thread"><div class="thread">'+th.map(msgHtml).join('')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
@@ -6160,6 +6396,7 @@ async function loadPins(){let d;
   diffToast(prevOpen,d,dropped);
   OPEN_ALL=nextOpen; PINS=nextOpen.filter(p=>pdoc(p)===DOC||!DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC||!DOC);
   if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
+  if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
   if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
@@ -6170,6 +6407,8 @@ function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
+  // 답글 입력 칸에 커서가 있었으면 다시 그린 뒤 그 자리로 돌려놓는다(자동 동기화가 목록을 다시 그려도 타이핑이 끊기지 않게).
+  const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   $('#list-h').textContent=(SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 ':'열린 핀 ')+LIST.length;
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+'모든 문서';
   $('#side-n').textContent=PINS.length; applySide();
@@ -6189,6 +6428,8 @@ function drawPins(){
   $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
   $('#dropped-list').hidden=!SHOW_DROPPED;
   if(SHOW_DROPPED)$('#dropped-list').innerHTML=LDROP.length?LDROP.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
+  if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el);
+    if(rfocus&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
 }
 // 위치 추정(.est, 점선)은 서버가 판정해 /api/pins 의 est 로 싣는다(pin_est — 핀을 찍은 빌드와 지금 빌드의
 // 원고 지문 비교). 뷰어가 벽시계로 판정하던 때는 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은
@@ -6255,12 +6496,43 @@ async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
   markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
 
+// ------------------------------------------------ 답글·다시 열기 입력 칸(references/design.md §스레드와 검토)
+// 입력 칸은 하나만 연다. DOM 을 REPLY.el 에 들고 있다가 drawPins() 가 카드를 다시 그리면 .reply-slot 에 다시 끼운다 —
+// 5초 자동 동기화가 목록을 다시 그려도 쓰던 글·커서가 사라지지 않게(포커스도 되돌린다). mode 는 'reply' | 'reopen'(다시 여는 이유).
+function replyEl(mode){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
+  el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="'+(ro?'다시 여는 이유':'답글')+'" placeholder="'+
+    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea>'+
+    '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
+    '<button class="btn-sm btn-default" data-act="reply-send" data-tip="'+(ro?'이유를 스레드에 남기고 핀을 다시 엽니다':'답글을 스레드에 남깁니다')+'">'+(ro?'다시 열기':'보내기')+'</button></div>';
+  return el;}
+function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
+  if(REPLY&&REPLY.id===id&&REPLY.mode===mode){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
+  if(REPLY)closeReply(false);
+  REPLY={id,mode,el:replyEl(mode)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
+  const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); ta.focus();
+  REPLY.el.scrollIntoView({block:'nearest'});}
+function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
+  if(ta&&ta.value.trim())REPLY_DRAFT.set(REPLY.mode+':'+REPLY.id,ta.value); else REPLY_DRAFT.delete(REPLY.mode+':'+REPLY.id);
+  REPLY=null; if(redraw!==false)drawPins();}
+async function sendReply(){const R=REPLY; if(!R||R.busy)return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
+  if(!text){toast(R.mode==='reopen'?'다시 여는 이유를 한 줄 적어 주세요 — 에이전트가 그것을 읽고 다시 고칩니다':'답글이 비어 있습니다','warn'); ta.focus(); return;}
+  R.busy=true; $$('.reply-box button').forEach(b=>b.disabled=true);
+  const body=R.mode==='reopen'?{reason:text}:{text};
+  try{const {data}=await api('/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply'),{method:'POST',body,what:R.mode==='reopen'?'다시 열기':'답글'});
+    if(!data.ok){toast('핀 #'+R.id+' 이 없습니다','err');}
+    else{markMine(R.id); REPLY_DRAFT.delete(R.mode+':'+R.id); if(REPLY===R)REPLY=null;
+      toast(R.mode==='reopen'?'핀 #'+R.id+' 다시 열림 · 이유를 스레드에 남겼습니다':'#'+R.id+' 에 답글을 남겼습니다','ok');}
+  }catch(e){} finally{R.busy=false; $$('.reply-box button').forEach(b=>b.disabled=false);}
+  await loadPins();}
+
 // ------------------------------------------------ 편집
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDIT&&EDIT.id===id)return;
   const el=document.createElement('div'); el.className='edit';
-  el.innerHTML='<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
+  el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
+    '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
+    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
@@ -6274,16 +6546,16 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
   const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
   EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
-    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''},
-    doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||''};
+    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix'},
+    doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?'question':'fix'};
   if(EDIT.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
 // 편집 칸에 저장 안 한 변경이 있는가(문서를 바꿀 때 편집을 닫아도 되는지).
 function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelector('.e-note');
-  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi;}
+  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
-document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.id==='note'))autoGrow(e.target);});
+document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.classList.contains('r-text')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
   if(E.region){E.snippet=E.quote?'영역 글자: '+E.quote:'(영역 글자 없음)'; renderEdit(); return;}   // 보기 전용: 원문 줄이 없다
   try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
@@ -6295,6 +6567,7 @@ async function editSnip(withLevels){const E=EDIT; if(!E)return;
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
+  el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||'fix'); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
   el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
@@ -6303,6 +6576,7 @@ function cancelEdit(){EDIT=null; drawPins();}
 async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
+  if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(E.scope||null)!==(E.orig.scope||null)){body.lo=E.lo;body.hi=E.hi;
     if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
   if(Object.keys(body).length===1){cancelEdit();return;}
@@ -6433,6 +6707,11 @@ document.addEventListener('click',e=>{
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
+    case 'kind':setKind(a.dataset.kind);break;
+    case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind==='question'?'question':'fix'; renderEdit();}break;
+    case 'reply-open':if(id!=null)openReply(id,'reply');break;
+    case 'reply-cancel':closeReply();break; case 'reply-send':sendReply();break;
+    case 'thread-more':if(id==null)break; if(THREAD_OPEN.has(id))THREAD_OPEN.delete(id); else THREAD_OPEN.add(id); drawPins();break;
     case 'arc-toggle':{const k=a.dataset.key; if(!k)break; if(ARC_OPEN.has(k))ARC_OPEN.delete(k); else ARC_OPEN.add(k); drawPins(); break;}
     case 'esave':saveEdit();break; case 'ecancel':cancelEdit();break;
     case 'repick':startRepick();break; case 'rp-cancel':cancelRepick();break; case 'rp-apply':applyRepick();break;
@@ -6460,6 +6739,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&t.id==='note'){e.preventDefault();savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
+    else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
   // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
@@ -6469,6 +6749,7 @@ document.addEventListener('keydown',e=>{
     if(!TIP.hidden){hideTip(); if(!inField)return;}
     if(LAYOUT==='mid'&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
     if(REPICK){cancelRepick();return;}
+    if(REPLY){closeReply();return;}
     if(EDIT){cancelEdit();return;}
     if(CUR||!$('#composer').hidden){cancelSelection(true);return;}
     return;}
@@ -6639,6 +6920,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(docs_payload())
         if path == "/api/pins/dropped":
             return self._json({"dropped": dropped_payload()})
+        m = re.fullmatch(r"/api/pins/(\d+)", path)
+        if m:                                     # 핀 한 건(스레드 포함) — 에이전트가 긴 스레드를 다 읽을 때
+            pid = int(m.group(1))
+            rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
+            if rec is None:
+                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+            return self._json({"pin": rec})
         if path == "/api/snippet":
             return self._json(snippet_api(q))
         if path == "/api/overlaps":
@@ -6711,9 +6999,12 @@ class Handler(BaseHTTPRequestHandler):
         return self._post_doc(actor, path, u, d)
 
     def _post_doc(self, actor, path, u, d):
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim)", path)
+        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim|reply)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
+            if act == "reply":
+                pin, msg = reply_pin(pid, clean_thread_text(d.get("text")), actor)
+                return self._json({"ok": pin is not None, "pin": pin, "msg": msg})
             if act == "drop":
                 return self._json({"ok": drop_pin(pid, actor)})
             if act == "restore":

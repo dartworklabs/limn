@@ -19,7 +19,8 @@
 | `check` | 닫힌 핀 행의 머리, 문서 목록에서 지금 문서 |
 | `chevron-down` · `chevron-right` | 보관함 구획 머리의 접기·펼치기, 카드 접기(좁은 화면), [문서] 버튼 |
 | `chevron-up` · `chevron-left` | [핀 N] 패널·시트 펴기·접기 방향 |
-| `circle-question-mark` | 도움말 버튼 |
+| `circle-question-mark` | 도움말 버튼, '질문' 배지 |
+| `message-square` | 카드 머리의 답글 수 |
 | `clock` | '처리 중' 배지 |
 | `copy` | 위치 복사 버튼 |
 | `ellipsis` | 더보기 버튼(좁은 화면) |
