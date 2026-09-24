@@ -5738,7 +5738,7 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
   const via={sha:'참조의 커밋 '+(tg.tokOf||''),pr:'참조의 PR',lines:'이 줄을 바꾼 가장 최근 커밋',latest:'참조로 커밋을 찾지 못해 가장 최근 커밋'}[tg.via]||'';
   const where=tg.region?'쪽 '+tg.page+' 영역':tg.name+' '+rng(tg.lo,tg.hi);
   let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
-    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 파일의 처음을 보입니다':'강조한 줄이 핀 범위입니다'));
+    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
     '<span class="sp"></span><button class="btn-sm" data-act="view-mode" data-mode="manuscript" data-tip="원고 보기로 돌아갑니다">원고로</button>';
   box.hidden=false;}
@@ -6994,9 +6994,12 @@ function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
 // 수정 요청 핀의 참고용 @태그(건너뛰지 않는다) — p.addressed(질문 핀 전용)와 갈라 p.fyi 에 따로 담아 보낸다.
 function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
   return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+'참고 '+esc(to.map(peopleName).join(', '))+'</span>';}
+// 참조(ref)가 뜻이 있는 값인가 — '-'는 QA 스크립트·옛 호출이 "참조 없음" 자리채움으로 넣는 값이라 그대로 보이면
+// '닫음 · -' 처럼 의미 없는 글자가 뜬다(결함 실측). 빈 문자열·공백뿐인 값도 같이 가린다.
+function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
 function msgHtml(m){const by=m.by||{},nm=who(by)||'?',t=arcTime(m.at);
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(m.ref?' · '+esc(m.ref):'')+'</span><span>'+esc(t)+'</span></div>'+
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span><span>'+esc(t)+'</span></div>'+
     (m.text?'<div class="msg-t">'+msgText(m)+'</div>':'')+'</div>';
   return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(t)+'</span></div><div class="msg-t">'+msgText(m)+'</div></div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
@@ -7081,7 +7084,7 @@ function arcLine(key,text,tip){const open=ARC_OPEN.has(key);
 function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
   '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
 function doneCard(p){
-  const ref=p.close_ref?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
+  const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
   // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.

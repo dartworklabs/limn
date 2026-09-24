@@ -62,7 +62,7 @@ def js_icons() -> str:
 def js_thread() -> str:
     """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, "let PEOPLE=[];"] + [extract_js_fn(n) for n in (
+    return "\n".join([ev, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
         "isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
         "peopleName", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
@@ -4551,6 +4551,18 @@ class FrontendArchive(unittest.TestCase):
               /class="reply-slot"/.test(idle), /class="reply-slot"/.test(reopening), /class="arc-thread"/.test(reopening)]));
             """)
         self.assertEqual(out, [True, True, False, True, True])
+
+    def test_placeholder_ref_dash_is_hidden(self):
+        # 결함 실측: QA 스크립트·옛 호출이 ref 자리에 '-'를 넣으면 '닫음 · -' 처럼 의미 없는 참조가 떴다.
+        out = self.run_rows(r"""
+            const dash=doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'});
+            const real=doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'});
+            const evDash=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'});
+            const evReal=msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'});
+            console.log(JSON.stringify([/arc-ref/.test(dash), /arc-ref/.test(real), /PR #9/.test(real),
+              / · -</.test(evDash), evDash.includes(' · -'), evReal.includes(' · abc1234')]));
+            """)
+        self.assertEqual(out, [False, True, True, False, False, True])
 
     def test_done_row_without_reply_says_so_and_dropped_row_restores(self):
         out = self.run_rows(r"""
