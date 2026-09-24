@@ -34,6 +34,7 @@
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}` — `GET /api/pins?all=1` 한 항목과 같은 모양(스레드 전부·계산 필드 포함). 없으면 `404` |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?}` → `{ok, pin, msg}` — §스레드 |
 | `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료 → `{ok, pin, state}` — §검토 대기 |
+| `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없다 — 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?}], me}` — §@태그·사람·이벤트. 쓰기 없음 |
 | `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(build-sync §자동 동기화)이 이것을 쓴다 |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([design.md](design.md) §벡터 렌더링). `build` 를 빼면 지금 빌드. 이름이 틀렸거나 이미 지워졌거나 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` — `build/` 나 다른 빌드로 물러서지 않는다(화면의 쪽 이미지와 어긋나면 좌표가 틀린다). `Range` 는 받지 않는다(통째로 준다). Host/Origin 검사는 다른 `GET` 과 같다 |
@@ -139,6 +140,10 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
   | `reopened` | 닫힌 핀을 다시 엶 | 작성자 |
 
   `to` 에서 행위자 자신과 `local` 은 빠지고, 비면 적지 않는다. 핀 쓰기가 커밋된 뒤 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다(앞부분은 그대로 — 추가 전용). 최근 5000건만 남기되 `seq` 는 계속 오른다 — 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
+
+## 브라우저 알림 커서 (`/api/meta?ev=<seq>`)
+
+`/api/meta`(라이트 포함)는 늘 `ev_seq`(`events.jsonl` 의 마지막 `seq`)를 싣는다. `ev=<마지막으로 본 seq>` 를 붙이면 그 뒤 이벤트 가운데 `mention`·`review_requested`·`replied`·`reopened` 이고 `to` 에 **지금 요청자**(테일넷 로그인)가 들었으며 행위자가 자기 자신이 아닌 것만 최대 20건을 `events` 로 싣는다(항목에 `doc_name` 을 더한다). 로컬/에이전트 요청은 늘 빈 목록, 정수가 아니면 `400`. 읽기만 한다 — 라이트 폴링의 쓰기 없음 계약 그대로다. 뷰어 쪽 규칙은 [design.md](design.md) §브라우저 알림.
 
 ## 원격 에이전트 진입점 (`GET /pins.md`)
 

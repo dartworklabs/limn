@@ -62,6 +62,10 @@ VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 # 그대로 옮겼다(공백만 줄임). 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 쓰지 않는다.
 LUCIDE_VERSION = "1.47.0"
 LUCIDE = {
+    "bell": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 '
+            '13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+    "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 '
+                '.258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/>',
     "check": '<path d="M20 6 9 17l-5-5"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
@@ -3684,6 +3688,48 @@ def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> No
     evs.append(make_event("mention", r, actor, [lg for lg in new if lg not in old], text=r.get("note")))
 
 
+NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened")
+EVENTS_SINCE_MAX = 20
+
+
+def events_since(actor: dict, cursor) -> dict:
+    """/api/meta 폴링에 싣는 알림 재료(references/api.md §브라우저 알림). 늘 ev_seq(마지막 이벤트 번호)를 주고, ev=<번호> 를 받으면
+    그 뒤의 이벤트 중 지금 요청자(테일넷 로그인)에게 온 것만 최대 20건 싣는다 — 로컬/에이전트에게는 싣지 않는다. 읽기만 한다."""
+    rows, _ = _read_events()
+    out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
+    if cursor is None:
+        return out
+    try:
+        cur = int(cursor)
+    except (TypeError, ValueError):
+        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.")
+    me = (actor or {}).get("login")
+    if not me or is_agent(actor):
+        out["events"] = []
+        return out
+    names = {d.key: d.name for d in DOCS}
+    evs = [dict(e, doc_name=names.get(e.get("doc"), e.get("doc"))) for e in rows
+           if e.get("seq", 0) > cur and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
+           and (e.get("by") or {}).get("login") != me]
+    out["events"] = evs[-EVENTS_SINCE_MAX:]
+    return out
+
+
+# 서비스 워커: 알림을 보이고(showNotification — 안드로이드 크롬은 페이지의 new Notification() 을 막는다) 누르면 뷰어 탭을 앞으로
+# 가져와 그 핀을 연다. fetch 처리기가 없다 — 앱 데이터·쪽 이미지를 캐시하지 않는다.
+SW_JS = r"""'use strict';
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.notification.data||{};
+  const url=new URL(d.url||'/',self.location.origin).href;
+  e.waitUntil((async()=>{const cs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+    for(const c of cs){if(new URL(c.url).origin!==self.location.origin)continue;
+      try{await c.focus();}catch(_){}
+      c.postMessage({type:'open-pin',pin:d.pin,doc:d.doc});return;}
+    if(self.clients.openWindow)await self.clients.openWindow(url);})());});
+"""
+
+
 def reply_pin(pid: int, text: str, actor: dict, hints=None):
     """답글 한 건(사람·에이전트 모두). 상태는 바꾸지 않는다 — 질문 핀이면 에이전트는 답글을 단 뒤 따로 닫는다.
     없는 id 는 (None, None). 스레드가 가득 찼으면 409. 글의 @태그는 mentions 로 풀고, 작성자·이 핀에서 불린 사람에게 replied,
@@ -5200,6 +5246,7 @@ body.view-only #btn-rebuild{display:none}
     <button id="btn-zoom-out" class="sec btn-icon" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
     <button id="btn-zoom-in" class="sec btn-icon" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">{{ic:plus}}</button>
     <button id="btn-fit" class="sec" data-act="fit" aria-label="폭 맞춤" data-tip="PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">폭</button>
+    <button id="btn-notify" class="sec btn-icon" data-act="notify-toggle" aria-label="브라우저 알림: 꺼짐" data-tip="브라우저 알림(이 기기만): 나를 부르거나, 내 핀이 검토 대기로 오거나, 내 핀에 답글이 달리면 알립니다">{{ic:bell-off}}</button>
     <button id="btn-theme" class="sec btn-icon" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">{{ic:sun-moon}}</button>
     <button id="btn-help" class="sec btn-icon" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
     <button id="btn-more" class="cmp btn-icon" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말">{{ic:ellipsis}}</button>
@@ -5270,6 +5317,7 @@ body.view-only #btn-rebuild{display:none}
   <div class="more-grid">
     <button data-act="reload" data-close="1">핀 다시 읽기</button>
     <button id="m-theme" data-act="theme">테마: 시스템</button>
+    <button id="m-notify" class="wide" data-act="notify-toggle">알림 켜기</button>
     <button data-act="zoom-out">축소</button>
     <button data-act="zoom-in">확대</button>
     <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
@@ -5779,6 +5827,8 @@ async function boot(){
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling();
+  drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();
+  const hp=hashPin(); if(hp)openPinFromLink(DOC,hp);
 }
 function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
 // 원고 수정됨 배지 — 서버가 준 숫자(stale_build, src_age_s)로만 판정한다. 브라우저 시계·시간대와 무관하다.
@@ -5835,9 +5885,10 @@ function pollLight(){
 }
 async function pollLightOnce(){
   let d; const k=DOC;
-  try{d=(await api(dq('/api/meta?light=1'),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   $('#conn-lost').hidden=true;
+  notifyHandle(d);                      // 브라우저 알림 — 문서와 무관하다(문서를 바꾸는 중이어도 먼저 처리한다)
   if(k!==DOC)return;                    // 기다리는 사이 문서를 바꿨다 — 옛 문서의 상태로 화면을 칠하지 않는다
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // 여러 문서면 src_sig(문서마다의 src_mtime)가 바뀌어도 다시 읽는다 — 다른 문서의 원고가 바뀌어도 그 핀들의 줄이 밀린다.
@@ -5903,6 +5954,72 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
     if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
     else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn');});}
+
+// ------------------------------------------------ 브라우저 알림(references/design.md §브라우저 알림) — 탭이 살아 있는 동안만
+// 기기마다 켠다(pinPrefs.notify). 켜는 것은 [알림 켜기] 클릭에서만 Notification.requestPermission() 을 부른다. 서버가 5초 폴링
+// (/api/meta?light=1&ev=<커서>)에 '지금 신원에게 온' 이벤트를 싣고, 이 탭이 그것을 알림으로 보인다. 커서(pinNotifyCursor)는 이 브라우저의
+// localStorage 에 둬 새로고침·탭 두 개가 같은 이벤트를 두 번 알리지 않는다. 표시는 늘 서비스 워커의 showNotification()(안드로이드
+// 크롬은 new Notification() 을 막는다), tag 는 핀 번호라 같은 핀은 한 칸으로 겹친다. 탭이 보이고 포커스가 있으면 알림 대신 토스트.
+// 보안 컨텍스트(https 테일넷 주소, http://127.0.0.1·localhost)에서만 된다 — 다른 호스트의 plain http 는 브라우저가 막는다.
+const NOTIFY_RANK={mention:4,reopened:3,review_requested:2,replied:1};
+let SW_REG=null;
+function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
+function notifyPerm(){return 'Notification' in window?Notification.permission:'unsupported';}
+function notifyOn(){return !!prefs().notify&&notifySupported()&&notifyPerm()==='granted';}
+function notifyCursor(){const v=parseInt(localStorage.getItem('pinNotifyCursor')||'',10); return isNaN(v)?null:v;}
+function setNotifyCursor(v){const c=notifyCursor(); if(c==null||v>c)try{localStorage.setItem('pinNotifyCursor',String(v));}catch(e){}}
+function notifyQuery(){if(!notifyOn())return ''; const c=notifyCursor(); return c==null?'':'&ev='+c;}
+// 알릴 것 고르기(순수 함수): 커서 뒤, 나에게 온(to), 내가 한 일이 아닌 것. 핀마다 하나 — 부름 > 다시 엶 > 검토 대기 > 답글, 같으면 나중 것.
+function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||login==='local')return [];
+  const by=new Map();
+  (evs||[]).forEach(e=>{if(!(e.seq>(cursor==null?-1:cursor)))return; if(!NOTIFY_RANK[e.type])return;
+    if(!(e.to||[]).includes(login)||(e.by&&e.by.login===login))return;
+    const o=by.get(e.pin); if(!o||NOTIFY_RANK[e.type]>NOTIFY_RANK[o.type]||(NOTIFY_RANK[e.type]===NOTIFY_RANK[o.type]&&e.seq>o.seq))by.set(e.pin,e);});
+  return Array.from(by.values()).sort((a,b)=>a.seq-b.seq);}
+function notifyText(e){const nm=who(e.by)||'누군가',ex=String(e.excerpt||'').split('\n')[0].slice(0,80);
+  const body={mention:nm+'님이 불렀습니다: '+ex,review_requested:'검토 대기: '+(ex||'설명 없이 닫힘'),
+    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:'')}[e.type]||ex;
+  return {title:'핀 #'+e.pin+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
+async function notifyShow(e){const t=notifyText(e);
+  if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)});return;}
+  try{const reg=SW_REG||await navigator.serviceWorker.ready;
+    await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=icon]')||{}).href,
+      data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
+function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
+  if(!notifyOn())return;
+  const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // 처음 켠 브라우저 — 지난 이벤트를 몰아서 알리지 않는다
+  if(!Array.isArray(d.events)){if(d.ev_seq<c)try{localStorage.setItem('pinNotifyCursor',String(d.ev_seq));}catch(e){}return;}
+  const list=pickNotifications(d.events,META&&META.me,notifyCursor());   // 다른 탭이 방금 커서를 올렸으면 그 뒤만
+  const top=d.events.reduce((m,e)=>Math.max(m,e.seq||0),c); setNotifyCursor(top);
+  list.forEach(notifyShow);}
+async function notifyRegister(){if(!notifySupported())return null;
+  try{SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}); return SW_REG;}catch(e){return null;}}
+function notifyState(){if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
+  if(pm==='denied')return 'blocked'; return prefs().notify&&pm==='granted'?'on':'off';}
+function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify');
+  const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨'}[st];
+  const tip={on:'이 기기에서 켜져 있습니다. 누르면 끕니다',off:'누르면 이 기기에서 켭니다(브라우저가 허용을 묻습니다)',
+    blocked:'브라우저가 이 사이트의 알림을 막았습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 다시 누르세요',
+    unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다'}[st];
+  b.innerHTML=st==='on'?ic('bell'):ic('bell-off'); b.setAttribute('aria-label','브라우저 '+lab); b.setAttribute('aria-pressed',String(st==='on')); b.dataset.tip=lab+' — '+tip;
+  m.textContent=st==='on'?'알림 끄기 (켜짐)':st==='off'?'알림 켜기':lab; m.dataset.tip=tip;}
+async function notifyToggle(){const st=notifyState();
+  if(st==='on'){savePrefs({notify:false}); drawNotify(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
+  if(st==='unsupported'){toast('브라우저 알림은 https 테일넷 주소나 http://127.0.0.1 에서만 됩니다','warn'); return;}
+  if(st==='blocked'){toast('브라우저가 알림을 막았습니다 — 주소창 자물쇠 → 알림 → 허용으로 바꾼 뒤 다시 누르세요','warn'); return;}
+  let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // 이 클릭 안에서만 묻는다
+  if(pm!=='granted'){drawNotify(); toast(pm==='denied'?'알림을 허용하지 않아 켜지 않았습니다':'알림 허용을 고르지 않았습니다','warn'); return;}
+  await notifyRegister(); savePrefs({notify:true});
+  try{const d=(await api(dq('/api/meta?light=1'),{silent:true})).data; if(notifyCursor()==null)setNotifyCursor(d.ev_seq);}catch(e){}
+  drawNotify(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
+// 알림을 누르면(서비스 워커 → postMessage, 또는 새 탭의 #doc=<키>&pin=<번호>) 그 문서로 바꿔 그 핀을 연다.
+function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
+async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
+  await loadPins(); const p=findAnyPin(pin); if(!p)return; if(pinState(p)==='done'){SHOW_DONE=true;}
+  OPEN_CARDS.add(pin); setSide(true); drawPins(); if(pinState(p)!=='done')jumpPin(pin);
+  requestAnimationFrame(()=>jumpToCard(pin));}
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{}; if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin);});
+window.addEventListener('hashchange',()=>{const n=hashPin(); if(n)openPinFromLink(hashDoc(),n);});
 
 // ------------------------------------------------ 비동기 빌드 진행 칩(P0b-01)
 // BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
@@ -7267,7 +7384,7 @@ document.addEventListener('click',e=>{
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
-    case 'theme':cycleTheme();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'theme':cycleTheme();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
@@ -7490,7 +7607,11 @@ class Handler(BaseHTTPRequestHandler):
             light = (q.get("light") or ["0"])[0] == "1"
             if not light:
                 record_person(actor)
-            return self._json(meta(actor, light=light))
+            out = meta(actor, light=light)
+            out.update(events_since(actor, (q.get("ev") or [None])[0]))   # 브라우저 알림 — 쓰기 없음
+            return self._json(out)
+        if path == "/sw.js":                      # 브라우저 알림용 서비스 워커(앱 데이터를 캐시하지 않는다)
+            return self._send(200, SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
         if path == "/api/revisions":
             return self._json(revision_history(cur_doc()))
         if path == "/api/revision-diff":

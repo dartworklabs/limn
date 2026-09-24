@@ -5882,3 +5882,119 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("mentionHints(ta)", extract_js_fn("sendReply"))
         self.assertIn("fmtText(p.note,p.mentions)", extract_js_fn("card"))
         self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # 자동 완성이 Enter·Esc 를 먼저 받는다(capture)
+
+
+# ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+class NotifyServer(Base):
+    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
+    HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._EVENTS_CACHE.clear()
+
+    def get(self, path, headers=None):
+        code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))
+        return code, h, raw
+
+    def test_service_worker_route(self):
+        code, h, raw = self.get("/sw.js")
+        self.assertEqual(code, 200)
+        self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
+        self.assertEqual(h["cache-control"], "no-cache")
+        js = raw.decode()
+        self.assertIn("showNotification" if False else "notificationclick", js)
+        self.assertIn("clients.openWindow", js)
+        self.assertIn("postMessage({type:'open-pin'", js)
+        self.assertNotIn("'fetch'", js)                                   # 앱 데이터를 캐시하지 않는다
+        code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
+        self.assertEqual(code, 403)
+        if shutil.which("node"):
+            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_event_cursor_in_light_meta(self):
+        ps.emit_events([{"type": "mention", "pin": 1, "doc": "main", "to": ["alice@example.com"], "by": {"login": "bob@example.com"}},
+                        {"type": "replied", "pin": 1, "doc": "main", "to": ["bob@example.com"], "by": {"login": "local"}},
+                        {"type": "mention", "pin": 2, "doc": "main", "to": ["alice@example.com"], "by": {"login": "alice@example.com"}}])
+        _, _, raw = self.get("/api/meta?light=1", self.HW)
+        d = json.loads(raw)
+        self.assertEqual(d["ev_seq"], 3)
+        self.assertNotIn("events", d)                                     # 커서 없이는 싣지 않는다
+        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HW)
+        self.assertEqual([(e["seq"], e["type"], e["doc_name"]) for e in json.loads(raw)["events"]], [(1, "mention", "본문")])
+        _, _, raw = self.get("/api/meta?light=1&ev=1", self.HW)
+        self.assertEqual(json.loads(raw)["events"], [])                   # 자기 자신이 한 일(seq 3)은 오지 않는다
+        _, _, raw = self.get("/api/meta?light=1&ev=0", self.HS)
+        self.assertEqual([e["seq"] for e in json.loads(raw)["events"]], [2])
+        _, _, raw = self.get("/api/meta?light=1&ev=0")
+        self.assertEqual(json.loads(raw)["events"], [])                   # 로컬/에이전트에게는 싣지 않는다
+        code, _, _ = self.get("/api/meta?light=1&ev=x", self.HW)
+        self.assertEqual(code, 400)
+        before = sorted(p.name for p in ps.C.state.iterdir())
+        self.get("/api/meta?light=1&ev=0", self.HW)
+        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)   # 폴링은 쓰지 않는다
+
+
+class FrontendNotify(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def harness(self, script):
+        rank = re.search(r"^const NOTIFY_RANK=.*;$", ps.HTML, re.M).group(0)
+        return "\n".join([rank, r"""
+            function who(a){return (a&&(a.name||a.login))||'';}
+            const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
+            let NOTIFY=true; function notifyOn(){return NOTIFY;}
+            let META={me:{login:'w@x',name:'Alice Kim'},label:'DEMO-B'}; const SHOWN=[];
+            function notifyShow(e){SHOWN.push([e.pin,e.type]);}
+            """] + [extract_js_fn(n) for n in ("notifyCursor", "setNotifyCursor", "notifyQuery", "pickNotifications",
+                                               "notifyText", "notifyHandle")] + [script])
+
+    def test_trigger_selection_self_suppression_and_dedupe(self):
+        js = self.harness(r"""
+            const me={login:'w@x'}, S={login:'s@x',name:'Bob Park'};
+            const evs=[{seq:1,type:'replied',pin:5,to:['w@x'],by:S},{seq:2,type:'mention',pin:5,to:['w@x'],by:S},
+              {seq:3,type:'review_requested',pin:6,to:['w@x'],by:{login:'local'}},{seq:4,type:'replied',pin:7,to:['s@x'],by:S},
+              {seq:5,type:'mention',pin:8,to:['w@x'],by:{login:'w@x'}},{seq:6,type:'confirmed',pin:9,to:['w@x'],by:S},
+              {seq:7,type:'reopened',pin:6,to:['w@x'],by:S}];
+            const a=pickNotifications(evs,me,0).map(e=>[e.pin,e.type]);
+            const b=pickNotifications(evs,me,2).map(e=>[e.pin,e.type]);
+            const c=pickNotifications(evs,{login:'local'},0);
+            console.log(JSON.stringify([a,b,c,notifyText(evs[1]),notifyText({type:'review_requested',pin:6,excerpt:'답했다\n둘째',doc_name:'본문'})]));
+            """)
+        out = json.loads(run_node(js))
+        self.assertEqual(out[0], [[5, "mention"], [6, "reopened"]])          # 핀마다 하나 — 부름·다시 엶이 이긴다
+        self.assertEqual(out[1], [[6, "reopened"]])
+        self.assertEqual(out[2], [])
+        self.assertEqual(out[3], {"title": "핀 #5 · DEMO-B", "body": "Bob Park님이 불렀습니다: "})
+        self.assertEqual(out[4], {"title": "핀 #6 · 본문", "body": "검토 대기: 답했다"})
+
+    def test_cursor_prevents_refire_across_reloads_and_tabs(self):
+        js = self.harness(r"""
+            const S={login:'s@x',name:'S'};
+            notifyHandle({ev_seq:4});                                   // 처음 켠 브라우저 — 지난 이벤트는 건너뛴다
+            const c0=notifyCursor(), q=notifyQuery();
+            const d={ev_seq:6,events:[{seq:5,type:'mention',pin:1,to:['w@x'],by:S},{seq:6,type:'replied',pin:2,to:['w@x'],by:S}]};
+            notifyHandle(d);                                            // 탭 A
+            notifyHandle(d);                                            // 탭 B 가 같은 응답을 늦게 받음(같은 localStorage)
+            notifyHandle({ev_seq:6,events:[]});                         // 새로고침 뒤
+            NOTIFY=false; notifyHandle({ev_seq:9,events:[{seq:9,type:'mention',pin:3,to:['w@x'],by:S}]});
+            console.log(JSON.stringify([c0,q,SHOWN,notifyCursor(),notifyQuery()]));
+            """)
+        self.assertEqual(json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"]], 6, ""])
+
+    def test_wiring(self):
+        h = ps.HTML
+        self.assertIn('id="m-notify"', h)
+        self.assertIn('id="btn-notify"', h)
+        tog = extract_js_fn("notifyToggle")
+        self.assertIn("Notification.requestPermission()", tog)
+        self.assertEqual(html_without_comments(h).count("requestPermission("), 1)   # 클릭 경로에서만 묻는다
+        self.assertIn("reg.showNotification(", extract_js_fn("notifyShow"))
+        self.assertNotIn("new Notification(", html_without_comments(h))
+        self.assertIn("tag:'pin-'+e.pin", extract_js_fn("notifyShow"))
+        self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
+        self.assertIn("notifyQuery()", extract_js_fn("pollLightOnce"))
+        self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
