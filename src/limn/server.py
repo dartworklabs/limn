@@ -5882,10 +5882,31 @@ let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_I
 // 단일 비행: pollBuild 와 같은 패턴 — visibilitychange·focus·5초 타이머가 겹쳐 불러도(예: 탭 전환과
 // 동시에 포커스가 돌아오면) /api/meta·loadPins 는 한 번만 나간다(결함 실측: 겹치면 loadPins 3회).
 function pollLight(){
-  if(document.hidden)return Promise.resolve();   // 탭이 숨으면 요청 자체를 보내지 않는다
+  if(document.hidden)return Promise.resolve();   // 무거운 갱신(목록 다시 그리기 포함)은 탭이 숨으면 보내지 않는다
   if(LIGHT_INFLIGHT)return LIGHT_INFLIGHT;
   LIGHT_INFLIGHT=pollLightOnce().finally(()=>{LIGHT_INFLIGHT=null;});
   return LIGHT_INFLIGHT;
+}
+// 탭이 숨어 있는 동안에는 목록을 다시 그리지 않되(결함 실측: 숨은 탭이 알림을 전혀 못 받았다), 알림이 켜져
+// 있으면(notifyOn) /api/meta?light=1 을 가볍게(느리게, 브라우저가 어차피 죈다) 불러 이벤트만 알림으로 보인다.
+// pollLight 의 document.hidden 회피와 같은 자리에서 갈라지는 알림 전용 갈래 — 화면은 건드리지 않는다.
+let NOTIFY_HIDDEN_TIMER=null,NOTIFY_HIDDEN_INFLIGHT=null;
+const NOTIFY_HIDDEN_INTERVAL_MS=20000;
+function pollHiddenNotify(){
+  if(!document.hidden||!notifyOn())return Promise.resolve();
+  if(NOTIFY_HIDDEN_INFLIGHT)return NOTIFY_HIDDEN_INFLIGHT;
+  NOTIFY_HIDDEN_INFLIGHT=pollHiddenNotifyOnce().finally(()=>{NOTIFY_HIDDEN_INFLIGHT=null;});
+  return NOTIFY_HIDDEN_INFLIGHT;
+}
+async function pollHiddenNotifyOnce(){
+  let d;
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'알림 확인',silent:true})).data;}catch(e){return;}
+  if(document.hidden)notifyHandle(d);   // 기다리는 사이 탭이 돌아왔으면 일반 폴링이 이미 처리한다
+}
+// 알림이 켜진 채 탭이 숨으면 느린 타이머를 켜고, 돌아오거나 알림을 끄면 끈다(중복 폴링 방지).
+function syncHiddenNotifyTimer(){
+  clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=null;
+  if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
 }
 async function pollLightOnce(){
   let d; const k=DOC;
@@ -5918,8 +5939,9 @@ function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let r
   if(redraw)drawDocTabs();}
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight();});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight(); syncHiddenNotifyTimer();});
   window.addEventListener('focus',()=>pollLight());
+  syncHiddenNotifyTimer();   // 부팅 시 이미 숨어 있고(드문 경우) 알림이 켜져 있으면 바로 잡는다
 }
 // 자기 탭이 방금 한 close/drop/reopen/restore 는 로컬 토스트를 이미 띄웠으니 다음 loadPins() 의
 // diffToast 에서 같은 전환을 또 알리지 않는다 — markMine(id) 직후 첫 diffToast 판정 한 번만 삼키고
@@ -5998,24 +6020,30 @@ function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   list.forEach(notifyShow);}
 async function notifyRegister(){if(!notifySupported())return null;
   try{SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}); return SW_REG;}catch(e){return null;}}
-function notifyState(){if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
+// 로컬 신원(테일넷 로그인 없음)은 서버가 events_since() 에서 아예 이벤트를 안 실어(§@태그·사람·이벤트) 알림이
+// 영영 오지 않는다 — 브라우저 권한을 얻어도 소용없으므로 켜는 것 자체를 막고 이유를 알린다.
+function isLocalIdentity(){const me=META&&META.me; return !me||!me.login||me.login==='local';}
+function notifyState(){if(isLocalIdentity())return 'local'; if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
   if(pm==='denied')return 'blocked'; return prefs().notify&&pm==='granted'?'on':'off';}
 function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify');
-  const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨'}[st];
+  const lab={on:'알림: 켜짐',off:'알림: 꺼짐',blocked:'알림: 브라우저에서 차단됨',unsupported:'알림: 이 주소에서는 안 됨',local:'알림: 테일넷 주소에서만'}[st];
   const tip={on:'이 기기에서 켜져 있습니다. 누르면 끕니다',off:'누르면 이 기기에서 켭니다(브라우저가 허용을 묻습니다)',
     blocked:'브라우저가 이 사이트의 알림을 막았습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 다시 누르세요',
-    unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다'}[st];
+    unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다',
+    local:'테일넷 주소로 열면 켤 수 있습니다'}[st];
   b.innerHTML=st==='on'?ic('bell'):ic('bell-off'); b.setAttribute('aria-label','브라우저 '+lab); b.setAttribute('aria-pressed',String(st==='on')); b.dataset.tip=lab+' — '+tip;
+  b.disabled=st==='local'; m.disabled=st==='local';
   m.textContent=st==='on'?'알림 끄기 (켜짐)':st==='off'?'알림 켜기':lab; m.dataset.tip=tip;}
 async function notifyToggle(){const st=notifyState();
-  if(st==='on'){savePrefs({notify:false}); drawNotify(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
+  if(st==='local'){toast('테일넷 주소로 열면 켤 수 있습니다','warn'); return;}
+  if(st==='on'){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
   if(st==='unsupported'){toast('브라우저 알림은 https 테일넷 주소나 http://127.0.0.1 에서만 됩니다','warn'); return;}
   if(st==='blocked'){toast('브라우저가 알림을 막았습니다 — 주소창 자물쇠 → 알림 → 허용으로 바꾼 뒤 다시 누르세요','warn'); return;}
   let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // 이 클릭 안에서만 묻는다
   if(pm!=='granted'){drawNotify(); toast(pm==='denied'?'알림을 허용하지 않아 켜지 않았습니다':'알림 허용을 고르지 않았습니다','warn'); return;}
   await notifyRegister(); savePrefs({notify:true});
   try{const d=(await api(dq('/api/meta?light=1'),{silent:true})).data; if(notifyCursor()==null)setNotifyCursor(d.ev_seq);}catch(e){}
-  drawNotify(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
+  drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
 // 알림을 누르면(서비스 워커 → postMessage, 또는 새 탭의 #doc=<키>&pin=<번호>) 그 문서로 바꿔 그 핀을 연다.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
 async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
