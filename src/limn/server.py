@@ -5138,7 +5138,6 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
    새 알림이 맨 위에 쌓이고 3개가 넘으면 나머지는 접힌다(마우스를 올리면 펼친다). */
 #toasts{position:fixed;z-index:50;right:var(--toast-r,var(--space-3));bottom:var(--toast-b,var(--space-3));width:var(--toast-w,360px);
   max-width:calc(100vw - 2 * var(--space-2));display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none}
-#toasts.at-top{bottom:auto;top:calc(var(--space-2) + env(safe-area-inset-top))}
 .toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:var(--space-2);
   padding:var(--space-3);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);
   box-shadow:var(--shadow);font-size:var(--text-base);line-height:1.45;animation:toast-in .16s ease-out}
@@ -5150,6 +5149,8 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
 .toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
 #toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
+/* 터치: 알림 몸통은 누름을 뒤로 흘려보낸다(버튼만 받는다) — 폰에서 시트 바로 위에 뜬 알림이 PDF 길게 누르기·도구 줄을 가로채지 않게. */
+@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:6px 9px;border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
@@ -5670,14 +5671,15 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
   const R=document.documentElement.style,gap=8,vh=innerHeight;
   const shown=el=>{if(!el||el.hidden)return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')return false;
     const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
-  let top=vh,r=12,w=360,atTop=false;
+  let top=vh,r=12,w=360;
   if(LAYOUT==='narrow'){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
-    if(top<vh*0.3)atTop=true;}
+    // 시트가 화면 대부분을 덮으면(위 30% 안에서 시작) 시트 위에 자리가 없다 — 화면 위로 올리면 시트의 도구 줄([더보기] 등)을 가려
+    // 눌리지 않았다(터치 회귀). 그때는 시트 안 아래쪽, 저장·취소 줄이 보이면 그 위에 둔다.
+    if(top<vh*0.3){top=vh; const ca=$('#c-actions'); if(shown(ca))top=ca.getBoundingClientRect().top;}}
   else{const open=LAYOUT==='wide'||SIDE_OPEN,rr=right.getBoundingClientRect();
     if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);} else w=Math.min(360,innerWidth-24);
     ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],LAYOUT==='mid'&&!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
       if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
-  box.classList.toggle('at-top',atTop);
   R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
 let TOAST_WATCH=0;
 function watchToasts(){if(TOAST_WATCH)return; TOAST_WATCH=setInterval(()=>{if(!$('#toasts').children.length){clearInterval(TOAST_WATCH);TOAST_WATCH=0;return;} placeToasts();},250);}

@@ -3693,6 +3693,8 @@ class FrontendToasts(unittest.TestCase):
         self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # 아래 도구 줄을 가리지 않는다
         self.assertIn("right.getBoundingClientRect().top", body)      # narrow: 시트 위
         self.assertIn("innerWidth-rr.right+12", body)                 # 패널 열 안 오른쪽
+        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)   # 거의 다 편 시트: 도구 줄을 가리지 않게 아래로
+        self.assertIn("@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css)
         for v in ("--toast-b", "--toast-r", "--toast-w"):
             self.assertIn("setProperty('%s'" % v, body)
 
