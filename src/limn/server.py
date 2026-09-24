@@ -5156,7 +5156,7 @@ button.arc-orig-t:hover,button.arc-orig-t:focus-visible{background:transparent;c
 .arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
 h3{margin:0 0 7px;font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
-kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 5px;font-size:var(--text-xs);white-space:nowrap}
+kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 5px;font:inherit;font-size:var(--text-xs);white-space:nowrap}   /* 브라우저 기본 고정폭 글꼴은 한글 버튼 이름('길게 누르기')을 띄엄띄엄 그렸다 */
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
