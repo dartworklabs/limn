@@ -4513,7 +4513,7 @@ body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z
    DOM 순서는 narrow 시트와 공유하므로 CSS order 로만 바꾼다. */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
 body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
-body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2}
+body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
 body.lay-mid #btn-select{order:1}
 body.lay-mid #btn-rebuild{order:3}
 body.lay-mid #btn-more{order:4}
