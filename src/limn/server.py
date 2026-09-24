@@ -4009,7 +4009,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
 /* 테마와 무관한 척도: radius 3단(원형 점·아바타만 50%), 글자 5단, 간격 6단, 컨트롤 높이. 이름표 색(--brand)은 인스턴스마다
    서버가 채우고(--accent 인자) 테마가 바뀌어도 그대로다. */
 :root{--brand:__ACCENT__;--brand-foreground:#ffffff;
-  --outline-width:240px;
+  --outline-width:240px;--doc-nav-h:44px;
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
   --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
@@ -4028,17 +4028,19 @@ body{margin:0;background:var(--background);color:var(--foreground);font:var(--te
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
 #pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-#doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:44px;padding:0 var(--space-4);
+#doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:var(--doc-nav-h);padding:0 var(--space-4);
   background:var(--sidebar);border-bottom:1px solid var(--border);font-size:var(--text-base)}
 body:not(.lay-narrow) #doc-nav{display:flex}
 #doc-nav .nav-sp{flex:1}
-#paper-identity{display:inline-flex;align-items:center;gap:6px;flex:none;margin-right:var(--space-3);padding-right:var(--space-3);
+#paper-identity{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:180px;margin-right:var(--space-3);padding-right:var(--space-3);
   border-right:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:600;white-space:nowrap}
 #paper-identity-mark{display:grid;place-items:center;width:15px;height:15px;border-radius:var(--radius-sm);background:var(--brand);
   color:var(--brand-foreground);font-size:var(--text-xs);line-height:1;font-weight:700}
+#paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
 body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
-#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);margin-right:var(--space-3)}
+#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);margin-right:var(--space-3);overflow-x:auto}
+#doc-links button{flex:none}
 body.docs-multi:not(.lay-narrow) #doc-links{display:flex}
 #doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
 #doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
@@ -4050,7 +4052,7 @@ body.docs-multi:not(.lay-narrow) #doc-links{display:flex}
 #doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:4px 20px 4px 2px}
 #view-switch{padding-left:0}
 body.docs-multi #view-switch{border-left:1px solid var(--border);padding-left:var(--space-3)}
-#view-switch{display:inline-flex;align-items:stretch;gap:var(--space-4);height:100%}
+#view-switch{display:inline-flex;align-items:stretch;gap:var(--space-4);height:100%;flex:none}
 #view-switch button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm)}
 #view-switch button[aria-pressed=true]{color:var(--foreground);font-weight:600}
 #view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
@@ -4060,9 +4062,8 @@ body.outline-collapsed #outline{display:none}
 body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,body.outline-collapsed .outline-title{display:none}
 .outline-head{display:flex;align-items:center;min-height:32px;gap:var(--space-2);padding:0 var(--space-2) var(--space-2)}
 #outline .outline-title{font-weight:600}
-#toc-toggle{margin-left:auto;padding:2px var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
-#nav-toc-toggle{display:none;flex:none;align-self:center;margin-right:var(--space-2);padding:3px 7px;color:var(--muted-foreground)}
-body.outline-collapsed:not(.lay-narrow) #nav-toc-toggle{display:inline-flex}
+#nav-toc-toggle{display:inline-flex;flex:none;align-self:center;width:32px;height:32px;padding:0;color:var(--muted-foreground)}
+#nav-toc-toggle[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
 #outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
 #outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
 #outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-1);width:100%;text-align:left;
@@ -4126,7 +4127,7 @@ body.revision-open:not(.lay-narrow) #left{display:none}
 body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
 body.resizing #left{pointer-events:none}
 #sheet-grip{display:none}
-#right{width:430px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
+#right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
   display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 #bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2) 10px;--tb-h:var(--control-h)}   /* 좁힌 패널에서는 두 줄로 — 가로로 넘치지 않게 */
@@ -4368,7 +4369,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .strip{display:inline-block;width:4px;height:12px;border-radius:var(--radius-sm);vertical-align:middle;margin:0 4px 0 2px}
 .strip.c{background:var(--status-claimed)} .strip.d{background:var(--status-closed)} .strip.x{background:var(--status-dropped)}
 /* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
-   레이아웃은 JS 가 body 에 건다: lay-wide(지금 그대로) · lay-mid(700px 초과 1100px 미만 + 터치: 좁은 사이드 패널) ·
+   레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
    접힌 상태에는 도구 줄(#bar1)과 상태 칩(#bar2)·위치 다시 잡기 배너만 남는다. */
 .cmp,.tch{display:none}
@@ -4381,6 +4382,8 @@ body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-off
   color:var(--primary-foreground);border-radius:var(--radius-lg);padding:6px 6px 6px 14px;display:flex;gap:var(--space-2);align-items:center;
   width:max-content;max-width:calc(100vw - 16px);font-size:var(--text-lg);box-shadow:var(--shadow-lg)}
 #coach button{background:transparent;color:inherit;border-color:transparent}
+body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
+body:not(.lay-narrow) #coach button{pointer-events:auto}
 body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-width:calc(100vw - var(--side-w,340px) - 16px)}
 #more{max-width:440px}
 #more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
@@ -4393,6 +4396,7 @@ body.lay-mid.side-open #coach{left:calc((100vw - var(--side-w,340px))/2);max-wid
 #more .size-row{display:flex;align-items:center;gap:var(--space-2)}
 #more .size-row .seg{flex:1;margin:0}
 @media (pointer:coarse){
+  :root{--doc-nav-h:48px}
   button.tch{display:inline-flex}
   .hint .t-touch{display:inline}
   .hint .t-mouse{display:none}
@@ -4495,6 +4499,18 @@ body.lay-mid:not(.side-open) #right{position:fixed;right:max(12px,env(safe-area-
   bottom:calc(12px + var(--kb,0px) + env(safe-area-inset-bottom));width:auto!important;height:auto;max-width:calc(100vw - 24px);
   border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);z-index:20;overflow:hidden}
 body.lay-mid:not(.side-open) #bar1{border-radius:var(--radius-lg)}
+/* 중간 폭은 목차를 문서 위에 펼친다. 좁은 태블릿은 핀도 겹쳐 본문 폭을 보존한다. */
+body.lay-mid #paper-identity{display:none}
+body.lay-mid #doc-nav{gap:var(--space-2);padding:0 var(--space-3)}
+body.lay-mid #doc-links{gap:var(--space-3);margin-right:0}
+body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
+body.lay-mid #doc-nav button{white-space:nowrap}
+body.lay-mid #outline{position:absolute;left:0;top:var(--doc-nav-h);bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+body.lay-mid #outline-grip{display:none}
+@media (min-width:701px) and (max-width:900px){
+  body.lay-mid.side-open #right{position:fixed;right:0;top:var(--doc-nav-h);bottom:var(--kb,0px);z-index:20;box-shadow:var(--shadow)}
+  body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--doc-nav-h);bottom:var(--kb,0px);z-index:21}
+}
 /* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
@@ -4529,7 +4545,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span><button id="toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="true" aria-label="목차 접기">접기</button></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -4679,6 +4695,7 @@ let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
 // 모바일: LAYOUT 은 'wide'|'mid'|'narrow', SIDE_OPEN 은 패널·시트가 펼쳐졌는가, SELMODE 는 터치 선택 모드,
 // ZOOMED 는 compact 에서 사용자가 −/＋ 로 폭을 바꿨는가(그동안은 화면 폭에 자동으로 맞추지 않는다).
 const MQ_COARSE=matchMedia('(pointer:coarse)');
+let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
 // 여러 문서(§여러 문서, references/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
@@ -5212,26 +5229,26 @@ function startBuildPolling(){
 // (pinPrefs.side = wide, pinPrefs.sideMid = mid) — 편 화면에서 맞춘 폭이 데스크톱 폭을 덮지 않게. 저장값이 지금 화면의
 // 한계를 넘으면(접기·펴기, 창 줄이기) 저장값은 두고 보이는 폭만 한계 안으로 맞춘다. 한계: 최소는 패널 도구 줄이
 // 한 줄에 들어가는 폭, 최대는 본문(PDF) 쪽 최소 폭을 남기는 폭.
-function outlineBounds(){const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
+function outlineBounds(){if(LAYOUT==='mid')return {min:220,max:320};const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
 function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
   document.documentElement.style.setProperty('--outline-width',w+'px');
   const g=$('#outline-grip');g.setAttribute('aria-valuemin',b.min);g.setAttribute('aria-valuemax',b.max);g.setAttribute('aria-valuenow',w);return w;}
 function applyOutlineState(){
-  const p=prefs(),closed=p.outlineClosed===true;
+  const p=prefs(),closed=LAYOUT==='mid'?!OUTLINE_MID_OPEN:p.outlineClosed===true;
   document.body.classList.toggle('outline-collapsed',closed);
-  const t=$('#toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
-  t.textContent='접기';
-  $('#nav-toc-toggle').setAttribute('aria-expanded',String(!closed));
+  const t=$('#nav-toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
   if(LAYOUT!=='narrow')showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);
 }
 function setOutlineWidth(w){if(LAYOUT==='narrow')return;w=showOutlineWidth(w);savePrefs({outlineWidth:w});relayout();}
-function toggleOutline(){const closed=!document.body.classList.contains('outline-collapsed');
-  savePrefs({outlineClosed:closed});applyOutlineState();relayout();}
+function toggleOutline(){const a=topAnchor(),closed=!document.body.classList.contains('outline-collapsed');
+  if(LAYOUT==='mid'){OUTLINE_MID_OPEN=!closed;if(!closed)setSide(false);}
+  else savePrefs({outlineClosed:closed});
+  applyOutlineState();relayout();restoreAnchor(a);$('#nav-toc-toggle').focus({preventScroll:true});}
 function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(a,w)));
-  if(layout==='mid'){const min=300,max=Math.max(min,Math.min(Math.round(iw*0.6),iw-320));
-    const def=cl(iw*0.38,300,Math.min(360,max)); return {min,max,def,presets:[min,def,cl(iw*0.5,min,max)]};}
-  const min=280,max=Math.max(min,Math.min(Math.round(iw*0.8),iw-486)),def=cl(430,min,max);
-  return {min,max,def,presets:[cl(320,min,max),def,cl(iw*0.42,min,max)]};}
+  if(layout==='mid'){const min=300,max=iw<=900?Math.min(440,iw-240):Math.max(min,iw-488);
+    const def=cl(330,min,max); return {min,max,def,presets:[min,def,cl(iw*0.5,min,max)]};}
+  const min=280,max=Math.max(min,Math.min(Math.round(iw*0.8),iw-486)),def=cl(348,min,max);
+  return {min,max,def,presets:[cl(300,min,max),def,cl(iw*0.42,min,max)]};}
 function clampSide(w,b){return Math.round(Math.min(b.max,Math.max(b.min,w)));}
 // 단계 순환: 지금 폭보다 큰 다음 단계, 가장 넓으면 가장 좁은 단계로. presetIndex 는 ±4px 안에서 맞는 단계(없으면 -1).
 function nextPreset(presets,w){const n=presets.find(p=>p>w+4); return n===undefined?presets[0]:n;}
@@ -5562,15 +5579,15 @@ function wheelFactor(dy,mode){if(!dy)return 1;
 })();
 
 // ------------------------------------------------ 화면 폭별 레이아웃(모바일)
-// wide: 지금까지의 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만의 터치 화면(편 폴더블) — 좁은 사이드
+// wide: 1100px 이상 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만 — 좁은 사이드
 // 패널, 접으면 오른쪽 아래 도구 줄만 남는다. narrow: 700px 이하(접은 폴더블·휴대폰) — 하단 시트, 기본은 접힘.
 // 접기·펴기로 폭이 도중에 바뀌면 레이아웃을 다시 고르고, 보던 자리(topAnchor)를 지킨 채 쪽 폭을 다시 맞춘다.
 // 마크·선택 상자는 쪽 안의 % 좌표라 쪽 폭만 맞으면 저절로 제자리다.
-function layoutFor(){const w=innerWidth; if(w<=700)return 'narrow'; if(w<1100&&MQ_COARSE.matches)return 'mid'; return 'wide';}
-function applyLayout(){const L=layoutFor(); if(L===LAYOUT)return false;
-  LAYOUT=L; const b=document.body; ZOOMED=false;
+function layoutFor(){const w=innerWidth; if(w<=700)return 'narrow'; if(w<1100)return 'mid'; return 'wide';}
+function applyLayout(){const L=layoutFor(),overlay=L==='mid'&&innerWidth<=900; if(L===LAYOUT&&overlay===MID_OVERLAY)return false;
+  LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false;
   ['wide','mid','narrow'].forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!=='wide');
-  SIDE_OPEN=L==='wide'?true:(L==='mid'?!prefs().midClosed:false);
+  SIDE_OPEN=L==='wide'?true:(L==='mid'?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
   if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // 쓰던 메모·편집은 접힌 채로 숨기지 않는다
   applySide(); stickTop(); return true;}
 function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
@@ -5580,6 +5597,7 @@ function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
   btn.setAttribute('aria-label',(open?'패널 접기':'패널 펴기')+' · 열린 핀 '+PINS.length);}
 // remember: mid 에서 사용자가 직접 접고 편 것만 기억한다(narrow 는 늘 접힌 채 시작).
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
+  if(open&&LAYOUT==='mid'){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
   if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
 function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
@@ -6352,7 +6370,7 @@ document.addEventListener('click',e=>{
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'outline':toggleOutline();break;
-    case 'outline-page':OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
@@ -6393,6 +6411,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}
+    if(LAYOUT==='mid'&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
     if(REPICK){cancelRepick();return;}
     if(EDIT){cancelEdit();return;}
     if(CUR||!$('#composer').hidden){cancelSelection(true);return;}

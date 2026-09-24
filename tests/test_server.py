@@ -3317,7 +3317,7 @@ class FrontendMobileLogic(unittest.TestCase):
             "console.log(JSON.stringify(%s.map(c=>{innerWidth=c[0];MQ_COARSE.matches=c[1];return layoutFor();})));" % json.dumps(cases),
         ])
         self.assertEqual(json.loads(run_node(js)),
-                         ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "wide", "wide"])
+                         ["narrow", "narrow", "mid", "mid", "mid", "wide", "wide", "narrow", "mid", "wide"])
 
     def test_quick_pick_box_is_small_and_clamped(self):
         js = "\n".join([
@@ -3390,12 +3390,12 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             console.log(JSON.stringify([sideBounds('mid',880),sideBounds('mid',760),sideBounds('mid',701),
                                         sideBounds('wide',1440),sideBounds('wide',1100),sideBounds('wide',700)]));"""])
         got = json.loads(run_node(js))
-        # 펼친 화면: 최소 300(도구 줄이 한 줄), 최대 60%(본문 320px 이상), 기본은 예전 clamp(300,38vw,360) 그대로
-        self.assertEqual(got[0], {"min": 300, "max": 528, "def": 334, "presets": [300, 334, 440]})
+        # 900px 이하는 오버레이, 그 이상은 본문 480px + 손잡이 8px을 남긴다.
+        self.assertEqual(got[0], {"min": 300, "max": 440, "def": 330, "presets": [300, 330, 440]})
         self.assertEqual(got[1]["max"], 440)
-        self.assertEqual(got[2], {"min": 300, "max": 381, "def": 300, "presets": [300, 300, 351]})
-        # 데스크톱: 기본 430 과 최소 280 은 예전 그대로, 최대는 본문 480px + 손잡이를 남긴다
-        self.assertEqual(got[3], {"min": 280, "max": 954, "def": 430, "presets": [320, 430, 605]})
+        self.assertEqual(got[2], {"min": 300, "max": 440, "def": 330, "presets": [300, 330, 351]})
+        # 데스크톱: 기본 348, 최소 280, 최대는 본문 480px + 손잡이를 남긴다
+        self.assertEqual(got[3], {"min": 280, "max": 954, "def": 348, "presets": [300, 348, 605]})
         self.assertEqual(got[4]["max"], 614)
         self.assertEqual(got[5], {"min": 280, "max": 280, "def": 280, "presets": [280, 280, 280]})
         for b in got:
@@ -5062,3 +5062,129 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["queued"])
         self.assertTrue(data["autoSaved"])
         self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # 새 위치 응답이 오자 큐에 담긴 저장이 나간다
+
+
+class FrontendResponsiveBrowser(unittest.TestCase):
+    """Real Chromium layout and keyboard regression; API/PDF rendering is outside this oracle.
+
+    Run with uv run --no-project --with playwright python -m unittest discover
+    -s tests/manuscript_pin_picker -p test_pin_server.py -k FrontendResponsiveBrowser.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise unittest.SkipTest("Playwright unavailable")
+        chrome = shutil.which("google-chrome") or shutil.which("chromium")
+        if not chrome:
+            raise unittest.SkipTest("Chromium unavailable")
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch(executable_path=chrome, args=["--no-sandbox"])
+        cls.html = ps.build_html("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def open_viewer(self, width, touch=False, preferences=None):
+        context = self.browser.new_context(viewport={"width": width, "height": 900},
+                                           is_mobile=touch, has_touch=touch)
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.route("**/*", lambda route: route.fulfill(content_type="text/html", body=self.html)
+                   if route.request.url == "http://viewer.test/" else route.abort())
+        page.goto("http://viewer.test/")
+        page.evaluate("""preferences => {
+          localStorage.setItem('pinPrefs',JSON.stringify(preferences||{}));
+          DOC='main';DEFAULT_DOC='main';
+          DOCS=[{key:'main',name:'본문',path:'main.tex',n_pages:28},
+                {key:'reply',name:'하이라이트',path:'reply.tex',n_pages:1},
+                {key:'cover',name:'커버레터',path:'cover.tex',n_pages:1}];
+          document.body.classList.add('docs-multi');
+          applyTheme();applyLayout();applySideWidth();applyOutlineState();drawDocTabs();
+          META={pages:[{}, {}, {}]};
+          document.querySelector('#doc').innerHTML=[1,2,3].map(n=>
+            '<div class="pg" id="p'+n+'" data-page="'+n+'" style="aspect-ratio:612/792;background:white"></div>').join('');
+          relayout();
+        }""", preferences)
+        return page
+
+    def test_toggle_stays_in_place_without_overflow_for_mouse_and_touch(self):
+        for touch in (False, True):
+            for width in (720, 820, 900, 1024, 1180, 1440):
+                with self.subTest(width=width, touch=touch):
+                    page = self.open_viewer(width, touch)
+                    if touch:
+                        page.evaluate("coach('touch','길게 누르면 문단을 고릅니다')")
+                    self.assertEqual(page.evaluate("SIDE_OPEN"), width > 900)
+                    toggle = page.locator('#nav-toc-toggle')
+                    self.assertEqual(page.locator('[data-act="outline"]').count(), 1)
+                    before = toggle.bounding_box()
+                    self.assertGreaterEqual(before['y'], 0)
+                    page.evaluate("document.querySelector('#left').scrollTop=480")
+                    anchor = page.evaluate("topAnchor()")
+                    toggle.click()  # Coach is still visible during this real hit test.
+                    after = toggle.bounding_box()
+                    self.assertEqual((before['x'], before['y']), (after['x'], after['y']))
+                    self.assertEqual(page.evaluate("document.activeElement.id"), 'nav-toc-toggle')
+                    current = page.evaluate("topAnchor()")
+                    self.assertEqual(anchor['page'], current['page'])
+                    self.assertAlmostEqual(anchor['frac'], current['frac'], delta=.003)
+                    self.assertGreaterEqual(page.locator('#pdf-center').bounding_box()['width'], 480)
+                    self.assertFalse(page.evaluate("document.documentElement.scrollWidth>innerWidth"))
+                    self.assertFalse(page.evaluate("document.querySelector('#doc-nav').scrollWidth>document.querySelector('#doc-nav').clientWidth"))
+                    if width < 1100:
+                        self.assertEqual(toggle.get_attribute('aria-expanded'), 'true')
+                        self.assertFalse(page.evaluate("SIDE_OPEN"))
+                        page.keyboard.press('Escape')
+                        self.assertEqual(toggle.get_attribute('aria-expanded'), 'false')
+                        toggle.press('Enter')
+                        page.locator('#btn-side').click()
+                        self.assertEqual(toggle.get_attribute('aria-expanded'), 'false')
+                        self.assertTrue(page.evaluate("SIDE_OPEN"))
+                    else:
+                        self.assertEqual(toggle.get_attribute('aria-expanded'), 'false')
+                        toggle.press('Enter')
+                        self.assertEqual(toggle.get_attribute('aria-expanded'), 'true')
+
+    def test_overlay_defaults_follow_width_but_explicit_choice_and_draft_survive(self):
+        page = self.open_viewer(820)
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        page.set_viewport_size({'width': 1024, 'height': 900})
+        page.wait_for_function("SIDE_OPEN")
+        page.set_viewport_size({'width': 820, 'height': 900})
+        page.wait_for_function("!SIDE_OPEN")
+        page.locator('#btn-side').click()
+        self.assertFalse(page.evaluate("prefs().midClosed"))
+        page.set_viewport_size({'width': 1024, 'height': 900})
+        page.wait_for_function("!MID_OVERLAY")
+        page.set_viewport_size({'width': 820, 'height': 900})
+        page.wait_for_function("MID_OVERLAY")
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        page = self.open_viewer(1024)
+        page.evaluate("document.querySelector('#composer').hidden=false")
+        page.set_viewport_size({'width': 820, 'height': 900})
+        page.wait_for_function("MID_OVERLAY")
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+
+    def test_saved_widths_clamp_without_overwriting_and_mobile_keeps_sheet(self):
+        page = self.open_viewer(1180, preferences={'side': 430})
+        self.assertEqual(page.locator('#right').bounding_box()['width'], 430)
+        page = self.open_viewer(1024, preferences={'sideMid': 600})
+        self.assertGreaterEqual(page.locator('#pdf-center').bounding_box()['width'], 480)
+        self.assertEqual(page.evaluate("prefs().sideMid"), 600)
+        page.locator('#grip').focus()
+        page.keyboard.press('End')
+        self.assertEqual(page.locator('#right').bounding_box()['width'], 300)
+        page = self.open_viewer(390, True)
+        self.assertFalse(page.locator('#doc-nav').is_visible())
+        self.assertTrue(page.locator('#btn-doc').is_visible())
+        self.assertFalse(page.evaluate("SIDE_OPEN"))
+        page.locator('#btn-side').click()
+        self.assertTrue(page.evaluate("SIDE_OPEN"))
+        self.assertEqual(page.locator('#right').bounding_box()['width'], 390)
+        page.locator('#btn-doc').click()
+        self.assertTrue(page.locator('#docs-menu').is_visible())
