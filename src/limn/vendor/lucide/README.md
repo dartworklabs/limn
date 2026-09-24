@@ -18,9 +18,11 @@
 | --- | --- |
 | `at-sign` | '나를 부름'·'@이름' 배지, [나를 부른 핀 N] |
 | `bell` · `bell-off` | 브라우저 알림 켜짐·꺼짐(데스크톱 도구 줄) |
+| `bot` | 로컬/에이전트 아바타(사람의 머리글자 원과 가른다) |
 | `check` | 닫힌 핀 행의 머리, 문서 목록에서 지금 문서 |
 | `chevron-down` · `chevron-right` | 보관함 구획 머리의 접기·펼치기, 카드 접기(좁은 화면), [문서] 버튼 |
 | `chevron-up` · `chevron-left` | [핀 N] 패널·시트 펴기·접기 방향 |
+| `circle-check` · `circle-x` | 알림(토스트) 앞머리 — 완료·오류. 경고는 `triangle-alert` |
 | `circle-question-mark` | 도움말 버튼, '질문' 배지 |
 | `message-square` | 카드 머리의 답글 수 |
 | `clock` | '처리 중' 배지 |
@@ -31,8 +33,10 @@
 | `moon` · `sun` · `sun-moon` | 화면 테마(어둡게·밝게·시스템) |
 | `move-vertical` | '줄 +N 이동' 배지 |
 | `pencil` | '수정됨' 배지 |
+| `rotate-ccw` | '다시 열림' 배지(검토에서 되돌아온 핀) |
+| `text-wrap` | 소스 diff 의 [줄바꿈] |
 | `trash-2` | 삭제한 핀 행의 머리 |
-| `triangle-alert` | '위치 잃음' 배지 |
+| `triangle-alert` | '위치 잃음' 배지, 경고 알림 앞머리 |
 | `x` | 알림·안내 닫기 |
 
 ## 갱신

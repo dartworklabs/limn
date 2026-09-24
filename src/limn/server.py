@@ -66,13 +66,16 @@ LUCIDE = {
             '13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
     "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 '
                 '.258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/>',
+    "bot": '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
     "check": '<path d="M20 6 9 17l-5-5"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     "chevron-up": '<path d="m18 15-6-6-6 6"/>',
+    "circle-check": '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
     "circle-question-mark": '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'
                             '<path d="M12 17h.01"/>',
+    "circle-x": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
     "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
     "copy": '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
             '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
@@ -89,12 +92,14 @@ LUCIDE = {
     "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 '
               '.623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    "rotate-ccw": '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>'
            '<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/>'
            '<path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
     "sun-moon": '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 '
                 '5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/>'
                 '<path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
+    "text-wrap": '<path d="m16 16-3 3 3 3"/><path d="M3 12h14.5a1 1 0 0 1 0 7H13"/><path d="M3 19h6"/><path d="M3 5h18"/>',
     "trash-2": '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
                '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
     "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'
@@ -126,12 +131,15 @@ CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, ma
 KIND_REQS = ("fix", "question")    # 없으면 fix — 옛 핀은 모두 수정 요청이다
 THREAD_TEXT_MAX = 1000             # 답글 한 건 — 메모(NOTE_MAX)처럼 문자열·길이만 보고 화면에서 esc() 로 그린다
 THREAD_MAX = 200                   # 핀 하나의 스레드 상한(답글). 상태 전환 기록(닫기·다시 열기·확인)은 상한과 무관하게 붙는다
-THREAD_EVENTS = ("close", "reopen", "confirm")
+THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
+# 담당(references/api.md §담당). 누가 이 핀을 처리하나 — "agent" 또는 사람 로그인. 없으면 옛 핀이라 addressed_to() 의 추론(질문 핀의
+# @태그)을 그대로 쓴다. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43: 수정 요청 핀의 '@서준 확인 부탁'이 사람에게 맡긴 것).
+ASSIGNEE_AGENT = "agent"
 # @태그(references/api.md §@태그·사람·이벤트). 뷰어 안에서만 부른다 — 바깥 알림은 보내지 않고 events.jsonl 에 적어 둔다.
 MENTION_MAX = 10                   # 글 하나의 mentions 힌트 개수 상한
 PEOPLE_TOUCH_S = 600               # people.json 의 last_seen 을 이 간격보다 자주 다시 쓰지 않는다(폴링마다 쓰지 않게)
 EVENTS_KEEP = 5000                 # events.jsonl 에 남기는 최근 이벤트 수. seq 는 계속 오른다(소비자는 seq 로 따라온다)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened")
+EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
 GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
 REVISION_DIFF_MAX = 256 * 1024     # 응답·메모리 상한. 큰 변경은 저장소에서 검토한다.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
@@ -2610,6 +2618,8 @@ def valid_rec(r) -> bool:
         return False
     if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
         return False
+    if r.get("assignee") is not None and not (isinstance(r["assignee"], str) and r["assignee"]):
+        return False
     if r.get("thread") is not None and not _valid_thread(r["thread"]):
         return False
     if "anchor" in r and not isinstance(r["anchor"], dict):
@@ -3086,6 +3096,35 @@ def clean_close_body(d: dict) -> tuple:
     return reply, ref
 
 
+def clean_assignee(v, rows: list = None):
+    """담당 — "agent" 또는 이 뷰어가 아는 사람(known_people)의 로그인. 없으면 None(보내지 않음 = 그대로)."""
+    if v is None:
+        return None
+    if v == ASSIGNEE_AGENT:
+        return v
+    if not isinstance(v, str) or not v or v == LOCAL_ACTOR["login"]:
+        raise HTTPError(400, "assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.")
+    if v not in known_people(rows):
+        raise HTTPError(400, "담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v)
+    return v
+
+
+def _set_assignee(r: dict, value, actor: dict, evs: list, record: bool) -> None:
+    """담당을 바꾼다. 바뀌면(record=True 일 때) 스레드에 ev=assign 한 줄을 남기고, 사람이 새로 담당이 되면 assigned 이벤트를 쌓는다."""
+    if value is None or r.get("assignee") == value:
+        return
+    before = r.get("assignee")
+    r["assignee"] = value
+    if record:
+        _thread_append(r, actor, "담당: " + ("에이전트" if value == ASSIGNEE_AGENT else "@" + _person_name(value)), ev="assign")
+    if value != ASSIGNEE_AGENT and value != before:
+        evs.append(make_event("assigned", r, actor, [value], text=r.get("note")))
+
+
+def _person_name(login: str) -> str:
+    return (known_people().get(login) or {}).get("name") or login
+
+
 def clean_kind_req(v):
     """핀 종류 — 'fix'(수정 요청) | 'question'(질문). 없으면 None(= fix, 옛 핀과 같다)."""
     if v is None:
@@ -3238,6 +3277,7 @@ def add_pin(d: dict, actor: dict) -> int:
     note = clean_note(body.get("note"))
     kind_req = clean_kind_req(d.get("kind_req"))
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))
     if "kind" not in rec:
         rec["kind"] = "lines"
     f = Path(rec["file"])
@@ -3252,6 +3292,7 @@ def add_pin(d: dict, actor: dict) -> int:
         if kind_req:
             rec["kind_req"] = kind_req
         _set_note_mentions(rec, rows, hints, actor, evs)
+        _set_assignee(rec, assignee, actor, evs, record=False)
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
         # frac 이 어느 빌드의 레이아웃 좌표인지를 빌드 신원으로 못박는다(§위치 추정). 뷰어는 pick 응답의
@@ -3275,6 +3316,7 @@ def _add_region_pin(d: dict, actor: dict) -> int:
     note = clean_note(d.get("note"))
     kind_req = clean_kind_req(d.get("kind_req"))
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))
     evs = []
 
     def fn(rows):
@@ -3288,6 +3330,7 @@ def _add_region_pin(d: dict, actor: dict) -> int:
         rec["doc"] = D.key
         rec["rev"] = 0
         _set_note_mentions(rec, rows, hints, actor, evs)
+        _set_assignee(rec, assignee, actor, evs, record=False)
         rows.append(rec)
         return rec["id"], True
     with PIN_LOCK:
@@ -3324,14 +3367,16 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         raise HTTPError(400, "kind 가 올바르지 않습니다.")
     kind_req = clean_kind_req(d.get("kind_req"))   # 핀 종류(수정 요청/질문) — 닫힌 핀에서도 바꿀 수 있는 메모 수준 값
     hints = clean_mention_hints(d.get("mentions"))
+    assignee = clean_assignee(d.get("assignee"))   # 담당 — kind_req 처럼 닫힌 핀에서도 바꿀 수 있다. 바뀌면 스레드에 ev=assign
     evs = []
     base_given = "base_rev" in d
     if not base_given and note_append is None:
         raise HTTPError(400, "base_rev 가 필요합니다(카드를 열 때 받은 rev).")
     base = _int(d["base_rev"], "base_rev") if base_given else None
     moves = loc is not None or lo is not None or hi is not None
-    if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None):
-        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req).")
+    if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None
+            or assignee is not None):
+        raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).")
     # 위치 검증·기본 빌드는 그 핀의 문서 기준이다(요청이 ?doc= 를 안 붙여도). 핀의 종류(LaTeX/보기 전용)는 바뀌지 않는다.
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
@@ -3417,6 +3462,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             r["kind_req"] = kind_req
         if has_note or note_append is not None:
             _set_note_mentions(r, rows, hints, actor, evs)
+        _set_assignee(r, assignee, actor, evs, record=True)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
         r["rev"] = int(r.get("rev") or 0) + 1
@@ -3633,6 +3679,9 @@ def addressed_to(r: dict) -> list:
     답해야 끝나는 것이 아니므로 여기 안 넣는다 — fyi_mentions_to() 가 그쪽을 맡는다(실측: FYI로 사람을
     태그한 수정 요청 핀이 '→ @이름'으로 잡혀 에이전트가 영영 건너뛰었다). 닫고 다시 열린 핀은 옛 차례의
     글을 세지 않는다(thread_round)."""
+    a = r.get("assignee")
+    if a:                                   # 담당이 정해진 핀: 사람이면 그 사람에게 맡긴 것, 에이전트면 아무도 부르지 않았다
+        return [] if a == ASSIGNEE_AGENT else [a]
     if r.get("kind_req") != "question":
         return []
     return _round_mentions(r)
@@ -3640,7 +3689,10 @@ def addressed_to(r: dict) -> list:
 
 def fyi_mentions_to(r: dict) -> list:
     """수정 요청(kind_req != question) 핀에서 참고로 부른 사람 — 건너뛰지 않는다, pins.md 에 '참고 @이름'으로만
-    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀)."""
+    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀). 담당이 정해진 핀은 담당이 아닌 @태그 전부가 참고다."""
+    if r.get("assignee"):
+        to = addressed_to(r)
+        return [lg for lg in _round_mentions(r) if lg not in to]
     if r.get("kind_req") == "question":
         return []
     return _round_mentions(r)
@@ -3723,7 +3775,7 @@ def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> No
     evs.append(make_event("mention", r, actor, [lg for lg in new if lg not in old], text=r.get("note")))
 
 
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened")
+NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
 EVENTS_SINCE_MAX = 20
 
 
@@ -4142,8 +4194,8 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
           "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
           "'질문' = 고칠 곳이 아니라 물음이다, 답글(reply)로 답하고 닫는다 · "
           "'다시 열림' = 검토에서 되돌아온 핀, 메모 칸의 '다시 연 이유'대로 다시 고친다 · "
-          "'→ @이름' = 사람에게 물은 질문 핀, 사용자가 따로 시키지 않으면 건너뛴다 · "
-          "'참고 @이름' = 수정 요청 핀에 딸린 참고용 태그일 뿐이다, 건너뛰지 않는다 · "
+          "'→ @이름' = 담당이 사람인 핀(담당 없는 옛 핀은 사람에게 물은 질문 핀), 사용자가 따로 시키지 않으면 건너뛴다 · "
+          "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
 THREAD_MD_SHOW = 3                 # pins.md 메모 칸에 싣는 지금 차례 스레드 글 수(뒤에서부터)
 THREAD_MD_CHARS = 200              # 그 글 하나의 글자 수 — 전부는 GET /api/pins/N
@@ -4164,7 +4216,7 @@ def thread_md(r: dict) -> str:
     parts = []
     for m in shown:
         name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
-        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else name
+        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else "담당 바꿈(%s)" % name if m.get("ev") == "assign" else name
         parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS)))
     more = len(msgs) - len(shown)
     head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
@@ -4229,13 +4281,12 @@ def pins_md_text(rows: list, base: str = None) -> str:
         if pin_reopened_in_round(r):
             syms.append("다시 열림")
         to = addressed_to(r)
-        if to:                                    # 질문 핀이 사람을 불렀다 — 에이전트는 건너뛴다(요청한 사용자가 따로 시키면 예외)
+        if to:                                    # 사람에게 맡긴 핀(담당 = 사람, 또는 옛 핀의 질문 @태그) — 에이전트는 건너뛴다
             n_human += 1
             syms.append("→ " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in to))
-        else:
-            fyi = fyi_mentions_to(r)
-            if fyi:                                # 수정 요청 핀의 참고용 @태그 — 건너뛰지 않는다
-                syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
+        fyi = fyi_mentions_to(r)
+        if fyi:                                    # 참고용 @태그 — 알림만 갔다, 건너뛰지 않는다
+            syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
         if r.get("kind_req") == "question":
             syms.append("질문")
         badge = rel_badge(rel.get(r["id"], []), by_id, r)
@@ -4301,8 +4352,8 @@ def pins_md_text(rows: list, base: str = None) -> str:
                 "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다 · "
                 "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403" % (base, base))
     if n_human:
-        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 사람에게 물은 질문 핀이다 — 요청한 사용자가 그 핀을 "
-                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 수정 요청 핀의 참고용 태그일 뿐이라 건너뛰지 않는다)" % n_human)
+        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 담당이 사람인 핀이다 — 요청한 사용자가 그 핀을 "
+                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 알림만 간 참고용 태그라 건너뛰지 않는다)" % n_human)
     if is_remote:
         guidance += " · 원격: `curl -s %s/pins.md`" % base
     if C.repo:
@@ -4726,9 +4777,11 @@ body.revision-open #left{display:none}
 /* [변경 보기]가 가리키는 핀(references/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
    이 안내의 [원고로]가 돌아가는 길이다. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:6px var(--space-4);background:var(--card);
-  border-bottom:1px solid var(--border);border-left:3px solid var(--status-review);font-size:var(--text-sm)}
-#revision-pin .rp-msg{color:var(--muted-foreground)}
-#revision-diff .rd-pin{box-shadow:inset 3px 0 0 var(--status-review);background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
+  border-bottom:1px solid var(--border);font-size:var(--text-sm)}
+#revision-pin .rp-msg{color:var(--muted-foreground);min-width:0;flex:1 1 12em;overflow-wrap:anywhere}
+#revision-pin>span:first-child{min-width:0;overflow-wrap:anywhere}
+#revision-pin button{flex:none;margin-left:auto}   /* 글이 길면 글이 줄바꿈된다 — 버튼은 잘리지 않는다(QA: 842px 에서 [원고로]가 화면 밖) */
+#revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}
 body.lay-narrow #revision-view{height:100%}
@@ -4746,6 +4799,9 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
   text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
 #revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+#revision-diff.wrap .rd-line{display:flex;width:auto}
+#revision-diff.wrap .rd-no{flex:none}
+#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
 #revision-diff .rd-file{background:var(--muted);font-weight:600}
 #revision-diff .rd-meta{color:var(--muted-foreground)}
 #revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
@@ -4794,7 +4850,8 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:var(--s
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
 .kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
 button:hover{background:var(--accent);color:var(--accent-foreground)}
-button:disabled{opacity:.65;cursor:default}
+button:disabled{opacity:.65;cursor:not-allowed}
+button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]의 '저장 대기' — 눌린 채 기다리는 모양 */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
 button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
@@ -4810,19 +4867,21 @@ button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
-.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);
-  background:transparent;color:var(--muted-foreground);font-size:var(--text-xs);font-weight:400;line-height:1.45;white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border:1px solid transparent;border-radius:var(--radius-sm);
+  background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
+/* 배지는 테두리 없는 옅은 채움이다(shadcn secondary 배지) — 테두리 있는 카드 안에 테두리 있는 배지를 또 그리지 않는다(저자 지적 2026-09-24:
+   외곽선 안에 외곽선). 뜻 있는 배지는 그 색의 옅은 틴트 바탕 + 그 색 글자. */
 .badge .ic{width:12px;height:12px}
-.badge-default{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.badge-default{background:var(--primary);color:var(--primary-foreground)}
 .badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
-.badge-destructive{border-color:var(--destructive);color:var(--destructive)}
-.badge-warning{border-color:var(--status-warning);color:var(--status-warning)}
-.badge-claimed{border-color:var(--status-claimed);color:var(--foreground)}
+.badge-destructive{background:color-mix(in srgb,var(--destructive) 14%,transparent);color:var(--destructive)}
+.badge-warning{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-claimed{background:color-mix(in srgb,var(--status-claimed) 16%,transparent);color:var(--foreground)}
 .badge-claimed .ic{color:var(--status-claimed)}
-.badge-claimed.late{border-color:var(--status-warning);color:var(--status-warning)}
+.badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
 button.badge{cursor:pointer;padding:1px 6px;border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
-button.badge:hover{background:var(--accent)}
+button.badge:hover{background:var(--accent);border-color:var(--border-strong)}
 .card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
 input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:6px var(--space-2);
   font:inherit;width:100%}
@@ -4861,7 +4920,7 @@ input.n{width:58px;text-align:center}
 #composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border);background:var(--card)}
 #list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* 위 여백은 구획 머리(.list-head)가 가진다 — sticky 가 여백만큼 내려앉지 않게 */
 .busy{opacity:.45}
-pre{background:var(--code);border:1px solid var(--border);border-radius:var(--radius);padding:9px;overflow:auto;font-size:var(--text-sm);
+pre{background:var(--code);border:0;border-radius:var(--radius);padding:9px;overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:6px 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
@@ -4874,13 +4933,11 @@ pre.nowrap{white-space:pre}
 .c-tools{display:flex;align-items:center;gap:var(--space-2);margin:0 0 8px}
 /* [줄바꿈] 은 한 줄로 둔다 — 330px 패널(터치)에서 '줄바/꿈' 두 줄로 꺾여 옆 스테퍼보다 높아졌다(2026-09-24 실측) */
 .c-tools button.tg{white-space:nowrap;flex:none}
-.step{display:inline-flex;flex:none;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.step{display:inline-flex;flex:none;border:0;border-radius:var(--radius-lg);overflow:hidden;background:var(--muted);padding:2px;gap:2px}
 .step{align-items:stretch}
-.step button{border:0;border-radius:0;min-width:30px;padding:3px 6px}
-.step button+button{border-left:1px solid var(--border)}
-.step .sl{display:inline-flex;align-items:center;padding:0 6px;font-size:var(--text-sm);color:var(--muted-foreground);background:var(--field)}
-.step .sl+button{border-left:1px solid var(--border)}
-.step button+.sl{border-left:1px solid var(--border)}
+.step button{border:0;border-radius:var(--radius);min-width:30px;padding:3px 6px;background:transparent}
+.step button:hover{background:var(--popover)}
+.step .sl{display:inline-flex;align-items:center;padding:0 6px;font-size:var(--text-sm);color:var(--muted-foreground)}
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip,.e-snip{margin:0}
@@ -4891,7 +4948,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .snip-foot{display:flex;justify-content:flex-end}
 .snip-foot button{color:var(--muted-foreground)}
 #note{margin-top:8px}
-#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;padding:var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius-lg);font-size:var(--text-base)}
+#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* 상자 없이 글 + 버튼 두 개 */
 #c-overlap>span{flex-basis:100%}
 #c-overlap button{flex:1 1 0;min-width:0}
 /* 동작 줄은 패널 바닥에 고정한다(목록을 스크롤해도, 가상 키보드가 올라와도 보인다). 작성 패널이 닫히면 함께 숨는다. */
@@ -4903,24 +4960,29 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .dim{color:var(--muted-foreground);font-size:var(--text-sm)}
 .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 /* 분절 컨트롤(범위 사다리·패널 폭): 한 줄, 넘치면 가로 스크롤. 고른 칸은 강조 색이 아니라 한 단계 밝은 면으로 보인다. */
-.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:2px;border:1px solid var(--border);
-  border-radius:var(--radius-lg);background:var(--field);scrollbar-width:none;overscroll-behavior-x:contain}
+.seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:3px;border:0;
+  border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: 채운 틀 하나, 고른 칸은 떠 있는 면 */
 .seg::-webkit-scrollbar{display:none}
 .seg button{flex:1 0 auto;background:transparent;border-color:transparent;border-radius:var(--radius);font-size:var(--text-sm);padding:3px 10px;
   white-space:nowrap;color:var(--muted-foreground)}
-.seg button.on{background:var(--accent);border-color:var(--border-strong);color:var(--foreground);font-weight:600}
+.seg button.on{background:var(--popover);border-color:transparent;color:var(--foreground);font-weight:600;box-shadow:var(--shadow-sm)}
 .seg button .k{font-weight:400;color:var(--muted-foreground)}
 .seg button .k.wn{color:var(--warning)}
 .wn{color:var(--warning)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:6px}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:6px}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* 모양은 .card */
-/* 상태 띠(references/design.md §상태 표현): 열림은 띠 없음, 처리 중은 호박색. 닫힘(초록)·삭제(회색) 띠는 아래 보관함 행에 있다.
-   테두리 폭을 바꾸면 글자가 밀리므로 카드 안쪽 왼쪽에 겹쳐 그린다. 대비(비텍스트 3:1)는 두 테마 모두 확인했다. */
-.pin.claimed::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-claimed)}
-/* 검토 대기(references/design.md §스레드와 검토): 에이전트가 닫고 사람의 [확인]을 기다리는 카드 — 보라 띠. 처리 중(호박)·닫힘(초록)과 가른다. */
-.pin.review::before{content:'';position:absolute;left:-1px;top:-1px;bottom:-1px;width:4px;border-radius:var(--radius-lg) 0 0 var(--radius-lg);background:var(--status-review)}
-.badge-review{border-color:var(--status-review);color:var(--status-review)}
+/* 상태(references/design.md §상태 표현): 왼쪽 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽다). 카드 머리 맨 앞의 작은 점 색 +
+   같은 뜻의 배지(글자·아이콘)로 가른다 — 색만으로 가르지 않는다. 열림 초록 · 처리 중 호박 · 검토 대기 보라 · 위치 잃음 경고색.
+   닫힘·삭제는 카드가 아니라 흐린 보관함 행이고 앞머리 아이콘(check·trash-2)이 상태다. */
+.st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
+.st-dot.claimed{background:var(--status-claimed)}
+.st-dot.review{background:var(--status-review)}
+.st-dot.lost{background:var(--status-warning)}
+.st-dot.done{background:var(--status-closed)}
+.st-dot.dropped{background:var(--status-dropped)}
+.badge-reopen{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-review{background:color-mix(in srgb,var(--status-review) 14%,transparent);color:var(--status-review)}
 button.badge-review{font-weight:600}
 .rv-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:2px;border-radius:var(--radius-lg);
   background:var(--status-review);color:var(--status-review-foreground);font-size:var(--text-xs);font-weight:700;line-height:1}
@@ -4931,36 +4993,63 @@ button.badge-review{font-weight:600}
 .pin.cur{box-shadow:0 0 0 2px var(--primary)}
 .pin.flash{animation:pinflash 1.2s ease-in-out 1}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
-.pin .n{color:var(--status-open);font-weight:700}
+.pin .n{color:var(--card-foreground);font-weight:700}
 .pin .n.go{cursor:pointer;border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
-.pin .n.go:hover,.pin .n.go:focus-visible{background:var(--accent);text-decoration:underline}
+.pin .n.go{text-decoration:underline dotted;text-underline-offset:3px}
+.pin .n.go:hover,.pin .n.go:focus-visible{background:var(--accent);text-decoration-style:solid}   /* 이동하는 글자 = 점선 밑줄(#번호·N쪽·글 속 #12) */
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
 /* 카드 머리: 왼쪽에 번호·범위·쪽, 오른쪽에 작성자·접기. 배지는 머리 아래 한 줄. 동작은 같은 폭 격자, 완료만 강조·삭제는 위험 색. */
 .pin .head{flex-wrap:nowrap;gap:var(--space-2);min-height:28px}
 .pin .head .loc{white-space:nowrap}
-.pin .head .au{flex:none}
+.pin .head .pg-link{white-space:nowrap;flex:none}
+.pin .head .au{flex:0 1 auto;min-width:22px;overflow:hidden}   /* 좁으면 작성자 이름이 먼저 줄어든다(담당 칩·줄 범위는 그대로) */
 .pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:4px}
 .pin .tags:empty{display:none}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
-button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
+button.b-close{font-weight:600}
+/* 카드 안 버튼은 테두리 없이 채운다(secondary) — 테두리 있는 카드 안에 테두리 있는 버튼 여섯 개가 늘어서지 않게. [완료]만 soft 강조,
+   [삭제]는 바탕 없는 위험 색 글자라 가장 눈에 띄는 버튼이 되지 않는다. 입력 칸 옆 [취소]도 같은 채움이다. */
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}
+.pin .acts button.btn-destructive{background:transparent}
+.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
 /* 핀 종류(수정 요청 / 질문)와 스레드(references/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
 .kind-seg{margin:8px 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 6px}
-.badge-question{border-color:var(--primary);color:var(--primary)}
-.badge-mention{border-color:var(--primary);color:var(--foreground)}
+.badge-question{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
+.badge-mention{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground)}
 .badge-mention .ic{color:var(--primary)}
-.mention{color:var(--primary);font-weight:600}
+.mention{color:var(--primary);font-weight:600;background:color-mix(in srgb,var(--primary) 12%,transparent);border-radius:var(--radius-sm);padding:0 3px;
+  -webkit-box-decoration-break:clone;box-decoration-break:clone}
+/* 풀린 @태그 = 주 색 글자 + 옅은 틴트 알약(Slack·GitHub 처럼). 나를 부른 태그는 한 단계 진하다. 풀리지 않은 '@말'은 평문이다. */
+.mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
+.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:9em;overflow:hidden;text-overflow:ellipsis;justify-content:flex-start}
+.badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
+.assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:6px}
+.assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
+.assign-row .as-seg{flex:1;min-width:0;margin:0}
+body.lay-narrow #c-assign{order:1;margin:0 0 8px}
+.mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
+.m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:6px;font-size:var(--text-sm)}
+.m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
+.m-preview .m-lab .ic{width:12px;height:12px}
+.m-preview .m-note{color:var(--muted-foreground)}
+body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
+/* 글 속 '#12' = 그 핀으로 가는 링크(이동하는 글자는 점선 밑줄, hover 에 실선 — .pg-link·#번호와 같은 말) */
+.pin-ref{color:inherit;font-weight:600;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.pin-ref:hover,.pin-ref:focus-visible{text-decoration-style:solid;color:var(--primary)}
+.arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
 /* @태그 자동 완성: 입력 칸 바로 아래(자리가 없으면 위)에 뜨는 목록. 입력 칸의 포커스를 뺏지 않는다(pointerdown 을 막는다). */
 #mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1);background:var(--popover);
-  color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+  color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
 #mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;background:transparent;text-align:left;padding:6px var(--space-2)}
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mention-pop .dim{padding:6px var(--space-2)}
-.thread{display:flex;flex-direction:column;gap:6px;margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
+.thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* 구분선 하나 — 상자가 아니다 */
 .thread:empty{display:none}
 .msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
 .msg .av{width:20px;height:20px;margin-top:1px}
@@ -4968,17 +5057,21 @@ button.b-close{font-weight:600}   /* [완료] = soft, [삭제] = destructive —
 .msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg-h b{color:var(--foreground);font-weight:600}
 .msg-t{white-space:pre-wrap;word-break:break-word}
+.msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* 1,000자 답글 하나가 카드를 1,390px 로 늘렸다(QA) */
+button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foreground)}
 .msg.ev{display:block;padding-left:28px;color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
 button.th-more{align-self:flex-start;color:var(--muted-foreground)}
-.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs)}
+.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
+.th-n:hover{background:var(--accent);color:var(--foreground)}
 .th-n .ic{width:12px;height:12px}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
 .reply-box textarea{min-height:3.2em}
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
-.arc-thread{margin:4px 0 0;padding:6px var(--space-2);border-radius:var(--radius);background:var(--card);border:1px solid var(--border)}
+.arc-thread{margin:4px 0 0 var(--space-5)}   /* 들여쓰기만 — 상자 없음 */
 .arc-thread .thread{margin:0;padding:0;border:0}
-.edit .c-tools{margin-top:0}
+.edit .c-tools{margin-top:0;flex-wrap:wrap}
+.edit .c-tools .e-range{white-space:nowrap}   /* 줄 범위가 글자마다 꺾이지 않게 — 자리가 모자라면 줄째 아래로 */
 .pg-link{color:var(--muted-foreground);font-size:var(--text-sm);cursor:pointer;text-decoration:underline dotted}
 .au{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
 .au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -4986,7 +5079,10 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
 .av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:var(--primary-foreground);
   font-size:var(--text-xs);font-weight:700;font-style:normal}
-.edit{margin-top:6px;border-top:1px dashed var(--border);padding-top:6px}
+.av.agent{background:var(--muted);color:var(--muted-foreground)}
+.av.agent .ic{width:13px;height:13px}
+.me-tag{color:var(--muted-foreground);font-weight:400}
+.edit{margin-top:var(--space-2)}
 /* ---------------- 목록 구획(references/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
    붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
    --stick-top 은 compact 에서 위에 붙은 도구 줄(#bar1) 높이다(JS 가 잰다). 닫힌·삭제한 핀은 카드가 아니라 납작한 행이다. */
@@ -4994,7 +5090,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .list-head{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar);margin:0 -12px 4px;padding:10px var(--space-3) 6px}
 .arc{margin-top:12px}
 button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:var(--space-2);width:calc(100% + 24px);
-  margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border-strong);border-radius:0;color:var(--muted-foreground);
+  margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border);border-radius:0;color:var(--muted-foreground);
   font-size:var(--text-sm);text-align:left;scroll-margin-top:var(--stick-top,0px)}
 /* scroll-margin-top 은 revealList() 의 scrollIntoView({block:'start'}) 와 짝이다 — 이게 없으면 브라우저는 이 머리의
    '흐름상 정적 위치'를 뷰포트 맨 위(0)로 맞추는데, 그 위치는 스티키 계산상 다시 stick-top 만큼 아래로 밀려 그려진다.
@@ -5007,16 +5103,18 @@ button.arc-head:hover{background:var(--accent)}
 .arc-fold{flex:none;display:inline-flex;align-items:center;gap:2px}
 .arc-list{padding:6px 0 var(--space-1)}
 .arc-list>.dim{padding:var(--space-1) var(--space-3)}
-.arc-row{position:relative;padding:var(--space-1) var(--space-1) 6px 10px;border-left:3px solid var(--status-closed);color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
-.arc-row+.arc-row{margin-top:6px}
-.arc-row.dropped{border-left-color:var(--status-dropped);color:var(--subtle-foreground)}
+.arc-row{position:relative;padding:6px 0;color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
+.arc-row+.arc-row{border-top:1px solid var(--border)}   /* 납작한 행 — 구분선 하나, 띠·상자 없음 */
+.arc-row.dropped{color:var(--subtle-foreground)}
+.arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
 .arc-row .ic{width:14px;height:14px}
 .arc-row.done .arc-l1>.ic{color:var(--status-closed)}
 .arc-l1{display:flex;align-items:center;gap:6px;min-height:26px;white-space:nowrap}
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{color:inherit;font-size:var(--text-sm)}
-.arc-ref{flex:none;line-height:16px;padding:0 5px;border-color:var(--border);max-width:120px;overflow:hidden;text-overflow:ellipsis}
-.arc-t{font-size:var(--text-xs);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.arc-ref{flex:none;line-height:16px;padding:0 5px;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* 시각은 줄이지 않는다 — 짧은 상대 시각이라 늘 읽힌다(예전 '09-24 1…') */
+.arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
@@ -5025,7 +5123,7 @@ button.arc-b:hover{color:var(--foreground)}
 .arc-reply.none{font-style:italic;cursor:default}
 button.arc-orig-t{flex:none;background:transparent;border-color:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);
   text-decoration:underline dotted;text-underline-offset:3px}
-.arc-orig{margin:4px 0 0;padding:6px var(--space-2);border-radius:var(--radius);background:var(--card);border:1px solid var(--border);white-space:pre-wrap;word-break:break-word}
+.arc-orig{margin:4px 0 0 var(--space-5);white-space:pre-wrap;word-break:break-word;color:var(--card-foreground)}
 .arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
 h3{margin:0 0 7px;font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:18px 10px;color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
@@ -5033,15 +5131,30 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
-#toasts{position:fixed;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:50;max-width:min(480px,60vw)}
-.toast{display:flex;align-items:center;gap:var(--space-2);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);
-  border-left:4px solid var(--success);border-radius:var(--radius);padding:7px var(--space-2) 7px 10px;box-shadow:var(--shadow);font-size:var(--text-base)}
-.toast span{flex:1;min-width:0;overflow-wrap:anywhere}
-.toast.warn{border-left-color:var(--warning)}
-.toast.err{border-left-color:var(--destructive)}
+/* 알림(토스트, references/design.md §알림): 방금 누른 자리 가까이 뜬다 — 예전에는 왼쪽 아래(데스크톱)·본문 왼쪽 위(mid)에 떠서
+   오른쪽 패널에서 [핀 저장]을 누른 눈길과 1,100px 넘게 떨어졌다(2026-09-24 실측). 가로 자리(--toast-r·--toast-w)와 바닥
+   높이(--toast-b)는 placeToasts() 가 잰다: wide·mid 는 패널 열 안 오른쪽 아래, 동작 줄·저장 버튼 바로 위 · narrow 는 시트 위.
+   모양은 sonner 처럼 떠 있는 면 하나(가는 테두리 + 그림자, 떠 있는 면만 그림자를 쓴다). 상태는 색 띠 대신 앞머리 아이콘.
+   새 알림이 맨 위에 쌓이고 3개가 넘으면 나머지는 접힌다(마우스를 올리면 펼친다). */
+#toasts{position:fixed;z-index:50;right:var(--toast-r,var(--space-3));bottom:var(--toast-b,var(--space-3));width:var(--toast-w,360px);
+  max-width:calc(100vw - 2 * var(--space-2));display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none}
+.toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:var(--space-2);
+  padding:var(--space-3);background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow);font-size:var(--text-base);line-height:1.45;animation:toast-in .16s ease-out}
+.toast>.ic{margin-top:1px;color:var(--success)}
+.toast.warn>.ic{color:var(--warning)}
+.toast.err>.ic{color:var(--destructive)}
+.toast .t-body{min-width:0;overflow-wrap:anywhere}
+.toast .t-title{font-weight:600}
+.toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
+.toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
+#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
+/* 터치: 알림 몸통은 누름을 뒤로 흘려보낸다(버튼만 받는다) — 폰에서 시트 바로 위에 뜬 알림이 PDF 길게 누르기·도구 줄을 가로채지 않게. */
+@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
+@keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
   padding:6px 9px;border-radius:var(--radius);pointer-events:none;box-shadow:var(--shadow);left:0;top:0}
-dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);border-radius:var(--radius-lg);max-width:680px;
+dialog{background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);max-width:680px;
   width:92vw;padding:var(--space-4) 22px;max-height:88vh}
 dialog::backdrop{background:var(--shadow-color)}
 dialog h2{font-size:var(--text-xl);margin:0 0 8px}
@@ -5055,8 +5168,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw{display:inline-block;width:14px;height:10px;border:2px solid var(--status-open);vertical-align:middle;margin-right:4px}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
-.strip{display:inline-block;width:4px;height:12px;border-radius:var(--radius-sm);vertical-align:middle;margin:0 4px 0 2px}
-.strip.c{background:var(--status-claimed)} .strip.d{background:var(--status-closed)} .strip.x{background:var(--status-dropped)} .strip.r{background:var(--status-review)}
+dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
 /* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
    레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
@@ -5112,8 +5224,10 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
-  button.arc-orig-t{min-height:28px;min-width:0;padding:0 var(--space-1);position:relative;font-size:var(--text-base)}
-  button.arc-orig-t::after{content:'';position:absolute;left:-4px;right:-4px;top:-8px;bottom:-8px}
+  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* 상자 자체가 44px(QA: 58×28 이었다) */
+  .arc-reply{min-height:44px;display:flex;align-items:center}
+  .arc-reply.open{display:block;padding:10px 0}
+  .th-n{min-height:44px;min-width:44px;justify-content:center}
   #grip::after{left:-9px;right:-9px}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
@@ -5163,9 +5277,9 @@ body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
-/* 알림: narrow 는 시트·아래 도구 줄과 겹치지 않게 위로, mid 는 패널 도구 줄을 가리지 않게 본문 쪽 왼쪽 아래로. */
-body.lay-narrow #toasts{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));bottom:auto;max-width:none}
-body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top) + var(--space-2));bottom:auto;max-width:calc(100vw - var(--side-w,360px) - 40px)}
+/* 알림 자리(placeToasts): narrow 는 시트 바로 위 화면 폭, mid 는 동작 줄 바로 위 패널 쪽(패널이 열려 있으면 그 열 안). */
+body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
+body.lay-mid #toasts{max-width:calc(100vw - 2 * var(--space-3))}
 body.compact .pin .sum{display:block;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap}
 body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
@@ -5248,7 +5362,7 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 /* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
-.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent;border-color:var(--border)}
+.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
 .dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
 .dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
 .ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
@@ -5257,8 +5371,8 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 #btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
 body.view-only #btn-rebuild{display:none}
-.dchip{flex:none;line-height:16px;border-color:var(--border);max-width:110px;overflow:hidden;text-overflow:ellipsis}
-.dchip.other{border-style:dashed}
+.dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* 다른 문서 = 점선 테두리(뜻이 있는 테두리) */
 .list-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0 0 7px}
 .list-head h3,.list-head button{white-space:nowrap}
 .list-head h3{margin:0}
@@ -5267,7 +5381,8 @@ body.view-only #btn-rebuild{display:none}
 .dm-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px var(--space-3)}
 .dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dm-item.on{border-color:var(--brand);box-shadow:inset 3px 0 0 var(--brand)}
+.dm-item{border-color:transparent;background:transparent}
+.dm-item.on{background:var(--accent)}
 /* 보기 전용 PDF 문서의 선택: 범위 사다리·스테퍼·원문 펼치기가 없다(줄이 없다). 원문 칸에는 영역 글자를 보인다. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
@@ -5280,7 +5395,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button><button id="revision-wrap" class="tg btn-sm" data-act="diff-wrap" aria-pressed="false" data-tip="긴 줄을 화면 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고는 켜 두세요">{{ic:text-wrap}}줄바꿈</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -5330,7 +5445,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다)" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -5361,20 +5476,20 @@ body.view-only #btn-rebuild{display:none}
 <div id="mention-pop" role="listbox" aria-label="부를 사람" hidden></div>
 <div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
 <dialog id="more" aria-label="더보기 · __LABEL__">
-  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm" data-act="more-close">닫기</button></div>
+  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm btn-ghost" data-act="more-close">닫기</button></div>
   <p class="more-info" id="more-info"></p>
   <div class="more-grid">
-    <button data-act="reload" data-close="1">핀 다시 읽기</button>
-    <button id="m-theme" data-act="theme">테마: 시스템</button>
-    <button id="m-notify" class="wide" data-act="notify-toggle">알림 켜기</button>
-    <button data-act="zoom-out">축소</button>
-    <button data-act="zoom-in">확대</button>
-    <button class="wide" data-act="fit" data-close="1">폭 맞춤</button>
+    <button class="btn-secondary" data-act="reload" data-close="1">핀 다시 읽기</button>
+    <button id="m-theme" class="btn-secondary" data-act="theme">테마: 시스템</button>
+    <button id="m-notify" class="btn-secondary wide" data-act="notify-toggle">알림 켜기</button>
+    <button class="btn-secondary" data-act="zoom-out">축소</button>
+    <button class="btn-secondary" data-act="zoom-in">확대</button>
+    <button class="btn-secondary wide" data-act="fit" data-close="1">폭 맞춤</button>
     <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
-    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button data-act="m-jump">이동</button></div>
-    <button id="m-done" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
-    <button id="m-dropped" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
-    <button class="wide" data-act="help">도움말</button>
+    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button class="btn-secondary" data-act="m-jump">이동</button></div>
+    <button id="m-done" class="btn-secondary" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
+    <button id="m-dropped" class="btn-secondary" data-act="dropped-toggle" data-close="1">삭제한 핀 0</button>
+    <button class="btn-secondary wide" data-act="help">도움말</button>
   </div>
 </dialog>
 <dialog id="docs-menu" aria-labelledby="docs-menu-h">
@@ -5422,7 +5537,7 @@ body.view-only #btn-rebuild{display:none}
   </table>
   <h4>색</h4>
   <div class="help-legend"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
-  <div class="help-legend">핀 목록 왼쪽 띠: <span class="strip c"></span>처리 중 · <span class="strip r"></span>검토 대기 · <span class="strip d"></span>완료 · <span class="strip x"></span>삭제 (띠가 없으면 열린 핀)</div>
+  <div class="help-legend">카드 머리의 점: <span class="st-dot"></span>열림 · <span class="st-dot claimed"></span>처리 중 · <span class="st-dot review"></span>검토 대기 · <span class="st-dot lost"></span>위치 잃음 — 같은 뜻의 배지가 함께 붙는다. 완료·삭제는 목록 아래 흐린 행({{ic:check}} 완료 · {{ic:trash-2}} 삭제)</div>
   <h4>pins.md 위치</h4>
   <code id="help-pins-md"></code>
 </dialog>
@@ -5515,19 +5630,59 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
-function toast(msg,kind,action){
-  const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+(kind||'ok');
-  const s=document.createElement('span'); s.textContent=msg; t.appendChild(s);
+// 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '(없으면 첫 ' · ')에서 제목과 설명으로 가른다.
+const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
+// ' — ' 가 있으면 그 앞이 제목('핀 #10 · 본문 — 서준님이 불렀습니다: …' 의 제목은 '핀 #10 · 본문'), 없으면 첫 ' · ' 앞.
+function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?) — (.+)$/.exec(msg)||/^(.+?) · (.+)$/.exec(msg); return m?[m[1],m[2]]:[msg,''];}
+// 같은 핀의 같은 전환을 두 번 알리지 않는다(QA: 포커스된 탭에 '핀 #37 · 본문 — 검토 대기: …' 와 '#37 이 검토 대기로 넘어왔습니다'
+// 가 함께 떴다). dd={keys:['review_requested:37'],rank}: 8초 안에 같은 열쇠의 알림이 떠 있으면, 새 것이 더 높은 rank 면 옛 것을 걷고,
+// 더 낮으면 띄우지 않는다. 같은 rank(같은 경로)는 다른 사건이라 둘 다 띄운다(다시 연 뒤 두 번째 검토 대기 등). 브라우저 알림 경로(notifyShow, rank 2)가 목록 비교 알림(rank 1)을 이긴다.
+const TOAST_KEYS=[];
+function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=Date.now(),rank=dd.rank||1;
+  for(let i=TOAST_KEYS.length-1;i>=0;i--){const x=TOAST_KEYS[i]; if(now-x.t>8000||!x.el.isConnected){TOAST_KEYS.splice(i,1);continue;}
+    if(!dd.keys.some(k=>x.keys.includes(k)))continue;
+    if(x.rank>rank&&dd.keys.every(k=>x.keys.includes(k)))return true;   // 같은 경로(같은 rank)의 새 알림은 다른 사건이다 — 막지 않는다
+    if(rank>x.rank){x.el.remove(); TOAST_KEYS.splice(i,1);}}
+  return false;}
+function toast(msg,kind,action,dd){
+  if(toastDup(dd))return null;
+  kind=TOAST_IC[kind]?kind:'ok';
+  const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+kind;
+  const [title,desc]=toastSplit(msg);
+  t.innerHTML=TOAST_IC[kind]()+'<div class="t-body"><div class="t-title"></div>'+(desc?'<div class="t-desc"></div>':'')+'</div><div class="t-acts"></div>';
+  t.querySelector('.t-title').textContent=title; if(desc)t.querySelector('.t-desc').textContent=desc;
+  const acts=t.querySelector('.t-acts');
   let timer=null; const kill=()=>{clearTimeout(timer);t.remove();hideTip();};
   const arm=()=>{clearTimeout(timer);timer=setTimeout(kill,6000);};
   if(action){const b=document.createElement('button');b.className='btn-sm';b.textContent=action.label;b.dataset.tip=action.tip||T.undo;
-    b.addEventListener('click',()=>{kill();action.fn();});t.appendChild(b);}
-  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');c.dataset.tip='알림 닫기';
-  c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);t.appendChild(c);
+    b.addEventListener('click',()=>{kill();action.fn();});acts.appendChild(b);}
+  const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');
+  c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);acts.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
-  box.appendChild(t); arm(); while(box.children.length>5) box.firstChild.remove();
+  placeToasts(); box.insertBefore(t,box.firstChild); arm(); while(box.children.length>6) box.lastChild.remove();
+  if(dd&&dd.keys&&dd.keys.length)TOAST_KEYS.push({keys:dd.keys.slice(),rank:dd.rank||1,el:t,t:Date.now()});
+  watchToasts();
   return t;
 }
+// 알림 자리: 방금 누른 곳 가까이. wide·mid 는 패널 열의 오른쪽 아래 — 보이는 동작 줄(#c-actions: 저장·취소, mid 의 아래 도구 줄,
+// 접힌 mid 에 뜬 상태 칩)의 윗변 바로 위. narrow 는 시트 윗변 바로 위(시트가 거의 화면을 채우면 화면 위로). 떠 있는 동안
+// 패널이 열리고 닫히거나 작성 패널이 뜨면 자리를 다시 잰다(watchToasts) — 저장·취소 버튼과 아래 도구 줄을 가리지 않게.
+function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right)return;
+  const R=document.documentElement.style,gap=8,vh=innerHeight;
+  const shown=el=>{if(!el||el.hidden)return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')return false;
+    const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
+  let top=vh,r=12,w=360;
+  if(LAYOUT==='narrow'){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
+    // 시트가 화면 대부분을 덮으면(위 30% 안에서 시작) 시트 위에 자리가 없다 — 화면 위로 올리면 시트의 도구 줄([더보기] 등)을 가려
+    // 눌리지 않았다(터치 회귀). 그때는 시트 안 아래쪽, 저장·취소 줄이 보이면 그 위에 둔다.
+    if(top<vh*0.3){top=vh; const ca=$('#c-actions'); if(shown(ca))top=ca.getBoundingClientRect().top;}}
+  else{const open=LAYOUT==='wide'||SIDE_OPEN,rr=right.getBoundingClientRect();
+    if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);} else w=Math.min(360,innerWidth-24);
+    ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],LAYOUT==='mid'&&!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
+      if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
+  R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
+let TOAST_WATCH=0;
+function watchToasts(){if(TOAST_WATCH)return; TOAST_WATCH=setInterval(()=>{if(!$('#toasts').children.length){clearInterval(TOAST_WATCH);TOAST_WATCH=0;return;} placeToasts();},250);}
 async function copyText(s){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
@@ -5631,6 +5786,11 @@ function revisionFiles(patch){
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
     name:n>=0?s.head.slice(n+3):'파일 '+(i+1),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
+// 소스 diff 줄바꿈: 터치 기기는 기본 켬(문단 = 한 줄 원고라 폰에서 6,273px 폭이었다, QA). 켜고 끈 값은 pinPrefs.diffWrap.
+let DIFF_WRAP=null;
+function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); const d=$('#revision-diff'); if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
+  const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
+function initDiffWrap(){const v=prefs().diffWrap; setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches);}
 function renderRevisionDiff(patch){
   const lines=String(patch||'').split('\n'); if(lines[lines.length-1]==='')lines.pop();
   let oldLine=null,newLine=null,inHunk=false;
@@ -5740,7 +5900,7 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
   let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
     (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
-    '<span class="sp"></span><button class="btn-sm" data-act="view-mode" data-mode="manuscript" data-tip="원고 보기로 돌아갑니다">원고로</button>';
+    '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name+' 원고 보기로 돌아갑니다':'원고 보기로 돌아갑니다')+'">'+(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?esc(docInfo(REV_BACK).name)+'(으)로':'원고로')+'</button>';
   box.hidden=false;}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
@@ -5750,7 +5910,8 @@ function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=nu
     else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
   revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
-async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p);
+let REV_BACK=null;   // [변경 보기]를 누를 때 보던 문서 — [원고로]가 그 문서로 돌아간다(QA: 커버레터 핀에서 열면 커버레터에 남았다)
+async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
   if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV_TARGET.ref); REV_TARGET.tokOf=m?m[0]:'';
@@ -5862,7 +6023,7 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 
 // ------------------------------------------------ 문서
 async function boot(){
-  applyTheme(); applyLayout();
+  applyTheme(); applyLayout(); initDiffWrap();
   // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
   $('#btn-save').innerHTML=saveBtnLabel();
   await loadDocs(); DOC=initialDoc();
@@ -6010,7 +6171,7 @@ function diffToast(prev,d,dropped){
     if(n&&n.done){if(!consumeMine(id))(n.review?reviewed:closed).push(id);}
     else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
   if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
-  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok');
+  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok',null,{keys:reviewed.map(i=>'review_requested:'+i)});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
     toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
   (d||[]).filter(p=>!p.done).forEach(p=>{const was=byId.get(p.id); if(!was)return;
@@ -6024,7 +6185,7 @@ function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?'review':'done'):
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
     if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
-    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn');});}
+    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
 // ------------------------------------------------ 브라우저 알림(references/design.md §브라우저 알림) — 탭이 살아 있는 동안만
 // 기기마다 켠다(pinPrefs.notify). 켜는 것은 [알림 켜기] 클릭에서만 Notification.requestPermission() 을 부른다. 서버가 5초 폴링
@@ -6032,7 +6193,7 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
 // localStorage 에 둬 새로고침·탭 두 개가 같은 이벤트를 두 번 알리지 않는다. 표시는 늘 서비스 워커의 showNotification()(안드로이드
 // 크롬은 new Notification() 을 막는다), tag 는 핀 번호라 같은 핀은 한 칸으로 겹친다. 탭이 보이고 포커스가 있으면 알림 대신 토스트.
 // 보안 컨텍스트(https 테일넷 주소, http://127.0.0.1·localhost)에서만 된다 — 다른 호스트의 plain http 는 브라우저가 막는다.
-const NOTIFY_RANK={mention:4,reopened:3,review_requested:2,replied:1};
+const NOTIFY_RANK={assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
 let SW_REG=null;
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
 function notifyPerm(){return 'Notification' in window?Notification.permission:'unsupported';}
@@ -6049,10 +6210,10 @@ function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||l
   return Array.from(by.values()).sort((a,b)=>a.seq-b.seq);}
 function notifyText(e){const nm=who(e.by)||'누군가',ex=String(e.excerpt||'').split('\n')[0].slice(0,80);
   const body={mention:nm+'님이 불렀습니다: '+ex,review_requested:'검토 대기: '+(ex||'설명 없이 닫힘'),
-    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:'')}[e.type]||ex;
+    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:''),assigned:nm+'님이 담당으로 지정했습니다: '+ex}[e.type]||ex;
   return {title:'핀 #'+e.pin+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
 async function notifyShow(e){const t=notifyText(e);
-  if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)});return;}
+  if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)},{keys:[e.type+':'+e.pin],rank:2});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=icon]')||{}).href,
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
@@ -6861,9 +7022,9 @@ function renderComposer(){const d=CUR; if(!d)return;
 // 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)';}
+  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew();}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; setKind('fix');}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
@@ -6898,6 +7059,7 @@ async function savePin(){
   body.doc=d.doc||DOC||undefined;
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
+  renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // 뷰어가 만든 핀은 늘 담당을 적는다(없으면 옛 핀의 추론 규칙)
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
     toast((q?'질문 #':'핀 #')+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
@@ -6908,7 +7070,10 @@ async function savePin(){
 // ------------------------------------------------ 핀 목록
 function who(a){return (a&&(a.name||a.login))||'';}
 const BADPIC=new Set();   // 한 번 실패한 아바타 주소는 다시 요청하지 않는다(재렌더마다 콘솔 오류가 쌓인다)
-function avatar(a){if(!a||!(a.name||a.login))return ''; const ini=esc((who(a).trim()[0]||'?').toUpperCase());
+// 사람 = 사진 또는 머리글자 원(주 색), 로컬/에이전트 = 로봇 아이콘의 흐린 원 — 사람과 에이전트를 한눈에 가른다.
+function isAgent(a){return !!a&&a.login==='local';}
+function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<span class="av i agent" aria-hidden="true">'+ic('bot')+'</span>';
+  const ini=esc((who(a).trim()[0]||'?').toUpperCase());
   return a.pic&&!BADPIC.has(a.pic)?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
     :'<span class="av i" aria-hidden="true">'+ini+'</span>';}
 document.addEventListener('error',e=>{const t=e.target;
@@ -6973,15 +7138,43 @@ function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p
 // 스레드(references/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
 // wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
+// 지금 담당 — 적힌 값(p.assignee), 없는 옛 핀은 서버가 추론한 사람(p.addressed 의 첫 사람), 그것도 없으면 에이전트.
+function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
+// 카드 머리의 담당 칩: 담당이 사람일 때만(에이전트는 기본이라 표시하지 않는다). 작성자(또는 신원 없는 로컬 화면)는 눌러 [수정]에서 바꾼다.
+function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // 칩은 이름 첫 단어, 전체 이름은 설명에
+  const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
+  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</button>'
+    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 '+esc(nm)+'</span>';}
+// 상태 점(references/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
+const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
+function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
+// 지금 차례가 다시 열기로 시작했나(검토에서 되돌아온 핀) — 스레드의 마지막 닫기·다시 열기 기록이 다시 열기면 그렇다.
+function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e==='close'||e==='reopen')return e==='reopen'?th[i]:null;} return null;}
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
-// 글 속 '@이름'(풀린 mentions 만)을 강조한다. 글은 먼저 esc() 를 거치고, 이름도 esc() 한 모양으로 찾는다.
+// 글 속 '@이름'(풀린 mentions 만)과 '#번호'(있는 핀)를 토큰으로 바꾼다(references/design.md §@태그). 글은 먼저 esc() 를 거치고,
+// 이름·번호는 그 이스케이프된 글에서 찾아 감싼다 — 사람이 쓴 글이 HTML 로 새지 않는다. 이름은 서버 resolve_mentions() 와 같은 글자
+// (이름 전체·로그인·로그인의 @ 앞·이름 첫 단어)를 긴 것부터, 대소문자 없이 찾는다. '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문으로
+// 끝나는 이름 뒤에 영문이 이어지면(@Alicex) 다른 말이다. 풀리지 않은 '@말' 은 그대로 평문이다 — 부른 것처럼 보이면 안 된다.
 function peopleName(login){const x=PEOPLE.find(p=>p.login===login); return x?x.name:login;}
-function fmtText(text,logins){let h=esc(text); const names=(logins||[]).map(peopleName).filter(Boolean).sort((a,b)=>b.length-a.length),hit=[];
-  // 긴 이름부터 자리표(\u0001번호\u0002)로 바꿔 둔다 — '@Alice Kim' 를 바꾼 뒤 '@Alice' 이 그 안을 다시 바꾸지 않게.
-  names.forEach(n=>{const t='@'+esc(n); if(h.indexOf(t)<0)return; hit.push(t); h=h.split(t).join('\u0001'+(hit.length-1)+'\u0002');});
-  return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>'<span class="mention">'+hit[+k]+'</span>');}
+function mentionToks(logins){const out=[]; (logins||[]).forEach(lg=>{const x=PEOPLE.find(p=>p.login===lg),nm=String((x&&x.name)||'');
+    const w=nm.split(/\s+/).filter(Boolean); [nm,lg,String(lg).split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach((t,k)=>{if(t&&t.length>=2)out.push({t:esc(t),lg,k});});});
+  return out.sort((a,b)=>b.t.length-a.t.length||a.k-b.k);}   // 같은 글자면 이름 전체 > 로그인 > 첫 단어
+function reEsc(t){return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!=='local'?me.login:null;}
+function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hit=[],me=meLogin();
+  if(toks.length){const re=new RegExp('@('+toks.map(x=>reEsc(x.t)).join('|')+')','gi');
+    // 자리표(\u0001번호\u0002)로 먼저 바꿔 둔다 — 긴 이름을 감싼 뒤 짧은 이름이 그 안을 다시 감싸지 않게.
+    h=h.replace(re,(m,t,off,all)=>{const prev=off>0?all[off-1]:''; if(prev&&/[0-9A-Za-z가-힣._-]/.test(prev))return m;
+      const nx=all.charAt(off+m.length); if(/[A-Za-z0-9]$/.test(t)&&/[A-Za-z0-9_]/.test(nx))return m;
+      const tk=toks.find(x=>x.t.toLowerCase()===t.toLowerCase()); if(!tk)return m; hit.push({m,lg:tk.lg}); return '\u0001'+(hit.length-1)+'\u0002';});}
+  // '#12' — 있는 핀이면 그 핀으로 가는 링크. '&#39;' 같은 이스케이프(앞이 &)와 '#12;' 는 건드리지 않는다.
+  h=h.replace(/(^|[^&0-9A-Za-z#])#(\d{1,6})(?![\d;])/g,(m,pre,n)=>{const id=+n; if(!pinRefExists(id))return m;
+    return pre+'<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="'+id+'" data-tip="핀 #'+id+' 로 갑니다">#'+id+'</span>';});
+  return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
+    return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
+function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
 // [나를 부른 핀] 필터(references/design.md §@태그): 배지·pins.md 의 '→ @이름'과 같은 재료(p.addressed, 서버가
 // thread_round 로 지금 차례만 센다)를 쓴다 — 예전엔 스레드 전체를 훑어(threadOf(p).some(...)) 옛 차례의 @태그가
 // 다시 열려도 계속 '나를 부른 핀'으로 남는 결함이 있었다(실측). addressed_to() 는 질문 핀에서만 값이 있다.
@@ -6997,16 +7190,21 @@ function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
 // 참조(ref)가 뜻이 있는 값인가 — '-'는 QA 스크립트·옛 호출이 "참조 없음" 자리채움으로 넣는 값이라 그대로 보이면
 // '닫음 · -' 처럼 의미 없는 글자가 뜬다(결함 실측). 빈 문자열·공백뿐인 값도 같이 가린다.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
-const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인'};
-function msgHtml(m){const by=m.by||{},nm=who(by)||'?',t=arcTime(m.at);
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span><span>'+esc(t)+'</span></div>'+
-    (m.text?'<div class="msg-t">'+msgText(m)+'</div>':'')+'</div>';
-  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+'</b><span>'+esc(t)+'</span></div><div class="msg-t">'+msgText(m)+'</div></div></div>';}
+const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담당 바꿈'};
+// 긴 글은 6줄에서 접고 [더 보기](MSG_OPEN 에 'id:번째'). 글쓴이가 나면 '(나)'.
+const MSG_OPEN=new Set();
+function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
+  return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
+    (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}
+function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> (나)</span>':'';
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
+    (m.text?msgBody(m,key):'')+'</div>';
+  return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
   let h='';
   if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">이전 '+hide+'건 보기</button>';
   else if(all&&th.length>keep)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>';
-  h+=th.slice(hide).map(msgHtml).join('');
+  h+=th.slice(hide).map((m,i)=>msgHtml(m,p.id+':'+(i+hide))).join('');
   if(REPLY&&REPLY.id===p.id)h+='<div class="reply-slot"></div>';
   return h?'<div class="thread">'+h+'</div>':'';}
 function card(p){
@@ -7018,12 +7216,13 @@ function card(p){
   if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
-  const rb=relBadge(p.rel,p);
+  const closedCard=pinState(p)!=='open';   // 검토 대기·완료 카드에는 겹침·위치 확실도 배지가 뜻이 없다(줄 맞춤을 하지 않는다, QA)
+  const rb=closedCard?null:relBadge(p.rel,p);
   if(rb)tags.push('<span class="badge" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
-  const v=viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
+  const v=closedCard?null:viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
-  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+'</span></span>'
+  const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
   const editing=!!(EDIT&&EDIT.id===p.id),open=OPEN_CARDS.has(p.id);
   // 머리 한 줄: 왼쪽에 번호·줄 범위·쪽, 오른쪽에 작성자·접기. 배지(.tags)는 머리 아래 한 줄로 내린다.
@@ -7032,17 +7231,19 @@ function card(p){
   const first=String(p.note||'').split('\n')[0].trim();
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
-  const adr=addressedTag(p); if(adr)tags.push(adr); const fyi=fyiTag(p); if(fyi)tags.push(fyi);
+  const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // 담당이 적힌 핀은 머리의 담당 칩이 같은 말을 한다 const fyi=fyiTag(p); if(fyi)tags.push(fyi);
   const rv=pinState(p)==='review';
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
+  const ro=!rv&&reopenedTurn(p);
+  if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc('검토에서 되돌아온 핀 — '+(who(ro.by)||'?')+' · '+arcTime(ro.at)+(ro.text?' · 이유: '+ro.text:''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
   const nr=replyCount(p);
-  const thn=nr?'<span class="th-n" aria-label="답글 '+nr+'건" data-tip="이 핀의 답글 '+nr+'건">'+ic('message-square')+nr+'</span>':'';
+  const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="답글 '+nr+'건 — 답글 쓰기" data-tip="이 핀의 답글 '+nr+'건 — 누르면 카드를 펴고 답글 칸을 엽니다">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
-    '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?esc(first):'(메모 없음)')+'</span>'+
-    '<span class="sp"></span>'+thn+au+
+    '<span class="sum" data-act="card-toggle">'+esc(reviewerLabel(p))+' · '+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
+    '<span class="sp"></span>'+assignChip(p)+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     '<div class="note">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
@@ -7054,11 +7255,11 @@ function card(p){
     '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
     '</div></div>';
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+tip+'">'+
-    '<div class="row head"><span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
-    '<span class="sum" data-act="card-toggle">'+(first?esc(first):'(메모 없음)')+'</span>'+
-    '<span class="sp"></span>'+thn+au+
+    '<span class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'(메모 없음)')+'</span>'+
+    '<span class="sp"></span>'+assignChip(p)+thn+au+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
@@ -7076,16 +7277,26 @@ function card(p){
 // 첫 줄은 아이콘·#번호·위치·참조·시각·[다시 열기|되살리기], 둘째 줄은 에이전트 답(close_reply) 한 줄 — 넘치면 말줄임, 누르면
 // 펼친다. 원래 요청 메모는 [원래 요청]을 눌러야 보인다. 펼친 줄은 ARC_OPEN('r:'|'o:'|'d:' + id)에 두어 다시 그려도 남는다.
 const ARC_OPEN=new Set();
+// 상대 시각(references/design.md §시각): '방금'·'N분 전'·'N시간 전'·'N일 전', 일주일 넘으면 'M-D'. 절대 시각은 설명(hover)에.
+// data-at 에 원래 문자열을 두고 60초마다 다시 센다(tickRel).
+function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
+  const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
+  if(d<1)return '방금'; if(d<60)return Math.floor(d)+'분 전'; if(d<24*60)return Math.floor(d/60)+'시간 전'; if(d<7*24*60)return Math.floor(d/1440)+'일 전';
+  return (+m[2])+'-'+(+m[3]);}
+function relSpan(s,cls,tip){return '<span class="rt'+(cls?' '+cls:'')+'" data-at="'+esc(s||'')+'" data-tip="'+esc((tip?tip+' ':'')+(s||'?'))+'">'+esc(relTime(s))+'</span>';}
+function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const v=relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
+setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
   return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
-function arcLine(key,text,tip){const open=ARC_OPEN.has(key);
-  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+esc(text)+'</span>';}
+function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
+  return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+fmtText(text,logins)+'</span>';}
+function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
   '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
 function doneCard(p){
   const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
-  const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">설명 없이 닫힘</span>';
+  const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
   // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.
   // [다시 열기]는 review 카드와 같은 이유-입력 UI(openReply(id,'reopen'))를 쓴다(§스레드와 검토) — 이유 없이
@@ -7095,18 +7306,18 @@ function doneCard(p){
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=(tn&&ARC_OPEN.has('t:'+p.id))||reopening;
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
-    '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
+    relSpan(p.done_at,'arc-t','닫은 사람 '+(who(p.closed_by)||'기록 전')+' · 닫은 시각')+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-reopen" data-act="rv-reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
-    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+
-    (to?'<div class="arc-thread"><div class="thread">'+th.map(msgHtml).join('')+(reopening?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
+    (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
+    (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+(reopening?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
-  const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다'):'<span class="arc-reply none">(메모 없음)</span>';
+  const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
-    '<span class="arc-t" data-tip="'+esc('삭제한 시각 '+(p.dropped_at||'?')+' · 삭제한 사람 '+(who(p.dropped_by)||'기록 전'))+'">'+esc(arcTime(p.dropped_at))+'</span><span class="sp"></span>'+
+    relSpan(p.dropped_at,'arc-t','삭제한 사람 '+(who(p.dropped_by)||'기록 전')+' · 삭제한 시각')+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 // 사람 목록이 바뀌면(새 사람·이름) 목록을 다시 그린다 — 첫 그리기는 이름 대신 로그인으로 보일 수 있다.
@@ -7136,7 +7347,7 @@ function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p
 // 검토 대기 수: 문서를 가로질러 센다(사람이 확인할 일감 상자). [핀 N] 옆 보라 숫자(compact)·도구 줄 칩(wide).
 function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
   pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label','검토 대기 '+n);
-  chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n;}
+  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n+(multiDoc()&&here!==n?' (이 문서 '+here+')':'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // 검토 대기 카드의 검토자 표시: 작성자에게 권한다(누구나 확인할 수 있다 — 신뢰 모델). 내가 작성자면 '내 확인 차례'.
@@ -7148,7 +7359,7 @@ function drawPins(){
   // '나를 부른 핀' 거르기: 모든 문서의 열린·검토 대기 핀 중 나를 @태그한 것만(문서를 가로지른 알림함이다).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
-  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+'나를 부른 핀 '+MINE.length;
+  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // 답글 입력 칸에 커서가 있었으면 다시 그린 뒤 그 자리로 돌려놓는다(자동 동기화가 목록을 다시 그려도 타이핑이 끊기지 않게).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
@@ -7212,6 +7423,15 @@ function jumpToCard(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
+// 글 속 '#12' 링크: 그 핀의 카드·보관함 행을 펴고 스크롤해 반짝인다. 다른 문서의 핀이면 '모든 문서'를 켠다.
+function gotoPinRef(id){const p=findAnyPin(id)||DROPPED.find(x=>x.id===id); if(!p)return;
+  const st=DROPPED.includes(p)?'dropped':pinState(p);
+  if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
+  if(st==='done')SHOW_DONE=true; else if(st==='dropped')SHOW_DROPPED=true; else OPEN_CARDS.add(id);
+  if(LAYOUT!=='wide')setSide(true); drawPins();
+  requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
+    el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
   if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q)))switchDoc(pdoc(q)).then(()=>{if(DOC===pdoc(q))jumpPin(id);}); return;}
   if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
@@ -7266,21 +7486,64 @@ function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
 function mentionHints(ta){if(!ta||!ta._mentions)return []; const v=ta.value;
   return Array.from(ta._mentions).filter(l=>v.includes('@'+peopleName(l)));}
 function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
+// 입력 칸 아래 한 줄: 저장하면 알림이 갈 사람(풀린 @이름)과 풀리지 않을 '@말'(등록된 사람이 아님). textarea 안은 색을 칠할 수 없어
+// 여기서 미리 보인다 — 저장 전에 부른 것이 실제로 알림이 되는지 안다. 규칙은 서버 resolve_mentions() 와 같다(fmtText 주석).
+function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(PEOPLE.map(p=>p.login)).map(x=>({t:x.t.toLowerCase(),lg:x.lg}));
+  const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
+  for(let i=0;i<text.length;i++){if(text[i]!=='@'||(i>0&&/[0-9A-Za-z가-힣._-]/.test(text[i-1])))continue;
+    const rest=low.slice(i+1); let got=null;
+    for(const x of toks){const t=x.t.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      if(!rest.startsWith(t))continue; const nx=rest.charAt(t.length); if(/[a-z0-9]$/.test(t)&&/[a-z0-9_]/.test(nx))continue;
+      const all=toks.filter(y=>y.t===x.t).map(y=>y.lg),pick=all.length===1?all:all.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
+    if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
+    else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
+  return {hit,bad,first};}
+// 담당(references/design.md §담당): 누가 이 핀을 처리하나. 기본값 — 메모가 풀린 @태그로 시작하면 그 사람, 아니면 질문 핀의 첫
+// @태그, 아니면 에이전트. 나는 고를 수 없다(서버가 나를 부른 태그를 빼듯이). @태그가 없으면 고를 것도 없다(에이전트).
+function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
+  if(r.first&&r.first!==me)return r.first; if(kind==='question'&&hit.length)return hit[0]; return 'agent';}
+function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
+  if(keep&&keep!=='agent'&&!out.includes(keep))out.push(keep); return out;}
+function assignSeg(people,value,act){if(!people.length)return '';
+  const opt=(v,label,tip)=>'<button type="button" role="radio" data-act="'+act+'" data-v="'+esc(v)+'" aria-checked="'+(v===value)+'"'+(v===value?' class="on"':'')+
+    ' data-tip="'+esc(tip)+'">'+label+'</button>';
+  return '<span class="as-lab">담당</span><div class="seg as-seg">'+opt('agent','에이전트','에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다')+
+    people.map(l=>opt(l,'@'+esc(peopleName(l)),peopleName(l)+'에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다')).join('')+'</div>';}
+// 작성 패널의 담당: 사용자가 고르기 전(touched=false)에는 메모가 바뀔 때마다 기본값을 다시 고른다. 고른 사람이 메모에서 빠지면 기본값으로.
+const ASSIGN_NEW={v:'agent',touched:false};
+function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
+  const ppl=assignPeople(ta.value,ta._mentions);
+  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!=='agent'&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,ta._mentions); ASSIGN_NEW.touched=false;}
+  if(!ppl.length){ASSIGN_NEW.v='agent'; box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
+function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
+  const ppl=assignPeople(ta.value,ta._mentions,E.assignee);
+  if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
+function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
+  const r=mentionScan(ta.value,ta._mentions),me=meLogin();
+  if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
+  box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' (나 — 알림 없음)':'')+'</span>').join(''):'')+
+    r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
+    (r.bad.length?'<span class="m-note">등록된 사람이 아님</span>':'');
+  box.hidden=false;}
 function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)mentionClose(); return;}
   const me=META&&META.me&&META.me.login; MENTION.ta=ta; MENTION.start=q.start; MENTION.items=mentionMatches(q.q,PEOPLE,me);
   MENTION.sel=Math.min(MENTION.sel,Math.max(0,MENTION.items.length-1));
   const pop=$('#mention-pop');
   pop.innerHTML=MENTION.items.length?MENTION.items.map((p,i)=>'<button type="button" role="option" aria-selected="'+(i===MENTION.sel)+'" data-act="mention-pick" data-i="'+i+'">'+
     avatar(p)+'<span>'+esc(p.name)+'</span><span class="ml">'+esc(p.login)+'</span></button>').join(''):
-    '<div class="dim">부를 수 있는 사람이 없습니다 — 이 뷰어를 연 테일넷 사람만 보입니다</div>';
+    '<div class="dim">'+(q.q?'\''+esc(q.q)+'\' 와 맞는 사람이 없습니다 — ':'부를 수 있는 사람이 없습니다 — ')+'이 뷰어를 연 테일넷 사람만 부를 수 있습니다</div>';
   pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth;
   const below=r.bottom+4+h<=((window.visualViewport&&visualViewport.height)||innerHeight);
   pop.style.top=Math.max(4,below?r.bottom+4:r.top-4-h)+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
-  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta);}
+  (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);
+  if(ta.id==='note')renderAssignNew(); else if(ta.classList.contains('e-note'))renderAssignEdit();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
-document.addEventListener('input',e=>{if(isMentionField(e.target))mentionUpdate(e.target);});
+document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);
+  if(e.target.id==='note')renderAssignNew(); else if(e.target.classList.contains('e-note'))renderAssignEdit();}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
@@ -7297,7 +7560,7 @@ function replyEl(mode,review){const ro=mode==='reopen',el=document.createElement
   // 검토 대기 카드의 답글은 에이전트가 다시 집지 않는다(§검토 대기 — 다시 처리하지 않는다) — 자리표시글로
   // 그 사실과 대안([다시 열기])을 알린다(결함 실측: 검토 대기 카드에 답글을 남겨도 에이전트가 못 보고 지나갔다).
   el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="'+(ro?'다시 여는 이유':'답글')+'" placeholder="'+
-    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea>'+
+    (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
     '<button class="btn-sm btn-default" data-act="reply-send" data-tip="'+(ro?'이유를 스레드에 남기고 핀을 다시 엽니다':'답글을 스레드에 남깁니다')+'">'+(ro?'다시 열기':'보내기')+'</button></div>';
   return el;}
@@ -7306,7 +7569,7 @@ function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
   if(REPLY)closeReply(false);
   const p=findAnyPin(id),review=mode==='reply'&&!!p&&pinState(p)==='review';
   REPLY={id,mode,el:replyEl(mode,review)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
-  const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); ta.focus();
+  const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get(mode+':'+id)||''; autoGrow(ta); mentionPreview(ta); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
   if(ta&&ta.value.trim())REPLY_DRAFT.set(REPLY.mode+':'+REPLY.id,ta.value); else REPLY_DRAFT.delete(REPLY.mode+':'+REPLY.id);
@@ -7329,7 +7592,8 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   const el=document.createElement('div'); el.className='edit';
   el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
     '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
-    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea>'+
+    '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
+    '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
     '<span class="sl" aria-hidden="true">위</span><button data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">'+ic('plus')+'</button>'+
@@ -7341,16 +7605,17 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
     '<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="'+esc(T.repick)+'">위치 다시 잡기</button>'+
     '<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="'+esc(T.ecancel)+'">취소</button>'+
     '<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="'+esc(T.esave)+'">저장</button></div>';
-  const ta=el.querySelector('.e-note'); ta.value=p.note||''; autoGrow(ta);
+  const ta=el.querySelector('.e-note'); ta.value=p.note||''; ta._mentions=new Set(p.mentions||[]); autoGrow(ta); mentionPreview(ta);
   EDIT={id,el,base_rev:p.rev||0,file:p.file,name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,scope:p.scope||null,
-    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix'},
+    kind:p.kind,env:null,levels:[],n_lines:null,snippet:'',orig:{lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:isQuestion(p)?'question':'fix',assignee:assigneeOf(p)},
+    assignee:assigneeOf(p),
     doc:pdoc(p),region:isRegion(p),page:p.page,quote:p.quote||'',kind_req:isQuestion(p)?'question':'fix'};
   if(EDIT.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
 // 편집 칸에 저장 안 한 변경이 있는가(문서를 바꿀 때 편집을 닫아도 되는지).
 function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelector('.e-note');
-  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req;}
+  return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req||E.assignee!==E.orig.assignee;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.classList.contains('r-text')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
@@ -7368,12 +7633,13 @@ function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
   el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false);}
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();}
 function cancelEdit(){EDIT=null; drawPins();}
 async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
+  if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;
   if(body.note!==undefined){const mh=mentionHints(E.el.querySelector('.e-note')); if(mh.length)body.mentions=mh;}
   if(E.lo!==E.orig.lo||E.hi!==E.orig.hi||(E.scope||null)!==(E.orig.scope||null)){body.lo=E.lo;body.hi=E.hi;
     if(E.scope){body.scope=E.scope; body.kind=kindFor(E.scope,E.env);}}
@@ -7384,7 +7650,7 @@ async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
       if(data&&data.error==='done'){toast('핀 #'+E.id+' 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다','warn'); EDIT=null; await loadPins(); return;}
       const p=data.pin; toast('다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다','warn');
       E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file;
-      E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||''}; editSnip(true); await loadPins(); return;}
+      E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true); await loadPins(); return;}
     EDIT=null; toast('핀 #'+E.id+' 수정됨','ok'); await loadPins();
   }catch(e){} finally{ESAVING=false;}
 }
@@ -7497,6 +7763,7 @@ document.addEventListener('click',e=>{
     //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
+    case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
     case 'outline':toggleOutline();break;
     case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
@@ -7504,6 +7771,11 @@ document.addEventListener('click',e=>{
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(+a.dataset.i);break;
+    case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
+    case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); break;
+    case 'assign-edit':if(EDIT){EDIT.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
+    case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
+    case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
@@ -7547,7 +7819,7 @@ document.addEventListener('keydown',e=>{
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
   // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
-  if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
+  if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}

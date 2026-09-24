@@ -62,9 +62,11 @@ def js_icons() -> str:
 def js_thread() -> str:
     """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
-        "isQuestion", "threadOf", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
+    st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
+    mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
+    return "\n".join([ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
+        "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "assigneeOf", "assignChip", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
+        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
 def run_node(js: str, tz: str = None):
@@ -2050,7 +2052,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
         self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # 답 한 줄은 arcLine 이 esc 를 거쳐 그린다
-        self.assertIn("esc(text)", extract_js_fn("arcLine"))
+        self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))   # fmtText 가 먼저 esc 를 거친다
         self.assertIn("esc(p.close_ref)", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
@@ -3547,9 +3549,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
             if "lay-mid" in sel:
                 self.assertIsNone(re.search(r"(?:^|;)(?:transform|translate|filter|opacity|contain|will-change|perspective)\s*:", body), sel)
         self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")      # 여는 움직임은 right 로만
-        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 narrow 처럼 위로.
+        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 동작 줄 바로 위 패널 쪽(FrontendToasts).
         self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
-        self.assertIn("body.lay-mid #toasts{left:max(12px,env(safe-area-inset-left));top:calc(var(--mid-top)", css)
+        self.assertIn("body.lay-mid #toasts{", css)
         # 문서 링크가 넘치면 흐린 끝으로 알린다(스크롤바 대신)
         self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
         self.assertIn("function docLinksFade(){", ps.HTML)
@@ -3653,6 +3655,181 @@ class FrontendDesignTokens(unittest.TestCase):
         for old in ("button.p{", "button.x{", "button.ghost{", "button.ib{", "button.ico{", ".tag{", ".tag.t{"):
             self.assertNotIn(old, css)                                # 옛 표시 전용 클래스는 없앴다
 
+
+
+# ---------------------------------------------------------------- 알림(토스트) — references/design.md §알림
+# 저자 지적(2026-09-24): 핀을 저장하면 '되돌리기' 알림이 오른쪽 패널에서 너무 먼 왼쪽 아래(1,100px+)에 떴고, 왼쪽 색 띠가
+# 촌스러웠다. 이제 방금 누른 자리(패널 열의 오른쪽 아래, 동작 줄 바로 위 · narrow 는 시트 위)에 sonner 모양으로 뜬다.
+class FrontendToasts(unittest.TestCase):
+    css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+
+    def rules(self, pat):
+        return [(sel, dict(d)) for sel, d in css_rules() if re.search(pat, sel)]
+
+    def test_toast_has_no_left_stripe_and_is_a_single_floating_surface(self):
+        for sel, d in self.rules(r"\.toast"):
+            self.assertFalse([k for k in d if k.startswith("border-left")], sel)
+        base = dict(self.rules(r"^\.toast$")[0][1])
+        self.assertEqual(base["border"], "1px solid var(--border)")
+        self.assertEqual(base["border-radius"], "var(--radius-lg)")
+        self.assertEqual(base["background"], "var(--popover)")
+        self.assertIn("box-shadow", base)
+        # 상태는 앞머리 아이콘 색으로 — 띠가 아니다
+        for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
+            self.assertIn("%s:()=>ic('%s')" % (kind, icon), ps.HTML)
+        self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
+        self.assertIn(".toast.err>.ic{color:var(--destructive)}", self.css)
+
+    def test_toast_anchored_per_layout_near_the_action(self):
+        box = dict(self.rules(r"^#toasts$")[0][1])
+        self.assertEqual(box["right"], "var(--toast-r,var(--space-3))")
+        self.assertEqual(box["bottom"], "var(--toast-b,var(--space-3))")
+        self.assertNotIn("left", box)                                  # 예전: 왼쪽 아래 고정
+        self.assertIn("body.lay-narrow #toasts{", self.css)
+        self.assertIn("body.lay-mid #toasts{", self.css)
+        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")   # 예전: 본문 왼쪽 위
+        body = extract_js_fn("placeToasts")
+        self.assertIn("'#c-actions'", body)                           # 저장·취소 버튼을 가리지 않는다
+        self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # 아래 도구 줄을 가리지 않는다
+        self.assertIn("right.getBoundingClientRect().top", body)      # narrow: 시트 위
+        self.assertIn("innerWidth-rr.right+12", body)                 # 패널 열 안 오른쪽
+        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)   # 거의 다 편 시트: 도구 줄을 가리지 않게 아래로
+        self.assertIn("@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css)
+        for v in ("--toast-b", "--toast-r", "--toast-w"):
+            self.assertIn("setProperty('%s'" % v, body)
+
+    def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
+        body = extract_js_fn("toast")
+        self.assertIn("box.insertBefore(t,box.firstChild)", body)
+        self.assertIn("setTimeout(kill,6000)", body)
+        self.assertIn("#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}", self.css)
+        self.assertIn("@keyframes toast-in", self.css)
+        self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
+
+    def test_toast_title_and_description_split(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = extract_js_fn("toastSplit") + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함','핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요'].map(toastSplit)));"
+        self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""],
+                                                          ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"]])
+
+
+# ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(references/design.md §한 겹 담기)
+# 저자 지적(2026-09-24): 테두리 상자 안에 또 테두리 상자를 그리는 방식이 촌스럽다. 담는 층은 하나 — 카드(가는 테두리 하나)
+# 또는 떠 있는 면(대화상자·알림·@목록). 그 안의 배지·버튼·분절 컨트롤·스테퍼·원문·겹침 안내·스레드는 채움·간격·구분선으로만 가른다.
+class FrontendNoNestedOutlines(unittest.TestCase):
+    INNER = re.compile(r"^(?:\.badge|\.seg|\.step|pre\b|#c-overlap|\.thread|\.edit\b|\.arc-thread|\.arc-orig|\.arc-row|\.msg|\.reply-box)")
+    SEPARATORS = {".thread": "border-top", ".arc-row+.arc-row": "border-top"}
+
+    def test_inner_components_draw_no_outline_box(self):
+        bad = []
+        for sel, decls in css_rules():
+            for part in [x.strip() for x in sel.split(",")]:
+                if not self.INNER.match(part) or part.startswith(".dchip"):
+                    continue
+                for k, v in decls:
+                    if k == "border" and v not in ("0", "none", "1px solid transparent"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+                    if re.fullmatch(r"border-(?:top|right|bottom|left)", k) and self.SEPARATORS.get(part) != k and v not in ("0", "none"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+                    if k == "border-color" and v != "transparent" and not part.startswith("button.badge"):
+                        bad.append("%s { %s:%s }" % (part, k, v))
+        self.assertEqual(bad, [])
+
+    def test_card_buttons_are_filled_and_destructive_is_quiet(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn(".pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);"
+                      "color:var(--secondary-foreground);border-color:transparent}", css)
+        self.assertIn(".pin .acts button.btn-destructive{background:transparent}", css)
+        self.assertIn(".seg button.on{background:var(--popover);border-color:transparent;", css)
+        more = ps.HTML[ps.HTML.index('<div class="more-grid">'):]
+        more = more[:more.index("</dialog>")]
+        for tag in re.findall(r"<button[^>]*>", more):
+            self.assertIn("btn-secondary", tag)                      # 대화상자 안 버튼도 테두리 없이 채운다
+
+    def test_floating_surfaces_are_the_only_shadows_with_hairlines(self):
+        for sel in ("dialog", "#mention-pop"):
+            d = dict(dict(css_rules())[sel])
+            self.assertEqual(d["border"], "1px solid var(--border)", sel)
+            self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
+
+
+# ---------------------------------------------------------------- 뜻·기능 점검(references/design.md §뜻과 모양) + UX QA(2026-09-24)
+class FrontendSemanticAudit(unittest.TestCase):
+    css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+
+    def test_relative_time_with_absolute_on_hover(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join(["const esc=t=>String(t==null?'':t);", extract_js_fn("relTime"), extract_js_fn("relSpan"), r"""
+            const now=new Date(2026,8,24,15,0).getTime();
+            console.log(JSON.stringify(['2026-09-24 15:00:10','2026-09-24 14:57:00','2026-09-24 11:00:00','2026-09-21 10:00:00','2026-09-01 10:00:00','x']
+              .map(s=>relTime(s,now)).concat([relSpan('2026-09-01 10:00','arc-t','닫은 시각')])));"""])
+        out = json.loads(run_node(js))
+        self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
+        self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
+        self.assertIn("setInterval(tickRel,60000);", ps.HTML)
+        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)   # 예전: '09-24 1…'
+
+    def test_one_toast_per_event_notify_wins(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+        js = "\n".join(["const TOAST_KEYS=[];", extract_js_fn("toastDup"), r"""
+            const el=()=>({isConnected:true,removed:false,remove(){this.removed=true;this.isConnected=false;}});
+            const a=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:1,el:a,t:Date.now()});
+            const r1=toastDup({keys:['review_requested:37'],rank:2});           // 알림 경로가 이긴다 — 옛 것을 걷고 띄운다
+            const b=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:2,el:b,t:Date.now()});
+            const r2=toastDup({keys:['review_requested:37'],rank:1});           // 뒤늦은 목록 비교 알림은 띄우지 않는다
+            const r3=toastDup({keys:['reopened:37'],rank:1}), r4=toastDup(null);
+            const r5=toastDup({keys:['review_requested:37'],rank:2});           // 같은 경로의 다음 사건(두 번째 검토 대기)은 막지 않는다
+            console.log(JSON.stringify([r1,a.removed,r2,r3,r4,r5]));"""])
+        self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
+        self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
+        self.assertIn("{keys:reviewed.map(i=>'review_requested:'+i)}", extract_js_fn("diffToast"))
+        self.assertIn("{keys:['reopened:'+p.id]}", extract_js_fn("reviewToast"))
+
+    def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
+        body = extract_js_fn("card")
+        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", body)
+        self.assertIn("const v=closedCard?null:viaTag(p);", body)
+        self.assertIn('class="th-n" role="button" tabindex="0" data-act="reply-open"', body)
+
+    def test_long_messages_clamp_and_identity_marks(self):
+        self.assertIn(".msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;", self.css)
+        self.assertIn("data-act=\"msg-more\"", extract_js_fn("msgBody"))
+        self.assertIn("if(isAgent(a))return '<span class=\"av i agent\" aria-hidden=\"true\">'+ic('bot')+'</span>';", extract_js_fn("avatar"))
+        self.assertIn("(나)", extract_js_fn("msgHtml"))
+        self.assertIn("(나)", extract_js_fn("card"))
+
+    def test_touch_targets_in_archive_rows(self):
+        coarse = self.css[self.css.index("@media (pointer:coarse){"):]
+        coarse = coarse[:coarse.index("\n}")]
+        self.assertIn("button.arc-orig-t{min-height:44px;min-width:44px;", coarse)
+        self.assertIn(".arc-reply{min-height:44px;", coarse)
+        self.assertIn(".th-n{min-height:44px;min-width:44px;", coarse)
+
+    def test_review_count_labels_scope_and_filter_is_compact(self):
+        self.assertIn("' (이 문서 '+here+')'", extract_js_fn("updateReviewCount"))
+        body = extract_js_fn("drawPins")
+        self.assertIn("mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);", body)
+
+    def test_revision_note_wraps_and_returns_to_previous_doc(self):
+        self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
+        self.assertIn("data-act=\"rev-back\"", extract_js_fn("revTargetNote"))
+        self.assertIn("REV_BACK=DOC", extract_js_fn("showChange"))
+        self.assertIn("case 'rev-back':", ps.HTML)
+
+    def test_source_diff_wrap_toggle_defaults_on_touch(self):
+        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', ps.HTML)
+        self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
+        self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
+
+    def test_navigation_text_is_dotted_and_pending_looks_pending(self):
+        self.assertIn(".pin .n.go{text-decoration:underline dotted;", self.css)
+        self.assertIn(".pin-ref{color:inherit;font-weight:600;cursor:pointer;text-decoration:underline dotted;", self.css)
+        self.assertIn("button[data-pending]{cursor:progress;", self.css)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -3667,7 +3844,7 @@ class PinNumberJump(unittest.TestCase):
 
     def test_number_is_keyboard_and_touch_reachable(self):
         src = ps.HTML
-        self.assertIn("t.getAttribute('role')==='button'&&t.dataset&&t.dataset.act", src)
+        self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
         self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
         # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
         # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
@@ -4532,7 +4709,7 @@ class FrontendArchive(unittest.TestCase):
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
             const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
-              /data-act="rv-reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), />09-23 20:40</.test(a),
+              /data-act="rv-reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
               /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
@@ -4602,14 +4779,26 @@ class FrontendArchive(unittest.TestCase):
         # 문서 전환·모든 문서 토글에도 같은 목록 함수(listDone/listDropped)를 쓴다
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
 
-    def test_status_strips_colour_open_claimed_done_dropped(self):
+    def test_status_without_stripes_dot_badge_and_icons(self):
+        # 저자 지적(2026-09-24): 왼쪽 색 띠는 촌스럽다. 상태는 카드 머리의 점 + 같은 뜻의 배지, 보관함은 앞머리 아이콘.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
-        self.assertIn(".pin.claimed::before{", css)
-        self.assertIn("background:var(--status-claimed)", css)
-        self.assertIn(".arc-row{position:relative;padding:var(--space-1) var(--space-1) 6px 10px;border-left:3px solid var(--status-closed)", css)
-        self.assertIn(".arc-row.dropped{border-left-color:var(--status-dropped)", css)
+        for sel, decls in css_rules():
+            if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
+                keys = [k for k, _ in decls]
+                self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
+                self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))   # 겹쳐 그린 띠도 없다
+                for k, v in decls:
+                    self.assertNotRegex(v, r"inset \d+px 0 0", sel)          # box-shadow 로 그린 띠도 없다
+        self.assertNotIn(".strip{", css)
+        for st in ("claimed", "review", "lost", "done", "dropped"):
+            self.assertIn(".st-dot.%s{background:var(--status-" % st, css)
         self.assertEqual(css.count("--status-claimed:"), 2)             # 다크·라이트 둘 다
-        self.assertIn("(claimed?' claimed':'')", extract_js_fn("card"))
+        body = extract_js_fn("card")
+        self.assertIn("(claimed?' claimed':'')", body)
+        self.assertIn("stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')", body)
+        self.assertIn("aria-label=\"상태: '+ST_NAME[st]+'\"", extract_js_fn("stDot"))   # 색만으로 가르지 않는다
+        self.assertIn("ic('rotate-ccw')+'다시 열림", body)
+        self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
 
 # ---------------------------------------------------------------- 처리 예상 시간(eta_min) — 서버·pins.md·뷰어 표시
@@ -4866,7 +5055,7 @@ class BadgeWording(Base):
               relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
             """])
         self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
-        self.assertIn("const rb=relBadge(p.rel,p);", extract_js_fn("card"))
+        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", extract_js_fn("card"))
 
     def test_overlap_banner_verbs(self):
         if not shutil.which("node"):
@@ -4986,6 +5175,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
+            const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
@@ -5864,10 +6054,73 @@ class MentionsPeopleEvents(Base):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
         self.assertIn("| %d · → @Alice Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
-        self.assertIn("`→ @이름` 이 붙은 핀 1건은 사람에게 물은", md)
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
+
+    # ---- 담당(assignee) — references/api.md §담당. 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43).
+    def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
+        legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W))
+        person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W))
+        agent = ps.add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
+                            "assignee": "agent"}, dict(self.W))
+        rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
+        self.assertNotIn("assignee", rows[legacy])                        # 옛 핀: 필드 없음 → #87 추론(수정 요청 = 참고)
+        self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
+        self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
+        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # 질문이어도 담당이 에이전트면 참고
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        line = lambda i: next(l for l in md.splitlines() if l.startswith("| %d " % i))
+        self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
+        self.assertIn("| %d · → @Bob Park |" % person, line(person))
+        self.assertIn("| %d · 참고 @Bob Park · 질문 |" % agent, line(agent))
+        self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
+        self.assertIn("'→ @이름' = 담당이 사람인 핀", md)
+
+    def test_assignee_validation_and_events(self):
+        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
+        for bad in ("nobody@x.com", "local", 3, ""):
+            code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
+            self.assertEqual(code, 400, bad)
+            self.assertTrue("assignee" in d["error"] or "담당" in d["error"], d)
+        code, d = self.post("/api/pin", dict(base, assignee=self.S["login"]), self.HW)
+        self.assertEqual(code, 200)
+        pid = d["id"]
+        self.assertEqual(self.pin(pid)["assignee"], self.S["login"])
+        self.assertEqual(sorted((e["type"], tuple(e["to"])) for e in self.events()),
+                         [("assigned", (self.S["login"],)), ("mention", (self.S["login"],))])   # 불린 사람은 알림도 받는다
+        self.assertNotIn("thread", self.pin(pid))                        # 만들 때의 담당은 스레드 기록이 아니다
+        # 담당을 에이전트로 바꾸면 ev=assign 이 남고 이벤트는 없다. 다시 사람으로 바꾸면 assigned.
+        n = len(self.events())
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "agent", "base_rev": 0}, self.HW)
+        self.assertEqual(code, 200)
+        p = self.pin(pid)
+        self.assertEqual((p["assignee"], p["thread"][-1]["ev"], p["thread"][-1]["text"]), ("agent", "assign", "담당: 에이전트"))
+        self.assertEqual(self.events()[n:], [])
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": self.S["login"], "base_rev": 1}, self.HW)
+        self.assertEqual(self.pin(pid)["thread"][-1]["text"], "담당: @Bob Park")
+        self.assertEqual([(e["type"], e["to"]) for e in self.events()[n:]], [("assigned", [self.S["login"]])])
+        code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "ghost", "base_rev": 2}, self.HW)
+        self.assertEqual(code, 400)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("담당 바꿈(Alice Kim): 담당: @Bob Park", md)
+        self.assertIn("assigned", ps.NOTIFY_TYPES)
+
+    def test_legacy_pins_read_without_rewrite(self):
+        ps.record_person(dict(self.S))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W))
+        f = ps.C.pins_jsonl
+        before = f.read_bytes()
+        for _ in range(2):
+            ps.pins_payload(ps.snapshot_pins(), True)
+            self.talk(req("GET", "/api/pins?all=1"))
+            self.talk(req("GET", "/pins.md"))
+        self.assertEqual(f.read_bytes(), before)
+        self.assertNotIn("assignee", self.pin(pid))
 
     def test_addressed_counts_current_round_only_and_needs_question_kind(self):
         r = {"kind_req": "question", "mentions": [],
@@ -5928,7 +6181,10 @@ class FrontendMentions(unittest.TestCase):
             let PEOPLE=[{login:'w@x',name:'Alice Kim'},{login:'wo@x',name:'Alice'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
             let META={me:{login:'s@x',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
-            """] + [extract_js_fn(n) for n in ("peopleName", "fmtText", "mentionsMe", "mentionQuery", "mentionMatches", "mentionHints")]
+            const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
+            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
+            """] + [extract_js_fn(n) for n in ("peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe",
+                                               "mentionQuery", "mentionMatches", "mentionHints", "mentionScan", "defaultAssignee", "assignPeople")]
             + [script])
         return json.loads(run_node(js))
 
@@ -5936,8 +6192,74 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Alice Kim 와 @Alice <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
               fmtText('@Bob Park',[])]));""")
-        self.assertEqual(out, ['<span class="mention">@Alice Kim</span> 와 <span class="mention">@Alice</span> &lt;i&gt;',
-                               '<span class="mention">@김&lt;b&gt;</span> 안녕', '@Bob Park'])
+        tip = lambda n: ' data-tip="@태그 — %s에게 알림이 갑니다"' % n
+        self.assertEqual(out, ['<span class="mention"%s>@Alice Kim</span> 와 <span class="mention"%s>@Alice</span> &lt;i&gt;' % (tip("Alice Kim"), tip("Alice")),
+                               '<span class="mention"%s>@김&lt;b&gt;</span> 안녕' % tip("김&lt;b&gt;"), '@Bob Park'])
+
+    def test_mention_of_me_is_stronger_and_unresolved_stays_plain(self):
+        # 저자 지적(2026-09-24): 부른 것인지 평문인지 구분이 안 됐다. 풀린 태그만 토큰, 나를 부르면 .me, 풀리지 않은 '@말'은 평문.
+        out = self.run_js(r"""
+            console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@x']), fmtText('mail a@Bob Park',['s@x']),
+              fmtText('@Bob Parkx',['s@x']), fmtText('@bob park',['s@x'])]));""")
+        self.assertEqual(out[0], '<span class="mention me" data-tip="나를 부름 — 이 핀 알림이 나에게 옵니다">@Bob Park</span> 봐 주세요 @홍길동')
+        self.assertEqual(out[1], 'mail a@Bob Park')                       # 메일 주소 모양은 태그가 아니다
+        self.assertNotIn("mention", out[2])                                   # 이름 뒤에 영문이 이어지면 다른 말
+        self.assertIn('class="mention me"', out[3])                          # 대소문자 없이(서버와 같다)
+
+    def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
+        out = self.run_js(r"""
+            console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
+        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12·3·40(삭제한 핀) — 없는 99 는 평문
+        self.assertIn('data-ref="12"', out[0]); self.assertIn('data-ref="40"', out[0]); self.assertNotIn('data-ref="99"', out[0])
+        self.assertIn("it&#39;s", out[0])                                     # 이스케이프 &#39; 는 링크가 아니다
+        self.assertNotIn("pin-ref", out[1])
+
+    def test_scan_lists_who_gets_notified_and_unresolved_words(self):
+        out = self.run_js(r"""
+            console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Alice Kim',new Set()), mentionScan('a@b.com',new Set()),
+              mentionScan('@Alice 봐',new Set(['wo@x']))]));""")
+        self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"], "first": "s@x"})
+        self.assertEqual(out[1], {"hit": [], "bad": [], "first": None})
+        self.assertEqual(out[2]["hit"][0], "wo@x")
+
+    def test_default_assignee_rules(self):
+        # 메모가 풀린 @태그로 시작하면 그 사람 · 아니면 질문 핀의 첫 @태그 · 아니면 에이전트. 나(s@x)는 고를 수 없다.
+        out = self.run_js(r"""
+            console.log(JSON.stringify([
+              defaultAssignee('@Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('  @Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이거 콜링 작동하나 @Alice Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이 구간이 뭔가요 @Alice Kim','question',new Set()),
+              defaultAssignee('@Bob Park 메모','fix',new Set()),
+              defaultAssignee('@Bob Park @Alice Kim 뭔가요','question',new Set()),
+              defaultAssignee('@홍길동 확인','fix',new Set()),
+              defaultAssignee('그냥 메모','question',new Set()),
+              assignPeople('@Bob Park @Alice Kim 봐 주세요',new Set()),
+              assignPeople('메모',new Set(),'k@x')]));""")
+        self.assertEqual(out, ["w@x", "w@x", "agent", "w@x", "agent", "w@x", "agent", "agent", ["w@x"], ["k@x"]])
+
+    def test_assign_controls_in_composer_edit_and_card(self):
+        h = ps.HTML
+        self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
+        self.assertIn("'<div class=\"e-assign assign-row\" role=\"radiogroup\" aria-label=\"담당\" hidden></div>'", h)
+        self.assertIn("body.assignee=ASSIGN_NEW.v||'agent';", extract_js_fn("savePin"))
+        self.assertIn("if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit"))
+        self.assertIn("assignChip(p)+thn+au", extract_js_fn("card"))
+        self.assertIn("const adr=p.assignee?'':addressedTag(p);", extract_js_fn("card"))
+        self.assertIn("assigned:5", h)
+        self.assertIn("assign:'담당 바꿈'", h)
+
+    def test_preview_row_under_every_mention_field(self):
+        h = ps.HTML
+        self.assertIn('<div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>', h)
+        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)   # 편집·답글
+        body = extract_js_fn("mentionPreview")
+        self.assertIn("등록된 사람이 아님", body)
+        self.assertIn("ic('at-sign')+'알림</span>'", body)
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertRegex(css, r"\.mention\{color:var\(--primary\);font-weight:600;background:color-mix\(in srgb,var\(--primary\) 12%")
+        self.assertIn(".mention.me{background:color-mix(in srgb,var(--primary) 28%", css)
+        self.assertIn(".mention-bad{", css)
 
     def test_query_matches_and_hints(self):
         out = self.run_js(r"""
