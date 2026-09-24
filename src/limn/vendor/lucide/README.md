@@ -32,8 +32,12 @@
 | `minus` · `plus` | PDF 축소·확대, 범위 한 줄씩 좁히기·넓히기 |
 | `moon` · `sun` · `sun-moon` | 화면 테마(어둡게·밝게·시스템) |
 | `move-vertical` | '줄 +N 이동' 배지 |
+| `move-horizontal` | PDF 폭 맞춤(데스크톱 도구 줄) |
+| `panel-left` | 목차 펴기·접기(문서 탐색 줄) |
 | `pencil` | '수정됨' 배지 |
+| `refresh-cw` | [PDF 재빌드] |
 | `rotate-ccw` | '다시 열림' 배지(검토에서 되돌아온 핀) |
+| `square-dashed` | [선택] 버튼 — 터치에서 끌어 영역 고르기(PDF 위 점선 상자와 같은 모양) |
 | `text-wrap` | 소스 diff 의 [줄바꿈] |
 | `trash-2` | 삭제한 핀 행의 머리 |
 | `triangle-alert` | '위치 잃음' 배지, 경고 알림 앞머리 |
