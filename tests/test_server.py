@@ -5640,3 +5640,48 @@ class FrontendReview(unittest.TestCase):
         self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
         self.assertIn('id="sec-review"', ps.HTML)
         self.assertIn('id="side-rv"', ps.HTML)
+
+
+# ---------------------------------------------------------------- [변경 보기](references/design.md §변경 보기)
+class FrontendChangeView(unittest.TestCase):
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def run_js(self, script):
+        js = "\n".join([extract_js_fn(n) for n in ("matchRevision", "pinFileIndex", "hunkRanges", "touchesPin", "revisionFiles")]
+                       + [script])
+        return json.loads(run_node(js))
+
+    def test_ref_picks_commit_by_sha_then_pr_number(self):
+        revs = [{"id": "0a569cc" + "1" * 33, "subject": "Clarify experimental questions (#238)"},
+                {"id": "2cb7240" + "2" * 33, "subject": "Resolve manuscript viewer pins 19–41 (#236)"},
+                {"id": "f47c6bf" + "3" * 33, "subject": "manuscript: 원고 핀 12건 반영 (#235)"},
+                {"id": "1d422a6" + "4" * 33, "subject": "Merge pull request #203 from example-lab/docs"}]
+        out = self.run_js("const revs=%s; console.log(JSON.stringify(['PR #235 (f47c6bf)','paper PR #236; code PR #75',"
+                          "'paper PR #236','#203','PR #999','', 'abcdef1'].map(r=>{const m=matchRevision(r,revs);return m&&[m.id.slice(0,7),m.via];})));"
+                          % json.dumps(revs))
+        self.assertEqual(out, [["f47c6bf", "sha"], ["2cb7240", "pr"], ["2cb7240", "pr"], ["1d422a6", "pr"], None, None, None])
+
+    def test_pin_file_and_line_overlap(self):
+        patch = ("diff --git a/manuscript/1st/x.tex b/manuscript/1st/x.tex\n--- a/manuscript/1st/x.tex\n+++ b/manuscript/1st/x.tex\n"
+                 "@@ -10,3 +10,4 @@ ctx\n a\n+b\n c\n d\n@@ -80 +81 @@\n-x\n+y\n"
+                 "diff --git a/manuscript/1st/y.tex b/manuscript/1st/y.tex\n@@ -1 +1 @@\n-q\n+r\n")
+        out = self.run_js("const f=revisionFiles(%s); console.log(JSON.stringify([pinFileIndex(f,'/home/u/paper/manuscript/1st/x.tex'),"
+                          "pinFileIndex(f,'/home/u/paper/manuscript/1st/zz.tex'), hunkRanges(f[0].text),"
+                          "touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:15,hi:16}), touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:40,hi:41}),"
+                          "touchesPin(f,{file:'/p/manuscript/1st/x.tex',lo:84,hi:90}), touchesPin(f,{file:'/p/other.tex',lo:1,hi:1})]));"
+                          % json.dumps(patch))
+        self.assertEqual(out, [0, -1, [[10, 13], [81, 81]], True, False, True, False])
+
+    def test_wiring(self):
+        h = ps.HTML
+        self.assertIn('data-act="change"', extract_js_fn("doneCard"))
+        self.assertIn('data-act="change"', extract_js_fn("card"))
+        self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
+        self.assertIn('id="revision-pin"', h)
+        self.assertIn("showRevision(pick.id,'source')", extract_js_fn("loadRevisions"))
+        fmt = extract_js_fn("setRevisionFormat")
+        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # 비교 PDF 는 그 형식을 볼 때만 만든다
+        css = h[h.index("<style>"):h.index("</style>")]
+        self.assertIn("body.revision-open #revision-view{display:block}", css)   # 접은 폴드에서도 열린다

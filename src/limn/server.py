@@ -4342,8 +4342,18 @@ body.outline-collapsed #outline-grip,body.lay-narrow #outline,body.lay-narrow #o
 body.revision-open #section-strip{display:none}
 body.lay-narrow #section-strip{display:none}
 #revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
-body.revision-open:not(.lay-narrow) #revision-view{display:block}
-body.revision-open:not(.lay-narrow) #left{display:none}
+body.revision-open #revision-view{display:block}
+body.revision-open #left{display:none}
+/* [변경 보기]가 가리키는 핀(references/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
+   이 안내의 [원고로]가 돌아가는 길이다. */
+#revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:6px var(--space-4);background:var(--card);
+  border-bottom:1px solid var(--border);border-left:3px solid var(--status-review);font-size:var(--text-sm)}
+#revision-pin .rp-msg{color:var(--muted-foreground)}
+#revision-diff .rd-pin{box-shadow:inset 3px 0 0 var(--status-review);background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
+body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
+body.lay-narrow #revision-head h2{display:none}
+body.lay-narrow #revision-view{height:100%}
+body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84px}   /* 접힌 시트의 도구 줄이 아래를 가린다 */
 #revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
 #revision-head{display:flex;align-items:center;gap:var(--space-3);padding:9px var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
@@ -4877,7 +4887,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px 6px}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost">☰</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -5075,6 +5085,7 @@ const T={
   question:'고칠 곳이 아니라 묻는 핀입니다. 답은 아래 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다',
   review:'에이전트가 닫은 핀입니다. 사람이 결과를 보고 [확인]하면 완료로, [다시 열기]면 이유와 함께 열린 핀으로 돌아갑니다',
   confirm:'결과를 확인했다고 기록하고 완료로 옮깁니다. 작성자에게 권하지만 누구나 누를 수 있고, 누른 사람이 기록됩니다',
+  change:'변경사항 탭을 열어 이 핀을 고친 커밋(닫을 때 남긴 참조, 없으면 이 줄을 바꾼 최근 커밋)의 diff 에서 핀 자리를 강조합니다',
   rvReopen:'이유 한 줄을 스레드에 남기고 열린 핀으로 되돌립니다. 에이전트가 그 이유를 읽고 다시 고칩니다',
   reply:'이 핀에 답글을 답니다. 사람과 에이전트가 같은 스레드에서 주고받습니다 (⌘ Enter / Ctrl+Enter 보내기)'
 };
@@ -5255,30 +5266,40 @@ function setRevisionFormat(format){REVISION_FORMAT=format==='source'?'source':'p
   $('#revision-pdf').hidden=REVISION_FORMAT!=='pdf';$('#revision-source').hidden=REVISION_FORMAT!=='source';
   if(REVISION_FORMAT==='source'&&REVISION_COMMIT&&REVISION_SOURCE_COMMIT!==REVISION_COMMIT)
     loadRevisionSource(REVISION_COMMIT,REVISION_SEQ,DOC);
+  // 비교 PDF 는 그 형식을 볼 때만 만든다 — [변경 보기]는 소스 diff 로 바로 가므로 latexdiff 빌드를 헛돌리지 않는다.
+  if(REVISION_FORMAT==='pdf'&&REVISION_COMMIT&&REVISION_PDF_COMMIT!==REVISION_COMMIT){REVISION_PDF_COMMIT=REVISION_COMMIT;
+    $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REVISION_COMMIT,REVISION_SEQ,DOC);}
+  if(REV_TARGET)revTargetNote();
 }
 function setViewMode(mode){
   const revisions=mode==='revisions'; document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
-  if(revisions)loadRevisions(); else{++REVISION_SEQ;clearRevisionPdf();if(VEC.doc)vecSchedule(0);updateSectionStrip();}
+  if(!revisions)REV_TARGET=null;
+  if(revisions)loadRevisions(); else{++REVISION_SEQ;clearRevisionPdf();$('#revision-pin').hidden=true;if(VEC.doc)vecSchedule(0);updateSectionStrip();}
 }
 async function loadRevisions(){
-  const seq=++REVISION_SEQ,k=DOC,list=$('#revision-list'),out=$('#revision-diff');
-  clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';
+  const seq=++REVISION_SEQ,k=DOC,list=$('#revision-list'),out=$('#revision-diff'),tg=REV_TARGET;
+  clearRevisionPdf();list.textContent='최근 변경사항을 읽는 중입니다.';out.textContent='';$('#revision-pin').hidden=!tg;
+  if(tg)revTargetNote('변경사항을 읽는 중입니다.');
   let data; try{data=(await api(dq('/api/revisions',k),{what:'변경사항 읽기',silent:true})).data;}
   catch(e){if(seq===REVISION_SEQ)list.textContent='변경사항을 읽지 못했습니다.';return;}
   if(seq!==REVISION_SEQ||k!==DOC)return;
-  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';return;}
-  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.';return;}
+  if(!data.available){list.textContent='이 문서의 Git 변경사항을 볼 수 없습니다.';
+    if(tg)revTargetNote(tg.region?'보기 전용 PDF 문서의 핀이라 Git 변경사항이 없습니다 — 고친 곳은 LaTeX 문서(본문 등)의 변경사항에서 찾으세요.':
+      '이 문서는 Git 이력을 읽을 수 없어(Git 저장소가 아니거나 경로가 밖) 핀 자리를 변경과 맞출 수 없습니다.'); return;}
+  if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
   list.innerHTML='<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">'+data.revisions.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.subject)+' · '+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</option>').join('')+'</select>';
+  if(tg){const pick=await pickRevisionFor(tg,data.revisions,seq,k); if(seq!==REVISION_SEQ||k!==DOC||REV_TARGET!==tg)return;
+    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,'source'); return;}
   showRevision(data.revisions.some(r=>r.id===REVISION_COMMIT)?REVISION_COMMIT:data.revisions[0].id);
 }
-async function showRevision(id){
-  const seq=++REVISION_SEQ,k=DOC;REVISION_COMMIT=id;REVISION_SOURCE_COMMIT='';clearRevisionPdf();
+async function showRevision(id,format){
+  const seq=++REVISION_SEQ,k=DOC;REVISION_COMMIT=id;REVISION_SOURCE_COMMIT='';REVISION_PDF_COMMIT='';clearRevisionPdf();
   const select=$('#revision-select');if(select)select.value=id;
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
-  setRevisionFormat('pdf');$('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.';
-  loadRevisionPdf(id,seq,k);
+  $('#revision-status').textContent='';
+  setRevisionFormat(format||'pdf');
 }
 async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
@@ -5287,9 +5308,56 @@ async function loadRevisionSource(id,seq,k){
     REVISION_WHOLE=(r.diff||'이 커밋에서 표시할 원고 텍스트 변경이 없습니다.')+(r.truncated?'\n\n변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.':'');
     REVISION_FILES=revisionFiles(r.diff||'');
     const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REVISION_FILES.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
-    select.value='all';$('#revision-file-row').hidden=REVISION_FILES.length<2;REVISION_SOURCE_COMMIT=id;renderRevisionFile();
+    select.value='all';$('#revision-file-row').hidden=REVISION_FILES.length<2;REVISION_SOURCE_COMMIT=id;
+    const tg=REV_TARGET,fi=tg?pinFileIndex(REVISION_FILES,tg.file):-1;
+    if(fi>=0&&REVISION_FILES.length>1)select.value=String(fi);
+    renderRevisionFile(); if(tg)revHighlight(tg);
   }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
 }
+// ------------------------------------------------ [변경 보기](references/design.md §변경 보기): 검토 대기·완료 핀에서 변경사항 탭을 연다.
+// 커밋 고르기: 닫을 때 남긴 참조(ref)의 커밋 해시(7자 이상) > 참조의 PR 번호가 제목에 든 커밋('(#236)'·'pull request #236') >
+// 최근 12개 커밋 중 핀의 파일·줄(±5줄)을 바꾼 가장 최근 커밋 > 가장 최근 커밋. 줄 대응은 소스 diff 에만 있다 — 새 쪽 줄 번호가
+// 핀 범위에 드는 줄을 강조하고 그리로 스크롤한다. 비교 PDF(latexdiff)는 SyncTeX 대응이 없어 핀의 쪽 근처로만 옮긴다(대략).
+let REV_TARGET=null,REVISION_PDF_COMMIT='';
+function matchRevision(ref,revs){ref=String(ref||'');
+  for(const m of ref.matchAll(/\b[0-9a-f]{7,40}\b/g)){const r=revs.find(x=>x.id.startsWith(m[0])); if(r)return {id:r.id,via:'sha',tok:m[0]};}
+  for(const m of ref.matchAll(/#(\d+)/g)){const n=m[1],re=new RegExp('\\(#'+n+'\\)|pull request #'+n+'\\b|#'+n+'\\b');
+    const r=revs.find(x=>re.test(x.subject||'')); if(r)return {id:r.id,via:'pr',tok:'#'+n};}
+  return null;}
+function pinFileIndex(files,file){file=String(file||''); let best=-1,len=0;
+  files.forEach((f,i)=>{const n=f.name; if(n&&(file===n||file.endsWith('/'+n))&&n.length>len){best=i;len=n.length;}}); return best;}
+function hunkRanges(text){const out=[]; for(const m of String(text||'').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)){
+  const a=+m[1],n=m[2]===undefined?1:+m[2]; out.push([a,a+Math.max(n,1)-1]);} return out;}
+function touchesPin(files,tg,slack){const i=pinFileIndex(files,tg.file); if(i<0)return false; slack=slack==null?5:slack;
+  return hunkRanges(files[i].text).some(([a,b])=>b>=tg.lo-slack&&a<=tg.hi+slack);}
+async function pickRevisionFor(tg,revs,seq,k){
+  const m=matchRevision(tg.ref,revs); if(m)return m;
+  if(!tg.region&&tg.file){for(const r of revs){if(seq!==REVISION_SEQ||k!==DOC)break;
+    try{const d=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(r.id),k),{what:'변경 내용 읽기',silent:true})).data;
+      if(touchesPin(revisionFiles(d.diff||''),tg))return {id:r.id,via:'lines'};}catch(e){}}}
+  return {id:revs[0].id,via:'latest'};}
+function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){box.hidden=true;return;}
+  const via={sha:'참조의 커밋 '+(tg.tokOf||''),pr:'참조의 PR',lines:'이 줄을 바꾼 가장 최근 커밋',latest:'참조로 커밋을 찾지 못해 가장 최근 커밋'}[tg.via]||'';
+  const where=tg.region?'쪽 '+tg.page+' 영역':tg.name+' '+rng(tg.lo,tg.hi);
+  let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
+    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 파일의 처음을 보입니다':'강조한 줄이 핀 범위입니다'));
+  box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
+    '<span class="sp"></span><button class="btn-sm" data-act="view-mode" data-mode="manuscript" data-tip="원고 보기로 돌아갑니다">원고로</button>';
+  box.hidden=false;}
+function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
+  rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
+    if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});
+  tg.hit=!!first||touchesPin(REVISION_FILES,tg,5);
+  if(!first){const f=pinFileIndex(REVISION_FILES,tg.file); if(f<0)tg.hit=false;
+    else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
+  revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
+function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
+async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p);
+  if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
+  REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
+  const m=/\b[0-9a-f]{7,40}\b/.exec(REV_TARGET.ref); REV_TARGET.tokOf=m?m[0]:'';
+  if(LAYOUT==='narrow')setSide(false);
+  if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode('revisions');}
 async function loadRevisionPdf(id,seq,k){
   const statusBox=$('#revision-status'),warningBox=$('#revision-warning');
   try{
@@ -5324,6 +5392,7 @@ async function loadRevisionPdf(id,seq,k){
       REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
     }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>REV_PDF.observer.observe(el));}
     else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
+    if(REV_TARGET&&REV_TARGET.page){const el=box.querySelector('.revision-page[data-page="'+Math.min(REV_TARGET.page,pdf.numPages)+'"]'); if(el)el.scrollIntoView({block:'start'}); revTargetNote();}
   }catch(e){if(revisionCurrent(seq,k,id)){
     statusBox.textContent='비교 PDF: '+(e&&e.message?e.message:'표시하지 못했습니다.')+' 소스 diff에서 변경 내용을 확인할 수 있습니다.';
   }}
@@ -6461,6 +6530,7 @@ function card(p){
     '<div class="note">'+(p.note?esc(p.note):'<span class="dim">(메모 없음)</span>')+'</div>'+
     threadHtml(p,LAYOUT==='wide')+
     '<div class="acts">'+
+    '<button class="btn-sm b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
     '<button class="btn-sm b-rv-reopen" data-act="rv-reopen" data-tip="'+esc(T.rvReopen)+'">다시 열기</button>'+
     '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
@@ -6506,6 +6576,7 @@ function doneCard(p){
     '<span class="arc-t" data-tip="'+esc('닫은 시각 '+(p.done_at||'?')+' · 닫은 사람 '+(who(p.closed_by)||'기록 전'))+'">'+esc(arcTime(p.done_at))+'</span><span class="sp"></span>'+
     '<button class="btn-sm arc-b b-reopen" data-act="reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
+    '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
     (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+esc(p.note)+'</div>':'')+
     (to?'<div class="arc-thread"><div class="thread">'+th.map(msgHtml).join('')+'</div></div>':'')+'</div>';}
@@ -6866,6 +6937,7 @@ document.addEventListener('click',e=>{
     case 'reply-open':if(id!=null)openReply(id,'reply');break;
     case 'rv-reopen':if(id!=null)openReply(id,'reopen');break;
     case 'confirm':if(id!=null)confirmPin(id);break;
+    case 'change':if(id!=null)showChange(id);break;
     case 'goto-review':gotoReview();break;
     case 'reply-cancel':closeReply();break; case 'reply-send':sendReply();break;
     case 'thread-more':if(id==null)break; if(THREAD_OPEN.has(id))THREAD_OPEN.delete(id); else THREAD_OPEN.add(id); drawPins();break;
