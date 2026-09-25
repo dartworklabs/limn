@@ -21,7 +21,7 @@ from pathlib import Path
 
 from test_access import ALICE, BOB, CAROL, AccessBase
 from test_qa_021 import BrowserBase, actor
-from test_server import Base, extract_js_fn, js_i18n, ps, run_node
+from test_server import Base, extract_js_fn, js_i18n, js_icons, ps, run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 HANGUL = re.compile(r"[가-힣]")
@@ -448,7 +448,8 @@ class ViewerFunctions(unittest.TestCase):
         # the one override toggle: [상태 유지] where the rule reopens, [다시 열기] where it keeps a closed pin as it is
         self.assertEqual([(x or {}).get("toggle") for x in ko], ["keep", "keep", "reopen", "keep", "reopen", "reopen", None])
         flipped = self.preview("ko", [[rv, True, ["bob@example.com"], True], [q, True, [], True], [rv, False, [], True]])
-        self.assertEqual([x["text"] for x in flipped], ["보내면 이 핀이 다시 열려 에이전트에게 갑니다"] * 3)
+        self.assertEqual([x["text"] for x in flipped], ["보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                                                        "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "보내면 이 핀이 다시 열려 에이전트에게 갑니다"])
         en = self.preview("en", cases)
         self.assertEqual([(x or {}).get("text") for x in en], [
             "Sending will reopen this pin for the agent", "Sending will reopen this pin for the agent",
@@ -572,7 +573,7 @@ class ViewerFlows(BrowserBase):
             self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["reopen"])
             keep = page.locator(card + " [data-act=reply-flip]")
             self.assertTrue(keep.is_visible())
-            self.assertEqual(keep.get_attribute("aria-pressed"), "false")
+            self.assertEqual(keep.get_attribute("aria-checked"), "false")
             if lang == "en":
                 self.english_only(page, card + " .reply-box")
             page.click(card + " [data-act=reply-send]")
@@ -601,7 +602,7 @@ class ViewerFlows(BrowserBase):
             page.click(card + " .acts [data-act=reply-open]")
             page.fill(card + " textarea.r-text", "내일 다시 볼게요")
             page.click(card + " [data-act=reply-flip]")
-            self.assertEqual(page.get_attribute(card + " [data-act=reply-flip]", "aria-pressed"), "true")
+            self.assertEqual(page.get_attribute(card + " [data-act=reply-flip]", "aria-checked"), "true")
             self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["keep"])
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
@@ -621,9 +622,9 @@ class ViewerFlows(BrowserBase):
         page.wait_for_timeout(100)
         self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), TXT["ko"]["mention"])
         flip = page.locator(card + " [data-act=reply-flip]")                   # the rare override is [다시 열기] here
-        self.assertEqual((flip.inner_text(), flip.get_attribute("aria-pressed")), ("다시 열기", "false"))
+        self.assertEqual((flip.inner_text(), flip.get_attribute("aria-checked")), ("다시 열기", "false"))
         flip.click()
-        self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), TXT["ko"]["reopen"])
+        self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다")
         page.click(card + " [data-act=reply-send]")
         self.toast(page, "되돌리기").locator("button.btn-icon").click()
         self.wait_state(self.rv, "open")
@@ -921,3 +922,241 @@ class ColdDeepLink(BrowserBase):
 
     def test_service_worker_carries_the_restore_action_into_a_new_window(self):
         self.assertIn("e.action==='restore'?'&act=restore':''", ps.SW_JS)
+
+
+# ---------------------------------------------------------------- review of PR #11: what the preview says is what happens
+
+class AgentAsPerson(AccessBase):
+    """An agent without a token that sends as a person (--auth local headerless curl, or a person-logged-in machine
+    through the tailnet address) is a person to the rule - its reply reopens a review pin unless it sends reopen:false."""
+
+    def setUp(self):
+        super().setUp()
+        ps.C.auth = "local"
+        ps.C.agent_loopback = False
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A)
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        self.pid = pid
+
+    def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):
+        code, d = self.call("POST", "/api/pins/%d/reply" % self.pid, {"text": "설명 덧붙임", "reopen": False})
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+        code, d = self.call("POST", "/api/pins/%d/reply" % self.pid, {"text": "설명 덧붙임"})
+        self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
+
+    def test_the_instruction_is_in_pins_md_skill_and_api(self):
+        md = ps.pins_md_text(ps.snapshot_pins()).splitlines()
+        i = md.index(ps.TOKEN_GUIDANCE)
+        self.assertEqual(md[i + 1], ps.REPLY_GUIDANCE)                          # additive line after the token line
+        self.assertIn('`"reopen":false`', ps.REPLY_GUIDANCE)
+        self.assertIn("토큰 없이", ps.REPLY_GUIDANCE)
+        for f, needle in ((ROOT / "skill" / "SKILL.md", '"reopen": false'), (ROOT / "skill" / "SKILL.ko.md", '"reopen": false'),
+                          (ROOT / "docs" / "handbook" / "api.md", '"reopen": false')):
+            text = f.read_text(encoding="utf-8")
+            self.assertIn(needle, text, f.name)
+            j = text.index(needle)
+            self.assertIn('"review": true', text[max(0, j - 800):j + 800], f.name)   # next to the review:true note
+
+
+class TrashClockStart(Base):
+    def test_startup_purge_starts_the_hourly_clock(self):
+        ps._TRASH_CHECKED[0] = 0.0
+        ps.purge_trash()
+        self.assertGreater(ps._TRASH_CHECKED[0], time.time() - 5)
+
+
+class ViewerFunctions2(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def js(self, lang, script):
+        return json.loads(run_node("\n".join([js_i18n(lang),
+            "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+            extract_js_fn("peopleName"), extract_js_fn("pinState"), extract_js_fn("replyReopens"), extract_js_fn("replyPreview"),
+            extract_js_fn("replyPlaceholder"), extract_js_fn("replyServerNote"), script])))
+
+    def test_override_on_still_names_who_is_notified(self):
+        rv, q = rec_for("review", "fix"), rec_for("review", "question")
+        out = self.js("ko", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text, replyPreview(%s,true,['carol@example.com'],true).text]));"
+                      % (json.dumps(rv), json.dumps(q)))
+        self.assertEqual(out, ["보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                               "보내면 이 핀이 다시 열려 에이전트에게 가고, Carol Lee에게 알림이 갑니다"])
+        en = self.js("en", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text]));" % json.dumps(rv))
+        self.assertEqual(en, ["Sending reopens this pin for the agent and notifies Bob Park"])
+
+    def test_placeholder_follows_the_outcome(self):
+        rv, q, op = rec_for("review", "fix"), rec_for("review", "question"), rec_for("open", "fix")
+        out = self.js("ko", "console.log(JSON.stringify([replyPlaceholder(%s,true,false),replyPlaceholder(%s,true,true),"
+                      "replyPlaceholder(%s,true,false),replyPlaceholder(%s,false,false),replyPlaceholder(%s,true,false)]));"
+                      % tuple(json.dumps(x) for x in (rv, rv, q, rv, op)))
+        reopen = "무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)"
+        plain = "답글 (⌘/Ctrl+Enter 보내기)"
+        self.assertEqual(out, [reopen, plain, plain, plain, plain])
+
+    def test_post_send_note_says_what_the_server_did(self):
+        out = self.js("ko", r"""console.log(JSON.stringify([
+            replyServerNote(7,true,{ok:true,reopened:true,state:'open'}),
+            replyServerNote(7,true,{ok:true,reopened:false,state:'open'}),
+            replyServerNote(7,false,{ok:true,reopened:true,state:'open'}),
+            replyServerNote(7,false,{ok:true,reopened:false,state:'done'})]));""")
+        self.assertEqual(out, [None, "#7 은 그사이 이미 열려 있어 답글로만 남았습니다",
+                               "#7 은 그사이 닫혀서 이 답글이 다시 열었습니다", None])
+
+    def test_trash_row_shows_who_and_separates_the_times(self):
+        js = "\n".join([js_i18n("ko"), js_icons(), r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
+            function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
+            function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}
+            const TRASH_DAYS=30;""", extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
+            extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
+            extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("droppedCard"), r"""
+            const h=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60});
+            console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));"""])
+        text = json.loads(run_node(js))[0]
+        self.assertIn("7시간 전|·|Bob Park 삭제|·|30일 뒤 지워짐", text)
+
+
+class PreviewEqualsServer(BrowserBase):
+    """The real input pipeline: text + autocomplete state -> the outcome line -> the request body -> the server decision."""
+    WHO = ALICE
+    LEE = {"login": "sl@example.com", "name": "Robin Lee"}
+    PARK = {"login": "sp@example.com", "name": "Robin Park"}
+
+    def setUp(self):
+        super().setUp()
+        for p in (A, self.LEE, self.PARK):
+            ps.record_person(p)
+        self.pins = []
+        for i in range(5):
+            pid = ps.add_pin({"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A)
+            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침 %d" % i)
+            self.pins.append(pid)
+
+    def run_case(self, page, pid, pick, text):
+        card = "#review-pins .pin[data-id=\"%d\"]" % pid
+        page.evaluate("OPEN_CARDS.add(%d); drawPins()" % pid)
+        page.click(card + " .acts [data-act=reply-open]")
+        ta = card + " textarea.r-text"
+        if pick:
+            page.click(ta)
+            page.keyboard.type("@Rob")
+            page.wait_for_selector("#mention-pop:not([hidden])")
+            page.click("#mention-pop button:has-text('%s')" % pick)
+        page.fill(ta, text)
+        page.wait_for_timeout(100)
+        preview = page.inner_text(card + " .r-outcome .r-out-t")
+        page.click(card + " [data-act=reply-send]")
+        page.locator("#toasts .toast").first.locator("button.btn-icon").click()
+        end = time.time() + 8
+        while time.time() < end and ps.find_pin(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
+            page.wait_for_timeout(100)
+        r = ps.find_pin(ps.snapshot_pins(), pid)
+        last = r["thread"][-1]
+        return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
+
+    def test_preview_matches_the_server_for_ambiguous_partial_and_edited_names(self):
+        page = self.open(0)
+        cases = [("Robin Lee", "@Robin Lee 확인 부탁"),              # autocompleted, kept
+                 ("Robin Lee", "@Robin 확인 부탁"),                  # autocompleted, then edited down to the ambiguous first word
+                 (None, "@Robin Park 봐 주세요"),                      # typed in full, no autocomplete
+                 ("Robin Park", "@Robin 이것도요"),                  # picked Park, edited to the first word
+                 (None, "@Robin 누구든 봐 주세요")]                    # ambiguous, never picked
+        for pid, (pick, text) in zip(self.pins, cases):
+            with self.subTest(pick=pick, text=text):
+                preview, reopened, notified = self.run_case(page, pid, pick, text)
+                said_reopen = preview.startswith("보내면 이 핀이 다시 열려")
+                self.assertEqual(said_reopen, reopened, (preview, reopened, notified))
+                for name in notified:
+                    self.assertIn(name, preview)
+                if not reopened:
+                    self.assertTrue(notified, preview)
+
+
+class ReplyKeyboardAndFailure(BrowserBase):
+    WHO = ALICE
+
+    def setUp(self):
+        super().setUp()
+        ps.record_person(A)
+        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A)
+        ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="고침")
+
+    def box(self, page):
+        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        page.evaluate("OPEN_CARDS.add(%d); drawPins()" % self.rv)
+        page.click(card + " .acts [data-act=reply-open]")
+        return card
+
+    def test_ctrl_enter_moves_focus_to_undo(self):
+        page = self.open(0)
+        card = self.box(page)
+        page.fill(card + " textarea.r-text", "키보드로 보냄")
+        page.focus(card + " textarea.r-text")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("document.activeElement&&document.activeElement.closest('.toast')&&document.activeElement.textContent==='되돌리기'")
+        page.keyboard.press("Enter")
+        page.wait_for_selector(card + " textarea.r-text")
+        self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
+        page.wait_for_timeout(300)
+        self.assertEqual(ps.pin_state(ps.find_pin(ps.snapshot_pins(), self.rv)), "review")
+
+    def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
+        page = self.open(0)
+        page.route("**/api/pins/*/reply", lambda r: r.abort())
+        card = self.box(page)
+        page.fill(card + " textarea.r-text", "오프라인에서 쓴 글")
+        page.click(card + " [data-act=reply-send]")
+        page.locator("#toasts .toast").first.locator("button.btn-icon").click()
+        page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
+        self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
+        self.assertEqual(ps.pin_state(ps.find_pin(ps.snapshot_pins(), self.rv)), "review")
+
+    def test_override_is_a_switch(self):
+        page = self.open(0)
+        card = self.box(page)
+        page.fill(card + " textarea.r-text", "x")
+        sw = page.locator(card + " [data-act=reply-flip]")
+        self.assertEqual((sw.get_attribute("role"), sw.get_attribute("aria-checked")), ("switch", "false"))
+        self.assertIn("상태 유지", sw.inner_text())
+        sw.click()
+        self.assertEqual(sw.get_attribute("aria-checked"), "true")
+
+
+class RestoreLinkRunsOnce(BrowserBase):
+    WHO = ALICE
+
+    def test_reload_does_not_restore_again(self):
+        ps.record_person(A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A)
+        keep = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A)
+        ps.drop_pin(pid, B)
+        context = self.browser.new_context(viewport={"width": 1400, "height": 850})
+        self.addCleanup(context.close)
+        page = context.new_page()
+        page.route("**/*", self.route)
+        page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
+        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
+        self.assertNotIn("act=restore", page.evaluate("location.href"))
+        ps.drop_pin(pid, A)                                                        # dropped again elsewhere
+        page.reload()
+        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)&&META" % keep, timeout=20000)
+        page.wait_for_timeout(800)
+        self.assertIsNone(ps.find_pin(ps.snapshot_pins(), pid))
+
+
+class TrashOfAnotherDocument(ColdDeepLink):
+    def test_opening_the_trash_at_another_documents_pin_keeps_the_list_filter(self):
+        page = self.cold("#doc=ms", "desktop")
+        page.evaluate("openTrash(%d)" % self.gone)
+        page.wait_for_selector("#trash .arc-row[data-id=\"%d\"]" % self.gone)
+        self.assertFalse(page.evaluate("SHOW_ALL"))
+        page.click("#trash [data-act=trash-close]")
+        self.assertFalse(page.evaluate("SHOW_ALL"))
+
+    # the parent's tests run in ColdDeepLink already
+    test_cold_link_opens_the_pin_in_another_document = None
+    test_cold_restore_link_restores_and_opens = None
+    test_service_worker_carries_the_restore_action_into_a_new_window = None
