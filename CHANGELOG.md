@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+Pin-scoped [View changes] ([issue #9](https://github.com/dartworklabs/limn/issues/9), decision record
+[ADR-0005](docs/adr/0005-pin-scoped-changes.md)). The HTTP API changes are additive. One `pins.md` line changes: the close
+instruction; everything else in `pins.md` is byte-for-byte the same.
+
+- **Agents: one commit per pin (agent-visible).** The close instruction in `pins.md` and the skill now ask for one commit
+  per pin (one PR may hold several) and `ref` = that pin's commit hash, so the commit is the pin and both diffs are scoped
+  for free. Nothing enforces it; old agents keep working.
+- **`changes` on close (additive).** `POST /api/pins/{id}/close` takes an optional `changes: [{file, lo, hi}]`, the
+  new-side line ranges the agent changed for this pin (`file` relative to the manuscript folder like the `pins.md`
+  location column, or absolute inside it). Invalid shapes are `400` and change nothing; `[]` is the old close. Stored on
+  the pin as `changes` (absolute paths) on the first close, kept on re-close, cleared by reopen; exposed in the pins API.
+- **Inference for everything else.** For a pin without `changes` (or whose `changes` hit nothing in the commit) the
+  server picks the commit's hunks that overlap the pin's range mapped through the commit (its anchor on the new side,
+  else the old side; renames followed). If nothing overlaps, the view is the whole commit, as before.
+- **API (additive).** `GET /api/revision-diff?pin=<id>` adds `scope: {pin, mode, source, hunks, other, diff, other_diff}`;
+  `POST /api/revision-build` accepts `pin` in its body, and `GET /api/revision-build` / `GET /api/revision-pdf` accept
+  `&pin=`; build statuses add `scope`, `pin`, `source`, `hunks`, `other`. Without `pin` every response is unchanged.
+- **Viewer.** A pin's source diff shows only its hunks, with "N other changes in this commit ▸" folded below (expands in
+  place). Its comparison PDF is old + only its hunks, run through the same bwrap latexdiff/latexmk pipeline and cached
+  per (pin, commit, hunk set); one toggle [Whole commit] switches to the whole-commit comparison. If the pin's hunks
+  alone do not compile, the whole commit is shown with a one-line note. A commit that is entirely the pin's looks as in
+  0.2.2, with no extra control.
+- Rolling back to 0.2.2 is safe: 0.2.2 ignores the `changes` field, and the new cache entries expire on their own.
+
 ## 0.2.2 — 2026-09-25
 
 One [Reply], a Trash, and collapsible list sections ([issue #8](https://github.com/dartworklabs/limn/issues/8),
