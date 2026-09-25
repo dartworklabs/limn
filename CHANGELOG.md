@@ -14,6 +14,10 @@ Fixes from the end-to-end QA of 0.2.0. Two changes affect the agent contract; bo
   that person's identity and still send `"review": true` when closing), and loopback agents are unchanged.
   `--tailnet-agent` (`TAILNET_AGENT=1`) restores the 0.2.0 behaviour on purpose (logged as deprecated).
   Decision record: [ADR-0003](docs/adr/0003-tailnet-headerless-and-owner-clear.md).
+- Hardening from the security review: `X-Real-IP`, `X-Forwarded-Port` and `Via` also mark a proxied request; under
+  `--auth local` a proxied request is `403` instead of the owner; `people.json` is written `0600` and an older file
+  that others can write is tightened at startup. A raw TCP forward that adds no header stays indistinguishable from a
+  local request (SECURITY.md) — use tokens and `AGENT_LOOPBACK=0` there.
 - **`POST /api/clear` is owner-only and needs a confirmation (contract change).** Editors, viewers and every agent get
   `403`; the owner must send `{"confirm": "clear all pins"}` (else `400`). The `.jsonl.bak` archive is kept, the
   response adds `cleared` and `archive`, and a `cleared` event records who did it. The viewer never used it.

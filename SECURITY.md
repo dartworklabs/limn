@@ -32,13 +32,23 @@ What the server does defend against:
 - Path traversal: static files are limited to the vendored PDF.js files by name.
 - Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
   tagged devices) are refused (`403`) since v0.2.1 — only a request that names this machine (a loopback Host) and
-  carries no `X-Forwarded-*`/`Forwarded` header can be the headerless agent. Host alone is not trusted for this:
-  `tailscale serve` routes by the TLS name and passes the client's Host through, but always sets `X-Forwarded-For`. `--tailnet-agent` restores the v0.2.0 behaviour, and never past `--allow` or `--members-only`.
+  carries no proxy header (`X-Forwarded-For/-Host/-Proto/-Port`, `X-Real-IP`, `Forwarded`, `Via`) can be the
+  headerless agent. Host alone is not trusted for this: `tailscale serve` routes by the TLS name and passes the
+  client's Host through, but always sets `X-Forwarded-For`. `--tailnet-agent` restores the v0.2.0 behaviour, and never
+  past `--allow` or `--members-only`. Under `--auth local`, a request that came through a proxy is refused too (the
+  owner is whoever sits at this machine).
+- `people.json` (logins and roles) is written with mode `0600`, like `tokens.json`; an older file that others can
+  write is tightened to `0600` at startup.
 - Bulk deletion: `POST /api/clear` (archive and empty every pin) is refused to everyone but the `owner` role and
   needs an explicit confirmation body; it keeps a backup and records who did it (since v0.2.1).
 
 What it does not: a `local` or `tailscale` instance trusts every process on the same machine that can reach
-loopback. On a shared machine, give agents tokens, turn off the loopback agent, and use `--members-only`.
+loopback. On a shared machine, give agents tokens, turn off the loopback agent, and use `--members-only`. A raw TCP
+forwarder that adds no header — `tailscale serve --tcp` or `--tls-terminated-tcp`, `ssh -L`/`-R`, a plain port
+forward — is indistinguishable from a local request, so whoever reaches it is the loopback agent (or, under
+`--auth local`, the owner). The supported path, `limn add`/`limn start`, only uses `tailscale serve --https`. If you
+forward the port any other way, give agents tokens and set `AGENT_LOOPBACK=0` (`--no-agent-loopback`), and do not use
+`--auth local`.
 
 ## Reporting a vulnerability
 
