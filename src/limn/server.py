@@ -3989,7 +3989,7 @@ def events_since(actor: dict, cursor) -> dict:
 
 # Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
 # Notification()) and, on click, brings the viewer tab forward and opens that pin (or, for the [되살리기] action on a
-# 'dropped' notification, asks the tab to restore it). There is no fetch handler -
+# 'dropped' notification, asks the tab to restore it; with no tab open, the new window's link carries &act=restore). There is no fetch handler -
 # app data and page images are never cached.
 SW_JS = r"""'use strict';
 self.addEventListener('install',()=>self.skipWaiting());
@@ -4000,7 +4000,7 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
     for(const c of cs){if(new URL(c.url).origin!==self.location.origin)continue;
       try{await c.focus();}catch(_){}
       c.postMessage({type:e.action==='restore'?'restore-pin':'open-pin',pin:d.pin,doc:d.doc});return;}
-    if(self.clients.openWindow)await self.clients.openWindow(url);})());});
+    if(self.clients.openWindow)await self.clients.openWindow(url+(e.action==='restore'?'&act=restore':''));})());});
 """
 
 
@@ -4260,6 +4260,21 @@ def purge_trash(now: float = None) -> int:
         print("trash: purged %d pin(s) deleted more than %d days ago" % (n, TRASH_DAYS), file=sys.stderr)
         sys.stderr.flush()
     return n
+
+
+TRASH_CHECK_EVERY_S = 3600          # a long-running server also drops expired Trash entries during normal reads, at most this often
+_TRASH_CHECKED = [0.0]              # epoch of the last lazy check (per process)
+
+
+def maybe_purge_trash() -> int:
+    """The lazy expiry: called from the reads that already write (GET /api/pins, /pins.md - they re-sync line numbers),
+    never from the write-free light poll. One cheap clock comparison; at most once per TRASH_CHECK_EVERY_S it reads the
+    Trash and rewrites it only if something expired."""
+    now = time.time()
+    if now - _TRASH_CHECKED[0] < TRASH_CHECK_EVERY_S:
+        return 0
+    _TRASH_CHECKED[0] = now
+    return purge_trash(now)
 
 
 def purge_pin(pid: int, actor: dict) -> int:
@@ -7028,6 +7043,9 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 
 // ------------------------------------------------ Document
 async function boot(){i18nStart();
+  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
+  // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
+  const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[#&])act=restore(?:&|$)/.test(location.hash||'')};
   applyTheme(); applyLayout(); initDiffWrap();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   $('#btn-save').innerHTML=saveBtnLabel();
@@ -7043,7 +7061,7 @@ async function boot(){i18nStart();
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling();
   drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();
-  const hp=hashPin(); if(hp)openPinFromLink(DOC,hp);
+  if(link.pin)openPinFromLink(link.doc||DOC,link.pin,link.restore);
 }
 function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
 // The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent of the browser's clock/timezone.
@@ -7267,8 +7285,10 @@ async function notifyToggle(){const st=notifyState();
   drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
-async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
-  await loadPins(); const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)==='done'){SEC.done=true;}
+// restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
+async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
+  await loadPins(); if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin))await restorePin(pin);
+  const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)==='done'){SEC.done=true;}
   OPEN_CARDS.add(pin); setSide(true); drawPins(); if(pinState(p)!=='done')jumpPin(pin);
   requestAnimationFrame(()=>jumpToCard(pin));}
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};
@@ -8379,7 +8399,7 @@ function doneCard(p){
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
     relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))+'<span class="sp"></span>'+
-    '<button class="btn-sm arc-b b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button></div>'+
+    '<button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">'+esc(tl('스레드 {n}',{n:th.length}))+'</button>':'')+'</div>'+
@@ -8399,7 +8419,7 @@ function droppedCard(p){
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
     relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',{name:who(p.dropped_by)||tr('기록 전')}))+
     (left!=null?'<span class="arc-t trash-left" data-tip="'+esc(tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS}))+'">'+esc(tl('{n}일 뒤 지워짐',{n:left}))+'</span>':'')+'<span class="sp"></span>'+
-    '<span class="arc-acts"><button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>'+
+    '<span class="arc-acts"><button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>'+
     (isOwner()?'<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="'+esc(T.purge)+'">영구 삭제</button>':'')+'</span></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 function drawTrash(){const L=listDropped(),box=$('#trash-list'); if(!box)return;
@@ -9245,10 +9265,12 @@ class Handler(BaseHTTPRequestHandler):
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(diet_log(build_state_snapshot(), full))
         if path == "/pins.md":                    # §P0c-B: entry point for a remote agent - the same sync path as GET /api/pins
+            maybe_purge_trash()
             base = remote_base_for(self.headers.get("Host") or "")
             text = pins_md_text(snapshot_pins(), base=base)
             return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
+            maybe_purge_trash()                   # hourly Trash expiry on a long-running server (this path already writes)
             allp = (q.get("all") or ["0"])[0] == "1"
             rows = pins_payload(snapshot_pins(), allp)
             if q.get("doc"):                          # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
@@ -9772,7 +9794,7 @@ def main() -> None:
 
     set_docs(docs)
     init_seq()
-    purge_trash()                    # Trash entries older than TRASH_DAYS go at startup (and on every drop/restore)
+    purge_trash()                    # Trash entries older than TRASH_DAYS go at startup, on every drop/restore, and hourly on reads
     if not docs:
         migrate_pages()
         seed_builds()                # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
