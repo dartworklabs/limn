@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# 원고 핀 뷰어를 논문마다 따로 띄우고 관리한다 — `pin-viewer@<이름>.service` 인스턴스.
+# Limn 인스턴스 관리 — 원고(논문)마다 `limn@<이름>.service` 인스턴스 하나를 띄우고 관리한다.
 #
-# 논문마다 저장소가 따로이고, 두 논문을 동시에 작업하면 뷰어도 동시에 따로 돌아야 한다.
-# 그래서 인스턴스마다 포트·상태 폴더(핀·빌드·build.log)·journal 이 갈리고, 앱 사본 하나만
-# 함께 쓴다. 구조와 절차는 machines/example-host/pin-viewer/README.md.
+# 논문마다 저장소가 따로이고, 두 논문을 동시에 작업하면 Limn 도 동시에 따로 돌아야 한다.
+# 그래서 인스턴스마다 포트·상태 폴더(핀·빌드·build.log)·journal 이 갈리고, 설치된 limn
+# 패키지 하나를 함께 쓴다. 구조와 절차는 docs/instances.md.
+#
+# 이 스크립트는 `limn` 명령(limn.cli)이 부른다. 직접 부르지 않는다 — cli 가 서버 경로·파이썬·
+# 판 번호를 LIMN_SERVER·LIMN_PYTHON·LIMN_VERSION 으로 넘겨 준다.
 #
 # Usage:
-#   pin-viewer add <이름> --manuscript <원고 폴더> [--main <파일.tex>] [--port N] [--ts-port N]
+#   limn add <이름> --manuscript <원고 폴더> [--main <파일.tex>] [--port N] [--ts-port N]
 #                  [--git-pull] [--label <이름표>] [--accent <#rrggbb>] [--state-dir <폴더>]
 #                  [--extra "<서버 인자>"] [--no-serve] [--no-start]
 #                  [--doc <키>=<표시 이름>:<경로> ...]   (--main 과 함께 쓰지 않는다. §여러 문서)
@@ -16,105 +19,113 @@
 # (manuscript/<라운드>/<본문>.tex, submission/{highlights,cover_letter,review_response}/*.tex)면
 # ms=본문(최신 라운드) · rr=답변서(revision 단계·파일 있을 때만) · hl=하이라이트 · cl=커버레터
 # 순서로 DOCS 를 만든다. --stage 기본은 auto(<원고 폴더>/reviews/ 있으면 revision). 구조가 아니면
-# 옛 방식대로 단일 MAIN 탐지로 물러난다.
-#   pin-viewer doc suggest --manuscript <원고 폴더> [--stage auto|initial|revision]
+# 단일 MAIN 탐지로 물러난다.
+#   limn doc suggest --manuscript <원고 폴더> [--stage auto|initial|revision]
 #                                          위 자동 탐지가 고를 DOCS 문자열만 찍는다(읽기 전용)
-#   pin-viewer start <이름> [--no-serve]   설정이 이미 있는 인스턴스를 켠다(재부팅 뒤·새 기기·전환)
-#   pin-viewer stop <이름>                 유닛만 끈다(설정·포트·serve 항목은 그대로)
-#   pin-viewer update [--from <스킬 폴더>] [--force] [--no-restart]
-#                                          플러그인에서 앱 사본을 갱신하고 켜진 인스턴스를 재시작
-#   pin-viewer list                        인스턴스 표(이름표·포트·상태·열린 핀·문서 수·원고)
-#   pin-viewer status [<이름>]             자세히(문서 목록 포함)
-#   pin-viewer url [<이름>]                테일넷 주소
-#   pin-viewer snippet <이름>              그 논문 저장소 AGENTS.md 에 붙일 안내 조각(출력만)
-#   pin-viewer doc list <이름>                            문서 키·이름·경로 표
-#   pin-viewer doc add <이름> --doc '<키>=<이름>:<경로>' [--doc …] [--restart]
+#   limn start <이름> [--no-serve]         설정이 이미 있는 인스턴스를 켠다(재부팅 뒤·새 기기·전환)
+#   limn stop <이름>                       유닛만 끈다(설정·포트·serve 항목은 그대로)
+#   limn update [--ref <태그|브랜치>] [--from <설치 원본>] [--dry-run] [--force] [--no-restart]
+#                                          limn 을 다시 설치(uv tool)하고 켜진 인스턴스를 재시작
+#   limn list                              인스턴스 표(이름표·포트·상태·열린 핀·문서 수·원고)
+#   limn status [<이름>]                   자세히(문서 목록 포함)
+#   limn url [<이름>]                      테일넷 주소
+#   limn snippet <이름>                    그 논문 저장소 AGENTS.md 에 붙일 안내 조각(출력만)
+#   limn doc list <이름>                            문서 키·이름·경로 표
+#   limn doc add <이름> --doc '<키>=<이름>:<경로>' [--doc …] [--restart]
 #                                          기존 인스턴스에 문서를 더한다. 단일 문서(MAIN)였다면
 #                                          본문을 첫 항목 main=본문:<MAIN> 으로 바꿔 DOCS 로 옮긴다
-#   pin-viewer doc remove <이름> <키> [--restart]   DOCS 에서 문서 하나를 뺀다(마지막 문서는 거부)
-#   pin-viewer remove <이름>               유닛 중지·비활성, serve 해제, 설정(=포트 예약) 삭제.
+#   limn doc remove <이름> <키> [--restart]   DOCS 에서 문서 하나를 뺀다(마지막 문서는 거부)
+#   limn remove <이름>                     유닛 중지·비활성, serve 해제, 설정(=포트 예약) 삭제.
 #                                          상태 폴더는 지우지 않는다
-#   pin-viewer run <이름>                  (유닛 전용) 설정을 읽어 서버로 exec
+#   limn run <이름>                        (유닛 전용) 설정을 읽어 서버로 exec
 #
-# 여러 문서(--doc, DOCS=): 뷰어 하나로 본문·답변서·보기 전용 PDF 등을 탭으로 전환한다. 형식은
+# 여러 문서(--doc, DOCS=): 인스턴스 하나로 본문·답변서·보기 전용 PDF 등을 탭으로 전환한다. 형식은
 # <키>=<표시 이름>:<경로>. 키는 [a-z0-9-]{1,24} 중복 금지, 문서는 12개까지, 경로는 --manuscript
 # 안이어야 한다. `<빌드 루트>::<메인.tex>` 는 복사 범위를 빌드 루트로 넓히는 확장 표기(LaTeX 전용).
 # 설정 파일에는 DOCS="<키1>=<이름1>:<경로1>;<키2>=..." 로 쓴다(`;` 로 나눔). MAIN 과 DOCS 는
-# 함께 쓰지 않는다 — 자세한 계약은 manuscript-pin-picker 스킬의 references/operations.md §여러 문서.
+# 함께 쓰지 않는다 — 자세한 계약은 docs/operations.md §여러 문서.
 #
 # 보안 규칙(바꾸지 말 것): 바인딩은 127.0.0.1 뿐(서버에 박혀 있다), 노출은 `tailscale serve`
-# 만, funnel 은 절대 쓰지 않는다, sudo 를 부르지 않는다. 이 호스트는 operator 가 이 사용자라
-# serve 는 sudo 없이 걸린다 — 안 걸리면 오류를 보이고 멈춘다(권한을 스스로 바꾸지 않는다).
+# 만, funnel 은 절대 쓰지 않는다, sudo 를 부르지 않는다. tailscale operator 가 이 사용자여야
+# serve 가 sudo 없이 걸린다 — 안 걸리면 오류를 보이고 멈춘다(권한을 스스로 바꾸지 않는다).
 
 set -uo pipefail
 unset CDPATH
 
-# 심링크(~/.local/bin/pin-viewer)를 끝까지 따라가 레포 안의 자기 위치를 찾는다.
-# bin/dotfiles-machine.sh 와 같은 이유 — 그래야 lib/ 와 machines/ 를 찾는다.
-_resolve_symlink() {
-    local path=$1 link depth=0
-    while [[ -L "$path" ]]; do
-        if ((++depth > 40)); then
-            printf '심링크가 너무 깊거나 순환합니다: %s\n' "$1" >&2
-            return 1
-        fi
-        link="$(readlink "$path")"
-        if [[ "$link" == /* ]]; then
-            path="$link"
-        else
-            path="$(cd "$(dirname "$path")" && pwd)/$link"
-        fi
-    done
-    printf '%s\n' "$path"
-}
-_SELF="$(_resolve_symlink "${BASH_SOURCE[0]}")" || exit 1
-DOTFILES_DIR="$(cd "$(dirname "$_SELF")/.." && pwd)"
-# shellcheck source=../lib/dotfiles.sh
-source "$DOTFILES_DIR/lib/dotfiles.sh"
-
-# ── 경로 (PIN_VIEWER_* 로 덮을 수 있다 — 테스트가 홈을 건드리지 않게) ──
-MACHINE_ID="${PIN_VIEWER_MACHINE_ID:-$(dotfiles_machine_id)}"
-DATA_ROOT="${PIN_VIEWER_DATA_ROOT:-$HOME/.local/share/pin-viewer}"
-APP_DIR="${PIN_VIEWER_APP_DIR:-$DATA_ROOT/app}"
-CONFIG_DIR="${PIN_VIEWER_CONFIG_DIR:-$HOME/.config/pin-viewer}"
-SOURCE_DIR="${PIN_VIEWER_SOURCE_DIR:-$DOTFILES_DIR/machines/$MACHINE_ID/pin-viewer}"
-UNITS_SRC_DIR="${PIN_VIEWER_UNITS_DIR:-$DOTFILES_DIR/machines/$MACHINE_ID/systemd}"
-USER_UNIT_DIR="${PIN_VIEWER_USER_UNIT_DIR:-$HOME/.config/systemd/user}"
-LEDGER="${PIN_VIEWER_LEDGER:-$HOME/.config/served/reserved-ports.txt}"
-PLUGIN_ROOT="${PIN_VIEWER_PLUGIN_ROOT:-$HOME/.claude/plugins}"
-SKILL_REL="skills/manuscript-pin-picker"
-# 자동 배정 대역. 기존 관례(18003↔18103 대시보드, 18004↔18104 핀 뷰어)를 따라
-# 테일넷 포트 N 에 로컬 포트 N+100 을 짝짓는다 — 주소만 보고도 짝을 안다.
-TS_MIN="${PIN_VIEWER_TS_MIN:-18005}"
-TS_MAX="${PIN_VIEWER_TS_MAX:-18099}"
-LOCAL_OFFSET="${PIN_VIEWER_LOCAL_OFFSET:-100}"
-# 여러 문서(--doc/DOCS=) 제약. 서버(pin_server.py) 쪽 DOC_KEY_RE·DOCS_MAX·DOC_NAME_MAX 와 맞춘다.
+# ── 경로 (LIMN_* 로 덮을 수 있다 — 테스트가 홈을 건드리지 않게) ──
+_XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
+_XDG_DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+DATA_ROOT="${LIMN_DATA_ROOT:-$_XDG_DATA/limn}"
+CONFIG_DIR="${LIMN_CONFIG_DIR:-$_XDG_CONFIG/limn}"
+# 설정 원본 폴더(선택). 설정을 다른 저장소(예: dotfiles)에서 버전 관리하면 거기를 가리킨다 —
+# add 가 원본을 거기에 쓰고 CONFIG_DIR 에는 심링크를 건다. 비우면 CONFIG_DIR 에 바로 쓴다.
+SOURCE_DIR="${LIMN_SOURCE_DIR:-$CONFIG_DIR}"
+USER_UNIT_DIR="${LIMN_USER_UNIT_DIR:-$_XDG_CONFIG/systemd/user}"
+# 포트 장부(선택). 이 기기의 다른 서빙 유닛이 광고하는 포트를 적은 파일로, 있으면 읽어서 피한다.
+# LIMN_LEDGER_GEN 에 생성기(<유닛 폴더> <설정 폴더...> 를 받아 "<포트> <유닛>" 줄을 찍는 스크립트)를
+# 주면 add·remove 뒤에 장부를 다시 만든다. 없으면 장부를 쓰지 않는다(남의 파일을 반쪽으로 덮지 않게).
+LEDGER="${LIMN_LEDGER:-$_XDG_CONFIG/served/reserved-ports.txt}"
+LEDGER_GEN="${LIMN_LEDGER_GEN:-}"
+LEDGER_UNITS_DIR="${LIMN_LEDGER_UNITS_DIR:-$USER_UNIT_DIR}"
+# 자동 배정 대역: 테일넷 포트 N 에 로컬 포트 N+100 을 짝짓는다(18004↔18104) — 주소만 보고도 짝을 안다.
+TS_MIN="${LIMN_TS_MIN:-18005}"
+TS_MAX="${LIMN_TS_MAX:-18099}"
+LOCAL_OFFSET="${LIMN_LOCAL_OFFSET:-100}"
+# 여러 문서(--doc/DOCS=) 제약. 서버(limn/server.py) 쪽 DOC_KEY_RE·DOCS_MAX·DOC_NAME_MAX 와 맞춘다.
 DOCS_MAX=12
 DOC_NAME_MAX=40
-PYTHON="${PIN_VIEWER_PYTHON:-}"
+# cli 가 넘긴다: 설치된 limn 의 파이썬·서버·유닛 템플릿·실행 파일·판 번호.
+PYTHON="${LIMN_PYTHON:-}"
 if [[ -z "$PYTHON" ]]; then
     if [[ -x /usr/bin/python3 ]]; then PYTHON=/usr/bin/python3; else PYTHON=$(command -v python3 || true); fi
 fi
-WAIT_S="${PIN_VIEWER_WAIT:-240}"
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER="${LIMN_SERVER:-$_HERE/server.py}"
+UNIT_TEMPLATE="${LIMN_UNIT_TEMPLATE:-$_HERE/systemd/limn@.service}"
+LIMN_BIN="${LIMN_BIN:-$(command -v limn || printf '%s' "$HOME/.local/bin/limn")}"
+VERSION="${LIMN_VERSION:-?}"
+# update 가 다시 설치할 원본(uv tool install 이 받는 형식). --ref 가 붙으면 @<ref> 를 더한다.
+REPO="${LIMN_REPO:-git+ssh://git@github.com/dartworklabs/limn}"
+UV="${LIMN_UV:-uv}"
+WAIT_S="${LIMN_WAIT:-240}"
 
 die() {
-    printf 'pin-viewer: %s\n' "$*" >&2
+    printf 'limn: %s\n' "$*" >&2
     exit 1
 }
 say() { printf '%s\n' "$*"; }
-warn() { printf 'pin-viewer: 경고: %s\n' "$*" >&2; }
+warn() { printf 'limn: 경고: %s\n' "$*" >&2; }
 
-unit_of() { printf 'pin-viewer@%s.service' "$1"; }
-sysu() { dotfiles_systemctl_user "$@"; }
+unit_of() { printf 'limn@%s.service' "$1"; }
+
+# systemctl --user. SSH·비로그인 셸은 user manager 가 살아 있어도 bus 환경변수를 물려받지 못할 수
+# 있다 — loginctl 의 RuntimePath(없으면 /run/user/<uid>)로 bus 주소를 복원한다.
+sysu() {
+    local runtime_dir="${XDG_RUNTIME_DIR:-}" user_id
+    if [[ -z "$runtime_dir" ]]; then
+        user_id=$(id -u)
+        if command -v loginctl > /dev/null 2>&1; then
+            runtime_dir=$(loginctl show-user "$user_id" -p RuntimePath --value 2> /dev/null) || runtime_dir=""
+        fi
+        [[ -z "$runtime_dir" && -d "/run/user/$user_id" ]] && runtime_dir="/run/user/$user_id"
+    fi
+    if [[ -n "$runtime_dir" ]]; then
+        XDG_RUNTIME_DIR="$runtime_dir" \
+            DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_dir/bus}" \
+            systemctl --user "$@"
+        return
+    fi
+    systemctl --user "$@"
+}
 
 valid_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]] || return 1
-    # `app` 은 공유 앱 사본 폴더 이름과 겹친다(기본 상태 폴더가 DATA_ROOT/<이름> 이다).
-    [[ "$1" != app ]]
+    # `serve` 는 `limn serve` 가 상태 폴더를 두는 DATA_ROOT/serve 와 겹친다(기본 상태 폴더가 DATA_ROOT/<이름> 이다).
+    [[ "$1" != serve ]]
 }
 need_name() {
     [[ -n "${1:-}" ]] || die "이름이 필요합니다"
-    valid_name "$1" || die "이름은 [a-z0-9-]+ (첫 글자는 영숫자, 'app' 은 예약) 만 받습니다: '$1'"
+    valid_name "$1" || die "이름은 [a-z0-9-]+ (첫 글자는 영숫자, 'serve' 는 예약) 만 받습니다: '$1'"
 }
 valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (($1 >= 1024 && $1 <= 65535)); }
 
@@ -170,9 +181,9 @@ emit() { # emit <KEY> <값> — 비면 줄을 만들지 않는다
 }
 
 # ── 여러 문서 (--doc / DOCS=) ──
-# 형식은 <키>=<표시 이름>:<경로>. 파싱·검증 규칙은 서버(pin_server.py 의 parse_doc_arg·make_docs)
+# 형식은 <키>=<표시 이름>:<경로>. 파싱·검증 규칙은 서버(limn/server.py 의 parse_doc_arg·make_docs)
 # 와 맞춘다 — 기동 시 서버가 다시 검증하지만, 여기서 먼저 걸러야 systemd Restart 루프 대신
-# `pin-viewer add`/`pin-viewer doc add` 시점에 분명한 오류로 멈춘다.
+# `limn add`/`limn doc add` 시점에 분명한 오류로 멈춘다.
 join_semi() { local IFS=';'; printf '%s' "$*"; } # join_semi <항목...> -> ';' 로 이은 문자열
 valid_doc_key() { # [a-z0-9-]{1,24}
     [[ "$1" =~ ^[a-z0-9-]+$ ]] || return 1
@@ -295,25 +306,40 @@ instances() { # 설정이 있는 이름들(홈 설정 + 레포 원본)
 }
 
 # ── 포트 장부 ──
-# 장부는 손으로 쓰지 않는다: bin/served-reserved-ports.sh 가 유닛과 인스턴스 설정에서
-# 만든다. 그래서 "예약" 은 설정 파일을 쓰고 장부를 다시 만드는 것이다.
-ledger_lines() {
-    local units=$UNITS_SRC_DIR tmp=""
-    if [[ ! -d "$units" ]]; then
-        tmp=$(mktemp -d) && units=$tmp
-    fi
-    # 원본 폴더를 따로 준다 — 유닛 폴더 옆이면 생성기가 이미 보지만, 겹친 줄은 생성기가 없앤다.
-    local extra=("$CONFIG_DIR")
-    [[ -d "$SOURCE_DIR" ]] && extra+=("$SOURCE_DIR")
-    "$DOTFILES_DIR/bin/served-reserved-ports.sh" "$units" "${extra[@]}"
-    [[ -n "$tmp" ]] && rmdir "$tmp"
+# 포트 예약의 원본은 인스턴스 설정 파일(PORT=·TS_PORT=)이다. 장부 파일(LEDGER)은 이 기기의 다른
+# 서빙 유닛이 광고하는 포트를 알려 주는 보조 자료다 — 있으면 읽고, 생성기(LEDGER_GEN)가 있을 때만
+# 다시 만든다. 장부를 손으로 쓰지 않는다.
+own_port_lines() { # 인스턴스 설정의 포트 → "<포트> limn@<이름>"
+    local n
+    for n in $(instances); do
+        load "$n" || continue
+        [[ -n "$C_PORT" ]] && printf '%s limn@%s\n' "$C_PORT" "$n"
+        [[ -n "$C_TS_PORT" ]] && printf '%s limn@%s\n' "$C_TS_PORT" "$n"
+    done
     return 0
 }
-ledger_refresh() {
+ledger_lines() {
+    {
+        if [[ -n "$LEDGER_GEN" ]]; then
+            local extra=("$CONFIG_DIR")
+            [[ "$SOURCE_DIR" != "$CONFIG_DIR" && -d "$SOURCE_DIR" ]] && extra+=("$SOURCE_DIR")
+            local units=$LEDGER_UNITS_DIR tmp=""
+            if [[ ! -d "$units" ]]; then tmp=$(mktemp -d) && units=$tmp; fi
+            "$LEDGER_GEN" "$units" "${extra[@]}"
+            [[ -n "$tmp" ]] && rmdir "$tmp"
+        elif [[ -f "$LEDGER" ]]; then
+            grep -vE '^[[:space:]]*(#|$)' "$LEDGER"
+        fi
+        own_port_lines
+    } | sort -k1,1n -k2,2 | uniq
+    return 0
+}
+ledger_refresh() { # 생성기가 있을 때만 장부를 다시 만든다. 없으면 할 일이 없다(설정 파일이 곧 예약).
+    [[ -n "$LEDGER_GEN" ]] || return 0
     mkdir -p "$(dirname "$LEDGER")" || return 1
     local t
-    t=$(mktemp "$(dirname "$LEDGER")/.pin-viewer-ledger.XXXXXX") || return 1
-    if ledger_lines > "$t"; then
+    t=$(mktemp "$(dirname "$LEDGER")/.limn-ledger.XXXXXX") || return 1
+    if "$LEDGER_GEN" "$LEDGER_UNITS_DIR" "$CONFIG_DIR" > "$t"; then
         mv -f "$t" "$LEDGER"
     else
         rm -f "$t"
@@ -368,7 +394,7 @@ snapshot_ports() {
 # port_taken <포트> [<자기 이름>] — 장부·LISTEN·serve 중 하나라도 걸리면 그 이유를 출력하고 0.
 port_taken() {
     local p=$1 me=${2:-} who
-    who=$(awk -v p="$p" -v me="pin-viewer@$me" '$1 == p && $2 != me { print $2; exit }' <<< "${_SNAP_LEDGER:-}")
+    who=$(awk -v p="$p" -v me="limn@$me" '$1 == p && $2 != me { print $2; exit }' <<< "${_SNAP_LEDGER:-}")
     if [[ -n "$who" ]]; then printf '장부에 예약됨(%s)' "$who"; return 0; fi
     if listening "$p"; then printf '이미 LISTEN 중'; return 0; fi
     who=$(awk -v p="$p" '$1 == p { print $2; exit }' <<< "${_SNAP_TS:-}")
@@ -403,85 +429,41 @@ url_of() { # url_of <테일넷 포트>
     if [[ -n "$h" ]]; then printf 'https://%s:%s/' "$h" "$1"; else printf 'https://<기기>.<tailnet>.ts.net:%s/' "$1"; fi
 }
 
-# ── 앱 사본 ──
-plugin_skill_dir() {
-    # 설치된 버전이 정본이다. 캐시 폴더는 옛 버전이 쌓여 있고 이름이 해시라,
-    # `ls | tail -1` 은 사전순으로 아무 옛 버전이나 고른다(실측 2026-09-23: 설치본
-    # a8e83e9b60af 대신 e0023cdef0c9 를 골랐다).
-    # (명령치환 안에 heredoc 을 두지 않는다 — macOS bash 3.2 가 잘못 파싱한다. tests/lib 주석 참고)
-    local p
-    p=$("$PYTHON" -c '
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-for key, ents in (d.get("plugins") or {}).items():
-    if key.startswith("writing-agent-playbook@"):
-        for e in ents or []:
-            if e.get("installPath"):
-                print(e["installPath"])
-                sys.exit(0)
-' "$PLUGIN_ROOT/installed_plugins.json" 2> /dev/null)
-    if [[ -n "$p" && -f "$p/$SKILL_REL/scripts/pin_server.py" ]]; then
-        printf '%s\n' "$p/$SKILL_REL"
-        return 0
+# ── 유닛 템플릿 ──
+# 패키지에 든 limn@.service 를 이 기기에 맞게 채워 USER_UNIT_DIR 에 쓴다(심링크가 아니라 사본 — uv 가
+# 도구를 다시 설치하면 패키지 경로가 바뀔 수 있다). 채우는 자리: 실행 파일(@LIMN_BIN@), 설정 폴더
+# (@LIMN_CONFIG_DIR@), 유닛의 PATH(@LIMN_PATH@ — systemd 는 셸 rc 를 거치지 않아 TeX 경로를 못 물려받는다).
+unit_path() {
+    if [[ -n "${LIMN_UNIT_PATH:-}" ]]; then
+        printf '%s' "$LIMN_UNIT_PATH"
+        return
     fi
-    # 기록이 없으면 가장 최근에 바뀐 캐시 폴더.
-    p=$(find "$PLUGIN_ROOT"/cache/*/writing-agent-playbook -mindepth 1 -maxdepth 1 -type d 2> /dev/null \
-        | while IFS= read -r d; do
-            [[ -f "$d/$SKILL_REL/scripts/pin_server.py" ]] && printf '%s %s\n' "$(stat -c %Y "$d" 2> /dev/null || stat -f %m "$d")" "$d"
-        done | sort -n | tail -1 | cut -d' ' -f2-)
-    [[ -n "$p" ]] && printf '%s\n' "$p/$SKILL_REL"
+    local out="" d tex
+    tex=$(command -v pdflatex 2> /dev/null || true)
+    for d in ${tex:+"$(dirname "$tex")"} /usr/local/bin /usr/bin /bin; do
+        case ":$out:" in *":$d:"*) continue ;; esac
+        out="${out:+$out:}$d"
+    done
+    printf '%s' "$out"
 }
-
-app_sha() { [[ -f "$1/pin_server.py" ]] && "$PYTHON" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()[:12])' "$1/pin_server.py"; }
-
-# install_app <스킬 폴더> — 같은 파일시스템에 먼저 만들고 이름만 바꿔 끼운다. 상태 폴더는
-# 여기 없으므로 건드릴 일이 없다. 직전 사본은 app.prev 로 한 벌 남긴다(되돌리기용).
-install_app() {
-    local src=$1 stage
-    [[ -f "$src/scripts/pin_server.py" ]] || die "pin_server.py 가 없습니다: $src/scripts"
-    [[ -f "$src/vendor/pdfjs/pdf.min.mjs" && -f "$src/vendor/pdfjs/pdf.worker.min.mjs" ]] \
-        || die "vendor/pdfjs 가 없습니다: $src/vendor/pdfjs (없으면 뷰어가 흐린 PNG 로 돈다)"
-    "$PYTHON" "$src/scripts/pin_server.py" --help > /dev/null 2>&1 \
-        || die "새 pin_server.py 가 --help 조차 못 돕니다 — 갈아 끼우지 않습니다: $src"
-    mkdir -p "$(dirname "$APP_DIR")" || die "폴더를 만들지 못했습니다: $(dirname "$APP_DIR")"
-    stage=$(mktemp -d "$(dirname "$APP_DIR")/.app-stage.XXXXXX") || die "임시 폴더 실패"
-    if ! { mkdir -p "$stage/vendor" \
-        && cp -p "$src/scripts/pin_server.py" "$stage/pin_server.py" \
-        && cp -Rp "$src/vendor/pdfjs" "$stage/vendor/pdfjs"; }; then
-        rm -rf "$stage"
-        die "앱 사본 복사 실패"
+render_unit() {
+    [[ -f "$UNIT_TEMPLATE" ]] || die "유닛 템플릿이 없습니다: $UNIT_TEMPLATE"
+    local bin=$LIMN_BIN cfg=$CONFIG_DIR path
+    path=$(unit_path)
+    awk -v bin="$bin" -v cfg="$cfg" -v path="$path" '
+        { gsub(/@LIMN_BIN@/, bin); gsub(/@LIMN_CONFIG_DIR@/, cfg); gsub(/@LIMN_PATH@/, path); print }' "$UNIT_TEMPLATE"
+}
+ensure_unit() {
+    local dst="$USER_UNIT_DIR/limn@.service" want
+    want=$(render_unit) || exit 1
+    mkdir -p "$USER_UNIT_DIR" || die "폴더를 만들지 못했습니다: $USER_UNIT_DIR"
+    if [[ -e "$dst" || -L "$dst" ]]; then
+        [[ ! -L "$dst" ]] && grep -q '^# limn:generated' "$dst" \
+            || die "$dst 는 limn 이 만든 파일이 아닙니다 — 손으로 확인하세요"
+        [[ "$(cat "$dst")" == "$want" ]] && return 0
     fi
-    {
-        printf 'source=%s\n' "$src"
-        printf 'sha=%s\n' "$(app_sha "$stage")"
-        printf 'installed_at=%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')"
-    } > "$stage/SOURCE"
-    rm -rf "$APP_DIR.prev"
-    if [[ -e "$APP_DIR" ]]; then mv "$APP_DIR" "$APP_DIR.prev" || die "옛 사본을 옮기지 못했습니다"; fi
-    mv "$stage" "$APP_DIR" || die "새 사본을 끼우지 못했습니다(옛 사본: $APP_DIR.prev)"
-}
-ensure_app() {
-    [[ -f "$APP_DIR/pin_server.py" ]] && return 0
-    local s
-    s=$(plugin_skill_dir)
-    [[ -n "$s" ]] || die "앱 사본이 없고 플러그인 캐시에서도 찾지 못했습니다 — pin-viewer update --from <스킬 폴더>"
-    install_app "$s"
-    say "앱 사본 설치: $APP_DIR ($(app_sha "$APP_DIR"), $s)"
-}
-
-ensure_unit_link() {
-    local src
-    src=$(dotfiles_machine_files "$DOTFILES_DIR" "$MACHINE_ID" "systemd/pin-viewer@.service" | tail -1)
-    [[ -n "$src" ]] || die "이 기기용 템플릿 유닛이 없습니다: machines/$MACHINE_ID/systemd/pin-viewer@.service"
-    mkdir -p "$USER_UNIT_DIR"
-    if [[ "$(readlink "$USER_UNIT_DIR/pin-viewer@.service" 2> /dev/null)" != "$src" ]]; then
-        [[ -e "$USER_UNIT_DIR/pin-viewer@.service" && ! -L "$USER_UNIT_DIR/pin-viewer@.service" ]] \
-            && die "$USER_UNIT_DIR/pin-viewer@.service 가 심링크가 아닌 파일입니다 — 손으로 확인하세요"
-        ln -sfn "$src" "$USER_UNIT_DIR/pin-viewer@.service"
-    fi
+    printf '%s\n' "$want" > "$dst" || die "유닛을 쓰지 못했습니다: $dst"
+    say "유닛 템플릿 설치: $dst"
     sysu daemon-reload
 }
 
@@ -691,7 +673,7 @@ with_lock() { # 포트 고르기~설정 쓰기를 동시 add 끼리 겹치지 �
     mkdir -p "$CONFIG_DIR"
     if command -v flock > /dev/null 2>&1; then
         exec 9> "$CONFIG_DIR/.lock"
-        flock -w 30 9 || die "다른 pin-viewer 가 잠금을 쥐고 있습니다: $CONFIG_DIR/.lock"
+        flock -w 30 9 || die "다른 limn 가 잠금을 쥐고 있습니다: $CONFIG_DIR/.lock"
     fi
 }
 
@@ -701,61 +683,42 @@ cmd_run() {
     local n=${1:-}
     need_name "$n"
     load "$n" || die "설정이 없습니다: $(conf_of "$n")"
-    [[ -f "$APP_DIR/pin_server.py" ]] || die "앱 사본이 없습니다: $APP_DIR — pin-viewer update"
+    [[ -f "$SERVER" ]] || die "limn 서버를 찾지 못했습니다: $SERVER — limn 을 다시 설치하세요"
     [[ -n "$C_MANUSCRIPT" && -d "$C_MANUSCRIPT" ]] || die "MANUSCRIPT 폴더가 없습니다: '$C_MANUSCRIPT'"
     [[ -z "$C_DOCS" || -z "$C_MAIN" ]] || die "설정 오류: MAIN 과 DOCS 를 함께 쓸 수 없습니다: $C_FILE"
     [[ -z "$C_MAIN" || -f "$C_MANUSCRIPT/$C_MAIN" ]] || die "MAIN 파일이 없습니다: $C_MANUSCRIPT/$C_MAIN"
     valid_port "${C_PORT:-x}" || die "PORT 가 없거나 잘못됐습니다: '$C_PORT' (자동 선택에 맡기지 않는다 — 광고한 주소가 깨진다)"
-    local doc_args=()
+    [[ -z "$C_ACCENT" || "$C_ACCENT" =~ ^#[0-9a-fA-F]{6}$ ]] || die "ACCENT 는 #rrggbb 형식입니다: '$C_ACCENT'"
+    local args=(--manuscript "$C_MANUSCRIPT" --port "$C_PORT" --state-dir "$C_STATE_DIR")
     if [[ -n "$C_DOCS" ]]; then
-        local rhelp
-        rhelp=$("$PYTHON" "$APP_DIR/pin_server.py" --help 2>&1 || true)
-        grep -q -- '--doc' <<< "$rhelp" \
-            || die "앱 사본이 여러 문서(--doc)를 모르는 옛 판입니다 — pin-viewer update 로 갱신하세요"
         local doc_specs=() d
         IFS=';' read -ra doc_specs <<< "$C_DOCS"
         validate_doc_specs "$C_MANUSCRIPT" "${doc_specs[@]}"
-        for d in "${doc_specs[@]}"; do doc_args+=(--doc "$d"); done
-    fi
-    local args=(--manuscript "$C_MANUSCRIPT" --port "$C_PORT" --state-dir "$C_STATE_DIR"
-        --pdfjs-dir "$APP_DIR/vendor/pdfjs")
-    if [[ -n "$C_DOCS" ]]; then
-        args+=("${doc_args[@]}")
+        for d in "${doc_specs[@]}"; do args+=(--doc "$d"); done
     else
         [[ -n "$C_MAIN" ]] && args+=(--main "$C_MAIN")
     fi
     [[ "$C_GIT_PULL" == 1 ]] && args+=(--git-pull)
-    # LABEL·ACCENT 는 앱 사본이 그 인자를 알 때만 넘긴다. 모르는 인자를 넘기면 argparse 가
-    # 죽고 Restart 루프만 돈다 — 이름표 하나 때문에 뷰어가 통째로 안 뜨는 것보다 낫다.
-    if [[ -n "$C_LABEL" || -n "$C_ACCENT" ]]; then
-        local help
-        help=$("$PYTHON" "$APP_DIR/pin_server.py" --help 2>&1 || true)
-        if [[ -n "$C_LABEL" ]]; then
-            if grep -q -- '--label' <<< "$help"; then args+=(--label "$C_LABEL"); else warn "앱 사본이 --label 을 모릅니다 — 이름표 없이 띄웁니다(pin-viewer update)"; fi
-        fi
-        if [[ -n "$C_ACCENT" ]]; then
-            if grep -q -- '--accent' <<< "$help"; then args+=(--accent "$C_ACCENT"); else warn "앱 사본이 --accent 를 모릅니다 — 기본 색으로 띄웁니다(pin-viewer update)"; fi
-        fi
-    fi
+    [[ -n "$C_LABEL" ]] && args+=(--label "$C_LABEL")
+    [[ -n "$C_ACCENT" ]] && args+=(--accent "$C_ACCENT")
     if [[ -n "$C_EXTRA_ARGS" ]]; then
         local extra
         read -r -a extra <<< "$C_EXTRA_ARGS"
         args+=("${extra[@]}")
     fi
     mkdir -p "$C_STATE_DIR" || die "상태 폴더를 만들지 못했습니다: $C_STATE_DIR"
-    if [[ "${PIN_VIEWER_PRINT_ARGV:-0}" == 1 ]]; then
-        printf '%s\n' "$PYTHON" "$APP_DIR/pin_server.py" "${args[@]}"
+    if [[ "${LIMN_PRINT_ARGV:-0}" == 1 ]]; then
+        printf '%s\n' "$PYTHON" "$SERVER" "${args[@]}"
         return 0
     fi
-    exec "$PYTHON" "$APP_DIR/pin_server.py" "${args[@]}"
+    exec "$PYTHON" "$SERVER" "${args[@]}"
 }
 
 start_instance() { # start_instance <이름> <serve 0|1>
     local n=$1 serve=$2 rc=0
     ensure_conf_link "$n"
     load "$n" || die "설정을 읽지 못했습니다: $n"
-    ensure_app
-    ensure_unit_link
+    ensure_unit
     sysu enable "$(unit_of "$n")" > /dev/null 2>&1 || die "enable 실패: $(unit_of "$n")"
     sysu start "$(unit_of "$n")" || die "start 실패: journalctl --user -u $(unit_of "$n")"
     say "$(unit_of "$n") 기동 — 127.0.0.1:$C_PORT 응답 대기(첫 기동은 빌드까지 기다린다, 최대 ${WAIT_S}s)"
@@ -763,7 +726,7 @@ start_instance() { # start_instance <이름> <serve 0|1>
     case $rc in
         0) say "127.0.0.1:$C_PORT 200" ;;
         2) die "유닛이 실패했습니다: journalctl --user -u $(unit_of "$n") -n 50" ;;
-        *) warn "아직 200 이 아닙니다(빌드 중일 수 있음) — pin-viewer status $n" ;;
+        *) warn "아직 200 이 아닙니다(빌드 중일 수 있음) — limn status $n" ;;
     esac
     if [[ "$serve" == 1 ]]; then
         valid_port "${C_TS_PORT:-x}" || die "TS_PORT 가 없습니다 — --no-serve 로 띄우거나 설정에 적으세요"
@@ -826,12 +789,11 @@ cmd_add() {
         safe_value "$v" || die "설정 파일에 쓸 수 없는 문자(따옴표·역슬래시·\$·백틱·줄바꿈)가 있습니다: $v"
     done
     [[ "$state" == /* ]] || die "--state-dir 는 절대경로여야 합니다: $state"
-    [[ "$state" != "$APP_DIR" && "$state" != "$APP_DIR"/* ]] || die "상태 폴더를 앱 사본 안에 둘 수 없습니다: $state"
 
     with_lock
     snapshot_ports
     [[ -e "$(conf_of "$n")" || -e "$(src_of "$n")" ]] \
-        && die "'$n' 설정이 이미 있습니다 — 다시 켜려면 pin-viewer start $n, 새로 만들려면 먼저 remove"
+        && die "'$n' 설정이 이미 있습니다 — 다시 켜려면 limn start $n, 새로 만들려면 먼저 remove"
     local o
     for o in $(instances); do
         load "$o" || continue
@@ -855,7 +817,7 @@ cmd_add() {
 
     mkdir -p "$SOURCE_DIR" || die "원본 폴더를 만들지 못했습니다: $SOURCE_DIR"
     {
-        printf '# pin-viewer@%s — `pin-viewer add` 가 %s 에 만들었다. 형식·키는 README 참고.\n' "$n" "$(date +%F)"
+        printf '# limn@%s — `limn add` 가 %s 에 만들었다. 형식·키는 README 참고.\n' "$n" "$(date +%F)"
         printf '# 셸로 source 하지 않는다 — 값에 셸 문법을 쓰지 말 것.\n'
         emit LABEL "$label"
         emit ACCENT "$accent"
@@ -868,25 +830,24 @@ cmd_add() {
         emit GIT_PULL "$gitpull"
         emit EXTRA_ARGS "$extra_args"
     } > "$(src_of "$n")" || die "설정을 쓰지 못했습니다: $(src_of "$n")"
-    mkdir -p "$CONFIG_DIR" && ln -sfn "$(src_of "$n")" "$(conf_of "$n")"
+    if [[ "$SOURCE_DIR" != "$CONFIG_DIR" ]]; then
+        mkdir -p "$CONFIG_DIR" && ln -sfn "$(src_of "$n")" "$(conf_of "$n")"
+    fi
     ledger_refresh
     say "설정  $(src_of "$n")"
-    say "링크  $(conf_of "$n") → 원본"
-    say "포트  로컬 127.0.0.1:$port · 테일넷 :$ts (장부 $LEDGER 에 반영)"
+    [[ "$SOURCE_DIR" == "$CONFIG_DIR" ]] || say "링크  $(conf_of "$n") → 원본"
+    say "포트  로컬 127.0.0.1:$port · 테일넷 :$ts (설정 파일이 곧 예약)"
     exec 9>&- # 잠금 해제 — 기동 대기(최대 수 분) 동안 다른 add 를 막지 않는다
 
     if [[ "$start" == 1 ]]; then
         start_instance "$n" "$serve"
     else
-        say "켜지 않았습니다 — pin-viewer start $n"
+        say "켜지 않았습니다 — limn start $n"
     fi
-    case "$(src_of "$n")" in
-        "$DOTFILES_DIR"/*)
-            say ""
-            say "설정 원본은 dotfiles 에 있습니다. 브랜치에서 커밋하세요:"
-            say "  git -C $DOTFILES_DIR add ${SOURCE_DIR#"$DOTFILES_DIR"/}/$n.env"
-            ;;
-    esac
+    if [[ "$SOURCE_DIR" != "$CONFIG_DIR" ]]; then
+        say ""
+        say "설정 원본은 $SOURCE_DIR 에 있습니다 — 그 저장소에서 커밋하세요: $(src_of "$n")"
+    fi
     say ""
     cmd_snippet "$n"
 }
@@ -895,7 +856,7 @@ cmd_start() {
     local n=${1:-} serve=1
     need_name "$n"
     [[ "${2:-}" == --no-serve ]] && serve=0
-    load "$n" || die "설정이 없습니다 — pin-viewer add $n ..."
+    load "$n" || die "설정이 없습니다 — limn add $n ..."
     if [[ "$(sysu is-active "$(unit_of "$n")" 2> /dev/null)" != active ]] && listening "$C_PORT"; then
         die "로컬 포트 $C_PORT 이 이미 쓰이고 있습니다 — 옛 유닛이 아직 도는가? (ss -ltnp 'sport = :$C_PORT')"
     fi
@@ -907,45 +868,82 @@ cmd_stop() {
     local n=${1:-}
     need_name "$n"
     sysu disable --now "$(unit_of "$n")" > /dev/null 2>&1 || warn "disable 실패: $(unit_of "$n")"
-    say "$(unit_of "$n") 중지·비활성 (설정·포트 예약·serve 항목은 그대로 — 다시 켜기: pin-viewer start $n)"
+    say "$(unit_of "$n") 중지·비활성 (설정·포트 예약·serve 항목은 그대로 — 다시 켜기: limn start $n)"
 }
 
+# update — 설치된 limn 을 uv tool 로 다시 설치하고 켜진 인스턴스를 재시작한다. 상태 폴더는 건드리지 않는다.
+# 되돌리기는 이전 태그로 다시 설치하는 것이다(limn update --ref v<이전 판>). 도는 서버는 이미 메모리에
+# 올라 있으므로 설치 중에 죽지 않고, 재시작할 때 새 판으로 바뀐다.
+latest_tag() { # 원격의 v* 태그 중 가장 높은 판. 실패하면 아무 것도 찍지 않는다.
+    local url=${REPO#git+}
+    command -v git > /dev/null 2>&1 || return 0
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" \
+        timeout 30 git ls-remote --tags --refs "$url" 'v*' 2> /dev/null \
+        | awk '{ sub("refs/tags/", "", $2); print $2 }' | sort -V | tail -1
+}
 cmd_update() {
-    local from="" force=0 restart=1
+    local ref="" from="" force=0 restart=1 dry=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --ref) ref=${2:-}; shift 2 ;;
             --from) from=${2:-}; shift 2 ;;
             --force) force=1; shift ;;
             --no-restart) restart=0; shift ;;
+            --dry-run | -n) dry=1; shift ;;
             *) die "모르는 인자: $1" ;;
         esac
     done
-    [[ -n "$from" ]] || from=$(plugin_skill_dir)
-    [[ -n "$from" ]] || die "플러그인 캐시에서 manuscript-pin-picker 를 찾지 못했습니다 — --from <스킬 폴더>"
-    local old new
-    old=$(app_sha "$APP_DIR" || true)
-    new=$("$PYTHON" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()[:12])' "$from/scripts/pin_server.py" 2> /dev/null) \
-        || die "pin_server.py 가 없습니다: $from/scripts"
-    if [[ "$old" == "$new" && "$force" == 0 ]] \
-        && diff -rq "$from/vendor/pdfjs" "$APP_DIR/vendor/pdfjs" > /dev/null 2>&1; then
-        say "앱 사본이 이미 최신입니다 ($new, $from) — 재시작하지 않습니다(--force 로 강제)"
+    [[ -z "$ref" || -z "$from" ]] || die "--ref 와 --from 은 함께 쓰지 않습니다"
+    local spec
+    if [[ -n "$from" ]]; then
+        spec=$from
+    else
+        if [[ -z "$ref" ]]; then
+            ref=$(latest_tag)
+            [[ -n "$ref" ]] || die "원격 태그를 읽지 못했습니다($REPO) — --ref <태그> 로 지정하세요"
+        fi
+        if [[ "$ref" == "v$VERSION" && "$force" == 0 ]]; then
+            say "이미 $ref 입니다 — 다시 설치하지 않습니다(--force 로 강제)"
+            return 0
+        fi
+        spec="$REPO@$ref"
+    fi
+    local cmd=("$UV" tool install --force "$spec")
+    local active=() n
+    if [[ "$restart" == 1 ]]; then
+        for n in $(instances); do
+            [[ "$(sysu is-active "$(unit_of "$n")" 2> /dev/null)" == active ]] && active+=("$n")
+        done
+    fi
+    if [[ "$dry" == 1 ]]; then
+        say "(dry-run) 지금 판: $VERSION"
+        say "(dry-run) 설치: ${cmd[*]}"
+        if [[ ${#active[@]} -gt 0 ]]; then
+            for n in "${active[@]}"; do say "(dry-run) 재시작: $(unit_of "$n")"; done
+        else
+            say "(dry-run) 재시작할 인스턴스 없음"
+        fi
+        say "(dry-run) 되돌리기: limn update --ref v$VERSION"
         return 0
     fi
-    install_app "$from"
-    say "앱 사본 ${old:-없음} → $new ($from)"
-    [[ "$restart" == 1 ]] || return 0
-    local n any=0
-    for n in $(instances); do
-        [[ "$(sysu is-active "$(unit_of "$n")" 2> /dev/null)" == active ]] || continue
-        any=1
+    say "설치: ${cmd[*]}"
+    "${cmd[@]}" || die "설치 실패 — 지금 판($VERSION)은 그대로입니다"
+    local now
+    now=$("$LIMN_BIN" version 2> /dev/null || true)
+    say "limn $VERSION → ${now#limn } (되돌리기: limn update --ref v$VERSION)"
+    [[ -f "$UNIT_TEMPLATE" ]] && ensure_unit
+    [[ ${#active[@]} -gt 0 ]] || {
+        say "켜진 인스턴스 없음"
+        return 0
+    }
+    for n in "${active[@]}"; do
         load "$n" || continue
         sysu restart "$(unit_of "$n")" || {
             warn "재시작 실패: $(unit_of "$n")"
             continue
         }
-        if wait_ready "$n" "$C_PORT"; then say "  $n 재시작 → 200"; else warn "  $n 재시작 뒤 응답 없음 — pin-viewer status $n"; fi
+        if wait_ready "$n" "$C_PORT"; then say "  $n 재시작 → 200"; else warn "  $n 재시작 뒤 응답 없음 — limn status $n"; fi
     done
-    [[ "$any" == 1 ]] || say "켜진 인스턴스 없음"
 }
 
 cmd_list() {
@@ -972,10 +970,10 @@ cmd_status() {
         names=$(instances)
     fi
     [[ -n "$names" ]] || {
-        say "인스턴스 없음 — pin-viewer add <이름> --manuscript <원고 폴더>"
+        say "인스턴스 없음 — limn add <이름> --manuscript <원고 폴더>"
         return 0
     }
-    say "앱 사본  $APP_DIR ($(app_sha "$APP_DIR" || echo 없음))"
+    say "limn     $VERSION ($SERVER)"
     for n in $names; do
         load "$n" || die "설정이 없습니다: $n"
         local unit
@@ -1025,8 +1023,8 @@ cmd_snippet() {
         doclist=$'\n'"- 문서: $(doc_keys "$C_DOCS") — \`pins.md\` 는 문서별 소절로 나뉜다. 특정 문서로 바로 열려면 \`$url/#doc=<키>\`"
     fi
     cat << EOF
---- 이 논문 저장소의 AGENTS.md 에 붙일 조각 (pin-viewer snippet $n) ---
-## 원고 핀 뷰어 (${C_LABEL:-$n})
+--- 이 논문 저장소의 AGENTS.md 에 붙일 조각 (limn snippet $n) ---
+## Limn 원고 인스턴스 (${C_LABEL:-$n})
 
 - 뷰어: $url/ — 공저자가 PDF 에서 드래그해 수정할 자리를 핀으로 남긴다.$doclist
 - 핀 목록: \`curl -s $url/pins.md\` (같은 기기에서는 \`curl -s http://127.0.0.1:$C_PORT/pins.md\`)
@@ -1043,7 +1041,7 @@ EOF
 write_conf_docs() {
     local n=$1 docs_str=$2 f=$C_FILE
     {
-        printf '# pin-viewer@%s — `pin-viewer doc` 가 %s 에 고쳤다. 형식·키는 README 참고.\n' "$n" "$(date +%F)"
+        printf '# limn@%s — `limn doc` 가 %s 에 고쳤다. 형식·키는 README 참고.\n' "$n" "$(date +%F)"
         printf '# 셸로 source 하지 않는다 — 값에 셸 문법을 쓰지 말 것.\n'
         emit LABEL "$C_LABEL"
         emit ACCENT "$C_ACCENT"
@@ -1063,9 +1061,9 @@ doc_restart_or_hint() {
     if [[ "$restart" == 1 ]]; then
         sysu restart "$(unit_of "$n")" || die "재시작 실패: journalctl --user -u $(unit_of "$n")"
         load "$n" || die "설정을 다시 읽지 못했습니다: $n"
-        if wait_ready "$n" "$C_PORT"; then say "재시작 → 127.0.0.1:$C_PORT 200"; else warn "재시작 뒤 응답 없음 — pin-viewer status $n"; fi
+        if wait_ready "$n" "$C_PORT"; then say "재시작 → 127.0.0.1:$C_PORT 200"; else warn "재시작 뒤 응답 없음 — limn status $n"; fi
     else
-        say "재시작이 필요합니다: pin-viewer stop $n && pin-viewer start $n (또는 --restart)"
+        say "재시작이 필요합니다: limn stop $n && limn start $n (또는 --restart)"
     fi
 }
 
@@ -1146,7 +1144,7 @@ cmd_doc_remove() {
     local n=${1:-}
     need_name "$n"
     local key=${2:-}
-    [[ -n "$key" ]] || die "제거할 키가 필요합니다: pin-viewer doc remove <이름> <키>"
+    [[ -n "$key" ]] || die "제거할 키가 필요합니다: limn doc remove <이름> <키>"
     shift 2
     local restart=0
     while [[ $# -gt 0 ]]; do
@@ -1164,7 +1162,7 @@ cmd_doc_remove() {
         if [[ "$DOC_KEY" == "$key" ]]; then found=1; else kept+=("$spec"); fi
     done
     ((found == 1)) || die "키를 찾지 못했습니다: $key ($(doc_keys "$C_DOCS"))"
-    ((${#kept[@]} > 0)) || die "마지막 문서는 지울 수 없습니다 — 인스턴스를 통째로 지우려면 pin-viewer remove $n"
+    ((${#kept[@]} > 0)) || die "마지막 문서는 지울 수 없습니다 — 인스턴스를 통째로 지우려면 limn remove $n"
     validate_doc_specs "$C_MANUSCRIPT" "${kept[@]}"
     local docs_str
     docs_str=$(join_semi "${kept[@]}")
@@ -1181,7 +1179,7 @@ cmd_doc() {
         add) cmd_doc_add "$@" ;;
         remove | rm) cmd_doc_remove "$@" ;;
         suggest) cmd_doc_suggest "$@" ;;
-        *) die "pin-viewer doc list|add|remove <이름> ... | suggest --manuscript <원고 폴더> (모르는 하위 명령: '$sub')" ;;
+        *) die "limn doc list|add|remove <이름> ... | suggest --manuscript <원고 폴더> (모르는 하위 명령: '$sub')" ;;
     esac
 }
 
@@ -1206,17 +1204,18 @@ cmd_remove() {
         [[ -e "$f" || -L "$f" ]] || continue
         rm -f "$f" && say "설정 삭제: $f"
         case "$f" in
-            */machines/*/pin-viewer/"$n".env)
-                say "  dotfiles 에서 이 삭제를 커밋하세요: git -C ${f%/machines/*} add -u machines/${f#*/machines/}"
+            "$SOURCE_DIR"/"$n".env)
+                [[ "$SOURCE_DIR" == "$CONFIG_DIR" ]] || say "  설정 원본 저장소에서 이 삭제를 커밋하세요: $f"
                 ;;
         esac
     done
-    ledger_refresh && say "포트 예약 해제: $port/$ts (장부 $LEDGER)"
+    ledger_refresh
+    say "포트 예약 해제: $port/$ts (설정 삭제)"
     sysu reset-failed "$(unit_of "$n")" > /dev/null 2>&1 || true
     say "상태 폴더는 지우지 않았습니다: $state"
 }
 
-usage() { sed -n '/^# Usage:/,/^# 보안 규칙/p' "$_SELF" | sed -e '$d' -e 's/^# \{0,1\}//'; }
+usage() { sed -n '/^# Usage:/,/^# 보안 규칙/p' "${BASH_SOURCE[0]}" | sed -e '$d' -e 's/^# \{0,1\}//'; }
 
 main() {
     local c=${1:-}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""원고 PDF에서 영역을 드래그하면 그 자리의 .tex 줄 번호를 되찾는 로컬 뷰어.
+"""Limn — 원고 PDF에서 영역을 드래그하면 그 자리의 .tex 줄 번호를 되찾는 로컬 뷰어.
 
 에이전트에게 스크린샷 대신 "파일:줄범위"를 넘기는 것이 목적이다. 이미지 한 장이
 1~2천 토큰인 데 비해 줄 범위는 수십 토큰이고, 무엇보다 에이전트가 그 줄을 바로
@@ -45,6 +45,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import parse_qs, quote, urlparse
+
+APP_NAME = "limn"
+
+
+def app_version() -> str:
+    """패키지 버전(src/limn/__init__.py 의 __version__). 모듈로 불러도(python -m limn.server) 파일 경로로
+    직접 실행해도(python .../limn/server.py) 같은 값을 내도록 옆 파일을 읽는다."""
+    try:
+        m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']',
+                      Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"), re.M)
+    except OSError:
+        m = None
+    return m.group(1) if m else "0+unknown"
+
 
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 FLOAT_KINDS = ("figure", "table", "algorithm")
@@ -133,16 +147,16 @@ CLAIM_TTL_MAX = 120                # 잠금 자동 해제는 안전장치다 —
 CLAIM_ETA_MIN = 1                  # 분 — 처리 예상 시간(eta_min). 화면은 5분 단위로 올려 보인다
 CLAIM_ETA_MAX = 240
 CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, max(이 값, eta×2)) — 짧은 견적도 30분은 쥔다
-# 핀 종류와 스레드(references/api.md §스레드). 핀의 24%(A-DEMO 42건 중 10건)가 고칠 곳이 아니라 질문이었는데 답을 남길 곳이
+# 핀 종류와 스레드(docs/api.md §스레드). 핀의 24%(A-DEMO 42건 중 10건)가 고칠 곳이 아니라 질문이었는데 답을 남길 곳이
 # 닫기 사유(close_reply) 한 칸뿐이라 되물을 수 없었다. kind_req 는 옛 kind(범위 종류)와 이름이 겹치지 않게 따로 둔다.
 KIND_REQS = ("fix", "question")    # 없으면 fix — 옛 핀은 모두 수정 요청이다
 THREAD_TEXT_MAX = 1000             # 답글 한 건 — 메모(NOTE_MAX)처럼 문자열·길이만 보고 화면에서 esc() 로 그린다
 THREAD_MAX = 200                   # 핀 하나의 스레드 상한(답글). 상태 전환 기록(닫기·다시 열기·확인)은 상한과 무관하게 붙는다
 THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
-# 담당(references/api.md §담당). 누가 이 핀을 처리하나 — "agent" 또는 사람 로그인. 없으면 옛 핀이라 addressed_to() 의 추론(질문 핀의
+# 담당(docs/api.md §담당). 누가 이 핀을 처리하나 — "agent" 또는 사람 로그인. 없으면 옛 핀이라 addressed_to() 의 추론(질문 핀의
 # @태그)을 그대로 쓴다. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43: 수정 요청 핀의 '@서준 확인 부탁'이 사람에게 맡긴 것).
 ASSIGNEE_AGENT = "agent"
-# @태그(references/api.md §@태그·사람·이벤트). 뷰어 안에서만 부른다 — 바깥 알림은 보내지 않고 events.jsonl 에 적어 둔다.
+# @태그(docs/api.md §@태그·사람·이벤트). 뷰어 안에서만 부른다 — 바깥 알림은 보내지 않고 events.jsonl 에 적어 둔다.
 MENTION_MAX = 10                   # 글 하나의 mentions 힌트 개수 상한
 PEOPLE_TOUCH_S = 600               # people.json 의 last_seen 을 이 간격보다 자주 다시 쓰지 않는다(폴링마다 쓰지 않게)
 EVENTS_KEEP = 5000                 # events.jsonl 에 남기는 최근 이벤트 수. seq 는 계속 오른다(소비자는 seq 로 따라온다)
@@ -243,7 +257,7 @@ class Cfg:
 C = Cfg()
 
 
-# ---------------------------------------------------------------- 문서(§여러 문서, references/design.md §여러 문서)
+# ---------------------------------------------------------------- 문서(§여러 문서, docs/design.md §여러 문서)
 #
 # 논문 저장소 하나에는 본문·답변서·커버레터처럼 문서가 여럿 있다. 뷰어 하나(주소 하나)가 그 문서들을 전환한다.
 # 핀 저장소(pins.jsonl·pins.seq)는 하나다 — 번호가 문서를 가로질러 유일해야 '#12 처리해줘'가 모호하지 않다.
@@ -494,12 +508,8 @@ def pages_dir_for(name) -> Path:
 
 
 def default_pdfjs_dir() -> Path:
-    """레포 배치(scripts/ 옆의 vendor/pdfjs)를 먼저, 사본을 한 디렉토리에 둔 배치(pin_server.py 옆 vendor/pdfjs)를 다음으로 본다."""
-    here = Path(__file__).resolve().parent
-    for d in (here.parent / "vendor" / "pdfjs", here / "vendor" / "pdfjs"):
-        if d.is_dir():
-            return d
-    return here.parent / "vendor" / "pdfjs"
+    """패키지에 함께 든 PDF.js(limn/vendor/pdfjs)."""
+    return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
 def vendor_file(name: str):
@@ -2866,7 +2876,7 @@ def pin_est(r: dict, ctx: dict) -> bool:
 
 
 def pin_state(r: dict) -> str:
-    """'open' | 'review' | 'done' — 저장하지 않는 계산 필드(references/api.md §검토 대기).
+    """'open' | 'review' | 'done' — 저장하지 않는 계산 필드(docs/api.md §검토 대기).
 
     검토 대기는 done=true 에 review=true 를 더한 모양이다. done 이 true 라서 옛 계약이 그대로 선다 — GET /api/pins(열린 핀만)·
     pins.md 열린 표·claim(409 done)·줄 맞춤·겹침 계산이 모두 검토 대기 핀을 '에이전트 몫이 끝난 핀'으로 본다. 옛 서버·옛 뷰어가
@@ -3535,7 +3545,7 @@ def pin_reopened_in_round(r: dict) -> bool:
     return last_reopen > last_close
 
 
-# ---------------------------------------------------------------- 사람·@태그·이벤트(references/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- 사람·@태그·이벤트(docs/api.md §@태그·사람·이벤트)
 #
 # people.json = 이 뷰어를 연(또는 무엇을 한) 테일넷 사람 {login,name,pic,first_seen,last_seen}. 로컬/에이전트는 적지 않는다.
 # @태그 후보는 people.json ∪ 핀에 남은 작성자·행위자다. 글은 '@이름' 그대로 두고, 풀린 로그인만 mentions 에 적는다.
@@ -3787,7 +3797,7 @@ EVENTS_SINCE_MAX = 20
 
 
 def events_since(actor: dict, cursor) -> dict:
-    """/api/meta 폴링에 싣는 알림 재료(references/api.md §브라우저 알림). 늘 ev_seq(마지막 이벤트 번호)를 주고, ev=<번호> 를 받으면
+    """/api/meta 폴링에 싣는 알림 재료(docs/api.md §브라우저 알림). 늘 ev_seq(마지막 이벤트 번호)를 주고, ev=<번호> 를 받으면
     그 뒤의 이벤트 중 지금 요청자(테일넷 로그인)에게 온 것만 최대 20건 싣는다 — 로컬/에이전트에게는 싣지 않는다. 읽기만 한다."""
     rows, _ = _read_events()
     out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
@@ -4665,10 +4675,10 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
 </script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-<title>__LABEL__ · 원고 핀</title>
+<title>Limn · __LABEL__</title>
 <link rel="icon" href="__FAVICON_HREF__">
 <style>
-/* ---------------- 디자인 토큰(references/design.md §디자인 토큰). shadcn/ui 의 체계(이름·역할)만 빌렸다 — 코드는 없다.
+/* ---------------- 디자인 토큰(docs/design.md §디자인 토큰). shadcn/ui 의 체계(이름·역할)만 빌렸다 — 코드는 없다.
    색 리터럴은 이 두 블록(다크 :root · 라이트 :root[data-theme=light]) 안에만 둔다. 규칙은 전부 var(--…) 로 쓴다.
    회귀 테스트(FrontendDesignTokens)가 블록 밖의 색·radius·font-size 리터럴을 막는다. 중립색은 zinc 계열이다. */
 :root{color-scheme:dark;
@@ -4714,7 +4724,7 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
-/* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(references/design.md §PDF 영역 전용 확대). */
+/* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(docs/design.md §PDF 영역 전용 확대). */
 /* #main = 문서 탐색 + PDF 영역. #right 의 편집·핀 화면은 독립적으로 유지한다. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
@@ -4782,7 +4792,7 @@ body.lay-narrow #section-strip{display:none}
 #revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
 body.revision-open #revision-view{display:block}
 body.revision-open #left{display:none}
-/* [변경 보기]가 가리키는 핀(references/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
+/* [변경 보기]가 가리키는 핀(docs/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
    이 안내의 [원고로]가 돌아가는 길이다. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-4);background:var(--card);
   border-bottom:1px solid var(--border);font-size:var(--text-sm)}
@@ -4854,7 +4864,7 @@ body.lay-wide #btn-rebuild .ic{display:none}   /* 넓은 화면은 글자만 —
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* 8px 면 348px 기본 패널에서 [?]가 둘째 줄로 떨어졌다(격자 정리 QA) */
 #btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
-/* ---------------- 컴포넌트(references/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
+/* ---------------- 컴포넌트(docs/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
    버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-soft([완료]) · .btn-ghost · .btn-destructive
    버튼 크기: (클래스 없음) = default(28px) · .btn-sm(24px 안팎) · .btn-icon(정사각형, .btn-sm 과 겹치면 작은 정사각형)
    배지: .badge(= outline) · .badge-default · .badge-secondary · .badge-destructive · 상태 .badge-claimed · .badge-warning */
@@ -4908,7 +4918,7 @@ input.n{width:58px;text-align:center}
 .pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none}
 :root[data-theme=light] .pg{border:1px solid var(--border)}
 .pg img{width:100%;height:100%;display:block}
-/* 벡터 렌더링(references/design.md §벡터 렌더링): 쪽 캔버스(.vb)는 쪽 상자를 꽉 채우고, 확대가 픽셀 상한을 넘으면
+/* 벡터 렌더링(docs/design.md §벡터 렌더링): 쪽 캔버스(.vb)는 쪽 상자를 꽉 채우고, 확대가 픽셀 상한을 넘으면
    보이는 부분만 원래 해상도로 그린 상세 캔버스(.dt)를 쪽 안 % 좌표로 겹친다. 캔버스가 있으면 밑의 PNG 는 숨긴다. */
 .pg>canvas{position:absolute;display:block;pointer-events:none}
 .pg>canvas.vb{left:0;top:0;width:100%;height:100%}
@@ -4940,7 +4950,7 @@ pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--sp
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
-/* ---------------- 작성 패널(references/design.md §패널 정리): 8px 격자, 같은 높이, 강조 색(--acc)은 [핀 저장] 하나.
+/* ---------------- 작성 패널(docs/design.md §패널 정리): 8px 격자, 같은 높이, 강조 색(--acc)은 [핀 저장] 하나.
    위치 한 줄(파일·줄 + 쪽 + 일치 배지 + 복사) → 범위 분절 컨트롤 → 한 줄씩 스테퍼 → 원문 4줄 → 메모 → 아래 고정 동작 줄. */
 .c-loc-row{display:flex;align-items:center;gap:var(--space-2)}
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
@@ -4992,7 +5002,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* 모양은 .card */
-/* 상태(references/design.md §상태 표현): 왼쪽 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽다). 카드 머리 맨 앞의 작은 점 색 +
+/* 상태(docs/design.md §상태 표현): 왼쪽 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽다). 카드 머리 맨 앞의 작은 점 색 +
    같은 뜻의 배지(글자·아이콘)로 가른다 — 색만으로 가르지 않는다. 열림 초록 · 처리 중 호박 · 검토 대기 보라 · 위치 잃음 경고색.
    닫힘·삭제는 카드가 아니라 흐린 보관함 행이고 앞머리 아이콘(check·trash-2)이 상태다. */
 .st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
@@ -5043,7 +5053,7 @@ button.b-close{font-weight:600}
 .pin .acts button.btn-destructive{background:transparent}
 .pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
-/* 핀 종류(수정 요청 / 질문)와 스레드(references/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
+/* 핀 종류(수정 요청 / 질문)와 스레드(docs/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
 .kind-seg{margin:8px 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 var(--space-2)}
@@ -5119,7 +5129,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
-/* ---------------- 목록 구획(references/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
+/* ---------------- 목록 구획(docs/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
    붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
    --stick-top 은 compact 에서 위에 붙은 도구 줄(#bar1) 높이다(JS 가 잰다). 닫힌·삭제한 핀은 카드가 아니라 납작한 행이다. */
 .lsec{position:relative}
@@ -5168,7 +5178,7 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
-/* 알림(토스트, references/design.md §알림): 방금 누른 자리 가까이 뜬다 — 예전에는 왼쪽 아래(데스크톱)·본문 왼쪽 위(mid)에 떠서
+/* 알림(토스트, docs/design.md §알림): 방금 누른 자리 가까이 뜬다 — 예전에는 왼쪽 아래(데스크톱)·본문 왼쪽 위(mid)에 떠서
    오른쪽 패널에서 [핀 저장]을 누른 눈길과 1,100px 넘게 떨어졌다(2026-09-24 실측). 가로 자리(--toast-r·--toast-w)와 바닥
    높이(--toast-b)는 placeToasts() 가 잰다: wide·mid 는 패널 열 안 오른쪽 아래, 동작 줄·저장 버튼 바로 위 · narrow 는 시트 위.
    모양은 sonner 처럼 떠 있는 면 하나(가는 테두리 + 그림자, 떠 있는 면만 그림자를 쓴다). 상태는 색 띠 대신 앞머리 아이콘.
@@ -5206,7 +5216,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
 dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
-/* ---------------- 모바일·터치 (references/design.md §모바일 레이아웃)
+/* ---------------- 모바일·터치 (docs/design.md §모바일 레이아웃)
    레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
    lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
    접힌 상태에는 도구 줄(#bar1)과 상태 칩(#bar2)·위치 다시 잡기 배너만 남는다. */
@@ -5356,7 +5366,7 @@ body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;t
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:24px;padding-top:0}
 /* ---- 펼친 폴드·태블릿(mid): 위는 문서 탐색 줄, 아래는 동작 줄 — 둘 다 화면 전체 폭에 고정하고 패널은 그 사이에 편다
-   (references/design.md §펼친 화면 레이아웃). 예전에는 도구 줄이 패널을 따라다녀 [핀] 이 펴면 오른쪽 위, 접으면 오른쪽
+   (docs/design.md §펼친 화면 레이아웃). 예전에는 도구 줄이 패널을 따라다녀 [핀] 이 펴면 오른쪽 위, 접으면 오른쪽
    아래로 뛰었고(842×758 실측 y 56→693), 문서 옆 패널(901–1099px)은 탐색 줄을 패널 폭만큼 잘랐다(968px 에서 630px).
    두 손으로 쥔 화면에서 엄지가 닿는 곳은 아래 양 끝이다 — 자주 쓰는 [선택] 은 왼쪽 아래, 패널 토글 [핀 N] 은 패널이
    나오는 오른쪽 아래 끝에 두고, 패널 여닫기와 무관하게 같은 자리에 남긴다. 저장·취소(#c-actions)는 패널 바닥, 곧 동작 줄
@@ -5558,7 +5568,7 @@ body.view-only #btn-rebuild{display:none}
   <div class="dm-list" id="docs-menu-list" role="listbox" aria-labelledby="docs-menu-h"></div>
 </dialog>
 <dialog id="help" aria-labelledby="help-h">
-  <div class="row"><h2 id="help-h">원고 핀 — 사용법</h2><span class="sp"></span><button class="btn-sm" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
+  <div class="row"><h2 id="help-h">Limn — 사용법</h2><span class="sp"></span><button class="btn-sm" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
   <h4>한 바퀴</h4>
   <ol class="help-steps">
     <li>PDF 위에서 고칠 곳을 <b>드래그</b>합니다. 점선 상자('새 핀')가 남습니다.</li>
@@ -5623,14 +5633,14 @@ const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
-// 핀 종류·스레드(references/design.md §스레드와 검토): KIND_NEW = 작성 패널의 종류(fix|question), REPLY = 열린 답글·다시 열기
+// 핀 종류·스레드(docs/design.md §스레드와 검토): KIND_NEW = 작성 패널의 종류(fix|question), REPLY = 열린 답글·다시 열기
 // 입력 칸 {id,mode,el}(EDIT 처럼 DOM 을 들고 있다가 목록을 다시 그리면 제자리에 끼운다), THREAD_OPEN = 스레드를 다 펼친 카드,
 // REPLY_DRAFT = 닫은 입력 칸의 쓰던 글('reply:12').
 let KIND_NEW='fix',REPLY=null;
-// @태그(references/design.md §@태그): PEOPLE = /api/people(이 뷰어를 연 테일넷 사람 + 핀의 작성자·행위자), MENTION_ONLY = '나를 부른 핀'만 보기.
+// @태그(docs/design.md §@태그): PEOPLE = /api/people(이 뷰어를 연 테일넷 사람 + 핀의 작성자·행위자), MENTION_ONLY = '나를 부른 핀'만 보기.
 let PEOPLE=[],MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
-// 여러 문서(§여러 문서, references/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
+// 여러 문서(§여러 문서, docs/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
 // 없는 옛 핀이 속하는 첫 문서. OPEN_ALL = 모든 문서의 열린 핀(PINS 는 그중 지금 문서의 것 — 마크·겹침·편집은 PINS 만 본다).
 // META_BY = 문서별 meta 캐시(탭 전환을 즉시), VIEW_BY = 문서별 보던 자리·확대, BUILD_ERR_BY = 문서별 마지막 빌드 오류,
 // DOC_SEQ = 다른 문서의 끝난 빌드 수(배경에서 끝난 빌드를 알린다).
@@ -5693,7 +5703,7 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
-// 알림(references/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '(없으면 첫 ' · ')에서 제목과 설명으로 가른다.
+// 알림(docs/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '(없으면 첫 ' · ')에서 제목과 설명으로 가른다.
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
 // ' — ' 가 있으면 그 앞이 제목('핀 #10 · 본문 — 서준님이 불렀습니다: …' 의 제목은 '핀 #10 · 본문'), 없으면 첫 ' · ' 앞.
 function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?) — (.+)$/.exec(msg)||/^(.+?) · (.+)$/.exec(msg); return m?[m[1],m[2]]:[msg,''];}
@@ -5800,7 +5810,7 @@ document.addEventListener('scroll',hideTip,true);
 // 길게 누르기로 띄운 직후 손을 떼면 크롬이 흉내 mousedown 을 보낸다 — 그것으로는 닫지 않는다.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
 
-// ------------------------------------------------ 여러 문서 — 목록·탭·전환(references/design.md §여러 문서)
+// ------------------------------------------------ 여러 문서 — 목록·탭·전환(docs/design.md §여러 문서)
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
 function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}
@@ -5935,7 +5945,7 @@ async function loadRevisionSource(id,seq,k){
     renderRevisionFile(); if(tg)revHighlight(tg);
   }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
 }
-// ------------------------------------------------ [변경 보기](references/design.md §변경 보기): 검토 대기·완료 핀에서 변경사항 탭을 연다.
+// ------------------------------------------------ [변경 보기](docs/design.md §변경 보기): 검토 대기·완료 핀에서 변경사항 탭을 연다.
 // 커밋 고르기: 닫을 때 남긴 참조(ref)의 커밋 해시(7자 이상) > 참조의 PR 번호가 제목에 든 커밋('(#236)'·'pull request #236') >
 // 최근 12개 커밋 중 핀의 파일·줄(±5줄)을 바꾼 가장 최근 커밋 > 가장 최근 커밋. 줄 대응은 소스 diff 에만 있다 — 새 쪽 줄 번호가
 // 핀 범위에 드는 줄을 강조하고 그리로 스크롤한다. 비교 PDF(latexdiff)는 SyncTeX 대응이 없어 핀의 쪽 근처로만 옮긴다(대략).
@@ -6075,7 +6085,7 @@ function showDoc(v){
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
   if(LAST_BUILD_ERR)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
   BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // 옛 문서의 조회가 떠 있으면 그 뒤에
-  document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
+  document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
 }
 function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key===DOC);
   switchDoc(DOCS[(i+step+DOCS.length)%DOCS.length].key);}
@@ -6251,7 +6261,7 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
     if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
     else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
-// ------------------------------------------------ 브라우저 알림(references/design.md §브라우저 알림) — 탭이 살아 있는 동안만
+// ------------------------------------------------ 브라우저 알림(docs/design.md §브라우저 알림) — 탭이 살아 있는 동안만
 // 기기마다 켠다(pinPrefs.notify). 켜는 것은 [알림 켜기] 클릭에서만 Notification.requestPermission() 을 부른다. 서버가 5초 폴링
 // (/api/meta?light=1&ev=<커서>)에 '지금 신원에게 온' 이벤트를 싣고, 이 탭이 그것을 알림으로 보인다. 커서(pinNotifyCursor)는 이 브라우저의
 // localStorage 에 둬 새로고침·탭 두 개가 같은 이벤트를 두 번 알리지 않는다. 표시는 늘 서비스 워커의 showNotification()(안드로이드
@@ -6386,7 +6396,7 @@ function startBuildPolling(){
   pollBuild();   // 부팅 시 한 번 — 이미 도는 빌드(다른 세션이 시작)가 있으면 여기서 1초 폴링이 켜진다
 }
 
-// ------------------------------------------------ 패널 폭(P0b-06 + references/design.md §패널 폭 조절)
+// ------------------------------------------------ 패널 폭(P0b-06 + docs/design.md §패널 폭 조절)
 // wide·mid 는 오른쪽 패널의 폭을, narrow 는 하단 시트의 높이를 조절한다. 폭은 화면 종류별로 따로 기억한다
 // (pinPrefs.side = wide, pinPrefs.sideMid = mid) — 편 화면에서 맞춘 폭이 데스크톱 폭을 덮지 않게. 저장값이 지금 화면의
 // 한계를 넘으면(접기·펴기, 창 줄이기) 저장값은 두고 보이는 폭만 한계 안으로 맞춘다. 한계: 최소는 패널 도구 줄이
@@ -6485,7 +6495,7 @@ function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
 
-// ------------------------------------------------ 벡터 렌더링(PDF.js) — references/design.md §벡터 렌더링
+// ------------------------------------------------ 벡터 렌더링(PDF.js) — docs/design.md §벡터 렌더링
 // 쪽마다 캔버스에 PDF 를 직접 그린다. 백킹 크기 = 쪽 CSS 크기 × devicePixelRatio(× 브라우저 핀치 배율)이고, 앱 확대는
 // 쪽 CSS 폭(W)에 이미 들어 있다. 쪽 상자·비율·% 좌표는 PNG 때 그대로라 드래그 frac·마크·pdf_build 가 바뀌지 않는다.
 // - 가시 영역 근처(VEC_KEEP)의 쪽만 그리고, 멀어진 쪽의 캔버스는 해제한다(IntersectionObserver).
@@ -6700,7 +6710,7 @@ $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
 if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
 
-// ------------------------------------------------ PDF 영역 전용 확대 — references/design.md §PDF 영역 전용 확대
+// ------------------------------------------------ PDF 영역 전용 확대 — docs/design.md §PDF 영역 전용 확대
 // 브라우저 확대는 사이드바·도구 줄까지 키운다. PDF 영역의 확대 입력을 가로채 쪽 폭(W)만 바꾼다.
 // - 데스크톱: #left 위의 Ctrl(⌘)+휠. 트랙패드 핀치도 크롬·파이어폭스에서는 ctrlKey 가 붙은 wheel 로 온다. 포인터 기준.
 // - 사파리 트랙패드 핀치: gesturestart/gesturechange(e.scale).
@@ -7093,7 +7103,7 @@ function renderComposer(){const d=CUR; if(!d)return;
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
-// 질문처럼 읽히는 메모(references/design.md §스레드와 검토 — 종류 권하기). 끝이 ?/？ 이거나 한국어 물음 어미(는가·나요·까요·인가·건가·니·냐·까)면
+// 질문처럼 읽히는 메모(docs/design.md §스레드와 검토 — 종류 권하기). 끝이 ?/？ 이거나 한국어 물음 어미(는가·나요·까요·인가·건가·니·냐·까)면
 // 참. 끝의 마침표·말줄임·닫는 괄호·따옴표와 끝에 붙은 @태그(예: '맞나요? @Bob Park')는 보지 않는다. 판정만 한다 — 종류를 바꾸지 않는다.
 function looksQuestion(text){let t=String(text||'').trim();
   for(let i=0;i<3;i++)t=t.replace(/[\s.…~!。)\]"'”’]+$/,'').replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/,'');
@@ -7183,7 +7193,7 @@ function relBadge(rel,p){
 // §P0c-C: 처리 중 표시. claim_until 은 epoch 초라 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유로
 // 벽시계 문자열 대신 숫자를 쓴다). 뷰어는 claim 을 걸지 않는다(에이전트 전용) — [풀기]만 둔다.
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
-// 처리 예상 시간(references/api.md §처리 중 표시): 에이전트가 claim 에 eta_min 을 주면 서버가 eta_ts(epoch)을 둔다.
+// 처리 예상 시간(docs/api.md §처리 중 표시): 에이전트가 claim 에 eta_min 을 주면 서버가 eta_ts(epoch)을 둔다.
 // 배지는 '처리 중 · 약 15분 · 20:40쯤' — 남은 분도 시각도 5분 단위로 올린다(견적은 대략이다). 넘기면 '예상보다 늦어짐 (+5분)'.
 // eta 가 없는 옛 claim 은 '처리 중 · 20:02부터 (23분째)'. 잠금 자동 해제(claim_until)는 예상 완료로 읽혀(실측: '~04:02')
 // 화면에 쓰지 않고 설명에만 둔다. 시각은 보는 기기의 현지 시각이다. now 는 테스트가 넣는다.
@@ -7213,7 +7223,7 @@ function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(
 // 모든 문서 보기에서 카드 머리에 붙는 문서 칩. 다른 문서의 것은 점선 테두리 — 누르면 그 문서로 바뀐다.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
-// 스레드(references/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
+// 스레드(docs/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
 // wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
 // 지금 담당 — 적힌 값(p.assignee), 없는 옛 핀은 서버가 추론한 사람(p.addressed 의 첫 사람), 그것도 없으면 에이전트.
@@ -7223,7 +7233,7 @@ function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=
   const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
   return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></button>'
     :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></span>';}
-// 상태 점(references/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
+// 상태 점(docs/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
 // 지금 차례가 다시 열기로 시작했나(검토에서 되돌아온 핀) — 스레드의 마지막 닫기·다시 열기 기록이 다시 열기면 그렇다.
@@ -7231,7 +7241,7 @@ function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){c
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
-// 글 속 '@이름'(풀린 mentions 만)과 '#번호'(있는 핀)를 토큰으로 바꾼다(references/design.md §@태그). 글은 먼저 esc() 를 거치고,
+// 글 속 '@이름'(풀린 mentions 만)과 '#번호'(있는 핀)를 토큰으로 바꾼다(docs/design.md §@태그). 글은 먼저 esc() 를 거치고,
 // 이름·번호는 그 이스케이프된 글에서 찾아 감싼다 — 사람이 쓴 글이 HTML 로 새지 않는다. 이름은 서버 resolve_mentions() 와 같은 글자
 // (이름 전체·로그인·로그인의 @ 앞·이름 첫 단어)를 긴 것부터, 대소문자 없이 찾는다. '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문으로
 // 끝나는 이름 뒤에 영문이 이어지면(@Alicex) 다른 말이다. 풀리지 않은 '@말' 은 그대로 평문이다 — 부른 것처럼 보이면 안 된다.
@@ -7253,7 +7263,7 @@ function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hi
   return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
     return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
 function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
-// [나를 부른 핀] 필터(references/design.md §@태그): 배지·pins.md 의 '→ @이름'과 같은 재료(p.addressed, 서버가
+// [나를 부른 핀] 필터(docs/design.md §@태그): 배지·pins.md 의 '→ @이름'과 같은 재료(p.addressed, 서버가
 // thread_round 로 지금 차례만 센다)를 쓴다 — 예전엔 스레드 전체를 훑어(threadOf(p).some(...)) 옛 차례의 @태그가
 // 다시 열려도 계속 '나를 부른 핀'으로 남는 결함이 있었다(실측). addressed_to() 는 질문 핀에서만 값이 있다.
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login==='local')return false;
@@ -7355,11 +7365,11 @@ function card(p){
     '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
-// 보관함 행(references/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
+// 보관함 행(docs/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
 // 첫 줄은 아이콘·#번호·위치·참조·시각·[다시 열기|되살리기], 둘째 줄은 에이전트 답(close_reply) 한 줄 — 넘치면 말줄임, 누르면
 // 펼친다. 원래 요청 메모는 [원래 요청]을 눌러야 보인다. 펼친 줄은 ARC_OPEN('r:'|'o:'|'d:' + id)에 두어 다시 그려도 남는다.
 const ARC_OPEN=new Set();
-// 상대 시각(references/design.md §시각): '방금'·'N분 전'·'N시간 전'·'N일 전', 일주일 넘으면 'M-D'. 절대 시각은 설명(hover)에.
+// 상대 시각(docs/design.md §시각): '방금'·'N분 전'·'N시간 전'·'N일 전', 일주일 넘으면 'M-D'. 절대 시각은 설명(hover)에.
 // data-at 에 원래 문자열을 두고 60초마다 다시 센다(tickRel).
 function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
@@ -7419,7 +7429,7 @@ async function loadPins(){let d;
   if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
-  if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
+  if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
   if(META&&REVIEW_ALL.length)document.title+=' · 검토 '+REVIEW_ALL.length;
 }
 // 사이드바에 그릴 목록: 기본은 지금 문서, '모든 문서'면 전부. 편집 중인 핀은 다른 문서여도 남긴다(쓰던 글이 사라지지 않게).
@@ -7555,7 +7565,7 @@ async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
   markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
 
-// ------------------------------------------------ @태그 자동 완성(references/design.md §@태그)
+// ------------------------------------------------ @태그 자동 완성(docs/design.md §@태그)
 // 메모·편집·답글 칸에서 '@' 를 치면 아는 사람(PEOPLE, 나는 뺀다)을 보인다. 고르면 '@이름 ' 을 넣고 그 로그인을 칸에 기억해(ta._mentions)
 // 보낼 때 힌트(mentions)로 싣는다 — 서버가 글에서 다시 풀어 확인한다(이름이 글에서 지워졌으면 빠진다). 바깥 알림은 없다.
 const MENTION={ta:null,start:0,items:[],sel:0};
@@ -7585,7 +7595,7 @@ function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(P
     if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
   return {hit,bad,first};}
-// 담당(references/design.md §담당): 누가 이 핀을 처리하나. 기본값 — 메모가 풀린 @태그로 시작하면 그 사람, 아니면 질문 핀의 첫
+// 담당(docs/design.md §담당): 누가 이 핀을 처리하나. 기본값 — 메모가 풀린 @태그로 시작하면 그 사람, 아니면 질문 핀의 첫
 // @태그, 아니면 에이전트. 나는 고를 수 없다(서버가 나를 부른 태그를 빼듯이). @태그가 없으면 고를 것도 없다(에이전트).
 function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
   if(r.first&&r.first!==me)return r.first; if(kind==='question'&&hit.length)return hit[0]; return 'agent';}
@@ -7626,7 +7636,7 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
 // @목록이 가리면 안 되는 그 입력 칸의 동작 줄: 답글·다시 열기 [취소][보내기], 편집 [저장], 작성 패널 [취소][핀 저장].
 function mentionGuard(ta){const box=ta.closest('.reply-box,.edit'); return box?box.querySelector('.r-acts,.e-acts'):ta.id==='note'?$('#c-actions'):null;}
-// @목록의 top(references/design.md §@태그). 동작 줄(guard)을 가리지 않는 자리를 이 순서로 고른다 —
+// @목록의 top(docs/design.md §@태그). 동작 줄(guard)을 가리지 않는 자리를 이 순서로 고른다 —
 // ① 입력 칸 바로 아래(동작 줄 위까지 들어가면) ② 입력 칸 위 ③ 동작 줄 아래 ④ 들어가는 곳이 없으면 입력 칸 아래(예전 자리).
 // 답글 칸은 [취소][보내기]가 입력 칸 바로 밑이라 ①이 안 되고 ②가 된다(예전에는 목록이 두 버튼을 덮었다, QA 2026-09-25).
 function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
@@ -7653,7 +7663,7 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 
-// ------------------------------------------------ 답글·다시 열기 입력 칸(references/design.md §스레드와 검토)
+// ------------------------------------------------ 답글·다시 열기 입력 칸(docs/design.md §스레드와 검토)
 // 입력 칸은 하나만 연다. DOM 을 REPLY.el 에 들고 있다가 drawPins() 가 카드를 다시 그리면 .reply-slot 에 다시 끼운다 —
 // 5초 자동 동기화가 목록을 다시 그려도 쓰던 글·커서가 사라지지 않게(포커스도 되돌린다). mode 는 'reply' | 'reopen'(다시 여는 이유).
 function replyEl(mode,review){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
@@ -8072,6 +8082,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"people": ppl, "me": actor})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
+        if path == "/api/version":                # 설치된 Limn 판 — 쓰기 없음
+            return self._json({"name": APP_NAME, "version": app_version()})
         if path == "/api/meta":
             light = (q.get("light") or ["0"])[0] == "1"
             if not light:
@@ -8359,7 +8371,8 @@ def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(prog="limn serve", description=__doc__.splitlines()[0])
+    ap.add_argument("--version", action="version", version="%s %s" % (APP_NAME, app_version()))
     ap.add_argument("--manuscript", required=True, help="LaTeX 소스 루트 디렉토리")
     ap.add_argument("--main", help="최상위 .tex 파일명 (생략 시 자동 탐지). --doc 과 함께 쓰지 않는다")
     ap.add_argument("--doc", action="append", default=[], metavar="KEY=NAME:PATH",
@@ -8383,7 +8396,7 @@ def main() -> None:
                          "수동 재빌드도 copy 전에 업스트림을 --ff-only pull 한다. 로컬 수정·분기가 있으면 건너뛰고 화면에 알린다")
     ap.add_argument("--pdfjs-dir",
                     help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
-                         "스크립트 옆 ../vendor/pdfjs 또는 ./vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
+                         "패키지에 든 limn/vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
     ap.add_argument("--label",
                     help="여러 논문 뷰어를 동시에 열었을 때 탭·도구 줄을 구분할 이름표(%d자 이하). 생략 시 "
                          "--manuscript 의 git origin 저장소 이름, git 이 아니면 폴더 이름" % LABEL_MAX)
@@ -8412,7 +8425,7 @@ def main() -> None:
 
     default_state = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     C.state = Path(a.state_dir).expanduser().resolve() if a.state_dir \
-        else default_state / "manuscript-pin-picker" / state_slug(C.src)
+        else default_state / "limn" / "serve" / state_slug(C.src)
     C.state.mkdir(parents=True, exist_ok=True)
     C.build = C.state / "build"
     C.dpi = a.dpi

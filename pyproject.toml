@@ -1,0 +1,31 @@
+[project]
+name = "dartwork-limn"
+dynamic = ["version"]
+description = "Limn (림) — 원고 PDF에 핀을 찍으면 소스 줄로 이어 주는 사람·에이전트 퇴고 도구"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "dartworklabs" }]
+dependencies = []
+
+[project.scripts]
+limn = "limn.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "playwright>=1.47"]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/limn/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/limn"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/limn", "tests", "docs", "skill", "README.md", "THIRD_PARTY_NOTICES.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

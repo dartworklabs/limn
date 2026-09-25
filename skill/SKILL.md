@@ -63,7 +63,7 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 
 ### 번호 칸의 표시
 
-번호 칸에는 번호 뒤에 ` · ` 로 이어 뜻이 드러나는 짧은 말이 붙는다(예전 기호를 말로 바꿨다, [api.md](references/api.md) §pins.md 형식). 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`.
+번호 칸에는 번호 뒤에 ` · ` 로 이어 뜻이 드러나는 짧은 말이 붙는다(예전 기호를 말로 바꿨다, [api.md](docs/api.md) §pins.md 형식). 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`.
 
 | 표시 | 뜻 | 할 일 |
 | --- | --- | --- |
@@ -110,11 +110,11 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
      [--label <이름표>] [--accent <#rrggbb>] [--doc <키>=<이름>:<경로> ...]
    ```
 
-   - `--doc`(반복): 논문 저장소 하나의 문서 여럿을 한 뷰어·한 주소에서 선택한다. 데스크톱은 PDF 영역 위 문서 선택기, 모바일은 기존 도구 줄의 문서 버튼을 쓴다. `.tex` 는 LaTeX(빌드 루트는 그 폴더), `<빌드 루트>::<메인.tex>` 는 빌드 루트를 따로, `.pdf` 는 보기 전용. 경로는 `--manuscript` 기준. 없으면 `--main` 문서 하나(예전 그대로). 예시·규칙은 [operations.md](references/operations.md) §여러 문서.
+   - `--doc`(반복): 논문 저장소 하나의 문서 여럿을 한 뷰어·한 주소에서 선택한다. 데스크톱은 PDF 영역 위 문서 선택기, 모바일은 기존 도구 줄의 문서 버튼을 쓴다. `.tex` 는 LaTeX(빌드 루트는 그 폴더), `<빌드 루트>::<메인.tex>` 는 빌드 루트를 따로, `.pdf` 는 보기 전용. 경로는 `--manuscript` 기준. 없으면 `--main` 문서 하나(예전 그대로). 예시·규칙은 [operations.md](docs/operations.md) §여러 문서.
    - `--git-pull`: 기동 직후와 60초마다 원격 main 을 확인하고 새 커밋이면 PDF를 다시 만든다. 수동 재빌드도 업스트림을 `--ff-only` 로 당긴다. 자동 동기화가 dirty·분기 등으로 막히면 화면에 사유를 표시한다.
-   - `--label`·`--accent`: 여러 논문 뷰어를 동시에 열었을 때 탭·이름표 칩·파비콘으로 구분한다(§동시 인스턴스, [operations.md](references/operations.md)). 생략하면 `--manuscript` 의 git 저장소 이름 → 폴더 이름 순으로 기본값을 정한다.
+   - `--label`·`--accent`: 여러 논문 뷰어를 동시에 열었을 때 탭·이름표 칩·파비콘으로 구분한다(§동시 인스턴스, [operations.md](docs/operations.md)). 생략하면 `--manuscript` 의 git 저장소 이름 → 폴더 이름 순으로 기본값을 정한다.
    - 직접 띄울 때(위 `pin-viewer` 없이) **논문마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다.
-   - 다른 인자·systemd 유닛·배포 사본은 [operations.md](references/operations.md).
+   - 다른 인자·systemd 유닛·배포 사본은 [operations.md](docs/operations.md).
 3. **노출한다 — Hard Rule.**
 
 | 항목 | 규칙 |
@@ -149,13 +149,13 @@ description: "LaTeX 원고 PDF를 브라우저에 띄우고 드래그로 고른 
 
 | 할 일 | 열 파일 |
 | --- | --- |
-| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 스레드·검토 대기·@태그·이벤트, 핀 스키마, `<state_dir>/pins.md` 형식 | [`references/api.md`](references/api.md) |
-| 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`references/build-sync.md`](references/build-sync.md) |
-| 스레드·검토 대기 화면, [변경 보기], @태그, 브라우저 알림(https 테일넷·127.0.0.1 에서만) | [`references/design.md`](references/design.md) |
-| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 상태 표현(점·배지)·보관함·아이콘(Lucide), 여러 문서·보기 전용 PDF, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`references/design.md`](references/design.md) |
-| 실행 인자 전체, `--doc` 여러 문서, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`references/operations.md`](references/operations.md) |
+| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 스레드·검토 대기·@태그·이벤트, 핀 스키마, `<state_dir>/pins.md` 형식 | [`docs/api.md`](docs/api.md) |
+| 재빌드(동기·비동기), `--git-pull`, 응답 다이어트, 자동 동기화, 위치 추정(`est`) | [`docs/build-sync.md`](docs/build-sync.md) |
+| 스레드·검토 대기 화면, [변경 보기], @태그, 브라우저 알림(https 테일넷·127.0.0.1 에서만) | [`docs/design.md`](docs/design.md) |
+| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 상태 표현(점·배지)·보관함·아이콘(Lucide), 여러 문서·보기 전용 PDF, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약 | [`docs/design.md`](docs/design.md) |
+| 실행 인자 전체, `--doc` 여러 문서, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve` 실측, 상태 파일, 뷰어 사용법 | [`docs/operations.md`](docs/operations.md) |
 
 ## 연관 자산
 
 - `manuscript-revision` — 핀을 닫으며 원고를 고칠 때의 편집 규율.
-- `writing-agent-ops` — 결과물 서빙 일반 원칙. 이 스킬은 그 예외로 `127.0.0.1` + `tailscale serve`를 고정한다([operations.md](references/operations.md) §보안 제약).
+- `writing-agent-ops` — 결과물 서빙 일반 원칙. 이 스킬은 그 예외로 `127.0.0.1` + `tailscale serve`를 고정한다([operations.md](docs/operations.md) §보안 제약).

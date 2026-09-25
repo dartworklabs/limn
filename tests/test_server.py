@@ -1,6 +1,6 @@
-"""pin_server 회귀 테스트 — 포트를 열지 않는다(socketpair 로 핸들러를 직접 돌린다).
+"""Limn 서버(limn/server.py) 회귀 테스트 — 포트를 열지 않는다(socketpair 로 핸들러를 직접 돌린다).
 
-실행: python3 -m unittest discover -s skills/manuscript-pin-picker/tests
+실행: uv run pytest tests/test_server.py
 """
 import importlib.util
 import errno
@@ -18,9 +18,11 @@ from pathlib import Path
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-SKILL = ROOT / "skills" / "manuscript-pin-picker"
-spec = importlib.util.spec_from_file_location("pin_server", SKILL / "scripts" / "pin_server.py")
+ROOT = HERE.parent
+PKG = ROOT / "src" / "limn"
+SKILL_MD = ROOT / "skill" / "SKILL.md"
+DOCS_DIR = ROOT / "docs"
+spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
 
@@ -397,7 +399,7 @@ class CrossOrigin(Base):
         self.assertIn(b" 400 ", out)
 
 
-VENDOR = SKILL / "vendor" / "pdfjs"
+VENDOR = PKG / "vendor" / "pdfjs"
 
 
 class VendorPdfjs(Base):
@@ -416,8 +418,8 @@ class VendorPdfjs(Base):
             self.assertEqual(body, (VENDOR / name).read_bytes())
 
     def test_traversal_and_non_module_names_are_404(self):
-        for path in ("/vendor/pdfjs/../scripts/pin_server.py", "/vendor/pdfjs/..%2f..%2fscripts%2fpin_server.py",
-                     "/vendor/pdfjs/%2e%2e/%2e%2e/scripts/pin_server.py", "/vendor/pdfjs/sub/pdf.min.mjs",
+        for path in ("/vendor/pdfjs/../../server.py", "/vendor/pdfjs/..%2f..%2fserver.py",
+                     "/vendor/pdfjs/%2e%2e/%2e%2e/server.py", "/vendor/pdfjs/sub/pdf.min.mjs",
                      "/vendor/pdfjs/LICENSE", "/vendor/pdfjs/README.md", "/vendor/pdfjs/.pdf.min.mjs",
                      "/vendor/pdfjs/..mjs", "/vendor/pdfjs/", "/vendor/pdfjs//etc/passwd",
                      "/vendor/pdfjs/pdf.min.mjs/", "/vendor/pdfjs/pdf.min.mjs%00.png"):
@@ -2057,7 +2059,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
         # SKILL.md 의 '핀 소비 절차' 닫기 예시가 reply·ref 를 남기도록 바뀌었는지(§C).
-        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        skill = SKILL_MD.read_text(encoding="utf-8")
         self.assertIn('"reply"', skill)
         self.assertIn('"ref"', skill)
         self.assertIn("/close", skill)
@@ -2990,7 +2992,7 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("pullSuffix(b)", ps.HTML)
 
 
-# 모바일(갤럭시 Z 폴드 7 등) — references/design.md §모바일 레이아웃. 실측은 Playwright 로 했고, 여기서는
+# 모바일(갤럭시 Z 폴드 7 등) — docs/design.md §모바일 레이아웃. 실측은 Playwright 로 했고, 여기서는
 # 배포되는 HTML 에 필요한 요소·문구·CSS·이벤트 경로가 있는지와 순수 로직 함수를 node 로 검사한다.
 class FrontendMobileStructure(unittest.TestCase):
     def test_viewport_meta_allows_zoom_and_handles_keyboard_and_notch(self):
@@ -3008,8 +3010,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*aria-label="PDF 재빌드"[^>]*><svg class="ic ic-refresh-cw"[^>]*>(?:(?!</svg>).)*</svg><span class="lbl">PDF 재빌드</span></button>')
         self.assertNotIn("다시 만들기", ps.HTML)
         self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
-        skill = SKILL
-        for doc in [skill / "SKILL.md"] + sorted((skill / "references").glob("*.md")):
+        for doc in [SKILL_MD] + sorted(DOCS_DIR.glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
 
     def test_compact_toolbar_elements_and_more_menu(self):
@@ -3081,7 +3082,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('<img loading="lazy"', ps.HTML)
 
 
-# 벡터 렌더링(references/design.md §벡터 렌더링) — 배포 HTML 에 PDF.js 경로·폴백·가시 영역 렌더·픽셀 상한이 있는지.
+# 벡터 렌더링(docs/design.md §벡터 렌더링) — 배포 HTML 에 PDF.js 경로·폴백·가시 영역 렌더·픽셀 상한이 있는지.
 class FrontendVector(unittest.TestCase):
     def fn(self, name):
         m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
@@ -3248,7 +3249,7 @@ class FrontendVectorLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
 
 
-# PDF 영역 전용 확대(references/design.md §PDF 영역 전용 확대) — 브라우저 확대 입력을 가로채 쪽 폭만 바꾸는지.
+# PDF 영역 전용 확대(docs/design.md §PDF 영역 전용 확대) — 브라우저 확대 입력을 가로채 쪽 폭만 바꾸는지.
 class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
@@ -3394,7 +3395,7 @@ class FrontendMobileLogic(unittest.TestCase):
                          ["첫 줄 &lt;b&gt;", False, '<span class="dim">(메모 없음)</span>', True, True, True, True])
 
 
-# 패널 정리·폭 조절(references/design.md §패널 정리와 폭 조절). 실측은 Playwright(펼친 화면 880×790·접은 화면 412×915·
+# 패널 정리·폭 조절(docs/design.md §패널 정리와 폭 조절). 실측은 Playwright(펼친 화면 880×790·접은 화면 412×915·
 # 데스크톱 1440×900)로 했고, 여기서는 한계·단계·라벨 같은 순수 로직을 node 로, 배치·배선을 HTML 문자열로 본다.
 class FrontendPanelWidthLogic(unittest.TestCase):
     def setUp(self):
@@ -3537,7 +3538,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
         # 펼친 폴드·태블릿(mid): 동작 줄은 패널을 따라다니지 않고 화면 아래 전체 폭에, 탐색 줄은 위 전체 폭에 고정한다
-        # (references/design.md §펼친 화면 레이아웃). 브라우저 실측은 FrontendResponsiveBrowser 에 있다.
+        # (docs/design.md §펼친 화면 레이아웃). 브라우저 실측은 FrontendResponsiveBrowser 에 있다.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
@@ -3562,7 +3563,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
 
 
-# ---------------------------------------------------------------- 디자인 토큰 가드(references/design.md §디자인 토큰)
+# ---------------------------------------------------------------- 디자인 토큰 가드(docs/design.md §디자인 토큰)
 # 색·radius·글자 크기가 규칙마다 제각각이던 것(색 리터럴 54가지, radius 14가지, 글자 12가지)을 토큰 층으로 모았다.
 # 앞으로 규칙에 리터럴을 다시 박으면 여기서 막는다. 예외는 아래 허용 목록 하나이고, 늘리면 design.md 의 표도 함께 고친다.
 TOKEN_SELECTORS = (":root", ":root[data-theme=light]")            # 색 리터럴이 살 수 있는 유일한 곳
@@ -3660,7 +3661,7 @@ class FrontendDesignTokens(unittest.TestCase):
 
 
 
-# ---------------------------------------------------------------- 알림(토스트) — references/design.md §알림
+# ---------------------------------------------------------------- 알림(토스트) — docs/design.md §알림
 # 저자 지적(2026-09-24): 핀을 저장하면 '되돌리기' 알림이 오른쪽 패널에서 너무 먼 왼쪽 아래(1,100px+)에 떴고, 왼쪽 색 띠가
 # 촌스러웠다. 이제 방금 누른 자리(패널 열의 오른쪽 아래, 동작 줄 바로 위 · narrow 는 시트 위)에 sonner 모양으로 뜬다.
 class FrontendToasts(unittest.TestCase):
@@ -3717,7 +3718,7 @@ class FrontendToasts(unittest.TestCase):
                                                           ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"]])
 
 
-# ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(references/design.md §한 겹 담기)
+# ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(docs/design.md §한 겹 담기)
 # 저자 지적(2026-09-24): 테두리 상자 안에 또 테두리 상자를 그리는 방식이 촌스럽다. 담는 층은 하나 — 카드(가는 테두리 하나)
 # 또는 떠 있는 면(대화상자·알림·@목록). 그 안의 배지·버튼·분절 컨트롤·스테퍼·원문·겹침 안내·스레드는 채움·간격·구분선으로만 가른다.
 class FrontendNoNestedOutlines(unittest.TestCase):
@@ -3757,7 +3758,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
             self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
 
 
-# ---------------------------------------------------------------- 뜻·기능 점검(references/design.md §뜻과 모양) + UX QA(2026-09-24)
+# ---------------------------------------------------------------- 뜻·기능 점검(docs/design.md §뜻과 모양) + UX QA(2026-09-24)
 class FrontendSemanticAudit(unittest.TestCase):
     css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
 
@@ -3966,7 +3967,7 @@ class DefaultLabel(unittest.TestCase):
 class LabelValidation(unittest.TestCase):
     def test_strips_and_collapses_whitespace(self):
         self.assertEqual(ps.clean_label("  A-DEMO  "), "A-DEMO")
-        self.assertEqual(ps.clean_label("A\nPPTL"), "A DEMO")
+        self.assertEqual(ps.clean_label("A\nDEMO"), "A DEMO")
 
     def test_empty_becomes_default_placeholder(self):
         self.assertEqual(ps.clean_label(""), "원고")
@@ -4006,7 +4007,7 @@ class AccentValidation(unittest.TestCase):
 class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
         out = ps.build_html("A-DEMO", "#1d4ed8")
-        self.assertIn("<title>A-DEMO · 원고 핀</title>", out)
+        self.assertIn("<title>Limn · A-DEMO</title>", out)
         self.assertIn('id="paper-identity-mark" aria-hidden="true">A</span><span>A-DEMO</span>', out)
         self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
@@ -4040,7 +4041,7 @@ class HtmlTemplateStructure(unittest.TestCase):
     치환값과 무관하게 항상 참이어야 한다."""
 
     def test_title_has_label_placeholder(self):
-        self.assertIn("<title>__LABEL__ · 원고 핀</title>", ps.HTML)
+        self.assertIn("<title>Limn · __LABEL__</title>", ps.HTML)
 
     def test_favicon_placeholder(self):
         self.assertIn('<link rel="icon" href="__FAVICON_HREF__">', ps.HTML)
@@ -4061,7 +4062,7 @@ class HtmlTemplateStructure(unittest.TestCase):
     def test_document_title_prefixes_label(self):
         # 여러 문서면 메인 파일 이름 대신 문서 이름(META.doc_name)을 쓴다 — 이름표 접두는 그대로다.
         self.assertIn(
-            "if(META)document.title=(META.label?META.label+' · ':'')+'원고 핀 · '+(multiDoc()?META.doc_name||META.main:META.main)"
+            "if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
             "+' · 열린 '+PINS.length;",
             ps.HTML)
 
@@ -4650,7 +4651,7 @@ def html_without_comments(h: str) -> str:
 
 
 class FrontendIcons(unittest.TestCase):
-    VENDOR = SKILL / "vendor" / "lucide"
+    VENDOR = PKG / "vendor" / "lucide"
 
     def test_vendor_license_and_readme_record_version_and_icons(self):
         lic = (self.VENDOR / "LICENSE").read_text(encoding="utf-8")
@@ -5022,13 +5023,13 @@ class ClaimEtaDocs(unittest.TestCase):
     """SKILL.md 핀 처리 절차가 '고치기 직전에 그 핀만 claim, eta_min 에 견적'을 가르치는지."""
 
     def test_skill_claim_step_teaches_single_pin_and_estimate(self):
-        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        skill = SKILL_MD.read_text(encoding="utf-8")
         self.assertIn("고치기 직전에 그 핀만 claim", skill)
         self.assertIn('"eta_min"', skill)
         for row in ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"):
             self.assertIn(row, skill)
         self.assertNotIn("⏳", skill)
-        api = (SKILL / "references" / "api.md").read_text(encoding="utf-8")
+        api = (DOCS_DIR / "api.md").read_text(encoding="utf-8")
         self.assertIn("`eta_min` | 1..240", api)
         self.assertIn("`ttl_min` | 1..120", api)
         self.assertIn("min(120, max(30, eta_min×2))", api)
@@ -5100,7 +5101,7 @@ class BadgeWording(Base):
         self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
 
     def test_skill_symbol_table_uses_words(self):
-        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        skill = SKILL_MD.read_text(encoding="utf-8")
         table = skill[skill.index("### 번호 칸의 표시"):skill.index("### 규칙")]
         for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
                     "| `수정됨` |", "| `위치 잃음` |"):
@@ -5110,7 +5111,7 @@ class BadgeWording(Base):
 
 class FrontendToolbarOneRow(unittest.TestCase):
     """1400px 데스크톱(기본 430px 패널)에서 긴 이름표('Long-DemoPaper1')여도 도구 줄이 한 줄이다(Playwright 실측,
-    references/design.md §디자인 토큰 · 도구 줄). [핀 다시 읽기]는 열린 핀 목록 머리로 옮겼고 compact 에서는 [더보기] 안에 있다."""
+    docs/design.md §디자인 토큰 · 도구 줄). [핀 다시 읽기]는 열린 핀 목록 머리로 옮겼고 compact 에서는 [더보기] 안에 있다."""
 
     def test_reload_lives_in_list_head_not_toolbar(self):
         bar = ps.HTML[ps.HTML.index('<div class="bar" id="bar1"'):ps.HTML.index('<div class="bar" id="bar2"')]
@@ -5501,7 +5502,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertTrue(page.locator('#docs-menu').is_visible())
 
 
-# ---------------------------------------------------------------- 핀 종류(수정 요청/질문)·스레드·답글(references/api.md §스레드)
+# ---------------------------------------------------------------- 핀 종류(수정 요청/질문)·스레드·답글(docs/api.md §스레드)
 # A-DEMO 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었다(#30 '구간이 0을 포함한다는 게 뭐지?' 등). 답을 남길 곳이 닫기 사유 한 칸뿐이라
 # 되물을 수 없었다. kind_req 로 종류를 가르고, 핀마다 thread 를 두어 사람·에이전트가 주고받는다. 새 필드는 모두 선택이다.
 class KindAndThread(Base):
@@ -5716,7 +5717,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)
 
 
-# ---------------------------------------------------------------- 검토 대기(references/api.md §검토 대기)
+# ---------------------------------------------------------------- 검토 대기(docs/api.md §검토 대기)
 # 에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 에이전트(신원 헤더 없음)가
 # 닫으면 done=true·review=true(검토 대기), 테일넷 사람이 닫으면 바로 완료다. review 가 없는 옛 done:true 는 그대로 완료다.
 class ReviewState(Base):
@@ -5902,7 +5903,7 @@ class FrontendReview(unittest.TestCase):
         self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
 
 
-# ---------------------------------------------------------------- [변경 보기](references/design.md §변경 보기)
+# ---------------------------------------------------------------- [변경 보기](docs/design.md §변경 보기)
 class FrontendChangeView(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
@@ -5947,7 +5948,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # 접은 폴드에서도 열린다
 
 
-# ---------------------------------------------------------------- @태그·people.json·events.jsonl(references/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- @태그·people.json·events.jsonl(docs/api.md §@태그·사람·이벤트)
 class MentionsPeopleEvents(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
     W = {"login": "alice@example.com", "name": "Alice Kim"}
@@ -6079,7 +6080,7 @@ class MentionsPeopleEvents(Base):
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
-    # ---- 담당(assignee) — references/api.md §담당. 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43).
+    # ---- 담당(assignee) — docs/api.md §담당. 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
         ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
@@ -6304,7 +6305,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # 자동 완성이 Enter·Esc 를 먼저 받는다(capture)
 
 
-# ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+# ---------------------------------------------------------------- 브라우저 알림(docs/design.md §브라우저 알림)
 class FrontendSpacingGrid(unittest.TestCase):
     """간격(padding·margin·gap)은 4/8px 격자다(4·8·12·16·24). 1–2px 는 머리카락 선·광학 보정이라 둔다(배지 위아래 1px 등).
     예전에는 6·10·14·18px 같은 자리 값이 섞여 있었다(격자 정리 QA 2026-09-25)."""

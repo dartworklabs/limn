@@ -76,7 +76,7 @@ pin-viewer add paper2 --manuscript ~/Codes/paper2 --label Paper2
 
 논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소
 하나로 띄우고 탭으로 전환한다. 서버 쪽 계약(`--doc` 인자, 키·경로 규칙, 상태 폴더 배치)의 정본은
-`manuscript-pin-picker` 스킬의 `references/operations.md` §여러 문서다 — 여기서는 `pin-viewer` CLI
+`manuscript-pin-picker` 스킬의 `docs/operations.md` §여러 문서다 — 여기서는 `pin-viewer` CLI
 쪽 사용법만 적는다.
 
 ```bash
