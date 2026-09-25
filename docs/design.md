@@ -344,10 +344,12 @@ UI 는 일치율이 90% 이상이면 아무것도 붙이지 않고, 낮을 때�
 | --- | --- |
 | radius | `--radius-sm` 4px(배지·kbd·작은 막대) · `--radius` 6px(버튼·입력·툴팁) · `--radius-lg` 10px(카드·대화상자·시트 모서리·셈 알약). 원형 점·아바타·스피너만 `50%`, 모서리를 없앨 때만 `0` |
 | 글자 | `--text-xs` 11px(배지·쪽 번호) · `--text-sm` 12px(작은 버튼·보조 글자) · `--text-base` 13px(버튼·입력·알림) · `--text-lg` 14px(본문, 터치 버튼) · `--text-xl` 16px(대화상자 제목, 터치 입력 — iOS 확대 방지) |
-| 간격 | `--space-1..6` = 4·8·12·16·20·24px. gap·padding 의 해당 값은 토큰으로 썼다(6px·10px·음수 margin 같은 자리 값은 그대로) |
+| 간격 | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap 은 모두 이 격자다(격자 정리 2026-09-25 — 6·10·14·18·22px 같은 자리 값을 4/8 격자로 옮겼다. 1–2px 머리카락 선·광학 보정과 음수 margin 은 둔다). 가드 `FrontendSpacingGrid` |
 | 컨트롤 높이 | `--control-h-sm` 24 · `--control-h` 28(도구 줄 `--tb-h`) · `--control-h-lg` 36(동작 줄) · `--control-h-touch` 44 |
 | 그림자 | `--shadow-sm`·`--shadow`·`--shadow-lg` |
 | 글꼴 | `--font-sans`·`--font-mono` |
+
+격자 정리(2026-09-25)에서 눈에 띄게 달라진 것과 그대로 둔 것: 기본 버튼 좌우 10→12px, 배지 좌우 6→8px, 입력 칸 위아래 6→8px, 분절 컨트롤 틀 3→4px, 쪽 사이 18→16px. 데스크톱 [PDF 재빌드]는 8px 로 넓히면 348px 기본 패널에서 [?]가 둘째 줄로 떨어져 좌우 4px 로 두었다. 보관함 첫 줄 틈은 4px 이고 줄 범위(`.loc`)는 줄어들지 않는다 — 긴 참조(`paper PR #236; code P…`) 옆에서 `L890-L897` 이 `L89` 로 잘렸다(격자 정리 전에도 있던 문제, 폴드에서 발견). 세 폭·두 테마 전후 스크린샷을 짝지어 비교했다.
 
 ### 컴포넌트
 
@@ -390,7 +392,7 @@ UI 는 일치율이 90% 이상이면 아무것도 붙이지 않고, 낮을 때�
 | 파비콘 SVG(`favicon_href`) | `fill="#ffffff"` 등 | CSS 밖의 data URI 이미지다 |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF 의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide 는 `currentColor` 라 글자색을 따른다) |
-| 간격·크기의 자리 값(6px·10px, 폭·높이, 음수 margin, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 가드는 색·radius·글자만 막는다 |
+| 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px 만 둔다 |
 
 가드: `tests/test_pin_server.py` 의 `FrontendDesignTokens` 가 인라인 CSS 를 파싱해 토큰 블록 밖의 색 리터럴, 척도 밖의 radius·font-size, 인라인 `style`·JS 의 색·글자 리터럴, 정의되지 않은 `var()`(JS 가 넣는 `--kb`·`--vvh`·`--side-w`·`--sheet-f`·`--stick-top` 제외), 두 테마의 색 토큰 불일치를 막는다. 예외를 늘리면 위 표와 테스트의 허용 목록을 함께 고친다.
 

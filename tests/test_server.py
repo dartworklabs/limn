@@ -3511,7 +3511,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
         self.assertIn('<div class="step" role="group"', ps.HTML)
-        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 18px);overflow:hidden}", css)
+        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)   # 4줄 + 위아래 8px 여백
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
         # narrow 시트에서는 메모 칸이 원문보다 위(동작 줄 밑에 숨지 않게)
@@ -5158,7 +5158,7 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
         # '쪽' 한 글자 칸은 버튼처럼 읽혔다(QA 2026-09-24) — 입력 칸답게 왼쪽 정렬 '쪽 이동'. 높이·글자 크기는 버튼과 같다.
-        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 6px;font-size:var(--text-base);", css)
+        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
@@ -6305,6 +6305,20 @@ class FrontendMentions(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+class FrontendSpacingGrid(unittest.TestCase):
+    """간격(padding·margin·gap)은 4/8px 격자다(4·8·12·16·24). 1–2px 는 머리카락 선·광학 보정이라 둔다(배지 위아래 1px 등).
+    예전에는 6·10·14·18px 같은 자리 값이 섞여 있었다(격자 정리 QA 2026-09-25)."""
+    def test_spacing_is_on_the_grid(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        bad = []
+        for m in re.finditer(r"(?<![\w-])((?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)?)\s*:\s*([^;{}]+)", css):
+            for n in re.findall(r"(?<![\w.-])(\d+(?:\.\d+)?)px", m.group(2)):
+                x = float(n)
+                if x % 4 and x not in (1, 2) and "--side-w" not in m.group(2):
+                    bad.append(m.group(0))
+        self.assertEqual(bad, [])
+
+
 class FrontendMentionPopPlacement(unittest.TestCase):
     """@목록 자리(mentionTop): 입력 칸 밑 동작 줄([취소][보내기])을 가리지 않는다(QA 2026-09-25 — 답글 칸에서 목록이 두 버튼을 덮었다)."""
     def setUp(self):
