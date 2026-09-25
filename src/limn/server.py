@@ -197,7 +197,8 @@ ASSIGNEE_AGENT = "agent"
 MENTION_MAX = 10                   # cap on mention hints per post
 PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
 EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
+EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
+TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
 GIT_PULL_TIMEOUT = 30              # seconds - one fetch for --git-pull (§P0c-E)
 REVISION_DIFF_MAX = 256 * 1024     # response/memory cap. Review large changes in the repo instead.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
@@ -3018,13 +3019,14 @@ def pins_payload(rows: list, allp: bool) -> list:
     return out
 
 
-def dropped_payload() -> list:
-    """GET /api/pins/dropped response: pins.dropped.jsonl emitted as-is, ordered by dropped_at (no computed fields).
+def dropped_payload(now: float = None) -> list:
+    """GET /api/pins/dropped response - the Trash: pins.dropped.jsonl emitted as-is, ordered by dropped_at (no computed
+    fields), without entries older than TRASH_DAYS (hidden here, removed from the file by the next purge_trash()).
 
     Read-only and outside the lock - dropping/restoring already hold PIN_LOCK while writing this file
     (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
     read here, no separate lock is needed to avoid seeing a half-written file."""
-    rows, _ = read_jsonl(C.dropped)
+    rows = _unexpired(read_jsonl(C.dropped)[0], now)
     rows.sort(key=lambda r: str(r.get("dropped_at") or ""))
     return [public(r) for r in rows]
 
@@ -3952,7 +3954,7 @@ def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list, old_n
     evs.append(make_event("mention", r, actor, [lg for lg in new if now[lg] > before[lg]], text=r.get("note")))
 
 
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
+NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 EVENTS_SINCE_MAX = 20
 
 
@@ -3995,21 +3997,56 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 """
 
 
-def reply_pin(pid: int, text: str, actor: dict, hints=None):
-    """One reply (from a person or an agent). Never changes state - for a question pin, an agent replies and then closes it separately.
-    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions: everyone
-    this post tags gets a mention event (whether or not they were tagged before), and the author plus everyone
-    previously tagged on this pin who is not tagged here gets a replied event. The poster themself gets neither."""
+def reply_reopens(r: dict, human: bool, mentioned, reopen=None) -> bool:
+    """Does a reply reopen this pin? The one rule behind the viewer's single [Reply] (docs/handbook/api.md §스레드 (답글)).
+
+    An open pin never changes. Otherwise an explicit `reopen` (true/false, from the request) decides; without one, a
+    human's reply on a pin awaiting review or done reopens it - the reply becomes the rework instruction - unless it
+    tags a person (then it is a conversation with that person) or the pin is a question (then the reply is an answer).
+    An agent's reply never reopens by the rule. `mentioned` is the post's resolved @-tags without the poster.
+    The viewer's preview (replyReopens) mirrors this function."""
+    if pin_state(r) == "open":
+        return False
+    if reopen is not None:
+        return bool(reopen)
+    if r.get("kind_req") == "question" or not human:
+        return False
+    return not mentioned
+
+
+def clean_reopen_flag(d: dict):
+    """The reply body's optional reopen - true/false overrides the rule, absent (None) lets the server decide."""
+    v = d.get("reopen")
+    if v is not None and not isinstance(v, bool):
+        raise HTTPError(400, "reopen 은 true/false 입니다(없으면 서버 규칙을 따릅니다).")
+    return v
+
+
+def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None, human=None):
+    """One reply (from a person or an agent). Returns (pin, msg); an unknown id returns (None, None).
+
+    Whether it also reopens the pin is decided here by reply_reopens() - the viewer only previews it. `human` is
+    whether the poster is a person (the handler also counts a person with the agent role as an agent); None means
+    "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
+    (ev=reopen, the same events), so the pin returns to the open table of pins.md with that reason. Otherwise it is
+    a plain reply: 409 if the thread is full; every @-tag in it is a mention event (whether or not tagged before),
+    and the author plus everyone previously tagged on this pin who is not tagged here gets a replied event. The
+    poster themself gets neither."""
     evs = []
+    human = (not is_agent(actor)) if human is None else human
 
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
             return (None, None), False
+        ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
+        if reply_reopens(r, human, ment, reopen):
+            msg = _reopen(r, rows, actor, text, hints, evs)
+            r["rev"] = int(r.get("rev") or 0) + 1
+            return (public(r), msg), True
         if len(thread_replies(r)) >= THREAD_MAX:
             raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
         before = pin_mentions_all(r)
-        ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
         msg = _thread_append(r, actor, text, mentions=ment)
         r["rev"] = int(r.get("rev") or 0) + 1
         # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
@@ -4079,26 +4116,36 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 evs.append(make_event("review_requested", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
             _clear_claim(r)                       # closing also clears the in-progress claim (§P0c-C)
         else:
-            was_done = bool(r.get("done"))
-            r["done"] = False
-            r["reopened_at"] = now_str()
-            r["reopened_by"] = who(actor)
-            r.pop("close_reply", None)
-            r.pop("close_ref", None)
-            for k in ("review", "confirmed_by", "confirmed_at"):
-                r.pop(k, None)
-            if was_done:
-                ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
-                msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
-                evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
-                evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
-                                                             if lg not in ment], msg=msg))
+            _reopen(r, rows, actor, reason, hints, evs)
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     with PIN_LOCK:
         out = transact(fn)[1]
         emit_events(evs)
     return out
+
+
+def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list):
+    """Reopens r in place (inside transact): clears the review/confirm record and the old close reason so the next
+    close fills them in fresh, and - if the pin was closed - records the reason in the thread (ev=reopen) and queues a
+    mention for everyone it @-tags and reopened for the author. Shared by POST /reopen and a reopening reply.
+    Returns the thread message, or None for an already open pin (nothing is recorded then)."""
+    was_done = bool(r.get("done"))
+    r["done"] = False
+    r["reopened_at"] = now_str()
+    r["reopened_by"] = who(actor)
+    r.pop("close_reply", None)
+    r.pop("close_ref", None)
+    for k in ("review", "confirmed_by", "confirmed_at"):
+        r.pop(k, None)
+    if not was_done:
+        return None
+    ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
+    msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
+    evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
+    evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
+                                                 if lg not in ment], msg=msg))
+    return msg
 
 
 def confirm_pin(pid: int, actor: dict):
@@ -4129,7 +4176,12 @@ def confirm_pin(pid: int, actor: dict):
 
 
 def drop_pin(pid: int, actor: dict) -> bool:
-    """Removes a pin from pins.jsonl and moves it to pins.dropped.jsonl. restore brings the same id back."""
+    """Removes a pin from pins.jsonl and moves it to the Trash (pins.dropped.jsonl). restore brings the same id back.
+
+    The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
+    Trash entries are purged in the same write (purge_trash)."""
+    evs = []
+
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -4138,9 +4190,63 @@ def drop_pin(pid: int, actor: dict) -> bool:
         _clear_claim(r)                           # a claim is never left behind on delete either (§P0c-C)
         gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
         old, _ = read_jsonl(C.dropped)
-        atomic_write(C.dropped, dump_jsonl(old + [gone]))
+        atomic_write(C.dropped, dump_jsonl(_unexpired(old) + [gone]))
+        evs.append(make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
         return True, True
-    return transact(fn)[1]
+    with PIN_LOCK:
+        out = transact(fn)[1]
+        emit_events(evs)
+    return out
+
+
+# ---------------------------------------------------------------- Trash (pins.dropped.jsonl, docs/handbook/domain.md §전이와 할 수 있는 쪽)
+#
+# A dropped pin stays restorable for TRASH_DAYS, counted from dropped_at (local time, like every *_at string). Reading
+# never writes: GET /api/pins/dropped only hides expired entries; the file is rewritten without them at startup, on
+# every drop/restore, and by the owner's permanent delete. An entry without a readable dropped_at is kept - its age
+# cannot be known, and guessing would delete data. ids stay reserved in pins.seq, so a purged number is never reused.
+
+def trash_expired(r: dict, now: float = None) -> bool:
+    try:
+        t = time.mktime(time.strptime(str(r.get("dropped_at") or ""), "%Y-%m-%d %H:%M:%S"))
+    except (ValueError, OverflowError):
+        return False
+    return (time.time() if now is None else now) - t > TRASH_DAYS * 86400
+
+
+def _unexpired(rows: list, now: float = None) -> list:
+    return [r for r in rows if not trash_expired(r, now)]
+
+
+def purge_trash(now: float = None) -> int:
+    """Rewrites pins.dropped.jsonl without the entries older than TRASH_DAYS. Returns how many went (0 = no write)."""
+    with PIN_LOCK:
+        rows, bad = read_jsonl(C.dropped)
+        keep = _unexpired(rows, now)
+        n = len(rows) - len(keep)
+        if n:
+            if bad:                                   # never drop unreadable lines silently - keep the original bytes
+                shutil.copy2(C.dropped, unique_path("pins.dropped.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
+            atomic_write(C.dropped, dump_jsonl(keep))
+    if n:
+        print("trash: purged %d pin(s) deleted more than %d days ago" % (n, TRASH_DAYS), file=sys.stderr)
+        sys.stderr.flush()
+    return n
+
+
+def purge_pin(pid: int, actor: dict) -> int:
+    """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
+    404 if the pin is not in the Trash - an open or closed pin must be dropped first. Leaves a `purged` audit event
+    (to: [], like `cleared`) and a log line, since it cannot be undone."""
+    with PIN_LOCK:
+        rows, _ = read_jsonl(C.dropped)
+        if not any(r.get("id") == pid for r in _unexpired(rows)):
+            raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
+        atomic_write(C.dropped, dump_jsonl(_unexpired([r for r in rows if r.get("id") != pid])))
+        emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
+    print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
+    sys.stderr.flush()
+    return pid
 
 
 # ---------------------------------------------------------------- In-progress marker (claim, §P0c-C)
@@ -4256,13 +4362,13 @@ def restore_pin(pid: int, actor: dict) -> dict:
     with PIN_LOCK:                                   # RLock - bundles transact and cleaning up the dropped record together
         rec = transact(lambda rows: _restore(rows, pid, actor))[1]
         old, _ = read_jsonl(C.dropped)
-        atomic_write(C.dropped, dump_jsonl([r for r in old if r.get("id") != pid]))
+        atomic_write(C.dropped, dump_jsonl(_unexpired([r for r in old if r.get("id") != pid])))
         return rec
 
 
 def _restore(rows: list, pid: int, actor: dict):
     old, _ = read_jsonl(C.dropped)
-    hits = [r for r in old if r.get("id") == pid]
+    hits = [r for r in _unexpired(old) if r.get("id") == pid]
     if not hits:
         raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
     if find_pin(rows, pid) is not None:
@@ -4926,6 +5032,7 @@ LOOPBACK_AGENT_DEPRECATION = ("a request from loopback without an identity heade
 TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
                       "보내세요(`limn token create <인스턴스>`).")
 OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
+OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")   # permanent delete from the Trash (v0.2.2): only the owner
 UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
 
 
@@ -5330,14 +5437,16 @@ def admit(p: Principal, host, headers=None) -> None:
 def check_role(p: Principal, path: str) -> None:
     """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
     run computations (/api/pick, /api/revision-build); an agent may do everything but confirm; editor and owner may
-    do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear), which only the owner may
-    call (v0.2.1). Other owner-only operations - members, tokens, settings - are CLI/file level."""
+    do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
+    delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call. Other owner-only operations - members, tokens, settings - are CLI/file level."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
         raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.")
     if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
         raise HTTPError(403, CONFIRM_BY_HUMAN)
     if path in OWNER_POSTS and p.role != "owner":
         raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.")
+    if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
+        raise HTTPError(403, "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % TRASH_DAYS)
 
 
 # ---------------------------------------------------------------- Viewer
@@ -9060,12 +9169,15 @@ class Handler(BaseHTTPRequestHandler):
         return self._post_doc(actor, path, u, d)
 
     def _post_doc(self, actor, path, u, d):
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|edit|claim|unclaim|reply|confirm)", path)
+        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)
             if act == "reply":
-                pin, msg = reply_pin(pid, clean_thread_text(d.get("text")), actor, clean_mention_hints(d.get("mentions")))
-                return self._json({"ok": pin is not None, "pin": pin, "msg": msg})
+                text, hints, reopen = clean_thread_text(d.get("text")), clean_mention_hints(d.get("mentions")), clean_reopen_flag(d)
+                human = not is_agent(actor) and self.principal.role != "agent"
+                pin, msg = reply_pin(pid, text, actor, hints, reopen=reopen, human=human)
+                return self._json({"ok": pin is not None, "pin": pin, "msg": msg, "state": pin_state(pin) if pin else None,
+                                   "reopened": bool(msg and msg.get("ev") == "reopen")})
             if act == "confirm":
                 pin = confirm_pin(pid, actor)
                 return self._json({"ok": pin is not None, "pin": pin, "state": pin_state(pin) if pin else None})
@@ -9073,6 +9185,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": drop_pin(pid, actor)})
             if act == "restore":
                 return self._json({"ok": True, "pin": restore_pin(pid, actor)})
+            if act == "purge":                    # owner only (check_role)
+                return self._json({"ok": True, "purged": purge_pin(pid, actor)})
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
             if act == "claim":
@@ -9488,6 +9602,7 @@ def main() -> None:
 
     set_docs(docs)
     init_seq()
+    purge_trash()                    # Trash entries older than TRASH_DAYS go at startup (and on every drop/restore)
     if not docs:
         migrate_pages()
         seed_builds()                # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
