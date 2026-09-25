@@ -260,6 +260,7 @@ class Cfg:
     # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
     auth: str = "tailscale"         # identity provider: tailscale | local | trusted-proxy
     agent_loopback: bool = True     # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
+    tailnet_agent: bool = False     # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
     bind: str = "127.0.0.1"
     public_hosts: tuple = ()        # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
     trusted_proxies: tuple = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
@@ -4276,12 +4277,24 @@ def _restore(rows: list, pid: int, actor: dict):
     return public(rec), True
 
 
-def clear_pins() -> None:
-    """Archives everything to .bak and clears it. pins.seq is untouched, so ids keep incrementing."""
+CLEAR_CONFIRM = "clear all pins"
+
+
+def clear_pins(actor: dict = None) -> dict:
+    """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
+    Records a `cleared` event (who, how many, which archive) and a log line - the only bulk-destructive operation,
+    so it always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
     with PIN_LOCK:
+        n, archive = len(read_pins()[0]), None
         if C.pins_jsonl.exists():                    # clearing twice in the same second never overwrites the earlier archive
-            C.pins_jsonl.rename(unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak"))
+            dest = unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak")
+            C.pins_jsonl.rename(dest)
+            archive = dest.name
         render_pins_md([])
+        emit_events([{"type": "cleared", "to": [], "by": who(actor or LOCAL_ACTOR), "n": n, "archive": archive}])
+    print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
+    sys.stderr.flush()
+    return {"cleared": n, "archive": archive}
 
 
 def ceil5(minutes: float) -> int:
@@ -4899,6 +4912,9 @@ NAME_MAX = 100
 LOOPBACK_AGENT_DEPRECATION = ("a request from loopback without an identity header or token is treated as the agent - "
                               "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
                               "and turn it off with --no-agent-loopback (AGENT_LOOPBACK=0)")
+TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
+                      "보내세요(`limn token create <인스턴스>`).")
+OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
 UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
 
 
@@ -5238,17 +5254,28 @@ def identify(headers, peer) -> Principal:
                 raise HTTPError(401, UNAUTHENTICATED)
             return Principal(a, role_of(a["login"]), "header")
         if C.agent_loopback:
+            if not host_is_loopback(headers.get("Host")) and not C.tailnet_agent:
+                # tailscale serve connects from loopback too, but keeps the tailnet Host. Without identity headers
+                # that is a tagged device (or anything else behind the proxy) - never the local agent (v0.2.1).
+                raise HTTPError(403, TAILNET_HEADERLESS)
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
     raise HTTPError(401, UNAUTHENTICATED)
+
+
+def host_is_loopback(host) -> bool:
+    """Did the request name this machine (a loopback Host, or none at all as in HTTP/1.0)? A *.ts.net or
+    --public-host name means it arrived through a proxy such as tailscale serve."""
+    name, _ = split_host(host or "")
+    return not host or not str(host).strip() or name in LOOPBACK
 
 
 def admit(p: Principal, host) -> None:
     """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
     admits logins in people.json or --allow; otherwise --allow (if set) admits only its logins. Without either,
     everyone the provider identifies is admitted (and recorded in people.json as an editor on first visit).
-    Tokens and the local owner are always admitted. A headerless request through *.ts.net (a tagged device) is
-    refused when a list is configured, exactly as in v0.1."""
+    Tokens and the local owner are always admitted. A headerless request through *.ts.net (a tagged device) never gets
+    here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a list is configured, as in v0.1."""
     login = p.actor.get("login")
     if p.via == "header":
         if C.members_only:
@@ -5265,11 +5292,14 @@ def admit(p: Principal, host) -> None:
 def check_role(p: Principal, path: str) -> None:
     """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
     run computations (/api/pick, /api/revision-build); an agent may do everything but confirm; editor and owner may
-    do everything a person could in v0.1. (Owner-only operations - members, tokens, settings - are CLI/file level.)"""
+    do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear), which only the owner may
+    call (v0.2.1). Other owner-only operations - members, tokens, settings - are CLI/file level."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
         raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.")
     if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
         raise HTTPError(403, CONFIRM_BY_HUMAN)
+    if path in OWNER_POSTS and p.role != "owner":
+        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.")
 
 
 # ---------------------------------------------------------------- Viewer
@@ -8949,9 +8979,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(pick(d))
         if path == "/api/pin":
             return self._json({"id": add_pin(d, actor)})
-        if path == "/api/clear":
-            clear_pins()
-            return self._json({"ok": True})
+        if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
+            if d.get("confirm") != CLEAR_CONFIRM:
+                raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
+                                % CLEAR_CONFIRM)
+            return self._json(dict(clear_pins(actor), ok=True))
         if path == "/api/revision-build":
             if set(d) - {"commit", "doc"}:
                 raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
@@ -9105,6 +9137,12 @@ def configure_access(a) -> None:
                  "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>"
                  % (C.auth, C.bind))
     C.agent_loopback = loopback_agent_possible and a.agent_loopback is not False
+    if a.tailnet_agent and not C.agent_loopback:
+        sys.exit("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
+                 "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
+                 "--bind %s%s). Give agents a token instead: limn token create <instance>"
+                 % (C.auth, C.bind, ", --no-agent-loopback" if a.agent_loopback is False else ""))
+    C.tailnet_agent = bool(a.tailnet_agent)
     try:
         C.public_hosts = parse_public_hosts(a.public_host)
         C.trusted_proxies = parse_networks(a.trusted_proxies)
@@ -9132,6 +9170,8 @@ def access_log_lines() -> list:
         parts.append("user header %s" % C.proxy_user_header)
     parts.append("tokens %d" % len(load_tokens(C.state)))
     parts.append("loopback agent %s" % ("on (deprecated)" if C.agent_loopback else "off"))
+    if C.agent_loopback:                          # only meaningful where the loopback agent exists
+        parts.append("tailnet agent %s" % ("on (deprecated)" if C.tailnet_agent else "off"))
     parts.append("members-only %s" % ("on" if C.members_only else "off"))
     if C.public_hosts:
         parts.append("public hosts %s" % ",".join(n + (":%d" % p if p else "") for n, p in C.public_hosts))
@@ -9147,6 +9187,10 @@ def access_log_lines() -> list:
                    "authenticating proxy, or bind 127.0.0.1 and use tailscale serve !!!" % (C.auth, C.bind))
     if C.agent_loopback:
         out.append("warning     " + LOOPBACK_AGENT_DEPRECATION)
+    if C.tailnet_agent:
+        out.append("warning     --tailnet-agent: a headerless request through tailscale serve (a tagged device) is treated "
+                   "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
+                   "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT")
     return out
 
 
@@ -9172,7 +9216,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-build", action="store_true", help="Don't rebuild on startup")
     ap.add_argument("--allow", default="",
                     help="Allowed logins (comma-separated). Everyone is allowed if empty. A loopback "
-                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no identity header (a tag device) is denied")
+                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no "
+                         "identity header (a tag device) is denied (with or without this option, unless --tailnet-agent)")
     ap.add_argument("--no-origin-check", action="store_true",
                     help="Turns off Host/Origin checking (DNS rebinding/CSRF defense). Use only when tailscale "
                          "serve passes an unexpected Host/Origin and the UI gets a 403")
@@ -9202,6 +9247,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     lb.add_argument("--agent-loopback", dest="agent_loopback", action="store_const", const=True,
                     help="Explicitly keep the deprecated headerless loopback agent. Refuses to start where it cannot "
                          "apply (--auth local or trusted-proxy, or a non-loopback --bind)")
+    acc.add_argument("--tailnet-agent", action="store_true",
+                     help="Also treat a headerless request that arrives through tailscale serve (Host *.ts.net or a "
+                          "--public-host, e.g. from a tagged device) as the agent, as v0.2.0 did. Off by default: such "
+                          "requests get 403 and remote agents use a token. Needs the loopback agent (deprecated)")
     acc.add_argument("--bind", default="127.0.0.1",
                      help="Listen address (default 127.0.0.1). A non-loopback address needs --auth trusted-proxy or "
                           "--i-know-this-is-insecure")

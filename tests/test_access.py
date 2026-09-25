@@ -264,7 +264,8 @@ class StartupRules(AccessBase):
     def test_defaults_are_v01(self):
         log = self.configure()
         self.assertEqual((ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False))
-        self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · members-only off")
+        self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · "
+                                 "members-only off")
         self.assertTrue(any(l.startswith("warning     ") and "deprecated" in l for l in log))
 
     def test_no_agent_loopback(self):
@@ -673,15 +674,17 @@ class PublicHost(AccessBase):
         self.assertFalse(ps.host_ok("limn.example.com"))                                     # nothing without the option
 
     def test_requests_and_pins_md_base(self):
+        # A headerless request under a public host is not the loopback agent (v0.2.1) - a person or a token is needed.
         code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            {"Host": "limn.example.com", "Origin": "https://limn.example.com"})
+                            dict(ALICE, Host="limn.example.com", Origin="https://limn.example.com"))
         self.assertEqual(code, 200)
         code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            {"Host": "limn.example.com", "Origin": "https://evil.example.com"})
+                            dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"))
         self.assertEqual(code, 403)
+        _, tok = ps.token_create(ps.C.state, "ci")
         self.assertEqual(ps.remote_base_for("limn.example.com"), "https://limn.example.com")
         self.assertEqual(ps.remote_base_for("alt.example.com:8443"), "https://alt.example.com:8443")
-        code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"})
+        code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"}, token=tok)
         self.assertEqual(code, 200)
         self.assertIn("https://limn.example.com/api/pins/N/close", md)
         self.assertIn("원격: `curl -s https://limn.example.com/pins.md`", md)

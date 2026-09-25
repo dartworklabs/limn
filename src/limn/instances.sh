@@ -42,7 +42,7 @@
 #   limn token create|list|revoke <name> … agent API tokens; limn member add|list|remove|role <name> … roles
 #                                          (Python, see limn help — they edit the instance's state dir)
 #
-# Access control (v0.2, docs/handbook/instances.md §설정 키): AUTH, AGENT_LOOPBACK, BIND, PUBLIC_HOSTS,
+# Access control (v0.2, docs/handbook/instances.md §설정 키): AUTH, AGENT_LOOPBACK, TAILNET_AGENT, BIND, PUBLIC_HOSTS,
 # TRUSTED_PROXIES, PROXY_USER_HEADER/PROXY_NAME_HEADER/PROXY_EMAIL_HEADER, MEMBERS_ONLY, LOCAL_USER map to
 # the server flags of the same meaning. Unset keys add no flag, so a v0.1 config runs exactly as before.
 #
@@ -182,6 +182,7 @@ load() { # load <name>
     # Access control (v0.2). All optional — a v0.1 config sets none of them and runs exactly as before.
     C_AUTH=$(env_get "$f" AUTH)
     C_AGENT_LOOPBACK=$(env_get "$f" AGENT_LOOPBACK)
+    C_TAILNET_AGENT=$(env_get "$f" TAILNET_AGENT)
     C_BIND=$(env_get "$f" BIND)
     C_PUBLIC_HOSTS=$(env_get "$f" PUBLIC_HOSTS)
     C_TRUSTED_PROXIES=$(env_get "$f" TRUSTED_PROXIES)
@@ -196,6 +197,7 @@ load() { # load <name>
 emit_access() {
     emit AUTH "$C_AUTH"
     emit AGENT_LOOPBACK "$C_AGENT_LOOPBACK"
+    emit TAILNET_AGENT "$C_TAILNET_AGENT"
     emit BIND "$C_BIND"
     emit PUBLIC_HOSTS "$C_PUBLIC_HOSTS"
     emit TRUSTED_PROXIES "$C_TRUSTED_PROXIES"
@@ -227,6 +229,7 @@ access_args() {
     local auth=${C_AUTH:-tailscale} bind=${C_BIND:-127.0.0.1} loop=1 h
     [[ -z "$C_AUTH" ]] || valid_auth "$C_AUTH" || die "AUTH must be tailscale, local or trusted-proxy: '$C_AUTH'"
     [[ -z "$C_AGENT_LOOPBACK" || "$C_AGENT_LOOPBACK" == 0 || "$C_AGENT_LOOPBACK" == 1 ]] || die "AGENT_LOOPBACK must be 0 or 1: '$C_AGENT_LOOPBACK'"
+    [[ -z "$C_TAILNET_AGENT" || "$C_TAILNET_AGENT" == 0 || "$C_TAILNET_AGENT" == 1 ]] || die "TAILNET_AGENT must be 0 or 1: '$C_TAILNET_AGENT'"
     [[ -z "$C_MEMBERS_ONLY" || "$C_MEMBERS_ONLY" == 0 || "$C_MEMBERS_ONLY" == 1 ]] || die "MEMBERS_ONLY must be 0 or 1: '$C_MEMBERS_ONLY'"
     if [[ -n "$C_BIND" ]]; then
         valid_ip "$C_BIND" || die "BIND must be an IP address (or localhost): '$C_BIND'"
@@ -237,6 +240,9 @@ access_args() {
     fi
     if [[ "$C_AGENT_LOOPBACK" == 1 && ("$auth" != tailscale || "$loop" == 0) ]]; then
         die "AGENT_LOOPBACK=1 works only with AUTH=tailscale on a loopback BIND — give agents a token: limn token create <name>"
+    fi
+    if [[ "$C_TAILNET_AGENT" == 1 && ("$auth" != tailscale || "$loop" == 0 || "$C_AGENT_LOOPBACK" == 0) ]]; then
+        die "TAILNET_AGENT=1 needs the loopback agent (AUTH=tailscale, a loopback BIND, AGENT_LOOPBACK not 0) — give remote agents a token instead: limn token create <name>"
     fi
     if [[ -n "$C_PUBLIC_HOSTS" ]]; then
         local hosts=() one
@@ -253,6 +259,7 @@ access_args() {
     [[ -n "$C_AUTH" ]] && ACCESS_ARGS+=(--auth "$C_AUTH")
     [[ "$C_AGENT_LOOPBACK" == 0 ]] && ACCESS_ARGS+=(--no-agent-loopback)
     [[ "$C_AGENT_LOOPBACK" == 1 ]] && ACCESS_ARGS+=(--agent-loopback)
+    [[ "$C_TAILNET_AGENT" == 1 ]] && ACCESS_ARGS+=(--tailnet-agent)
     [[ -n "$C_BIND" ]] && ACCESS_ARGS+=(--bind "$C_BIND")
     [[ -n "$C_PUBLIC_HOSTS" ]] && ACCESS_ARGS+=(--public-host "$C_PUBLIC_HOSTS")
     [[ -n "$C_TRUSTED_PROXIES" ]] && ACCESS_ARGS+=(--trusted-proxies "$C_TRUSTED_PROXIES")
