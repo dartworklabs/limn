@@ -254,7 +254,7 @@ def clean_note(v) -> str:
 
 **업계에서 부르는 이름.** 스타일과 기계적 규칙은 사람 대신 도구가 집행한다는 원칙. *Software Engineering at Google*(2020) 8장 "Style Guides and Rules"가 이유를 설명한다.
 
-**지금 코드의 모습.** 포매터·린터·타입 검사기 설정이 없다. CI는 테스트만 돌린다. `instances.sh`에는 shellcheck 억제 주석이 있지만 CI가 shellcheck를 돌리지 않는다. 그래서 스타일은 작성자의 습관에 달려 있고, 쓰지 않는 import나 가려진 변수 같은 실수를 사람이 찾아야 한다.
+**1단계 전 모습.** 포매터·린터·타입 검사기 설정이 없었고, CI는 테스트만 돌렸다. `instances.sh`에는 shellcheck 억제 주석이 있었지만 CI가 shellcheck를 돌리지 않았다. 쓰지 않는 import나 가려진 변수 같은 실수는 사람이 찾아야 했다.
 
 2026-09-25에 설정 없이 Ruff 0.16을 돌려 본 결과는 이렇다.
 
@@ -263,29 +263,32 @@ def clean_note(v) -> str:
 | 전부 켬 (`E`·`F`·`W`·`I`·`B`·`UP`·`SIM`·`D`) | 3,808 | 대부분 줄 길이(1,769)와 docstring 누락. 한 번에 녹색으로 만들 수 없다 |
 | 버그 후보만 (`F`·`E4`·`E7`·`E9`·`B`·`PLW1510`) | 84 | 한 PR에서 처리할 수 있다 |
 
-버그 후보 묶음이 잡은 것 중 하나는 실제 결함 후보다. 빌드 직전에 원고를 사본 폴더로 옮기는 `rsync` 호출이 종료 코드를 보지 않는다. 권한 오류나 디스크 부족으로 복사가 일부만 되어도 빌드는 그대로 진행하고, 그 결과를 성공으로 기록할 수 있다. `subprocess.run`에 `check`를 적게 하는 규칙(`PLW1510`)이 이런 호출을 드러낸다.
+버그 후보 묶음이 잡은 것 중 하나는 실제 결함이었다. 빌드 직전에 원고를 사본 폴더로 옮기는 `rsync` 호출이 종료 코드를 보지 않았다. 권한 오류나 디스크 부족으로 복사가 일부만 되어도 빌드는 낡은 사본을 컴파일했다. `subprocess.run`에 `check`를 적게 하는 규칙(`PLW1510`)이 이 호출을 드러냈고, 실패 테스트(`tests/test_build_copy.py`)와 함께 따로 고쳤다.
 
-**바꾼 모습.** 버그 후보 규칙부터 켜고, 스타일 규칙은 전체 포매팅 커밋과 함께 넓힌다.
+**지금 모습 (1단계 완료).** 버그 후보 규칙만 켰다. 스타일 규칙은 전체 포매팅 커밋과 함께 넓힌다.
 
 ```toml
 # pyproject.toml
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-extend-exclude = ["src/limn/vendor"]
+extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]
 
 [tool.ruff.lint]
-# 1단계: 버그 후보만. 스타일 규칙("W", "I", "UP", "SIM")과 docstring("D")은 뒤에 넓힌다.
 select = ["F", "E4", "E7", "E9", "B", "PLW1510"]
 ```
 
-- CI에 `uv run ruff check`를 더한다. Ruff는 개발 의존성이라 [architecture.md](architecture.md) §불변식 2와 부딪히지 않는다.
-- `shellcheck src/limn/instances.sh tests/test_instances.sh`를 CI에 더한다.
-- 1단계 PR은 위 84건을 동작을 바꾸지 않는 방식으로 정리한다. `rsync`처럼 동작을 바꿔야 하는 결함은 실패 테스트와 함께 **따로** 고친다.
-- `ruff format --check`와 스타일 규칙은 기존 코드 전체를 다시 포매팅하는 커밋과 함께 켠다. 이 커밋은 **동작 변경과 섞지 않고 따로** 만들고, `git blame`이 흐려지지 않도록 `.git-blame-ignore-revs`에 적는다.
+- Ruff와 ShellCheck(`shellcheck-py`)는 개발 의존성이다. [architecture.md](architecture.md) §불변식 2와 부딪히지 않고, 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다. CI `lint` 작업이 `uv run ruff check`와 `uv run shellcheck ...`를 돌린다 ([verification.md](verification.md) §8).
+- 84건은 동작을 바꾸지 않고 정리했다. 종료 코드를 따로 확인하던 `subprocess.run`에는 `check=False`를 명시했다. `except` 안에서 HTTP 오류로 바꿔 던지는 곳에는 `from None`을, 원인을 메시지에 담는 곳에는 `from e`를 붙였다. 길이가 같아야 하는 `zip`에는 `strict=True`를 붙였다.
+- ShellCheck의 info 4건은 의도한 코드라 이유를 적은 주석과 함께 껐다.
+- `tools/handbook-publish/`는 플러그인에서 복사한 사본이라 검사에서 뺀다. 고칠 일이 있으면 원본에서 고친다.
+
+**다음.**
+
+- `ruff format --check`와 스타일 규칙은 기존 코드 전체를 다시 포매팅하는 커밋과 함께 켠다. 이 커밋은 **동작 변경과 섞지 않고 따로** 만들고, `git blame`이 흐려지지 않도록 `.git-blame-ignore-revs`에 적는다. 열린 PR이 모두 머지된 때를 골라야 다른 작업과 충돌하지 않는다.
 - docstring 규칙(`D`)은 처음에 새 모듈에만 켜고, 옮겨지는 모듈마다 넓힌다.
 
-**확인하는 법.** 로컬 명령과 CI 단계가 같은 결과를 낸다. 일부러 쓰지 않는 import를 하나 넣었을 때 CI가 실패하는지 한 번 확인한다.
+**확인하는 법.** 로컬 명령과 CI 단계가 같은 결과를 낸다. 일부러 쓰지 않는 import를 하나 넣었을 때 `uv run ruff check`가 실패하는지 확인한다.
 
 ## R5 보이지 않는 전역 상태를 명시적 인자로
 
@@ -435,8 +438,8 @@ def now_str() -> str:
 | 단계 | 상태 | 비고 |
 | --- | --- | --- |
 | 0 합의 | 진행 중 | 2026-09-25 이 문서와 ADR-0001 초안 작성. 같은 날 리뷰에서 "UX·UI와 스택이 확정되기 전에 구조를 굳히는 게 맞나"는 의견을 받아 두 층과 착수 조건을 더함. 조건 초안 검토 중 |
-| 1 안전망 | 시작 가능 | 착수 조건 없음 |
-| 2 새 코드부터 규칙 | 시작 가능 | 착수 조건 없음 |
+| 1 안전망 | 완료 (포매팅·스타일 규칙은 남음) | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침 |
+| 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용 |
 | 3 뷰어 분리 | 시작 전 | 착수 조건 미정 |
 | 4 핀 수명 주기 | 시작 전 | 착수 조건 미정 |
 | 5 역변환과 빌드 | 시작 전 | 착수 조건 미정 |

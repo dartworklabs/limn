@@ -9,6 +9,8 @@ uv sync --group dev
 uv run playwright install chromium        # browser layout tests; skipped if no Chromium is found
 uv run pytest -q                          # Python tests (server, CLI, migrate, naming)
 bash tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
+uv run ruff check                         # lint (bug-candidate rules, see pyproject.toml)
+uv run shellcheck src/limn/instances.sh tests/test_instances.sh
 ```
 
 The server is a single stdlib-only module (`src/limn/server.py`, Python 3.10+). Please keep it

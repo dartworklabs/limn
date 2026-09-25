@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_server import TEX, Base, extract_js_fn, ps, req, run_node, split_resp
+from test_server import Base, extract_js_fn, ps, req, run_node, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -266,7 +266,7 @@ class StartupRules(AccessBase):
         self.assertEqual((ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False))
         self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · "
                                  "members-only off")
-        self.assertTrue(any(l.startswith("warning     ") and "deprecated" in l for l in log))
+        self.assertTrue(any(ln.startswith("warning     ") and "deprecated" in ln for ln in log))
 
     def test_no_agent_loopback(self):
         self.configure("--no-agent-loopback")
@@ -289,12 +289,12 @@ class StartupRules(AccessBase):
             msg = self.refused("--auth", auth, "--bind", "0.0.0.0")
             self.assertIn("--i-know-this-is-insecure", msg)
         log = self.configure("--auth", "trusted-proxy", "--bind", "0.0.0.0")
-        self.assertTrue(any(l.startswith("warning     bound to 0.0.0.0") and "trusted-proxy" in l for l in log), log)
-        self.assertFalse(any("!!!" in l for l in log))
+        self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "trusted-proxy" in ln for ln in log), log)
+        self.assertFalse(any("!!!" in ln for ln in log))
         log = self.configure("--bind", "0.0.0.0", "--i-know-this-is-insecure")
         self.assertFalse(ps.C.agent_loopback)                          # forced off on a non-loopback bind
-        self.assertTrue(any("!!!" in l and "--i-know-this-is-insecure" in l for l in log), log)
-        self.assertTrue(any(l.startswith("warning     bound to 0.0.0.0") and "tailscale" in l for l in log))
+        self.assertTrue(any("!!!" in ln and "--i-know-this-is-insecure" in ln for ln in log), log)
+        self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "tailscale" in ln for ln in log))
 
     def test_loopback_binds_are_fine(self):
         for b in ("127.0.0.1", "127.0.0.2", "::1", "localhost"):
@@ -394,7 +394,7 @@ class Tokens(AccessBase):
     def cli(self, *args, env=None):
         e = dict(os.environ, PYTHONPATH=str(SRC))
         e.update(env or {})
-        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e)
+        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False)
 
     def test_cli_create_list_revoke(self):
         root = Path(self.tmp.name)
@@ -444,7 +444,7 @@ class Tokens(AccessBase):
         if bash:                                                       # the same answer as instances.sh's env_get
             script = 'source <(sed -n "/^env_get()/,/^}/p" "$1"); env_get "$2" STATE_DIR'
             out = subprocess.run([bash, "-c", script, "x", str(SRC / "limn" / "instances.sh"), str(f)],
-                                 capture_output=True, text=True, timeout=30).stdout.strip()
+                                 capture_output=True, text=True, timeout=30, check=False).stdout.strip()
             self.assertEqual(out, "/a b")
 
 
@@ -572,7 +572,7 @@ class Roles(AccessBase):
         st = str(ps.C.state)
 
         def cli(*a):
-            return subprocess.run([sys.executable, "-m", "limn", "member", *a], capture_output=True, text=True, timeout=60, env=e)
+            return subprocess.run([sys.executable, "-m", "limn", "member", *a], capture_output=True, text=True, timeout=60, env=e, check=False)
         self.assertEqual(cli("add", "--state-dir", st, "alice@example.com", "--role", "viewer").returncode, 0)
         self.assertEqual(cli("add", "--state-dir", st, "bob@example.com", "--name", "Bob Park").returncode, 0)
         self.assertNotEqual(cli("add", "--state-dir", st, "bob@example.com").returncode, 0)
@@ -780,7 +780,7 @@ def mask(md: str) -> str:
 def load_v01():
     """The server module exactly as released in v0.1.0 (from git), or None when the history is not available (shallow CI clone)."""
     for ref in ("v0.1.0", "946a92d"):
-        r = subprocess.run(["git", "show", "%s:src/limn/server.py" % ref], cwd=ROOT, capture_output=True, timeout=30)
+        r = subprocess.run(["git", "show", "%s:src/limn/server.py" % ref], cwd=ROOT, capture_output=True, timeout=30, check=False)
         if r.returncode == 0 and b"def pins_md_text" in r.stdout:
             break
     else:
@@ -840,7 +840,7 @@ class Migration(AccessBase):
             "# a v0.1 config\nLABEL=\"Paper V\"\nMANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nTS_PORT=19030\n"
             "STATE_DIR=%s\nGIT_PULL=1\nEXTRA_ARGS=--no-build\n" % (self.src, ps.C.state), encoding="utf-8")
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env)
+        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines(), [
             sys.executable, str(SRC / "limn" / "server.py"), "--manuscript", str(self.src), "--port", "19130",
@@ -902,7 +902,7 @@ class Migration(AccessBase):
         lines = md_new.split("\n")
         self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
         lines.remove(ps.TOKEN_GUIDANCE)
-        claim = [l for l in lines if l.startswith("처리를 시작하는 핀은 먼저 잡는다")]
+        claim = [ln for ln in lines if ln.startswith("처리를 시작하는 핀은 먼저 잡는다")]
         self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
         lines.remove(claim[0])
         lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line

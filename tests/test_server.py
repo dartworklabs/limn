@@ -95,7 +95,7 @@ def run_node(js: str, tz: str = None):
     env = dict(os.environ)
     if tz is not None:
         env["TZ"] = tz
-    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env)
+    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env, check=False)
     if r.returncode != 0:
         raise AssertionError("node execution failed:\n%s" % r.stderr)
     return r.stdout
@@ -2352,7 +2352,7 @@ class GitPull(unittest.TestCase):
         self.tmp.cleanup()
 
     def _run(self, args, cwd):
-        r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=30)
+        r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=30, check=False)
         if r.returncode != 0:
             raise AssertionError("%s failed:\n%s%s" % (args, r.stdout, r.stderr))
         return r.stdout
@@ -3660,7 +3660,9 @@ class FrontendDesignTokens(unittest.TestCase):
     def test_both_themes_define_every_colour_token(self):
         blocks = {sel: dict(decls) for sel, decls in css_rules() if sel in TOKEN_SELECTORS and any(k == "color-scheme" for k, _ in decls)}
         dark, light = blocks[":root"], blocks[":root[data-theme=light]"]
-        lit = lambda b: {k for k, v in b.items() if k.startswith("--") and COLOR_RE.search(v)}
+        def lit(block):
+            """Custom properties in a theme block whose value is a color."""
+            return {k for k, v in block.items() if k.startswith("--") and COLOR_RE.search(v)}
         self.assertEqual(lit(dark) - set(light), set())               # dark colors don't leak into light
         self.assertEqual(set(light) - set(dark), set())               # light only overrides tokens that exist in dark
         for k in ("--background", "--foreground", "--card", "--card-foreground", "--muted", "--muted-foreground",
@@ -4161,7 +4163,7 @@ class InstanceIdInPinsMd(Base):
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         lines = md.splitlines()
-        src_idx = next(i for i, l in enumerate(lines) if l.startswith("원고: `"))
+        src_idx = next(i for i, ln in enumerate(lines) if ln.startswith("원고: `"))
         self.assertEqual(lines[src_idx + 1],
                          "논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git")
 
@@ -4714,7 +4716,7 @@ ICON_GLYPHS = re.compile("[⏳⌛▲-◃◐-◓☀☼☾✓✔✎✏⚠"
 
 def html_without_comments(h: str) -> str:
     h = re.sub(r"/\*.*?\*/", "", h, flags=re.S)
-    return "\n".join(l for l in h.split("\n") if not l.strip().startswith("//"))
+    return "\n".join(ln for ln in h.split("\n") if not ln.strip().startswith("//"))
 
 
 class FrontendIcons(unittest.TestCase):
@@ -4893,7 +4895,7 @@ class FrontendArchive(unittest.TestCase):
                 keys = [k for k, _ in decls]
                 self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
                 self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))   # no overlaid stripe either
-                for k, v in decls:
+                for _k, v in decls:
                     self.assertNotRegex(v, r"inset \d+px 0 0", sel)          # no box-shadow-drawn stripe either
         self.assertNotIn(".strip{", css)
         for st in ("claimed", "review", "lost", "done", "dropped"):
@@ -5461,7 +5463,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         except ImportError:
             if required:
                 raise
-            raise unittest.SkipTest("Playwright unavailable")
+            raise unittest.SkipTest("Playwright unavailable") from None
         chrome = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         cls.pw = sync_playwright().start()
         try:
@@ -5470,7 +5472,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
             cls.pw.stop()
             if required:
                 raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e)
+            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
         cls.html = ps.build_html("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
     @classmethod
@@ -5753,7 +5755,7 @@ class KindAndThread(Base):
         for i in range(5):
             ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertIn("| %d · 질문 |" % q, row)
         self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
         self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)   # a newline collapses, | gets escaped
@@ -5764,7 +5766,7 @@ class KindAndThread(Base):
         ps.set_done(q, True, dict(self.S), "답했다")
         ps.set_done(q, False, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertNotIn("[스레드", row)                                  # messages from before the close aren't shown
 
 
@@ -5920,7 +5922,7 @@ class ReviewState(Base):
         self.assertNotIn("review", p)
         self.assertEqual([(m.get("ev"), m["text"]) for m in p["thread"]], [("close", "고침"), ("reopen", "식 번호가 아직 틀림")])
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
         code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (ps.THREAD_TEXT_MAX + 1)})
@@ -5955,7 +5957,7 @@ class ReviewState(Base):
         self.assertIn("| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", sec)
         self.assertIn("| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec)
         opn = md[:md.index("## 검토 대기")]
-        starts = [l.split("|")[1].strip() for l in opn.splitlines() if l.startswith("| ") and not l.startswith("| #")]
+        starts = [ln.split("|")[1].strip() for ln in opn.splitlines() if ln.startswith("| ") and not ln.startswith("| #")]
         self.assertEqual(starts, [str(b)])                             # only open pins appear in the open table
         self.assertIn("`\"review\":true`", md)
         self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
@@ -6207,7 +6209,8 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(seqs, list(range(1, len(seqs) + 1)))
 
     def test_edit_adds_mention_event_only_for_new_names(self):
-        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR))
         ps.edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
         self.assertEqual([(e["type"], e["to"]) for e in self.events()],
@@ -6221,7 +6224,7 @@ class MentionsPeopleEvents(Base):
                        dict(self.S))
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % a))
         self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)   # priority: reopened > -> @ > question
         self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
@@ -6230,7 +6233,8 @@ class MentionsPeopleEvents(Base):
 
     # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
-        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
         legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W))
         person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W))
@@ -6242,7 +6246,9 @@ class MentionsPeopleEvents(Base):
         self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
         self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # even a question is fyi if the assignee is an agent
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        line = lambda i: next(l for l in md.splitlines() if l.startswith("| %d " % i))
+        def line(pid):
+            """The pins.md table row for pin pid."""
+            return next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
         self.assertIn("| %d · → @Bob Park |" % person, line(person))
         self.assertIn("| %d · 참고 @Bob Park · 질문 |" % agent, line(agent))
@@ -6250,7 +6256,8 @@ class MentionsPeopleEvents(Base):
         self.assertIn("'→ @이름' = 담당이 사람인 핀", md)
 
     def test_assignee_validation_and_events(self):
-        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
         base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
         for bad in ("nobody@x.com", "local", 3, ""):
             code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
@@ -6313,11 +6320,12 @@ class MentionsPeopleEvents(Base):
         ps.set_done(pid, False, dict(self.S), reason="다시 봐 주세요")
         self.assertTrue(ps.pin_reopened_in_round(self.pin(pid)))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        row = next(l for l in md.splitlines() if l.startswith("| %d " % pid))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
 
     def test_self_mention_never_becomes_addressed(self):
-        ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
+        ps.record_person(dict(self.W))
+        ps.record_person(dict(self.S))
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
                           "kind_req": "question"}, dict(self.W))
         p = self.pin(pid)
@@ -6363,7 +6371,9 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Wendy Kim 와 @Wendy <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
               fmtText('@Bob Park',[])]));""")
-        tip = lambda n: ' data-tip="@태그 — %s에게 알림이 갑니다"' % n
+        def tip(name):
+            """The tooltip attribute fmtText() puts on a resolved @-tag for name."""
+            return ' data-tip="@태그 — %s에게 알림이 갑니다"' % name
         self.assertEqual(out, ['<span class="mention"%s>@Wendy Kim</span> 와 <span class="mention"%s>@Wendy</span> &lt;i&gt;' % (tip("Wendy Kim"), tip("Wendy")),
                                '<span class="mention"%s>@김&lt;b&gt;</span> 안녕' % tip("김&lt;b&gt;"), '@Bob Park'])
 
@@ -6382,7 +6392,9 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
         self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
-        self.assertIn('data-ref="12"', out[0]); self.assertIn('data-ref="40"', out[0]); self.assertNotIn('data-ref="99"', out[0])
+        self.assertIn('data-ref="12"', out[0])
+        self.assertIn('data-ref="40"', out[0])
+        self.assertNotIn('data-ref="99"', out[0])
         self.assertIn('<span class="pin-ref gone"', out[0])                  # v0.2.2: #40 is in the Trash - it reads 'deleted pin'
         self.assertIn('#40 <small>삭제된 핀</small>', out[0])
         self.assertIn("it&#39;s", out[0])                                     # the escaped &#39; is not a link
@@ -6598,7 +6610,7 @@ class NotifyServer(Base):
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
         self.assertEqual(code, 403)
         if shutil.which("node"):
-            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True)
+            r = subprocess.run(["node", "--check", "-"], input=js, capture_output=True, text=True, check=False)
             self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_event_cursor_in_light_meta(self):

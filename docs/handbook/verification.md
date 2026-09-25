@@ -42,6 +42,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
 | [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
 | [`tests/test_v03.py`](../../tests/test_v03.py) | 0.3(이슈 #9, [ADR-0005](../adr/0005-pin-scoped-changes.md)): hunk 블록 파싱과 귀속(겹침, 줄 밀림을 거친 대응, 한 커밋의 핀 셋, 이름 바꾸기, 지운 범위, 기록한 `changes` 가 추정을 이기는 순서), 핀 hunk의 실제 줄 번호와 맥락, 합성 적용(실제 git으로 만든 무작위 편집 왕복·`git apply` 대조), `changes` 검사·저장·다시 열기, `pins.md` 닫기 줄, 핀 단위 소스 diff·비교 PDF HTTP와 캐시 키, 실제 격리 빌드(TeX가 있을 때만, CI는 건너뜀), 뷰어(데스크톱 1400×850·폴드 842×758·폰 384×832 × 한국어·영어: 다른 변경 접기·펴기, [커밋 전체 비교] 토글, 컴파일 실패 시 커밋 전체로 넘어감), 순수 판단의 직접 테스트(`ScopeDecisions`: `changes_at` 규칙, 합성 판에 쓸 파일, 거부 이유 표), 새 거부마다의 상태 코드·본문(`ScopedErrorBodies`), 스쿼시 커밋 하나가 핀 셋을 고치고 머지 뒤 `changes`·`PR #N (해시)`로 닫는 흐름, 다시 여는 답글의 이벤트가 0.2.2와 같은지(v0.2.2 모듈과 대조, 얕은 클론이면 건너뜀), viewer 휴지통에 [되살리기]·[영구 삭제]가 없는지(브라우저) |
+| [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 빌드 첫 단계인 원고 복사가 실패하면(`rsync` 비정상 종료) 사본을 컴파일하지 않고 빌드를 실패로 끝내는지 |
 | [`tests/test_v022.py`](../../tests/test_v022.py) | 0.2.2(이슈 #8): 답글 규칙표의 모든 행(서버 `reply_reopens`와 뷰어 `replyReopens`가 같은지), 답글 API(`reopen`·`reopened`·`state`, 이벤트, `pins.md`의 다시 연 이유), 휴지통(작성자 알림, 30일 숨김·삭제, 소유자 전용 영구 삭제), 뷰어 순수 함수(결과 한 줄, 구획 상태, 남은 날, 삭제된 `#N`), 브라우저 흐름을 데스크톱 1400×850·폴드 842×758(터치)·폰 384×832(터치) × 한국어·영어로(답글·되돌리기·상태 유지, 완료 행 답글, 삭제·휴지통 되살리기, 소유자 영구 삭제, 구획 머리의 접기·기억·`새 N`) |
 
 > **주의**
@@ -94,9 +95,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 영역 | 현재 상태 | 계획 |
 | --- | --- | --- |
-| 포매터·린터 | 정량 게이트 없음. 설정 파일도 없다 | [code-style-roadmap.md](code-style-roadmap.md) 1단계에서 Ruff 도입 |
-| 타입 검사 | 정량 게이트 없음 | 로드맵 1단계에서 범위를 정해 도입 |
-| 셸 스크립트 정적 검사 | 정량 게이트 없음. `instances.sh`는 shellcheck 주석을 일부 쓰지만 CI가 돌리지 않는다 | 로드맵 1단계 |
+| 포매터·스타일 규칙 | 정량 게이트 없음. Ruff는 버그 후보 규칙만 켰다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) R4: 전체 포매팅 커밋과 함께 넓힌다 |
+| 타입 검사 | 정량 게이트 없음 | 로드맵 R8: 새 모듈부터 켜고, 7단계에서 CI 게이트로 만든다 |
 | 실제 LaTeX 빌드 | CI에 TeX가 없어 로컬에서만 돈다 | 필요해지면 TeX 설치 작업을 CI에 더하는 것을 검토 |
 | Handbook 링크·형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다 | 폰트를 CI에 준비할 방법을 정한 뒤 CI에 추가 검토 |
 | 에이전트 계약 전체 비교 | 정량 게이트 없음 (§4는 사람 확인) | 계약 스냅숏 테스트 검토 |
@@ -110,6 +110,16 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 실행 | 폰트를 `.handbook/fonts/Pretendard-Regular.otf`에 둔 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
 | 합격 기준 | 두 명령이 0으로 끝난다. 폰트 SHA-256과 Pandoc 버전은 `book.json`의 값과 정확히 같아야 한다 |
 | 보장 범위 | 형식과 링크 대상까지다. 내용이 코드와 맞는지는 보장하지 않는다. PDF 출판은 `book.json`에 고정한 Playwright·Chromium이 따로 필요하다 |
+
+## 8. 정적 검사
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | 파이썬: 문법 오류, 쓰지 않는 import, 정의되지 않은 이름, 흔한 버그 패턴(`B`), 종료 코드를 정하지 않은 `subprocess.run`(`PLW1510`). 셸: `instances.sh`와 `test_instances.sh`의 ShellCheck 경고 |
+| 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
+| 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run shellcheck src/limn/instances.sh tests/test_instances.sh`. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
+| 합격 기준 | 두 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄) |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이다. 포매팅·스타일·docstring·타입은 아직 검사하지 않는다 (§6). `src/limn/vendor/`와 플러그인에서 복사한 `tools/handbook-publish/`는 검사에서 뺀다 |
 
 ## 결과를 보고하는 법
 

@@ -36,6 +36,8 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 uv sync --group dev
 uv run pytest -q -rs
 bash tests/test_instances.sh
+uv run ruff check
+uv run shellcheck src/limn/instances.sh tests/test_instances.sh
 ```
 
 현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다.

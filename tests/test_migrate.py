@@ -84,7 +84,7 @@ def box(tmp_path):
 
     def run(*args, **extra):
         e = dict(env, **extra)
-        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e)
+        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False)
 
     def snapshot():
         return {p: (p.read_bytes() if p.is_file() else None) for p in sorted(tmp_path.rglob("*"))

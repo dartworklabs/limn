@@ -14,7 +14,7 @@ SRC = ROOT / "src"
 def limn(*args, **kw):
     env = dict(os.environ, PYTHONPATH=str(SRC))
     return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True,
-                          timeout=60, env=env, **kw)
+                          timeout=60, env=env, **kw, check=False)
 
 
 def package_version():
@@ -57,7 +57,7 @@ def test_help_shows_serve_and_instance_commands():
 def test_server_reports_the_same_version_when_run_by_path():
     code = ("import importlib.util as u; s=u.spec_from_file_location('s', %r); m=u.module_from_spec(s); "
             "s.loader.exec_module(m); print(m.app_version())" % str(SRC / "limn" / "server.py"))
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False)
     assert r.stdout.strip() == package_version()
 
 

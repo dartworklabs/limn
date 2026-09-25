@@ -20,7 +20,7 @@ dependencies = []
 limn = "limn.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "playwright>=1.47"]
+dev = ["pytest>=8", "playwright>=1.47", "ruff>=0.16", "shellcheck-py>=0.11"]
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -37,3 +37,13 @@ include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "L
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]   # copied from upstream; fix there, not here
+
+[tool.ruff.lint]
+# Stage 1 of docs/handbook/code-style-roadmap.md: bug-candidate rules only. Style rules ("W", "I", "UP",
+# "SIM") and docstrings ("D") come later, with the whole-tree reformat in its own commit.
+select = ["F", "E4", "E7", "E9", "B", "PLW1510"]

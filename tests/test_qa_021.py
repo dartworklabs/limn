@@ -17,7 +17,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from urllib.parse import urlparse
@@ -166,7 +165,7 @@ class ClearEndpoint(AccessBase):
         self.assertEqual(d["cleared"], 2)
         self.assertEqual(ps.snapshot_pins(), [])
         self.assertEqual(self.backups(), [d["archive"]])
-        rows = [json.loads(l) for l in (ps.C.state / d["archive"]).read_text(encoding="utf-8").splitlines()]
+        rows = [json.loads(ln) for ln in (ps.C.state / d["archive"]).read_text(encoding="utf-8").splitlines()]
         self.assertEqual([r["id"] for r in rows], [1, 2])
         ev = ps._read_events()[0][-1]
         self.assertEqual((ev["type"], ev["by"]["login"], ev["n"], ev["archive"]), ("cleared", "alice@example.com", 2, d["archive"]))
@@ -204,7 +203,7 @@ class PrincipalMatrix(AccessBase):
         return out
 
     def expect(self, got, **want):
-        self.assertEqual(got, dict(zip(self.OPS, [want[k] for k in self.OPS])))
+        self.assertEqual(got, dict(zip(self.OPS, [want[k] for k in self.OPS], strict=True)))
 
     AGENT = dict(read=200, pin=200, reply=200, close="review", confirm=403, clear=403)
     EDITOR = dict(read=200, pin=200, reply=200, close="done", confirm=200, clear=403)
@@ -328,7 +327,7 @@ class ProxyHardening(AccessBase):
             ps.tighten_state_perms()
             ps.tighten_state_perms()
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(len([l for l in err.getvalue().splitlines() if "tightened" in l]), 1, err.getvalue())   # logged once
+        self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())   # logged once
         os.chmod(ps.C.people_file, 0o644)                                              # only writable-by-others is changed
         ps.tighten_state_perms()
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)
@@ -361,12 +360,12 @@ class TailnetAgentStartup(AccessBase):
         (cfg / "paper.env").write_text("MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n"
                                        % (self.src, ps.C.state), encoding="utf-8")
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env)
+        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("--tailnet-agent", r.stdout.splitlines())
         (cfg / "paper.env").write_text("MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\nAGENT_LOOPBACK=0\n"
                                        % (self.src, ps.C.state), encoding="utf-8")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env)
+        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("TAILNET_AGENT", r.stderr)
 
@@ -377,7 +376,7 @@ class PinsMdInstructions(AccessBase):
     def test_claim_instruction_next_to_close(self):
         self.add()
         lines = ps.C.pins_md.read_text(encoding="utf-8").splitlines()
-        i = next(k for k, l in enumerate(lines) if l.startswith("처리한 핀은 닫는다"))
+        i = next(k for k, ln in enumerate(lines) if ln.startswith("처리한 핀은 닫는다"))
         self.assertIn("/api/pins/N/claim", lines[i + 1])
         self.assertIn('"eta_min"', lines[i + 1])
         self.assertEqual(lines[i + 1], ps.claim_guidance("http://127.0.0.1:18999"))
@@ -399,7 +398,7 @@ class PinsMdInstructions(AccessBase):
 def cli(*args, env=None):
     e = dict(os.environ, PYTHONPATH=str(SRC))
     e.update(env or {})
-    return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=120, env=e)
+    return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=120, env=e, check=False)
 
 
 class MemberCli(unittest.TestCase):
@@ -444,7 +443,7 @@ class ServeBusyPort(unittest.TestCase):
         r = cli("serve", "--manuscript", str(ms), "--port", str(port), "--state-dir", str(Path(tmp.name) / "state"), "--no-build")
         self.assertNotEqual(r.returncode, 0)
         self.assertNotIn("Traceback", r.stderr)
-        err = [l for l in r.stderr.splitlines() if l.strip()]
+        err = [ln for ln in r.stderr.splitlines() if ln.strip()]
         self.assertEqual(len(err), 1, r.stderr)
         self.assertIn(str(port), err[0])
         self.assertIn("in use", err[0])
@@ -504,7 +503,7 @@ class UpdateSource(unittest.TestCase):
         sh = (SRC / "limn" / "instances.sh").read_text(encoding="utf-8")
         self.assertIn('REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"', sh)
         text = (ROOT / "docs" / "handbook" / "instances.md").read_text(encoding="utf-8")
-        row = next(l for l in text.splitlines() if l.startswith("| `LIMN_REPO`"))
+        row = next(ln for ln in text.splitlines() if ln.startswith("| `LIMN_REPO`"))
         self.assertIn("git+https://github.com/dartworklabs/limn", row)
         self.assertIn("0.1.0의 기본값은 `git+ssh://", text)                  # the note on the v0.1.0 ssh default
 
@@ -528,7 +527,7 @@ class BrowserBase(unittest.TestCase):
         except ImportError:
             if required:
                 raise
-            raise unittest.SkipTest("Playwright unavailable")
+            raise unittest.SkipTest("Playwright unavailable") from None
         cls.pw = sync_playwright().start()
         exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         try:
@@ -537,7 +536,7 @@ class BrowserBase(unittest.TestCase):
             cls.pw.stop()
             if required:
                 raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e)
+            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
         cls.saved_html = ps.HTML
         ps.HTML = ps.build_html("Demo", "#2563eb")
 

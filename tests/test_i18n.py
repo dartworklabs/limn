@@ -192,7 +192,7 @@ class BrowserLanguage(unittest.TestCase):
         except ImportError:
             if required:
                 raise
-            raise unittest.SkipTest("Playwright unavailable")
+            raise unittest.SkipTest("Playwright unavailable") from None
         cls.pw = sync_playwright().start()
         exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         try:
@@ -201,7 +201,7 @@ class BrowserLanguage(unittest.TestCase):
             cls.pw.stop()
             if required:
                 raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e)
+            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
         cls.html = ps.build_html("A-DEMO", "#2563eb").replace("\nboot();", "\n")
 
     @classmethod
@@ -271,7 +271,7 @@ class ComposedMessages(unittest.TestCase):
             self.skipTest("node not available")
         js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
                         extract_js_fn("tr"), extract_js_fn("tl"), "console.log(JSON.stringify(%s));" % body])
-        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15)
+        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
@@ -342,7 +342,7 @@ class EnglishChrome(unittest.TestCase):
         except ImportError:
             if required:
                 raise
-            raise unittest.SkipTest("Playwright unavailable")
+            raise unittest.SkipTest("Playwright unavailable") from None
         cls.pw = sync_playwright().start()
         exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         try:
@@ -351,7 +351,7 @@ class EnglishChrome(unittest.TestCase):
             cls.pw.stop()
             if required:
                 raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e)
+            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
         cls.tmp = tempfile.TemporaryDirectory()
         cls.saved_html = ps.HTML
         cls.make_state(Path(cls.tmp.name))

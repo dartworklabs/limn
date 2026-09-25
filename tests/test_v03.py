@@ -24,7 +24,7 @@ from unittest import mock
 
 from test_access import ALICE, AccessBase, talk_to
 from test_qa_021 import BrowserBase, actor
-from test_server import Base, extract_js_fn, ps, req, run_node, split_resp
+from test_server import extract_js_fn, ps, req, run_node, split_resp
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)
@@ -363,7 +363,7 @@ class GitBlocks(unittest.TestCase):
             a, b = Path(d, "a"), Path(d, "b")
             a.write_bytes(old)
             b.write_bytes(new)
-            r = subprocess.run(["git", "diff", "--no-index", "--no-color", "-U0", str(a), str(b)], capture_output=True)
+            r = subprocess.run(["git", "diff", "--no-index", "--no-color", "-U0", str(a), str(b)], capture_output=True, check=False)
             return r.stdout
 
     def git_apply(self, old: bytes, patch: str) -> bytes:
@@ -486,7 +486,7 @@ class CloseChanges(AccessBase):
         # line asks for `changes` in the numbering of the commit `ref` names, and ref = "PR #N (<hash>)"; per-pin commits
         # help but are optional
         text = ps.pins_md_text(ps.snapshot_pins())
-        line = next(l for l in text.splitlines() if l.startswith("처리한 핀은 닫는다"))
+        line = next(ln for ln in text.splitlines() if ln.startswith("처리한 핀은 닫는다"))
         self.assertTrue(line.startswith('처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl'), line)
         self.assertIn('"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "' http://127.0.0.1:18999/api/pins/N/close`", line)
         self.assertIn('(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)' + " · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고", line)
@@ -666,7 +666,7 @@ class SquashMergedPins(AccessBase):
                           "beta": lines.index("Beta follow-up sentence.") + 1,
                           "gamma": lines.index("Gamma paragraph talks about plums.") + 1}
         self.assertEqual(self.new_lines, {"alpha": 4, "beta": 14, "gamma": 19})
-        for pid, key in zip(self.pins, ("alpha", "beta", "gamma")):
+        for pid, key in zip(self.pins, ("alpha", "beta", "gamma"), strict=True):
             n = self.new_lines[key]
             code, d = self.call("POST", "/api/pins/%d/close" % pid, {
                 "reply": key, "ref": self.ref, "changes": [{"file": "main.tex", "lo": n, "hi": n}]})
@@ -677,7 +677,7 @@ class SquashMergedPins(AccessBase):
         want = {"alpha": ("+Alpha paragraph talks about pears.", ("follow-up", "plums", "Filler 7"))
                 , "beta": ("+Beta follow-up sentence.", ("pears", "plums", "Filler 7")),
                 "gamma": ("+Gamma paragraph talks about plums.", ("pears", "follow-up", "Filler 7"))}
-        for pid, key in zip(self.pins, ("alpha", "beta", "gamma")):
+        for pid, key in zip(self.pins, ("alpha", "beta", "gamma"), strict=True):
             with self.subTest(pin=key):
                 code, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, pid))
                 self.assertEqual(code, 200, d)
@@ -1128,7 +1128,7 @@ def load_v022():
     """The server module exactly as released in v0.2.2 (from git), or None in a shallow clone."""
     import importlib.util
     r = subprocess.run(["git", "show", "v0.2.2:src/limn/server.py"], cwd=Path(__file__).resolve().parent.parent,
-                       capture_output=True, timeout=30)
+                       capture_output=True, timeout=30, check=False)
     if r.returncode != 0 or b"def reply_reopens" not in r.stdout:
         return None
     d = Path(tempfile.mkdtemp(prefix="limn-v022-"))
