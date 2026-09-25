@@ -12,13 +12,15 @@ instruction; everything else in `pins.md` is byte-for-byte the same.
 - **`changes` on close (additive).** `POST /api/pins/{id}/close` takes an optional `changes: [{file, lo, hi}]`, the
   new-side line ranges the agent changed for this pin (`file` relative to the manuscript folder like the `pins.md`
   location column, or absolute inside it). Invalid shapes are `400` and change nothing; `[]` is the old close. Stored on
-  the pin as `changes` (absolute paths) on the first close, kept on re-close, cleared by reopen; exposed in the pins API.
+  the pin as `changes` (absolute paths, with `changes_at` = that close's `done_at`) on the first close, kept on re-close,
+  cleared by reopen; exposed in the pins API.
 - **Inference for everything else.** For a pin without `changes` (or whose `changes` hit nothing in the commit) the
   server picks the commit's hunks that overlap the pin's range mapped through the commit (its anchor on the new side,
   else the old side; renames followed). If nothing overlaps, the view is the whole commit, as before.
 - **API (additive).** `GET /api/revision-diff?pin=<id>` adds `scope: {pin, mode, source, hunks, other, diff, other_diff}`;
   `POST /api/revision-build` accepts `pin` in its body, and `GET /api/revision-build` / `GET /api/revision-pdf` accept
-  `&pin=`; build statuses add `scope`, `pin`, `source`, `hunks`, `other`. Without `pin` every response is unchanged.
+  `&pin=`; build statuses add `scope`, `pin`, `source`, `hunks`, `other` (never stored, so responses without `pin` stay
+  as in 0.2.2); the scoped patches are cut at 256 KiB with `truncated` / `other_truncated`.
 - **Viewer.** A pin's source diff shows only its hunks, with "N other changes in this commit ▸" folded below (expands in
   place). Its comparison PDF is old + only its hunks, run through the same bwrap latexdiff/latexmk pipeline and cached
   per (pin, commit, hunk set); one toggle [Whole commit] switches to the whole-commit comparison. If the pin's hunks
