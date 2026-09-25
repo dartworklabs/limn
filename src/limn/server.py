@@ -478,7 +478,7 @@ def git_remote_url(src: Path):
         return None
     try:
         r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
-                           capture_output=True, text=True, timeout=5)
+                           capture_output=True, text=True, timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     url = r.stdout.strip()
@@ -1004,7 +1004,7 @@ def _git(args: list, cwd, timeout: int = GIT_PULL_TIMEOUT):
     """Run git without a shell. Never puts user input into the args. Returns (returncode, stdout, stderr).
     Timeout and exec failure are both distinguished by returncode=None."""
     try:
-        r = subprocess.run(["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True)
+        r = subprocess.run(["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True, check=False)
         return r.returncode, r.stdout, r.stderr
     except (subprocess.TimeoutExpired, OSError):
         return None, "", ""
@@ -1093,7 +1093,7 @@ def revision_diff(D: Doc, commit: str) -> dict:
             if proc.returncode != 0 and not too_large:
                 raise HTTPError(404, "변경사항을 읽지 못했습니다.")
     except (OSError, subprocess.TimeoutExpired):
-        raise HTTPError(503, "변경사항을 읽지 못했습니다.")
+        raise HTTPError(503, "변경사항을 읽지 못했습니다.") from None
     return {"id": commit, "diff": b"".join(chunks)[:REVISION_DIFF_MAX].decode("utf-8", errors="replace"),
             "truncated": too_large}
 
@@ -1132,7 +1132,7 @@ def revision_spec(D: Doc, commit: str) -> RevisionSpec:
         source = D.src.resolve().relative_to(repo).as_posix()
         main = D.main.resolve().relative_to(D.src.resolve())
     except ValueError:
-        raise HTTPError(400, "Git 저장소 안의 문서 빌드 루트가 필요합니다.")
+        raise HTTPError(400, "Git 저장소 안의 문서 빌드 루트가 필요합니다.") from None
     rc, out, _ = _git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
@@ -1149,7 +1149,7 @@ def revision_exec(cmd: list, cwd: Path, timeout: float, limit: int = 8 * 1024 * 
         proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     except OSError:
-        raise HTTPError(503, "비교 PDF 실행 도구를 시작하지 못했습니다.", reason="tool_unavailable")
+        raise HTTPError(503, "비교 PDF 실행 도구를 시작하지 못했습니다.", reason="tool_unavailable") from None
     buffers = {proc.stdout: bytearray(), proc.stderr: bytearray()}
     size, deadline = 0, time.monotonic() + timeout
     try:
@@ -1172,7 +1172,7 @@ def revision_exec(cmd: list, cwd: Path, timeout: float, limit: int = 8 * 1024 * 
             try:
                 rc = proc.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                raise HTTPError(503, "비교 PDF 실행 시간이 초과됐습니다.", reason="timeout")
+                raise HTTPError(503, "비교 PDF 실행 시간이 초과됐습니다.", reason="timeout") from None
         return rc, bytes(buffers[proc.stdout]), bytes(buffers[proc.stderr])
     finally:
         # Also remove descendants left behind by a command that has already exited.
@@ -1211,7 +1211,7 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None:
                 raise ValueError()
             n = int(size)
         except (ValueError, UnicodeError):
-            raise HTTPError(422, "사본에 허용되지 않는 경로·심링크·하위 저장소가 있습니다.", reason="unsafe_snapshot")
+            raise HTTPError(422, "사본에 허용되지 않는 경로·심링크·하위 저장소가 있습니다.", reason="unsafe_snapshot") from None
         total += n
         entries.append((path, oid.decode("ascii"), n))
         if n > REVISION_FILE_MAX or total > REVISION_TREE_MAX or len(entries) > REVISION_FILES_MAX:
@@ -1369,7 +1369,7 @@ def revision_start(D: Doc, commit: str) -> dict:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 lock.close()
-                raise HTTPError(409, "이 문서의 비교 PDF를 만드는 중입니다.", reason="busy")
+                raise HTTPError(409, "이 문서의 비교 PDF를 만드는 중입니다.", reason="busy") from None
             _revision_prune(root, spec.key)
             if jobdir.is_symlink():
                 raise HTTPError(503, "비교 캐시 경로가 올바르지 않습니다.", reason="unsafe_cache")
@@ -1423,7 +1423,7 @@ def revision_pdf(D: Doc, commit: str) -> bytes:
         try:
             return (root / spec.key / "revision.pdf").read_bytes()
         except OSError:
-            raise HTTPError(404, "해당 비교 PDF가 없습니다.")
+            raise HTTPError(404, "해당 비교 PDF가 없습니다.") from None
 
 
 # ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
@@ -1849,7 +1849,7 @@ def _render_pages(pdf: Path, extra: list):
     build_state_update(phase="render")
     try:
         r = subprocess.run(["pdftoppm", "-r", str(C.dpi), "-png", str(pdf), str(newdir / "page")],
-                           capture_output=True, timeout=600)
+                           capture_output=True, timeout=600, check=False)
         ok_render = r.returncode == 0 and any(newdir.glob("page-*.png"))
     except (subprocess.TimeoutExpired, FileNotFoundError):
         ok_render = False
@@ -1877,7 +1877,7 @@ def _commit_pages(newdir: Path) -> str:
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     try:
         head = subprocess.run(["git", "-C", str(D.src), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, timeout=10, check=False)
         head_short = head.stdout.strip() or "-"
     except (OSError, subprocess.SubprocessError):
         head_short = "-"
@@ -2307,7 +2307,7 @@ def safe_src(p) -> Path:
     try:
         rel = q.resolve().relative_to(C.src.resolve())
     except (ValueError, OSError, RuntimeError):
-        raise HTTPError(400, "원고 디렉토리 밖의 파일입니다: %s" % p)
+        raise HTTPError(400, "원고 디렉토리 밖의 파일입니다: %s" % p) from None
     out = C.src / rel
     if not out.is_file():
         raise HTTPError(400, "원고 안에 그런 파일이 없습니다: %s" % p)
@@ -2319,7 +2319,7 @@ def safe_src(p) -> Path:
 def synctex_edit(pdf: Path, page: int, x: float, y: float):
     try:
         out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, timeout=10, check=False).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
     inp = line = None
@@ -2366,7 +2366,7 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
     if not hits:
         return None
     best = max({f for f, _ in hits}, key=lambda f: sum(1 for g, _ in hits if g == f))
-    ls = densest(sorted(l for f, l in hits if f == best))
+    ls = densest(sorted(ln for f, ln in hits if f == best))
     return best, ls[0], ls[-1]
 
 
@@ -2379,7 +2379,7 @@ def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float
             ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
              "-x", str(int(x0)), "-y", str(int(y0)),
              "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(pdf), "-"],
-            capture_output=True, text=True, timeout=15).stdout
+            capture_output=True, text=True, timeout=15, check=False).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
 
@@ -3996,7 +3996,7 @@ def events_since(actor: dict, cursor) -> dict:
     try:
         cur = int(cursor)
     except (TypeError, ValueError):
-        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.")
+        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.") from None
     me = (actor or {}).get("login")
     if not me or is_agent(actor):
         out["events"] = []
@@ -4920,7 +4920,7 @@ def snippet_api(q: dict) -> dict:
         lo = int((q.get("lo") or [""])[0])
         hi = int((q.get("hi") or [""])[0])
     except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.")
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.") from None
     if not 1 <= lo <= hi <= len(lines):
         raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
     out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
@@ -4944,7 +4944,7 @@ def overlaps_api(q: dict) -> dict:
         lo = int((q.get("lo") or [""])[0])
         hi = int((q.get("hi") or [""])[0])
     except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.")
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.") from None
     if not 1 <= lo <= hi <= len(lines):
         raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
     return {"overlaps": overlaps_for_range(str(f), lo, hi)}
@@ -5146,7 +5146,7 @@ def load_tokens(state: Path, strict: bool = False) -> list:
         return []
     except (OSError, ValueError) as e:
         if strict:
-            raise ValueError("cannot read %s: %s" % (p, e))
+            raise ValueError("cannot read %s: %s" % (p, e)) from e
         print("warning: cannot read %s (%s) - no agent token is accepted until it is fixed" % (p, e), file=sys.stderr)
         return []
     if strict and not (isinstance(d, dict) and isinstance(d.get("tokens"), list)):
@@ -5282,7 +5282,7 @@ def load_people_file(state: Path) -> list:
     except FileNotFoundError:
         return []
     except (OSError, ValueError) as e:
-        raise ValueError("cannot read %s: %s" % (p, e))
+        raise ValueError("cannot read %s: %s" % (p, e)) from e
     if not isinstance(d, dict) or not isinstance(d.get("people"), list):
         raise ValueError("%s is not a Limn people file" % p)
     return _valid_people(d)
@@ -5373,7 +5373,7 @@ def parse_networks(spec: str) -> tuple:
             try:
                 out.append(ipaddress.ip_network(item, strict=False))
             except ValueError:
-                raise ValueError("--trusted-proxies takes IP addresses or CIDR ranges, got %r" % item)
+                raise ValueError("--trusted-proxies takes IP addresses or CIDR ranges, got %r" % item) from None
     if not out:
         raise ValueError("--trusted-proxies is empty")
     return tuple(out)
@@ -9402,7 +9402,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             d = json.loads(raw)
         except (ValueError, RecursionError):
-            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.")
+            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.") from None
         if not isinstance(d, dict):
             raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
         return d
@@ -9527,7 +9527,7 @@ def parse_doc_arg(spec: str, ms: Path) -> dict:
         try:
             p.relative_to(ms)
         except ValueError:
-            raise ValueError("--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, p))
+            raise ValueError("--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, p)) from None
         return p
 
     if "::" in path:
@@ -9544,7 +9544,7 @@ def parse_doc_arg(spec: str, ms: Path) -> dict:
         try:
             main.relative_to(root)
         except ValueError:
-            raise ValueError("--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main))
+            raise ValueError("--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main)) from None
         if main.suffix.lower() != ".tex":
             raise ValueError("--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main))
     else:

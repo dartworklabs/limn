@@ -97,7 +97,7 @@ def set_state(text: str, state_dir: str) -> str:
 
 def unit_active(unit: str) -> bool:
     try:
-        r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10)
+        r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return r.stdout.strip() in ("active", "activating", "reloading", "deactivating")

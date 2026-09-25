@@ -214,7 +214,7 @@ class ReplyApi(AccessBase):
         self.assertNotRegex(md, r"\n\| %d · " % pid)                          # awaiting review: not in the open table
         self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
         md = ps.pins_md_text(ps.snapshot_pins())
-        row = next(l for l in md.splitlines() if l.startswith("| %d · " % pid))
+        row = next(ln for ln in md.splitlines() if ln.startswith("| %d · " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀립니다", row)
         self.assertNotIn("## 검토 대기", md)
@@ -1064,7 +1064,7 @@ class PreviewEqualsServer(BrowserBase):
                  (None, "@Robin Park 봐 주세요"),                      # typed in full, no autocomplete
                  ("Robin Park", "@Robin 이것도요"),                  # picked Park, edited to the first word
                  (None, "@Robin 누구든 봐 주세요")]                    # ambiguous, never picked
-        for pid, (pick, text) in zip(self.pins, cases):
+        for pid, (pick, text) in zip(self.pins, cases, strict=True):
             with self.subTest(pick=pick, text=text):
                 preview, reopened, notified = self.run_case(page, pid, pick, text)
                 said_reopen = preview.startswith("보내면 이 핀이 다시 열려")
