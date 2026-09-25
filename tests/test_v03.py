@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -121,7 +122,7 @@ class Attribution(unittest.TestCase):
         self.files = [fc()]
 
     def blocks_for(self, pin, rel="ms/main.tex", changes=None):
-        source, chosen = ps.attribute_blocks(self.files, pin, rel, changes or [])
+        source, chosen = ps.attribute_blocks(self.files, ps.pin_facts(pin, rel), changes or [])
         return source, sorted(tuple(self.files[fi].blocks[bi]) for fi, bi in chosen)
 
     def test_block_is_chosen_when_the_anchor_overlaps_it_on_the_new_side(self):
@@ -173,7 +174,7 @@ class Attribution(unittest.TestCase):
     def test_three_pins_in_one_commit_get_disjoint_hunks_that_cover_the_commit(self):
         """The issue #9 case: three pins fixed in one commit each get their own block, and together all of them."""
         pins = [anchored(4, 4), anchored(11, 11, stale=True), anchored(18, 18, stale=True)]
-        got = [set(ps.attribute_blocks(self.files, p, "ms/main.tex", [])[1]) for p in pins]
+        got = [set(ps.attribute_blocks(self.files, ps.pin_facts(p, "ms/main.tex"), [])[1]) for p in pins]
         self.assertEqual([len(g) for g in got], [1, 1, 1])
         self.assertEqual(set.union(*got), {(0, 0), (0, 1), (0, 2)})
 
@@ -212,11 +213,11 @@ class ScopedPatch(unittest.TestCase):
         big = "".join("줄 %d 한국어 문장입니다\n" % i for i in range(20000))
         f = fc(big, big.replace("줄 5 ", "줄 5! "), b"@@ -6 +6 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
         files = [f, fc()]
-        sc = ps.pin_scope(1, files, {"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex", [("ms/main.tex", 12, 12)])
+        sc = ps.pin_scope(files, ps.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"), [ps.RepoRange("ms/main.tex", 12, 12)])
         out = ps.scope_payload(sc)
         self.assertEqual((out["mode"], out["truncated"], out["other_truncated"]), ("pin", False, False))
         f = fc(big, big.replace("\n", " x\n"), b"@@ -1,20000 +1,20000 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
-        sc = ps.pin_scope(1, [f, fc()], {"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex", [("ms/main.tex", 12, 12)])
+        sc = ps.pin_scope([f, fc()], ps.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"), [ps.RepoRange("ms/main.tex", 12, 12)])
         out = ps.scope_payload(sc)
         self.assertTrue(out["other_truncated"])
         self.assertLessEqual(len(out["other_diff"].encode()), ps.REVISION_DIFF_MAX)
@@ -282,14 +283,51 @@ class ScopeDecisions(unittest.TestCase):
     """The pure decisions around the scoped build and responses (coding rule R1): which recorded changes count, what to
     write into the synthetic tree, and how a refusal becomes a response - no file, git or HTTP needed."""
 
-    def test_recorded_changes_count_only_for_the_close_that_wrote_them(self):
-        """changes_at must equal done_at; malformed items are skipped; an open pin without either has none."""
+    def test_recorded_changes_count_only_for_their_close_and_their_commit(self):
+        """changes_at must equal done_at, and the commit asked about must be the one close_ref names (review M1:
+        another commit's lines must not select a different pin's fix); malformed items are skipped."""
         good = {"file": "/m/main.tex", "lo": 3, "hi": 4}
-        pin = {"done_at": "2026-09-25 10:00:00", "changes_at": "2026-09-25 10:00:00", "changes": [good, {"file": 3, "lo": 1, "hi": 1}]}
-        self.assertEqual(ps.recorded_changes(pin), (good,))
-        self.assertEqual(ps.recorded_changes(dict(pin, done_at="2026-09-26 09:00:00")), ())
-        self.assertEqual(ps.recorded_changes({"done_at": "2026-09-25 10:00:00"}), ())
-        self.assertEqual(ps.recorded_changes({}), ())
+        X, Y = "a" * 40, "b" * 40
+        revs = [{"id": Y, "subject": "fix B (#8)"}, {"id": X, "subject": "fix A (#7)"}]
+        pin = {"done_at": "2026-09-25 10:00:00", "changes_at": "2026-09-25 10:00:00", "close_ref": "PR #7 (%s)" % X[:7],
+               "changes": [good, {"file": 3, "lo": 1, "hi": 1}]}
+        self.assertEqual(ps.recorded_changes(pin, X, revs), (good,))
+        self.assertEqual(ps.recorded_changes(pin, Y, revs), ())                      # another commit: inference decides
+        self.assertEqual(ps.recorded_changes(dict(pin, close_ref="PR #7"), X, revs), (good,))   # the squash commit by PR
+        self.assertEqual(ps.recorded_changes(dict(pin, close_ref="PR #7 (cccc111)"), X, revs), (good,))
+        self.assertEqual(ps.recorded_changes(dict(pin, close_ref=""), X, revs), ())
+        self.assertEqual(ps.recorded_changes(dict(pin, done_at="2026-09-26 09:00:00"), X, revs), ())
+        self.assertEqual(ps.recorded_changes({"done_at": "2026-09-25 10:00:00"}, X, revs), ())
+        self.assertEqual(ps.recorded_changes({}, X, revs), ())
+
+    def test_ref_commit_matches_the_viewers_match_revision(self):
+        """The server binds changes with the same rule the viewer uses to pick the commit (matchRevision): hash prefix
+        first, then the PR number in the subject. Both implementations answer every case alike."""
+        revs = [{"id": "0a569cc" + "1" * 33, "subject": "Clarify experimental questions (#238)"},
+                {"id": "2cb7240" + "2" * 33, "subject": "Resolve manuscript viewer pins 19–41 (#236)"},
+                {"id": "f47c6bf" + "3" * 33, "subject": "manuscript: 원고 핀 12건 반영 (#235)"},
+                {"id": "1d422a6" + "4" * 33, "subject": "Merge pull request #203 from example-lab/docs"}]
+        refs = ["PR #235 (f47c6bf)", "paper PR #236; code PR #75", "paper PR #236", "#203", "PR #999", "", "abcdef1",
+                "커밋f47c6bf", "PR #236 (deadbee)", None]
+        py = [ps.ref_commit(r, revs) for r in refs]
+        self.assertEqual([x and x[:7] for x in py], ["f47c6bf", "2cb7240", "2cb7240", "1d422a6", None, None, None,
+                                                     "f47c6bf", "2cb7240", None])
+        if shutil.which("node"):
+            js = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(%s.map(r=>{const m=matchRevision(r,%s);"
+                          "return m&&m.id;})));" % (json.dumps(refs), json.dumps(revs)))
+            self.assertEqual(json.loads(js), py)
+
+    def test_raw_entries_of_symlinks_and_submodules_have_no_blocks(self):
+        """Review m6: --raw modes 120000 (symlink) and 160000 (submodule) are never read as text; the whole-commit
+        snapshot rejects them, so the pin view must not turn them into editable blocks either."""
+        z = "0" * 40
+        raw = (b":100644 120000 " + (b"1" * 40) + b" " + (b"2" * 40) + b" T\0ms/sec.tex\0"
+               b":000000 160000 " + z.encode() + b" " + (b"3" * 40) + b" A\0ms/sub\0"
+               b":100644 100644 " + (b"4" * 40) + b" " + (b"5" * 40) + b" R087\0ms/a.tex\0ms/b.tex\0")
+        got = ps.parse_raw_entries(raw)
+        self.assertEqual([(e.old_path, e.new_path, e.text) for e in got],
+                         [("ms/sec.tex", "ms/sec.tex", False), (None, "ms/sub", False), ("ms/a.tex", "ms/b.tex", True)])
+        self.assertEqual(got[0].modes, ("100644", "120000"))
 
     def test_scope_writes_apply_only_the_scope_under_the_build_root(self):
         """Only the scope's blocks are applied, files outside the build root are skipped, a deleted file is removed."""
@@ -321,7 +359,8 @@ class ScopeDecisions(unittest.TestCase):
         want = {"pin_not_in_doc": (404, {"error": "이 문서의 핀이 아닙니다."}),
                 "scope_unreadable": (422, {"error": "이 핀의 변경만 골라 적용하지 못했습니다.", "reason": "scope_failed"}),
                 "scope_mismatch": (422, {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"}),
-                "unsafe_path": (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"})}
+                "unsafe_path": (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"}),
+                "scope_unwritable": (422, {"error": "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "reason": "scope_failed"})}
         self.assertEqual(set(ps.SCOPE_REJECTIONS), set(want))
         for reason, (code, body) in want.items():
             e = ps.scope_http_error(ps.ScopeRejected(reason))
@@ -329,11 +368,11 @@ class ScopeDecisions(unittest.TestCase):
 
     def test_scope_meta_and_payload_have_their_documented_keys(self):
         """ScopeMeta has the five status fields; the payload adds the patches only in mode pin."""
-        sc = ps.pin_scope(7, [fc()], anchored(4, 4), "ms/main.tex", [])
+        sc = ps.pin_scope([fc()], ps.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
         self.assertEqual(ps.scope_meta(sc), {"scope": "pin", "pin": 7, "source": "inferred", "hunks": 1, "other": 2})
         self.assertEqual(sorted(ps.scope_payload(sc)), ["diff", "hunks", "mode", "other", "other_diff", "other_truncated",
                                                         "pin", "source", "truncated"])
-        whole = ps.pin_scope(7, None, anchored(4, 4), "ms/main.tex", [])
+        whole = ps.pin_scope(None, ps.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
         self.assertEqual(ps.scope_payload(whole), {"pin": 7, "mode": "commit", "source": "none", "hunks": 0, "other": 0})
 
 
@@ -928,6 +967,192 @@ class ScopedPdf(ScopedRepo):
         self.assertEqual(ps.revision_compile(ps.revision_spec(ps.cur_doc(), both), whole, 60)["state"], "ready")
 
 
+class ReviewRegressions(AccessBase):
+    """Findings of the independent review of PR #13 (probes in /tmp/limn-rev13/probes, kept here as regressions)."""
+
+    BASE = "".join("Line %d of the manuscript.\n" % i for i in range(1, 41))
+    DOC = "\\documentclass{article}\n\\begin{document}\n" + BASE + "\\end{document}\n"
+
+    def setUp(self):
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        self.repo = self.src.parent
+        self.main.write_text(self.DOC, encoding="utf-8")
+        for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
+            self.git(*args)
+        self.commit("first")
+        ps.SCOPE_CACHE.clear()
+
+    def git(self, *args):
+        """Run git in the fixture repository and return its stdout."""
+        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout
+
+    def write(self, text, path=None):
+        """Write a manuscript file with an mtime in the future, so the next pin sync sees the change."""
+        p = path or self.main
+        p.write_text(text, encoding="utf-8")
+        t = time.time() + 5
+        os.utime(p, (t, t))
+
+    def commit(self, msg):
+        """Commit everything under ms/ and return the full hash."""
+        self.git("add", "-A", "ms")
+        self.git("commit", "--quiet", "-m", msg)
+        return self.git("rev-parse", "HEAD").strip()
+
+    def scope(self, commit, pid):
+        """The scope object of GET /api/revision-diff?commit=&pin=."""
+        code, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (commit, pid))
+        self.assertEqual(code, 200, d)
+        return d["scope"]
+
+    def test_changes_recorded_for_one_commit_do_not_select_hunks_of_another(self):
+        """M1: pin A closed with changes (line 12) for commit X; a later commit Y edits line 12 for another pin. On Y
+        the recorded lines are not A's, so only inference may attribute (labelled inferred); on X they still decide."""
+        pa = self.add(lo=12, hi=12, note="A")
+        x = self.DOC.replace("Line 10 of", "Line TEN of")
+        self.write(x)
+        X = self.commit("fix A")
+        code, d = self.call("POST", "/api/pins/%d/close" % pa, {"ref": "PR #1 (%s)" % X[:7],
+                                                                "changes": [{"file": "main.tex", "lo": 12, "hi": 12}]})
+        self.assertEqual(code, 200, d)
+        Y = self.commit_y(x)
+        self.assertEqual(self.scope(X, pa)["source"], "changes")
+        self.assertNotEqual(self.scope(Y, pa)["source"], "changes")
+        self.assertEqual(self.scope(Y, pa)["source"], "inferred")
+
+    def commit_y(self, x):
+        """Commit Y: pin B's fix on line 12 and another change on line 32."""
+        self.write(x.replace("Line TEN of", "Line TEN (B) of").replace("Line 30 of", "Line 30 (C) of"))
+        return self.commit("fix B and C")
+
+    def test_a_transient_git_failure_is_not_cached_as_whole_commit(self):
+        """m1: one git timeout shows the whole commit once; the next request scopes again."""
+        pa, _ = self.add(lo=5, hi=5, note="A"), self.add(lo=30, hi=30, note="B")
+        self.write(self.DOC.replace("Line 3 of", "Line THREE of").replace("Line 28 of", "Line 28x of"))
+        X = self.commit("fix A and B")
+        self.call("POST", "/api/pins/%d/close" % pa, {"ref": X[:8]})
+        real, calls = ps.revision_exec, {"n": 0}
+
+        def flaky(cmd, *a, **k):
+            if "--raw" in cmd and calls["n"] == 0:
+                calls["n"] += 1
+                raise ps.HTTPError(503, "t", reason="timeout")
+            return real(cmd, *a, **k)
+        with mock.patch.object(ps, "revision_exec", flaky):
+            first = self.scope(X, pa)["mode"]
+        self.assertEqual((first, self.scope(X, pa)["mode"]), ("commit", "pin"))
+
+    def test_scope_cache_entries_are_bounded_by_the_response_cap(self):
+        """m2: a huge commit's patches are stored cut at REVISION_DIFF_MAX + 1 bytes (enough to flag truncation)."""
+        n = 6000
+        big = self.src / "big.tex"
+        self.write(("a" * 199 + "\n") * n, big)
+        self.commit("big old")
+        pa = self.add(lo=5, hi=5, note="A")
+        self.write("".join((("b" * 199 + "\n") if i % 2 else ("a" * 199 + "\n")) for i in range(n)), big)
+        self.write(self.DOC.replace("Line 3 of", "Line THREE of"))
+        X = self.commit("big change + A")
+        self.call("POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]})
+        s = self.scope(X, pa)
+        self.assertEqual((s["mode"], s["other_truncated"]), ("pin", True))
+        sc = next(iter(ps.SCOPE_CACHE.values()))
+        self.assertLessEqual(max(len(sc.diff), len(sc.other_diff)), ps.REVISION_DIFF_MAX + 1)
+
+    def test_scope_computations_run_at_most_two_at_a_time(self):
+        """m3: cache misses read the commit on the request thread; at most SCOPE_SLOTS (2) do so at once."""
+        pins = [self.add(lo=3 + i, hi=3 + i, note="p%d" % i) for i in range(5)]
+        self.write(self.DOC.replace("Line 1 of", "Line ONE of"))
+        X = self.commit("one change")
+        base = self.git("rev-parse", X + "^").strip()
+        real, lock, now, peak = ps.revision_changes, threading.Lock(), [0], [0]
+
+        def slow(*a, **k):
+            with lock:
+                now[0] += 1
+                peak[0] = max(peak[0], now[0])
+            time.sleep(0.3)
+            with lock:
+                now[0] -= 1
+            return real(*a, **k)
+        repo, paths = ps.revision_scope(ps.cur_doc())
+        revs = ps.revision_history(ps.cur_doc())["revisions"]
+        rows = ps.read_pins()[0]
+        with mock.patch.object(ps, "revision_changes", side_effect=slow):
+            ts = [threading.Thread(target=ps.revision_pin_scope,
+                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.SCOPE_CACHE))
+                  for pid in pins]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(20)
+        self.assertEqual(peak[0], 2)
+
+    def test_pins_with_the_same_blocks_share_one_comparison_pdf(self):
+        """m4: the comparison is keyed by (commit, block set), not by pin - two pins on the same fix build once."""
+        pa, pb = self.add(lo=5, hi=5, note="A"), self.add(lo=5, hi=5, note="B")
+        self.write(self.DOC.replace("Line 3 of", "Line THREE of").replace("Line 28 of", "Line 28x of"))
+        X = self.commit("fix A and something else")
+        ka, kb = (ps.revision_spec(ps.cur_doc(), X, p).key for p in (pa, pb))
+        self.assertEqual(ka, kb)
+        self.assertNotEqual(ka, ps.revision_spec(ps.cur_doc(), X).key)
+
+    def test_scoped_comparisons_never_evict_whole_commit_ones(self):
+        """m4: pin-scoped cache entries have their own limit, so many pins do not push out the whole-commit PDFs."""
+        root = ps._revision_cache_root(ps.cur_doc())
+        whole = [root / ("%064x" % i) for i in range(3)]
+        scoped = [root / ("%064x" % (100 + i)) for i in range(ps.REVISION_SCOPED_KEEP + 4)]
+        for i, d in enumerate(whole + scoped):
+            d.mkdir()
+            if d in scoped:
+                (d / ps.SCOPED_MARK).write_text("")
+            t = time.time() - 1000 + (i if d in whole else 500 + i)       # every scoped entry is newer
+            os.utime(d, (t, t))
+        ps._revision_prune(root, "f" * 64)
+        self.assertTrue(all(d.exists() for d in whole))
+        self.assertEqual(sum(d.exists() for d in scoped), ps.REVISION_SCOPED_KEEP)
+
+    def test_a_synthetic_tree_that_cannot_be_written_is_a_scope_failure(self):
+        """m5: an OSError while writing the synthetic tree is ScopeRejected("scope_unwritable"), reported as
+        scope_failed (deterministic, answered from the cache) - not a generic build_failed with a traceback."""
+        dest = Path(self.tmp.name) / "dest"
+        dest.mkdir()
+        (dest / "main.tex").write_text("x")
+        spec = ps.RevisionSpec(self.repo, "ms", Path("main.tex"), "a" * 40, "b" * 40, "k" * 64)
+        with mock.patch.object(ps, "revision_changes", return_value=[]), \
+                mock.patch.object(ps, "plan_scope_writes", return_value=[ps.ScopeWrite("main.tex/x.tex", b"x")]):
+            with self.assertRaises(ps.ScopeRejected) as e:
+                ps.revision_apply_scope(spec, dest)
+        self.assertEqual(e.exception.reason, "scope_unwritable")
+        err = ps.scope_http_error(e.exception)
+        self.assertEqual((err.code, err.body["reason"]), (422, "scope_failed"))
+
+    def test_a_file_that_becomes_a_symlink_is_never_applied_as_text(self):
+        """m6: a file -> symlink type change has no blocks (one of the other changes, shown with its modes), and the
+        synthetic tree keeps the old regular file instead of the link's target text."""
+        sec = self.src / "sec.tex"
+        self.write("Section text.\n", sec)
+        self.write(self.DOC.replace("\\end{document}", "\\input{sec}\n\\end{document}"))
+        self.commit("add sec")
+        pa = self.add(lo=5, hi=5, note="A")
+        sec.unlink()
+        os.symlink("/etc/hostname", sec)
+        self.write(self.main.read_text().replace("Line 3 of", "Line THREE of"))
+        X = self.commit("typechange sec + A")
+        code, d = self.call("POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]})
+        self.assertEqual(code, 200, d)          # (a changes item naming sec.tex resolves outside the folder: 400)
+        s = self.scope(X, pa)
+        self.assertEqual((s["mode"], s["source"], s["hunks"], s["other"]), ("pin", "changes", 1, 1))
+        self.assertIn("new mode 120000", s["other_diff"])
+        spec = ps.revision_spec(ps.cur_doc(), X, pa)
+        dest = Path(self.tmp.name) / "dest"
+        ps.revision_snapshot(spec, spec.base, dest)
+        ps.revision_apply_scope(spec, dest)
+        self.assertFalse((dest / "sec.tex").is_symlink())
+        self.assertEqual((dest / "sec.tex").read_text(), "Section text.\n")
+
+
 # ---------------------------------------------------------------- 4. the real viewer
 
 DEVICES = {
@@ -1108,6 +1333,34 @@ class ScopedViewer(BrowserBase):
                 self.assertFalse(self.visible(page, "#revision-whole"))
                 if lang == "en":
                     self.english_only(page, "#revision-status")
+
+    def test_switching_to_another_commit_shows_it_whole_without_pin_scope(self):
+        """Review M1 (viewer): the pin's scope applies only to the commit picked for it. Choosing another commit in
+        the list shows that commit whole - no &pin= on the diff or the PDF - and choosing the pin's commit again
+        scopes it again."""
+        page = self.open_change("desktop", "ko", self.p2)
+        urls = []
+        page.on("request", lambda r: urls.append(r.url))
+        page.select_option("#revision-select", self.solo)          # another commit: the list opens its PDF
+        self.wait_pdf(page)
+        self.assertFalse(self.visible(page, "#revision-whole"))
+        self.assertEqual(self.builds[-1], (self.solo, ()))
+        page.click("#revision-source-tab")
+        page.wait_for_function("REVISION_SOURCE_COMMIT===%s" % json.dumps(self.solo), timeout=15000)
+        self.assertIn("reworded", page.inner_text("#revision-diff"))
+        self.assertFalse(self.visible(page, "#revision-other-toggle"))
+        seen = [u for u in urls if "/api/revision-" in u and self.solo in u]
+        self.assertTrue(seen)
+        self.assertFalse([u for u in seen if "pin=" in u], seen)
+        page.select_option("#revision-select", self.fix)           # back to the pin's own commit: scoped again
+        self.wait_pdf(page)
+        page.wait_for_function("!document.getElementById('revision-whole').hidden", timeout=15000)
+        self.assertEqual(self.builds[-1][0], self.fix)
+        self.assertEqual(len(self.builds[-1][1]), 1)
+        page.click("#revision-source-tab")
+        page.wait_for_function("REVISION_SOURCE_COMMIT===%s&&!document.getElementById('revision-other-toggle').hidden"
+                               % json.dumps(self.fix), timeout=15000)
+        self.assertNotIn("pears", page.inner_text("#revision-diff"))
 
     def test_other_changes_start_folded_for_the_next_pin(self):
         """Opening [View changes] for another pin starts with the other changes folded and only that pin's hunks."""
