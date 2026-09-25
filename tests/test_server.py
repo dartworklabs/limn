@@ -4790,7 +4790,7 @@ class FrontendArchive(unittest.TestCase):
             extract_js_fn("locCopy"), extract_js_fn("docChip"),
             "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
             extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"), js_thread(),
-            "const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"),
+            "const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("isViewer"),
             extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
         return json.loads(run_node(js))
 
