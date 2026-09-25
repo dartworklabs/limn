@@ -19,7 +19,11 @@ dependency-free. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdf
 
 - Code, comments, docstrings, test names, commit messages, CLI help and log/error messages are in
   **English**. User-facing docs have Korean counterparts (`*.ko.md`); keep both in sync when you change one.
-- UI strings go through the viewer's message table (Korean and English).
+- UI strings go through the viewer's message table (Korean and English, `src/limn/ui_en.json`). The Korean
+  text in the template is the key. Strings built at run time use `tl('<Korean template>', {params})` with
+  `{name}` slots, e.g. `tl('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`
+  chosen by `n`. `tests/test_i18n.py` fails on a template without a translation and on Hangul left in the
+  English chrome.
 - **The agent contract is stable.** `pins.md` (its columns, markers and Korean header words) and the
   HTTP API (paths, JSON field names, state names) are read by agents in other repositories. Do not
   change them without a versioned migration plan.
