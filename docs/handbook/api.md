@@ -664,7 +664,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 핀은 `pins.jsonl` 에 한 줄 한 레코드로 저장된다.
 
 ```json
-{"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<절대경로>/introduction.tex",
+{"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<절대경로>/sections/introduction.tex", "rel_path": "sections/introduction.tex",
  "lo": 120, "hi": 134, "raw_lo": 122, "raw_hi": 131, "kind": "env:minipage", "scope": "env",
  "via": "synctex", "score": 0.93, "note": "이 문단 톤을 낮춰줘", "frac": [0.12, 0.30, 0.55, 0.18],
  "pdf_build": "pages-20260921200500",
@@ -678,6 +678,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 | 필드 | 뜻 |
 | --- | --- |
+| `file` | 핀이 가리키는 원고 파일의 **이 서버 머신 절대 경로**다. 저장값은 마지막으로 그 핀을 쓴 때의 경로다. 응답의 값은 0.4부터 §핀 파일의 위치로 찾은 **지금 경로**이고, 찾지 못하면 저장값 그대로다 |
+| `rel_path` | 0.4([ADR-0006](../adr/0006-relative-pin-paths.md)). 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 옛 레코드에도 계산해서 싣고, 원고 밖으로 풀리면 싣지 않는다. 문자열이 아니면 그 줄은 깨진 줄이다 |
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
 | `pdf` | 보기 전용 PDF 문서의 핀에만 있다. 그 PDF의 절대경로다. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
@@ -700,7 +702,18 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람과 시각 |
 | `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시 (claim)). `claimed_by` 는 작성자 귀속과 같은 `{login,name}` 형식이고, `claimed_at` 은 시작 시각 문자열이다. `claim_ts`(시작), `claim_until`(잠금 자동 해제), `eta_ts`(예상 완료)는 epoch 초다. `claim_until` 이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim` 이 모두 지운다 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)).
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel`(겹침 관계)과 `rel_path`(상대 경로)는 다른 필드다.
+
+### 핀 파일의 위치
+
+원고 체크아웃을 옮기면(이름 바꾸기, 새 클론 위치, 다른 머신, 상태 디렉터리 복원) 저장된 절대 경로 `file` 이 옛 위치를 가리킨다. 0.3까지는 그런 핀이 원고 밖으로 보여 줄 맞춤·범위 수정·인용이 멈췄다([이슈 #7](https://github.com/dartworklabs/limn/issues/7)). 0.4부터 서버는 읽을 때마다 아래 순서로 핀의 파일을 지금 원고 폴더에서 찾는다(`pin_rel_path`, [ADR-0006](../adr/0006-relative-pin-paths.md)). 먼저 맞는 것을 쓴다.
+
+1. 저장된 `file` 이 지금 원고 폴더 안이면(심볼릭 링크를 푼 뒤) 그 경로다. 파일이 지워졌어도 그렇다.
+2. `rel_path` 가 비어 있지 않은 상대 경로이고 `..` 조각이 없으며 저장된 `file` 이 그 경로로 끝나면 `<원고 폴더>/<rel_path>` 다. 0.3으로 되돌린 동안 위치를 다시 잡으면 `file` 만 바뀌어 둘이 어긋나므로, 낡은 `rel_path` 는 버린다.
+3. 옛 레코드는 `file` 의 꼬리 가운데 원고 폴더 안에 실제로 있는 가장 긴 것이다(`sections/intro.tex` 가 `intro.tex` 보다 앞선다). `..` 조각이 든 꼬리는 보지 않는다.
+4. 어느 것도 맞지 않으면 원고 밖이다. 줄 맞춤·`lo`/`hi` 수정(`400`)·`«…»` 인용이 멈추고 그 파일은 읽지 않는다.
+
+1~3의 결과도 심볼릭 링크를 푼 경로가 원고 폴더 안일 때만 쓴다. 원고 안의 링크가 바깥을 가리키면 원고 밖이다. 찾은 경로는 줄 맞춤, 범위 수정, `pins.md` 위치 칸과 인용, 겹침 계산(`rel`·`overlaps`), 핀 단위 변경 보기, 그리고 응답의 `file`·`rel_path` 에 쓴다. 읽기만으로는 `pins.jsonl` 을 다시 쓰지 않는다. 0.3.0으로 되돌려도 된다. 0.3.0은 `rel_path` 를 모르는 필드로 지나치고, 0.4가 다시 쓴 레코드의 `file` 은 지금 경로라 0.3.0에서도 원고 안이다.
 
 ## pins.md 형식
 
@@ -732,7 +745,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 열
 
-- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`·`\include` 로 쪼갠 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명의 `|` 는 `\|` 로 이스케이프한다(아래 §이스케이프).
+- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`·`\include` 로 쪼갠 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 0.4부터 원고 체크아웃을 옮긴 뒤에도 같다(§핀 파일의 위치). 원고 밖으로 풀리는 핀만 파일 이름으로 줄어든다. 파일명의 `|` 는 `\|` 로 이스케이프한다(아래 §이스케이프).
 - **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`·`lines`→`lines` 로 쓴다. 없으면 옛 `kind` 값을 그대로 쓴다.
 - **줄 번호 시점**: `<state_dir>/pins.md` 를 갱신한 시각 기준이다. 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
 
