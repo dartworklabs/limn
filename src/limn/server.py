@@ -5256,12 +5256,13 @@ def pins_md_text(rows: list, base: str = None) -> str:
                (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn),
                 "검토 대기 %d건(맨 아래, 처리하지 않는다)  ·  " % len(reviewn) if reviewn else "", n_done))
     out.append("")
-    guidance = ("처리한 핀은 닫는다 — 핀 하나에 커밋 하나로 고치고(PR 하나에 커밋 여럿은 괜찮다) `ref` 에 그 커밋 해시를 적는다: "
+    guidance = ("처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: "
                 "`curl -X POST -H 'Content-Type: application/json' "
-                "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"그 핀의 커밋 해시(≤80자)\","
+                "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"PR #12 (커밋 해시)\","
                 "\"changes\":[{\"file\":\"main.tex\",\"lo\":12,\"hi\":14}]}' "
-                "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 는 선택: "
-                "그 커밋에서 이 핀 때문에 바꾼 줄 범위, 커밋 뒤 줄 번호, 경로는 위치 칸 기준) · "
+                "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 "
+                "커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. "
+                "핀마다 커밋을 나누면 더 좋지만 필수는 아니다) · "
                 "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · "
                 "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
                 "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다 · "
