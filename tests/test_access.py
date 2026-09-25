@@ -878,7 +878,12 @@ class Migration(AccessBase):
             c_old, b_old = get(v01, path, headers)
             c_new, b_new = get(ps, path, headers)
             self.assertEqual(c_new, c_old, path)
-            self.assertEqual(json.loads(b_new), json.loads(b_old), path)
+            new, old = json.loads(b_new), json.loads(b_old)
+            if path == "/api/pins/dropped":                              # v0.2.2: the Trash adds a computed expires_ts
+                for r in new["dropped"]:                                 # and hides entries older than TRASH_DAYS
+                    self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
+                old["dropped"] = [r for r in old["dropped"] if not ps.trash_expired(r)]
+            self.assertEqual(new, old, path)
         c_old, md_old = get(v01, "/pins.md", headers)
         c_new, md_new = get(ps, "/pins.md", headers)
         self.assertEqual(c_new, c_old)
