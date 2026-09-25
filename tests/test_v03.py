@@ -191,8 +191,9 @@ class ScopedPatch(unittest.TestCase):
         self.assertIn("@@ -1,4 +1,4 @@\n l1\n l2\n-l3\n+L3\n l4\n", text)
         self.assertIn("@@ -6,5 +6,5 @@\n l6\n-l7\n+L7\n l8\n l9\n l10\n", text)
         text, n = ps.scoped_patch(files, {(0, 0), (0, 1)}, True)
-        self.assertEqual(n, 1)                                     # adjacent blocks of the same pin are one place
-        self.assertIn("@@ -1,5 +1,5 @@\n l1\n l2\n-l3\n+L3\n l4\n-l5\n+L5\n", text)
+        self.assertEqual(n, 2)                                     # two changed spots, shown in one hunk
+        self.assertEqual(text.count("@@ -"), 1)
+        self.assertIn("@@ -1,6 +1,6 @@\n l1\n l2\n-l3\n+L3\n l4\n-l5\n+L5\n l6\n", text)
 
     def test_missing_final_newline_is_marked_like_git(self):
         files = [fc("a\nb", "a\nc", b"@@ -2 +2 @@\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n")]
@@ -243,6 +244,12 @@ class GitBlocks(unittest.TestCase):
             r = subprocess.run(["git", "diff", "--no-index", "--no-color", "-U0", str(a), str(b)], capture_output=True)
             return r.stdout
 
+    def git_apply(self, old: bytes, patch: str) -> bytes:
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "m.tex").write_bytes(old)
+            subprocess.run(["git", "apply", "--unidiff-zero", "-"], cwd=d, input=patch.encode(), check=True, capture_output=True)
+            return Path(d, "m.tex").read_bytes()
+
     def test_fixture_patch_matches_git(self):
         self.assertEqual([tuple(b) for b in ps.parse_u0_blocks(self.u0(OLD.encode(), NEW.encode()))], [A_BLK, B_BLK, C_BLK])
 
@@ -267,10 +274,18 @@ class GitBlocks(unittest.TestCase):
             self.assertEqual(ps.apply_blocks(f, set(range(len(f.blocks)))), n)
             self.assertEqual(ps.apply_blocks(f, set()), o)
             if f.blocks:
-                k = rnd.randrange(len(f.blocks))
-                mid = ps.apply_blocks(f, {k})
-                # the synthetic version, diffed against old, contains exactly that one change
-                self.assertEqual(len(ps.parse_u0_blocks(self.u0(o, mid))) if mid != o else 0, 1 if mid != o else 0)
+                # any subset: old outside the chosen blocks, new inside them, in order
+                chosen = {k for k in range(len(f.blocks)) if rnd.random() < 0.5}
+                want, pos = [], 0
+                for k, b in enumerate(f.blocks):
+                    if k in chosen:
+                        want += f.old[pos:b.old_lo] + f.new[b.new_lo:b.new_lo + b.new_n]
+                        pos = b.old_lo + b.old_n
+                self.assertEqual(ps.apply_blocks(f, chosen), b"".join(want + list(f.old[pos:])))
+                # and the scoped patch of those blocks, applied by git to old, gives exactly that
+                text, _ = ps.scoped_patch([f], {(0, k) for k in chosen}, True)
+                if chosen:
+                    self.assertEqual(self.git_apply(o, text), ps.apply_blocks(f, chosen))
 
 
 # ---------------------------------------------------------------- 2. the close contract: optional `changes`
