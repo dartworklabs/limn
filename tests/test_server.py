@@ -1842,7 +1842,7 @@ class FrontendLogic(unittest.TestCase):
             const el=makeEl();
             const document={querySelector:()=>el, querySelectorAll:()=>[]};
             const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
-            const SMOOTH='auto';
+            const SMOOTH='auto'; function secOpenFor(){return false;}
             """,
             extract_js_fn("jumpToCard"),
             r"""
@@ -5825,7 +5825,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
         self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)   # one path; the server decides
-        self.assertIn("body.reopen=false", send)                              # [상태 유지]
+        self.assertIn("body.reopen=R.toggle==='reopen'", send)               # the one override: [상태 유지] / [다시 열기]
         self.assertIn("deferred(", send)                                      # sent when the undo toast goes away
 
     def test_compact_collapsed_card_hides_thread(self):
@@ -6020,8 +6020,8 @@ class FrontendReview(unittest.TestCase):
         body = extract_js_fn("replyEl")
         self.assertIn("closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글", body)
         self.assertIn('class="r-outcome"', body)
-        self.assertIn('data-act="reply-keep"', body)
-        self.assertIn("REPLY={id,keep:false,el:replyEl(p)}", extract_js_fn("openReply"))
+        self.assertIn('data-act="reply-flip"', body)
+        self.assertIn("REPLY={id,flip:false,toggle:null,el:replyEl(p)}", extract_js_fn("openReply"))
 
 
 # ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)
@@ -6567,7 +6567,7 @@ class NotifyServer(Base):
         js = raw.decode()
         self.assertIn("showNotification" if False else "notificationclick", js)
         self.assertIn("clients.openWindow", js)
-        self.assertIn("postMessage({type:'open-pin'", js)
+        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)   # v0.2.2: [되살리기] on a 'dropped' notification
         self.assertNotIn("'fetch'", js)                                   # doesn't cache app data
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
         self.assertEqual(code, 403)

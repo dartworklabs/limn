@@ -5546,7 +5546,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 /* Viewer role (people.json role viewer, v0.2.1): the server refuses every change anyway; the screen stops offering it.
    Reading stays - view/jump, threads, the archive, the composer's location and source lines. */
 body.role-viewer :is([data-act=edit],[data-act=drop],[data-act=close],[data-act=confirm],
-  [data-act=reply-open],[data-act=restore],[data-act=purge],[data-act=unclaim],[data-act=rebuild],[data-act=overlap-append],[data-act=overlap-separate],
+  [data-act=reply-open],[data-act=reply-flip],[data-act=restore],[data-act=purge],[data-act=unclaim],[data-act=rebuild],[data-act=overlap-append],[data-act=overlap-separate],
   [data-act=kind],[data-act=e-kind],[data-act=assign-new],[data-act=assign-edit],[data-act=esave]),
 body.role-viewer :is(#btn-save,#note,#c-kind,#c-assign,#c-qhint,#note-mentions){display:none!important}
 body:not(.role-viewer) #c-viewer{display:none}
@@ -6521,7 +6521,7 @@ const T={
   repick:'번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
   esave:'수정한 내용을 저장합니다 (⌘ Enter / Ctrl+Enter)', ecancel:'수정을 버립니다 (Esc)',
   restore:'삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
-  purge:'휴지통에서 바로 영구 삭제합니다(소유자만). 알림의 [되돌리기]를 누르기 전까지는 지우지 않습니다',
+  purge:'휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다',
   synctex:'PDF 좌표(SyncTeX)로 줄을 찾았지만 드래그한 글자가 이 줄 범위에 다 있지는 않습니다(드문 낱말에 가중한 비율). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
   text:'드래그한 글자를 원문에서 직접 찾아 위치를 정했습니다(표·기호표처럼 좌표 조회가 약한 곳). 원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.',
   raw:'넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
@@ -6650,10 +6650,11 @@ document.addEventListener('close',e=>{if(e.target&&e.target.tagName==='DIALOG'){
 // (paused while hovered), on [x], or when the page is hidden - and [되돌리기] cancels it before anything reaches the server. So an
 // agent never sees a reply or permanent delete that was taken back. The page being hidden or closed sends what is pending (fetch keepalive).
 const DEFERRED=new Set();
-function deferred(msg,commit,undo){let done=false;
-  const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); commit();}};
+function deferred(msg,commit,undo){let done=false,t=null;
+  // Committing early (page hidden) also takes the toast away - an [되돌리기] that can no longer cancel anything must not stay on screen.
+  const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); if(t&&t.isConnected){t._gone=null; t.remove();} commit();}};
   DEFERRED.add(d);
-  const t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}});
+  t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}});
   if(t)t._gone=d.run; else d.run();
   return d;}
 function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
@@ -7224,10 +7225,12 @@ function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||
   return {title:tl('핀 #{id}',{id:e.pin})+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){
-    const act=e.type==='dropped'?{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',fn:()=>restorePin(e.pin)}:{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
+    const act=e.type==='dropped'?(isViewer()?{label:'열기',tip:'휴지통에서 봅니다',fn:()=>openPinFromLink(e.doc,e.pin)}:{label:'되살리기',tip:'휴지통에서 같은 번호로 되살립니다',fn:()=>restorePin(e.pin)})
+      :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
     toast(t.title+' — '+t.body,e.type==='dropped'?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
     await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=icon]')||{}).href,
+      actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   if(!notifyOn())return;
@@ -7268,7 +7271,8 @@ async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docIn
   await loadPins(); const p=findAnyPin(pin); if(!p){if(DROPPED.some(x=>x.id===pin))openTrash(pin); return;} if(pinState(p)==='done'){SEC.done=true;}
   OPEN_CARDS.add(pin); setSide(true); drawPins(); if(pinState(p)!=='done')jumpPin(pin);
   requestAnimationFrame(()=>jumpToCard(pin));}
-if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{}; if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin);});
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};
+  if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin); else if(d.type==='restore-pin'&&!isViewer())restorePin(+d.pin);});
 window.addEventListener('hashchange',()=>{const n=hashPin(); if(n)openPinFromLink(hashDoc(),n);});
 
 // ------------------------------------------------ Async build-progress chip (P0b-01)
@@ -7765,7 +7769,7 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
-function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal();}
+function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal(); toastHost();}
 // Expanding done/dropped pins from [⋯] opens the panel and scrolls to that list.
 function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its box rectangle.
@@ -8384,12 +8388,13 @@ function doneCard(p){
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
 // for the owner only - [영구 삭제] (sent after its undo toast goes away, like a reply).
 const TRASH_DAYS=30;
-function trashDaysLeft(at,now){const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at||'')); if(!m)return null;
+function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Math.ceil((exp*1000-(now==null?Date.now():now))/86400000));
+  const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at||'')); if(!m)return null;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(); return Math.max(0,Math.ceil(TRASH_DAYS-((now==null?Date.now():now)-t)/86400000));}
 function isOwner(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role==='owner');}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
-  const left=trashDaysLeft(p.dropped_at);
+  const left=trashDaysLeft(p.dropped_at,null,p.expires_ts);
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
     relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',{name:who(p.dropped_by)||tr('기록 전')}))+
@@ -8400,7 +8405,9 @@ function droppedCard(p){
 function drawTrash(){const L=listDropped(),box=$('#trash-list'); if(!box)return;
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});
   box.innerHTML=L.length?L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard).join(''):'<div class="dim">'+esc(tr('휴지통이 비어 있습니다'))+'</div>';}
-function openTrash(flashId){const d=$('#trash'); drawTrash(); if(!d.open){hideTip(); d.showModal();}
+function openTrash(flashId){const d=$('#trash');
+  if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId)){SHOW_ALL=true; drawPins();}   // another document's pin
+  drawTrash(); if(!d.open){hideTip(); d.showModal(); toastHost();}
   if(flashId!=null)requestAnimationFrame(()=>{const el=document.querySelector('#trash .arc-row[data-id="'+flashId+'"]'); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
 $('#trash').addEventListener('click',e=>{const d=$('#trash'); if(e.target!==d)return; const r=d.getBoundingClientRect();
@@ -8433,7 +8440,8 @@ function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p
 function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
   pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));
   const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
-function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
+function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
+  if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
 function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!=='local'&&a.login===me.login);}
@@ -8481,7 +8489,7 @@ function drawPins(){
   $('#sec-done').hidden=!LDONE.length; secHead('done',tr('완료'),LDONE.map(p=>p.id),DONE_ALL.map(p=>p.id));
   if(SEC.done)$('#done-list').innerHTML=LDONE.length?LDONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
   if($('#trash').open)drawTrash();
-  if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el);
+  if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el); renderReplyOutcome();   // the pin may have changed state meanwhile
     if(rfocus&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
@@ -8508,9 +8516,12 @@ $('#doc').addEventListener('mousedown',e=>{
 // Clicking a badge -> scroll to the card + .cur highlight (spec) + a 1.2-second flash. The highlight is never left on -
 // it releases; when it was a static box-shadow, it stayed on the card until the next click.
 // compact: clicking a badge expands the panel/sheet and that card, then scrolls via jumpToCard.
-function revealCard(id){if(LAYOUT==='wide')return; setSide(true);
+// Expands the section that holds pin id if it is collapsed (a mark click, a notification, [검토 대기 N]). Returns true if it changed.
+function secOpenFor(id){const p=findAnyPin(id); if(!p)return false; const st=pinState(p),key=st==='review'?'review':st==='done'?'done':'open';
+  if(SEC[key])return false; SEC[key]=true; savePrefs({sec:SEC}); return true;}
+function revealCard(id){if(secOpenFor(id))drawPins(); if(LAYOUT==='wide')return; setSide(true);
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
-function jumpToCard(id){
+function jumpToCard(id){if(secOpenFor(id))drawPins();
   const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
   el.scrollIntoView({behavior:SMOOTH,block:'nearest'});
   $$('.pin.cur').forEach(x=>{if(x!==el)x.classList.remove('cur');});
@@ -8692,33 +8703,41 @@ function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(
 function replyReopens(p,human,mentioned,override){if(pinState(p)==='open')return false;
   if(override!==undefined&&override!==null)return !!override;
   if(p.kind_req==='question'||!human)return false; return !(mentioned&&mentioned.length);}
-// The outcome line: {text, keep} (keep = whether [상태 유지] applies), or null for an open pin (a reply never changes it).
-function replyPreview(p,human,mentioned,keep){if(!p||pinState(p)==='open')return null; const m=mentioned||[];
-  if(p.kind_req==='question')return {text:tr('답으로 남고 상태는 그대로입니다'),keep:false};
-  if(!human)return {text:tr('이 화면은 에이전트로 보내므로 상태는 그대로입니다'),keep:false};
-  if(m.length)return {text:tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다',{names:m.map(peopleName).join(', ')}),keep:false};
-  return keep?{text:tr('보내도 상태는 그대로입니다'),keep:true}:{text:tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),keep:true};}
-function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,ta._mentions).hit.filter(l=>l!==me);}
+// The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare override the box
+// offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기], reopen:true) where it keeps a closed pin
+// as it is. flip = that toggle is pressed.
+function replyPreview(p,human,mentioned,flip){if(!p||pinState(p)==='open')return null; const m=mentioned||[];
+  const reopens=replyReopens(p,human,m),toggle=reopens?'keep':'reopen';
+  if(flip)return {text:tr(reopens?'보내도 상태는 그대로입니다':'보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
+  if(reopens)return {text:tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
+  if(p.kind_req==='question')return {text:tr('답으로 남고 상태는 그대로입니다'),toggle};
+  if(!human)return {text:tr('이 화면은 에이전트로 보내므로 상태는 그대로입니다'),toggle};
+  return {text:tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다',{names:m.map(peopleName).join(', ')}),toggle};}
+// The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
+function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,ta._mentions).hit.filter(l=>l!==me&&(PEOPLE.find(x=>x.login===l)||{}).role!=='agent');}
 function replyEl(p){const closed=!!p&&pinState(p)!=='open',el=document.createElement('div'); el.className='reply-box';
   el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="'+
     (closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
-    '<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" data-act="reply-keep" aria-pressed="false" '+
-    'data-tip="보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)">상태 유지</button></div>'+
+    '<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" data-act="reply-flip" aria-pressed="false"></button></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
     '<button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 알림의 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>';
   return el;}
 function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=R.el.querySelector('.r-outcome'),ta=R.el.querySelector('textarea'); if(!box||!ta)return;
-  const p=findAnyPin(R.id),pv=p&&replyPreview(p,isHuman(),replyMentioned(ta),!!R.keep);
-  if(!pv){box.hidden=true; R.keep=false; return;}
-  if(!pv.keep)R.keep=false;
-  box.hidden=false; box.classList.toggle('reopen',replyReopens(p,isHuman(),replyMentioned(ta),R.keep?false:undefined));
-  box.querySelector('.r-out-t').textContent=pv.text;
-  const k=box.querySelector('[data-act=reply-keep]'); k.hidden=!pv.keep; k.setAttribute('aria-pressed',String(!!R.keep));}
+  const p=findAnyPin(R.id),closed=!!p&&pinState(p)!=='open',ment=replyMentioned(ta);
+  let pv=p&&replyPreview(p,isHuman(),ment,!!R.flip);
+  ta.placeholder=tr(closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)');
+  if(!pv){box.hidden=true; R.flip=false; R.toggle=null; return;}
+  if(R.toggle&&R.toggle!==pv.toggle&&R.flip){R.flip=false; pv=replyPreview(p,isHuman(),ment,false);}   // the rule changed direction (a tag added/removed): the override resets
+  R.toggle=pv.toggle; box.hidden=false; box.querySelector('.r-out-t').textContent=pv.text;
+  box.classList.toggle('reopen',replyReopens(p,isHuman(),ment,R.flip?pv.toggle==='reopen':undefined));
+  const k=box.querySelector('[data-act=reply-flip]'),keep=pv.toggle==='keep';
+  k.textContent=tr(keep?'상태 유지':'다시 열기'); k.dataset.tip=tr(keep?'보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)':'보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)');
+  k.setAttribute('aria-pressed',String(!!R.flip));}
 function openReply(id){
   if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
   const p=findAnyPin(id);
-  REPLY={id,keep:false,el:replyEl(p)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
+  REPLY={id,flip:false,toggle:null,el:replyEl(p)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
   const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get('reply:'+id)||''; autoGrow(ta); mentionPreview(ta); renderReplyOutcome(); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
@@ -8726,18 +8745,19 @@ function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('t
   REPLY=null; if(redraw!==false)drawPins();}
 function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
   if(!text){toast('답글이 비어 있습니다','warn'); ta.focus(); return;}
-  const id=R.id,p=findAnyPin(id),body={text},mh=mentionHints(ta),hints=ta._mentions,keep=!!R.keep; if(mh.length)body.mentions=mh;
-  if(keep&&p&&pinState(p)!=='open')body.reopen=false;
+  const id=R.id,p=findAnyPin(id),body={text},mh=mentionHints(ta),hints=ta._mentions,flip=!!R.flip; if(mh.length)body.mentions=mh;
+  if(flip&&p&&pinState(p)!=='open'&&R.toggle)body.reopen=R.toggle==='reopen';
   const reopens=!!p&&replyReopens(p,isHuman(),replyMentioned(ta),body.reopen);
   REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for the undo toast
   deferred(tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),
     async()=>{markMine(id);
       try{const {data}=await api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true});
-        if(!data.ok)toast(tl('핀 #{id} 이 없습니다',{id}),'err');}
+        if(!data.ok)toast(tl('핀 #{id} 이 없습니다',{id}),'err');
+        else if(!!data.reopened!==reopens)toast(tl(data.reopened?'핀 #{id} 다시 열림':'#{id} 에 답글을 남겼습니다 · 상태는 그대로',{id}),'warn');}   // the pin changed state while the toast was up
       catch(e){REPLY_DRAFT.set('reply:'+id,text);}
       await loadPins();},
     ()=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
-      if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(hints)t._mentions=hints; REPLY.keep=keep; mentionPreview(t); renderReplyOutcome();}});}
+      if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();}});}
 
 // ------------------------------------------------ Edit
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
@@ -8881,7 +8901,7 @@ async function rebuild(){
 
 // ------------------------------------------------ Help
 let HELP_BACK=null;
-function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); d.showModal();}
+function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); d.showModal(); toastHost();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
 // ------------------------------------------------ Event delegation (no inline handlers)
@@ -8942,7 +8962,7 @@ document.addEventListener('click',e=>{
       break;}
     case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind==='question'?'question':'fix'; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id);break;
-    case 'reply-keep':if(REPLY){REPLY.keep=!REPLY.keep; renderReplyOutcome();}break;
+    case 'reply-flip':if(REPLY){REPLY.flip=!REPLY.flip; renderReplyOutcome();}break;
     case 'confirm':if(id!=null)confirmPin(id);break;
     case 'change':if(id!=null)showChange(id);break;
     case 'goto-review':gotoReview();break;

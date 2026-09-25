@@ -23,6 +23,7 @@
  "#{id} 메모에 덧붙이기": "Append to #{id}'s note",
  "#{id} 범위 안": "Within #{id}'s range",
  "#{id} 에 답글을 남겼습니다": "Replied to #{id}",
+ "#{id} 에 답글을 남겼습니다 · 상태는 그대로": "Replied on #{id} · state unchanged",
  "#{id} 에 덧붙였습니다": "Appended to #{id}",
  "#{id} 위치를 잃었습니다": "#{id} lost its location",
  "#{id} 을 {name} 가 삭제함": "#{id} deleted by {name}",
@@ -402,6 +403,7 @@
  "보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)": "Send only the reply without reopening the pin (rarely needed)",
  "보내면 {names}에게 알림이 가고 상태는 그대로입니다": "Sending notifies {names}; state stays",
  "보내면 이 핀이 다시 열려 에이전트에게 갑니다": "Sending will reopen this pin for the agent",
+ "보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)": "Reopen the pin for the agent as you send (rarely needed)",
  "보통": "Normal",
  "복사함:": "Copied:",
  "복사함: {text}": "Copied: {text}",
@@ -927,6 +929,6 @@
  "휴지통 {n}": "Trash ({n})",
  "휴지통 닫기 (Esc)": "Close the Trash (Esc)",
  "휴지통에서 같은 번호로 되살립니다": "Restore it from the Trash under the same number",
- "휴지통에서 바로 영구 삭제합니다(소유자만). 알림의 [되돌리기]를 누르기 전까지는 지우지 않습니다": "Deletes it from the Trash for good (owner only). Nothing is deleted while [Undo] is still in the notification",
+ "휴지통에서 영구 삭제합니다(소유자만). 알림이 떠 있는 동안 [되돌리기]로 취소할 수 있고, 알림이 사라지면 지웁니다": "Deletes it from the Trash for good (owner only). While the notification is up, [Undo] cancels it; it is deleted when the notification goes away",
  "휴지통이 비어 있습니다": "The Trash is empty"
 }
