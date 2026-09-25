@@ -3735,7 +3735,7 @@ def record_person(actor: dict, now: float = None, role: str = None) -> bool:
                 if pic:
                     cur["pic"] = pic
                 cur["last_seen"] = stamp
-                atomic_write(C.people_file, people_text(rows))
+                atomic_write(C.people_file, people_text(rows), mode=0o600)
         except OSError as e:
             print("warning: failed to write people.json: %s" % e, file=sys.stderr)
             return False
@@ -5116,7 +5116,7 @@ def _people_update(state: Path, fn):
     with store_lock(state, "people"):
         rows = load_people_file(state)
         out = fn(rows)
-        atomic_write(state / "people.json", people_text(rows))
+        atomic_write(state / "people.json", people_text(rows), mode=0o600)
     return out
 
 
@@ -5255,6 +5255,9 @@ def identify(headers, peer) -> Principal:
         return Principal({"login": AGENT_LOGIN_PREFIX + t["name"], "name": t["name"]}, "agent", "token")
     loop = peer_is_loopback(peer)
     if C.auth == "local":
+        if loop and came_through_proxy(headers):
+            # every local request is the owner - one that came through a proxy is someone else (v0.2.1 hardening)
+            raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
         if loop:
             return Principal(local_owner_actor(), "owner", "local-owner")
         raise HTTPError(401, UNAUTHENTICATED)
@@ -5279,7 +5282,9 @@ def identify(headers, peer) -> Principal:
     raise HTTPError(401, UNAUTHENTICATED)
 
 
-FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded")
+# Headers a reverse proxy adds (tailscale serve sets X-Forwarded-For/-Host/-Proto). A local curl sends none of them.
+FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Real-IP",
+                     "Forwarded", "Via")
 
 
 def host_is_loopback(host) -> bool:
@@ -5293,7 +5298,8 @@ def came_through_proxy(headers) -> bool:
     tailscale serve picks the route from the TLS server name and passes the client's Host through unchanged, so a
     tagged device can send 'Host: localhost'. It does set X-Forwarded-For/-Host/-Proto itself (overwriting what the
     client sent), so any forwarding header - or a non-loopback Host - marks a proxied request. A local agent's curl
-    sends neither."""
+    sends neither. Limit: a raw TCP forwarder that adds no header (tailscale serve --tcp/--tls-terminated-tcp,
+    ssh -L/-R, a plain port forward) is indistinguishable from a local request - use tokens and --no-agent-loopback there."""
     if not host_is_loopback(headers.get("Host")):
         return True
     return any(headers.get(h) is not None for h in FORWARDED_HEADERS)
@@ -9275,6 +9281,24 @@ def configure_access(a) -> None:
     C.insecure = bool(a.i_know_this_is_insecure) and not loop_bind and C.auth != "trusted-proxy"
 
 
+def tighten_state_perms() -> None:
+    """people.json holds logins and roles (roles are permissions). It is written 0600 since v0.2.1; an older file that
+    others may write is tightened to 0600 on startup, logged once. Other state files keep their mode - pins.md and
+    pins.jsonl are what agents (possibly another account on the machine) read."""
+    p = C.people_file
+    try:
+        mode = p.stat().st_mode & 0o777
+    except OSError:
+        return
+    if mode & 0o022:
+        try:
+            os.chmod(p, 0o600)
+        except OSError as e:
+            print("warning: %s is writable by others (%o) and could not be tightened: %s" % (p, mode, e), file=sys.stderr)
+            return
+        print("people.json: tightened %s from %o to 600 (it was writable by others)" % (p, mode), file=sys.stderr)
+
+
 def access_log_lines() -> list:
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated loopback agent."""
     parts = [C.auth]
@@ -9484,6 +9508,7 @@ def main() -> None:
 
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
+    tighten_state_perms()
     print("manuscript  %s" % (C.src if docs else C.main))
     print("label       %s (%s)%s" % (C.label, C.accent, "" if C.repo else " - no git origin, using the folder name as default"))
     print("state       %s" % C.state)
