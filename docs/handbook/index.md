@@ -64,7 +64,7 @@ catalog_schema: 1
 | [ADR-0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
 | [ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
 | [ADR-0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
-| [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 핀별 커밋, 닫을 때의 `changes`, 서버 추정, 핀의 hunk만 담은 소스 diff·비교 PDF | 제안 (0.3.0 구현 PR) |
+| [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 닫을 때의 `changes`와 `PR #번호 (커밋 해시)`, 서버 추정(겹침만), 핀의 hunk만 담은 소스 diff·비교 PDF | 확정·구현 (0.3.0) |
 
 ## 알려진 공백
 

@@ -6,9 +6,10 @@ Pin-scoped [View changes] ([issue #9](https://github.com/dartworklabs/limn/issue
 [ADR-0005](docs/adr/0005-pin-scoped-changes.md)). The HTTP API changes are additive. One `pins.md` line changes: the close
 instruction; everything else in `pins.md` is byte-for-byte the same.
 
-- **Agents: one commit per pin (agent-visible).** The close instruction in `pins.md` and the skill now ask for one commit
-  per pin (one PR may hold several) and `ref` = that pin's commit hash, so the commit is the pin and both diffs are scoped
-  for free. Nothing enforces it; old agents keep working.
+- **Agents: always send `changes` (agent-visible).** The close instruction in `pins.md` and the skill now ask agents to
+  close with `changes` (the lines changed for the pin, numbered as in the commit `ref` names — after a squash merge, the
+  merged `main`) and `ref` = `PR #<n> (<commit hash>)`. Committing each pin separately helps but is not required; PRs may
+  be squash-merged. Nothing enforces it; old agents keep working.
 - **`changes` on close (additive).** `POST /api/pins/{id}/close` takes an optional `changes: [{file, lo, hi}]`, the
   new-side line ranges the agent changed for this pin (`file` relative to the manuscript folder like the `pins.md`
   location column, or absolute inside it). Invalid shapes are `400` and change nothing; `[]` is the old close. Stored on
