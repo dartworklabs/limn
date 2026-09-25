@@ -798,3 +798,126 @@ class ViewerFlows(BrowserBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------- v0.2.2 follow-ups: cold deep links, lazy Trash expiry, styles
+
+class LazyTrashExpiry(AccessBase):
+    """A long-running server drops expired Trash entries during normal reads, at most once an hour, never on a light poll."""
+
+    def setUp(self):
+        super().setUp()
+        ps._TRASH_CHECKED[0] = 0.0
+
+    def put_dropped(self, pid, dropped_epoch):
+        rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old",
+               "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch))}
+        ps.atomic_write(ps.C.dropped, ps.dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
+
+    def ids(self):
+        return sorted(r["id"] for r in ps.read_jsonl(ps.C.dropped)[0])
+
+    def test_hourly_purge_on_reads_with_a_fake_clock(self):
+        from unittest import mock
+        t0 = time.time()
+        self.put_dropped(80, t0 - 31 * 86400)
+        with mock.patch.object(ps.time, "time", return_value=t0):
+            self.assertEqual(self.call("GET", "/api/meta?light=1")[0], 200)      # a light poll never writes
+            self.assertEqual(self.ids(), [80])
+            self.assertEqual(self.call("GET", "/api/pins")[0], 200)              # a normal read purges
+            self.assertEqual(self.ids(), [])
+            self.put_dropped(81, t0 - 31 * 86400)
+            self.call("GET", "/api/pins?all=1")                                  # within the hour: no second check
+            self.assertEqual(self.ids(), [81])
+        with mock.patch.object(ps.time, "time", return_value=t0 + 3601):
+            self.call("GET", "/pins.md")                                         # an hour later: checked again
+            self.assertEqual(self.ids(), [])
+
+    def test_an_entry_expiring_while_the_server_runs(self):
+        from unittest import mock
+        t0 = time.time()
+        self.put_dropped(82, t0 - 29.99 * 86400)
+        with mock.patch.object(ps.time, "time", return_value=t0):
+            self.call("GET", "/api/pins")
+            self.assertEqual(self.ids(), [82])                                   # not yet 30 days old
+        with mock.patch.object(ps.time, "time", return_value=t0 + 2 * 3600):
+            self.call("GET", "/api/pins")
+            self.assertEqual(self.ids(), [])
+
+
+class ButtonStyles(unittest.TestCase):
+    def test_done_row_reply_and_trash_restore_are_filled_secondary(self):
+        body = extract_js_fn("doneCard")
+        self.assertIn('<button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open"', body)
+        dc = extract_js_fn("droppedCard")
+        self.assertIn('<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore"', dc)
+        self.assertIn('<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge"', dc)
+
+
+class ColdDeepLink(BrowserBase):
+    """A notification click with no tab open loads /#doc=<key>&pin=<n> cold (the service worker's openWindow). On an
+    instance with several documents the boot rewrote the hash to #doc=<key> before reading pin=, so the pin was lost."""
+
+    WHO = ALICE
+
+    def setUp(self):
+        super().setUp()
+        from test_i18n import _png
+        src = ps.C.src
+        (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
+        ps.set_docs(ps.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src))
+        for D in ps.DOCS:
+            pages = D.dir / "pages-20260925100000"
+            pages.mkdir(parents=True, exist_ok=True)
+            for i in (1, 2):
+                (pages / ("page-%d.png" % i)).write_bytes(_png(1275, 1650))
+            (D.dir / "pages.cur").write_text(pages.name)
+            (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
+            (D.dir / "head.txt").write_text("abc1234")
+        ms, hl = ps.DOCS
+        with ps.using_doc(ms):
+            for lo in range(4, 30, 2):
+                ps.add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A)
+        with ps.using_doc(hl):
+            for lo in range(4, 24, 2):
+                ps.add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A)
+            self.target = ps.add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A)
+            self.gone = ps.add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A)
+        ps.drop_pin(self.gone, B)
+        self.addCleanup(ps.set_docs, None)
+
+    def cold(self, hash_, device):
+        context = self.browser.new_context(**DEVICES[device])
+        self.addCleanup(context.close)
+        page = context.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route("**/*", self.route)
+        page.goto("http://viewer.test/?lang=ko" + hash_)
+        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=20&&META", timeout=20000)
+        self.addCleanup(lambda: self.assertEqual(errors, []))
+        return page
+
+    def assert_card_shown(self, page, pid, device):
+        page.wait_for_function("DOC==='hl'&&OPEN_CARDS.has(%d)&&!!document.querySelector('.pin[data-id=\"%d\"]')" % (pid, pid), timeout=8000)
+        if device == "desktop":                                                  # the card is scrolled into the panel
+            page.wait_for_function("""(()=>{const c=document.querySelector('.pin[data-id="%d"]').getBoundingClientRect(),
+                l=document.getElementById('list').getBoundingClientRect(); return c.height>0&&c.top>=l.top-1&&c.bottom<=l.bottom+1;})()""" % pid,
+                timeout=5000)
+
+    def test_cold_link_opens_the_pin_in_another_document(self):
+        for device in ("desktop", "phone"):
+            with self.subTest(device=device):
+                page = self.cold("#doc=hl&pin=%d" % self.target, device)
+                self.assert_card_shown(page, self.target, device)
+                self.assertEqual(page.evaluate("location.hash"), "#doc=hl")      # the one-shot pin= is consumed
+
+    def test_cold_restore_link_restores_and_opens(self):
+        page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
+        page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.gone, timeout=8000)
+        self.assertIsNotNone(ps.find_pin(ps.snapshot_pins(), self.gone))
+        self.assert_card_shown(page, self.gone, "desktop")
+        self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
+
+    def test_service_worker_carries_the_restore_action_into_a_new_window(self):
+        self.assertIn("e.action==='restore'?'&act=restore':''", ps.SW_JS)
