@@ -862,6 +862,7 @@ class Migration(AccessBase):
         self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
         lines.remove(ps.TOKEN_GUIDANCE)
         lines.remove(ps.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
+        lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), V01_PINS_MD.replace("{src}", str(self.src)))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
@@ -878,7 +879,12 @@ class Migration(AccessBase):
             c_old, b_old = get(v01, path, headers)
             c_new, b_new = get(ps, path, headers)
             self.assertEqual(c_new, c_old, path)
-            self.assertEqual(json.loads(b_new), json.loads(b_old), path)
+            new, old = json.loads(b_new), json.loads(b_old)
+            if path == "/api/pins/dropped":                              # v0.2.2: the Trash adds a computed expires_ts
+                for r in new["dropped"]:                                 # and hides entries older than TRASH_DAYS
+                    self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
+                old["dropped"] = [r for r in old["dropped"] if not ps.trash_expired(r)]
+            self.assertEqual(new, old, path)
         c_old, md_old = get(v01, "/pins.md", headers)
         c_new, md_new = get(ps, "/pins.md", headers)
         self.assertEqual(c_new, c_old)
@@ -888,6 +894,7 @@ class Migration(AccessBase):
         claim = [l for l in lines if l.startswith("처리를 시작하는 핀은 먼저 잡는다")]
         self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
         lines.remove(claim[0])
+        lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), mask(md_old))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)

@@ -12,6 +12,7 @@ PDF 에서 고칠 곳을 드래그하고 메모를 남기면 Limn 이 그것을 
 - 원고 하나에 여러 문서(본문·답변서·보기 전용 리뷰어 PDF)를 탭으로
 - 요청하거나 업스트림 브랜치가 움직이면 재빌드(`--git-pull`)
 - 스레드·질문·@태그·담당·완료 전 검토·핀별 변경 보기
+- 닫힌 핀에는 [답글] 하나: 사람이 단 답글은 핀을 에이전트에게 되돌린다(보내기 전 한 줄로 알리고, 보낸 뒤 되돌릴 수 있다). 삭제한 핀은 30일 동안 휴지통에
 - 원고마다 오래 도는 **인스턴스** 하나(systemd 사용자 유닛), `tailscale serve` 로 노출
 
 ## 설치
@@ -20,11 +21,11 @@ Python 3.10 이상, [uv](https://docs.astral.sh/uv/), SyncTeX 가 되는 TeX 배
 Poppler(`pdftoppm`)가 필요하다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
 limn version
 ```
 
-GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.2.1` 도 된다.
+GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.2.2` 도 된다.
 
 ## 서버 하나 띄우기
 
@@ -63,7 +64,8 @@ limn token create paper2 · limn member add paper2 <login> --role viewer   # 에
 ## 에이전트에게
 
 에이전트는 `pins.md`(`curl -s <base>/pins.md`) 또는 `GET /api/pins` 를 읽고, 고치기 직전에 그 핀 하나만
-claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 확인은 사람이 한다. 인증은
+claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 사람이 확인하거나, 틀린 점을
+답글로 달면 핀이 다시 열려 열린 표로 돌아온다. 인증은
 `limn token create <인스턴스>` 로 받은 토큰(`Authorization: Bearer …`)으로 한다. 에이전트는
 확인(confirm)하지 않고, 남이 claim 한 핀·검토 대기 핀·담당이 사람인 핀은 건너뛴다. 전체 절차는
 [skill/SKILL.ko.md](skill/SKILL.ko.md), API 계약은 [docs/handbook/api.md](docs/handbook/api.md). `pins.md` 형식과 HTTP API 는
@@ -98,7 +100,7 @@ Limn 은 2026-09-21 writing-agent-playbook 저장소의 `manuscript-pin-picker` 
 아무 것도 지우지 않는다. 포트·테일넷 주소·핀이 그대로 이어진다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
 limn migrate --dry-run            # 계획: ~/.config/pin-viewer/<이름>.env -> ~/.config/limn/<이름>.env
 limn migrate                      # 설정 복사(여러 번 불러도 같다, 옛 파일은 남는다)
 # 인스턴스마다:

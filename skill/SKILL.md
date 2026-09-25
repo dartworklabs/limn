@@ -17,11 +17,11 @@ Terms are defined once here and used with exactly this meaning below.
 | --- | --- |
 | **Limn** | The app: a stdlib-only Python server plus its browser viewer. |
 | **instance** | One served manuscript: a name, a local port and a tailnet port, a state directory. A long-running instance is the systemd user unit `limn@<name>`. |
-| **pin** | A picked PDF region, mapped to a file and line range, plus the request note. |
+| **pin** | A place in the output + a request or question + its conversation. The place is a picked PDF region mapped to a file and line range, the request is the note, the conversation is the thread. |
 | **`pins.md`** | The agent work list: a Markdown table of open pins that Limn rewrites as pins change. |
 | **open pin** | A pin that is neither closed nor dropped. Only open pins appear in the main table. |
 | **question pin** | A pin marked `질문` ("question"): it asks something rather than requesting an edit. |
-| **awaiting review** | A pin an agent has closed; a human must confirm it. Listed under `## 검토 대기` ("awaiting review") at the bottom of `pins.md`. |
+| **awaiting review** | A pin an agent has closed; a human must confirm it. Listed under `## 검토 대기` ("awaiting review") at the bottom of `pins.md`. When a human replies with what is wrong, it reopens and returns to the open table. |
 | **assignee** | Who a pin is for: `agent` (the default) or a person. A person-assigned pin shows `→ @이름` ("→ @name"). |
 | **claim** | A short-lived "in progress" lock with an ETA, shown as `처리 중(<이름>, 약 N분)` ("in progress (<name>, about N min)"). |
 | **view-only document** | A PDF served without sources (e.g. reviewer comments). Its pins have a page and region, but no line numbers. |
@@ -54,7 +54,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 ### What you may do
 
 - Claim one pin, right before you edit it, with an `eta_min` estimate (step 4).
-- Reply to a pin (`/reply`).
+- Reply to a pin (`/reply`). An agent's reply never changes the pin's state; send `"reopen": true` only when the user asks.
 - Close a pin with `reply` and `ref` (step 6). When you close through the tailnet address without a token, send `"review": true`.
 - Rebuild the PDF after editing (§Rules).
 
@@ -78,7 +78,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
    - Whoever is asked processes **all** pins open at that moment, regardless of who left them (author decision, 2026-09-22).
    - If the user named pin numbers, only those.
    - **Skip**: `처리 중(<이름>, …)` (someone else holds a claim; do not take it over); pins in the `## 검토 대기` subsection at the bottom (already processed, waiting for a human); pins whose number cell has `→ @이름` — **skip person-assigned pins** (process one only when the user explicitly asks). `참고 @이름` ("FYI @name") is a notify-only tag; do not skip for it.
-   - `질문` in the number cell marks a question, not a place to edit (step 6). `다시 열림` ("reopened") is a pin sent back from review: edit again according to `다시 연 이유` ("reason for reopening") in the note cell.
+   - `질문` in the number cell marks a question, not a place to edit (step 6). `다시 열림` ("reopened") is a pin sent back from review: edit again according to `다시 연 이유` ("reason for reopening") in the note cell. Since v0.2.2 that reason is usually a person's reply in the viewer: a person's reply on a pin awaiting review or done that does not @tag a person makes the server reopen it.
 4. **Claim just in time.** Always claim only that pin, right before you edit it. Never claim several pins at once: pins you have not touched yet get locked and others cannot take them (observed 2026-09-23: 23 pins claimed in one go). Put your estimate in minutes in `eta_min`; the viewer shows it as `처리 중 · 약 15분 · 20:40쯤` (in progress · about 15 min · around 20:40).
 
    ```bash
@@ -97,10 +97,11 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
    - If you run late, claim again with the same identity and a new estimate (an extension). Otherwise the viewer shows `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)").
    - The lock releases itself after `ttl_min` (default: twice the estimate, clamped to 30–120 minutes). It is a safety net; do not use it in place of an estimate.
 5. **Edit.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, fetch the realigned values from `GET <base>/api/pins`.
-6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done; [다시 열기] (reopen) sends it back as an open pin with a reason.
+6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done. When a human writes what is wrong in [답글] (reply), that reply becomes the reason for reopening and the pin returns to the open table (`다시 열림`). A reply that @tags a person is a conversation between people: the state stays, and you still do not process pins awaiting review.
    - **Edit-request pin**: after editing, close it with what you changed (`reply`, ≤500 chars) and the PR number or commit (`ref`, ≤80 chars). The viewer's [변경 보기] (view changes) uses `ref` to find the commit.
    - **Question pin**: do not edit the manuscript (only if the question implies an edit). Post the answer as a reply, then close.
    - When closing through the tailnet address (`https://…ts.net`) **without a token**, the request carries the human identity of the machine you run on and would be marked done immediately, so put `"review": true` in the body. With a token, or through local `127.0.0.1`, it goes to awaiting review without it (sending it anyway is harmless).
+   - The same applies to replies: if you are an agent sending as a person (no token — the tailnet address from a machine signed in as a person, or a headerless `curl` to an `--auth local` instance), a reply to a pin awaiting review or done would reopen it, so send `"reopen": false` with every reply. With a token your replies never change the state.
    - **Agents never confirm.** `POST /api/pins/{id}/confirm` returns 403 without a human identity (tailnet header).
 
    ```bash
@@ -145,7 +146,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
 
 ## Starting a viewer for the user
 
-1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.1`, then check with `limn version`.
+1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.2`, then check with `limn version`.
 2. **Check the port (mandatory).** Never bind without checking.
 
    ```bash
@@ -179,12 +180,12 @@ After the number, the number cell carries short plain-word markers joined by ` �
 | `POST /api/pins/{id}/claim` | Mark in progress. Body `{"eta_min": 1..240, "ttl_min": 1..120}` (both optional; values above the cap are clamped): estimate and lock |
 | `POST /api/pins/{id}/unclaim` | Release the claim |
 | `POST /api/pins/{id}/close` | Close. Body `{"reply", "ref", "review"}`; closed by an agent → awaiting review |
-| `POST /api/pins/{id}/reply` | Reply `{"text"}` (≤1000 chars). State unchanged |
+| `POST /api/pins/{id}/reply` | Reply `{"text"}` (≤1000 chars). An agent's reply keeps the state; a person's reply on a closed pin may reopen it by rule. The response adds `reopened` and `state`. Optional `"reopen": true/false` overrides the rule |
 | `GET /api/pins/{id}` | One pin with its whole thread (`pins.md` carries at most 3 thread entries) |
 | `POST /api/pins/{id}/confirm` | Awaiting review → done (**humans only**; 403 without an identity header) |
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply` and `ref`). Optional `{"reason"}` stays in the thread |
 | `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append` |
-| `POST /api/pins/{id}/drop` | Remove a mistaken pin (`/restore` brings it back) |
+| `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only) |
 | `POST /api/rebuild?async=1` | Rebuild the PDF; progress at `GET /api/build`. With several documents add `&doc=<key>` to both |
 | `GET /api/docs` | Document list (key, name, kind, open pin count, build state) |
 | `GET /api/meta?light=1` | Read-only state (`stale_build`, …). `&ev=<seq>` returns events addressed to you (for browser notifications) |
