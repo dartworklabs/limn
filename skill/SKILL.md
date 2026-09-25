@@ -101,6 +101,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
    - **Edit-request pin**: after editing, close it with what you changed (`reply`, ≤500 chars) and the PR number or commit (`ref`, ≤80 chars). The viewer's [변경 보기] (view changes) uses `ref` to find the commit.
    - **Question pin**: do not edit the manuscript (only if the question implies an edit). Post the answer as a reply, then close.
    - When closing through the tailnet address (`https://…ts.net`) **without a token**, the request carries the human identity of the machine you run on and would be marked done immediately, so put `"review": true` in the body. With a token, or through local `127.0.0.1`, it goes to awaiting review without it (sending it anyway is harmless).
+   - The same applies to replies: if you are an agent sending as a person (no token — the tailnet address from a machine signed in as a person, or a headerless `curl` to an `--auth local` instance), a reply to a pin awaiting review or done would reopen it, so send `"reopen": false` with every reply. With a token your replies never change the state.
    - **Agents never confirm.** `POST /api/pins/{id}/confirm` returns 403 without a human identity (tailnet header).
 
    ```bash

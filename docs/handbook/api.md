@@ -346,6 +346,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | 질문 핀 | 누구나 | — | 답으로 남는다. 상태 그대로 |
 
 - **사람**은 에이전트가 아닌 신원이다. 토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람은 에이전트라 규칙으로는 다시 열지 않는다.
+- **토큰 없이 사람 신원으로 보내는 에이전트**(사람으로 로그인한 머신에서 테일넷 주소로 보내며 닫을 때 `"review": true` 를 넣는 에이전트, `--auth local` 인스턴스에 헤더 없는 `curl`)는 서버에게 사람이다. 그런 에이전트는 답글마다 `"reopen": false` 를 넣는다. `pins.md` 안내 줄(`REPLY_GUIDANCE`, 토큰 안내 줄 다음에 더한 줄)과 SKILL이 같은 말을 한다.
 - **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신과 `agent` 역할인 계정을 빼고 하나라도 있다는 뜻이다. `@Codex 고쳐 주세요`처럼 에이전트 역할 계정을 부른 답글은 사람을 부른 것이 아니다.
 - 본문의 선택 `reopen` 이 `true`/`false` 면 규칙보다 앞선다. 불리언이 아니면 `400` 이다. 열린 핀은 `reopen: true` 여도 바뀌지 않는다. 뷰어의 [상태 유지]가 `false` 를 보낸다.
 - 응답은 `{ok, pin, msg, state, reopened}` 다. `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다. `state`·`reopened` 는 0.2.2에서 더했다.
@@ -362,7 +363,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | --- | --- | --- |
 | 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 0.2.1부터 `403` 이다(§인증) |
 | 닫기 | 사람(`editor`·`owner` 역할, `local` 방식의 소유자) | `done:true` = 완료(그 사람이 검토자다) |
-| 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로 `true` 를 보낸다 |
+| 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로 `true` 를 보낸다. 같은 에이전트는 답글에 `"reopen": false` 를 넣는다(사람 신원의 답글은 닫힌 핀을 다시 연다, §답글이 핀을 다시 여는 규칙 (0.2.2)) |
 | `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`) |
 | `POST /confirm` | 에이전트 역할의 요청(토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람) | `403`, 메시지는 `확인은 사람이 합니다 — …` |
 | `POST /confirm` | `viewer` 역할 | `403`(§인증의 역할 검사) |

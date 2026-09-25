@@ -31,8 +31,16 @@ API changes are additive. One agent-visible behaviour changes; it is listed firs
 - Open pins, awaiting review and done share one collapsible header (click/Enter/Space, `aria-expanded`), remembered per
   device; done starts collapsed; a collapsed header shows "new N".
 - Help defines a pin once: a place in the output + a request or question + its conversation.
-- Tests: `tests/test_v022.py` (the rule table, API, Trash with a fake clock, cold deep links, and browser flows on
-  desktop, fold and phone in ko/en). Decision record ADR-0004 is accepted.
+- **What the preview says is what happens.** The preview and the request resolve @-tags with the same hints, so an
+  autocompleted name edited down to an ambiguous first word previews the server's decision. The override is a switch
+  whose label is the non-default outcome, and the preview still names who is notified when it is on; the placeholder
+  follows the same outcome. A failed send reopens the box with the draft and an inline error; Ctrl+Enter moves focus to
+  [되돌리기]. A `#…&pin=N&act=restore` link runs once (the address is cleaned at once).
+- `pins.md`: one more additive line after the token line (`REPLY_GUIDANCE`): an agent sending as a person without a token
+  sends `"reopen": false` with replies. The same note is in SKILL and api.md.
+- Tests: `tests/test_v022.py` (the rule table, API, Trash with a fake clock, cold deep links, the real input pipeline from
+  text and autocomplete to the server's decision, and browser flows on desktop, fold and phone in ko/en). Decision
+  record ADR-0004 is accepted.
 
 ## 0.2.1 — 2026-09-25
 
