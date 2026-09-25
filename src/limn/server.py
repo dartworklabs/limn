@@ -3021,14 +3021,20 @@ def pins_payload(rows: list, allp: bool) -> list:
 
 def dropped_payload(now: float = None) -> list:
     """GET /api/pins/dropped response - the Trash: pins.dropped.jsonl emitted as-is, ordered by dropped_at (no computed
-    fields), without entries older than TRASH_DAYS (hidden here, removed from the file by the next purge_trash()).
+    fields but `expires_ts`), without entries older than TRASH_DAYS (hidden here, removed from the file by the next purge_trash()).
 
     Read-only and outside the lock - dropping/restoring already hold PIN_LOCK while writing this file
     (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
     read here, no separate lock is needed to avoid seeing a half-written file."""
     rows = _unexpired(read_jsonl(C.dropped)[0], now)
     rows.sort(key=lambda r: str(r.get("dropped_at") or ""))
-    return [public(r) for r in rows]
+    out = []
+    for r in rows:
+        rec, exp = public(r), trash_expires_ts(r)
+        if exp is not None:
+            rec["expires_ts"] = round(exp, 3)       # computed (v0.2.2): the viewer's "gone in N days", free of the browser's time zone
+        out.append(rec)
+    return out
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored
@@ -3982,7 +3988,8 @@ def events_since(actor: dict, cursor) -> dict:
 
 
 # Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
-# Notification()) and, on click, brings the viewer tab forward and opens that pin. There is no fetch handler -
+# Notification()) and, on click, brings the viewer tab forward and opens that pin (or, for the [되살리기] action on a
+# 'dropped' notification, asks the tab to restore it). There is no fetch handler -
 # app data and page images are never cached.
 SW_JS = r"""'use strict';
 self.addEventListener('install',()=>self.skipWaiting());
@@ -3992,7 +3999,7 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
   e.waitUntil((async()=>{const cs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
     for(const c of cs){if(new URL(c.url).origin!==self.location.origin)continue;
       try{await c.focus();}catch(_){}
-      c.postMessage({type:'open-pin',pin:d.pin,doc:d.doc});return;}
+      c.postMessage({type:e.action==='restore'?'restore-pin':'open-pin',pin:d.pin,doc:d.doc});return;}
     if(self.clients.openWindow)await self.clients.openWindow(url);})());});
 """
 
@@ -4040,8 +4047,15 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None, human=N
         if r is None:
             return (None, None), False
         ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
-        if reply_reopens(r, human, ment, reopen):
+        persons = [lg for lg in ment if role_of(lg) != "agent"]     # tagging an agent-role account is not asking a person
+        if reply_reopens(r, human, persons, reopen):
+            before = pin_mentions_all(r)
             msg = _reopen(r, rows, actor, text, hints, evs)
+            # _reopen told the author (reopened) and everyone this reply tags (mention). Everyone else tagged on the pin
+            # earlier would have heard of a plain reply (replied) - reopening must not silence them.
+            author = (r.get("author") or {}).get("login")
+            evs.append(make_event("replied", r, actor, [lg for lg in sorted(before) if lg != author and lg not in (msg.get("mentions") or [])],
+                                  msg=msg))
             r["rev"] = int(r.get("rev") or 0) + 1
             return (public(r), msg), True
         if len(thread_replies(r)) >= THREAD_MAX:
@@ -4189,8 +4203,8 @@ def drop_pin(pid: int, actor: dict) -> bool:
         rows.remove(r)
         _clear_claim(r)                           # a claim is never left behind on delete either (§P0c-C)
         gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
-        old, _ = read_jsonl(C.dropped)
-        atomic_write(C.dropped, dump_jsonl(_unexpired(old) + [gone]))
+        old, bad = read_jsonl(C.dropped)
+        write_dropped(_unexpired(old) + [gone], bad)
         evs.append(make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
         return True, True
     with PIN_LOCK:
@@ -4206,12 +4220,23 @@ def drop_pin(pid: int, actor: dict) -> bool:
 # every drop/restore, and by the owner's permanent delete. An entry without a readable dropped_at is kept - its age
 # cannot be known, and guessing would delete data. ids stay reserved in pins.seq, so a purged number is never reused.
 
+def trash_expires_ts(r: dict):
+    """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
+    t = _epoch(r.get("dropped_at"))
+    return None if t is None else t + TRASH_DAYS * 86400
+
+
 def trash_expired(r: dict, now: float = None) -> bool:
-    try:
-        t = time.mktime(time.strptime(str(r.get("dropped_at") or ""), "%Y-%m-%d %H:%M:%S"))
-    except (ValueError, OverflowError):
-        return False
-    return (time.time() if now is None else now) - t > TRASH_DAYS * 86400
+    t = trash_expires_ts(r)
+    return t is not None and (time.time() if now is None else now) > t
+
+
+def write_dropped(rows: list, bad=None) -> None:
+    """Rewrites pins.dropped.jsonl. Unreadable lines are never dropped silently: the original bytes are kept in a
+    .corrupt-*.bak first, as write_pins does for pins.jsonl."""
+    if bad and C.dropped.exists():
+        shutil.copy2(C.dropped, unique_path("pins.dropped.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
+    atomic_write(C.dropped, dump_jsonl(rows))
 
 
 def _unexpired(rows: list, now: float = None) -> list:
@@ -4219,15 +4244,18 @@ def _unexpired(rows: list, now: float = None) -> list:
 
 
 def purge_trash(now: float = None) -> int:
-    """Rewrites pins.dropped.jsonl without the entries older than TRASH_DAYS. Returns how many went (0 = no write)."""
+    """Rewrites pins.dropped.jsonl without the entries older than TRASH_DAYS. Returns how many went (0 = no write, or the
+    write failed - reads hide expired entries anyway, so a failure is only a warning)."""
     with PIN_LOCK:
         rows, bad = read_jsonl(C.dropped)
         keep = _unexpired(rows, now)
         n = len(rows) - len(keep)
         if n:
-            if bad:                                   # never drop unreadable lines silently - keep the original bytes
-                shutil.copy2(C.dropped, unique_path("pins.dropped.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
-            atomic_write(C.dropped, dump_jsonl(keep))
+            try:
+                write_dropped(keep, bad)
+            except OSError as e:                      # e.g. a read-only state dir: expired entries stay hidden, the server still starts
+                print("warning: could not purge the Trash: %s" % e, file=sys.stderr)
+                return 0
     if n:
         print("trash: purged %d pin(s) deleted more than %d days ago" % (n, TRASH_DAYS), file=sys.stderr)
         sys.stderr.flush()
@@ -4239,10 +4267,10 @@ def purge_pin(pid: int, actor: dict) -> int:
     404 if the pin is not in the Trash - an open or closed pin must be dropped first. Leaves a `purged` audit event
     (to: [], like `cleared`) and a log line, since it cannot be undone."""
     with PIN_LOCK:
-        rows, _ = read_jsonl(C.dropped)
+        rows, bad = read_jsonl(C.dropped)
         if not any(r.get("id") == pid for r in _unexpired(rows)):
             raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
-        atomic_write(C.dropped, dump_jsonl(_unexpired([r for r in rows if r.get("id") != pid])))
+        write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
         emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
     sys.stderr.flush()
@@ -4361,8 +4389,8 @@ def restore_pin(pid: int, actor: dict) -> dict:
     With this order, the worst case is "present in both", which is recoverable."""
     with PIN_LOCK:                                   # RLock - bundles transact and cleaning up the dropped record together
         rec = transact(lambda rows: _restore(rows, pid, actor))[1]
-        old, _ = read_jsonl(C.dropped)
-        atomic_write(C.dropped, dump_jsonl(_unexpired([r for r in old if r.get("id") != pid])))
+        old, bad = read_jsonl(C.dropped)
+        write_dropped(_unexpired([r for r in old if r.get("id") != pid]), bad)
         return rec
 
 
