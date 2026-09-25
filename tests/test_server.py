@@ -3511,7 +3511,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
         self.assertIn('<div class="step" role="group"', ps.HTML)
-        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 18px);overflow:hidden}", css)
+        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)   # 4줄 + 위아래 8px 여백
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
         # narrow 시트에서는 메모 칸이 원문보다 위(동작 줄 밑에 숨지 않게)
@@ -3826,6 +3826,16 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', ps.HTML)
         self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
+
+    def test_change_view_on_fold_and_phone(self):
+        # [변경 보기] 폰·폴드 QA(2026-09-25): 폴드(701–900px)는 핀 패널이 겹쳐 떠 diff 오른쪽 절반과 [원고로]가 가려졌다 —
+        # 변경사항 보기만 패널 폭만큼 비켜 준다. 커밋 고르기·빌드 경고 펼치기는 터치에서 44px.
+        self.assertIn("body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
+        self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
+        self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
+        # 핀 범위 줄이 diff 에 없고 곁만 바뀌었으면 '강조한 줄이 핀 범위입니다' 라고 말하지 않는다(강조한 줄이 없다).
+        self.assertIn("tg.near=!first&&tg.hit", extract_js_fn("revHighlight"))
+        self.assertIn("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", extract_js_fn("revTargetNote"))
 
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # 링크 한 벌(QA 2026-09-24): #번호·줄 범위·N쪽·글 속 #12 는 같은 모양 — 주 색, 쉴 때 밑줄 없음, 가리키면 실선 밑줄.
@@ -5148,7 +5158,7 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
         # '쪽' 한 글자 칸은 버튼처럼 읽혔다(QA 2026-09-24) — 입력 칸답게 왼쪽 정렬 '쪽 이동'. 높이·글자 크기는 버튼과 같다.
-        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 6px;font-size:var(--text-base);", css)
+        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
@@ -6295,6 +6305,117 @@ class FrontendMentions(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+class FrontendSpacingGrid(unittest.TestCase):
+    """간격(padding·margin·gap)은 4/8px 격자다(4·8·12·16·24). 1–2px 는 머리카락 선·광학 보정이라 둔다(배지 위아래 1px 등).
+    예전에는 6·10·14·18px 같은 자리 값이 섞여 있었다(격자 정리 QA 2026-09-25)."""
+    def test_spacing_is_on_the_grid(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        bad = []
+        for m in re.finditer(r"(?<![\w-])((?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)?)\s*:\s*([^;{}]+)", css):
+            for n in re.findall(r"(?<![\w.-])(\d+(?:\.\d+)?)px", m.group(2)):
+                x = float(n)
+                if x % 4 and x not in (1, 2) and "--side-w" not in m.group(2):
+                    bad.append(m.group(0))
+        self.assertEqual(bad, [])
+
+
+class FrontendMentionPopPlacement(unittest.TestCase):
+    """@목록 자리(mentionTop): 입력 칸 밑 동작 줄([취소][보내기])을 가리지 않는다(QA 2026-09-25 — 답글 칸에서 목록이 두 버튼을 덮었다)."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def top(self, r, g, h, top=0, bot=800):
+        js = extract_js_fn("mentionTop") + "\nconsole.log(JSON.stringify(mentionTop(%s,%s,%d,%d,%d)));" % (
+            json.dumps(r), json.dumps(g), h, top, bot)
+        return json.loads(run_node(js))
+
+    def test_reply_box_opens_above_when_actions_sit_right_below(self):
+        # 답글 칸: 입력 칸 300–360, [취소][보내기] 368–396. 목록 높이 48 은 그 사이에 안 들어가 위로 연다.
+        self.assertEqual(self.top({"top": 300, "bottom": 360}, {"top": 368, "bottom": 396}, 48), 300 - 4 - 48)
+
+    def test_below_when_room_before_actions(self):
+        # 작성 패널(데스크톱): 동작 줄이 패널 바닥이라 입력 칸 밑에 자리가 있다 — 예전처럼 밑에 연다.
+        self.assertEqual(self.top({"top": 400, "bottom": 480}, {"top": 800, "bottom": 850}, 48, 0, 850), 484)
+
+    def test_below_actions_when_no_room_above(self):
+        # 입력 칸이 화면 맨 위: 위로도 못 여니 동작 줄 밑에 연다(동작 줄은 여전히 보인다).
+        self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 48), 110)
+
+    def test_fallback_stays_inside_viewport(self):
+        # 어디에도 안 들어가면 입력 칸 밑(예전 자리)이되 화면 안으로 당긴다.
+        self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 200, 0, 260), 56)
+
+    def test_no_guard_keeps_old_behaviour(self):
+        self.assertEqual(self.top({"top": 300, "bottom": 360}, None, 48), 364)
+        self.assertEqual(self.top({"top": 700, "bottom": 780}, None, 48), 648)
+
+    def test_guard_is_found_for_all_three_boxes(self):
+        # 답글·다시 열기(.reply-box → .r-acts), 편집(.edit → .e-acts), 작성 패널(#note → #c-actions)
+        fn = extract_js_fn("mentionGuard")
+        for sel in (".reply-box,.edit", ".r-acts,.e-acts", "#c-actions"):
+            self.assertIn(sel, fn)
+
+
+class FrontendMentionTypingNotFlagged(unittest.TestCase):
+    """쓰는 중인 '@말'은 '등록된 사람이 아님' 으로 먼저 알리지 않는다(QA 2026-09-25 — @Sa 를 치는 동안 경고가 떴다)."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_token_under_caret_is_not_flagged_until_caret_leaves(self):
+        js = extract_js_fn("mentionBadSettled") + r"""
+            console.log(JSON.stringify([
+              mentionBadSettled(['Sa'],'@Sa',{start:0,q:'Sa'}),            // 쓰는 중 — 알리지 않는다
+              mentionBadSettled(['Sa'],'@Sa',null),                       // 커서가 떠남 — 알린다
+              mentionBadSettled(['홍길동','Sa'],'@홍길동 @Sa',{start:5,q:'Sa'}),  // 끝난 말은 그대로 알린다
+              mentionBadSettled(['Sa'],'@Sa 또 @Sa',{start:7,q:'Sa'})]));   // 같은 말이 앞에 이미 있으면 알린다"""
+        self.assertEqual(json.loads(run_node(js)), [[], ["Sa"], ["홍길동"], ["Sa"]])
+
+    def test_list_highlight_is_a_flat_full_width_row(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;", css)
+        self.assertIn("border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}", css)
+
+
+class FrontendQuestionHint(unittest.TestCase):
+    """질문처럼 읽히는 메모에 [질문으로 보내기] 권유(looksQuestion). 공저자가 '…표현한 의도가 있는건가?' 를
+    수정 요청으로 저장했다(2026-09-25). 판정만 하고 종류는 사용자가 눌러야 바뀐다."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def judge(self, texts):
+        js = extract_js_fn("looksQuestion") + "\nconsole.log(JSON.stringify(%s.map(looksQuestion)));" % json.dumps(texts, ensure_ascii=False)
+        return json.loads(run_node(js))
+
+    def test_question_marks(self):
+        texts = ["여기 이렇게 쓴 이유가 있는건가?", "식의 k란..?", "100개가 어떻게 나온것인지?", "Why is this here?",
+                 "전각 물음표？", "끝에 공백 ?  ", "이거 맞나요? @Bob Park", "맞나요?)", "뭐임??"]
+        self.assertEqual(self.judge(texts), [True] * len(texts))
+
+    def test_korean_interrogative_endings_without_mark(self):
+        texts = ["의도가 있는 건가", "이 정의가 맞는가", "이거 맞나요", "그림으로 바꾸면 어떨까요", "이게 최선인가", "이거 누가 썼니",
+                 "이게 맞냐", "그래프로 보이는 게 낫지 않을까", "이해가 됩니까.", "확인했나요 @Bob Park", "정의가 있나요…"]
+        self.assertEqual(self.judge(texts), [True] * len(texts))
+
+    def test_statements_are_not_questions(self):
+        texts = ["", "   ", "예시 아님.", "이건 삭제하는게 좋을듯", "표 주석은 굳이 있을 필요 없음. 삭제.",
+                 "여기 의도가 있는건가? 그래도 고쳐줘.", "더블 컬럼", "@Bob Park 확인 부탁합니다", "?는 쓰지 말 것", "TODO: fix eq. (3)"]
+        self.assertEqual(self.judge(texts), [False] * len(texts))
+
+    def test_hint_is_wired_to_both_forms_and_never_switches_by_itself(self):
+        html = ps.HTML
+        self.assertIn('id="c-qhint"', html)                                   # 작성 패널
+        self.assertIn('class="e-qhint q-hint"', html)                         # 편집 패널(종류를 바꿀 수 있다)
+        self.assertIn('data-act="kind" data-kind="question"', html)           # 누르면 바뀐다 — 기존 종류 동작 그대로
+        self.assertIn('data-act="e-kind" data-kind="question"', html)
+        qh = extract_js_fn("qHint")
+        self.assertNotIn("setKind", qh)                                      # 권유만 한다
+        self.assertNotIn("kind_req=", qh)
+        self.assertIn("kind==='question'", qh)                                # 질문이면 숨는다
+
+
 class NotifyServer(Base):
     HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
     HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
