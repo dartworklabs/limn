@@ -1413,12 +1413,14 @@ class PinsMdV2(Base):
         self.assertNotIn("⊂", md)
 
     def test_close_guidance_shows_reply_ref_body(self):
+        """pins.md shows a close example with a body (reply, ref, changes) - an agent reading only pins.md must see how to close."""
         # bug: the close guidance in pins.md only showed a body-less curl, so an agent reading only this
         # file had no way to know how to leave a reply/ref (§Leaving a reason when closing — it must match the same shape as SKILL.md).
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("curl -X POST -H 'Content-Type: application/json'", md)
-        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"커밋/PR(≤80자)"}\'', md)
+        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)",'
+                      '"changes":[{"file":"main.tex","lo":12,"hi":14}]}\'', md)   # v0.3: one commit per pin, optional changes
         self.assertIn("http://127.0.0.1:%d/api/pins/N/close" % ps.C.port, md)
         self.assertIn("본문 생략", md)   # notes that the old way of omitting the body still works
 
@@ -4789,7 +4791,7 @@ class FrontendArchive(unittest.TestCase):
             extract_js_fn("locCopy"), extract_js_fn("docChip"),
             "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
             extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"), js_thread(),
-            "const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"),
+            "const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("isViewer"),
             extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
         return json.loads(run_node(js))
 
@@ -6070,6 +6072,29 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # the comparison PDF is only built while viewing that format
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
+
+    def test_pin_scope_wiring(self):
+        """The pin-scoped view's markup, actions, pin parameter, one-time fallback and shared CSS rules stay wired (v0.3)."""
+        # v0.3 (docs/handbook/viewer.md §변경 보기, ADR-0005): the pin's hunks, the rest folded under one control, one PDF toggle
+        h = ps.HTML
+        self.assertIn('<button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" '
+                      'aria-controls="revision-other" hidden>', h)
+        self.assertIn('<pre id="revision-other" class="nowrap" hidden></pre>', h)
+        self.assertIn('<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h)
+        self.assertIn("case 'revision-other':toggleRevisionOther();break;", h)
+        self.assertIn("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;", h)
+        src = extract_js_fn("loadRevisionSource")
+        self.assertIn("'&pin='+tg0.id", src)                            # a pin's view asks for its scope; plain browsing does not
+        self.assertIn("r.scope.mode==='pin'", src)
+        pdf = extract_js_fn("loadRevisionPdf")
+        self.assertIn("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null", pdf)
+        self.assertIn("REV_SCOPE.fallback=true", pdf)                   # a subset that does not compile falls back once
+        self.assertIn("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false", extract_js_fn("showRevision"))
+        css = h[h.index("<style>"):h.index("</style>")]
+        # the folded diff shares every source-diff rule (its selector first, so the existing strings stay whole)
+        for rule in (" .rd-line{", ".wrap .rd-code{", " .rd-add{", " .rd-del{", " .rd-hunk{"):
+            self.assertIn("#revision-other%s,#revision-diff%s" % (rule[:-1], rule), css)
+        self.assertIn("#revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}", css)
 
 
 # ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/handbook/api.md §@태그·사람·이벤트)

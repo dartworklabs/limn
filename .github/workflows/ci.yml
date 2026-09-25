@@ -33,6 +33,9 @@ jobs:
       LIMN_TEST_REQUIRE_BROWSER: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the v0.1.0 migration and v0.2.2 comparison tests load those releases with git show.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}

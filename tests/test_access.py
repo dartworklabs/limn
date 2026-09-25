@@ -737,6 +737,16 @@ V01_PEOPLE = [
     {"login": "alice@example.com", "first_seen": "2026-09-20 09:59:00", "name": "Alice Kim", "last_seen": "2026-09-21 09:00:00"},
     {"login": "bob@example.com", "first_seen": "2026-09-20 10:19:00", "name": "Bob Park", "last_seen": "2026-09-20 10:20:00"},
 ]
+
+
+def v03_close_line(md: str) -> str:
+    """The one pins.md line v0.3 changes (docs/adr/0005-pin-scoped-changes.md): the close instruction asks for `changes`
+    in the numbering of the commit `ref` names and ref = "PR #N (<hash>)". Everything else is compared byte for byte."""
+    return (md.replace("처리한 핀은 닫는다 — `curl", '처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl')
+              .replace('"ref":"커밋/PR(≤80자)"}\'', '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "'")
+              .replace("(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)", '(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)'))
+
+
 # pins.md as v0.1.0 renders the fixture above (header timestamp masked as <갱신>, the manuscript path as {src}).
 V01_PINS_MD = """\
 # 수정 요청 핀
@@ -856,6 +866,7 @@ class Migration(AccessBase):
         self.assertFalse(ps.C.tokens_file.exists())
 
     def test_pins_md_matches_the_v01_rendering(self):
+        """A v0.1 state renders the v0.1 pins.md byte for byte, apart from the added lines and the one v0.3 close line."""
         code, md = get(ps, "/pins.md")
         self.assertEqual(code, 200)
         lines = md.split("\n")
@@ -863,7 +874,7 @@ class Migration(AccessBase):
         lines.remove(ps.TOKEN_GUIDANCE)
         lines.remove(ps.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
         lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
-        self.assertEqual(mask("\n".join(lines)), V01_PINS_MD.replace("{src}", str(self.src)))
+        self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
         v01 = load_v01()
@@ -895,7 +906,7 @@ class Migration(AccessBase):
         self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
         lines.remove(claim[0])
         lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
-        self.assertEqual(mask("\n".join(lines)), mask(md_old))
+        self.assertEqual(mask("\n".join(lines)), v03_close_line(mask(md_old)))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)
         p_old, p_new = json.loads(p_old), json.loads(p_new)

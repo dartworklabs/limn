@@ -190,12 +190,12 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
-| `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404` |
-| `POST` | `/api/revision-build` | 본문 `{commit,doc?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 그 밖의 필드가 있으면 `400` |
-| `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
-| `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>` | 성공한 같은 비교의 PDF(`Cache-Control: private, max-age=600`). 미완성·실패·만료는 `404` 이며 현재 원고 PDF로 대체하지 않는다. 현재 쪽·SyncTeX·핀 좌표와 무관한 열람 전용 결과다 |
+| `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404`. 0.3부터 선택 `&pin=<번호>` 를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404` |
+| `POST` | `/api/revision-build` | 본문 `{commit,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 0.3의 선택 `pin`(정수)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
+| `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
+| `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 성공한 같은 비교의 PDF(`Cache-Control: private, max-age=600`). 미완성·실패·만료는 `404` 이며 현재 원고 PDF로 대체하지 않는다. 현재 쪽·SyncTeX·핀 좌표와 무관한 열람 전용 결과다 |
 
-실행 조건과 캐시는 아래 §비교 PDF 실행과 캐시에 있다.
+실행 조건과 캐시는 아래 §비교 PDF 실행과 캐시에, 핀 하나의 변경만 가르는 규칙은 §핀 단위 변경 보기에 있다.
 
 ### 핀 읽기
 
@@ -215,8 +215,8 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자다. `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
-| `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 0.2.2부터 뷰어에는 [다시 열기] 버튼이 없다. 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 호환과 [완료]의 되돌리기에 남는다 |
+| `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다 |
+| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 0.2.2부터 뷰어에는 [다시 열기] 버튼이 없다. 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 호환과 [완료]의 되돌리기에 남는다 |
 | `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
@@ -261,7 +261,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 ### 상태와 캐시
 
-비교 상태는 문서별 `<state>/revisions/` 에 보존한다. 캐시 키에는 저장소, 빌드 루트, 메인 경로, 두 전체 SHA, 엔진, 구현 버전이 들어간다. 성공 PDF와 상태는 작업이 끝난 뒤에 확정한다. 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다.
+비교 상태는 문서별 `<state>/revisions/` 에 보존한다. 캐시 키에는 저장소, 빌드 루트, 메인 경로, 두 전체 SHA, 엔진, 구현 버전이 들어간다. 핀 하나의 변경만 적용한 비교(0.3)는 여기에 고른 블록 목록이 더해진다. 핀 번호는 넣지 않는다. 그래서 (커밋, hunk 집합)마다 한 비교이고, 같은 블록을 가진 두 핀은 한 PDF를 함께 쓴다. 핀이 커밋 전체를 가지거나 하나도 없으면 커밋 전체 비교의 키를 그대로 쓴다. 핀 단위 비교는 캐시 폴더에 표시 파일(`scoped`)을 두고 따로 센다(최대 여섯, `REVISION_SCOPED_KEEP`). 그래서 핀 단위 비교가 많아도 커밋 전체 비교를 밀어내지 않는다. 성공 PDF와 상태는 작업이 끝난 뒤에 확정한다. 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다.
 
 - 프로세스 전체에서 동시에 최대 두 작업, 한 문서 상태 폴더에서 최대 한 작업을 허용한다.
 - 같은 작업을 다시 요청하면 기존 상태를 돌려준다. 다른 작업이 자리를 차지했으면 `409 reason:busy` 다.
@@ -277,6 +277,47 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 - 서지·스타일·주석만 바뀐 커밋은 본문에 강조가 없을 수 있다.
 
 응답은 `warnings` 를 싣고, 원래 소스 diff 경로를 함께 제공한다. 서버 쪽 `build.log` 는 마지막 8,000자만 보존한다. HTTP 응답에는 로그 전체를 노출하지 않는다.
+
+## 핀 단위 변경 보기
+
+0.3부터 변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)가 선택 `pin` 을 받는다. 한 커밋이 핀 여럿을 고쳤을 때 그 핀의 변경만 보이기 위해서다. 결정과 버린 대안은 [ADR-0005](../adr/0005-pin-scoped-changes.md)에 있다. `pin` 이 없는 요청의 응답은 0.2.2와 같다.
+
+### 핀의 hunk를 고르는 순서
+
+커밋을 파일마다 `git diff -U0` 의 hunk(블록)로 나눈다. 이름 바꾸기는 찾아 짝짓는다(`-M`). 첫 부모와 비교한다.
+
+| 순서 | 고르는 것 | `source` |
+| --- | --- | --- |
+| 1 | 핀의 `changes`(새 쪽 줄 범위)와 겹치는 블록. 단 요청한 커밋이 핀의 `close_ref` 가 가리키는 커밋일 때만 | `changes` |
+| 2 | 1이 아무것도 못 고르면, 핀 범위를 커밋에 비춰 겹치는 블록 | `inferred` |
+| 3 | 2도 못 고르면 없음. 커밋 전체를 보인다 | `none` |
+
+- `changes` 는 기록한 커밋의 줄 번호다. 그래서 요청한 커밋이 `close_ref` 가 가리키는 커밋일 때만 쓴다. 가리키는 커밋은 뷰어의 `matchRevision` 과 같은 규칙으로 찾는다(`ref_commit`, 두 구현을 테스트가 대조한다): 최근 커밋 가운데 7–40자리 해시가 앞부분인 커밋, 없으면 제목에 `(#N)`·`pull request #N`·`#N` 이 든 커밋(스쿼시·머지 커밋)이다. 다른 커밋에서는 같은 줄이 다른 핀의 수정일 수 있으므로 2의 추정만 쓰고, `source` 도 `inferred` 로 말한다(리뷰 M1).
+- 2의 핀 범위는 이렇게 정한다. 닫힌 핀은 마지막 줄 맞춤의 번호를 지니는데, 그 번호가 커밋의 새 쪽인지 옛 쪽인지는 기록이 없다. 그래서 anchor를 새 쪽과 옛 쪽 모두에서 기록된 줄 가까이 찾고(`sync_all()` 과 같은 규칙), 기록된 줄에 더 가까운 쪽부터 쓴다(같으면 새 쪽). 거기서 블록이 안 겹치면 다음 후보로 간다. 마지막 후보는 날 범위다. `stale` 이면 옛 쪽, 아니면 새 쪽으로 읽는다.
+- 핀 파일은 짝의 옛 이름이든 새 이름이든 맞으면 된다.
+- 한쪽이 빈 블록(순수 삽입·삭제)은 그 자리 앞뒤 줄에 닿은 것으로 본다. 지운 줄 바로 앞이나 뒤를 가리켜도 그 삭제를 고른다.
+- 원고 파일이 60개(`SCOPE_FILES_MAX`)를 넘게 바뀌었거나, 두 쪽 합계가 16 MiB(`SCOPE_BYTES_MAX`)를 넘거나, git 읽기가 모두 합쳐 60초(`SCOPE_SECONDS_MAX`)를 넘거나, 파일 이름이 UTF-8이 아니면 가르지 않는다(`none`).
+- 심링크(모드 `120000`)나 하위 저장소(`160000`)가 된 쪽이 있는 파일은 줄로 읽지 않는다. 블록이 없는 '다른 변경' 한 자리로 보이고(머리에 `old mode`·`new mode`), 합성 판에도 적용하지 않는다. 커밋 전체 스냅숏도 이런 항목을 거절한다.
+- 한 번 정한 답은 메모리에 32개까지 둔다(`ScopeCache`, 두 패치는 256 KiB + 1바이트에서 잘라 둔다). 커밋을 읽지 못한 답(시간 초과·크기 초과)은 두지 않아 다음 요청이 다시 시도한다. 캐시에 없어 git을 읽는 계산은 동시에 두 개까지다(`SCOPE_SLOTS`). 더 오면 기다리고, 60초 안에 자리가 나지 않으면 커밋 전체를 보인다(이것도 두지 않는다).
+- 블록은 `git diff -U0 --inter-hunk-context=0` 으로 읽는다. 사용자의 `diff.interHunkContext` 설정이 가까운 두 핀의 블록을 하나로 붙이지 못하게 하려는 것이다.
+- 핀의 줄 번호는 `str.splitlines()`(`tex_lines`)로 센 번호이고 git은 줄바꿈 문자(`\n`)로만 센다. 폼 피드·홀로 쓴 CR·U+2028 같은 문자가 있으면 둘이 어긋나므로, anchor 찾기와 날 범위는 splitlines 번호로 하고 git 번호로 바꿔 블록과 견준다.
+- `changes` 는 그것을 적은 닫기(`changes_at` = 그때의 `done_at`)일 때만 쓴다. 0.2.2로 되돌린 동안 다시 열고 닫으면 0.2.2가 `changes` 를 지우지도 새로 적지도 않으므로, 이전 닫기의 줄을 이번 커밋에 쓰지 않으려는 것이다.
+
+### `GET /api/revision-diff?pin=`
+
+응답에 `scope` 를 더한다. `diff`(커밋 전체)·`truncated` 는 그대로다.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `pin` | 요청한 핀 번호 |
+| `mode` | `pin` = 핀이 커밋의 일부만 가진다. `commit` = 커밋 전체가 핀의 것이거나, 하나도 아니거나, 가를 수 없었다. 뷰어는 `commit` 이면 0.2.2와 똑같이 보인다 |
+| `source` | `changes`·`inferred`·`none` (위 표) |
+| `hunks` / `other` | 핀의 것 / 나머지 바뀐 자리(블록) 수. 이름만 바뀐 파일·바이너리 파일은 나머지 한 자리다 |
+| `diff` / `other_diff` | `mode` 가 `pin` 일 때만. 핀의 블록 / 나머지 블록만 담은 unified diff(각각 UTF-8 최대 256 KiB, 잘렸으면 `truncated` / `other_truncated` 가 `true`). 앞뒤 3줄 맥락은 이웃 블록에서 멈추므로 다른 핀의 변경이 맥락 줄로 끼지 않는다. 새 쪽 줄 번호는 커밋의 실제 번호다 |
+
+### 비교 PDF
+
+`mode` 가 `pin` 이면 새 쪽을 **옛 판 + 핀의 블록만** 적용한 합성 판으로 만들어 옛 판과 latexdiff 한다. 옛 스냅숏을 한 번 더 떠서 블록을 적용하고, 파일은 옛 이름을 지킨다(핀의 것인 이름 바꾸기는 제자리 수정). 더한 파일은 쓰고 지운 파일은 지운다. 실행은 §비교 PDF 실행과 캐시의 격리 파이프라인과 한도를 그대로 쓴다. 상태 응답에 `scope`(`pin`|`commit`)·`pin`·`source`·`hunks`·`other` 가 더해진다. 합성 판이 컴파일되지 않으면 그 비교는 `state:"error"` 이고, 뷰어가 커밋 전체 비교로 넘어간다. 두 SHA-1과 파이프라인이 같으면 결과도 같으므로, 핀 비교의 컴파일·diff 실패(`compile_failed`·`diff_failed`·`scope_failed`)는 캐시가 살아 있는 동안 POST에 다시 빌드하지 않고 그 오류를 돌려준다. 커밋 전체 비교는 예전처럼 다시 시도한다. 상태 파일(`status.json`)에는 요청마다 다른 `scope`·`pin`·`source`·`hunks`·`other` 를 저장하지 않는다. 이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드가 이유만 담은 `ScopeRejected` 로 내고, 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `Handler._run`, 빌드 상태는 워커). 문구는 계약이라 `test_v03.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
 
@@ -306,10 +347,12 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 ```bash
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
   -H 'Content-Type: application/json' \
-  -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
+  -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227 (abc1234)", "changes": [{"file": "main.tex", "lo": 12, "hi": 14}]}'
 ```
 
-- **에이전트는 무엇을 고쳤는지와 PR 번호를 남긴다.** `reply` 에는 고친 내용(≤500자), `ref` 에는 참조(PR 번호 등, ≤80자)를 적는다. 둘 다 선택이다. 나중에 공저자가 닫힌 핀을 볼 때 원고를 다시 뒤지지 않고도 왜 닫혔는지 알 수 있다.
+- **에이전트는 무엇을 고쳤는지와 커밋을 남긴다.** `reply` 에는 고친 내용(≤500자), `ref` 에는 참조(≤80자)를 적는다. 서버에는 둘 다 선택이다. 나중에 공저자가 닫힌 핀을 볼 때 원고를 다시 뒤지지 않고도 왜 닫혔는지 알 수 있다.
+- **에이전트 규칙(0.3).** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)).
+- **`changes`(0.3, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 폴더 안이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 닫아도 바뀌지 않으며, 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
 - 본문이 없거나 비어 있으면(빈 문자열·공백만) 예전과 같이 동작한다. 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
 - 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드처럼 뷰어에서 `esc()` 로 이스케이프해 렌더한다.
 - 성공하면 핀에 `close_reply`·`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI가 묶어 보일 수 있다.
@@ -622,6 +665,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각과 사람 |
 | `closed_by` / `reopened_by` | 닫은 사람과 다시 연 사람(`done_at`·`reopened_at` 과 함께) |
 | `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유. 무엇을 고쳤는지(≤500자)와 참조(PR 번호 등, ≤80자)다. 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
+| `changes` / `changes_at` | 0.3. 닫을 때 남긴 선택 `[{file, lo, hi}]` — 이 핀 때문에 바꾼 줄(커밋 뒤 번호, `file` 은 절대 경로)이다(§닫을 때 사유 남기기). `changes_at` 은 그 닫기의 `done_at` 이다(§핀 단위 변경 보기). 첫 닫기에만 적히고 `reopen` 이 둘 다 지운다. 모양이 틀리면(목록이 아니거나 `file` 이 문자열이 아니거나 `lo`·`hi` 가 정수가 아니면) 그 줄은 깨진 줄이다 |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
 | `kind_req` | `fix`\|`question`. 핀 종류다(§스레드 (답글)). 없으면 fix |
 | `thread` | 답글과 상태 전환 기록 `[{id, by, at, text, mentions?, ev?, ref?}]`(§스레드 (답글)) |
@@ -650,7 +694,16 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 1. `원고: <경로>` 바로 다음 줄은 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 이다([operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때). 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않게 하려는 줄이다.
 2. `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다.
 3. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 두 줄이 온다. `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 이다. git 저장소가 아니거나 아직 빌드하지 않아 파일이 없으면 이 두 줄만 생략한다.
-4. 안내 문단 바로 뒤에 두 줄이 늘 붙는다. 0.2.1부터 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 이 오고, 0.2.0부터 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 온다(마지막 구절은 0.2.1). 전문은 §인증의 pins.md 안내 줄에 있다. 둘 다 더한 줄이고 머리줄의 다른 부분은 바뀌지 않았다.
+4. 안내 문단의 첫 문장(닫기 안내)은 0.3에서 바뀌었다(§닫기 안내 줄). 머리줄에서 바뀐 곳은 이것 하나다.
+5. 안내 문단 바로 뒤에 두 줄이 늘 붙는다. 0.2.1부터 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 이 오고, 0.2.0부터 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 온다(마지막 구절은 0.2.1). 전문은 §인증의 pins.md 안내 줄에 있다. 둘 다 더한 줄이고 머리줄의 다른 부분은 바뀌지 않았다.
+
+### 닫기 안내 줄
+
+안내 문단은 닫기 안내로 시작한다. 0.3에서 이 문장만 바뀌었다. 줄의 시작 `처리한 핀은 닫는다` 와 `· 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다` 부터의 뒤쪽은 0.2.2와 같다. 닫을 때 `changes` 와 `ref` = `PR #번호 (커밋 해시)` 를 보내라고 하고, 핀별 커밋은 권하되 요구하지 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)). `<base>` 는 base URL이다.
+
+```text
+처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl -X POST -H 'Content-Type: application/json' -d '{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' <base>/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다) · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · …
+```
 
 ### 열
 

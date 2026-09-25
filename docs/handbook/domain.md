@@ -86,9 +86,9 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 ### 전이에 딸린 규칙
 
-- **다시 닫아도 바뀌지 않는다.** 이미 닫힌 핀을 또 닫으면 `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref`가 모두 첫 닫기의 값으로 남는다. 두 번째 요청의 `reply`/`ref`는 버려진다. 예전에는 두 번째 닫기가 `done_at`·`closed_by`를 덮어써 처음 닫은 사람이 지워졌다(실측 결함). 검토 대기 핀을 에이전트가 다시 닫아도 그대로다.
-- **닫는 사유를 고치려면 다시 열고 닫는다.** `reopen`이 옛 `close_reply`/`close_ref`를 지우므로 다음 닫기가 새 사유를 채운다. 사유의 형식과 길이 제한은 [api.md](api.md) §닫을 때 사유 남기기에 있다.
-- **다시 열기는 검토 흔적을 지운다.** `review`·`confirmed_by`·`confirmed_at`·`close_reply`·`close_ref`를 지우고 `reopened_at`·`reopened_by`를 남긴다. 닫혀 있던 핀이면 스레드에 `ev: reopen` 한 줄을 더한다. `pins.md`의 번호 칸에는 `다시 열림`이 붙는다.
+- **다시 닫아도 바뀌지 않는다.** 이미 닫힌 핀을 또 닫으면 `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref`·`changes`(0.3)가 모두 첫 닫기의 값으로 남는다. 두 번째 요청의 `reply`/`ref`는 버려진다. 예전에는 두 번째 닫기가 `done_at`·`closed_by`를 덮어써 처음 닫은 사람이 지워졌다(실측 결함). 검토 대기 핀을 에이전트가 다시 닫아도 그대로다.
+- **닫는 사유를 고치려면 다시 열고 닫는다.** `reopen`이 옛 `close_reply`/`close_ref`/`changes`를 지우므로 다음 닫기가 새 사유를 채운다. 사유의 형식과 길이 제한은 [api.md](api.md) §닫을 때 사유 남기기에 있다.
+- **다시 열기는 검토 흔적을 지운다.** `review`·`confirmed_by`·`confirmed_at`·`close_reply`·`close_ref`·`changes`를 지우고 `reopened_at`·`reopened_by`를 남긴다. 닫혀 있던 핀이면 스레드에 `ev: reopen` 한 줄을 더한다. `pins.md`의 번호 칸에는 `다시 열림`이 붙는다.
 - **상태 전이는 스레드에 한 줄씩 남는다.** 닫기는 `ev: close`(사유와 `ref`), 다시 열기는 `ev: reopen`(이유), 확인은 `ev: confirm`이다. 다시 여는 답글은 `ev: reopen` 한 줄이 되고 따로 답글로 남지 않는다. 그 밖의 답글은 상태를 바꾸지 않는다. 질문 핀은 답글을 단 뒤 따로 닫는다.
 - **닫기와 삭제는 처리 중 표시를 지운다.** 닫히거나 삭제된 핀에는 처리 중 표시가 남지 않는다. 다른 쪽이 claim을 쥔 핀을 닫는 것 자체는 막지 않는다. 그래서 에이전트는 처리를 포기하거나 넘길 때만 `unclaim`을 부른다.
 - **claim은 잠금이 아니다.** 서버는 다른 사람이 유효한 claim을 쥔 핀을 닫거나 강제로 다시 claim하는 것을 막지 않는다. 협업은 관례에 기댄다. 고치기 직전에 그 핀만 claim하고, `처리 중(…)`인 핀은 건너뛴다([SKILL.ko.md](../../skill/SKILL.ko.md) §핀 처리). 여러 핀을 한꺼번에 잡으면 손대지 않은 핀까지 막힌다. 2026-09-23 실측에서 23건을 `ttl_min` 480으로 한꺼번에 잡았고, 뷰어의 `~04:02`가 전부의 완료 예상처럼 읽혔다. 견적(`eta_min`)과 자동 해제 시간(`ttl_min`)의 범위는 [api.md](api.md) §처리 중 표시에 있다.
