@@ -142,7 +142,7 @@ UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때
 
 section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄 범위가 쉽게 생긴다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `compute_levels`다.
+실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `compute_levels`다. 어느 환경까지 넓힐지는 `--float-envs` 값을 인자로 받는다.
 
 ## 줄 번호 재동기화 (`anchor`)
 
@@ -168,7 +168,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > 예외는 그 범위가 방금 자신이 고친 곳일 때다. 앞선 핀을 처리하면서 그 문장 자체를 갈아엎은 경우가 그렇다. 이때는 원문을 확인하고 닫아도 된다([SKILL.ko.md](../../skill/SKILL.ko.md) §규칙).
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `anchor_of`, `find_line`, `sync_all`이다.
+실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`(순수 계산)과 [`src/limn/server.py`](../../src/limn/server.py)의 `sync_all`(파일을 읽고 레코드를 고치는 쪽)이다.
 
 ## 저장소 안전성
 

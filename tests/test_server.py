@@ -17,6 +17,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.mapping import find_level
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 PKG = ROOT / "src" / "limn"
@@ -823,15 +825,15 @@ class Anchor(Base):
 class Ladder(Base):
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 14, 14)    # a cell inside the table
-        para = ps.find_level(lad["levels"], "para")
+        lad = ps.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
+        para = find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
 
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 17, 17)    # the line after the table — the next line is \subsection
-        para = ps.find_level(lad["levels"], "para")
+        lad = ps.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
+        para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 
 

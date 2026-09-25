@@ -36,7 +36,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,378 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 7,109 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/mapping.py`](../../src/limn/mapping.py) | 311 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기. 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,381 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
@@ -45,6 +46,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
 `server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·빌드·빌드 이력·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
+
+`server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 옮긴 모듈은 `server.py`처럼 `from __future__ import annotations`로 시작한다 — 인스턴스 관리자가 시스템 `python3`로 `server.py`를 띄울 때 새 모듈 때문에 먼저 멈추지 않게 하려는 것이다.
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
@@ -85,7 +88,7 @@ src/limn/
 │   ├── model.py         상태별 타입, 명령 값, 예상 실패
 │   ├── lifecycle.py     열기·닫기·확인·다시 열기·claim 전이 함수
 │   └── render.py        pins.md 렌더링 (입력 → 문자열)
-├── mapping/             역변환·범위 사다리·anchor — 순수 계산
+├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
 ├── store.py             pins.jsonl 잠금·원자적 쓰기·손상 레코드 보존 (부수효과)
 ├── build/               latexmk·pdftoppm·git 호출, 빌드 이력 (부수효과)
 ├── http/                요청 파싱, 라우팅, 오류 매핑, 신원 헤더 (부수효과)

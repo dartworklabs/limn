@@ -39,7 +39,8 @@ catalog_schema: 1
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
 | `src/limn/server.py` | 핀 저장소·핀 조작·상태 계산 구역: 핀 도메인과 저장 순서 | 상태·전이·레코드 필드·저장 순서 변경 | domain.md, api.md, architecture.md |
-| `src/limn/server.py` | 역변환·범위 사다리·anchor 구역: 위치 계산 | 점수·단계·재동기화 규칙 변경 | domain.md |
+| `src/limn/mapping.py` | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기 | 점수·단계·anchor 규칙 변경 | domain.md |
+| `src/limn/server.py` | 역변환 실행 구역: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 저장된 핀 재동기화(`sync_all`) | 역변환 경로·재동기화 변경 | domain.md, build-sync.md |
 | `src/limn/server.py` | 빌드·git pull·meta 구역: 빌드와 동기화 | 빌드 상태·폴링·추정 규칙 변경 | build-sync.md |
 | `src/limn/server.py` | 핀 단위 변경 구역(0.3): hunk 블록 귀속, 핀 hunk diff, 합성 판 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`·`app.css`·`app.js` (서버가 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
