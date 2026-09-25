@@ -23,11 +23,16 @@ API changes are additive. One agent-visible behaviour changes; it is listed firs
   list) for 30 days, with Restore. Older entries are hidden and purged at startup and on every drop/restore. New
   owner-only `POST /api/pins/{id}/purge` deletes one for good (`purged` audit event). When someone else deletes your pin
   you get a `dropped` notification with Restore. A `#12` that points at a deleted pin reads "#12 deleted pin".
-  `GET /api/pins/dropped` adds the computed `expires_ts`.
+  `GET /api/pins/dropped` adds the computed `expires_ts`. A long-running server also drops expired entries during
+  `GET /api/pins` / `GET /pins.md` at most once an hour (the light poll stays write-free).
+- Fixed (older than 0.2.1): on an instance with several documents, a `/#doc=<key>&pin=<n>` link lost the pin on load,
+  so a notification clicked with no tab open did not open the pin. The boot now reads the link first; the `[되살리기]`
+  action of a `dropped` notification opens the link with `&act=restore`, which restores the pin and opens it.
 - Open pins, awaiting review and done share one collapsible header (click/Enter/Space, `aria-expanded`), remembered per
   device; done starts collapsed; a collapsed header shows "new N".
 - Help defines a pin once: a place in the output + a request or question + its conversation.
-- Tests: `tests/test_v022.py` (the rule table, API, Trash, and browser flows on desktop, fold and phone in ko/en).
+- Tests: `tests/test_v022.py` (the rule table, API, Trash with a fake clock, cold deep links, and browser flows on
+  desktop, fold and phone in ko/en). Decision record ADR-0004 is accepted.
 
 ## 0.2.1 — 2026-09-25
 

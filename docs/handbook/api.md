@@ -582,7 +582,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | --- | --- |
 | 보기 | `GET /api/pins/dropped`. `dropped_at` 에서 30일이 지난 항목은 싣지 않는다. 항목마다 계산 필드 `expires_ts`(지워질 시각, epoch 초)가 붙는다. 뷰어의 '며칠 뒤 지워짐'이 이것을 써서 보는 기기의 시간대와 상관없다. 읽기는 파일을 고치지 않는다 |
 | 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다 |
-| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때와 삭제·되살리기 때 파일에서 뺀다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
+| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때, 삭제·되살리기 때, 그리고 오래 떠 있는 서버를 위해 `GET /api/pins`·`GET /pins.md`(이미 줄 맞춤 쓰기를 하는 읽기)에서 한 시간에 한 번(`TRASH_CHECK_EVERY_S`) 파일에서 뺀다. 라이트 폴링(`/api/meta?light=1`)은 여전히 쓰지 않는다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
 | 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
 | 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |
 
