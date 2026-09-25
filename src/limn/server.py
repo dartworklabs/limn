@@ -3183,8 +3183,23 @@ def _off(v) -> int:
     return v if _is_int(v) and 0 <= v < 10000 else 0
 
 
+def anchor_holds(anchor: dict, lo: int, nlines: Sequence[str]) -> bool:
+    """Is the anchor's head line still where the pin's lo says (lo + head_off, 1-based), by find_line()'s matching (whole
+    normalised line, or the first 40 characters for a head of 12 or more)? Pure; nlines are norm()ed lines."""
+    head = anchor.get("head")
+    i = lo + _off(anchor.get("head_off")) - 1
+    if not isinstance(head, str) or not head or not 0 <= i < len(nlines):
+        return False
+    return nlines[i] == head or (len(head) >= 12 and head[:40] in nlines[i])
+
+
 def sync_all(rows: list) -> bool:
-    """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1."""
+    """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1.
+
+    The pin's file is the one pin_location() finds (ADR-0006). When that is not the stored `file` (a moved checkout),
+    synced_at was measured on another file, so the mtime shortcut is taken only if the anchor still holds at lo
+    (anchor_holds); a re-match then writes the located path into `file`, so lines, synced_at and file describe one file
+    again. `file_rel` is never added here, and an anchor is never backfilled from a file the record does not name."""
     changed = False
     cache: dict = {}
     for r in rows:
@@ -3203,12 +3218,17 @@ def sync_all(rows: list) -> bool:
             ls = tex_lines(f)
             cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
         lines, nlines, mtime = cache[f]
+        moved = str(f) != r["file"]                  # measured on another file than the stored one (ADR-0006)
         if "anchor" not in r:                        # backfill a legacy pin saved without an anchor, once
+            if moved:
+                continue                             # never from a file the record does not name (it may be a guess)
             r["anchor"] = anchor_of(lines, r["lo"], r["hi"])
             r["synced_at"] = mtime
             changed = True
             continue
-        if not r["anchor"] or r.get("synced_at", 0) >= mtime:   # a pin that selected only blank lines has no anchor to follow
+        if not r["anchor"]:                          # a pin that selected only blank lines has no anchor to follow
+            continue
+        if r.get("synced_at", 0) >= mtime and (not moved or anchor_holds(r["anchor"], r["lo"], nlines)):
             continue
         before = (r["lo"], r["hi"], bool(r.get("stale")))
         anc = r["anchor"]
@@ -3228,6 +3248,8 @@ def sync_all(rows: list) -> bool:
             r.pop("stale", None)
         if (r["lo"], r["hi"], bool(r.get("stale"))) != before:
             r["rev"] = int(r.get("rev") or 0) + 1
+        if moved:
+            r["file"] = str(f)                       # the new numbers describe this file
         r["synced_at"] = mtime
         changed = True
     return changed
@@ -3295,7 +3317,7 @@ def valid_rec(r) -> bool:
     for k in ("done", "stale", "review"):
         if r.get(k) is not None and not isinstance(r[k], bool):
             return False
-    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build", "rel_path"):
+    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build", "file_rel"):
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
     for k, v in r.items():
@@ -3362,28 +3384,28 @@ def file_tails(file: str) -> list[str]:
     return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
 
 
-def pin_rel_path(file: str, rel_path: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
+def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
     """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
 
     1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
        symlinks, as 0.3.0's in_tree() did). It wins even if the file is gone - a known location is never re-guessed.
-    2. rel_path, when it is a non-empty relative path without '..' parts and the stored `file` ends with it. The server
-       writes the two together; 0.3.0 relocating a pin changes only `file`, and the mismatch drops the stale value.
-       Not checked for existence either.
+    2. file_rel (stored by 0.4), when it is a non-empty relative path without '..' parts and the stored `file` ends with
+       it. The server writes the two together; 0.3.0 relocating a pin changes only `file`, and the mismatch drops the
+       stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ -> the repository);
+       otherwise file_rel itself, even if that file is gone - no shorter guess.
     3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
     None when nothing matches: the pin is outside the tree. Pure: `exists` answers for paths relative to the root and
     is expected to accept only files that resolve inside it."""
     if under_root is not None:
         return under_root
-    if isinstance(rel_path, str) and rel_path:
-        rel, parts = PurePosixPath(rel_path), PurePosixPath(file).parts
+    tails = file_tails(file)
+    if isinstance(file_rel, str) and file_rel:
+        rel, parts = PurePosixPath(file_rel), PurePosixPath(file).parts
         n = len(rel.parts)
         if n and not rel.is_absolute() and ".." not in rel.parts and len(parts) > n and parts[-n:] == rel.parts:
-            return rel.as_posix()
-    for tail in file_tails(file):
-        if exists(tail):
-            return tail
-    return None
+            longer = [t for t in tails if len(PurePosixPath(t).parts) > n]
+            return next((t for t in longer if exists(t)), rel.as_posix())
+    return next((t for t in tails if exists(t)), None)
 
 
 def _within(p: Path, root: Path) -> bool:
@@ -3409,7 +3431,7 @@ def pin_location(r: dict, root: Path) -> PinLocation | None:
         under = Path(file).resolve().relative_to(root.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         under = None
-    rel = pin_rel_path(file, r.get("rel_path"), under, lambda t: (root / t).is_file() and _within(root / t, root))
+    rel = pin_rel_path(file, r.get("file_rel"), under, lambda t: (root / t).is_file() and _within(root / t, root))
     if rel is None:
         return None
     path = root / rel
@@ -3417,13 +3439,13 @@ def pin_location(r: dict, root: Path) -> PinLocation | None:
 
 
 def stamp_location(r: dict, root: Path) -> PinLocation | None:
-    """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `rel_path` the
+    """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `file_rel` the
     path relative to root. Only for a write to this very pin (create, edit, restore) - other writes keep the stored
     record, so there is no write migration. A pin that cannot be located, or a view-only PDF pin, is left as it is.
     Mutates r and returns its location (or None)."""
     loc = pin_location(r, root)
     if loc is not None:
-        r["file"], r["rel_path"] = str(loc.path), loc.rel
+        r["file"], r["file_rel"] = str(loc.path), loc.rel
     return loc
 
 
@@ -3508,11 +3530,13 @@ def snapshot_pins() -> list:
 
 def public(r: dict) -> dict:
     """A record as the API returns it: a copy with rev defaulted to 0 and - for a line pin that pin_location() places
-    under the manuscript root - `file` set to its absolute path on this machine now and `rel_path` to its path relative
-    to the root (ADR-0006, for old records too). A pin that cannot be located keeps its stored file and has no rel_path.
-    Never changes r."""
+    under the manuscript root - `file` set to its absolute path on this machine now and the computed `rel_path` to its
+    path relative to the root (ADR-0006, for old records too). The stored `file_rel` is not returned: rel_path is always
+    this server's answer, never a value an older version left behind. A pin that cannot be located keeps its stored
+    file and has no rel_path. Never changes r."""
     out = dict(r)
     out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
+    out.pop("file_rel", None)
     out.pop("rel_path", None)
     loc = pin_location(r, C.src)
     if loc is not None:
@@ -4217,6 +4241,13 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         if base_given and int(r.get("rev") or 0) != base:
             raise HTTPError(409, "conflict", pin=public(r))
         old_note = str(r.get("note") or "")         # to tell a new @-tag from one the note already had (_set_note_mentions)
+        merged = None
+        if note_append is not None:                  # checked before anything changes: transact() may still write rows on a 400
+            base_note = note if has_note else old_note
+            stamp = "(추가 %s) " % datetime.now().astimezone().strftime("%H:%M")
+            merged = base_note + ("\n" if base_note else "") + stamp + note_append
+            if len(merged) > NOTE_MAX:
+                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (len(merged), NOTE_MAX))
         range_changed = False
         if region:
             if newloc is not None:                   # re-placing the region - only page/region/region text/build change
@@ -4267,11 +4298,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             r.pop("sync", None)
         if has_note:
             r["note"] = note
-        if note_append is not None:
-            stamp = "(추가 %s) " % datetime.now().astimezone().strftime("%H:%M")
-            merged = str(r.get("note") or "") + ("\n" if r.get("note") else "") + stamp + note_append
-            if len(merged) > NOTE_MAX:
-                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (len(merged), NOTE_MAX))
+        if merged is not None:
             r["note"] = merged
         if kind_req is not None:
             r["kind_req"] = kind_req
