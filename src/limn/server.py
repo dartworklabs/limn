@@ -4947,8 +4947,6 @@ pre.nowrap{white-space:pre}
 .c-loc-main .loc{font-weight:600}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm)}
 .c-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:0 0 8px}
-/* [줄바꿈] 은 한 줄로 둔다 — 330px 패널(터치)에서 '줄바/꿈' 두 줄로 꺾여 옆 스테퍼보다 높아졌다(2026-09-24 실측) */
-.c-tools button.tg{white-space:nowrap;flex:none;margin-left:auto}   /* 자리가 모자라면 다음 줄 오른쪽으로(폴드 330px 에서 패널 끝에 붙었다) */
 .step{display:inline-flex;flex:none;border:0;border-radius:var(--radius-lg);overflow:hidden;background:var(--muted);padding:2px;gap:2px}
 .step{align-items:stretch}
 .step button{border:0;border-radius:var(--radius);min-width:30px;padding:3px 6px;background:transparent}
@@ -4961,8 +4959,11 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip.clip:not(.open){-webkit-mask-image:linear-gradient(var(--foreground) 60%,transparent);mask-image:linear-gradient(var(--foreground) 60%,transparent)}
 #c-snip.open{max-height:44vh}
 .e-snip{max-height:calc(9em + 18px)}
-.snip-foot{display:flex;justify-content:flex-end}
-.snip-foot button{color:var(--muted-foreground)}
+/* 원문 바로 밑 한 줄: 왼쪽 [줄바꿈], 오른쪽 [원문 펼치기]. [줄바꿈]은 예전에 스테퍼 줄 끝에 있어 폴드(330px 패널)에서
+   혼자 다음 줄로 떨어졌다(QA 2026-09-25) — 둘 다 원문을 어떻게 보이느냐를 바꾸므로 원문 밑에 모은다. */
+.snip-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.snip-foot button{color:var(--muted-foreground);white-space:nowrap}
+.snip-foot button.tg[aria-pressed=true]{color:var(--foreground);background:var(--accent);border-color:transparent}   /* 켜짐 = 변경사항 [줄바꿈]과 같은 채운 면 */
 #note{margin-top:8px}
 #c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* 상자 없이 글 + 버튼 두 개 */
 #c-overlap>span{flex-basis:100%}
@@ -5486,11 +5487,9 @@ body.view-only #btn-rebuild{display:none}
         <div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">
           <span class="sl" aria-hidden="true">위</span><button id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-up-shrink" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">{{ic:minus}}</button><span class="sl" aria-hidden="true">아래</span><button id="c-down-grow" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-down-shrink" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">{{ic:minus}}</button>
         </div>
-        <span class="sp"></span>
-        <button class="tg" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">줄바꿈</button>
       </div>
       <pre id="c-snip" class="wrap"></pre>
-      <div class="snip-foot"><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
+      <div class="snip-foot"><button class="tg btn-sm btn-ghost" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">{{ic:text-wrap}}줄바꿈</button><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
     <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
