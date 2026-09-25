@@ -1,11 +1,19 @@
 [project]
 name = "dartwork-limn"
 dynamic = ["version"]
-description = "Limn (림) — 원고 PDF에 핀을 찍으면 소스 줄로 이어 주는 사람·에이전트 퇴고 도구"
+description = "Limn: pin a spot in a manuscript PDF and get the source lines back; a revision loop for people and agents"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
-authors = [{ name = "dartworklabs" }]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Dartwork" }]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Web Environment",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
 dependencies = []
 
 [project.scripts]
@@ -15,7 +23,7 @@ limn = "limn.cli:main"
 dev = ["pytest>=8", "playwright>=1.47"]
 
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
@@ -25,7 +33,7 @@ path = "src/limn/__init__.py"
 packages = ["src/limn"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/limn", "tests", "docs", "skill", "README.md", "THIRD_PARTY_NOTICES.md"]
+include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

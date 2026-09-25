@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    env:
+      # Browser layout tests must run here, not skip.
+      LIMN_TEST_REQUIRE_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
+      - name: Python tests
+        run: uv run pytest -q -rs
+      - name: Instance manager tests
+        run: bash tests/test_instances.sh
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install as a uv tool from the checkout
+        run: uv tool install .
+      - name: Smoke-test the installed command
+        run: |
+          limn version
+          limn serve --help | head -3
+          limn serve --version
+          limn help | head -5
+          python_dir=$(uv tool dir)/dartwork-limn
+          find "$python_dir" -path '*limn/vendor/pdfjs/pdf.min.mjs' | grep -q . && echo "pdf.js packaged"
+          find "$python_dir" -path '*limn/systemd/limn@.service' | grep -q . && echo "unit template packaged"
+          find "$python_dir" -path '*limn/instances.sh' | grep -q . && echo "instance manager packaged"
