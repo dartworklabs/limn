@@ -4404,7 +4404,15 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
 # v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
 TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H \"Authorization: Bearer $LIMN_TOKEN\" …`, "
                   "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
-                  "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다")
+                  "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · "
+                  "테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다")
+
+
+def claim_guidance(base: str) -> str:
+    """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
+    return ("처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
+            "%s/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 "
+            "잡는다 · 409 면 다른 쪽이 잡은 핀이니 건너뛴다 · 포기하면 `%s/api/pins/N/unclaim`" % (base, base))
 THREAD_MD_SHOW = 3                 # number of current-round thread posts shown in pins.md's note column (from the end)
 THREAD_MD_CHARS = 200              # character count for one of those posts - the full text is via GET /api/pins/N
 
@@ -4573,6 +4581,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
         guidance += (" · 보기 전용 PDF 의 핀은 줄 번호가 없다 — 쪽·영역 글자(«…»)·메모로 무엇을 가리키는지 판단하고, "
                      "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)")
     out.append(guidance)
+    out.append(claim_guidance(base))
     out.append(TOKEN_GUIDANCE)
     if any_symbol:
         out.append(LEGEND)
