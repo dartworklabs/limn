@@ -86,14 +86,14 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
 | `viewer` | `role` 이 `viewer` 인 사람, 그리고 `role` 값을 알 수 없는 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
-| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm` 과 `/api/clear` 를 뺀 전부. 둘은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 간다 |
-| `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 를 뺀 전부(`403`) |
+| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
+| `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
 - `GET` 은 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다.
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
-- 소유자만 부를 수 있는 HTTP 경로는 `POST /api/clear` 하나다(0.2.1부터, `OWNER_POSTS`). 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
+- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1부터, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2부터, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다.
 
@@ -203,7 +203,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | --- | --- | --- |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
-| `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
+| `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 더 이상 쓰지 않는다(§겹친 핀과 덧붙이기). 에이전트와 옛 뷰어 호환용으로 남긴다 |
@@ -216,11 +216,12 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}` |
+| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 0.2.2부터 뷰어에는 [다시 열기] 버튼이 없다. 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 호환과 [완료]의 되돌리기에 남는다 |
 | `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
-| `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?}` → `{ok, pin, msg}` — §스레드 (답글) |
-| `POST` | `/api/pins/{id}/drop` | 잘못 찍은 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}` |
-| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 삭제 기록이 없으면 `404`, 같은 id가 이미 있으면 `409` |
+| `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
+| `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
+| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409` |
+| `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그를 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나, 같은 신원이면 연장한다 — §처리 중 표시 (claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`. 정수가 아니거나 1보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다. 응답은 `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다. claim을 건 신원과 무관하다. claim은 잠금이 아니라 표시이기 때문이다 → `{ok, pin}`. 없는 id면 `200 {"ok": false}`. `viewer` 역할은 다른 변경처럼 `403` 이다 |
 | `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1부터, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남는다. 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
@@ -331,7 +332,25 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 메시지 모양은 `{id, by:{login,name,pic?}, at, text, mentions?, ev?, ref?}` 다. `id` 는 핀 안에서 1부터 오른다.
 - 상태 전환도 스레드에 한 줄씩 남는다. `ev` 가 `close` 면 글은 닫기 사유이고 `ref` 가 붙는다. `reopen` 이면 글은 다시 연 이유다. 그 밖에 `confirm`, `assign`(§@태그·사람·이벤트)이 있다.
 - 닫기 사유는 옛 `close_reply`·`close_ref` 에도 그대로 적힌다. 옛 뷰어와 에이전트 호환을 위해서다.
-- 답글은 상태를 바꾸지 않는다. 질문 핀은 답글을 단 뒤 따로 닫는다.
+- 질문 핀은 답글을 단 뒤 따로 닫는다.
+
+### 답글이 핀을 다시 여는 규칙 (0.2.2)
+
+뷰어의 닫힌 핀에는 [답글] 하나만 있다. 답글이 핀을 다시 여는지는 서버가 정한다(`reply_reopens`, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 뷰어는 같은 규칙으로 답글 칸 아래 한 줄에 결과를 미리 보인다.
+
+| 핀 상태 | 쓴 쪽 | 답글이 사람을 @태그하나 | 결과 |
+| --- | --- | --- | --- |
+| 검토 대기·완료 | 사람 | 아니오 | **다시 연다.** 답글은 `ev:reopen` 기록(다시 연 이유)이 되고, `POST /reopen` 과 똑같이 `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 `reopened_by`·`reopened_at` 을 남긴다. 이벤트도 같다(작성자에게 `reopened`) |
+| 검토 대기·완료 | 사람 | 예 | 상태 그대로. 보통 답글이다(태그된 사람에게 `mention`) |
+| 열림 | 누구나 | — | 상태 그대로 |
+| 질문 핀 | 누구나 | — | 답으로 남는다. 상태 그대로 |
+
+- **사람**은 에이전트가 아닌 신원이다. 토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람은 에이전트라 규칙으로는 다시 열지 않는다.
+- **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신을 빼고 하나라도 있다는 뜻이다.
+- 본문의 선택 `reopen` 이 `true`/`false` 면 규칙보다 앞선다. 불리언이 아니면 `400` 이다. 열린 핀은 `reopen: true` 여도 바뀌지 않는다. 뷰어의 [상태 유지]가 `false` 를 보낸다.
+- 응답은 `{ok, pin, msg, state, reopened}` 다. `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다. `state`·`reopened` 는 0.2.2에서 더했다.
+- 다시 여는 답글에는 답글 200건 상한이 걸리지 않는다. 상태 전환 기록이기 때문이다.
+- 다시 열린 핀은 `pins.md` 열린 표로 돌아온다. 번호 칸에 `다시 열림`, 메모 칸 뒤에 `다시 연 이유(<이름>): <답글>` 이 붙는다(§질문·다시 열림·사람에게 물은 핀). 형식은 예전 그대로다.
 - 핀 종류는 `kind_req`(`fix`|`question`, 없으면 `fix`)다. `POST /api/pin` 과 `/edit` 이 받고, `/edit` 은 닫힌 핀에서도 받는다. 범위 종류를 뜻하는 옛 `kind` 와는 다른 필드다.
 
 ## 검토 대기
@@ -348,6 +367,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | `POST /confirm` | `viewer` 역할 | `403`(§인증의 역할 검사) |
 | `POST /confirm` | 사람 신원으로 완료 / 열림 / 없음 | 멱등 `{ok:true}` / `409 {"error":"open"}` / `200 {"ok":false}` |
 | `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen` 을 남긴다. 선택 `{"reason"}`(≤1000자)이 그 글이다 |
+| `POST /reply` | 닫힌 핀에 사람이, 사람을 @태그하지 않은 답글 | `POST /reopen` 과 같다. 답글이 그 글이다(§답글이 핀을 다시 여는 규칙 (0.2.2)) |
 
 확인은 사람만 누를 수 있다. 뷰어는 작성자에게 확인을 권할 뿐이고, `editor`·`owner` 역할인 사람이면 누구나 누를 수 있다. 토큰은 늘 `agent` 역할이라 토큰으로는 확인할 수 없다.
 
@@ -420,8 +440,10 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | `reopened` | 닫힌 핀을 다시 엶 | 작성자. 다시 연 이유가 작성자를 @태그하면 `mention` 하나만 받는다 |
 | `assigned` | 핀을 만들거나 고치며 담당을 사람으로 정함(바뀔 때만) | 새 담당 |
 | `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움(0.2.1) | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다 |
+| `dropped` | 핀을 휴지통으로 보냄(0.2.2) | 작성자(작성자 자신이 지웠으면 기록하지 않는다). `excerpt` 는 메모다. 뷰어는 [되살리기]를 단 알림으로 보인다 |
+| `purged` | 소유자가 휴지통에서 영구 삭제함(0.2.2) | 아무도 아님(`to` 는 `[]`). `cleared` 처럼 감사 기록이다. `pin` 과 `by` 만 싣는다 |
 
-- `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다. `cleared` 만 예외로 `to` 가 비어도 남긴다.
+- `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다. `cleared`·`purged` 만 예외로 `to` 가 비어도 남긴다.
 - 핀 쓰기가 커밋된 뒤, 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다. 앞부분은 그대로 두므로 추가 전용이 유지된다.
 - 최근 5000건만 남긴다. 그래도 `seq` 는 계속 오른다. 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
 
@@ -429,7 +451,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 `/api/meta` 는 라이트 여부와 관계없이 늘 `ev_seq`(`events.jsonl` 의 마지막 `seq`)를 싣는다. `ev=<마지막으로 본 seq>` 를 붙이면 그 뒤의 이벤트 가운데 다음 조건을 모두 만족하는 것을 `events` 로 싣는다.
 
-- `type` 이 `mention`, `review_requested`, `replied`, `reopened` 중 하나다.
+- `type` 이 `mention`, `review_requested`, `replied`, `reopened`, `assigned`, `dropped` 중 하나다.
 - `to` 에 **지금 요청자**(사람의 로그인)가 들어 있다.
 - 행위자가 요청자 자신이 아니다.
 
@@ -550,6 +572,22 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - 닫기, claim, drop은 LaTeX 핀과 같다.
 - `POST /api/rebuild` 는 `400` 이다. 재빌드가 없고, 파일이 바뀌면 쪽을 저절로 다시 그린다([build-sync.md](build-sync.md) §보기 전용 PDF 문서).
 - `/api/snippet` 도 `400` 이다.
+
+## 휴지통
+
+삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 저장은 예전과 같은 `pins.dropped.jsonl` 이고 레코드 모양도 같다.
+
+| 동작 | 규칙 |
+| --- | --- |
+| 보기 | `GET /api/pins/dropped`. `dropped_at` 에서 30일이 지난 항목은 싣지 않는다. 읽기는 파일을 고치지 않는다 |
+| 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다 |
+| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때와 삭제·되살리기 때 파일에서 뺀다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 을 읽을 수 없는 항목은 나이를 모르므로 남긴다 |
+| 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
+| 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |
+
+- 핀 번호는 `pins.seq` 에 남으므로 영구 삭제한 번호도 다시 쓰이지 않는다.
+- `pins.md` 는 예전처럼 삭제한 핀을 싣지 않는다.
+- 0.2.1로 되돌려도 휴지통 파일을 그대로 읽는다. 옛 서버는 30일 규칙을 모를 뿐이다.
 
 ## 핀 레코드 스키마
 

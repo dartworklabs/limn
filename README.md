@@ -13,6 +13,7 @@ on the same private network pin too, and every pin records who left it.
 - Several documents per manuscript (manuscript, response letter, view-only reviewer PDFs) as tabs
 - Rebuilds on demand or when the upstream branch moves (`--git-pull`)
 - Threads, questions, @mentions, assignees, review before done, a diff view per pin
+- One [Reply] on a closed pin: a person's reply sends it back to the agent (a line under the box says so first; undo after sending), and a 30-day Trash for deleted pins
 - One long-running **instance** per manuscript as a systemd user unit, exposed with `tailscale serve`
 
 ## Install
@@ -21,11 +22,11 @@ Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution w
 (`latexmk`/`pdflatex`) and Poppler (`pdftoppm`).
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
 limn version
 ```
 
-With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.2.1` works too.
+With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.2.2` works too.
 
 ## Run one server
 
@@ -64,7 +65,8 @@ Details (Korean): [docs/handbook/instances.md](docs/handbook/instances.md).
 ## For agents
 
 An agent reads `pins.md` (`curl -s <base>/pins.md`) or `GET /api/pins`, claims one pin right before
-editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms. It authenticates with
+editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms, or replies with what is
+wrong, which reopens the pin into the open table. It authenticates with
 a token from `limn token create <instance>` (`Authorization: Bearer …`). Agents never
 confirm, and skip pins claimed by others, awaiting review, or assigned to a person. The full procedure
 is [skill/SKILL.md](skill/SKILL.md); the API contract is [docs/handbook/api.md](docs/handbook/api.md) (Korean). The `pins.md` format and
@@ -99,7 +101,7 @@ Personal data in the imported history was replaced with placeholders.
 Nothing is deleted; ports, tailnet addresses and pins carry over.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.2.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.2
 limn migrate --dry-run            # plan: ~/.config/pin-viewer/<name>.env -> ~/.config/limn/<name>.env
 limn migrate                      # copy configs (idempotent; old files stay)
 # per instance:
