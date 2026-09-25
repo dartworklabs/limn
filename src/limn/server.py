@@ -8999,7 +8999,8 @@ function droppedCard(p){
     relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',{name:who(p.dropped_by)||tr('기록 전')}))+
     '<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-by">'+esc(tl('{name} 삭제',{name:who(p.dropped_by)||tr('기록 전')}))+'</span>'+
     (left!=null?'<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-left" data-tip="'+esc(tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS}))+'">'+esc(tl('{n}일 뒤 지워짐',{n:left}))+'</span>':'')+'<span class="sp"></span>'+
-    '<span class="arc-acts"><button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>'+
+    // a viewer reads the Trash but is offered no state change (the server answers 403 anyway) - not rendered, not only hidden
+    '<span class="arc-acts">'+(isViewer()?'':'<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>')+
     (isOwner()?'<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="'+esc(T.purge)+'">영구 삭제</button>':'')+'</span></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 let TRASH_ALL=false;   // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched

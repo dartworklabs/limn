@@ -837,3 +837,129 @@ class ScopedViewer(BrowserBase):
         self.assertEqual(page.get_attribute("#revision-other-toggle", "aria-expanded"), "false")
         self.assertFalse(self.visible(page, "#revision-other"))
         self.assertNotIn("blueberries", page.inner_text("#revision-diff"))
+
+
+# ---------------------------------------------------------------- 5. coordinator follow-ups (E2E re-run): events and the viewer's Trash
+
+from test_access import BOB, CAROL, configure, reset_access  # noqa: E402
+
+
+def load_v022():
+    """The server module exactly as released in v0.2.2 (from git), or None in a shallow clone."""
+    import importlib.util
+    r = subprocess.run(["git", "show", "v0.2.2:src/limn/server.py"], cwd=Path(__file__).resolve().parent.parent,
+                       capture_output=True, timeout=30)
+    if r.returncode != 0 or b"def reply_reopens" not in r.stdout:
+        return None
+    d = Path(tempfile.mkdtemp(prefix="limn-v022-"))
+    (d / "server_v022.py").write_bytes(r.stdout)
+    spec = importlib.util.spec_from_file_location("limn_server_v022", d / "server_v022.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    shutil.rmtree(d, ignore_errors=True)
+    return mod
+
+
+# A person's reply that reopens a closed pin (docs/handbook/api.md §답글이 핀을 다시 여는 규칙 (0.2.2)). Each case:
+# (pin author, assignee, who closes it (None = the agent), expected events as (type, recipients, actor)).
+REOPEN_CASES = {
+    "author is not the replier, agent closed": (BOB, None, None, [
+        ("review_requested", ["bob@example.com"], "local"), ("reopened", ["bob@example.com"], "alice@example.com")]),
+    "author is the replier, agent closed": (ALICE, None, None, [
+        ("review_requested", ["alice@example.com"], "local")]),
+    "assigned to a person, agent closed": (BOB, "carol@example.com", None, [
+        ("assigned", ["carol@example.com"], "bob@example.com"), ("review_requested", ["bob@example.com"], "local"),
+        ("reopened", ["bob@example.com"], "alice@example.com")]),
+    "closed by a person": (BOB, None, CAROL, [
+        ("reopened", ["bob@example.com"], "alice@example.com")]),
+    "closed by the replier": (BOB, None, ALICE, [
+        ("reopened", ["bob@example.com"], "alice@example.com")]),
+}
+
+
+class ReplyReopenEvents(unittest.TestCase):
+    """The E2E re-run reported that a reopening reply only records `replied` on this branch. It does not: the events are
+    the ones v0.2.2 records, case by case - asserted literally here, and (when git history is available) against the
+    released v0.2.2 module run through the same requests."""
+
+    def run_case(self, mod, author, assignee, closer):
+        tmp = Path(tempfile.mkdtemp(prefix="limn-ev-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        src = tmp / "ms"
+        src.mkdir()
+        main = src / "main.tex"
+        main.write_text("\\documentclass{article}\n\\begin{document}\n" + "".join("Line %d.\n" % i for i in range(3, 30))
+                        + "\\end{document}\n", encoding="utf-8")
+        state = tmp / "state"
+        state.mkdir()
+        configure(mod, src, main, state)
+        reset_access(mod)
+        mod._PEOPLE_SEEN.clear()
+
+        def call(method, path, body=None, headers=None):
+            h, raw = dict(headers or {}), b""
+            if body is not None:
+                raw, h["Content-Type"] = json.dumps(body).encode(), "application/json"
+            if method == "POST":
+                h["Origin"] = "http://127.0.0.1:18999"
+            code, _, out = split_resp(talk_to(mod, req(method, path, raw, h)))
+            return code, json.loads(out)
+        for h in (ALICE, BOB, CAROL):
+            call("GET", "/api/meta", headers=h)                     # people.json knows all three
+        body = {"file": str(main), "lo": 4, "hi": 5, "page": 1, "note": "고쳐 주세요"}
+        if assignee:
+            body["assignee"] = assignee
+        code, d = call("POST", "/api/pin", body, author)
+        self.assertEqual(code, 200, d)
+        pid = d["id"]
+        self.assertEqual(call("POST", "/api/pins/%d/close" % pid, {}, closer)[0], 200)
+        code, d = call("POST", "/api/pins/%d/reply" % pid, {"text": "아직입니다"}, ALICE)
+        self.assertEqual((code, d["state"], d["reopened"]), (200, "open", True))
+        path = state / "events.jsonl"
+        evs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+        reset_access(mod)
+        return [(e["type"], sorted(e.get("to") or []), (e.get("by") or {}).get("login")) for e in evs]
+
+    def test_reopening_reply_events_are_the_v022_ones(self):
+        for name, (author, assignee, closer, want) in REOPEN_CASES.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.run_case(ps, author, assignee, closer), want)
+
+    def test_same_events_as_the_released_v022(self):
+        v022 = load_v022()
+        if v022 is None:
+            self.skipTest("v0.2.2 is not in this clone's history (shallow checkout)")
+        for name, (author, assignee, closer, _) in REOPEN_CASES.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.run_case(ps, author, assignee, closer), self.run_case(v022, author, assignee, closer))
+
+
+class ViewerTrashControls(BrowserBase):
+    """A viewer can open the Trash and read it, but sees no [되살리기]/[영구 삭제] (the server refuses both with 403 anyway)."""
+    WHO = CAROL
+
+    def setUp(self):
+        super().setUp()
+        ps.record_person(A)
+        ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
+            {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+            {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A)
+        self.gone = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A)
+        ps.drop_pin(self.gone, A)
+
+    def test_viewer_trash_has_no_restore_or_purge(self):
+        for device in DEVICES:
+            for lang in ("ko", "en"):
+                with self.subTest(device=device, lang=lang):
+                    page = self.open(1, lang=lang, **DEVICES[device])
+                    page.wait_for_function("DROPPED.length===1", timeout=10000)
+                    page.evaluate("openTrash()")
+                    page.wait_for_selector("#trash-list .arc-row[data-id=\"%d\"]" % self.gone)
+                    row = "#trash-list .arc-row[data-id=\"%d\"]" % self.gone
+                    self.assertIn("지운 핀", page.inner_text(row))            # reading stays
+                    shown = page.evaluate("[...document.querySelectorAll('#trash [data-act]')].filter(e=>e.getClientRects().length)"
+                                          ".map(e=>e.dataset.act)")
+                    self.assertFalse({"restore", "purge"} & set(shown), shown)
+                    self.assertEqual(page.locator(row + " .b-restore").count() + page.locator(row + " .b-purge").count(), 0)
+                    page.evaluate("document.getElementById('trash').close()")

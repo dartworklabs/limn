@@ -1012,7 +1012,7 @@ class ViewerFunctions2(unittest.TestCase):
             function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}
             const TRASH_DAYS=30;""", extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
             extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
-            extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("droppedCard"), r"""
+            extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("isViewer"), extract_js_fn("droppedCard"), r"""
             const h=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60});
             console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));"""])
         text = json.loads(run_node(js))[0]
