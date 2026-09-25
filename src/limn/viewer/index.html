@@ -1,0 +1,173 @@
+<!doctype html><html lang="ko" data-theme="light"><head><meta charset="utf-8">
+<script>
+(function(){var p=null;try{p=JSON.parse(localStorage.getItem('pinPrefs')||'null');}catch(e){}
+ if(!p||typeof p!=='object'){p={theme:'light'};}else if(!p.theme){p.theme='light';}
+ try{localStorage.setItem('pinPrefs',JSON.stringify(p));}catch(e){}
+ var t=p.theme,eff=t;if(t==='system'){eff=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}
+ document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
+</script>
+<script>
+// Interface language: ?lang=ko|en (remembered), then the saved choice, then the browser language.
+window.LIMN_LANG=(function(){var v=null;try{v=new URLSearchParams(location.search).get('lang');}catch(e){}
+ if(v==='ko'||v==='en'){try{localStorage.setItem('limnLang',v);}catch(e){}return v;}
+ try{v=localStorage.getItem('limnLang');}catch(e){v=null;}
+ if(v==='ko'||v==='en')return v;
+ return String(navigator.language||'').toLowerCase().indexOf('ko')===0?'ko':'en';})();
+document.documentElement.setAttribute('lang',window.LIMN_LANG);
+</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>Limn · __LABEL__</title>
+<link rel="icon" href="__FAVICON_HREF__">
+<style>__APP_CSS__</style></head><body>
+<div id="brand-stripe" style="background:__ACCENT__"></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost btn-icon">{{ic:panel-left}}</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button><button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden data-tip="이 핀의 변경만 넣은 비교 대신 커밋 전체의 비교 PDF를 봅니다. 다시 누르면 이 핀의 변경만 봅니다">커밋 전체 비교</button><button id="revision-wrap" class="tg btn-sm" data-act="diff-wrap" aria-pressed="false" data-tip="긴 줄을 화면 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고는 켜 두세요">{{ic:text-wrap}}줄바꿈</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre><button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" aria-controls="revision-other" hidden>{{ic:chevron-right}}<span></span></button><pre id="revision-other" class="nowrap" hidden></pre></div></div></section></div></div></div>
+<div id="toasts" role="status" aria-live="polite"></div>
+<div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
+<div id="right">
+  <div id="sheet-grip" role="separator" aria-orientation="horizontal" aria-controls="right" aria-label="시트 높이" tabindex="0" data-tip="끌어서 시트 높이를 바꿉니다. 탭하면 낮게 → 보통 → 높게 순으로 바뀌고, 끝까지 내리면 접힙니다"></div>
+  <div class="bar" id="bar1" role="toolbar" aria-label="도구">
+    <button id="btn-doc" data-act="doc-menu" aria-haspopup="dialog" aria-label="문서 바꾸기" data-tip="이 논문의 다른 문서(답변서·커버레터 등)로 바꿉니다"><span class="nm" id="btn-doc-n">문서</span><span id="btn-doc-dot" class="ddot" hidden></span>{{ic:chevron-down}}</button>
+    <button id="btn-side" class="cmp" data-act="side" aria-controls="right" aria-expanded="false" data-tip="핀 목록과 선택한 자리 패널을 펴고 접습니다. 보라색 숫자는 검토 대기(에이전트가 닫고 사람의 확인을 기다리는 핀) 수입니다">핀 <b id="side-n">0</b><span id="side-rv" class="rv-n" hidden></span><span id="side-arrow" aria-hidden="true">{{ic:chevron-up}}</span></button>
+    <button id="btn-select" class="tch" data-act="selmode" aria-pressed="false" data-tip="켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다">{{ic:square-dashed}}<span class="lbl">선택</span></button>
+    <button id="btn-rebuild" data-act="rebuild" aria-label="PDF 재빌드" data-tip="지금 원고(.tex)로 PDF를 새로 컴파일해 화면을 바꿉니다. 에이전트가 원고를 고친 뒤 결과를 볼 때 누르세요. 30초~1분쯤 걸리며, 끝나면 보던 자리 그대로 화면만 바뀝니다. 원본 폴더는 건드리지 않고 사본에서 빌드합니다.">{{ic:refresh-cw}}<span class="lbl">PDF 재빌드</span></button>
+    <span class="sp"></span>
+    <input class="n sec" id="jump" placeholder="쪽 이동" inputmode="numeric" aria-label="쪽 번호로 이동" data-tip="쪽 번호를 넣고 Enter">
+    <button id="btn-zoom-out" class="sec btn-icon" data-act="zoom-out" aria-label="축소" data-tip="PDF 쪽만 축소합니다 (Ctrl/⌘ −, PDF 위에서 Ctrl/⌘+휠). 패널은 그대로입니다">{{ic:minus}}</button>
+    <button id="btn-zoom-in" class="sec btn-icon" data-act="zoom-in" aria-label="확대" data-tip="PDF 쪽만 확대합니다 (Ctrl/⌘ +, PDF 위에서 Ctrl/⌘+휠·트랙패드 핀치). 패널은 그대로입니다">{{ic:plus}}</button>
+    <button id="btn-fit" class="sec btn-icon" data-act="fit" aria-label="폭 맞춤" data-tip="폭 맞춤: PDF 쪽 폭을 왼쪽 화면 폭에 맞춥니다 (Ctrl/⌘ 0)">{{ic:move-horizontal}}</button>
+    <button id="btn-notify" class="sec btn-icon" data-act="notify-toggle" aria-label="브라우저 알림: 꺼짐" data-tip="브라우저 알림(이 기기만): 나를 부르거나, 내 핀이 검토 대기로 오거나, 내 핀에 답글이 달리면 알립니다">{{ic:bell-off}}</button>
+    <button id="btn-theme" class="sec btn-icon" data-act="theme" aria-label="화면 테마: 시스템" data-tip="화면 테마: 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다">{{ic:sun-moon}}</button>
+    <button id="btn-help" class="sec btn-icon" data-act="help" aria-label="도움말" data-tip="사용법·단축키·용어 설명, pins.md 위치 (?)">{{ic:circle-question-mark}}</button>
+    <button id="btn-more" class="cmp btn-icon" data-act="more" aria-label="더보기" aria-haspopup="dialog" data-tip="핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·휴지통·도움말">{{ic:ellipsis}}</button>
+  </div>
+  <div class="bar" id="bar2"><span id="meta" class="dim"><span id="meta-txt"><span id="meta-main" data-tip="PDF를 만든 최상위 원고 파일"></span> · <span id="meta-pages" data-tip="지금 화면에 있는 PDF의 쪽 수"></span> · <span id="meta-head" data-tip="PDF를 만들 때의 원고 Git 커밋. 그 뒤의 커밋이나 저장된 수정은 이 PDF에 없습니다"></span> · <span id="meta-built" data-tip="PDF를 마지막으로 만든 시각"></span></span> <span id="meta-stale" class="badge badge-warning" hidden data-tip="이 PDF를 만든 뒤에 원고(.tex)가 바뀌었습니다. 지금 화면에서 고른 자리는 원문과 어긋날 수 있으니 [PDF 재빌드]를 누르세요">원고가 더 새롭습니다</span> <span id="meta-sync" class="badge" hidden></span> <span id="build-chip" class="badge" hidden data-tip="지금 다른 사람(또는 나)이 PDF를 재빌드하는 중입니다"></span></span><span class="sp"></span>
+    <span id="vec-chip" class="badge badge-warning" hidden data-tip="PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다. 확대하면 흐릴 수 있습니다">PNG 보기</span>
+    <span id="conn-lost" class="badge badge-warning" hidden data-tip="자동 동기화가 서버에 두 번 연속 닿지 못했습니다. 연결이 끊겼을 수 있습니다">연결 끊김</span>
+    <button id="build-err-chip" class="badge badge-warning" hidden data-act="build-err-reopen" data-tip="마지막 빌드에 오류가 있었습니다 — 눌러서 다시 봅니다">빌드 오류 · 다시 보기</button>
+    <button id="rv-chip" class="badge badge-review" hidden data-act="goto-review" data-tip="에이전트가 닫고 사람의 확인을 기다리는 핀입니다. 누르면 목록의 '검토 대기'로 갑니다"></button>
+    <span id="me" class="au" data-tip="지금 이 화면을 쓰는 사람. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다"></span></div>
+  <div id="build-err" hidden></div>
+  <div id="banner" hidden></div>
+  <div id="composer" hidden role="region" aria-label="선택한 자리">
+    <div id="c-err" class="errline" hidden></div>
+    <div id="c-body">
+      <div class="c-loc-row">
+        <div class="c-loc-main"><span id="c-loc" class="loc" tabindex="0" data-tip="핀에 저장될 원문 위치입니다. 에이전트는 이 줄을 직접 열어 고칩니다. 누르면 복사"></span>
+          <span id="c-page"></span><span id="c-tag" class="badge" hidden data-tip="원문 줄을 찾은 방법과 일치율"></span><span id="c-spin" class="spin" hidden aria-label="찾는 중"></span></div>
+        <button class="btn-icon" id="c-copy" data-act="copy-cur" aria-label="위치 복사" data-tip="'파일 L시작-L끝'을 복사합니다. 채팅창에 붙이면 에이전트가 바로 그 줄을 엽니다">{{ic:copy}}</button>
+      </div>
+      <div id="c-warn" class="warnline" hidden></div>
+      <div id="c-overlap" hidden></div>
+      <div id="c-levels" class="seg" role="group" aria-label="범위 단계"></div>
+      <div class="c-tools">
+        <div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">
+          <span class="sl" aria-hidden="true">위</span><button id="c-up-grow" data-act="nudge" data-dir="up-grow" aria-label="위로 한 줄 넓히기" data-tip="위로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-up-shrink" data-act="nudge" data-dir="up-shrink" aria-label="위에서 한 줄 좁히기" data-tip="위에서 한 줄 좁힙니다">{{ic:minus}}</button><span class="sl" aria-hidden="true">아래</span><button id="c-down-grow" data-act="nudge" data-dir="down-grow" aria-label="아래로 한 줄 넓히기" data-tip="아래로 한 줄 넓힙니다">{{ic:plus}}</button><button id="c-down-shrink" data-act="nudge" data-dir="down-shrink" aria-label="아래에서 한 줄 좁히기" data-tip="아래에서 한 줄 좁힙니다">{{ic:minus}}</button>
+        </div>
+      </div>
+      <pre id="c-snip" class="wrap"></pre>
+      <div class="snip-foot"><button class="tg btn-sm btn-ghost" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">{{ic:text-wrap}}줄바꿈</button><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
+    </div>
+    <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-viewer" class="q-hint" role="status">{{ic:eye}}<span>보기 권한만 있습니다 — 위치와 원문만 볼 수 있고 핀은 남길 수 없습니다. 소유자에게 편집 권한을 요청하세요</span></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
+  </div>
+  <div id="list">
+    <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
+      범위를 고르고 메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.<br><span class="t-mouse"><kbd>?</kbd> 를 누르면 도움말.</span><span class="t-touch">도움말은 [더보기]에 있습니다.</span></div>
+    <section class="lsec" id="sec-open" aria-labelledby="list-h">
+      <div class="sec-head"><button class="sec-tg" id="open-toggle" data-act="sec-toggle" data-sec="open" aria-expanded="true" aria-controls="open-body" data-tip="열린 핀을 접고 폅니다. 접어 둔 동안 새로 온 핀 수가 머리에 붙습니다">{{ic:chevron-down}}<span class="sec-name" id="list-h">열린 핀 <span class="badge badge-secondary sec-n">0</span></span></button><span class="sp"></span><button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기" data-tip="핀 파일을 다시 읽어 목록을 맞춥니다. 에이전트가 완료한 핀이 빠지고, 원고 수정으로 밀린 줄 번호가 다시 맞춰집니다. PDF는 바뀌지 않습니다.">다시 읽기</button><button class="btn-sm tg" id="mention-filter" data-act="mention-filter" aria-pressed="false" hidden data-tip="나를 @태그한 열린·검토 대기 핀만 봅니다(모든 문서). 다시 누르면 전부 봅니다"></button><button class="btn-sm tg" id="all-docs" data-act="all-docs" aria-pressed="false" hidden data-tip="다른 문서의 열린 핀도 함께 봅니다. 카드에 문서 이름이 붙고, #번호·[보기]를 누르면 그 문서로 바꿔 그 자리로 갑니다">모든 문서</button></div>
+      <div id="open-body"><div id="pins"></div></div>
+    </section>
+    <section class="lsec" id="sec-review" aria-labelledby="review-h" hidden>
+      <div class="sec-head"><button class="sec-tg" id="review-toggle" data-act="sec-toggle" data-sec="review" aria-expanded="true" aria-controls="review-pins" data-tip="에이전트가 닫고 사람의 확인을 기다리는 핀을 접고 폅니다">{{ic:chevron-down}}<span class="sec-name" id="review-h">검토 대기 <span class="badge badge-secondary sec-n">0</span></span></button></div>
+      <div id="review-pins"></div>
+    </section>
+    <section class="lsec arc" id="sec-done" aria-labelledby="done-h" hidden>
+      <div class="sec-head"><button class="sec-tg" id="done-toggle" data-act="sec-toggle" data-sec="done" aria-expanded="false" aria-controls="done-list" data-tip="완료한 핀을 펼치고 접습니다. 에이전트가 닫고 확인까지 끝난 핀도 여기에 있습니다">{{ic:chevron-right}}<span class="sec-name" id="done-h">완료 <span class="badge badge-secondary sec-n">0</span></span></button></div>
+      <div id="done-list" class="arc-list" hidden></div>
+    </section>
+    <button id="trash-link" class="btn-sm" data-act="trash-open" hidden data-tip="삭제한 핀은 30일 동안 휴지통에 있습니다. 누르면 열어 되살릴 수 있습니다">휴지통 0</button>
+  </div>
+  <div id="c-actions">
+    <button id="btn-cancel" data-act="cancel" data-tip="이 선택을 버립니다 (Esc)">취소</button>
+    <button class="btn-default" id="btn-save" data-act="save" data-tip="메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)">핀 저장</button>
+  </div>
+</div>
+<div id="tip" role="tooltip" hidden></div>
+<div id="mention-pop" role="listbox" aria-label="부를 사람" hidden></div>
+<div id="coach" role="status" hidden><span id="coach-t"></span><button class="btn-icon btn-ghost" data-act="coach-close" aria-label="안내 닫기">{{ic:x}}</button></div>
+<dialog id="more" aria-label="더보기 · __LABEL__">
+  <div class="row more-head"><span id="more-label" class="chip" data-tip="__LABEL__ — 이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용">__LABEL__</span><h2 style="margin:0">더보기</h2><span class="sp"></span><button class="btn-sm btn-ghost" data-act="more-close">닫기</button></div>
+  <p class="more-info" id="more-info"></p>
+  <div class="more-grid">
+    <button class="btn-secondary" data-act="reload" data-close="1">핀 다시 읽기</button>
+    <button id="m-theme" class="btn-secondary" data-act="theme">테마: 시스템</button>
+    <button id="m-lang" class="btn-secondary" data-act="lang" data-tip="화면 언어를 바꿉니다 (한국어 / English)">English</button>
+    <button id="m-notify" class="btn-secondary wide" data-act="notify-toggle">알림 켜기</button>
+    <button class="btn-secondary" data-act="zoom-out">축소</button>
+    <button class="btn-secondary" data-act="zoom-in">확대</button>
+    <button class="btn-secondary wide" data-act="fit" data-close="1">폭 맞춤</button>
+    <div class="size-row wide"><span class="dim" id="m-size-l">패널 폭</span><div class="seg" id="m-size" role="group" aria-label="패널 폭"></div></div>
+    <div class="jump-row wide"><input id="m-jump" inputmode="numeric" placeholder="쪽" aria-label="쪽 번호로 이동"><button class="btn-secondary" data-act="m-jump">이동</button></div>
+    <button id="m-done" class="btn-secondary" data-act="done-toggle" data-close="1">닫힌 핀 0</button>
+    <button id="m-trash" class="btn-secondary" data-act="trash-open" data-close="1" data-tip="삭제한 핀은 30일 동안 휴지통에 있습니다. 같은 번호로 되살릴 수 있습니다">휴지통 0</button>
+    <button class="btn-secondary wide" data-act="help">도움말</button>
+  </div>
+</dialog>
+<dialog id="docs-menu" aria-labelledby="docs-menu-h">
+  <div class="row"><h2 id="docs-menu-h" style="margin:0">문서</h2><span class="sp"></span><button class="btn-sm" data-act="docs-menu-close">닫기</button></div>
+  <div class="dm-list" id="docs-menu-list" role="listbox" aria-labelledby="docs-menu-h"></div>
+</dialog>
+<dialog id="trash" aria-labelledby="trash-h">
+  <div class="row"><h2 id="trash-h" style="margin:0">휴지통</h2><span class="sp"></span><button class="btn-sm" data-act="trash-close" data-tip="휴지통 닫기 (Esc)">닫기</button></div>
+  <p class="dim trash-note" id="trash-note"></p>
+  <div id="trash-list" class="arc-list"></div>
+</dialog>
+<dialog id="help" aria-labelledby="help-h">
+  <div class="row"><h2 id="help-h">Limn — 사용법</h2><span class="sp"></span><button class="btn-sm" data-act="help-close" data-tip="도움말 닫기 (Esc)">닫기</button></div>
+  <h4>한 바퀴</h4>
+  <ol class="help-steps">
+    <li>PDF 위에서 고칠 곳을 <b>드래그</b>합니다. 점선 상자('새 핀')가 남습니다.</li>
+    <li>사이드바의 <b>범위 단계</b>(드래그한 줄 / 문단 / 환경)와 한 줄 버튼(위·아래 +/−)으로 줄 범위를 맞춥니다.</li>
+    <li>메모를 쓰고 <b>핀 저장</b>(⌘ Enter / Ctrl+Enter). 알림의 [되돌리기]로 바로 취소할 수 있습니다.</li>
+    <li>에이전트에게 "핀 처리해줘"라고 말합니다. 에이전트는 pins.md 한 장을 읽고 원고를 고친 뒤 핀을 닫습니다.</li>
+    <li><b>PDF 재빌드</b>로 결과를 봅니다. 보던 쪽과 쓰던 메모는 그대로 남습니다.</li>
+    <li>결과가 맞으면 [확인], 틀렸으면 [답글]에 무엇이 틀렸는지 적습니다. 보내면 핀이 다시 열려 에이전트에게 갑니다.</li>
+  </ol>
+  <h4>휴대폰·태블릿(터치)</h4>
+  <table><tr><td><kbd>길게 누르기</kbd></td><td>PDF 위를 길게 누르면 그 자리 문단을 고릅니다. 스크롤·확대는 평소처럼 됩니다</td></tr>
+    <tr><td><kbd>선택</kbd></td><td>켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다</td></tr>
+    <tr><td><kbd>핀 N</kbd></td><td>핀 목록 패널(좁은 화면에서는 아래 시트)을 펴고 접습니다. 카드를 누르면 펼쳐집니다</td></tr>
+    <tr><td><kbd>더보기</kbd></td><td>핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·휴지통·이 도움말</td></tr>
+    <tr><td>패널 폭·시트 높이</td><td>패널 왼쪽 가장자리(아래 시트는 윗가장자리) 손잡이를 끌면 바뀌고, 탭하면 단계가 돌아갑니다. [더보기] → 패널 폭 / 시트 높이에서도 고릅니다. 시트는 끝까지 내리면 접힙니다</td></tr>
+    <tr><td>설명 보기</td><td>버튼을 길게 누르면 설명이 뜹니다</td></tr></table>
+  <h4>단축키</h4>
+  <table><tr><td><kbd>드래그</kbd></td><td>영역을 골라 원문 위치를 찾습니다</td></tr>
+    <tr><td><kbd>⌘ Enter</kbd> / <kbd>Ctrl+Enter</kbd></td><td>메모 칸에서 핀 저장, 편집 칸에서 수정 저장 (한글 조합 중에는 무시)</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>열린 것부터 닫습니다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 취소 → 선택 취소</td></tr>
+    <tr><td><kbd>Ctrl/⌘ + 휠</kbd> · <kbd>Ctrl/⌘ + = − 0</kbd></td><td>PDF 위에서 확대·축소(포인터 자리 기준), 0 은 폭 맞춤. 트랙패드 핀치도 같습니다. PDF 만 커지고 패널은 그대로입니다 (입력 칸 밖에서)</td></tr>
+    <tr><td><kbd>?</kbd></td><td>이 도움말 (입력 칸 밖에서)</td></tr>
+    <tr><td><kbd>Ctrl+PgUp</kbd>/<kbd>PgDn</kbd> · <kbd>Alt+1…9</kbd></td><td>문서 전환(문서가 여럿일 때, 입력 칸 밖에서). 브라우저가 이 키를 먼저 가져가면 PDF 위 문서 탭을 누르세요. 문서마다 보던 자리·확대를 기억합니다</td></tr>
+    <tr><td>폭 손잡이</td><td>본문과 패널 사이 막대를 끌면 패널 폭이 바뀝니다. 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→ 로도 바뀝니다. 폭은 브라우저에 기억됩니다</td></tr></table>
+  <h4>용어</h4>
+  <table>
+    <tr><td>핀</td><td>출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다</td></tr>
+    <tr><td>수정 요청 · 질문</td><td>핀을 저장할 때 고릅니다. 질문 핀은 에이전트가 원고를 고치지 않고 스레드에 답을 단 뒤 닫습니다</td></tr>
+    <tr><td>스레드 · 답글</td><td>카드 아래의 대화. 사람과 에이전트가 [답글]로 주고받고, 닫기·다시 열기·확인도 한 줄씩 남습니다</td></tr>
+    <tr><td>검토 대기</td><td>에이전트가 닫은 핀은 바로 완료가 되지 않고 여기서 사람의 [확인]을 기다립니다. 작성자에게 권하지만 누구나 누를 수 있습니다. 테일넷 사람이 [완료]를 누르면 그 사람이 검토자라 바로 완료입니다</td></tr>
+    <tr><td>답글이 하는 일</td><td>검토 대기·완료 핀에 사람이 단 답글은 핀을 다시 열어 에이전트에게 보냅니다(답글이 곧 고칠 점). 사람을 @태그한 답글은 그 사람과의 대화로 남고 상태는 그대로입니다. 질문 핀의 답글은 답으로 남습니다. 답글 칸 아래 한 줄이 보내면 무엇이 되는지 미리 알려 주고, 드물게 [상태 유지]로 바꿉니다. 보낸 뒤 알림의 [되돌리기]로 취소합니다</td></tr>
+    <tr><td>휴지통</td><td>[삭제]한 핀이 30일 동안 머무는 곳입니다. [더보기] → 휴지통(데스크톱은 목록 아래)에서 같은 번호로 되살립니다. 30일이 지나면 저절로 지워지고, 소유자는 바로 영구 삭제할 수 있습니다</td></tr>
+    <tr><td>앵커</td><td>핀을 찍을 때 떠 둔 첫·끝 문장. 원고가 고쳐지면 이것으로 새 줄 번호를 찾습니다</td></tr>
+    <tr><td>줄 이동</td><td>원고 수정으로 핀 위치가 밀려 다시 맞췄다는 표시('줄 +3 이동')</td></tr>
+    <tr><td>위치 잃음</td><td>첫 문장이 바뀌거나 지워져 위치를 되찾지 못함. [수정] → 위치 다시 잡기로 고칩니다</td></tr>
+    <tr><td>위치 불확실</td><td>드래그한 글자가 찾은 줄 범위에 90%보다 적게 들어 있을 때 붙는 배지입니다(90% 이상이면 배지가 없습니다). 30% 미만이면 노란색. 설명에 찾은 방법(좌표·글자)과 일치율이 있습니다 — 원문 칸에서 고칠 곳이 그 줄들에 있는지 확인하세요</td></tr>
+    <tr><td>#N 범위 안 · #N과 같은 범위 · #N과 일부 겹침</td><td>다른 열린 핀과 줄 범위가 겹친다는 배지. 앞의 둘은 한 번에 고치고 함께 닫는 편이 낫고, 일부 겹침은 참고만 합니다</td></tr>
+    <tr><td>작성자</td><td>tailscale 로 들어온 사람은 계정 이름으로, 로컬·에이전트 요청은 '로컬/에이전트'로 기록됩니다. 기록이 생기기 전 핀은 '기록 전'</td></tr>
+    <tr><td>PDF 재빌드 vs 핀 다시 읽기</td><td>앞의 것은 원고를 컴파일해 화면을 바꾸고(수십 초), 뒤의 것(구 '새로고침')은 핀 목록만 다시 읽습니다(즉시)</td></tr>
+  </table>
+  <h4>색</h4>
+  <div class="help-legend"><span class="sw"></span>열린 핀 · <span class="sw w"></span>위치 잃음 · <span class="sw a"></span>저장 전 선택</div>
+  <div class="help-legend">카드 머리의 점: <span class="st-dot"></span>열림 · <span class="st-dot claimed"></span>처리 중 · <span class="st-dot review"></span>검토 대기 · <span class="st-dot lost"></span>위치 잃음 — 같은 뜻의 배지가 함께 붙는다. 완료는 목록 아래 흐린 행({{ic:check}} 완료), 삭제한 핀은 휴지통({{ic:trash-2}})</div>
+  <h4>pins.md 위치</h4>
+  <code id="help-pins-md"></code>
+</dialog>
+<script>__APP_JS__</script></body></html>

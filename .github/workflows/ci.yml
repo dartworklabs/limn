@@ -68,3 +68,4 @@ jobs:
           find "$python_dir" -path '*limn/vendor/pdfjs/pdf.min.mjs' | grep -q . && echo "pdf.js packaged"
           find "$python_dir" -path '*limn/systemd/limn@.service' | grep -q . && echo "unit template packaged"
           find "$python_dir" -path '*limn/instances.sh' | grep -q . && echo "instance manager packaged"
+          find "$python_dir" -path '*limn/viewer/app.js' | grep -q . && echo "viewer packaged"

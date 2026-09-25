@@ -41,6 +41,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저), 계약 문자열은 번역하지 않는지 |
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
 | [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
+| [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py) | 뷰어 파일 세 개가 패키지에 있고, `index.html`의 CSS·JS 표식이 한 번씩이며, 서버가 조립한 HTML에 두 파일이 그대로 들어가는지. 표식이 틀리면 시작 단계에서 실패하는지 |
 | [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 빌드 첫 단계인 원고 복사가 실패하면(`rsync` 비정상 종료) 사본을 컴파일하지 않고 빌드를 실패로 끝내는지 |
 | [`tests/test_v03.py`](../../tests/test_v03.py) | 0.3(이슈 #9, [ADR-0005](../adr/0005-pin-scoped-changes.md)): hunk 블록 파싱과 귀속(겹침, 줄 밀림을 거친 대응, 한 커밋의 핀 셋, 이름 바꾸기, 지운 범위, 기록한 `changes` 가 추정을 이기는 순서), 핀 hunk의 실제 줄 번호와 맥락, 합성 적용(실제 git으로 만든 무작위 편집 왕복·`git apply` 대조), `changes` 검사·저장·다시 열기, `pins.md` 닫기 줄, 핀 단위 소스 diff·비교 PDF HTTP와 캐시 키, 실제 격리 빌드(TeX가 있을 때만, CI는 건너뜀), 뷰어(데스크톱 1400×850·폴드 842×758·폰 384×832 × 한국어·영어: 다른 변경 접기·펴기, [커밋 전체 비교] 토글, 컴파일 실패 시 커밋 전체로 넘어감), 순수 판단의 직접 테스트(`ScopeDecisions`: `changes_at` 규칙, 합성 판에 쓸 파일, 거부 이유 표), 새 거부마다의 상태 코드·본문(`ScopedErrorBodies`), 스쿼시 커밋 하나가 핀 셋을 고치고 머지 뒤 `changes`·`PR #N (해시)`로 닫는 흐름, 다시 여는 답글의 이벤트가 0.2.2와 같은지(v0.2.2 모듈과 대조, 얕은 클론이면 건너뜀), viewer 휴지통에 [되살리기]·[영구 삭제]가 없는지(브라우저) |
 | [`tests/test_v031.py`](../../tests/test_v031.py) | 0.3.1(이슈 #10): 메모 mention 재알림 간격의 순수 판단(`note_mention_targets`: 키 세 부분, 10분 경계, 답글 mention 제외, 시각 없는·먼 기록)과 핀 조작을 거친 흐름(가짜 시계로 태그 껐다 켜기 세 번 = 알림 하나, 10분 뒤 다시, `note_append`, 답글·다시 연 이유는 매번), `audit.jsonl`(`EVENTS_KEEP`+1건 회전 뒤에도 `cleared` 가 남음, 영구 삭제, 거부된 요청은 적지 않음, 권한 0600, 덧붙이기만, 쓰기 실패는 경고, 스레드 동시 쓰기, `limn token`·`limn member` 가 OS 계정으로 적고 토큰 원문·해시는 적지 않음) |
@@ -67,7 +68,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
 | 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `ui_en.json`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
 | 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
-| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`가 설치 경로에 있다 |
+| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`, 뷰어 `viewer/app.js`가 설치 경로에 있다 |
 | 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
 
 ## 4. 에이전트 계약 호환
@@ -85,7 +86,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | 뷰어 레이아웃·간격·상태 표시가 [viewer.md](viewer.md)의 규칙대로 보이는지 |
-| 적용 조건 | `HTML` 템플릿의 CSS·마크업·레이아웃 JS를 바꿀 때 |
+| 적용 조건 | `src/limn/viewer/`의 CSS·마크업·레이아웃 JS를 바꿀 때 |
 | 실행 | Playwright로 세 너비(`wide`·`mid`·`narrow`)와 두 테마에서 바꾸기 전후 스크린샷을 짝지어 비교한다. 바꾼 규칙에 해당하는 수치(버튼 높이, 위치 이동량 등)를 잰다 |
 | 합격 기준 | 바꾼 규칙이 측정값으로 확인되고, 바꾸지 않은 화면에 회귀가 없다. 수치는 [viewer.md](viewer.md)의 해당 절에 날짜와 함께 남긴다 |
 | 보장 범위 | 헤드리스 Chrome 에뮬레이션이다. 실제 기기(Galaxy Z Fold 7, iOS)의 가상 키보드·관성 핀치는 보장하지 않는다 |

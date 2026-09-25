@@ -48,7 +48,7 @@ Limn이 필요한 순간은 다음과 같다.
 | 영역 | 현재 정답이 있는 곳 | Handbook의 역할 |
 | --- | --- | --- |
 | 서버 동작·비즈니스 규칙 | 코드 [`src/limn/server.py`](../../src/limn/server.py)와 그것을 고정하는 테스트 | 안내판. 규칙의 이유와 중요한 값(한도·시간·임계치)을 [domain.md](domain.md), [build-sync.md](build-sync.md)에 설명한다 |
-| 뷰어 화면 규칙 | 코드 안 `HTML` 템플릿과 `tests/test_server.py`의 `Frontend*` 가드 | 안내판. 규칙과 근거는 [viewer.md](viewer.md) |
+| 뷰어 화면 규칙 | `src/limn/viewer/`의 파일과 `tests/test_server.py`의 `Frontend*` 가드 | 안내판. 규칙과 근거는 [viewer.md](viewer.md) |
 | 에이전트 계약 (`pins.md`, HTTP API) | [api.md](api.md)가 계약 문서이고, 코드가 그 계약을 구현한다. 둘이 어긋나면 결함이다 | **정본.** 계약을 바꾸려면 이 문서부터 바꾼다 |
 | 에이전트 작업 절차 | [SKILL.ko.md](../../skill/SKILL.ko.md) / [SKILL.md](../../skill/SKILL.md) | 안내판 |
 | 핀·빌드·사람·권한 데이터 | 인스턴스의 상태 디렉터리 (`pins.jsonl`, `pins.seq`, `builds.json`, `people.json`의 멤버와 역할, `tokens.json`의 토큰 해시, `events.jsonl` 등) | 안내판. 파일 배치는 [operations.md](operations.md) §상태 파일 배치 |
