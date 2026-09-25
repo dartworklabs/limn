@@ -54,7 +54,7 @@ from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from collections.abc import Callable, Sequence, Set as AbstractSet
 from typing import Literal, NamedTuple, TypedDict
 from urllib.parse import parse_qs, quote, urlparse
@@ -1114,7 +1114,7 @@ def revision_diff(D: Doc, commit: str, pin: int | None = None) -> dict:
     out = {"id": commit, "diff": b"".join(chunks)[:REVISION_DIFF_MAX].decode("utf-8", errors="replace"),
            "truncated": too_large}
     if pin is not None:
-        base, rows = revision_first_parent(repo, commit), read_pins()[0]
+        base, rows = revision_first_parent(repo, commit), [public(r) for r in read_pins()[0]]   # current paths (ADR-0006)
         sc = (revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, SCOPE_CACHE) if base  # may raise ScopeRejected
               else PinScope(scope_pin_record(rows, D, pin)["id"], "commit", "none", 0, 0))
         out["scope"] = scope_payload(sc)
@@ -1862,7 +1862,8 @@ def revision_spec(D: Doc, commit: str, pin: int | None = None) -> RevisionSpec:
     identity = [REVISION_CACHE_VERSION, str(repo), source, main.as_posix(), base, commit, "pdflatex"]
     blocks, meta = (), None
     if pin is not None:
-        sc = revision_pin_scope(D, read_pins()[0], repo, paths, base, commit, pin, revisions, SCOPE_CACHE)
+        sc = revision_pin_scope(D, [public(r) for r in read_pins()[0]], repo, paths, base, commit, pin, revisions,
+                                SCOPE_CACHE)
         meta = scope_meta(sc)
         if sc.mode == "pin":
             blocks = sc.blocks                    # keyed by the block set, not the pin: pins on the same fix share it
@@ -3189,9 +3190,10 @@ def sync_all(rows: list) -> bool:
     for r in rows:
         if r.get("done") or not r.get("file"):         # a view-only PDF's pin has no lines - nothing to re-match
             continue
-        f = Path(r.get("file", ""))
-        if not in_tree(str(f)):
+        loc = pin_location(r, C.src)                 # ADR-0006: a moved checkout is followed; outside the tree is never read
+        if loc is None:
             continue
+        f = loc.path
         try:
             if not f.is_file():
                 continue
@@ -3293,7 +3295,7 @@ def valid_rec(r) -> bool:
     for k in ("done", "stale", "review"):
         if r.get(k) is not None and not isinstance(r[k], bool):
             return False
-    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build"):
+    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build", "rel_path"):
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
     for k, v in r.items():
@@ -3346,14 +3348,83 @@ def _valid_thread(th) -> bool:
     return True
 
 
-def in_tree(p: str) -> bool:
-    """Is the record's file inside the manuscript tree? If outside, line-matching/editing never reads that
-    file (reading it would let a line from outside the tree leak into the anchor and out via GET /api/pins)."""
+class PinLocation(NamedTuple):
+    """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
+    rel: str                 # POSIX path relative to the manuscript root (--manuscript)
+    path: Path               # root / rel - the absolute path the API returns as `file`
+
+
+def file_tails(file: str) -> list[str]:
+    """The relative tails of an absolute path, longest first, as POSIX strings: '/p/s/x.tex' -> ['p/s/x.tex', 's/x.tex',
+    'x.tex']. A tail with a '..' part is left out, so no candidate can climb above the root it is joined to. Pure."""
+    parts = PurePosixPath(file).parts
+    parts = parts[1:] if parts and parts[0] == "/" else parts
+    return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
+
+
+def pin_rel_path(file: str, rel_path: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
+    """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
+
+    1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
+       symlinks, as 0.3.0's in_tree() did). It wins even if the file is gone - a known location is never re-guessed.
+    2. rel_path, when it is a non-empty relative path without '..' parts and the stored `file` ends with it. The server
+       writes the two together; 0.3.0 relocating a pin changes only `file`, and the mismatch drops the stale value.
+       Not checked for existence either.
+    3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
+    None when nothing matches: the pin is outside the tree. Pure: `exists` answers for paths relative to the root and
+    is expected to accept only files that resolve inside it."""
+    if under_root is not None:
+        return under_root
+    if isinstance(rel_path, str) and rel_path:
+        rel, parts = PurePosixPath(rel_path), PurePosixPath(file).parts
+        n = len(rel.parts)
+        if n and not rel.is_absolute() and ".." not in rel.parts and len(parts) > n and parts[-n:] == rel.parts:
+            return rel.as_posix()
+    for tail in file_tails(file):
+        if exists(tail):
+            return tail
+    return None
+
+
+def _within(p: Path, root: Path) -> bool:
+    """Does p, symlinks resolved, lie inside root (also resolved)? False when either cannot be resolved."""
     try:
-        Path(p).resolve().relative_to(C.src.resolve())
+        p.resolve().relative_to(root.resolve())
         return True
     except (ValueError, OSError, RuntimeError):
         return False
+
+
+def pin_location(r: dict, root: Path) -> PinLocation | None:
+    """Where line pin r's file is under the manuscript root on this machine now (pin_rel_path), or None: a view-only
+    PDF pin, or a file the rule cannot place inside root. Only file metadata is read (resolve, is_file) - under root,
+    apart from resolving the stored path itself as 0.3.0's in_tree() did - and never file contents: a line read from
+    outside the tree would leak into the anchor and out through GET /api/pins. The result is checked once more after
+    resolving symlinks, so a link inside the tree cannot lead outside (a tail through such a link is skipped for the
+    next one)."""
+    file = r.get("file")
+    if not isinstance(file, str) or not file:
+        return None
+    try:
+        under = Path(file).resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        under = None
+    rel = pin_rel_path(file, r.get("rel_path"), under, lambda t: (root / t).is_file() and _within(root / t, root))
+    if rel is None:
+        return None
+    path = root / rel
+    return PinLocation(rel, path) if _within(path, root) else None
+
+
+def stamp_location(r: dict, root: Path) -> PinLocation | None:
+    """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `rel_path` the
+    path relative to root. Only for a write to this very pin (create, edit, restore) - other writes keep the stored
+    record, so there is no write migration. A pin that cannot be located, or a view-only PDF pin, is left as it is.
+    Mutates r and returns its location (or None)."""
+    loc = pin_location(r, root)
+    if loc is not None:
+        r["file"], r["rel_path"] = str(loc.path), loc.rel
+    return loc
 
 
 def read_jsonl(path: Path) -> tuple:
@@ -3436,8 +3507,16 @@ def snapshot_pins() -> list:
 
 
 def public(r: dict) -> dict:
+    """A record as the API returns it: a copy with rev defaulted to 0 and - for a line pin that pin_location() places
+    under the manuscript root - `file` set to its absolute path on this machine now and `rel_path` to its path relative
+    to the root (ADR-0006, for old records too). A pin that cannot be located keeps its stored file and has no rel_path.
+    Never changes r."""
     out = dict(r)
     out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
+    out.pop("rel_path", None)
+    loc = pin_location(r, C.src)
+    if loc is not None:
+        out["file"], out["rel_path"] = str(loc.path), loc.rel
     return out
 
 
@@ -3605,7 +3684,8 @@ def overlaps_by_id(rows: list) -> dict:
         out.setdefault(r["id"], [])
         if not r.get("file"):                          # a view-only PDF's pin - no line-range overlap
             continue
-        by_file.setdefault(r.get("file"), []).append(r)
+        loc = pin_location(r, C.src)                   # pins made before and after a move of the checkout are one file
+        by_file.setdefault(str(loc.path) if loc else r.get("file"), []).append(r)
     for group in by_file.values():
         for i, a in enumerate(group):
             for b in group[i + 1:]:
@@ -3647,7 +3727,10 @@ def overlaps_for_range(file: str, lo: int, hi: int) -> list:
     relationships via a banner with wording that spells out the relationship."""
     out = []
     for r in snapshot_pins():
-        if r.get("done") or r.get("file") != file:
+        if r.get("done") or not r.get("file"):
+            continue
+        loc = pin_location(r, C.src)
+        if (str(loc.path) if loc else r.get("file")) != file:
             continue
         rel = selection_rel(lo, hi, r["lo"], r["hi"])
         if rel:
@@ -4022,6 +4105,7 @@ def add_pin(d: dict, actor: dict) -> int:
         rec.setdefault("pdf_build", cur_pages().name)
         rec["doc"] = D.key
         rec["rev"] = 0
+        stamp_location(rec, C.src)                   # ADR-0006: rel_path next to the absolute file
         rows.append(rec)
         return rec["id"], True
     with PIN_LOCK:
@@ -4150,10 +4234,10 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
             b = hi if hi is not None else r["hi"]
-            if not in_tree(r["file"]):
+            here = pin_location(r, C.src)
+            if here is None:
                 raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
-            f = Path(r["file"])
-            n = len(tex_lines(f))
+            n = len(tex_lines(here.path))
             if not 1 <= a <= b <= max(n, 1):
                 raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, a, b))
             range_changed = (a, b) != (r["lo"], r["hi"]) or bool(r.get("stale"))
@@ -4166,8 +4250,9 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 r["scope"] = scope
             if kind is not None:
                 r["kind"] = kind
-        if range_changed and not region and in_tree(r["file"]):
-            f = Path(r["file"])
+        where = None if region else stamp_location(r, C.src)   # ADR-0006: an edit records where the file is now
+        if range_changed and where is not None:
+            f = where.path
             r["anchor"] = anchor_of(tex_lines(f), r["lo"], r["hi"])
             r["synced_at"] = f.stat().st_mtime if f.exists() else 0
             r.pop("stale", None)
@@ -5115,6 +5200,7 @@ def _restore(rows: list, pid: int, actor: dict):
     rec["restored_by"] = who(actor)
     rec["rev"] = int(rec.get("rev") or 0) + 1
     sync_all([rec])
+    stamp_location(rec, C.src)                       # ADR-0006: a restored pin records where its file is now
     rows.append(rec)
     rows.sort(key=lambda r: r["id"])
     return public(rec), True
@@ -5187,12 +5273,8 @@ def location_col(r: dict) -> str:
     A view-only PDF's pin has no line, so it's "쪽 N, 영역 ..." instead (the PDF path is in the document section header)."""
     if is_region_pin(r):
         return md_cell(region_text_of(r))
-    f = Path(str(r.get("file", "")))
-    try:
-        rel = f.resolve().relative_to(C.src.resolve())
-        name = str(rel)
-    except (ValueError, OSError, RuntimeError):
-        name = f.name or str(r.get("name") or "")
+    loc = pin_location(r, C.src)                     # ADR-0006: still relative after the checkout moved
+    name = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
     return "`%s L%s-L%s`" % (md_cell(name),md_cell(r.get("lo")), md_cell(r.get("hi")))
 
 
@@ -5227,10 +5309,10 @@ def render_quote(r: dict) -> str:
     q = r.get("quote")
     if not q:
         return ""
-    f = Path(str(r.get("file", "")))
-    if not in_tree(str(f)):
+    loc = pin_location(r, C.src)
+    if loc is None:                                   # outside the tree: never read (the line would leak into pins.md)
         return ""
-    lines = tex_lines(f)
+    lines = tex_lines(loc.path)
     if not (1 <= lo <= len(lines)) or len(lines[lo - 1]) <= 600:
         return ""
     # q was already truncated by truncate_quote() when it was saved (an ellipsis is already attached if it
