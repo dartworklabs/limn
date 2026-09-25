@@ -45,9 +45,17 @@ Limn은 짧은 기간에 기능을 빠르게 쌓으며 자랐다. 실제 논문 
 | 층 | 무엇 | 언제 |
 | --- | --- | --- |
 | 지금 적용 | 규칙 우선순위, 새로 쓰거나 고치는 코드에 R1·R3·R5·R7~R10 적용, 1단계 안전망 | 바로. 기존 코드를 찾아다니며 고치지 않는다 |
-| 방향 | R2 상태별 타입, R6 모듈 분리, 3~7단계의 목표 구조 | §단계별 로드맵의 **착수 조건**이 찼을 때 |
+| 방향 | R2 상태별 타입, R6 모듈 분리, 3~7단계의 목표 구조 | §단계별 로드맵의 **착수 조건**이 찼을 때. 2026-09-26 소유자 결정으로 충족 — 아래 참고 |
 
 지금 적용하는 층은 구조를 고정하지 않는다. 오히려 판단을 가장자리에서 떼어 놓으면(R1), 나중에 화면이나 스택이 바뀌어도 핀 규칙은 그대로 살아남는다. 방향 층은 목표 모양을 미리 적어 두되, 그 영역이 더 움직이지 않을 때 시작한다.
+
+> **핵심**
+>
+> **2026-09-26 소유자 결정.** 2단계는 새 기능 PR마다 잘 적용되고 있지만, 기존 코드의 부채(전역 상태, 흩어진 `HTTPError`, 1만 줄짜리 한 파일)는 손대는 곳만 고치는 방식으로는 줄지 않았다. 그래서 방향 층도 지금 시작하고, `server.py`를 책임별 모듈로 나누는 일을 가장 먼저 한다.
+>
+> - **구조 이동이 우선이다.** 구조 이동 PR과 열린 기능 PR이 충돌하면 기능 PR이 새 구조를 따라온다.
+> - **대신 기능 결함은 만들지 않는다.** 구조 이동 PR은 동작을 바꾸지 않고, 그 사실을 테스트로 증명한다 (전체 테스트 녹색, 뷰어 HTML 바이트 동일, 계약 스냅숏·레코드 왕복 테스트).
+> - **예상된 거절은 반환 타입에 드러낸다.** 아래 R1·R3을 따른다.
 
 > **참고**
 >
@@ -122,25 +130,31 @@ def confirm_pin(pid: int, actor: dict):
 
 그래서 "에이전트는 확인할 수 없다"라는 규칙 하나를 테스트하려 해도 임시 상태 디렉터리와 파일 저장소를 거쳐야 한다. 규칙이 늘수록 테스트가 느려지고, 규칙이 어디 있는지 찾기도 어려워진다.
 
-**바꾼 모습.** 규칙은 순수 함수로, 나머지는 처리기로 뺀다. 동작과 응답은 그대로다.
+**바꾼 모습.** 규칙은 순수 함수로, 나머지는 처리기로 뺀다. 동작과 응답은 그대로다. 거절은 **예외로 던지지 않고 값으로 돌려준다.** 그러면 함수 서명만 보고도 무엇이 나올 수 있는지 안다 — 확인된 핀이거나, 이유가 붙은 거절이다.
 
 ```python
 # pins/lifecycle.py — 파일·시계·HTTP를 모른다
-def confirm(pin: Pin, actor: Actor, at: datetime) -> Pin:
+@dataclass(frozen=True)
+class ConfirmRejected:
+    """Why a confirmation was refused. reason is a closed set the HTTP layer maps exhaustively."""
+    reason: Literal["agent", "open"]
+
+
+def confirm(pin: Pin, actor: Actor, at: datetime) -> Pin | ConfirmRejected:
     """Turn a pin awaiting review into a confirmed one.
 
-    Only a person may confirm; confirming a done pin returns it unchanged.
-    Raises ConfirmRejected("agent") or ConfirmRejected("open").
+    Only a person may confirm; an open pin has nothing to confirm. Confirming a done pin
+    returns it unchanged (the same object), so the caller can skip the write.
     """
     if actor.is_agent:
-        raise ConfirmRejected("agent")
+        return ConfirmRejected("agent")
     match pin.state:
         case AwaitingReview() as state:
             return pin.with_state(state.confirmed(by=actor, at=at))
         case Done():
             return pin
         case Open():
-            raise ConfirmRejected("open")
+            return ConfirmRejected("open")
 ```
 
 ```python
@@ -151,15 +165,19 @@ def handle_confirm(store: PinStore, pid: int, actor: Actor, now: datetime) -> Re
         pin = tx.get(pid)
         if pin is None:
             return ok_json({"ok": False, "pin": None})
-        try:
-            updated = confirm(pin, actor, now)
-        except ConfirmRejected as rejected:
-            return reject_json(rejected, pin)       # 403 / 409, 한국어 메시지 표는 http 층이 소유
-        tx.put(updated)
+        match confirm(pin, actor, now):
+            case ConfirmRejected() as rejected:
+                return reject_json(rejected, pin)   # 403 / 409 — 이유별 상태 코드·한국어 문구 표는 http 층이 소유
+            case updated if updated is pin:
+                return ok_json({"ok": False, "pin": public(pin)})
+            case updated:
+                tx.put(updated)
     return ok_json({"ok": True, "pin": public(updated), "state": updated.state.name})
 ```
 
-이제 규칙 테스트는 파일 없이 `confirm(pin, agent, at)` 한 줄로 끝난다. 처리기 테스트는 상태 코드와 저장만 확인하면 된다.
+이제 규칙 테스트는 파일 없이 `confirm(pin, agent, at) == ConfirmRejected("agent")` 한 줄로 끝난다. 처리기 테스트는 상태 코드와 저장만 확인하면 된다.
+
+**거절을 값으로 돌려주는 이유.** `raise ConfirmRejected(...)`를 쓰면 서명은 `-> Pin`이라서, 호출하는 쪽은 docstring을 읽어야 거절이 있다는 걸 안다. 잊고 `try`를 빠뜨리면 거절이 처리기 밖까지 새어 500이 된다. 반환 타입이 `Pin | ConfirmRejected`이면 타입 검사기와 `match`가 처리하지 않은 경우를 드러낸다. 예외는 결함(호출자가 전제를 어김)과 인프라 장애(파일·시간 초과)에만 쓴다. 일반 Result 라이브러리는 들이지 않는다 — 작은 frozen dataclass와 `|`면 충분하다.
 
 **확인하는 법.** 옮기기 전에 기존 처리기 테스트가 녹색인지 확인하고, 옮긴 뒤 같은 테스트가 그대로 녹색이어야 한다. 새 순수 함수에는 허용 전이와 거부 조합마다 직접 테스트를 둔다.
 
@@ -173,7 +191,7 @@ def handle_confirm(store: PinStore, pid: int, actor: Actor, now: datetime) -> Re
 
 **업계에서 부르는 이름.** Make illegal states unrepresentable (Yaron Minsky, "Effective ML", 2010). Scott Wlaschin의 책 *Domain Modeling Made Functional*(2018)이 같은 방법을 자세히 다룬다.
 
-**언제 시작하나.** 방향 층이다. 핀 상태와 전이가 아직 바뀌는 중이면 타입으로 굳히지 않는다. 4단계 착수 조건을 따른다.
+**언제 시작하나.** 방향 층이다. 2026-09-26 소유자 결정으로 4단계와 함께 시작한다 (§두 층).
 
 **지금 코드의 모습.** 핀 상태는 저장된 필드의 조합에서 계산한다.
 
@@ -223,7 +241,7 @@ PinState = Open | AwaitingReview | Done
 
 ## R3 경계에서 파싱하고, 안쪽은 HTTP를 모른다
 
-**규칙이 말하는 것.** 요청 JSON, 파일 줄, 헤더처럼 바깥에서 온 값은 들어오는 곳에서 한 번 검사해 내부 값으로 바꾼다. 안쪽 판단은 HTTP 상태 코드를 모른다. 예상된 거부는 도메인 예외나 값으로 표현하고, HTTP 층이 상태 코드와 메시지로 바꾼다. 결함이나 인프라 오류는 업무상 거부와 구분한다.
+**규칙이 말하는 것.** 요청 JSON, 파일 줄, 헤더처럼 바깥에서 온 값은 들어오는 곳에서 한 번 검사해 내부 값으로 바꾼다. 안쪽 판단은 HTTP 상태 코드를 모른다. 예상된 거부는 **반환값**으로 표현하고(R1 §거절을 값으로 돌려주는 이유), HTTP 층이 상태 코드와 메시지로 바꾼다. 경계 파서도 같다 — 검증된 값이거나 거절 값을 돌려준다. 예외는 결함과 인프라 오류에만 쓴다.
 
 **업계에서 부르는 이름.** Parse, don't validate (Alexis King, 2019 블로그 글).
 
@@ -244,9 +262,11 @@ def clean_note(v) -> str:
 
 이렇게 되면 같은 규칙을 HTTP가 아닌 입구(예: 앞으로의 CLI 명령이나 백그라운드 작업)에서 쓰기 어렵다. 한국어 오류 문구도 48곳에 흩어진다.
 
-**바꾼 모습.** 요청 파싱은 `http/` 층이 맡아 `NoteText`, `PinCommand` 같은 검증된 값을 만든다. 도메인은 `ConfirmRejected("open")`처럼 이유를 담은 예외를 던진다. HTTP 층은 이유별 상태 코드와 한국어 문구를 **한 표**에서 고른다. `sys.exit()`는 `main()` 한 곳에서만 부르고, 안쪽 함수는 예외를 던진다.
+**바꾼 모습.** 요청 파싱은 `http/` 층이 맡는다. `parse_note(v) -> NoteText | InputRejected`처럼 검증된 값이나 이유가 붙은 거절 값을 돌려준다. 도메인은 `ConfirmRejected("open")`처럼 이유를 담은 값을 **돌려준다**. HTTP 층은 `match`로 받아 이유별 상태 코드와 한국어 문구를 **한 표**에서 고른다. `sys.exit()`는 `main()` 한 곳에서만 부르고, 안쪽 함수는 시작 실패 이유를 값으로 돌려준다.
 
-**확인하는 법.** 오류 응답 본문(`{"error": ...}`)과 상태 코드가 옮기기 전후에 같아야 한다. API 오류 문자열은 에이전트 계약의 일부다.
+0.3의 핀 단위 변경 코드는 이미 거절을 이유(`ScopeRejected(reason)`)와 표 하나(`SCOPE_REJECTIONS`)로 모았다. 다만 예외로 던지므로, 모듈로 옮길 때 반환값으로 바꾼다. 표는 그대로 쓴다.
+
+**확인하는 법.** 오류 응답 본문(`{"error": ...}`)과 상태 코드가 옮기기 전후에 같아야 한다. API 오류 문자열은 에이전트 계약의 일부다. 도메인 함수의 반환 타입에 거절 값이 드러나고, 그 함수 안에 업무상 거절을 위한 `raise`가 남지 않는다.
 
 ## R4 기계적 규칙은 도구 하나가 집행
 
@@ -328,7 +348,7 @@ def build(doc: Doc, cfg: BuildConfig, runner: Runner) -> BuildResult:
 
 **업계에서 부르는 이름.** 단일 책임 원칙(Robert C. Martin의 "변경 이유는 하나"). 더 오래된 뿌리는 David Parnas의 논문 "On the Criteria To Be Used in Decomposing Systems into Modules"(1972)다.
 
-**언제 시작하나.** 방향 층이다. 뷰어를 어떤 형식으로 꺼낼지는 뷰어 기술 스택에 달려 있으므로 3단계 착수 조건을 따른다.
+**언제 시작하나.** 방향 층이다. 2026-09-26 소유자 결정으로 지금 시작한다. 뷰어는 **빌드 단계 없는 정적 파일**로 꺼낸다 — [architecture.md](architecture.md) §불변식 2를 그대로 지키고, 나중에 빌드 도구를 들이더라도 이 분리가 첫 단계가 된다.
 
 **지금 코드의 모습.** `server.py` 한 파일이 9,892행이다. 그중 약 3,570행은 파이썬 문자열 `HTML` 안에 든 뷰어 HTML·CSS·JS다. Limn에는 실제로 이런 압력이 보인다.
 
@@ -416,17 +436,19 @@ def now_str() -> str:
 
 각 단계는 독립적으로 머지할 수 있고, 단계마다 동작은 바뀌지 않는다. 앞 단계가 끝나야 뒤 단계를 안전하게 할 수 있다.
 
-**착수 조건**은 앞 단계가 끝났다는 것에 더해, 그 단계가 굳히는 영역이 더 움직이지 않는다는 신호다. 1·2단계는 구조를 고정하지 않으므로 조건 없이 0단계와 나란히 한다 ([ADR-0001](../adr/0001-blueprint.md) §결과). 3~6단계의 조건은 초안이며 0단계 합의에서 정한다.
+**착수 조건**은 앞 단계가 끝났다는 것에 더해, 그 단계가 굳히는 영역이 더 움직이지 않는다는 신호다. 1·2단계는 구조를 고정하지 않으므로 조건 없이 0단계와 나란히 한다 ([ADR-0001](../adr/0001-blueprint.md) §결과). 3~6단계의 조건은 2026-09-26 소유자 결정으로 충족됐다 (§두 층).
+
+실행 순서는 표의 번호와 조금 다르다. `server.py`를 빨리 가볍게 하려고 기계적으로 옮길 수 있는 것부터 한다: 3단계(뷰어) → 5단계 앞부분(`mapping/`, 거의 순수) → 4단계(`store`·핀 모델·전이) → 5단계 나머지(`build/`) → 6단계(`http/`, 조립 지점). 포매팅 커밋은 옮기기가 끝난 뒤에 한 번에 한다.
 
 | 단계 | 목표 | 착수 조건 | 하는 일 | 끝났다는 증거 | 하지 않는 일 |
 | --- | --- | --- | --- | --- | --- |
-| 0 | 합의 | 없음 | 이 문서와 [ADR-0001](../adr/0001-blueprint.md)을 검토하고 확정한다. 3~6단계 착수 조건을 정한다 | ADR-0001 상태가 `확정`. 착수 조건에서 "초안"이 빠짐 | 코드 변경 |
+| 0 | 합의 | 없음 | 이 문서와 [ADR-0001](../adr/0001-blueprint.md)을 검토하고 확정한다. 3~6단계 착수 조건을 정한다 | ADR-0001 상태가 `확정`. 착수 조건 충족 | 코드 변경 |
 | 1 | 안전망 | 없음. 0단계와 나란히 | Ruff 버그 후보 규칙과 shellcheck를 CI에 더한다 (R4). 스타일 규칙과 전체 포매팅은 별도 커밋으로 뒤에 한다 | CI에 새 단계가 녹색. [verification.md](verification.md) §6 표 갱신 | 동작 변경, docstring 일괄 추가 |
 | 2 | 새 코드부터 규칙 | 없음. 0단계와 나란히 | 이후 모든 PR은 손대는 함수에 R7·R8을 적용하고, 새 판단은 R1로 쓴다. `§P0…` 주석은 만나는 대로 Handbook 절로 바꾼다 | 리뷰 체크 항목에 반영 | 손대지 않는 코드 일괄 수정 |
-| 3 | 뷰어 분리 | (초안) 뷰어를 빌드 없는 정적 파일로 둘지, 빌드 도구를 쓸지 정했다 | `HTML` 문자열을 `viewer/` 패키지 데이터 파일로 옮기고, 테스트가 파일을 직접 읽게 한다 | 내보내는 HTML이 바이트 단위로 같다. 설치 스모크 녹색 | 뷰어 동작·디자인 변경 |
-| 4 | 핀 수명 주기 | (초안) 핀 상태·전이·레코드 필드가 릴리스 한 번 동안 바뀌지 않았다 | 계약 스냅숏 테스트(`pins.md`, 주요 API 응답)와 레코드 왕복 테스트를 먼저 만든다. 그다음 `pins/model.py`·`lifecycle.py`로 R1~R3을 적용한다 | 스냅숏·왕복 테스트 녹색. 전이마다 순수 테스트 | 저장 형식·API 변경 |
-| 5 | 역변환과 빌드 | (초안) 빌드·동기화 흐름에 진행 중인 기능 변경이 없다 | `mapping/`(순수 계산)과 `build/`(부수효과)를 꺼내며 그 안의 전역 참조를 걷어 낸다 (R5) | 옮긴 모듈에 `C.`·`cur_doc()` 참조 없음. 여러 문서 동시 빌드 테스트 녹색 | 빌드 동작 변경 |
-| 6 | HTTP와 조립 지점 | (초안) 4·5단계가 끝났다 | 라우팅 표, 요청 파싱, 오류 매핑을 `http/`로 모으고, `main()`을 조립 지점으로 정리한다 | `server.py`에는 조립 코드만 남는다 | 새 엔드포인트 |
+| 3 | 뷰어 분리 | 충족: 빌드 없는 정적 파일로 정함 (2026-09-26) | `HTML` 문자열을 `viewer/` 패키지 데이터 파일로 옮기고, 테스트가 파일을 직접 읽게 한다 | 내보내는 HTML이 바이트 단위로 같다. 설치 스모크 녹색 | 뷰어 동작·디자인 변경 |
+| 4 | 핀 수명 주기 | 충족: 소유자 결정 (2026-09-26) | 계약 스냅숏 테스트(`pins.md`, 주요 API 응답)와 레코드 왕복 테스트를 먼저 만든다. 그다음 `pins/model.py`·`lifecycle.py`로 R1~R3을 적용한다. 전이 함수는 거절을 반환값으로 돌려준다 | 스냅숏·왕복 테스트 녹색. 전이마다 순수 테스트 | 저장 형식·API 변경 |
+| 5 | 역변환과 빌드 | 충족: 소유자 결정 (2026-09-26) | `mapping/`(순수 계산)과 `build/`(부수효과)를 꺼내며 그 안의 전역 참조를 걷어 낸다 (R5) | 옮긴 모듈에 `C.`·`cur_doc()` 참조 없음. 여러 문서 동시 빌드 테스트 녹색 | 빌드 동작 변경 |
+| 6 | HTTP와 조립 지점 | 4·5단계가 끝났다 | 라우팅 표, 요청 파싱, 오류 매핑을 `http/`로 모으고, `main()`을 조립 지점으로 정리한다 | `server.py`에는 조립 코드만 남는다 | 새 엔드포인트 |
 | 7 | 타입 검사 확대 | 옮긴 모듈이 있다 | 타입 검사기를 옮긴 모든 모듈로 넓히고 CI 게이트로 만든다 | 타입 검사 CI 단계 녹색 | — |
 
 > **예시**
@@ -437,13 +459,13 @@ def now_str() -> str:
 
 | 단계 | 상태 | 비고 |
 | --- | --- | --- |
-| 0 합의 | 진행 중 | 2026-09-25 이 문서와 ADR-0001 초안 작성. 같은 날 리뷰에서 "UX·UI와 스택이 확정되기 전에 구조를 굳히는 게 맞나"는 의견을 받아 두 층과 착수 조건을 더함. 조건 초안 검토 중 |
+| 0 합의 | 완료 | 2026-09-25 이 문서와 ADR-0001 초안 작성. 같은 날 리뷰 의견("UX·UI와 스택이 확정되기 전에 구조를 굳히는 게 맞나")으로 두 층과 착수 조건을 더함. 2026-09-26 소유자 결정으로 ADR-0001 확정, 3~6단계 착수 |
 | 1 안전망 | 완료 (포매팅·스타일 규칙은 남음) | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침 |
-| 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용 |
-| 3 뷰어 분리 | 시작 전 | 착수 조건 미정 |
-| 4 핀 수명 주기 | 시작 전 | 착수 조건 미정 |
-| 5 역변환과 빌드 | 시작 전 | 착수 조건 미정 |
-| 6 HTTP와 조립 지점 | 시작 전 | 착수 조건 미정 |
+| 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용. 0.3.0~0.4.0 PR이 새 함수·테스트에 R1·R3·R7~R9를 적용함 |
+| 3 뷰어 분리 | 시작 | 2026-09-26 |
+| 4 핀 수명 주기 | 시작 전 | 착수 조건 충족 |
+| 5 역변환과 빌드 | 시작 전 | 착수 조건 충족 |
+| 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
 | 7 타입 검사 확대 | 시작 전 | — |
 
 이 문서의 수치(줄 수, 함수 수, docstring 수, Ruff 건수)는 2026-09-25 Limn 0.2.2 기준 실측이다. 단계를 끝낼 때 새로 재서 고친다.

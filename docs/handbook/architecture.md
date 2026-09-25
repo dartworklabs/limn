@@ -63,9 +63,9 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 축 | 채택값 | 근거와 적용 |
 | --- | --- | --- |
-| 1차 구조 | **작은 단일 배포 + 책임별 모듈.** 현재는 단일 모듈이고, 목표는 §목표 구조 | 배포 단위·런타임이 하나다. 서버·인스턴스 관리자·migrate의 수명 주기만 다르다 |
+| 1차 구조 | **작은 단일 배포 + 책임별 모듈.** 현재는 단일 모듈이고, 목표는 §목표 구조. 2026-09-26부터 옮기는 중이며, 구조 이동 PR이 열린 기능 PR보다 우선한다 | 배포 단위·런타임이 하나다. 서버·인스턴스 관리자·migrate의 수명 주기만 다르다 |
 | 도메인 정체 | **핀의 수명 주기와 위치 규칙.** 상태 전이, 역변환·범위 사다리·anchor 재동기화 | [domain.md](domain.md) |
-| 함수형 DDD 범위 | **실용적 함수형.** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다 | 우리 코딩 스킬 `code-implement`의 기본값. 현재 코드와의 차이는 [code-style-roadmap.md](code-style-roadmap.md) |
+| 함수형 DDD 범위 | **실용적 함수형.** 판단은 순수 함수, 부수효과(파일·git·subprocess·HTTP)는 가장자리. 의미 있는 수명 주기(핀 상태)에만 상태별 타입과 전이 함수를 쓰고, 계산·파싱은 평범한 함수로 둔다. 예상된 거절은 예외가 아니라 반환 타입의 거절 값(`Pin \| ConfirmRejected`)으로 돌려준다 | 우리 코딩 스킬 `code-implement`의 기본값. 현재 코드와의 차이는 [code-style-roadmap.md](code-style-roadmap.md) |
 | 검수 진실원 | **자동 테스트 녹색 + 에이전트 계약 불변 + 화면 실측.** pytest·셸 테스트·Playwright 레이아웃 테스트가 통과하고, `pins.md`·HTTP API가 호환을 지키며, 화면 규칙은 실측 스크린샷으로 확인한다 | [verification.md](verification.md) |
 | 검수 시점 | **머지 전 게이트.** CI가 막는다 | [verification.md](verification.md) |
 | HARD-GATE | **행동 계약 변경 전.** 에이전트 계약·보안 경계·저장 형식을 바꾸는 변경은 설계 승인 뒤 구현한다 | [workflow.md](workflow.md) |
