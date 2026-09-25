@@ -412,10 +412,11 @@ def _fresh_build_state() -> dict:
 class HTTPError(Exception):
     """The handler turns this directly into a JSON error response."""
 
-    def __init__(self, code: int, msg: str, **extra):
+    def __init__(self, code: int, msg: str, page=None, **extra):
         super().__init__(msg)
         self.code = code
         self.body = dict({"error": msg}, **extra)
+        self.page = page            # (kind, params) for the readable HTML page a browser gets on GET / (error_page_html)
 
 
 def now_str() -> str:
@@ -5272,7 +5273,7 @@ def identify(headers, peer) -> Principal:
             if not host_is_loopback(headers.get("Host")) and not C.tailnet_agent:
                 # tailscale serve connects from loopback too, but keeps the tailnet Host. Without identity headers
                 # that is a tagged device (or anything else behind the proxy) - never the local agent (v0.2.1).
-                raise HTTPError(403, TAILNET_HEADERLESS)
+                raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
     raise HTTPError(401, UNAUTHENTICATED)
@@ -5295,13 +5296,15 @@ def admit(p: Principal, host) -> None:
     if p.via == "header":
         if C.members_only:
             if login not in C.allow and login not in people_roles():
-                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login)
+                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
+                                page=("not-member", {"login": login}))
         elif C.allow and login not in C.allow:
-            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login)
+            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}))
     elif p.via == "loopback-agent" and (C.allow or C.members_only):
         hname, _ = split_host(host or "")
         if hname.endswith(".ts.net"):
-            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.")
+            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
+                            page=("no-identity", {}))
 
 
 def check_role(p: Principal, path: str) -> None:
@@ -5383,6 +5386,13 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
   --font-mono:"JetBrains Mono",ui-monospace,monospace}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+/* Viewer role (people.json role viewer, v0.2.1): the server refuses every change anyway; the screen stops offering it.
+   Reading stays - view/jump, threads, the archive, the composer's location and source lines. */
+body.role-viewer :is([data-act=edit],[data-act=drop],[data-act=close],[data-act=reopen],[data-act=rv-reopen],[data-act=confirm],
+  [data-act=reply-open],[data-act=restore],[data-act=unclaim],[data-act=rebuild],[data-act=overlap-append],[data-act=overlap-separate],
+  [data-act=kind],[data-act=e-kind],[data-act=assign-new],[data-act=assign-edit],[data-act=esave]),
+body.role-viewer :is(#btn-save,#note,#c-kind,#c-assign,#c-qhint,#note-mentions){display:none!important}
+body:not(.role-viewer) #c-viewer{display:none}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
@@ -6182,7 +6192,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="tg btn-sm btn-ghost" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">{{ic:text-wrap}}줄바꿈</button><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-viewer" class="q-hint" role="status">{{ic:eye}}<span>보기 권한만 있습니다 — 위치와 원문만 볼 수 있고 핀은 남길 수 없습니다. 소유자에게 편집 권한을 요청하세요</span></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -6850,8 +6860,12 @@ function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
     s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요');
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
+function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role==='viewer');}
+// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
+function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
 function drawMeta(){
   document.body.classList.toggle('view-only',!!META.view_only);
+  document.body.classList.toggle('role-viewer',isViewer());
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
@@ -7271,7 +7285,8 @@ async function loadOutline(doc,gen){
       if(typeof dest==='string')dest=await doc.getDestination(dest);
       if(Array.isArray(dest)&&dest[0]!=null){
         const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
-        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth});
+        const ptH=META&&META.pages&&META.pages[page-1]?+META.pages[page-1].pt_h:0;
+        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth,frac:destFrac(dest,ptH)});
       }
       if(depth<4)await walk(item.items,depth+1);
     }}
@@ -7286,7 +7301,7 @@ async function loadOutline(doc,gen){
     }catch(e){} // the PDF's own outline is still usable even if the numbering service can't be reached.
   }
   if(gen!==VEC.gen||doc!==VEC.doc)return;
-  OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;
+  OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;OUTLINE_PINNED=null;
   renderOutline();updateSectionStrip();
 }
 function mergeOutlineLabels(entries,labels){
@@ -7314,13 +7329,23 @@ function renderOutline(){
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
   box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
 }
+// Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
+// the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
+function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[3]:null;
+  if(typeof top!=='number'||!(ptH>0))return 0; return Math.min(1,Math.max(0,1-top/ptH));}
+// The outline entry the reader is in at (page, frac): the last heading that starts at or above that point. Before the
+// first heading (a title page, the top of page 1) it is the first entry - never a later heading on the same page
+// (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on page 1). -1 without entries.
+function outlineIndexAt(entries,page,frac){let sel=-1;
+  for(let i=0;i<entries.length;i++){const e=entries[i]; if(e.page<page||(e.page===page&&(e.frac||0)<=frac+1e-6))sel=i;}
+  return sel<0&&entries.length?0:sel;}
+let OUTLINE_PINNED=null;   // an entry picked in the outline wins until the reader leaves its page
 function updateSectionStrip(){
-  const anchor=topAnchor(),page=anchor?anchor.page:1;
-  if(page!==OUTLINE_ACTIVE_PAGE){
-    OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=-1;
-    for(let i=0;i<OUTLINE_ENTRIES.length;i++)if(OUTLINE_ENTRIES[i].page<=page)OUTLINE_SELECTED=i;
-    renderOutline();
-  }
+  const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
+  let sel;
+  if(OUTLINE_PINNED&&OUTLINE_PINNED.page===page)sel=OUTLINE_PINNED.index;
+  else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
+  if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
   $('#section-page').textContent=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0});
 }
@@ -8425,7 +8450,7 @@ function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
   if(ta&&ta.value.trim())REPLY_DRAFT.set(REPLY.mode+':'+REPLY.id,ta.value); else REPLY_DRAFT.delete(REPLY.mode+':'+REPLY.id);
   REPLY=null; if(redraw!==false)drawPins();}
-async function sendReply(){const R=REPLY; if(!R||R.busy)return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
+async function sendReply(){const R=REPLY; if(!R||R.busy||viewerBlocked())return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
   if(!text){toast(R.mode==='reopen'?'다시 여는 이유를 한 줄 적어 주세요 — 에이전트가 그것을 읽고 다시 고칩니다':'답글이 비어 있습니다','warn'); ta.focus(); return;}
   R.busy=true; $$('.reply-box button').forEach(b=>b.disabled=true);
   const body=R.mode==='reopen'?{reason:text}:{text}; const mh=mentionHints(ta); if(mh.length)body.mentions=mh;
@@ -8488,7 +8513,7 @@ function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDIT=null; drawPins();}
-async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
+async function saveEdit(){const E=EDIT; if(!E||ESAVING||viewerBlocked())return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
@@ -8541,7 +8566,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
   }catch(e){}}
 
 // ------------------------------------------------ PDF rebuild
-function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
+function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0);
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
   return null;}
 function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
@@ -8599,7 +8624,7 @@ document.addEventListener('click',e=>{
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
-    case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
+    case 'save':if(!viewerBlocked())savePin();break; case 'cancel':cancelSelection(true);break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
@@ -8619,7 +8644,7 @@ document.addEventListener('click',e=>{
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
     case 'outline':toggleOutline();break;
-    case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
@@ -8633,7 +8658,10 @@ document.addEventListener('click',e=>{
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
-    case 'kind':setKind(a.dataset.kind);break;
+    case 'kind':{const fromHint=!!a.closest('#c-qhint'); setKind(a.dataset.kind);
+      // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.
+      if(fromHint){const n=$('#note'); n.focus({preventScroll:true}); n.setSelectionRange(n.value.length,n.value.length);}
+      break;}
     case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind==='question'?'question':'fix'; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id,'reply');break;
     case 'rv-reopen':if(id!=null)openReply(id,'reopen');break;
@@ -8667,7 +8695,7 @@ document.addEventListener('keydown',e=>{
     if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
   }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
-    if(t&&t.id==='note'){e.preventDefault();savePin();}
+    if(t&&(t.id==='note'||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
@@ -8691,6 +8719,56 @@ HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
 HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
 HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort_keys=True).replace("</", "<\\/"))
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
+
+
+# A browser that opens the viewer (GET / asking for HTML) and is refused gets a short page instead of raw JSON (v0.2.1).
+# The Korean text is the key into the viewer's message table (ui_en.json), so the page follows the same ko/en table.
+ERROR_PAGE_TEXT = {
+    "not-member": ("이 뷰어의 멤버가 아닙니다: {login}", "이 뷰어의 소유자에게 멤버로 추가해 달라고 요청하세요: limn member add <인스턴스> {login}"),
+    "not-allowed": ("이 뷰어에 허용되지 않은 계정입니다: {login}", "이 뷰어의 소유자에게 --allow 목록에 넣어 달라고 요청하세요"),
+    "no-identity": ("신원을 확인할 수 없는 요청입니다",
+                    "사람 계정으로 로그인한 장치에서 여세요. 에이전트는 토큰(Authorization: Bearer)을 씁니다: limn token create <인스턴스>"),
+}
+
+
+def page_lang(headers, query: dict) -> str:
+    """ko or en for a server-rendered page: ?lang=, else the first Accept-Language tag (ko* -> ko), else en - the viewer's rule."""
+    v = (query.get("lang") or [""])[0]
+    if v in ("ko", "en"):
+        return v
+    first = (headers.get("Accept-Language") or "").split(",")[0].strip().lower()
+    return "ko" if first.startswith("ko") else "en"
+
+
+def ui_text(key: str, lang: str, **params) -> str:
+    """One message from the viewer's table, filled in (the server-side twin of the viewer's tl())."""
+    v = UI_EN.get(key, key) if lang == "en" else key
+    if isinstance(v, dict):
+        v = v.get("other", key)
+    for k, x in params.items():
+        v = v.replace("{%s}" % k, str(x))
+    return v
+
+
+def error_page_html(e: HTTPError, lang: str) -> str:
+    kind, params = e.page or ("", {})
+    if kind in ERROR_PAGE_TEXT:
+        head, hint = (ui_text(k, lang, **params) for k in ERROR_PAGE_TEXT[kind])
+        detail = ""
+    else:
+        head, hint = ui_text("이 뷰어를 열 수 없습니다 ({code})", lang, code=e.code), ""
+        detail = str(e.body.get("error") or "")
+    other = "en" if lang == "ko" else "ko"
+    esc = html.escape
+    return ("<!doctype html><html lang=\"%s\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Limn · %s</title>"
+            "<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,\"Pretendard\",\"Noto Sans KR\",sans-serif;max-width:36rem;"
+            "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
+            "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
+            "a{color:#1860cf}@media(prefers-color-scheme:dark){body{color:#fafafa;background:#09090b}p{color:#a1a1aa}a{color:#6ea8fe}}"
+            "</style></head><body><h1>%s</h1>%s%s<p><a href=\"/?lang=%s\">%s</a></p></body></html>"
+            % (lang, esc(str(e.code)), esc(head), "<p>%s</p>" % esc(hint) if hint else "",
+               "<p class=\"d\">%s</p>" % esc(detail) if detail else "", other, "English" if other == "en" else "한국어"))
 
 
 class Server(ThreadingHTTPServer):
@@ -8795,10 +8873,18 @@ class Handler(BaseHTTPRequestHandler):
     def _me(self, actor) -> dict:
         return dict(actor, role=self.principal.role)
 
+    def _wants_page(self) -> bool:
+        """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
+        return (self.command == "GET" and urlparse(self.path).path == "/"
+                and "text/html" in (self.headers.get("Accept") or ""))
+
     def _run(self, fn):
         try:
             fn()
         except HTTPError as e:
+            if self._wants_page():
+                lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
+                return self._send(e.code, error_page_html(e, lang).encode("utf-8"), "text/html; charset=utf-8")
             self._json(e.body, e.code)
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             self.close_connection = True
