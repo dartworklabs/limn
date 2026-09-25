@@ -1547,7 +1547,7 @@ class CloseIdempotent(Base):
 
     def test_second_close_does_not_overwrite_closed_by_or_rev(self):
         pid = self.add()
-        first = ps.set_done(pid, True, {"login": "alice", "name": "Alice"})
+        first = ps.set_done(pid, True, {"login": "alice", "name": "Wendy"})
         self.assertEqual(first["rev"], 1)
         second = ps.set_done(pid, True, {"login": "bob", "name": "Bob"})
         self.assertEqual(second["closed_by"]["login"], "alice")
@@ -1587,7 +1587,7 @@ class DroppedList(Base):
 
     def test_dropped_payload_includes_dropped_at_and_by(self):
         pid = self.add(note="oops")
-        ps.drop_pin(pid, {"login": "alice", "name": "Alice"})
+        ps.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = ps.dropped_payload()
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["id"], pid)
@@ -1606,7 +1606,7 @@ class DroppedList(Base):
 
     def test_get_pins_dropped_endpoint_http(self):
         pid = self.add(note="secret-drop-note")
-        ps.drop_pin(pid, {"login": "alice", "name": "Alice"})
+        ps.drop_pin(pid, {"login": "alice", "name": "Wendy"})
         out = self.talk(req("GET", "/api/pins/dropped"))
         self.assertIn(b" 200 ", out)
         payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -2111,8 +2111,8 @@ class RemotePinsMd(Base):
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
         pid = self.add()
-        p = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
-        self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Alice"})
+        p = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Wendy"})
         self.assertEqual(p["rev"], 1)
         self.assertTrue(ps.claim_active(self.pin(pid)))
 
@@ -2124,7 +2124,7 @@ class Claim(Base):
 
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
         with self.assertRaises(ps.HTTPError) as cm:
             ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)
         self.assertEqual(cm.exception.code, 409)
@@ -2133,8 +2133,8 @@ class Claim(Base):
 
     def test_claim_same_identity_extends(self):
         pid = self.add()
-        first = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 5)
-        second = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 200)
+        first = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 5)
+        second = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 200)
         self.assertGreater(second["claim_until"], first["claim_until"])
         self.assertEqual(second["rev"], first["rev"] + 1)
 
@@ -2142,7 +2142,7 @@ class Claim(Base):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         with self.assertRaises(ps.HTTPError) as cm:
-            ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+            ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
         self.assertEqual(cm.exception.code, 409)
         self.assertEqual(cm.exception.body["error"], "done")
 
@@ -2162,7 +2162,7 @@ class Claim(Base):
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
         rows = ps.snapshot_pins()
         for r in rows:
             if r["id"] == pid:
@@ -2174,7 +2174,7 @@ class Claim(Base):
 
     def test_unclaim_clears_fields_regardless_of_requester(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
         p = ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"})
         self.assertNotIn("claimed_by", p)
         self.assertNotIn("claimed_at", p)
@@ -2213,14 +2213,14 @@ class Claim(Base):
 
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Alice"}, 120)
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
         rows, bad = ps.read_jsonl(ps.C.pins_jsonl)
         self.assertEqual(bad, [])
         self.assertIn("claimed_by", ps.find_pin(rows, pid))
 
     def test_http_claim_then_conflict_then_unclaim(self):
         pid = self.add()
-        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@x.com", "Tailscale-User-Name": "Alice"}
+        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@x.com", "Tailscale-User-Name": "Wendy"}
         out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h1))
         self.assertIn(b" 200 ", out)
         h2 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "bob@x.com", "Tailscale-User-Name": "Bob"}
@@ -2926,24 +2926,24 @@ class RebuildLogDiet(Base):
 
 class AuthorPrefixInPinsMd(Base):
     # 작성자 접두는 '[이름] ' 형식이다(§api.md 메모 앞 [작성자]) — '@이름: '이던 예전 모양은 @태그로 잘못
-    # 읽혔다(실측: pins.md 의 '@Alice Kim: …'가 멘션처럼 보임).
+    # 읽혔다(실측: pins.md 의 '@Wendy Kim: …'가 멘션처럼 보임).
     def test_single_author_has_no_prefix(self):
-        self.add(note="n", actor={"login": "alice@x.com", "name": "Alice"})
+        self.add(note="n", actor={"login": "alice@x.com", "name": "Wendy"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("[Alice]", md)
+        self.assertNotIn("[Wendy]", md)
 
     def test_multiple_authors_get_prefix(self):
-        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("[Alice] n1", md)
+        self.assertIn("[Wendy] n1", md)
         self.assertIn("[Bob] n2", md)
 
     def test_same_author_twice_does_not_trigger_prefix(self):
-        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
-        self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Alice"})
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
+        self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Wendy"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertNotIn("[Alice]", md)
+        self.assertNotIn("[Wendy]", md)
 
     def test_legacy_pin_without_author_counts_as_one_group(self):
         pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
@@ -2961,7 +2961,7 @@ class AuthorPrefixInPinsMd(Base):
 
     def test_closed_pins_excluded_from_author_count(self):
         # 닫힌 핀의 작성자는 열린 표에 안 보이니 카운트에서도 빠져야 한다(열린 핀 기준 판정).
-        pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Alice"})
+        pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -4022,7 +4022,7 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertIn("&lt;script&gt;", out)
 
     def test_favicon_is_data_svg_with_first_letter(self):
-        out = ps.favicon_href("paper-a", "#1d4ed8")
+        out = ps.favicon_href("a-demo", "#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
         self.assertIn("circle", out)
         # 대문자로 바꾼 첫 글자가 (url-인코딩된) svg 안에 있어야 한다
@@ -4826,7 +4826,7 @@ class FrontendArchive(unittest.TestCase):
 # 잡음, 2026-09-23). 에이전트가 견적(eta_min)을 넣고, 화면은 5분 단위로 올린 '약 15분 · 20:40쯤'을 보인다. 잠금은 안전장치로만
 # 남고 상한은 120 분이다.
 class ClaimEta(Base):
-    A = {"login": "alice@x.com", "name": "Alice"}
+    A = {"login": "alice@x.com", "name": "Wendy"}
     B = {"login": "bob@x.com", "name": "Bob"}
 
     def test_body_validation_and_derived_ttl(self):
@@ -5722,7 +5722,7 @@ class FrontendThread(unittest.TestCase):
 # 닫으면 done=true·review=true(검토 대기), 테일넷 사람이 닫으면 바로 완료다. review 가 없는 옛 done:true 는 그대로 완료다.
 class ReviewState(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
-    W = {"login": "alice@example.com", "name": "Alice Kim"}
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
 
     def post(self, path, body=None, headers=None):
         h = {"Content-Type": "application/json"} if body is not None else {}
@@ -5866,10 +5866,10 @@ class FrontendReview(unittest.TestCase):
             const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
               closed_by:{login:'local',name:'로컬/에이전트'},thread:[{id:1,by:{name:'로컬/에이전트'},at:'2026-09-24 10:00:00',text:'고침',ev:'close'}]};
             const mine=card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}}));
-            const other=card(Object.assign({},base,{author:{login:'w@x',name:'Alice Kim'}}));
+            const other=card(Object.assign({},base,{author:{login:'w@x',name:'Wendy Kim'}}));
             const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
             console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
-              /Alice Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),/data-act="rv-reopen"/.test(other),
+              /Wendy Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),/data-act="rv-reopen"/.test(other),
               !/data-act="close"/.test(other),!/data-act="drop"/.test(other),/ev-close/.test(other),!/review/.test(open)]));
             """])
         self.assertEqual(json.loads(run_node(js)), [True] * 10)
@@ -5951,9 +5951,9 @@ class FrontendChangeView(unittest.TestCase):
 # ---------------------------------------------------------------- @태그·people.json·events.jsonl(docs/api.md §@태그·사람·이벤트)
 class MentionsPeopleEvents(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
-    W = {"login": "alice@example.com", "name": "Alice Kim"}
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
     HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
-    HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
+    HW = {"Tailscale-User-Login": "wendy@example.com", "Tailscale-User-Name": "Wendy Kim"}
 
     def setUp(self):
         super().setUp()
@@ -5974,16 +5974,16 @@ class MentionsPeopleEvents(Base):
         return d
 
     def test_resolve_mentions_rules(self):
-        ppl = self.people(({"login": "wkim@x.com", "name": "Alice Kim"}, {"login": "sy@x.com", "name": "박서준"}))
+        ppl = self.people(({"login": "wlee@x.com", "name": "Wendy Lee"}, {"login": "sy@x.com", "name": "박서준"}))
         R = ps.resolve_mentions
         self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
         self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])            # 대소문자·한글 조사
         self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])               # 이름 첫 단어(하나뿐)
-        self.assertEqual(R("@Alice 어때요", ppl), [])                                   # 첫 단어가 둘 — 모호하면 풀지 않는다
-        self.assertEqual(R("@Alice 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # 뷰어가 고른 힌트로 가른다
+        self.assertEqual(R("@Wendy 어때요", ppl), [])                                   # 첫 단어가 둘 — 모호하면 풀지 않는다
+        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # 뷰어가 고른 힌트로 가른다
         self.assertEqual(R("메일 bob@example.com 로", ppl), [])                     # 메일 주소는 태그가 아니다
         self.assertEqual(R("@Bobx", ppl), [])                                         # 영문 이름 뒤 영문 = 다른 말
-        self.assertEqual(R("@박서준님 @Alice Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
+        self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
         self.assertEqual(R("@nobody", ppl), [])
 
     def test_people_json_records_humans_only_and_throttles(self):
@@ -6024,11 +6024,11 @@ class MentionsPeopleEvents(Base):
     def test_mentions_stored_on_pin_and_message_with_events(self):
         ps.record_person(dict(self.W))
         code, d = self.post("/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "kind_req": "question",
-                                        "note": "@Alice Kim 구간의 정의는?"}, self.HS)
+                                        "note": "@Wendy Kim 구간의 정의는?"}, self.HS)
         pid = d["id"]
         p = self.pin(pid)
         self.assertEqual(p["mentions"], [self.W["login"]])
-        self.assertEqual(p["note"], "@Alice Kim 구간의 정의는?")       # 글은 그대로
+        self.assertEqual(p["note"], "@Wendy Kim 구간의 정의는?")       # 글은 그대로
         ev = self.events()
         self.assertEqual([(e["type"], e["pin"], e["to"], e["by"]["login"]) for e in ev],
                          [("mention", pid, [self.W["login"]], self.S["login"])])
@@ -6049,7 +6049,7 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(self.events()[-1]["type"], "review_requested")
         self.assertEqual(self.events()[-1]["to"], [self.S["login"]])
         n = len(self.events())
-        self.post("/api/pins/%d/reopen" % pid, {"reason": "@Alice Kim 한 번 더 봐 주세요"}, self.HS)
+        self.post("/api/pins/%d/reopen" % pid, {"reason": "@Wendy Kim 한 번 더 봐 주세요"}, self.HS)
         tail = self.events()[n:]
         self.assertEqual([(x["type"], x["to"]) for x in tail], [])       # 민수은 이미 불렸고, 작성자는 자기 자신
         self.post("/api/pins/%d/close" % pid, {"reply": "다시 답함"})
@@ -6060,8 +6060,8 @@ class MentionsPeopleEvents(Base):
 
     def test_edit_adds_mention_event_only_for_new_names(self):
         ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR))
-        ps.edit_pin(pid, {"note": "@Alice Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR))
+        ps.edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
         self.assertEqual([(e["type"], e["to"]) for e in self.events()],
                          [("mention", [self.W["login"]]), ("mention", [self.S["login"]])])
         ps.edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(ps.LOCAL_ACTOR))
@@ -6069,12 +6069,12 @@ class MentionsPeopleEvents(Base):
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
         ps.record_person(dict(self.W))
-        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 이 구간 맞나요?", "kind_req": "question"},
+        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
                        dict(self.S))
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
-        self.assertIn("| %d · → @Alice Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
+        self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
         self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
@@ -6128,7 +6128,7 @@ class MentionsPeopleEvents(Base):
         code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "ghost", "base_rev": 2}, self.HW)
         self.assertEqual(code, 400)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("담당 바꿈(Alice Kim): 담당: @Bob Park", md)
+        self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
         self.assertIn("assigned", ps.NOTIFY_TYPES)
 
     def test_legacy_pins_read_without_rewrite(self):
@@ -6169,12 +6169,12 @@ class MentionsPeopleEvents(Base):
 
     def test_self_mention_never_becomes_addressed(self):
         ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Alice Kim 셀프 태그",
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
                           "kind_req": "question"}, dict(self.W))
         p = self.pin(pid)
         self.assertNotIn("mentions", p)                    # 자기 자신 @태그는 저장되지 않는다
         self.assertEqual(ps.addressed_to(p), [])
-        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Alice Kim", dict(self.W))[1]
+        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W))[1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # 답글 글쓴이 자신(W)은 빠진다
 
     def test_mention_hints_validated(self):
@@ -6199,7 +6199,7 @@ class FrontendMentions(unittest.TestCase):
     def run_js(self, script):
         js = "\n".join([r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-            let PEOPLE=[{login:'w@x',name:'Alice Kim'},{login:'wo@x',name:'Alice'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
+            let PEOPLE=[{login:'w@x',name:'Wendy Kim'},{login:'wo@x',name:'Wendy'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
             let META={me:{login:'s@x',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
@@ -6211,10 +6211,10 @@ class FrontendMentions(unittest.TestCase):
 
     def test_highlight_does_not_double_wrap_and_escapes(self):
         out = self.run_js(r"""
-            console.log(JSON.stringify([fmtText('@Alice Kim 와 @Alice <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
+            console.log(JSON.stringify([fmtText('@Wendy Kim 와 @Wendy <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
               fmtText('@Bob Park',[])]));""")
         tip = lambda n: ' data-tip="@태그 — %s에게 알림이 갑니다"' % n
-        self.assertEqual(out, ['<span class="mention"%s>@Alice Kim</span> 와 <span class="mention"%s>@Alice</span> &lt;i&gt;' % (tip("Alice Kim"), tip("Alice")),
+        self.assertEqual(out, ['<span class="mention"%s>@Wendy Kim</span> 와 <span class="mention"%s>@Wendy</span> &lt;i&gt;' % (tip("Wendy Kim"), tip("Wendy")),
                                '<span class="mention"%s>@김&lt;b&gt;</span> 안녕' % tip("김&lt;b&gt;"), '@Bob Park'])
 
     def test_mention_of_me_is_stronger_and_unresolved_stays_plain(self):
@@ -6237,8 +6237,8 @@ class FrontendMentions(unittest.TestCase):
 
     def test_scan_lists_who_gets_notified_and_unresolved_words(self):
         out = self.run_js(r"""
-            console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Alice Kim',new Set()), mentionScan('a@b.com',new Set()),
-              mentionScan('@Alice 봐',new Set(['wo@x']))]));""")
+            console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Wendy Kim',new Set()), mentionScan('a@b.com',new Set()),
+              mentionScan('@Wendy 봐',new Set(['wo@x']))]));""")
         self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"], "first": "s@x"})
         self.assertEqual(out[1], {"hit": [], "bad": [], "first": None})
         self.assertEqual(out[2]["hit"][0], "wo@x")
@@ -6247,15 +6247,15 @@ class FrontendMentions(unittest.TestCase):
         # 메모가 풀린 @태그로 시작하면 그 사람 · 아니면 질문 핀의 첫 @태그 · 아니면 에이전트. 나(s@x)는 고를 수 없다.
         out = self.run_js(r"""
             console.log(JSON.stringify([
-              defaultAssignee('@Alice Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('  @Alice Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('이거 콜링 작동하나 @Alice Kim 확인 부탁','fix',new Set()),
-              defaultAssignee('이 구간이 뭔가요 @Alice Kim','question',new Set()),
+              defaultAssignee('@Wendy Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('  @Wendy Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이거 콜링 작동하나 @Wendy Kim 확인 부탁','fix',new Set()),
+              defaultAssignee('이 구간이 뭔가요 @Wendy Kim','question',new Set()),
               defaultAssignee('@Bob Park 메모','fix',new Set()),
-              defaultAssignee('@Bob Park @Alice Kim 뭔가요','question',new Set()),
+              defaultAssignee('@Bob Park @Wendy Kim 뭔가요','question',new Set()),
               defaultAssignee('@홍길동 확인','fix',new Set()),
               defaultAssignee('그냥 메모','question',new Set()),
-              assignPeople('@Bob Park @Alice Kim 봐 주세요',new Set()),
+              assignPeople('@Bob Park @Wendy Kim 봐 주세요',new Set()),
               assignPeople('메모',new Set(),'k@x')]));""")
         self.assertEqual(out, ["w@x", "w@x", "agent", "w@x", "agent", "w@x", "agent", "agent", ["w@x"], ["k@x"]])
 
@@ -6286,8 +6286,8 @@ class FrontendMentions(unittest.TestCase):
         out = self.run_js(r"""
             const ta=(v,pos)=>({value:v,selectionStart:pos==null?v.length:pos,selectionEnd:pos==null?v.length:pos});
             const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch'))];
-            const m=mentionMatches('won',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
-            const t=ta('@Alice Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
+            const m=mentionMatches('wen',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
+            const t=ta('@Wendy Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
             console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
               mentionsMe({addressed:['s@x']}),mentionsMe({addressed:['w@x']}),mentionsMe({mentions:['s@x'],thread:[{mentions:['s@x']}]})]));""")
         self.assertEqual(out, [[{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None], ["wo@x", "w@x"], False,
@@ -6419,7 +6419,7 @@ class FrontendQuestionHint(unittest.TestCase):
 
 class NotifyServer(Base):
     HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
-    HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
+    HW = {"Tailscale-User-Login": "wendy@example.com", "Tailscale-User-Name": "Wendy Kim"}
 
     def setUp(self):
         super().setUp()
@@ -6446,9 +6446,9 @@ class NotifyServer(Base):
             self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_event_cursor_in_light_meta(self):
-        ps.emit_events([{"type": "mention", "pin": 1, "doc": "main", "to": ["alice@example.com"], "by": {"login": "bob@example.com"}},
+        ps.emit_events([{"type": "mention", "pin": 1, "doc": "main", "to": ["wendy@example.com"], "by": {"login": "bob@example.com"}},
                         {"type": "replied", "pin": 1, "doc": "main", "to": ["bob@example.com"], "by": {"login": "local"}},
-                        {"type": "mention", "pin": 2, "doc": "main", "to": ["alice@example.com"], "by": {"login": "alice@example.com"}}])
+                        {"type": "mention", "pin": 2, "doc": "main", "to": ["wendy@example.com"], "by": {"login": "wendy@example.com"}}])
         _, _, raw = self.get("/api/meta?light=1", self.HW)
         d = json.loads(raw)
         self.assertEqual(d["ev_seq"], 3)
@@ -6479,7 +6479,7 @@ class FrontendNotify(unittest.TestCase):
             function who(a){return (a&&(a.name||a.login))||'';}
             const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
             let NOTIFY=true; function notifyOn(){return NOTIFY;}
-            let META={me:{login:'w@x',name:'Alice Kim'},label:'DEMO-B'}; const SHOWN=[];
+            let META={me:{login:'w@x',name:'Wendy Kim'},label:'DEMO-B'}; const SHOWN=[];
             function notifyShow(e){SHOWN.push([e.pin,e.type]);}
             """] + [extract_js_fn(n) for n in ("notifyCursor", "setNotifyCursor", "notifyQuery", "pickNotifications",
                                                "notifyText", "notifyHandle")] + [script])
