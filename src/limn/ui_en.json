@@ -550,6 +550,7 @@
  "에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다": "Assigned to them — the agent skips this pin",
  "에게 알림이 갑니다": "notifications go to them",
  "에이전트": "Agent",
+ "에이전트가 기록한 줄": "lines the agent recorded",
  "에이전트가 닫고 사람의 확인을 기다리는 핀을 접고 폅니다": "Collapse or expand the pins an agent closed that wait for a person to confirm",
  "에이전트가 닫고 사람의 확인을 기다리는 핀입니다. 누르면 목록의 '검토 대기'로 갑니다": "A pin closed by an agent, waiting for a person's confirmation. Click to jump to \"Awaiting review\" in the list",
  "에이전트가 닫은 핀은 바로 완료가 되지 않고 여기서 사람의 [확인]을 기다립니다. 작성자에게 권하지만 누구나 누를 수 있습니다. [다시 열기]는 이유 한 줄을 스레드에 남기고 열린 핀으로 되돌립니다. 테일넷 사람이 [완료]를 누르면 그 사람이 검토자라 바로 완료입니다": "A pin closed by an agent doesn't complete right away — it waits here for a person's [Confirm]. This is recommended for the author, but anyone can press it. [Reopen] leaves a one-line reason in the thread and returns it to open. If someone on the tailnet presses [Done], they act as the reviewer, so it completes immediately",
@@ -693,6 +694,10 @@
  "이 창이 다루는 논문. 여러 뷰어를 동시에 열었을 때 구분용": "the paper this window shows — tells windows apart when several instances are open",
  "이 커밋에서 표시할 원고 텍스트 변경이 없습니다.": "There are no manuscript text changes to show in this commit.",
  "이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다": "The pin's range wasn't found in this commit's diff — showing the nearest line",
+ "이 커밋의 다른 변경 {n}곳": {
+  "one": "{n} other change in this commit",
+  "other": "{n} other changes in this commit"
+ },
  "이 핀에 답글을 답니다. 닫힌 핀이면 보내기 전에 칸 아래 한 줄이 결과(다시 열림·알림·그대로)를 알려 줍니다 (⌘ Enter / Ctrl+Enter 보내기)": "Reply to this pin. On a closed pin, a line under the box says what sending will do (reopen, notify, or keep) (⌘ Enter / Ctrl+Enter to send)",
  "이 핀에 답글을 답니다. 사람과 에이전트가 같은 스레드에서 주고받습니다 (⌘ Enter / Ctrl+Enter 보내기)": "Replies to this pin. People and agents exchange messages in the same thread (⌘ Enter / Ctrl+Enter to send)",
  "이 핀을 질문으로 바꿉니다": "Turns this pin into a question",
@@ -701,6 +706,12 @@
   "one": "{n} reply on this pin — click to expand the card and open the reply box",
   "other": "{n} replies on this pin — click to expand the card and open the reply box"
  },
+ "이 핀의 변경 {n}곳만 보입니다": {
+  "one": "Showing only this pin's {n} change",
+  "other": "Showing only this pin's {n} changes"
+ },
+ "이 핀의 변경만 넣은 비교 대신 커밋 전체의 비교 PDF를 봅니다. 다시 누르면 이 핀의 변경만 봅니다": "Compare the whole commit instead of only this pin's changes. Press again for this pin's changes only",
+ "이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다": "Couldn't build a PDF from this pin's changes alone, so comparing the whole commit",
  "이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)": "This pin @mentions me — agents skip this pin (unless a user asks)",
  "이 화면은 에이전트로 보내므로 상태는 그대로입니다": "This screen posts as the agent; state stays",
  "이동": "Go to",
@@ -826,6 +837,7 @@
  "카드 아래의 대화. 사람과 에이전트가 [답글]로 주고받고, 닫기·다시 열기·확인도 한 줄씩 남습니다": "The conversation below the card. People and agents exchange [Reply] messages, and closing, reopening, and confirming each leave a one-line entry",
  "카드 접기": "Collapse card",
  "카드 펼치기": "Expand card",
+ "커밋 전체 비교": "Whole commit",
  "켜면 PDF 위를 끌어서 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 끄면 보통처럼 스크롤·확대됩니다": "When on, drag on the PDF to select a region, or tap to select the paragraph there. When off, scrolling and zooming work as usual",
  "켜면 한 손가락으로 끌어 영역을 고르고, 탭하면 그 자리 문단을 고릅니다. 두 손가락으로 벌리면 PDF 만 커집니다. 핀을 저장하거나 취소하면 저절로 꺼집니다": "When on, drag with one finger to select a region, or tap to select the paragraph there. Pinch with two fingers to zoom the PDF only. It turns off automatically when you save or cancel the pin",
  "클릭하면 그 쪽으로 이동": "Click to go to that page",
@@ -881,6 +893,7 @@
  "핀 #{id} 확인 · 완료로 옮겼습니다": "Pin #{id} confirmed · moved to done",
  "핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다": "Points to the same place as pin #{id}. Better to fix them together and close both",
  "핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다": "Partially overlaps pin #{id}'s line range. For reference only; they can be fixed separately",
+ "핀 #{id}의 변경만": "Only pin #{id}'s changes",
  "핀 N": "Pin N",
  "핀 다시 읽기": "Reload pins",
  "핀 다시 읽기·쪽 이동·확대·테마·닫힌 핀·삭제한 핀·도움말": "Reload pins · go to page · zoom · theme · closed pins · deleted pins · help",
@@ -892,6 +905,7 @@
  "핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다": "The pin's range lines themselves didn't change, but nearby lines (±5) did — showing the nearest line",
  "핀 수정": "Edit pin",
  "핀 읽기": "Reading pins…",
+ "핀 자리로 추정": "inferred from the pin's lines",
  "핀 저장": "Save pin",
  "핀 저장 Ctrl+Enter": "Save pin Ctrl+Enter",
  "핀 종류": "Pin type",
