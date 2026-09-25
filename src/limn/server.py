@@ -75,7 +75,13 @@ def load_ui_messages() -> dict:
         d = json.loads(Path(__file__).with_name("ui_en.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return {k: v for k, v in d.items() if isinstance(k, str) and isinstance(v, str) and k and v}
+
+    def ok(v):   # a string, or plural forms {"one": ..., "other": ...} for a template key with {n}
+        if isinstance(v, str):
+            return bool(v)
+        return (isinstance(v, dict) and set(v) <= {"one", "other"} and isinstance(v.get("other"), str)
+                and all(isinstance(x, str) and x for x in v.values()))
+    return {k: v for k, v in d.items() if isinstance(k, str) and k and ok(v)}
 
 
 UI_EN = load_ui_messages()
@@ -4954,7 +4960,7 @@ body.resizing #left{pointer-events:none}
 #bar1>button,#bar1>input{height:var(--tb-h)}
 #bar1 button{padding:0 var(--space-2);white-space:nowrap}
 #bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
-#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* the single-character '쪽' field read like a button (QA) - left-aligned like a proper input field for '쪽 이동' */
+#bar1 input.n{width:54px;flex:100 1 40px;min-width:40px;max-width:54px;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* the single-character '쪽' field read like a button (QA) - left-aligned like a proper input field for '쪽 이동'. Its basis is 40px and it takes the free space first (grow 100, up to 54px) so the longer English labels still fit the 348px panel on one row - a wrapping flex line breaks on the basis, not the shrunk size */
 /* Tool bar hierarchy (QA 2026-09-24): page/zoom-in/zoom-out/fit-width are bordered navigation controls, notification/theme/help
    are borderless utility icons, and [PDF 재빌드] is a rarely used action so it's a faint ghost - if the manuscript is newer than the PDF, updateStaleBadge promotes it to .btn-default. */
 #bar1 :is(#btn-notify,#btn-theme,#btn-help){background:transparent;border-color:transparent;color:var(--muted-foreground)}
@@ -5359,7 +5365,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
-  #bar1 input.n{width:84px;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
+  #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
   /* #N is drawn narrow, only as wide as its text (26-35px) - the visual size is kept and a fixed 44x44 hit area is centered on top of it
      (a fixed size rather than an inset proportional to the parent's width is needed to guarantee 44 even for a short number). position:relative
@@ -5787,7 +5793,13 @@ const T={
 // nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
 const LANG=window.LIMN_LANG==='en'?'en':'ko', I18N_EN=__UI_EN_JSON__, I18N_ATTRS=['data-tip','aria-label','title','placeholder'];
 function tr(s){if(LANG!=='en'||typeof s!=='string')return s; const t=s.trim();
-  if(!t||!Object.prototype.hasOwnProperty.call(I18N_EN,t))return s; return s.replace(t,I18N_EN[t]);}
+  if(!t||!Object.prototype.hasOwnProperty.call(I18N_EN,t)||typeof I18N_EN[t]!=='string')return s; return s.replace(t,I18N_EN[t]);}
+// Composed UI strings: tl('{n}쪽',{n:3}). The Korean key is the template and the Korean output; in English the
+// table value is the template - a string, or plural forms {"one":...,"other":...} picked by p.n. {x} placeholders
+// are filled from p (values are inserted as given - escape them first if the result goes into HTML).
+function tl(k,p){let s=k; if(LANG==='en'&&Object.prototype.hasOwnProperty.call(I18N_EN,k)){const v=I18N_EN[k];
+    s=typeof v==='string'?v:(v&&(Number(p&&p.n)===1&&v.one?v.one:v.other))||k;}
+  return s.replace(/\{(\w+)\}/g,(m,x)=>p&&p[x]!=null?String(p[x]):m);}
 function trMsg(s){if(LANG!=='en'||typeof s!=='string')return s; const e=tr(s); if(e!==s)return e;
   for(const sep of [' — ',' · ']){if(s.indexOf(sep)>0)return s.split(sep).map(tr).join(sep);} return s;}
 function i18nEl(el){for(const a of I18N_ATTRS){const v=el.getAttribute(a); if(v){const e=trMsg(v); if(e!==v)el.setAttribute(a,e);}}}
@@ -5816,9 +5828,9 @@ const THEMES=['system','light','dark'],THEME_ICON={system:'sun-moon',light:'sun'
 function applyTheme(){let t=prefs().theme||'light'; if(!THEME_ICON[t])t='light';
   const eff=t==='system'?(MQ.matches?'light':'dark'):(t==='light'?'light':'dark');
   document.documentElement.setAttribute('data-theme',eff); const b=$('#btn-theme'); b.innerHTML=ic(THEME_ICON[t]);
-  b.setAttribute('aria-label','화면 테마: '+THEME_NAME[t]);
-  b.dataset.tip='화면 테마: 지금 '+THEME_NAME[t]+'. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다';
-  const m=$('#m-theme'); if(m)m.textContent='테마: '+THEME_NAME[t];}
+  const nm=tr(THEME_NAME[t]); b.setAttribute('aria-label',tl('화면 테마: {name}',{name:nm}));
+  b.dataset.tip=tl('화면 테마: 지금 {name}. 누르면 시스템 따름 → 밝게 → 어둡게 순으로 바뀝니다. PDF 종이 색은 그대로입니다',{name:nm});
+  const m=$('#m-theme'); if(m)m.textContent=tl('테마: {name}',{name:nm});}
 MQ.addEventListener('change',applyTheme);
 function cycleTheme(){const t=prefs().theme||'light';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
@@ -5827,10 +5839,11 @@ async function api(url,o){o=o||{};
   const init={method:o.method||'GET',headers:{}};
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
   let r;
-  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast((o.what||'요청')+' 실패 — 서버에 닿지 않습니다','err');throw e;}
+  const failed=()=>tl('{what} 실패',{what:tr(o.what||'요청').replace(/…$/,'')});
+  try{r=await fetch(url,init);}catch(e){if(!o.silent)toast(failed()+' — '+tr('서버에 닿지 않습니다'),'err');throw e;}
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
-    if(!o.silent)toast((o.what||'요청')+' 실패 — '+((d&&d.error)||('HTTP '+r.status)),'err');
+    if(!o.silent)toast(failed()+' — '+((d&&d.error)||('HTTP '+r.status)),'err');
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
@@ -5893,7 +5906,7 @@ async function copyText(s){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
     try{document.execCommand('copy');}catch(e2){} ta.remove();}
-  toast('복사함: '+s,'ok');
+  toast(tl('복사함: {text}',{text:s}),'ok');
 }
 
 // ------------------------------------------------ Tooltip
@@ -5961,15 +5974,15 @@ async function loadDocs(){try{const r=(await api('/api/docs',{what:'문서 목�
 function docCount(k){return OPEN_ALL.filter(p=>pdoc(p)===k).length;}
 function docBadge(d){const n=docCount(d.key);
   return (d.building?'<span class="spin" aria-label="빌드 중"></span>':(d.stale_build?'<span class="ddot" aria-label="원고 수정됨"></span>':''))+
-    (d.view_only?'<span class="badge dvo" aria-label="보기 전용">PDF</span>':'')+'<span class="badge badge-secondary dcnt'+(n?'':' z')+'" aria-label="열린 핀 '+n+'">'+n+'</span>';}
+    (d.view_only?'<span class="badge dvo" aria-label="보기 전용">PDF</span>':'')+'<span class="badge badge-secondary dcnt'+(n?'':' z')+'" aria-label="'+esc(tl('열린 핀 {n}',{n}))+'">'+n+'</span>';}
 function docTip(d){return d.name+' · '+d.path+(d.view_only?' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)':'')+
   (d.building?' · 빌드 중':(d.stale_build?' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])':''));}
 function drawDocTabs(){
   const box=$('#doc-select');
   box.innerHTML=DOCS.map(d=>'<option value="'+esc(d.key)+'">'+esc(d.name)+(d.building?' · 빌드 중':d.stale_build?' · 원고 수정됨':'')+'</option>').join('');
   if(DOC)box.value=DOC;
-  $('#doc-links').innerHTML=DOCS.map(d=>'<button data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+d.n_pages+'쪽</span>':'')+'</button>').join('');
-  const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:'문서';
+  $('#doc-links').innerHTML=DOCS.map(d=>'<button data-act="doc" data-doc="'+esc(d.key)+'" aria-current="'+(d.key===DOC?'page':'false')+'" title="'+esc(docTip(d))+'">'+esc(d.name)+(d.n_pages?'<span class="doc-link-count">'+tl('{n}쪽',{n:d.n_pages})+'</span>':'')+'</button>').join('');
+  const cur=docInfo(DOC); $('#btn-doc-n').textContent=cur?cur.name:tr('문서');
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
   if(DOC!==DOC_LINK_SHOWN){DOC_LINK_SHOWN=DOC; docLinksReveal();} else docLinksFade();
   if($('#docs-menu').open)drawDocsMenu();}
@@ -5990,7 +6003,7 @@ function revisionFiles(patch){
   const starts=[];const re=/^diff --git .+$/gm;let m;
   while((m=re.exec(patch))!==null)starts.push({at:m.index,head:m[0]});
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
-    name:n>=0?s.head.slice(n+3):'파일 '+(i+1),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
+    name:n>=0?s.head.slice(n+3):tl('파일 {n}',{n:i+1}),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
 // Source diff wrapping: on by default for touch devices (a manuscript where a paragraph is one line was 6,273px wide on a phone, QA). The on/off value is stored in pinPrefs.diffWrap.
 let DIFF_WRAP=null;
@@ -6069,7 +6082,7 @@ async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id),k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
-    REVISION_WHOLE=(r.diff||'이 커밋에서 표시할 원고 텍스트 변경이 없습니다.')+(r.truncated?'\n\n변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.':'');
+    REVISION_WHOLE=(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):'');
     REVISION_FILES=revisionFiles(r.diff||'');
     const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REVISION_FILES.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
     select.value='all';$('#revision-file-row').hidden=REVISION_FILES.length<2;REVISION_SOURCE_COMMIT=id;
@@ -6102,13 +6115,14 @@ async function pickRevisionFor(tg,revs,seq,k){
       if(touchesPin(revisionFiles(d.diff||''),tg))return {id:r.id,via:'lines'};}catch(e){}}}
   return {id:revs[0].id,via:'latest'};}
 function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){box.hidden=true;return;}
-  const via={sha:'참조의 커밋 '+(tg.tokOf||''),pr:'참조의 PR',lines:'이 줄을 바꾼 가장 최근 커밋',latest:'참조로 커밋을 찾지 못해 가장 최근 커밋'}[tg.via]||'';
-  const where=tg.region?'쪽 '+tg.page+' 영역':tg.name+' '+rng(tg.lo,tg.hi);
-  let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
-    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
+  const via={sha:tl('참조의 커밋 {tok}',{tok:tg.tokOf||''}),pr:tr('참조의 PR'),lines:tr('이 줄을 바꾼 가장 최근 커밋'),latest:tr('참조로 커밋을 찾지 못해 가장 최근 커밋')}[tg.via]||'';
+  const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
+  let t=msg?tr(msg):(REVISION_FORMAT==='pdf'?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
+    tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
-  box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
-    '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name+' 원고 보기로 돌아갑니다':'원고 보기로 돌아갑니다')+'">'+(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?esc(docInfo(REV_BACK).name)+'(으)로':'원고로')+'</button>';
+  const back=REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name:null;
+  box.innerHTML='<span><b>'+esc(tl('핀 #{id}',{id:tg.id}))+'</b> · '+esc(where)+(tg.ref?' · '+esc(tl('참조 {ref}',{ref:tg.ref})):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
+    '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(back?tl('{name} 원고 보기로 돌아갑니다',{name:back}):tr('원고 보기로 돌아갑니다'))+'">'+esc(back?tl('{name}(으)로',{name:back}):tr('원고로'))+'</button>';
   box.hidden=false;}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
@@ -6137,14 +6151,14 @@ async function loadRevisionPdf(id,seq,k){
       status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id),k),{what:'비교 PDF 상태',silent:true})).data;
     }
     if(!revisionCurrent(seq,k,id))return;
-    if(status.state!=='ready')throw new Error(status.error||(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
-    if(status.head&&status.head!==id)throw new Error('요청한 커밋과 비교 PDF의 커밋이 다릅니다.');
+    if(status.state!=='ready')throw new Error(status.error||tr(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
+    if(status.head&&status.head!==id)throw new Error(tr('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings=Array.isArray(status.warnings)?status.warnings:[];
-    warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent='빌드 경고 '+warnings.length+'건 보기';
+    warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent=tl('빌드 경고 {n}건 보기',{n:warnings.length});
     warningBox.querySelector('pre').textContent=warnings.join('\n');warningBox.open=false;
     statusBox.textContent='비교 PDF를 읽는 중입니다.';
     const response=await fetch(dq('/api/revision-pdf?commit='+encodeURIComponent(id),k));
-    if(!response.ok)throw new Error('비교 PDF를 열지 못했습니다 (HTTP '+response.status+').');
+    if(!response.ok)throw new Error(tl('비교 PDF를 열지 못했습니다 (HTTP {status}).',{status:response.status}));
     const bytes=new Uint8Array(await response.arrayBuffer());
     if(!revisionCurrent(seq,k,id))return;
     const lib=VEC.lib||await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V);
@@ -6153,15 +6167,15 @@ async function loadRevisionPdf(id,seq,k){
     const pdf=await loading.promise;
     if(!revisionCurrent(seq,k,id)){try{loading.destroy();}catch(e){}return;}
     REV_PDF.doc=pdf;
-    statusBox.textContent='첫 부모 '+String(status.base||'').slice(0,8)+' → '+id.slice(0,8)+' · '+pdf.numPages+'쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가';
-    const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="비교 PDF '+(i+1)+'쪽"></div>').join('');
+    statusBox.textContent=tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
+    const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="'+esc(tl('비교 PDF {page}쪽',{page:i+1}))+'"></div>').join('');
     if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
       REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
     }},{root:box,rootMargin:'600px 0px'});box.querySelectorAll('.revision-page').forEach(el=>REV_PDF.observer.observe(el));}
     else for(const el of box.querySelectorAll('.revision-page'))renderRevisionPage(el,pdf,seq,k,id);
     if(REV_TARGET&&REV_TARGET.page){const el=box.querySelector('.revision-page[data-page="'+Math.min(REV_TARGET.page,pdf.numPages)+'"]'); if(el)el.scrollIntoView({block:'start'}); revTargetNote();}
   }catch(e){if(revisionCurrent(seq,k,id)){
-    statusBox.textContent='비교 PDF: '+(e&&e.message?e.message:'표시하지 못했습니다.')+' 소스 diff에서 변경 내용을 확인할 수 있습니다.';
+    statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:e&&e.message?e.message:tr('표시하지 못했습니다.')});
   }}
 }
 async function renderRevisionPage(el,pdf,seq,k,id){
@@ -6212,15 +6226,19 @@ function showDoc(v){
   drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
   if(!v&&$('#left'))$('#left').scrollTop=0;
   PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks(); drawDocTabs();
-  $('#outline-items').textContent='PDF 목차를 읽는 중입니다.';
+  $('#outline-items').textContent=tr('PDF 목차를 읽는 중입니다.');
   if(document.body.classList.contains('revision-open'))loadRevisions();
   vecOpen();
   if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;} $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
   if(LAST_BUILD_ERR)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
   BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // if a previous document's request is still in flight, queue after it
-  document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
+  docTitle(false);
 }
+// The tab title: 'Limn · <label> · <document> · 열린 N' (+ ' · 검토 N' once the pin list knows the review count).
+function docTitle(review){if(!META)return;
+  document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · '+tl('열린 {n}',{n:PINS.length})+
+    (review&&REVIEW_ALL.length?' · '+tl('검토 {n}',{n:REVIEW_ALL.length}):'');}
 function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key===DOC);
   switchDoc(DOCS[(i+step+DOCS.length)%DOCS.length].key);}
 window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docInfo(k))switchDoc(k);});
@@ -6260,7 +6278,7 @@ function updateStaleBadge(m){
   if(!stale){badge.hidden=true; btn.classList.remove('btn-default'); return;}
   const age=(typeof m.src_age_s==='number')?m.src_age_s:(Date.now()/1000-m.src_mtime);
   const mins=Math.max(0,Math.round(age/60));
-  badge.hidden=false; badge.textContent='원고 수정됨 · '+mins+'분 전';
+  badge.hidden=false; badge.textContent=tl('원고 수정됨 · {n}분 전',{n:mins});
   btn.classList.add('btn-default');
 }
 const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업스트림이 없습니다',not_main:'현재 체크아웃이 main이 아닙니다',
@@ -6271,24 +6289,24 @@ const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업
 function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
   if(!s||s.state==='disabled'||s.state==='current'){b.hidden=true; return;}
   b.hidden=false; b.classList.toggle('badge-warning',s.state==='blocked'||s.state==='error');
-  const reason=SYNC_REASON[s.reason]||s.reason||'';
-  b.textContent=s.state==='updating'?'최신 main PDF 반영 중':s.state==='updated'?'최신 main 반영됨':
-    s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요';
-  b.dataset.tip=reason?(b.textContent+' · '+reason+' · 기존 PDF가 보일 수 있습니다'):b.textContent;
+  const reason=tr(SYNC_REASON[s.reason]||s.reason||'');
+  b.textContent=tr(s.state==='updating'?'최신 main PDF 반영 중':s.state==='updated'?'최신 main 반영됨':
+    s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요');
+  b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
 function drawMeta(){
   document.body.classList.toggle('view-only',!!META.view_only);
-  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=META.pages.length+'쪽';
+  $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
-  $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(me.name||me.login||'')+'</span>';
-  $('#me').dataset.tip='지금 이 화면을 쓰는 사람: '+(me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')+'. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다';
+  $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(who(me))+'</span>';
+  $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')});
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
   // In compact, #bar2's file/commit/time/author line is hidden and shown as a single line inside [⋯] instead (so a long filename never overflows).
-  $('#more-info').textContent=[META.main,META.pages.length+'쪽',META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
-    '나: '+(me.name||me.login||'')].filter(Boolean).join(' · ');
+  $('#more-info').textContent=[META.main,tl('{n}쪽',{n:META.pages.length}),META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
+    tl('나: {name}',{name:who(me)})].filter(Boolean).join(' · ');
 }
 
 // ------------------------------------------------ Auto sync (P0b-02) - lightweight meta polling
@@ -6348,8 +6366,8 @@ function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let r
     const was=DOC_SEQ.get(n.key); DOC_SEQ.set(n.key,n.build_seq);
     if(n.key===DOC||was===undefined||was===n.build_seq)return;
     META_BY.delete(n.key); redraw=true;
-    if(n.last_state==='ok')toast(d.name+' PDF '+(d.view_only?'쪽을 새로 그렸습니다':'재빌드 완료'),'ok',{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(n.key)});
-    else if(n.last_state==='ok_errors'||n.last_state==='fail')toast(d.name+(n.last_state==='fail'?' 빌드 실패':' 빌드에 LaTeX 오류'),n.last_state==='fail'?'err':'warn',{label:'열기',tip:'그 문서로 바꿔 오류를 봅니다',fn:()=>switchDoc(n.key)});});
+    if(n.last_state==='ok')toast(tl(d.view_only?'{name} PDF 쪽을 새로 그렸습니다':'{name} PDF 재빌드 완료',{name:d.name}),'ok',{label:'열기',tip:'그 문서로 바꿉니다',fn:()=>switchDoc(n.key)});
+    else if(n.last_state==='ok_errors'||n.last_state==='fail')toast(tl(n.last_state==='fail'?'{name} 빌드 실패':'{name} 빌드에 LaTeX 오류',{name:d.name}),n.last_state==='fail'?'err':'warn',{label:'열기',tip:'그 문서로 바꿔 오류를 봅니다',fn:()=>switchDoc(n.key)});});
   if(redraw)drawDocTabs();}
 function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
@@ -6378,22 +6396,22 @@ function diffToast(prev,d,dropped){
   byId.forEach((_,id)=>{const n=known.get(id);
     if(n&&n.done){if(!consumeMine(id))(n.review?reviewed:closed).push(id);}
     else if(!n){if(!consumeMine(id))droppedIds.push(id);}});
-  if(closed.length)toast('#'+closed.join(', #')+' 이 완료되었습니다','ok');
-  if(reviewed.length)toast('#'+reviewed.join(', #')+' 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요','ok',null,{keys:reviewed.map(i=>'review_requested:'+i)});
+  if(closed.length)toast(tl('#{ids} 이 완료되었습니다',{ids:closed.join(', #'),n:closed.length}),'ok');
+  if(reviewed.length)toast(tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요',{ids:reviewed.join(', #'),n:reviewed.length}),'ok',null,{keys:reviewed.map(i=>'review_requested:'+i)});
   droppedIds.forEach(id=>{const rec=dropById.get(id),nm=rec?who(rec.dropped_by):'';
-    toast('#'+id+' 을 '+(nm||'다른 세션')+' 가 삭제함','warn',{label:'되살리기',fn:()=>restorePin(id)});});
+    toast(tl('#{id} 을 {name} 가 삭제함',{id,name:nm||tr('다른 세션')}),'warn',{label:'되살리기',fn:()=>restorePin(id)});});
   (d||[]).filter(p=>!p.done).forEach(p=>{const was=byId.get(p.id); if(!was)return;
-    if(!was.stale&&p.stale){toast('#'+p.id+' 위치를 잃었습니다','warn');return;}
+    if(!was.stale&&p.stale){toast(tl('#{id} 위치를 잃었습니다',{id:p.id}),'warn');return;}
     const m=/^moved ([+-]\d+)$/.exec(p.sync||''),wm=/^moved ([+-]\d+)$/.exec(was.sync||'');
-    if(m&&(!wm||wm[1]!==m[1]))toast('#'+p.id+' 줄 '+m[1]+' 이동','ok');});
+    if(m&&(!wm||wm[1]!==m[1]))toast(tl('#{id} 줄 {delta} 이동',{id:p.id,delta:m[1]}),'ok');});
 }
 
 // Announces when a pin that was awaiting review gets confirmed (done) or reopened elsewhere. An action this tab performed (markMine) is swallowed.
 function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?'review':'done'):'open');}
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
-    if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
-    else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
+    if(st==='done')toast(tl('#{id} 확인됨',{id:p.id})+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
+    else toast(tl('#{id} 다시 열림',{id:p.id})+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
 // ------------------------------------------------ Browser notifications (docs/design.md §Browser notifications) - only while the tab is alive
 // Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기] click. The server
@@ -6417,10 +6435,11 @@ function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||l
     if(!(e.to||[]).includes(login)||(e.by&&e.by.login===login))return;
     const o=by.get(e.pin); if(!o||NOTIFY_RANK[e.type]>NOTIFY_RANK[o.type]||(NOTIFY_RANK[e.type]===NOTIFY_RANK[o.type]&&e.seq>o.seq))by.set(e.pin,e);});
   return Array.from(by.values()).sort((a,b)=>a.seq-b.seq);}
-function notifyText(e){const nm=who(e.by)||'누군가',ex=String(e.excerpt||'').split('\n')[0].slice(0,80);
-  const body={mention:nm+'님이 불렀습니다: '+ex,review_requested:'검토 대기: '+(ex||'설명 없이 닫힘'),
-    replied:nm+'님 답글: '+ex,reopened:nm+'님이 다시 열었습니다'+(ex?': '+ex:''),assigned:nm+'님이 담당으로 지정했습니다: '+ex}[e.type]||ex;
-  return {title:'핀 #'+e.pin+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
+function notifyText(e){const nm=who(e.by)||tr('누군가'),ex=String(e.excerpt||'').split('\n')[0].slice(0,80),q={name:nm,text:ex};
+  const body={mention:tl('{name}님이 불렀습니다: {text}',q),review_requested:tl('검토 대기: {text}',{text:ex||tr('설명 없이 닫힘')}),
+    replied:tl('{name}님 답글: {text}',q),reopened:ex?tl('{name}님이 다시 열었습니다: {text}',q):tl('{name}님이 다시 열었습니다',q),
+    assigned:tl('{name}님이 담당으로 지정했습니다: {text}',q)}[e.type]||ex;
+  return {title:tl('핀 #{id}',{id:e.pin})+' · '+(e.doc_name||e.doc||(META&&META.label)||''),body};}
 async function notifyShow(e){const t=notifyText(e);
   if(document.visibilityState==='visible'&&document.hasFocus()){toast(t.title+' — '+t.body,'ok',{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)},{keys:[e.type+':'+e.pin],rank:2});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
@@ -6446,7 +6465,7 @@ function drawNotify(){const st=notifyState(),b=$('#btn-notify'),m=$('#m-notify')
     blocked:'브라우저가 이 사이트의 알림을 막았습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 다시 누르세요',
     unsupported:'브라우저 알림은 https(테일넷 주소)나 http://127.0.0.1·localhost 에서만 됩니다',
     local:'테일넷 주소로 열면 켤 수 있습니다'}[st];
-  b.innerHTML=st==='on'?ic('bell'):ic('bell-off'); b.setAttribute('aria-label','브라우저 '+lab); b.setAttribute('aria-pressed',String(st==='on')); b.dataset.tip=lab+' — '+tip;
+  b.innerHTML=st==='on'?ic('bell'):ic('bell-off'); b.setAttribute('aria-label',tr('브라우저 '+lab)); b.setAttribute('aria-pressed',String(st==='on')); b.dataset.tip=lab+' — '+tip;
   b.disabled=st==='local'; m.disabled=st==='local';
   m.textContent=st==='on'?'알림 끄기 (켜짐)':st==='off'?'알림 켜기':lab; m.dataset.tip=tip;}
 async function notifyToggle(){const st=notifyState();
@@ -6479,15 +6498,15 @@ window.addEventListener('hashchange',()=>{const n=hashPin(); if(n)openPinFromLin
 let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
 function buildChipText(b){
   const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'재빌드 중';
-  const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
-  return label+' · '+el+'초'+last;
+  const el=Math.round(b.elapsed_s||0), last=b.last_s?' '+tl('(지난번 {s}초)',{s:Math.round(b.last_s)}):'';
+  return tr(label)+' · '+tl('{s}초',{s:el})+last;
 }
 // §P0c-E: appends one line about the pull result to the build-complete toast. ok gets the applied commit range,
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
-  if(p.state==='ok')return ' · 원격 반영 '+String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7);
-  if(p.state==='skipped'||p.state==='error')return ' · git pull '+(p.state==='error'?'실패':'건너뜀')+'('+(p.reason||'?')+')';
+  if(p.state==='ok')return ' · '+tl('원격 반영 {range}',{range:String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7)});
+  if(p.state==='skipped'||p.state==='error')return ' · '+tl(p.state==='error'?'git pull 실패({reason})':'git pull 건너뜀({reason})',{reason:p.reason||'?'});
   return '';
 }
 // Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if the
@@ -6519,9 +6538,9 @@ async function pollBuildOnce(){
     try{await refreshDoc();}catch(e){}
     if(k!==DOC)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state==='ok'){toast((META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다 · ':'PDF 재빌드 완료 · ')+META.pages.length+'쪽 · '+secs+'초'+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
-    else if(b.state==='ok_errors'){toast('PDF를 재빌드했지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
-    else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다'+pullSuffix(b),'err'); showBuildErr(b);}
+    if(b.state==='ok'){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    else if(b.state==='ok_errors'){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
+    else if(b.state==='fail'){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
     showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip with no toast (leaves a way to look at it again)
   }
@@ -6594,7 +6613,7 @@ function buildDoc(){
   const doc=$('#doc'); doc.innerHTML=''; PENDING=null;
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
     d.style.width=W+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
-    d.innerHTML='<span class="no">'+(i+1)+'</span><img loading="lazy" draggable="false" alt="'+(i+1)+'쪽" src="'+esc(pageSrc(p))+'">';
+    d.innerHTML='<span class="no">'+(i+1)+'</span><img loading="lazy" draggable="false" alt="'+esc(tl('{page}쪽',{page:i+1}))+'" src="'+esc(pageSrc(p))+'">';
     doc.appendChild(d);});
   marks(); vecObserve();
 }
@@ -6678,7 +6697,7 @@ async function vecOpen(){
       doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
     catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
     if(gen!==VEC.gen){vecClose(doc); return;}
-    if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
+    if(doc.numPages!==n){vecClose(doc); vecFail(tl('PDF 쪽 수({pdf})가 화면({view})과 다릅니다',{pdf:doc.numPages,view:n})); return;}
     vecCachePut(key,doc);
   }else vecCachePut(key,doc);           // promoted as most recently used
   if(gen!==VEC.gen)return;
@@ -6696,7 +6715,7 @@ async function loadOutline(doc,gen){
       if(typeof dest==='string')dest=await doc.getDestination(dest);
       if(Array.isArray(dest)&&dest[0]!=null){
         const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
-        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||'제목 없음',page,depth});
+        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth});
       }
       if(depth<4)await walk(item.items,depth+1);
     }}
@@ -6737,7 +6756,7 @@ function renderOutline(){
   if(!OUTLINE_ENTRIES.length){box.className='outline-empty';box.textContent='이 PDF에는 이동할 수 있는 목차가 없습니다.';return;}
   const rows=OUTLINE_ENTRIES.map((x,i)=>Object.assign({index:i},x)).filter(x=>!query||(x.number+' '+x.title).toLowerCase().includes(query));
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
-  box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(x.pageLabel||String(x.page))+'쪽</span></button>').join('');
+  box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
 }
 function updateSectionStrip(){
   const anchor=topAnchor(),page=anchor?anchor.page:1;
@@ -6746,8 +6765,8 @@ function updateSectionStrip(){
     for(let i=0;i<OUTLINE_ENTRIES.length;i++)if(OUTLINE_ENTRIES[i].page<=page)OUTLINE_SELECTED=i;
     renderOutline();
   }
-  const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:'원고';
-  $('#section-page').textContent=page+' / '+(META&&META.pages?META.pages.length:0)+'쪽';
+  const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
+  $('#section-page').textContent=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0});
 }
 $('#outline-search').addEventListener('input',renderOutline);
 $('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
@@ -6757,7 +6776,7 @@ function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
   vecForget(VEC.doc); vecClose(VEC.doc); VEC.doc=null;
   const c=$('#vec-chip'); c.hidden=false;
-  c.dataset.tip='PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — '+msg+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')+'. 확대하면 흐릴 수 있습니다';
+  c.dataset.tip=tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다',{reason:tr(msg)+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')});
 }
 function vecState(n){let s=VEC.st.get(n); if(!s){s={base:null,bw:0,bh:0,dt:null,reg:null,dtCw:0,dtK:0,stale:false}; VEC.st.set(n,s);} return s;}
 function vecDrop(cv){if(!cv)return; cv.width=0; cv.height=0; cv.remove();}   // must shrink to 0 for Safari to release memory right away too
@@ -6906,7 +6925,7 @@ function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
   document.body.classList.toggle('side-open',open);
   const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
   $('#side-arrow').innerHTML=ic(LAYOUT==='narrow'?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
-  btn.setAttribute('aria-label',(open?'패널 접기':'패널 펴기')+' · 열린 핀 '+PINS.length);}
+  btn.setAttribute('aria-label',tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n:PINS.length}));}
 // remember: only remembers a manual collapse/expand by the user in mid (narrow always starts collapsed).
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
   if(open&&LAYOUT==='mid'){OUTLINE_MID_OPEN=false;applyOutlineState();}
@@ -7084,8 +7103,11 @@ function revealBox(box){if(!box||LAYOUT==='wide'||!document.contains(box))return
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
   return scope==='para'?'paragraph':'lines';}
-function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return lv.label; if(o.scope==='lines')return '줄 직접 지정';
-  return ({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'';}
+function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return levelLabel(lv.label); if(o.scope==='lines')return tr('줄 직접 지정');
+  return tr(({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'');}
+// Range-level labels come from the server in Korean ('드래그한 줄', '문단', '환경 table', '환경 table (바깥)').
+function levelLabel(s){s=String(s||''); if(LANG!=='en')return s; const m=/^환경 (.+?)( \(바깥( 2)?\))?$/.exec(s);
+  return m?tl(m[3]?'환경 {env} (바깥 2)':m[2]?'환경 {env} (바깥)':'환경 {env}',{env:m[1]}):tr(s);}
 // Shows the level matching the current range as pressed. If scope is set, that level (when the range also matches); otherwise the first level whose lo/hi match
 // (shown as '지금 범위' on an edit card).
 function curLevel(o){const ls=o.levels||[];
@@ -7095,14 +7117,14 @@ function curLevel(o){const ls=o.levels||[];
 function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
 // once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
-function levelName(lv,all){if(!lv.env)return lv.label;
-  const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?String(lv.label).replace(/^환경 /,''):lv.env;}
+function levelName(lv,all){if(!lv.env)return levelLabel(lv.label);
+  const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?levelLabel(lv.label).replace(/^(환경|Environment) /,''):lv.env;}
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur;
   const tip=isEdit&&lv.level==='raw'?T.cur:(lv.level.startsWith('env')?T.env:T[lv.level]);
-  const label=isEdit&&lv.level==='raw'?'지금 범위':levelName(lv,ls);
+  const label=isEdit&&lv.level==='raw'?tr('지금 범위'):levelName(lv,ls),nl=tl('{n}줄',{n:lv.n});
   return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" aria-label="'+
-    esc(label+' '+rng(lv.lo,lv.hi)+' · '+lv.n+'줄')+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tip)+'">'+
-    esc(label)+' <span class="k'+(lv.n>50?' wn':'')+'">· '+lv.n+'줄</span></button>';}).join('');}
+    esc(label+' '+rng(lv.lo,lv.hi)+' · '+nl)+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tr(tip))+'">'+
+    esc(label)+' <span class="k'+(lv.n>50?' wn':'')+'">· '+esc(nl)+'</span></button>';}).join('');}
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;
@@ -7123,15 +7145,15 @@ function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
   try{const {data}=await api(dq('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,o.doc),{what:'원문 읽기'});
     if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
 function snipText(text,open){const ls=String(text||'').split('\n');
-  return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+(ls.length-8)+'줄 접힘';}
+  return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+tl('{n}줄 접힘',{n:ls.length-8});}
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
 // below 30%, the warning color. The method used, match rate, and what to check go in the description instead ('match 100%' alone was meaningless). Shared by the composer panel and cards.
 const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
-  const how=p.via==='synctex'?'좌표로 찾음':(p.via==='text'?'글자로 찾음':'찾은 방법: '+p.via);
-  const why=p.via==='text'?T.text:T.synctex;
-  return {t:'위치 불확실',tip:how+' · 일치 '+pct+'% — '+why+(low?' 많이 어긋났을 수 있습니다.':''),low};}
+  const how=p.via==='synctex'?tr('좌표로 찾음'):(p.via==='text'?tr('글자로 찾음'):tl('찾은 방법: {via}',{via:p.via}));
+  const why=tr(p.via==='text'?T.text:T.synctex);
+  return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}
 
 // ------------------------------------------------ composer
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
@@ -7198,8 +7220,10 @@ function pickOverlap(ovs){
   return null;
 }
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'.
-function overlapVerb(rel,id){const g=(c,v)=>josa(id,c,v);
-  return ({equal:g('과','와')+' 같은 범위입니다',inside:' 범위 안입니다',contains:g('을','를')+' 감쌉니다',partial:g('과','와')+' 일부 겹칩니다'})[rel]||g('과','와')+' 겹칩니다';}
+// The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range as open pin #4'.
+function overlapText(rel,id){const k={equal:'열린 핀 #{id}{p} 같은 범위입니다',inside:'열린 핀 #{id} 범위 안입니다',contains:'열린 핀 #{id}{p} 감쌉니다',
+    partial:'열린 핀 #{id}{p} 일부 겹칩니다'}[rel]||'열린 핀 #{id}{p} 겹칩니다';
+  return tl(k,{id,p:rel==='contains'?josa(id,'을','를'):josa(id,'과','와')});}
 // [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes the
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 let OVERLAP_DISMISSED=null;
@@ -7209,9 +7233,9 @@ function renderOverlapBanner(){
   const ov=d?pickOverlap(d.overlaps):null;
   if(!ov||OVERLAP_DISMISSED===ov.id+':'+ov.rel){box.hidden=true;return;}
   box.hidden=false; box.dataset.rel=ov.rel;
-  box.innerHTML='<span>열린 핀 #'+ov.id+overlapVerb(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>'+
-    '<button class="btn-sm" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="이 선택의 메모를 #'+ov.id+' 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다">#'+
-    ov.id+' 메모에 덧붙이기</button>'+
+  box.innerHTML='<span>'+overlapText(ov.rel,ov.id)+' <span class="dim">(L'+ov.lo+'-L'+ov.hi+')</span></span>'+
+    '<button class="btn-sm" data-act="overlap-append" data-oid="'+ov.id+'" data-tip="'+tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다',{id:ov.id})+'">'+
+    tl('#{id} 메모에 덧붙이기',{id:ov.id})+'</button>'+
     '<button class="btn-sm" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
 }
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
@@ -7220,19 +7244,19 @@ function renderOverlapBanner(){
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
-  $('#c-loc').textContent=d.name+' · 쪽 '+d.page+' 영역'; $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
-  const pg=$('#c-page'); pg.textContent='보기 전용'; pg.dataset.tip='LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
+  $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
+  const pg=$('#c-page'); pg.textContent=tr('보기 전용'); pg.dataset.tip='LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||''; $('#c-overlap').hidden=true;
   $('#c-levels').innerHTML='';
-  const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?'영역 글자: '+d.quote:'(이 영역에는 글자가 없습니다)';
+  const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true;}
 function renderComposer(){const d=CUR; if(!d)return;
   if(isRegion(d)){renderRegionComposer(d); return;}
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
   $('#c-loc').textContent=d.name+' '+rng(d.lo,d.hi); $('#c-loc').dataset.copy=copy;
-  const pg=$('#c-page'); pg.textContent=d.page+'쪽'+(curLevel(d)?'':' · 줄 직접 지정');
-  pg.dataset.tip=d.page+'쪽 · '+scopeLabel(d)+' · '+(d.hi-d.lo+1)+'줄 · 드래그한 줄 '+rng(d.raw_lo,d.raw_hi);
+  const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}); pg.textContent=pgn+(curLevel(d)?'':' · '+tr('줄 직접 지정'));
+  pg.dataset.tip=pgn+' · '+scopeLabel(d)+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
   $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
   renderOverlapBanner();
@@ -7242,7 +7266,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
-  $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기'+(nl>1?' · '+nl+'줄':'');
+  $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?tr('원문 접기'):tr('원문 펼치기')+(nl>1?' · '+tl('{n}줄',{n:nl}):'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
@@ -7267,21 +7291,21 @@ async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
     const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
-    toast('#'+id+' 에 덧붙였습니다','ok',{label:'되돌리기',fn:()=>undoAppend(id,priorNote,data.pin.rev)});
+    toast(tl('#{id} 에 덧붙였습니다',{id}),'ok',{label:'되돌리기',fn:()=>undoAppend(id,priorNote,data.pin.rev)});
     await loadPins();
   }catch(e){}}
 async function undoAppend(id,note,rev){
   try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기'});
-    toast('#'+id+' 메모를 되돌렸습니다','ok');}catch(e){} await loadPins();}
+    toast(tl('#{id} 메모를 되돌렸습니다',{id}),'ok');}catch(e){} await loadPins();}
 // The normal label for the save-pin button (shared by boot and clearing the pending state).
-function saveBtnLabel(){return MQ_COARSE.matches?'핀 저장':'핀 저장 <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';}
+function saveBtnLabel(){return MQ_COARSE.matches?tr('핀 저장'):tr('핀 저장')+' <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';}
 // P0c: pressing [핀 저장] right after a drag but before SyncTeX pick finishes (~1.1s) used to just silently vanish, since
 // CUR didn't exist yet (observed). Now that save request is queued and auto-saved once pick succeeds - the note re-reads
 // #note at the moment of saving (when pick resolves), picking up even characters the user edited in the meantime. If pick
 // fails or the selection is canceled, the queue is cleared too. Pressing the button again cancels the pending save (a toggle) - so it can be undone without a separate cancel button.
 function togglePendingSave(){if(PEND_SAVE){clearPendingSave();return;}
   PEND_SAVE=true; const btn=$('#btn-save'); btn.dataset.pending='1';
-  btn.innerHTML='위치 찾는 중… 저장 대기 <span class="spin" aria-hidden="true"></span>';}
+  btn.innerHTML=tr('위치 찾는 중… 저장 대기')+' <span class="spin" aria-hidden="true"></span>';}
 function clearPendingSave(){if(!PEND_SAVE)return; PEND_SAVE=false;
   const btn=$('#btn-save'); delete btn.dataset.pending; btn.innerHTML=saveBtnLabel();}
 async function savePin(){
@@ -7299,13 +7323,13 @@ async function savePin(){
   renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
-    toast((q?'질문 #':'핀 #')+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
+    toast(tl(q?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
     await loadPins();
   }catch(e){} finally{SAVING=false; btn.disabled=false;}
 }
 
 // ------------------------------------------------ Pin list
-function who(a){return (a&&(a.name||a.login))||'';}
+function who(a){if(a&&a.login==='local')return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
 function isAgent(a){return !!a&&a.login==='local';}
@@ -7316,8 +7340,8 @@ function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<s
 document.addEventListener('error',e=>{const t=e.target;
   if(t&&t.tagName==='IMG'&&t.classList.contains('av')){BADPIC.add(t.getAttribute('src')); const s=document.createElement('span');s.className='av i';
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
-function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
-  if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
+function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.author):tr('기록 전'),at:p.at||'?'});
+  if(p.edited_at)s+=' / '+tl('수정: {name} · {at}',{name:who(p.edited_by)||tr('기록 전'),at:p.edited_at}); return s;}
 // P0b-03: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
 // otherwise the smallest-id partial. Must follow the same rule as the server's rel_badge() (pins.md) so card tags and
 // pins.md rows never disagree - since a rel entry is only {id,rel}, the range is looked up by id from PINS (all currently loaded open pins).
@@ -7327,16 +7351,16 @@ function relBadge(rel,p){
   if(!rel||!rel.length)return null;
   const byId=new Map(PINS.map(p=>[p.id,p]));
   if(p){const same=rel.filter(x=>{const o=byId.get(x.id); return o&&o.lo===p.lo&&o.hi===p.hi;});
-    if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:'equal',label:'#'+n+josa(n,'과','와')+' 같은 범위'};}}
+    if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:'equal',label:tl('#{id}{p} 같은 범위',{id:n,p:josa(n,'과','와')})};}}
   const insides=rel.filter(x=>x.rel==='inside');
   if(insides.length){
     const span=x=>{const o=byId.get(x.id); return o?(o.hi-o.lo):Number.MAX_SAFE_INTEGER;};
     const best=insides.reduce((a,b)=>{const sa=span(a),sb=span(b);
       return (sb<sa||(sb===sa&&b.id<a.id))?b:a;});
-    return {id:best.id,rel:'inside',label:'#'+best.id+' 범위 안'};
+    return {id:best.id,rel:'inside',label:tl('#{id} 범위 안',{id:best.id})};
   }
   const partials=rel.filter(x=>x.rel==='partial').sort((a,b)=>a.id-b.id);
-  if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:'#'+n+josa(n,'과','와')+' 일부 겹침'};}
+  if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:tl('#{id}{p} 일부 겹침',{id:n,p:josa(n,'과','와')})};}
   return null;
 }
 // §P0c-C: the in-progress marker. claim_until is epoch seconds, compared independent of the browser's timezone (numbers
@@ -7350,14 +7374,14 @@ function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Da
 function ceil5(m){return Math.max(5,Math.ceil(m/5-1e-9)*5);}
 function hhmm(ms){const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by)||'?',st=typeof p.claim_ts==='number'?p.claim_ts*1000:null;
-  const tail=' · 잠금 자동 해제 '+hhmm(p.claim_until*1000)+'(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]';
-  const head='처리하는 쪽: '+w+(st?' · 시작 '+hhmm(st):'');
+  const tail=' · '+tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]',{time:hhmm(p.claim_until*1000)});
+  const head=tl('처리하는 쪽: {name}',{name:w})+(st?' · '+tl('시작 {time}',{time:hhmm(st)}):'');
   if(typeof p.eta_ts==='number'){const eta=p.eta_ts*1000;
-    if(now<=eta)return {t:'처리 중 · 약 '+ceil5((eta-now)/60000)+'분 · '+hhmm(Math.ceil(eta/300000)*300000)+'쯤',late:false,
-      tip:head+' · 예상 완료 '+hhmm(eta)+tail};
-    return {t:'예상보다 늦어짐 (+'+ceil5((now-eta)/60000)+'분)',late:true,tip:head+' · 예상 완료 '+hhmm(eta)+'였음'+tail};}
-  if(st)return {t:'처리 중 · '+hhmm(st)+'부터 ('+Math.max(1,Math.ceil((now-st)/60000))+'분째)',late:false,tip:head+' · 예상 시간 없음'+tail};
-  return {t:'처리 중',late:false,tip:head+tail};}
+    if(now<=eta)return {t:tl('처리 중 · 약 {n}분 · {time}쯤',{n:ceil5((eta-now)/60000),time:hhmm(Math.ceil(eta/300000)*300000)}),late:false,
+      tip:head+' · '+tl('예상 완료 {time}',{time:hhmm(eta)})+tail};
+    return {t:tl('예상보다 늦어짐 (+{n}분)',{n:ceil5((now-eta)/60000)}),late:true,tip:head+' · '+tl('예상 완료 {time}였음',{time:hhmm(eta)})+tail};}
+  if(st)return {t:tl('처리 중 · {time}부터 ({n}분째)',{time:hhmm(st),n:Math.max(1,Math.ceil((now-st)/60000))}),late:false,tip:head+' · '+tr('예상 시간 없음')+tail};
+  return {t:tr('처리 중'),late:false,tip:head+tail};}
 function claimLabel(p,now){return claimInfo(p,now).t;}
 function claimTag(p){const c=claimInfo(p);
   return '<span class="badge badge-claimed'+(c.late?' late':'')+'" data-claim="'+p.id+'" data-tip="'+esc(c.tip)+'">'+ic('clock')+'<span class="ct">'+esc(c.t)+'</span></span>';}
@@ -7368,24 +7392,24 @@ function tickClaims(){if(document.hidden)return; let gone=false;
   if(gone)drawPins();}
 setInterval(tickClaims,30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'.
-function locText(p){return isRegion(p)?'영역':rng(p.lo,p.hi);}
+function locText(p){return isRegion(p)?tr('영역'):rng(p.lo,p.hi);}
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
-  return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
+  return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 // Thread (docs/design.md §Threads and review): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDIT.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
 function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
 // The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
-function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
-  const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
-  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></button>'
-    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></span>';}
+function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
+  const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
+  return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></button>'
+    :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></span>';}
 // Status dot (docs/design.md §Status representation): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
-function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
+function stDot(st){const t=esc(tl('상태: {name}',{name:tr(ST_NAME[st])})); return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="'+t+'" data-tip="'+t+'"></span>';}
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
 function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e==='close'||e==='reopen')return e==='reopen'?th[i]:null;} return null;}
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
@@ -7411,9 +7435,9 @@ function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hi
       const tk=toks.find(x=>x.t.toLowerCase()===t.toLowerCase()); if(!tk)return m; hit.push({m,lg:tk.lg}); return '\u0001'+(hit.length-1)+'\u0002';});}
   // '#12' - a link to that pin if it exists. An escape like '&#39;' (preceded by &) and '#12;' are left untouched.
   h=h.replace(/(^|[^&0-9A-Za-z#])#(\d{1,6})(?![\d;])/g,(m,pre,n)=>{const id=+n; if(!pinRefExists(id))return m;
-    return pre+'<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="'+id+'" data-tip="핀 #'+id+' 로 갑니다">#'+id+'</span>';});
+    return pre+'<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="'+id+'" data-tip="'+esc(tl('핀 #{id} 로 갑니다',{id}))+'">#'+id+'</span>';});
   return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
-    return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
+    return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?tr('나를 부름 — 이 핀 알림이 나에게 옵니다'):tl('@태그 — {name}에게 알림이 갑니다',{name:peopleName(x.lg)}))+'">'+x.m+'</span>';});}
 function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
 // The [나를 부른 핀] filter (docs/design.md §@태그): uses the same material as the badge/pins.md's '→ @name'
 // (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
@@ -7427,7 +7451,7 @@ function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
     (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+esc(others.map(peopleName).join(', '))+'</span>':'');}
 // A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
 function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
-  return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+'참고 '+esc(to.map(peopleName).join(', '))+'</span>';}
+  return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+esc(tl('참고 {names}',{names:to.map(peopleName).join(', ')}))+'</span>';}
 // Is the reference (ref) a meaningful value? '-' is a placeholder QA scripts/legacy callers use for "no reference" - shown as-is
 // it would produce meaningless text like '닫음 · -' (observed defect). An empty or whitespace-only value is filtered out the same way.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
@@ -7438,12 +7462,12 @@ function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text|
   return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
     (long&&key?'<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="'+esc(key)+'" aria-expanded="'+open+'">'+(open?'접기':'더 보기')+'</button>':'');}
 function msgHtml(m,key){const by=m.by||{},nm=who(by)||'?',mine=isMe(by)?'<span class="me-tag"> (나)</span>':'';
-  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(EV_LABEL[m.ev]||m.ev)+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
+  if(m.ev)return '<div class="msg ev ev-'+esc(m.ev)+'"><div class="msg-h"><b>'+esc(nm)+mine+'</b><span>'+esc(tr(EV_LABEL[m.ev]||m.ev))+(hasRef(m.ref)?' · '+esc(m.ref):'')+'</span>'+relSpan(m.at)+'</div>'+
     (m.text?msgBody(m,key):'')+'</div>';
   return '<div class="msg">'+avatar(by)+'<div class="msg-b"><div class="msg-h"><b>'+esc(nm)+mine+'</b>'+relSpan(m.at)+'</div>'+msgBody(m,key)+'</div></div>';}
 function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.has(p.id),hide=all?0:Math.max(0,th.length-keep);
   let h='';
-  if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">이전 '+hide+'건 보기</button>';
+  if(hide)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">'+esc(tl('이전 {n}건 보기',{n:hide}))+'</button>';
   else if(all&&th.length>keep)h+='<button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button>';
   h+=th.slice(hide).map((m,i)=>msgHtml(m,p.id+':'+(i+hide))).join('');
   if(REPLY&&REPLY.id===p.id)h+='<div class="reply-slot"></div>';
@@ -7452,15 +7476,15 @@ function card(p){
   const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push('<span class="badge badge-warning" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="badge" data-tip="'+
-    esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
+    esc(tl('원고가 고쳐져 {n}줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다',{n:m[1].replace('+','')}))+'">'+ic('move-vertical')+esc(tl('줄 {delta} 이동',{delta:m[1]}))+'</span>');}
   const claimed=claimActive(p);
   if(claimed)tags.push(claimTag(p));
-  if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
-    (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
+  if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc(tl('저장한 뒤 메모나 범위를 고쳤습니다({when})',{when:p.edited_at.slice(11,16)+
+    (p.edited_by?' · '+who(p.edited_by):'')}))+'">'+ic('pencil')+esc(tr('수정됨'))+'</span>');
   const closedCard=pinState(p)!=='open';   // overlap/location-confidence badges are meaningless on an awaiting-review/done card (line matching doesn't run, QA)
   const rb=closedCard?null:relBadge(p.rel,p);
-  if(rb)tags.push('<span class="badge" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
-    '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
+  if(rb)tags.push('<span class="badge" data-tip="'+esc(tl(rb.rel==='partial'?'핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
+    '핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다',{id:rb.id,p:josa(rb.id,'과','와')}))+'">'+esc(rb.label)+'</span>');
   const v=closedCard?null:viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
@@ -7479,15 +7503,15 @@ function card(p){
   const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const rv=pinState(p)==='review';
-  if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
+  if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
-  if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc('검토에서 되돌아온 핀 — '+(who(ro.by)||'?')+' · '+arcTime(ro.at)+(ro.text?' · 이유: '+ro.text:''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
+  if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc(tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
   const nr=replyCount(p);
-  const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="답글 '+nr+'건 — 답글 쓰기" data-tip="이 핀의 답글 '+nr+'건 — 누르면 카드를 펴고 답글 칸을 엽니다">'+ic('message-square')+nr+'</span>':'';
+  const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="'+esc(tl('답글 {n}건 — 답글 쓰기',{n:nr}))+'" data-tip="'+esc(tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr}))+'">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
     '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
-    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
+    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:p.page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+open+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open?'chevron-down':'chevron-right')+'</button></div>'+
     sum+
@@ -7503,7 +7527,7 @@ function card(p){
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
     '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
-    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+p.page+'쪽</span>'+
+    '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:p.page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
     '<button class="btn-icon btn-sm btn-ghost cmp b-fold" data-act="card-toggle" aria-expanded="'+(open||editing)+'" aria-label="'+(open?'카드 접기':'카드 펼치기')+'">'+ic(open||editing?'chevron-down':'chevron-right')+'</button></div>'+
     sum+
@@ -7528,19 +7552,19 @@ const ARC_OPEN=new Set();
 // The original string is kept in data-at and re-computed every 60 seconds (tickRel).
 function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
-  if(d<1)return '방금'; if(d<60)return Math.floor(d)+'분 전'; if(d<24*60)return Math.floor(d/60)+'시간 전'; if(d<7*24*60)return Math.floor(d/1440)+'일 전';
+  if(d<1)return tr('방금'); if(d<60)return tl('{n}분 전',{n:Math.floor(d)}); if(d<24*60)return tl('{n}시간 전',{n:Math.floor(d/60)}); if(d<7*24*60)return tl('{n}일 전',{n:Math.floor(d/1440)});
   return (+m[2])+'-'+(+m[3]);}
 function relSpan(s,cls,tip){return '<span class="rt'+(cls?' '+cls:'')+'" data-at="'+esc(s||'')+'" data-tip="'+esc((tip?tip+' ':'')+(s||'?'))+'">'+esc(relTime(s))+'</span>';}
 function tickRel(){if(document.hidden)return; $$('.rt[data-at]').forEach(e=>{const v=relTime(e.dataset.at); if(e.textContent!==v)e.textContent=v;});}
 setInterval(tickRel,60000);
 function arcTime(s){s=String(s||''); return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(s)?s.slice(5,16):s;}
 function arcLoc(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop();
-  return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?'쪽 '+p.page+' 영역':rng(p.lo,p.hi))+'</span>';}
+  return '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' L'+p.lo+'-L'+p.hi)+'" data-tip="'+esc(T.loc)+'">'+esc(isRegion(p)?tl('쪽 {page} 영역',{page:p.page}):rng(p.lo,p.hi))+'</span>';}
 function arcLine(key,text,tip,logins){const open=ARC_OPEN.has(key);
   return '<span class="arc-reply'+(open?' open':'')+'" role="button" tabindex="0" data-act="arc-toggle" data-key="'+esc(key)+'" aria-expanded="'+open+'" data-tip="'+esc(tip)+'">'+fmtText(text,logins)+'</span>';}
 function allMentions(p){const out=(p.mentions||[]).slice(); threadOf(p).forEach(m=>(m.mentions||[]).forEach(l=>{if(!out.includes(l))out.push(l);})); return out;}
 function arcHead(label,n,open){return '<span class="arc-h">'+esc(label)+'</span><span class="badge badge-secondary arc-n">'+n+'</span><span class="arc-rule" aria-hidden="true"></span>'+
-  '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+(open?'접기':'펼치기')+'</span>';}
+  '<span class="arc-fold">'+ic(open?'chevron-down':'chevron-right')+esc(tr(open?'접기':'펼치기'))+'</span>';}
 function doneCard(p){
   const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
@@ -7554,18 +7578,18 @@ function doneCard(p){
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=(tn&&ARC_OPEN.has('t:'+p.id))||reopening;
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('check')+'<span class="n" data-tip="완료한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+ref+
-    relSpan(p.done_at,'arc-t','닫은 사람 '+(who(p.closed_by)||'기록 전')+' · 닫은 시각')+'<span class="sp"></span>'+
+    relSpan(p.done_at,'arc-t',tl('닫은 사람 {name} · 닫은 시각',{name:who(p.closed_by)||tr('기록 전')}))+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-reopen" data-act="rv-reopen" data-tip="'+esc(T.reopen)+'">다시 열기</button></div>'+
     '<div class="arc-l2">'+reply+(p.note?'<button class="arc-orig-t" data-act="arc-toggle" data-key="o:'+p.id+'" aria-expanded="'+oo+'" data-tip="핀을 남길 때 쓴 메모를 펼치고 접습니다">원래 요청</button>':'')+
     '<button class="arc-orig-t b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
-    (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">스레드 '+th.length+'</button>':'')+'</div>'+
+    (tn?'<button class="arc-orig-t" data-act="arc-toggle" data-key="t:'+p.id+'" aria-expanded="'+to+'" data-tip="답글과 닫기·다시 열기 이력을 펼치고 접습니다">'+esc(tl('스레드 {n}',{n:th.length}))+'</button>':'')+'</div>'+
     (p.note&&oo?'<div class="arc-orig"><b>원래 요청</b>'+fmtText(p.note,p.mentions)+'</div>':'')+
     (to?'<div class="arc-thread"><div class="thread">'+th.map((m,i)=>msgHtml(m,p.id+':'+i)).join('')+(reopening?'<div class="reply-slot"></div>':'')+'</div></div>':'')+'</div>';}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
-    relSpan(p.dropped_at,'arc-t','삭제한 사람 '+(who(p.dropped_by)||'기록 전')+' · 삭제한 시각')+'<span class="sp"></span>'+
+    relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',{name:who(p.dropped_by)||tr('기록 전')}))+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
@@ -7581,12 +7605,11 @@ async function loadPins(){let d;
   const nextOpen=d.filter(p=>!p.done); REVIEW_ALL=d.filter(p=>pinState(p)==='review'); DONE_ALL=d.filter(p=>pinState(p)==='done'); DROPPED=dropped;
   diffToast(prevOpen,d,dropped); reviewToast(prevReview,d);
   OPEN_ALL=nextOpen; PINS=nextOpen.filter(p=>pdoc(p)===DOC||!DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC||!DOC);
-  if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
+  if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:EDIT.id}),'warn'); EDIT=null;}
   if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
-  if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
-  if(META&&REVIEW_ALL.length)document.title+=' · 검토 '+REVIEW_ALL.length;
+  docTitle(true);
 }
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
@@ -7594,45 +7617,45 @@ function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
 function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
-  pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label','검토 대기 '+n);
-  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n+(multiDoc()&&here!==n?' (이 문서 '+here+')':'');}
+  pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));
+  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
 function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!=='local'&&a.login===me.login);}
-function reviewerLabel(p){if(!p.author||!(p.author.name||p.author.login))return '확인 필요'; return isMe(p.author)?'내 확인 차례':who(p.author)+'님 확인 필요';}
+function reviewerLabel(p){if(!p.author||!(p.author.name||p.author.login))return tr('확인 필요'); return isMe(p.author)?tr('내 확인 차례'):tl('{name}님 확인 필요',{name:who(p.author)});}
 function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
-  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);
+  mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // If the cursor was in the reply input field, it's restored to that position after redrawing (so auto-sync redrawing the list never interrupts typing).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
-  $('#list-h').textContent=(MENTION_ONLY?'나를 부른 열린 핀 ':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 ':'열린 핀 ')+SHOWN.length;
-  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+'모든 문서';
+  $('#list-h').textContent=tl(MENTION_ONLY?'나를 부른 열린 핀 {n}':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 {n}':'열린 핀 {n}',{n:SHOWN.length});
+  const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+esc(tr('모든 문서'));
   $('#side-n').textContent=PINS.length; applySide();
   // In compact, the done/dropped toggles move into [⋯] - the below-list toggle (.sec) is only shown while expanded.
-  $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
-  $('#m-dropped').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' 숨기기':' 보기');
+  $('#m-done').textContent=tl(SHOW_DONE?'닫힌 핀 {n} 숨기기':'닫힌 핀 {n} 보기',{n:LDONE.length});
+  $('#m-dropped').textContent=tl(SHOW_DROPPED?'삭제한 핀 {n} 숨기기':'삭제한 핀 {n} 보기',{n:LDROP.length});
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
   // Empty list: the header's '열린 핀 0' already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
-  $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">이 문서에는 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건</div>':'');
+  $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">'+esc(tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length}))+'</div>':'');
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
   // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[다시 열기].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
-  $('#sec-review').hidden=!LREV.length; $('#review-h').textContent='검토 대기 '+LREV.length;
+  $('#sec-review').hidden=!LREV.length; $('#review-h').textContent=tl('검토 대기 {n}',{n:LREV.length});
   $('#review-pins').innerHTML=LREV.map(card).join('');
   updateReviewCount();
   // Archive section: hidden header and all if empty and collapsed. The header is a full-width single line ('완료 18 ─── 펼치기') and stays stuck to the top while scrolling.
   $('#sec-done').hidden=!LDONE.length&&!SHOW_DONE; $('#sec-dropped').hidden=!LDROP.length&&!SHOW_DROPPED;
-  $('#done-toggle').innerHTML=arcHead('완료',LDONE.length,SHOW_DONE);
+  $('#done-toggle').innerHTML=arcHead(tr('완료'),LDONE.length,SHOW_DONE);
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
   $('#done-list').hidden=!SHOW_DONE;
   if(SHOW_DONE)$('#done-list').innerHTML=LDONE.length?LDONE.slice().reverse().map(doneCard).join(''):'<div class="dim">없습니다.</div>';
-  $('#dropped-toggle').innerHTML=arcHead('삭제',LDROP.length,SHOW_DROPPED);
+  $('#dropped-toggle').innerHTML=arcHead(tr('삭제'),LDROP.length,SHOW_DROPPED);
   $('#dropped-toggle').setAttribute('aria-expanded',String(SHOW_DROPPED));
   $('#dropped-list').hidden=!SHOW_DROPPED;
   if(SHOW_DROPPED)$('#dropped-list').innerHTML=LDROP.length?LDROP.slice().reverse().map(droppedCard).join(''):'<div class="dim">없습니다.</div>';
@@ -7652,7 +7675,7 @@ function marks(){
     const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':'')+(p.done?' rv':''); m.dataset.pin=p.id;
     Object.assign(m.style,{left:p.frac[0]*100+'%',top:p.frac[1]*100+'%',width:p.frac[2]*100+'%',height:p.frac[3]*100+'%'});
     const n=String(p.note||'').replace(/\s+/g,' ').trim();
-    const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)')+(est?' (PDF가 새로 만들어져 위치는 추정입니다)':'');
+    const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):tr('(메모 없음)'))+(est?' '+tr('(PDF가 새로 만들어져 위치는 추정입니다)'):'');
     m.innerHTML='<b data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});
 }
 // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
@@ -7704,23 +7727,23 @@ $('#pins').addEventListener('mouseout',e=>{const c=e.target.closest('.pin'); if(
   const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;
   markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.remove('hi');});});
 async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료'});
-  if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
-  else {markMine(id); toast(data.state==='review'?'핀 #'+id+' 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #'+id+' 완료',
+  if(!data.ok){toast(tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),'err');}
+  else {markMine(id); toast(tl(data.state==='review'?'핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #{id} 완료',{id}),
     'ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}}catch(e){} await loadPins();}
 // Awaiting review -> done. The person who confirmed (confirmed_by) is recorded.
 async function confirmPin(id){try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409]});
-  if(data&&data.error==='open')toast('핀 #'+id+' 은 이미 다시 열렸습니다','warn');
-  else if(!data.ok)toast('확인 실패 — 핀 #'+id+' 이 없습니다','err');
-  else{markMine(id); toast('핀 #'+id+' 확인 · 완료로 옮겼습니다','ok');}}catch(e){} await loadPins();}
+  if(data&&data.error==='open')toast(tl('핀 #{id} 은 이미 다시 열렸습니다',{id}),'warn');
+  else if(!data.ok)toast(tl('확인 실패 — 핀 #{id} 이 없습니다',{id}),'err');
+  else{markMine(id); toast(tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),'ok');}}catch(e){} await loadPins();}
 async function reopenPin(id,undo){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
-  markMine(id); toast(undo?'핀 #'+id+' 완료를 되돌렸습니다':'핀 #'+id+' 다시 열림','ok');}catch(e){} await loadPins();}
+  markMine(id); toast(tl(undo?'핀 #{id} 완료를 되돌렸습니다':'핀 #{id} 다시 열림',{id}),'ok');}catch(e){} await loadPins();}
 async function dropPin(id,undoSave){try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
   if(EDIT&&EDIT.id===id)EDIT=null;
-  markMine(id); toast(undoSave?'핀 #'+id+' 저장을 되돌렸습니다':'핀 #'+id+' 삭제됨','ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
+  markMine(id); toast(tl(undoSave?'핀 #{id} 저장을 되돌렸습니다':'핀 #{id} 삭제됨',{id}),'ok',{label:'되돌리기',fn:()=>restorePin(id)});}catch(e){} await loadPins();}
 async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'POST',what:'되살리기'});
-  markMine(id); toast('핀 #'+id+' 되살림','ok');}catch(e){} await loadPins();}
+  markMine(id); toast(tl('핀 #{id} 되살림',{id}),'ok');}catch(e){} await loadPins();}
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
-  markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
+  markMine(id); toast(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}),'ok');}catch(e){} await loadPins();}
 
 // ------------------------------------------------ @-tag autocomplete (docs/design.md §@태그)
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
@@ -7764,8 +7787,8 @@ function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,h
 function assignSeg(people,value,act){if(!people.length)return '';
   const opt=(v,label,tip)=>'<button type="button" role="radio" data-act="'+act+'" data-v="'+esc(v)+'" aria-checked="'+(v===value)+'"'+(v===value?' class="on"':'')+
     ' data-tip="'+esc(tip)+'">'+label+'</button>';
-  return '<span class="as-lab">담당</span><div class="seg as-seg">'+opt('agent','에이전트','에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다')+
-    people.map(l=>opt(l,'@'+esc(peopleName(l)),peopleName(l)+'에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다')).join('')+'</div>';}
+  return '<span class="as-lab">'+esc(tr('담당'))+'</span><div class="seg as-seg">'+opt('agent',esc(tr('에이전트')),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'))+
+    people.map(l=>opt(l,'@'+esc(peopleName(l)),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)}))).join('')+'</div>';}
 // The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
 const ASSIGN_NEW={v:'agent',touched:false};
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
@@ -7780,7 +7803,7 @@ function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelec
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
   const r=mentionScan(ta.value,ta._mentions),me=meLogin(); r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
-  box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' (나 — 알림 없음)':'')+'</span>').join(''):'')+
+  box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' '+esc(tr('(나 — 알림 없음)')):'')+'</span>').join(''):'')+
     r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
     (r.bad.length?'<span class="m-note">등록된 사람이 아님</span>':'');
   box.hidden=false;}
@@ -7790,7 +7813,7 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   const pop=$('#mention-pop');
   pop.innerHTML=MENTION.items.length?MENTION.items.map((p,i)=>'<button type="button" role="option" aria-selected="'+(i===MENTION.sel)+'" data-act="mention-pick" data-i="'+i+'">'+
     avatar(p)+'<span>'+esc(p.name)+'</span><span class="ml">'+esc(p.login)+'</span></button>').join(''):
-    '<div class="dim">'+(q.q?'\''+esc(q.q)+'\' 와 맞는 사람이 없습니다 — ':'부를 수 있는 사람이 없습니다 — ')+'이 뷰어를 연 테일넷 사람만 부를 수 있습니다</div>';
+    '<div class="dim">'+esc((q.q?tl("'{q}' 와 맞는 사람이 없습니다",{q:q.q}):tr('부를 수 있는 사람이 없습니다'))+' — '+tr('이 뷰어를 연 테일넷 사람만 부를 수 있습니다'))+'</div>';
   pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
   const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
   pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
@@ -7851,9 +7874,9 @@ async function sendReply(){const R=REPLY; if(!R||R.busy)return; const ta=R.el.qu
   R.busy=true; $$('.reply-box button').forEach(b=>b.disabled=true);
   const body=R.mode==='reopen'?{reason:text}:{text}; const mh=mentionHints(ta); if(mh.length)body.mentions=mh;
   try{const {data}=await api('/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply'),{method:'POST',body,what:R.mode==='reopen'?'다시 열기':'답글'});
-    if(!data.ok){toast('핀 #'+R.id+' 이 없습니다','err');}
+    if(!data.ok){toast(tl('핀 #{id} 이 없습니다',{id:R.id}),'err');}
     else{markMine(R.id); REPLY_DRAFT.delete(R.mode+':'+R.id); if(REPLY===R)REPLY=null;
-      toast(R.mode==='reopen'?'핀 #'+R.id+' 다시 열림 · 이유를 스레드에 남겼습니다':'#'+R.id+' 에 답글을 남겼습니다','ok');}
+      toast(tl(R.mode==='reopen'?'핀 #{id} 다시 열림 · 이유를 스레드에 남겼습니다':'#{id} 에 답글을 남겼습니다',{id:R.id}),'ok');}
   }catch(e){} finally{R.busy=false; $$('.reply-box button').forEach(b=>b.disabled=false);}
   await loadPins();}
 
@@ -7892,18 +7915,18 @@ function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelect
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.classList.contains('r-text')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
-  if(E.region){E.snippet=E.quote?'영역 글자: '+E.quote:'(영역 글자 없음)'; renderEdit(); return;}   // view-only: there is no source line
+  if(E.region){E.snippet=E.quote?tl('영역 글자: {text}',{text:E.quote}):tr('(영역 글자 없음)'); renderEdit(); return;}   // view-only: there is no source line
   try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
       {what:'원문 읽기',expect:[400]});
     if(EDIT!==E)return;
-    if(status===400){E.snippet='원문을 읽지 못했습니다 — '+(data&&data.error||'')+'\n위치 다시 잡기로 고치세요.'; renderEdit(); return;}
+    if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+(data&&data.error||'')+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
     E.snippet=data.snippet; E.n_lines=data.n_lines;
     if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
       if(cur&&!E.scope)E.scope=null;}}
     renderEdit();}catch(e){}}
 function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   el.querySelectorAll('.e-kind button').forEach(b=>{const on=b.dataset.kind===(E.kind_req||'fix'); b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
+  el.querySelector('.e-range').textContent=E.region?tl('쪽 {page} · 영역',{page:E.page}):rng(E.lo,E.hi);
   el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
@@ -7921,22 +7944,22 @@ async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   ESAVING=true;
   try{const {status,data}=await api('/api/pins/'+E.id+'/edit',{method:'POST',body,what:'핀 수정',expect:[409]});
     if(status===409){
-      if(data&&data.error==='done'){toast('핀 #'+E.id+' 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다','warn'); EDIT=null; await loadPins(); return;}
+      if(data&&data.error==='done'){toast(tl('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다',{id:E.id}),'warn'); EDIT=null; await loadPins(); return;}
       const p=data.pin; toast('다른 쪽(에이전트나 자동 줄 맞춤)이 이 핀을 먼저 바꿨습니다 — 최신 위치를 불러왔습니다','warn');
       E.base_rev=p.rev; E.lo=p.lo; E.hi=p.hi; E.scope=p.scope||null; E.file=p.file;
       E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true); await loadPins(); return;}
-    EDIT=null; toast('핀 #'+E.id+' 수정됨','ok'); await loadPins();
+    EDIT=null; toast(tl('핀 #{id} 수정됨',{id:E.id}),'ok'); await loadPins();
   }catch(e){} finally{ESAVING=false;}
 }
 
 // ------------------------------------------------ Re-place location
 function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
-function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PDF에서 드래그하세요 · Esc 취소</span>'+
+function bannerRepick(err){banner('<span>'+esc(tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id}))+'</span>'+
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
   '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=isRegion(c);
-  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+(rg?'지금 쪽 '+REPICK.from.page+' · 새 쪽 '+c.page+' 영역':'지금 L'+REPICK.from.lo+'-L'+REPICK.from.hi+' · 새 L'+lv.lo+'-L'+lv.hi)+'</span>'+
-    '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):'글자 없는 영역'):(lv.label||scopeLabel(c)))+')</span><span class="sp"></span>'+
+  banner('<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">'+esc(rg?tl('지금 쪽 {from} · 새 쪽 {to} 영역',{from:REPICK.from.page,to:c.page}):tl('지금 {from} · 새 {to}',{from:'L'+REPICK.from.lo+'-L'+REPICK.from.hi,to:'L'+lv.lo+'-L'+lv.hi}))+'</span>'+
+    '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):tr('글자 없는 영역')):(lv.label?levelLabel(lv.label):scopeLabel(c)))+')</span><span class="sp"></span>'+
     '<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
     '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
@@ -7958,7 +7981,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     const p=data.pin; cancelRepick();
     if(EDIT&&EDIT.id===p.id){Object.assign(EDIT,{base_rev:p.rev,lo:p.lo,hi:p.hi,file:p.file,name:p.name,scope:p.scope||null,page:p.page,quote:p.quote||''});
       EDIT.orig.lo=p.lo;EDIT.orig.hi=p.hi;EDIT.orig.scope=p.scope||null; editSnip(true);}
-    toast('핀 #'+p.id+' 위치를 '+(isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi)+' 로 바꿨습니다','ok'); await loadPins();
+    toast(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:p.page}):'L'+p.lo+'-L'+p.hi}),'ok'); await loadPins();
   }catch(e){}}
 
 // ------------------------------------------------ PDF rebuild
@@ -7978,7 +8001,7 @@ async function refreshDoc(){const a=topAnchor(),k=DOC;
 // On ok_errors|fail, the panel itself is opened right away, not just a toast - once the toast disappeared after 6
 // seconds there used to be no way to see it again. Even after closing it, #build-err-chip remains to reopen it (as long as LAST_BUILD_ERR exists).
 function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
-  const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다';
+  const title=tr(r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다');
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
     '<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+

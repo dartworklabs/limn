@@ -105,7 +105,7 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 - 점유돼 있으면: (a) `--port`를 지정하지 않았다면 서버가 자동으로 다음 빈 포트를 시도하게 하거나, (b) 점유 프로세스가 이 도구의 이전 인스턴스인지 확인 후 재사용(같은 `--manuscript`면 기존 서버를 그대로 쓰고 새로 띄우지 않는다).
 - 서버를 내릴 때 `pkill -f "limn serve"`로 죽이지 않는다 — 자기 자신의 명령줄까지 매칭해 무관한 세션을 죽일 위험이 있다. 포트로 PID를 찾아 종료한다: `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 - 새 버전으로 바꿀 때 상태 디렉토리는 그대로 둔다. 옛 레이아웃(`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`)을 `--no-build` 로도 재빌드 없이 읽는다. 기동 때 `pages.cur`(내용 `pages`)와 `pins.seq`(기존 최대 id)를 만들고 `<state_dir>/pins.md` 를 다시 그린다. 옛 `pages/` 는 다음 재빌드가 `pages-<build_id>/` 로 교체한 뒤 직전 1개로 남았다가 그다음 재빌드에서 지워진다.
-- **배포 경로**: `limn` 은 `uv tool install git+ssh://git@github.com/dartworklabs/limn@v0.1.0` 로 설치해 쓰는 독립 패키지다 — 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/` 는 패키지 안에 같이 설치되므로 따로 옆에 둘 필요가 없다. 새 버전으로 올리려면 그 버전을 다시 설치(또는 `limn update`, instances.md)하고 상시 인스턴스를 재시작한다 — 레포만 새로 받고 설치를 갱신하지 않으면 옛 버전이 계속 돈다.
+- **배포 경로**: `limn` 은 `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1` 로 설치해 쓰는 독립 패키지다 — 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/` 는 패키지 안에 같이 설치되므로 따로 옆에 둘 필요가 없다. 새 버전으로 올리려면 그 버전을 다시 설치(또는 `limn update`, instances.md)하고 상시 인스턴스를 재시작한다 — 레포만 새로 받고 설치를 갱신하지 않으면 옛 버전이 계속 돈다.
 
 ## 여러 논문 인스턴스를 동시에 띄울 때
 

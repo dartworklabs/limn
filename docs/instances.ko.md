@@ -110,7 +110,7 @@ limn update --ref v0.1.1       # 특정 태그·브랜치
 limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 ```
 
-`limn update` 는 `uv tool install --force git+ssh://git@github.com/dartworklabs/limn@<ref>` 를 실행하고
+`limn update` 는 `uv tool install --force git+https://github.com/dartworklabs/limn@<ref>` 를 실행하고
 (`LIMN_REPO` 로 원본을 바꾼다), 유닛 템플릿을 다시 쓰고, 켜진 `limn@*` 인스턴스를 모두 재시작한 뒤 HTTP
 200 을 기다린다. 설치하는 동안 도는 서버는 그대로이고, 재시작할 때 새 판으로 바뀐다. **상태 폴더는 건드리지
 않는다.** 되돌리기는 이전 태그를 다시 설치하는 것이다: `limn update --ref v<이전 판>` (업데이트할 때마다
@@ -145,7 +145,7 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 | `LIMN_UNIT_PATH` | `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin` | 유닛 안의 `PATH` |
 | `LIMN_LEDGER`, `LIMN_LEDGER_GEN` | [포트](#포트) 참고 | 포트 장부(선택) |
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
-| `LIMN_REPO`, `LIMN_UV` | `git+ssh://git@github.com/dartworklabs/limn`, `uv` | `limn update` 가 설치할 원본과 쓸 `uv` |
+| `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` (SSH 로 받으려면 `git+ssh://git@github.com/dartworklabs/limn`) | `limn update` 가 설치할 원본과 쓸 `uv` |
 | `LIMN_WAIT` | `240` | 기동·재시작 뒤 HTTP 200 을 기다리는 초 |
 
 예전 이름으로 설치해 쓰던 환경에서 옮겨 오는 경우는 [README](../README.ko.md#출처와-이전) 의 출처 절과

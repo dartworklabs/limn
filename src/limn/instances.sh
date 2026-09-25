@@ -90,7 +90,7 @@ UNIT_TEMPLATE="${LIMN_UNIT_TEMPLATE:-$_HERE/systemd/limn@.service}"
 LIMN_BIN="${LIMN_BIN:-$(command -v limn || printf '%s' "$HOME/.local/bin/limn")}"
 VERSION="${LIMN_VERSION:-?}"
 # Source that update reinstalls from (the form uv tool install accepts). If --ref is given, @<ref> is appended.
-REPO="${LIMN_REPO:-git+ssh://git@github.com/dartworklabs/limn}"
+REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"
 UV="${LIMN_UV:-uv}"
 WAIT_S="${LIMN_WAIT:-240}"
 
