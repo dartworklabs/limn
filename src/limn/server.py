@@ -6157,20 +6157,20 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:4px var(--space-4);background:var(--sidebar)}
 #revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
 #revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
-#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
-#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
-#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
+#revision-other,#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
+#revision-other .rd-line,#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
+#revision-other .rd-no,#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
   text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
-#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
-#revision-diff.wrap .rd-line{display:flex;width:auto}
-#revision-diff.wrap .rd-no{flex:none}
-#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
-#revision-diff .rd-file{background:var(--muted);font-weight:600}
-#revision-diff .rd-meta{color:var(--muted-foreground)}
-#revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
-#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
+#revision-other .rd-code,#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+#revision-other.wrap .rd-line,#revision-diff.wrap .rd-line{display:flex;width:auto}
+#revision-other.wrap .rd-no,#revision-diff.wrap .rd-no{flex:none}
+#revision-other.wrap .rd-code,#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#revision-other .rd-file,#revision-diff .rd-file{background:var(--muted);font-weight:600}
+#revision-other .rd-meta,#revision-diff .rd-meta{color:var(--muted-foreground)}
+#revision-other .rd-hunk,#revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
+#revision-other .rd-add,#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
   color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
-#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
+#revision-other .rd-del,#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
   color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
 #revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
 #revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
@@ -6180,6 +6180,11 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:4px 0}
 #revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);text-align:center}
 #revision-source{flex:1;min-height:0;overflow:auto}
+/* v0.3: the pin's own hunks come first; the rest of the commit folds under one control and expands inline below them */
+#revision-other-toggle{display:flex;align-items:center;gap:var(--space-1);width:100%;justify-content:flex-start;border-radius:0;
+  border-top:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-sm)}
+#revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}
+#revision-other{border-top:1px solid var(--border)}
 .revision-page{width:min(100%,780px);min-height:500px;margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
 .revision-page canvas{display:block;max-width:100%;margin:auto}
 /* Panel width grip (shared by wide/mid, Pointer Events): the visible bar is 6px; the grab area is widened via
@@ -6847,7 +6852,7 @@ body.view-only #btn-rebuild{display:none}
 @media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px var(--space-1)}}
 </style></head><body>
 <div id="brand-stripe" style="background:__ACCENT__"></div>
-<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost btn-icon">{{ic:panel-left}}</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button><button id="revision-wrap" class="tg btn-sm" data-act="diff-wrap" aria-pressed="false" data-tip="긴 줄을 화면 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고는 켜 두세요">{{ic:text-wrap}}줄바꿈</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre></div></div></section></div></div></div>
+<div id="main"><div id="doc-nav"><button id="nav-toc-toggle" data-act="outline" aria-controls="outline" aria-expanded="false" aria-label="목차 펼치기" class="btn-ghost btn-icon">{{ic:panel-left}}</button><span id="paper-identity"><span id="paper-identity-mark" aria-hidden="true">__LABEL_INITIAL__</span><span>__LABEL__</span></span><div id="doc-select-wrap"><label for="doc-select">문서</label><select id="doc-select" aria-label="문서 선택"></select></div><div id="doc-links" role="group" aria-label="문서 선택"></div><div id="view-switch" role="group" aria-label="보기"><button id="view-manuscript" data-act="view-mode" data-mode="manuscript" aria-pressed="true">원고</button><button id="view-revisions" data-act="view-mode" data-mode="revisions" aria-pressed="false">변경사항</button></div></div><div id="pdf-body"><nav id="outline" aria-label="원고 목차"><div class="outline-head"><span class="outline-title">목차</span></div><input id="outline-search" type="search" placeholder="장·절 찾기" aria-label="목차에서 장·절 찾기"><div id="outline-items" class="outline-empty">PDF 목차를 읽는 중입니다.</div></nav><div id="outline-grip" role="separator" aria-orientation="vertical" aria-controls="outline" aria-label="목차 폭" tabindex="0" aria-valuemin="220" aria-valuemax="320" aria-valuenow="240" data-tip="끌어서 목차 폭을 바꿉니다. ←/→ 키로 16px씩 바꿀 수 있습니다"></div><div id="pdf-center"><div id="section-strip"><span id="section-current">원고</span><span id="section-page"></span></div><div id="left"><div id="doc"></div></div><section id="revision-view" aria-label="원고 변경사항"><div id="revision-inner"><div id="revision-head"><h2>원고 변경사항</h2><div id="revision-list"></div></div><div id="revision-pin" role="status" hidden></div><div id="revision-note">선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외</div><div id="revision-controls"><button id="revision-pdf-tab" data-act="revision-format" data-format="pdf" aria-pressed="true">변경 PDF</button><button id="revision-source-tab" data-act="revision-format" data-format="source" aria-pressed="false">소스 diff</button><button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden data-tip="이 핀의 변경만 넣은 비교 대신 커밋 전체의 비교 PDF를 봅니다. 다시 누르면 이 핀의 변경만 봅니다">커밋 전체 비교</button><button id="revision-wrap" class="tg btn-sm" data-act="diff-wrap" aria-pressed="false" data-tip="긴 줄을 화면 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고는 켜 두세요">{{ic:text-wrap}}줄바꿈</button></div><div id="revision-status" role="status" aria-live="polite"></div><details id="revision-warning" hidden><summary>빌드 경고 보기</summary><pre></pre></details><div id="revision-pdf"></div><div id="revision-source" hidden><div id="revision-file-row" hidden><label for="revision-file">파일</label><select id="revision-file"></select></div><pre id="revision-diff" class="nowrap"></pre><button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" aria-controls="revision-other" hidden>{{ic:chevron-right}}<span></span></button><pre id="revision-other" class="nowrap" hidden></pre></div></div></section></div></div></div>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div id="grip" role="separator" aria-orientation="vertical" aria-controls="right" aria-label="패널 폭" tabindex="0" data-tip="끌어서 패널 폭을 바꿉니다. 탭(마우스는 두 번 클릭)하면 좁게 → 보통 → 넓게 순으로 바뀝니다. ←/→ 키로도 바뀝니다"></div>
 <div id="right">
@@ -7301,6 +7306,10 @@ function docLinksReveal(){const d=$('#doc-links'),a=d&&d.querySelector('[aria-cu
 $('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});
 if(window.ResizeObserver)new ResizeObserver(()=>docLinksReveal()).observe($('#doc-links'));
 let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='',REVISION_COMMIT='',REVISION_SOURCE_COMMIT='',REVISION_FORMAT='pdf';
+// v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REVISION_SCOPE is the source diff's scope object
+// ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
+let REVISION_SCOPE=null,REVISION_OTHER='';
+const REV_SCOPE={whole:false,partial:false,fallback:false};
 const REV_PDF={doc:null,loading:null,observer:null,tasks:new Set()};
 function revisionFiles(patch){
   const starts=[];const re=/^diff --git .+$/gm;let m;
@@ -7310,7 +7319,7 @@ function revisionFiles(patch){
 }
 // Source diff wrapping: on by default for touch devices (a manuscript where a paragraph is one line was 6,273px wide on a phone, QA). The on/off value is stored in pinPrefs.diffWrap.
 let DIFF_WRAP=null;
-function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); const d=$('#revision-diff'); if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
+function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); for(const d of [$('#revision-diff'),$('#revision-other')])if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
   const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
 function initDiffWrap(){const v=prefs().diffWrap; setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches);}
 function renderRevisionDiff(patch){
@@ -7333,6 +7342,20 @@ function renderRevisionDiff(patch){
 }
 function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);
   $('#revision-diff').innerHTML=renderRevisionDiff(v==='all'?REVISION_WHOLE:(REVISION_FILES[i]&&REVISION_FILES[i].text)||REVISION_WHOLE);}
+// The rest of the commit, folded under one control (v0.3). Hidden when the pin owns the whole commit or the view is not a pin's.
+function drawRevisionOther(sc){const b=$('#revision-other-toggle'),o=$('#revision-other');
+  o.hidden=true;o.innerHTML='';b.setAttribute('aria-expanded','false');
+  REVISION_OTHER=sc&&sc.mode==='pin'?String(sc.other_diff||''):'';
+  b.hidden=!REVISION_OTHER;if(REVISION_OTHER)b.querySelector('span').textContent=tl('이 커밋의 다른 변경 {n}곳',{n:sc.other});}
+function toggleRevisionOther(){const b=$('#revision-other-toggle'),o=$('#revision-other'),open=b.getAttribute('aria-expanded')!=='true';
+  b.setAttribute('aria-expanded',String(open));o.hidden=!open;
+  if(open&&!o.innerHTML)o.innerHTML=renderRevisionDiff(REVISION_OTHER);}
+// [커밋 전체 비교]: shown only for the PDF of a pin that owns part of the commit, and not after a fallback (there is nothing to switch to).
+function syncRevisionWhole(){const b=$('#revision-whole');
+  b.hidden=!(REVISION_FORMAT==='pdf'&&REV_TARGET&&REV_SCOPE.partial&&!REV_SCOPE.fallback);
+  b.setAttribute('aria-pressed',String(REV_SCOPE.whole));}
+function setRevisionWhole(on){REV_SCOPE.whole=!!on;++REVISION_SEQ;REVISION_PDF_COMMIT='';
+  clearRevisionPdf();$('#revision-warning').hidden=true;setRevisionFormat('pdf');}
 function revisionCurrent(seq,k,id){return seq===REVISION_SEQ&&k===DOC&&id===REVISION_COMMIT&&document.body.classList.contains('revision-open');}
 function clearRevisionPdf(){
   if(REV_PDF.observer){REV_PDF.observer.disconnect();REV_PDF.observer=null;}
@@ -7349,6 +7372,7 @@ function setRevisionFormat(format){REVISION_FORMAT=format==='source'?'source':'p
   // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
   if(REVISION_FORMAT==='pdf'&&REVISION_COMMIT&&REVISION_PDF_COMMIT!==REVISION_COMMIT){REVISION_PDF_COMMIT=REVISION_COMMIT;
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REVISION_COMMIT,REVISION_SEQ,DOC);}
+  syncRevisionWhole();
   if(REV_TARGET)revTargetNote();
 }
 function setViewMode(mode){
@@ -7377,16 +7401,21 @@ async function loadRevisions(){
 async function showRevision(id,format){
   const seq=++REVISION_SEQ,k=DOC;REVISION_COMMIT=id;REVISION_SOURCE_COMMIT='';REVISION_PDF_COMMIT='';clearRevisionPdf();
   const select=$('#revision-select');if(select)select.value=id;
+  REVISION_SCOPE=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
   $('#revision-status').textContent='';
   setRevisionFormat(format||'pdf');
 }
 async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
-  try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id),k),{what:'변경 내용 읽기',silent:true})).data;
+  const tg0=REV_TARGET,pq=tg0&&!tg0.region?'&pin='+tg0.id:'';
+  try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
-    REVISION_WHOLE=(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):'');
-    REVISION_FILES=revisionFiles(r.diff||'');
+    // v0.3: a pin's own hunks when it owns part of the commit; otherwise the whole commit exactly as before
+    const sc=r.scope&&r.scope.mode==='pin'?r.scope:null;REVISION_SCOPE=r.scope||null;
+    if(sc){REV_SCOPE.partial=true;syncRevisionWhole();}
+    REVISION_WHOLE=sc?sc.diff:(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):'');
+    REVISION_FILES=revisionFiles(sc?sc.diff:(r.diff||''));drawRevisionOther(sc);
     const select=$('#revision-file');select.innerHTML='<option value="all">전체 파일</option>'+REVISION_FILES.map((f,i)=>'<option value="'+i+'">'+esc(f.name)+'</option>').join('');
     select.value='all';$('#revision-file-row').hidden=REVISION_FILES.length<2;REVISION_SOURCE_COMMIT=id;
     const tg=REV_TARGET,fi=tg?pinFileIndex(REVISION_FILES,tg.file):-1;
@@ -7420,7 +7449,9 @@ async function pickRevisionFor(tg,revs,seq,k){
 function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){box.hidden=true;return;}
   const via={sha:tl('참조의 커밋 {tok}',{tok:tg.tokOf||''}),pr:tr('참조의 PR'),lines:tr('이 줄을 바꾼 가장 최근 커밋'),latest:tr('참조로 커밋을 찾지 못해 가장 최근 커밋')}[tg.via]||'';
   const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
-  let t=msg?tr(msg):(REVISION_FORMAT==='pdf'?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
+  const sc=REVISION_FORMAT==='source'&&REVISION_SCOPE&&REVISION_SCOPE.mode==='pin'?REVISION_SCOPE:null;
+  const scopeMsg=sc?tl('이 핀의 변경 {n}곳만 보입니다',{n:sc.hunks})+' ('+tr(sc.source==='changes'?'에이전트가 기록한 줄':'핀 자리로 추정')+') · ':'';
+  let t=msg?tr(msg):scopeMsg+(REVISION_FORMAT==='pdf'?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   const back=REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name:null;
@@ -7443,24 +7474,29 @@ async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc
   if(LAYOUT==='narrow')setSide(false);
   if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode('revisions');}
 async function loadRevisionPdf(id,seq,k){
-  const statusBox=$('#revision-status'),warningBox=$('#revision-warning');
+  const statusBox=$('#revision-status'),warningBox=$('#revision-warning'),tg=REV_TARGET;
+  // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
+  const pin=tg&&!tg.region&&!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null,pq=pin?'&pin='+pin:'';
   try{
-    let status=(await api('/api/revision-build',{method:'POST',body:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
+    let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
+    if(pin&&status.scope){REV_SCOPE.partial=status.scope==='pin';syncRevisionWhole();}
     for(let tries=0;status.state==='running'&&tries<180;tries++){
       if(!revisionCurrent(seq,k,id))return;
       statusBox.textContent='선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.';
       await new Promise(resolve=>setTimeout(resolve,1000));
       if(!revisionCurrent(seq,k,id))return;
-      status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id),k),{what:'비교 PDF 상태',silent:true})).data;
+      status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id)+pq,k),{what:'비교 PDF 상태',silent:true})).data;
     }
     if(!revisionCurrent(seq,k,id))return;
+    if(pin&&status.scope==='pin'&&status.state==='error'){   // the pin's hunks alone did not compile: show the whole commit, say so in one line
+      REV_SCOPE.fallback=true;syncRevisionWhole();return loadRevisionPdf(id,seq,k);}
     if(status.state!=='ready')throw new Error(status.error||tr(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
     if(status.head&&status.head!==id)throw new Error(tr('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings=Array.isArray(status.warnings)?status.warnings:[];
     warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent=tl('빌드 경고 {n}건 보기',{n:warnings.length});
     warningBox.querySelector('pre').textContent=warnings.join('\n');warningBox.open=false;
     statusBox.textContent='비교 PDF를 읽는 중입니다.';
-    const response=await fetch(dq('/api/revision-pdf?commit='+encodeURIComponent(id),k));
+    const response=await fetch(dq('/api/revision-pdf?commit='+encodeURIComponent(id)+pq,k));
     if(!response.ok)throw new Error(tl('비교 PDF를 열지 못했습니다 (HTTP {status}).',{status:response.status}));
     const bytes=new Uint8Array(await response.arrayBuffer());
     if(!revisionCurrent(seq,k,id))return;
@@ -7470,7 +7506,8 @@ async function loadRevisionPdf(id,seq,k){
     const pdf=await loading.promise;
     if(!revisionCurrent(seq,k,id)){try{loading.destroy();}catch(e){}return;}
     REV_PDF.doc=pdf;
-    statusBox.textContent=tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
+    const lead=pin&&status.scope==='pin'?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
+    statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
     const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="'+esc(tl('비교 PDF {page}쪽',{page:i+1}))+'"></div>').join('');
     if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){
       REV_PDF.observer.unobserve(row.target);renderRevisionPage(row.target,pdf,seq,k,id);
@@ -9506,6 +9543,8 @@ document.addEventListener('click',e=>{
     case 'assign-edit':if(EDIT){EDIT.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
     case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
+    case 'revision-other':toggleRevisionOther();break;
+    case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break;
     case 'restore':restorePin(id);break; case 'purge':if(id!=null)purgePin(id);break; case 'unclaim':unclaimPin(id);break;
