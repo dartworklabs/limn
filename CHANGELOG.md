@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.2.2 — 2026-09-25
+
+One [Reply], a Trash, and collapsible list sections ([issue #8](https://github.com/dartworklabs/limn/issues/8),
+decision record [ADR-0004](docs/adr/0004-one-reply-trash-sections.md)). The `pins.md` format is unchanged and the HTTP
+API changes are additive. One agent-visible behaviour changes; it is listed first.
+
+- **A person's reply on a closed pin reopens it (agent-visible).** `POST /api/pins/{id}/reply` decides by one server
+  rule: a reply by a person on a pin awaiting review or done reopens it, and the reply becomes the reason
+  (`ev:"reopen"`, exactly as `/reopen`), so the pin returns to the open table of `pins.md` with `다시 열림` and
+  `다시 연 이유(<name>): <reply>`. A reply that @-tags a person keeps the state (that person gets a `mention`); replies
+  on open pins and question pins never change state; an agent's reply (token, headerless loopback, agent role) never
+  reopens by the rule. Optional `"reopen": true|false` overrides the rule (`400` if not a boolean); the response adds
+  `reopened` and `state`. `/reopen` is kept.
+- Viewer: the review card is `[변경 보기] [답글] [확인]` and a done row offers `[답글]`; the `[다시 열기]` buttons are gone.
+  A line under the reply box previews the outcome ("Sending will reopen this pin for the agent", "Sending notifies Bob
+  Park; state stays", …), with a rarely used `[상태 유지]` (Keep state) toggle. A reply is sent when its undo toast goes
+  away, so `[되돌리기]` (Undo) takes it back before anyone sees it.
+- **Trash.** Deleted pins leave the list at once (with Undo) and live in `[⋯] → 휴지통 N` (desktop: a link under the
+  list) for 30 days, with Restore. Older entries are hidden and purged at startup and on every drop/restore. New
+  owner-only `POST /api/pins/{id}/purge` deletes one for good (`purged` audit event). When someone else deletes your pin
+  you get a `dropped` notification with Restore. A `#12` that points at a deleted pin reads "#12 deleted pin".
+- Open pins, awaiting review and done share one collapsible header (click/Enter/Space, `aria-expanded`), remembered per
+  device; done starts collapsed; a collapsed header shows "new N".
+- Help defines a pin once: a place in the output + a request or question + its conversation.
+- Tests: `tests/test_v022.py` (the rule table, API, Trash, and browser flows on desktop, fold and phone in ko/en).
+
 ## 0.2.1 — 2026-09-25
 
 Fixes from the end-to-end QA of 0.2.0. Two changes affect the agent contract; both are listed first.
