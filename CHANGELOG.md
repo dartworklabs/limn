@@ -1,15 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-09-25
 
+Fixes from the end-to-end QA of 0.2.0. Two changes affect the agent contract; both are listed first.
+
+- **Headerless requests through the tailnet address are refused (contract change).** Under `--auth tailscale`, a request
+  without identity headers that came through `tailscale serve` (`Host` `*.ts.net` or a `--public-host`, e.g. from a
+  tagged device) used to be treated as the loopback agent, which could do everything but confirm. It now gets `403`
+  with a hint to send a token, as 0.1 did when `--allow` was set. **Remote agents on tagged devices or CI must send
+  `Authorization: Bearer <token>`**; agents on a machine signed in to the tailnet as a person keep working (they carry
+  that person's identity and still send `"review": true` when closing), and loopback agents are unchanged.
+  `--tailnet-agent` (`TAILNET_AGENT=1`) restores the 0.2.0 behaviour on purpose (logged as deprecated).
+- **`POST /api/clear` is owner-only and needs a confirmation (contract change).** Editors, viewers and every agent get
+  `403`; the owner must send `{"confirm": "clear all pins"}` (else `400`). The `.jsonl.bak` archive is kept, the
+  response adds `cleared` and `archive`, and a `cleared` event records who did it. The viewer never used it.
+- **@mentions notify every time.** A person tagged earlier on a pin got nothing when tagged again in a reply or reopen
+  reason. Now every @-tag in a reply or reopen reason is a `mention` for that person (never the poster), everyone else
+  involved gets `replied` (`reopened` for the author), and nobody gets both for one post. A note edit notifies people
+  whose @-tag occurs more often than before (a typo fix stays quiet; `note_append` with `@name` notifies).
+- `pins.md`: a new line after the close instruction shows how to claim a pin (`/api/pins/N/claim` with `eta_min`,
+  `409` = taken, `/unclaim` to give up); the token line says remote agents must use a token. Both are additive lines.
+- Viewer: the viewer role no longer sees edit/reply/close/drop/reopen/confirm/rebuild/save controls (the server already
+  refused them) and the composer says why; `[질문으로 보내기]` keeps focus in the memo and Ctrl+Enter saves from anywhere
+  in the composer; the section strip shows the first section at the very top of page 1 instead of the last heading on
+  the page (it now uses the heading's position on the page); a browser refused on `GET /` gets a short ko/en page
+  instead of raw JSON.
+- CLI: `limn member add` rejects logins with whitespace (the server's `valid_login` now does too, the same rule as
+  `--local-user`); `limn member list` no longer says a role is "recorded on first visit"; `limn serve --port N` on a
+  busy port prints one line and exits 1 instead of a traceback.
+- Docs: `limn update` has defaulted to the https source since 0.1.1; 0.1.0 defaulted to SSH, so the first update from
+  0.1.0 still fetches over SSH (`docs/handbook/instances.md` §업데이트와 되돌리기 shows the https override). An endpoint audit, the
+  principal x entry path x operation matrix and the new behaviour are covered by `tests/test_qa_021.py`.
 - Documentation moved into a Korean System Handbook (`docs/handbook/`) with decision records
   (`docs/adr/`). The former `docs/design.md`, `docs/build-sync.md`, `docs/api.md`,
   `docs/operations*.md`, `docs/instances*.md` and `docs/design/access-and-sync*.md` are its chapters
-  now; the access-control draft is ADR-0002.
+  now; the access-control draft is ADR-0002. The documentation move itself changes neither `pins.md` nor the HTTP API.
 - Roadmap for aligning the code with the team coding rules: `docs/handbook/code-style-roadmap.md`.
-- The `pins.md` format and the HTTP API are unchanged by this documentation move.
 
-## 0.2.0 — unreleased (tagged after merge)
+## 0.2.0 — 2026-09-25
 
 Access control, stage v0.2 of [ADR-0002](docs/adr/0002-access-control.md). An existing
 0.1 instance (no `AUTH`, no `tokens.json`, `people.json` without roles) behaves exactly as before; the only
