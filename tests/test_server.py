@@ -1413,6 +1413,7 @@ class PinsMdV2(Base):
         self.assertNotIn("⊂", md)
 
     def test_close_guidance_shows_reply_ref_body(self):
+        """pins.md shows a close example with a body (reply, ref, changes) - an agent reading only pins.md must see how to close."""
         # bug: the close guidance in pins.md only showed a body-less curl, so an agent reading only this
         # file had no way to know how to leave a reply/ref (§Leaving a reason when closing — it must match the same shape as SKILL.md).
         self.add(4, 5)
@@ -6071,6 +6072,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
 
     def test_pin_scope_wiring(self):
+        """The pin-scoped view's markup, actions, pin parameter, one-time fallback and shared CSS rules stay wired (v0.3)."""
         # v0.3 (docs/handbook/viewer.md §변경 보기, ADR-0005): the pin's hunks, the rest folded under one control, one PDF toggle
         h = ps.HTML
         self.assertIn('<button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" '

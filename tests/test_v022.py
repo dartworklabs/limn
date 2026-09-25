@@ -1005,6 +1005,7 @@ class ViewerFunctions2(unittest.TestCase):
                                "#7 은 그사이 닫혀서 이 답글이 다시 열었습니다", None])
 
     def test_trash_row_shows_who_and_separates_the_times(self):
+        """A Trash row shows who deleted it and separates the relative time from the days left."""
         js = "\n".join([js_i18n("ko"), js_icons(), r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
