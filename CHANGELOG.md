@@ -3,8 +3,8 @@
 ## 0.3.1 — unreleased
 
 Two low-severity findings of the v0.2.1 security review ([issue #10](https://github.com/dartworklabs/limn/issues/10)).
-The `pins.md` format and the HTTP API are unchanged. One notification behaviour changes; the state directory gains one
-optional file.
+The `pins.md` format and the HTTP API are unchanged. One notification behaviour changes; the state directory gains two
+files once something is audited (`audit.jsonl` and its lock `.audit.lock`).
 
 - **Note mentions have a ten-minute cooldown (L3).** A note save, edit or `note_append` that tags someone again sends
   that person a `mention` at most once per ten minutes per (editor, person, pin) (`NOTE_MENTION_COOLDOWN_S` = 600 s).

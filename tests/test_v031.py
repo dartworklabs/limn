@@ -260,6 +260,15 @@ class AuditLogServer(AccessBase):
         self.assertEqual(after.splitlines()[0], b"not json, kept as is")
         self.assertEqual(len(after.splitlines()), 3)
 
+    def test_a_symlinked_audit_file_is_not_followed(self):
+        """An audit.jsonl that is a symlink (to a file elsewhere) is refused: nothing is written through it, only a warning."""
+        target = Path(self.tmp.name) / "elsewhere.jsonl"
+        target.write_text("", encoding="utf-8")
+        (ps.C.state / "audit.jsonl").symlink_to(target)
+        code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
+        self.assertEqual((code, d.get("cleared")), (200, 2), d)
+        self.assertEqual(target.read_text(encoding="utf-8"), "")
+
     def test_a_failing_audit_write_warns_but_the_clear_still_happens(self):
         """The action has already been applied when the audit line is written; a write failure is a warning, not a 500."""
         (ps.C.state / "audit.jsonl").mkdir()                                            # cannot be opened for writing

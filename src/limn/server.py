@@ -5247,7 +5247,7 @@ def purge_pin(pid: int, actor: dict) -> int | None:
             return None
         write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
         emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
-        append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))
+    append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
     sys.stderr.flush()
     return pid
@@ -5406,7 +5406,7 @@ def clear_pins(actor: dict | None = None) -> dict:
             archive = dest.name
         render_pins_md([])
         emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
-        append_audit(C.state, audit_entry("cleared", by, "http", {"n": n, "archive": archive}, time.time()))
+    append_audit(C.state, audit_entry("cleared", by, "http", {"n": n, "archive": archive}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
     print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
     sys.stderr.flush()
     return {"cleared": n, "archive": archive}
