@@ -11,7 +11,7 @@
 # Usage:
 #   limn add <name> --manuscript <manuscript dir> [--main <file.tex>] [--port N] [--ts-port N]
 #                  [--git-pull] [--label <label>] [--accent <#rrggbb>] [--state-dir <dir>]
-#                  [--extra "<server args>"] [--no-serve] [--no-start]
+#                  [--extra "<server args>"] [--no-serve] [--no-start] [--auth tailscale|local|trusted-proxy]
 #                  [--doc <key>=<display name>:<path> ...]   (not used together with --main. §Multiple documents)
 #                  [--stage auto|initial|revision]        (only for auto-detection without --doc/--main. §Default tab auto-detection)
 #
@@ -39,6 +39,12 @@
 #   limn remove <name>                     stops and disables the unit, unserves it, deletes the config (= port reservation).
 #                                          does not delete the state dir
 #   limn run <name>                        (unit-only) reads the config and execs into the server
+#   limn token create|list|revoke <name> … agent API tokens; limn member add|list|remove|role <name> … roles
+#                                          (Python, see limn help — they edit the instance's state dir)
+#
+# Access control (v0.2, docs/instances.md §Config keys): AUTH, AGENT_LOOPBACK, BIND, PUBLIC_HOSTS,
+# TRUSTED_PROXIES, PROXY_USER_HEADER/PROXY_NAME_HEADER/PROXY_EMAIL_HEADER, MEMBERS_ONLY, LOCAL_USER map to
+# the server flags of the same meaning. Unset keys add no flag, so a v0.1 config runs exactly as before.
 #
 # Multiple documents (--doc, DOCS=): a single instance switches between tabs for the body, response
 # letter, a view-only PDF, and so on. Format is <key>=<display name>:<path>. Keys are [a-z0-9-]{1,24},
@@ -47,10 +53,12 @@
 # this is written as DOCS="<key1>=<name1>:<path1>;<key2>=..." (split on `;`). MAIN and DOCS are not
 # used together — see docs/operations.md §Multiple documents for the full contract.
 
-# Security rules (do not change): binds to 127.0.0.1 only (hardcoded in the server), exposure only via
-# `tailscale serve`, funnel is never used, sudo is never invoked. tailscale operator must be this user
-# for serve to work without sudo — if it isn't, it errors out and stops (permissions are never changed
-# automatically).
+# Security rules (do not change): the server binds 127.0.0.1 unless BIND says otherwise, and a non-loopback
+# BIND is refused unless AUTH=trusted-proxy (or EXTRA_ARGS carries --i-know-this-is-insecure). Tailnet
+# exposure only via `tailscale serve`, and only for the tailscale provider (AUTH unset or tailscale — under
+# local or trusted-proxy it would hand out identities). funnel is never used, sudo is never invoked.
+# tailscale operator must be this user for serve to work without sudo — if it isn't, it errors out and
+# stops (permissions are never changed automatically).
 
 set -uo pipefail
 unset CDPATH
@@ -171,6 +179,89 @@ load() { # load <name>
     C_GIT_PULL=$(env_get "$f" GIT_PULL)
     C_EXTRA_ARGS=$(env_get "$f" EXTRA_ARGS)
     C_DOCS=$(env_get "$f" DOCS)
+    # Access control (v0.2). All optional — a v0.1 config sets none of them and runs exactly as before.
+    C_AUTH=$(env_get "$f" AUTH)
+    C_AGENT_LOOPBACK=$(env_get "$f" AGENT_LOOPBACK)
+    C_BIND=$(env_get "$f" BIND)
+    C_PUBLIC_HOSTS=$(env_get "$f" PUBLIC_HOSTS)
+    C_TRUSTED_PROXIES=$(env_get "$f" TRUSTED_PROXIES)
+    C_PROXY_USER_HEADER=$(env_get "$f" PROXY_USER_HEADER)
+    C_PROXY_NAME_HEADER=$(env_get "$f" PROXY_NAME_HEADER)
+    C_PROXY_EMAIL_HEADER=$(env_get "$f" PROXY_EMAIL_HEADER)
+    C_MEMBERS_ONLY=$(env_get "$f" MEMBERS_ONLY)
+    C_LOCAL_USER=$(env_get "$f" LOCAL_USER)
+}
+
+# emit_access — the access-control keys of the loaded config (C_*), for rewriting a config without losing them.
+emit_access() {
+    emit AUTH "$C_AUTH"
+    emit AGENT_LOOPBACK "$C_AGENT_LOOPBACK"
+    emit BIND "$C_BIND"
+    emit PUBLIC_HOSTS "$C_PUBLIC_HOSTS"
+    emit TRUSTED_PROXIES "$C_TRUSTED_PROXIES"
+    emit PROXY_USER_HEADER "$C_PROXY_USER_HEADER"
+    emit PROXY_NAME_HEADER "$C_PROXY_NAME_HEADER"
+    emit PROXY_EMAIL_HEADER "$C_PROXY_EMAIL_HEADER"
+    emit MEMBERS_ONLY "$C_MEMBERS_ONLY"
+    emit LOCAL_USER "$C_LOCAL_USER"
+}
+
+valid_auth() { [[ "$1" == tailscale || "$1" == local || "$1" == trusted-proxy ]]; }
+
+# is_loopback_addr <addr> — the same rule as the server's is_loopback_bind (127.0.0.0/8, ::1, localhost).
+is_loopback_addr() {
+    [[ "$1" == localhost || "$1" == 127.0.0.1 || "$1" == ::1 ]] && return 0
+    "$PYTHON" -c 'import ipaddress, sys
+sys.exit(0 if ipaddress.ip_address(sys.argv[1]).is_loopback else 1)' "$1" 2> /dev/null
+}
+valid_ip() {
+    [[ "$1" == localhost ]] && return 0
+    "$PYTHON" -c 'import ipaddress, sys; ipaddress.ip_address(sys.argv[1])' "$1" 2> /dev/null
+}
+
+# access_args — validates the access keys of the loaded config and fills ACCESS_ARGS with server flags. Dies with
+# a clear message on a value the server would refuse (instead of the unit restarting into the same error). Unset
+# keys add no flag, so a v0.1 config yields exactly the v0.1 argv.
+access_args() {
+    ACCESS_ARGS=()
+    local auth=${C_AUTH:-tailscale} bind=${C_BIND:-127.0.0.1} loop=1 h
+    [[ -z "$C_AUTH" ]] || valid_auth "$C_AUTH" || die "AUTH must be tailscale, local or trusted-proxy: '$C_AUTH'"
+    [[ -z "$C_AGENT_LOOPBACK" || "$C_AGENT_LOOPBACK" == 0 || "$C_AGENT_LOOPBACK" == 1 ]] || die "AGENT_LOOPBACK must be 0 or 1: '$C_AGENT_LOOPBACK'"
+    [[ -z "$C_MEMBERS_ONLY" || "$C_MEMBERS_ONLY" == 0 || "$C_MEMBERS_ONLY" == 1 ]] || die "MEMBERS_ONLY must be 0 or 1: '$C_MEMBERS_ONLY'"
+    if [[ -n "$C_BIND" ]]; then
+        valid_ip "$C_BIND" || die "BIND must be an IP address (or localhost): '$C_BIND'"
+    fi
+    is_loopback_addr "$bind" || loop=0
+    if [[ "$loop" == 0 && "$auth" != trusted-proxy && " $C_EXTRA_ARGS " != *" --i-know-this-is-insecure "* ]]; then
+        die "BIND=$bind is not loopback: set AUTH=trusted-proxy (behind an authenticating proxy), or keep 127.0.0.1 and use tailscale serve"
+    fi
+    if [[ "$C_AGENT_LOOPBACK" == 1 && ("$auth" != tailscale || "$loop" == 0) ]]; then
+        die "AGENT_LOOPBACK=1 works only with AUTH=tailscale on a loopback BIND — give agents a token: limn token create <name>"
+    fi
+    if [[ -n "$C_PUBLIC_HOSTS" ]]; then
+        local hosts=() one
+        IFS=',' read -ra hosts <<< "$C_PUBLIC_HOSTS"
+        for one in "${hosts[@]}"; do
+            [[ "$one" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]] || die "PUBLIC_HOSTS takes host names with an optional :port, comma-separated: '$one'"
+        done
+    fi
+    [[ -z "$C_TRUSTED_PROXIES" || "$C_TRUSTED_PROXIES" =~ ^[0-9A-Fa-f:.,/]+$ ]] || die "TRUSTED_PROXIES takes IP addresses/CIDR ranges, comma-separated: '$C_TRUSTED_PROXIES'"
+    for h in "$C_PROXY_USER_HEADER" "$C_PROXY_NAME_HEADER" "$C_PROXY_EMAIL_HEADER"; do
+        [[ -z "$h" || "$h" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || die "PROXY_*_HEADER takes an HTTP header name: '$h'"
+    done
+    [[ -z "$C_LOCAL_USER" || "$C_LOCAL_USER" =~ ^[A-Za-z0-9._@+-]+$ ]] || die "LOCAL_USER takes a login without spaces: '$C_LOCAL_USER'"
+    [[ -n "$C_AUTH" ]] && ACCESS_ARGS+=(--auth "$C_AUTH")
+    [[ "$C_AGENT_LOOPBACK" == 0 ]] && ACCESS_ARGS+=(--no-agent-loopback)
+    [[ "$C_AGENT_LOOPBACK" == 1 ]] && ACCESS_ARGS+=(--agent-loopback)
+    [[ -n "$C_BIND" ]] && ACCESS_ARGS+=(--bind "$C_BIND")
+    [[ -n "$C_PUBLIC_HOSTS" ]] && ACCESS_ARGS+=(--public-host "$C_PUBLIC_HOSTS")
+    [[ -n "$C_TRUSTED_PROXIES" ]] && ACCESS_ARGS+=(--trusted-proxies "$C_TRUSTED_PROXIES")
+    [[ -n "$C_PROXY_USER_HEADER" ]] && ACCESS_ARGS+=(--proxy-user-header "$C_PROXY_USER_HEADER")
+    [[ -n "$C_PROXY_NAME_HEADER" ]] && ACCESS_ARGS+=(--proxy-name-header "$C_PROXY_NAME_HEADER")
+    [[ -n "$C_PROXY_EMAIL_HEADER" ]] && ACCESS_ARGS+=(--proxy-email-header "$C_PROXY_EMAIL_HEADER")
+    [[ "$C_MEMBERS_ONLY" == 1 ]] && ACCESS_ARGS+=(--members-only)
+    [[ -n "$C_LOCAL_USER" ]] && ACCESS_ARGS+=(--local-user "$C_LOCAL_USER")
+    return 0
 }
 
 safe_value() { # is this value safe to write to a config file?
@@ -711,6 +802,8 @@ cmd_run() {
     [[ "$C_GIT_PULL" == 1 ]] && args+=(--git-pull)
     [[ -n "$C_LABEL" ]] && args+=(--label "$C_LABEL")
     [[ -n "$C_ACCENT" ]] && args+=(--accent "$C_ACCENT")
+    access_args
+    args+=("${ACCESS_ARGS[@]+"${ACCESS_ARGS[@]}"}")
     if [[ -n "$C_EXTRA_ARGS" ]]; then
         local extra
         read -r -a extra <<< "$C_EXTRA_ARGS"
@@ -739,9 +832,21 @@ start_instance() { # start_instance <name> <serve 0|1>
         *) warn "not 200 yet (may still be building) — limn status $n" ;;
     esac
     if [[ "$serve" == 1 ]]; then
+        serve_allowed_for "$C_AUTH" || die "$(serve_refusal "$C_AUTH") — start it with --no-serve"
         valid_port "${C_TS_PORT:-x}" || die "TS_PORT is not set — start with --no-serve or add it to the config"
         serve_on "$C_TS_PORT" "$C_PORT"
     fi
+}
+
+# tailscale serve connects from loopback. Under AUTH=local every loopback request is the owner, and under
+# AUTH=trusted-proxy a tailnet user could send the proxy identity headers themselves — so only the tailscale
+# provider (or no AUTH, which is tailscale) may be exposed with tailscale serve.
+serve_allowed_for() { [[ -z "${1:-}" || "$1" == tailscale ]]; }
+serve_refusal() {
+    case "$1" in
+        local) printf 'AUTH=local makes every loopback request the owner, and tailscale serve connects from loopback — exposing it would make every tailnet member the owner' ;;
+        *) printf 'AUTH=%s trusts identity headers from loopback, and tailscale serve would pass headers a tailnet user sets — put it behind its own proxy instead' "$1" ;;
+    esac
 }
 
 cmd_add() {
@@ -749,10 +854,11 @@ cmd_add() {
     need_name "$n"
     shift
     local manuscript="" main="" port="" ts="" gitpull=0 label="" accent="" state="" extra_args="--no-build" serve=1 start=1
-    local docs=() stage=auto
+    local docs=() stage=auto auth=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --manuscript) manuscript=${2:-}; shift 2 ;;
+            --auth) auth=${2:-}; shift 2 ;;
             --main) main=${2:-}; shift 2 ;;
             --doc) docs+=("${2:-}"); shift 2 ;;
             --stage) stage=${2:-}; shift 2 ;;
@@ -771,6 +877,8 @@ cmd_add() {
     [[ -n "$manuscript" ]] || die "--manuscript <manuscript dir> is required"
     [[ -d "$manuscript" ]] || die "manuscript dir does not exist: $manuscript"
     manuscript=$(cd "$manuscript" && pwd -P)
+    [[ -z "$auth" ]] || valid_auth "$auth" || die "--auth must be tailscale, local or trusted-proxy: $auth"
+    serve_allowed_for "$auth" || [[ "$serve" == 0 ]] || die "$(serve_refusal "$auth") — add it with --no-serve"
     [[ -z "$main" || ${#docs[@]} -eq 0 ]] || die "--main and --doc cannot be used together"
     if [[ ${#docs[@]} -gt 0 ]]; then
         [[ "$stage" == auto ]] || die "--stage is only used for auto-detection without --doc/--main"
@@ -839,6 +947,7 @@ cmd_add() {
         emit STATE_DIR "$state"
         emit GIT_PULL "$gitpull"
         emit EXTRA_ARGS "$extra_args"
+        emit AUTH "$auth"
     } > "$(src_of "$n")" || die "could not write the config: $(src_of "$n")"
     if [[ "$SOURCE_DIR" != "$CONFIG_DIR" ]]; then
         mkdir -p "$CONFIG_DIR" && ln -sfn "$(src_of "$n")" "$(conf_of "$n")"
@@ -1063,6 +1172,7 @@ write_conf_docs() {
         emit STATE_DIR "$C_STATE_DIR"
         emit GIT_PULL "$C_GIT_PULL"
         emit EXTRA_ARGS "$C_EXTRA_ARGS"
+        emit_access
     } > "$f" || die "could not write the config: $f"
 }
 
