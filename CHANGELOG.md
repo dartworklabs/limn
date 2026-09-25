@@ -15,12 +15,15 @@ API changes are additive. One agent-visible behaviour changes; it is listed firs
   `reopened` and `state`. `/reopen` is kept.
 - Viewer: the review card is `[변경 보기] [답글] [확인]` and a done row offers `[답글]`; the `[다시 열기]` buttons are gone.
   A line under the reply box previews the outcome ("Sending will reopen this pin for the agent", "Sending notifies Bob
-  Park; state stays", …), with a rarely used `[상태 유지]` (Keep state) toggle. A reply is sent when its undo toast goes
-  away, so `[되돌리기]` (Undo) takes it back before anyone sees it.
+  Park; state stays", …), with one rarely used override toggle: `[상태 유지]` (Keep state) where the rule reopens,
+  `[다시 열기]` (Reopen) where it keeps the state. A reply is sent when its undo toast goes away, so `[되돌리기]` (Undo)
+  takes it back before anyone sees it. Tagging an agent-role account is not tagging a person; a reopening reply still
+  notifies everyone tagged on the pin before (`replied`).
 - **Trash.** Deleted pins leave the list at once (with Undo) and live in `[⋯] → 휴지통 N` (desktop: a link under the
   list) for 30 days, with Restore. Older entries are hidden and purged at startup and on every drop/restore. New
   owner-only `POST /api/pins/{id}/purge` deletes one for good (`purged` audit event). When someone else deletes your pin
   you get a `dropped` notification with Restore. A `#12` that points at a deleted pin reads "#12 deleted pin".
+  `GET /api/pins/dropped` adds the computed `expires_ts`.
 - Open pins, awaiting review and done share one collapsible header (click/Enter/Space, `aria-expanded`), remembered per
   device; done starts collapsed; a collapsed header shows "new N".
 - Help defines a pin once: a place in the output + a request or question + its conversation.

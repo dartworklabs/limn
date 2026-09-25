@@ -203,7 +203,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | --- | --- | --- |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
-| `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
+| `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(쓰기 부작용 없음). 계산 필드는 0.2.2에서 더한 `expires_ts`(지워질 시각, epoch 초) 하나다. `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 더 이상 쓰지 않는다(§겹친 핀과 덧붙이기). 에이전트와 옛 뷰어 호환용으로 남긴다 |
@@ -346,10 +346,11 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | 질문 핀 | 누구나 | — | 답으로 남는다. 상태 그대로 |
 
 - **사람**은 에이전트가 아닌 신원이다. 토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람은 에이전트라 규칙으로는 다시 열지 않는다.
-- **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신을 빼고 하나라도 있다는 뜻이다.
+- **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신과 `agent` 역할인 계정을 빼고 하나라도 있다는 뜻이다. `@Codex 고쳐 주세요`처럼 에이전트 역할 계정을 부른 답글은 사람을 부른 것이 아니다.
 - 본문의 선택 `reopen` 이 `true`/`false` 면 규칙보다 앞선다. 불리언이 아니면 `400` 이다. 열린 핀은 `reopen: true` 여도 바뀌지 않는다. 뷰어의 [상태 유지]가 `false` 를 보낸다.
 - 응답은 `{ok, pin, msg, state, reopened}` 다. `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다. `state`·`reopened` 는 0.2.2에서 더했다.
 - 다시 여는 답글에는 답글 200건 상한이 걸리지 않는다. 상태 전환 기록이기 때문이다.
+- 다시 여는 답글도 보통 답글처럼 알린다. 작성자는 `reopened`, 이 글이 태그한 사람은 `mention`, 그 밖에 이 핀에서 불린 적 있는 사람은 `replied` 다. 한 사람이 둘을 받지 않는다.
 - 다시 열린 핀은 `pins.md` 열린 표로 돌아온다. 번호 칸에 `다시 열림`, 메모 칸 뒤에 `다시 연 이유(<이름>): <답글>` 이 붙는다(§질문·다시 열림·사람에게 물은 핀). 형식은 예전 그대로다.
 - 핀 종류는 `kind_req`(`fix`|`question`, 없으면 `fix`)다. `POST /api/pin` 과 `/edit` 이 받고, `/edit` 은 닫힌 핀에서도 받는다. 범위 종류를 뜻하는 옛 `kind` 와는 다른 필드다.
 
@@ -579,9 +580,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 | 동작 | 규칙 |
 | --- | --- |
-| 보기 | `GET /api/pins/dropped`. `dropped_at` 에서 30일이 지난 항목은 싣지 않는다. 읽기는 파일을 고치지 않는다 |
+| 보기 | `GET /api/pins/dropped`. `dropped_at` 에서 30일이 지난 항목은 싣지 않는다. 항목마다 계산 필드 `expires_ts`(지워질 시각, epoch 초)가 붙는다. 뷰어의 '며칠 뒤 지워짐'이 이것을 써서 보는 기기의 시간대와 상관없다. 읽기는 파일을 고치지 않는다 |
 | 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다 |
-| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때와 삭제·되살리기 때 파일에서 뺀다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 을 읽을 수 없는 항목은 나이를 모르므로 남긴다 |
+| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때와 삭제·되살리기 때 파일에서 뺀다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
 | 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
 | 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |
 
