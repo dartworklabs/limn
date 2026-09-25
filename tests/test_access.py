@@ -737,6 +737,19 @@ V01_PEOPLE = [
     {"login": "alice@example.com", "first_seen": "2026-09-20 09:59:00", "name": "Alice Kim", "last_seen": "2026-09-21 09:00:00"},
     {"login": "bob@example.com", "first_seen": "2026-09-20 10:19:00", "name": "Bob Park", "last_seen": "2026-09-20 10:20:00"},
 ]
+
+
+def v03_close_line(md: str) -> str:
+    """The one pins.md line v0.3 changes (docs/adr/0005-pin-scoped-changes.md): the close instruction asks for one commit
+    per pin, names that commit in `ref`, and shows the optional `changes`. Everything else is compared byte for byte."""
+    return (md.replace("처리한 핀은 닫는다 — `curl", "처리한 핀은 닫는다 — 핀 하나에 커밋 하나로 고치고(PR 하나에 커밋 여럿은 괜찮다) "
+                       "`ref` 에 그 커밋 해시를 적는다: `curl")
+              .replace('"ref":"커밋/PR(≤80자)"}\'', '"ref":"그 핀의 커밋 해시(≤80자)","changes":[{"file":"main.tex","lo":12,"hi":14}]}\'')
+              .replace("(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)",
+                       "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 는 선택: 그 커밋에서 이 핀 때문에 바꾼 줄 범위, "
+                       "커밋 뒤 줄 번호, 경로는 위치 칸 기준)"))
+
+
 # pins.md as v0.1.0 renders the fixture above (header timestamp masked as <갱신>, the manuscript path as {src}).
 V01_PINS_MD = """\
 # 수정 요청 핀
@@ -863,7 +876,7 @@ class Migration(AccessBase):
         lines.remove(ps.TOKEN_GUIDANCE)
         lines.remove(ps.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
         lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
-        self.assertEqual(mask("\n".join(lines)), V01_PINS_MD.replace("{src}", str(self.src)))
+        self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
         v01 = load_v01()
@@ -895,7 +908,7 @@ class Migration(AccessBase):
         self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
         lines.remove(claim[0])
         lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
-        self.assertEqual(mask("\n".join(lines)), mask(md_old))
+        self.assertEqual(mask("\n".join(lines)), v03_close_line(mask(md_old)))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)
         p_old, p_new = json.loads(p_old), json.loads(p_new)
