@@ -3909,7 +3909,7 @@ def clean_close_changes(v: object, root: Path) -> Changes | None:
             path = (Path(f) if os.path.isabs(f) else base / f).resolve()
             path.relative_to(base)
         except (ValueError, OSError, RuntimeError):
-            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what)
+            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what) from None
         out.append(CloseChange(str(path), lo, hi))
     return tuple(out) or None
 
