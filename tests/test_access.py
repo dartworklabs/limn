@@ -740,14 +740,11 @@ V01_PEOPLE = [
 
 
 def v03_close_line(md: str) -> str:
-    """The one pins.md line v0.3 changes (docs/adr/0005-pin-scoped-changes.md): the close instruction asks for one commit
-    per pin, names that commit in `ref`, and shows the optional `changes`. Everything else is compared byte for byte."""
-    return (md.replace("처리한 핀은 닫는다 — `curl", "처리한 핀은 닫는다 — 핀 하나에 커밋 하나로 고치고(PR 하나에 커밋 여럿은 괜찮다) "
-                       "`ref` 에 그 커밋 해시를 적는다: `curl")
-              .replace('"ref":"커밋/PR(≤80자)"}\'', '"ref":"그 핀의 커밋 해시(≤80자)","changes":[{"file":"main.tex","lo":12,"hi":14}]}\'')
-              .replace("(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)",
-                       "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 는 선택: 그 커밋에서 이 핀 때문에 바꾼 줄 범위, "
-                       "커밋 뒤 줄 번호, 경로는 위치 칸 기준)"))
+    """The one pins.md line v0.3 changes (docs/adr/0005-pin-scoped-changes.md): the close instruction asks for `changes`
+    in the numbering of the commit `ref` names and ref = "PR #N (<hash>)". Everything else is compared byte for byte."""
+    return (md.replace("처리한 핀은 닫는다 — `curl", '처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl')
+              .replace('"ref":"커밋/PR(≤80자)"}\'', '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "'")
+              .replace("(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)", '(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)'))
 
 
 # pins.md as v0.1.0 renders the fixture above (header timestamp masked as <갱신>, the manuscript path as {src}).
