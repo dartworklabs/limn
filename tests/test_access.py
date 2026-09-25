@@ -32,7 +32,7 @@ ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Al
 BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
 CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 
-ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, bind="127.0.0.1", public_hosts=(),
+ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
                        trusted_proxies=ps.Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
                        proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
                        members_only=False, local_user=None, insecure=False)

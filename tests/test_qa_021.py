@@ -231,6 +231,30 @@ class PrincipalMatrix(AccessBase):
         self.assertIn("Bearer", d["error"])                               # tells the agent what to do instead
         self.expect(self.run_ops(headers={"Host": TS_HOST + ":18004"}), **self.REFUSED_403)
 
+    def test_spoofed_loopback_host_through_the_proxy_is_refused(self):
+        # tailscale serve routes by the TLS name and passes the client's Host through unchanged, so a tagged device can
+        # send "Host: localhost". The proxy always sets X-Forwarded-For/-Host/-Proto (overwriting client values) - those,
+        # not Host, tell that a request came through it.
+        for extra in ({"X-Forwarded-For": "100.64.0.9"}, {"X-Forwarded-Host": TS_HOST}, {"X-Forwarded-Proto": "https"},
+                      {"Forwarded": "for=100.64.0.9"}):
+            for host in ("localhost", "127.0.0.1:1", "[::1]", "LOCALHOST."):
+                h = dict(extra, Host=host)
+                self.assertEqual(self.call("GET", "/pins.md", headers=h)[0], 403, h)
+                pid = self.add()
+                self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, None, headers=h)[0], 403, h)
+                self.assertIsNotNone(self.pin(pid))
+        # the same forwarded headers with a person's identity or a token are fine
+        self.assertEqual(self.call("GET", "/pins.md", headers=dict(BOB, Host=TS_HOST, **{"X-Forwarded-For": "100.64.0.9"}))[0], 200)
+        _, tok = ps.token_create(ps.C.state, "ci")
+        self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200)
+
+    def test_opt_in_with_an_allowlist_refuses_forwarded_requests_too(self):
+        ps.C.tailnet_agent = True
+        self.assertEqual(self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200)
+        ps.C.allow = frozenset({"alice@example.com"})
+        self.assertEqual(self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 403)
+        self.assertEqual(self.call("GET", "/pins.md")[0], 200)                  # a real local agent is still fine
+
     def test_public_host_headerless_is_refused(self):
         ps.C.public_hosts = ps.parse_public_hosts(["limn.example.com"])
         self.expect(self.run_ops(headers={"Host": "limn.example.com"}), **self.REFUSED_403)

@@ -7,6 +7,8 @@ Fixes from the end-to-end QA of 0.2.0. Two changes affect the agent contract; bo
 - **Headerless requests through the tailnet address are refused (contract change).** Under `--auth tailscale`, a request
   without identity headers that came through `tailscale serve` (`Host` `*.ts.net` or a `--public-host`, e.g. from a
   tagged device) used to be treated as the loopback agent, which could do everything but confirm. It now gets `403`
+  (a proxied request is recognised by a non-loopback Host or any `X-Forwarded-*`/`Forwarded` header, which
+  `tailscale serve` always sets — Host alone can be spoofed because serve routes by the TLS name)
   with a hint to send a token, as 0.1 did when `--allow` was set. **Remote agents on tagged devices or CI must send
   `Authorization: Bearer <token>`**; agents on a machine signed in to the tailnet as a person keep working (they carry
   that person's identity and still send `"review": true` when closing), and loopback agents are unchanged.

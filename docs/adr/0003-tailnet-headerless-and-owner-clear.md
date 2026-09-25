@@ -14,7 +14,7 @@
 
 ## 결정
 
-- **헤더 없는 에이전트는 이 기기를 부른 요청뿐이다.** `tailscale` 방식에서 헤더도 토큰도 없는 요청은 `Host`가 루프백 이름이거나 없을 때만 에이전트다. `Host`가 `*.ts.net`이나 `--public-host`이면 `403`이고, 메시지가 Bearer 토큰을 쓰라고 알려 준다. 판단은 `identify()`의 `host_is_loopback()`이 한다.
+- **헤더 없는 에이전트는 이 기기를 부른 요청뿐이다.** `tailscale` 방식에서 헤더도 토큰도 없는 요청은 `Host`가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없을 때만 에이전트다. 그 밖에는 `403`이고, 메시지가 Bearer 토큰을 쓰라고 알려 준다. 판단은 `identify()`의 `came_through_proxy()`가 한다. `Host`만 보지 않는 것은 `tailscale serve`가 TLS 이름으로 경로를 고르고 클라이언트의 `Host`를 그대로 넘기기 때문이다. 태그 장치가 `Host: localhost`를 보내도, `tailscale serve`가 늘 덮어쓰는 `X-Forwarded-For`가 프록시를 거쳤음을 알려 준다(PR 리뷰에서 발견).
 - **옵트인 탈출구를 둔다.** `--tailnet-agent`(`TAILNET_AGENT=1`)가 0.2.0 동작을 되살린다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고, 폐지 예정으로 기록한다. 허용 목록이 있으면 이때도 막힌다.
 - **`/api/clear`는 소유자만 부른다.** 역할 검사(`check_role`)의 `OWNER_POSTS`에 넣는다. 본문 `{"confirm": "clear all pins"}`가 있어야 하고(없으면 `400`), `.jsonl.bak` 보관본은 그대로 남긴다. 응답에 `cleared`·`archive`를 더하고, `cleared` 이벤트와 서버 로그에 행위자를 남긴다.
 - **`pins.md`는 더하기만 한다.** 인증 안내 줄 끝에 "테일넷 주소의 헤더 없는 요청은 403, 원격 에이전트는 토큰"을 덧붙인다. close 안내 다음에 claim 안내 한 줄을 더한다.

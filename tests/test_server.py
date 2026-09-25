@@ -390,8 +390,10 @@ class CrossOrigin(Base):
 
     def test_no_origin_check_switch(self):
         ps.C.origin_check = False
-        out = self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com"}))
+        out = self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com", "Tailscale-User-Login": "ok@x.com"}))
         self.assertIn(b" 200 ", out)
+        # v0.2.1: an unexpected Host is accepted, but a headerless request under it is not the loopback agent
+        self.assertIn(b" 403 ", self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com"})))
 
     def test_allow_rejects_headerless_tailnet_request(self):
         ps.C.allow = frozenset({"ok@x.com"})
@@ -2119,7 +2121,9 @@ class RemotePinsMd(Base):
 
     def test_tailnet_host_rewrites_base_to_https_host_verbatim(self):
         self.add()
-        out = self.talk(req("GET", "/pins.md", headers={"Host": "x.tail1234.ts.net:18004"}))
+        # through tailscale serve a request carries a person's identity (or a token) - headerless is 403 since v0.2.1
+        out = self.talk(req("GET", "/pins.md", headers={"Host": "x.tail1234.ts.net:18004", "Tailscale-User-Login": "ok@x.com",
+                                                        "X-Forwarded-For": "100.64.0.9"}))
         self.assertIn(b" 200 ", out)
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
         self.assertIn("https://x.tail1234.ts.net:18004/api/pins/N/close", body)

@@ -37,7 +37,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 1. **`Authorization: Bearer <토큰>`** 이 있으면 에이전트 API 토큰으로 본다(§토큰). 유효한 토큰은 어떤 신원 헤더보다 앞선다. 요청자는 에이전트 `{"login": "agent:<토큰 이름>", "name": "<토큰 이름>"}` 이 된다. 이 규칙은 모든 신원 방식에 같다.
 2. 토큰이 없으면 인스턴스의 **신원 방식**(`--auth`)이 정한다. 아래 표를 본다.
-3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트). 0.2.1부터는 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없는 요청)에만 해당한다. `tailscale serve` 를 거쳐 `Host` 가 `*.ts.net` 이나 `--public-host` 인 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
+3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트). 0.2.1부터는 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
 
 어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다.
 
@@ -117,7 +117,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 - `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다.
 - `local`, `trusted-proxy` 방식이나 루프백이 아닌 `--bind` 에서는 늘 꺼져 있다. 거기서 `--agent-loopback` 을 요구하면 서버가 기동을 거부한다.
 - 같은 머신의 로컬 프로세스는 헤더를 빼서 에이전트를, 헤더를 붙여 사람을 흉내 낼 수 있다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, 이 동작을 끄고, `--members-only` 나 역할로 좁힌다.
-- **이 기기를 부른 요청에만 해당한다(0.2.1).** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. 그래서 `Host` 를 본다. 루프백 이름(`127.0.0.1`·`localhost`·`::1`, 포트는 보지 않는다)이거나 `Host` 가 없으면 이 기기의 요청이다. `*.ts.net` 이나 `--public-host` 이면 프록시를 거친 요청이므로 헤더가 없어도 에이전트가 아니다. 0.2.0은 허용 목록이 없을 때 이런 요청(태그 장치, 공용 CI 노드)을 에이전트로 받아 핀을 닫고 모두 지울 수도 있었다. 이제는 `403` 이고 메시지가 토큰을 쓰라고 알려 준다.
+- **이 기기를 부른 요청에만 해당한다(0.2.1).** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`Forwarded` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. 0.2.0은 허용 목록이 없을 때 이런 요청(태그 장치, 공용 CI 노드)을 에이전트로 받아 핀을 닫고 모두 지울 수도 있었다. 이제는 `403` 이고 메시지가 토큰을 쓰라고 알려 준다.
 - `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 0.2.0 동작을 일부러 되살린다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
 
 ### pins.md 안내 줄
@@ -129,7 +129,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, 토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다
 ```
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `host_is_loopback`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE` 다.
+실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE` 다.
 
 ## 문서 매개변수 (`doc=`)
 

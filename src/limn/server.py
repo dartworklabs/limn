@@ -5270,28 +5270,42 @@ def identify(headers, peer) -> Principal:
                 raise HTTPError(401, UNAUTHENTICATED)
             return Principal(a, role_of(a["login"]), "header")
         if C.agent_loopback:
-            if not host_is_loopback(headers.get("Host")) and not C.tailnet_agent:
-                # tailscale serve connects from loopback too, but keeps the tailnet Host. Without identity headers
-                # that is a tagged device (or anything else behind the proxy) - never the local agent (v0.2.1).
+            if came_through_proxy(headers) and not C.tailnet_agent:
+                # tailscale serve connects from loopback too. Without identity headers such a request is a tagged
+                # device (or anything else behind the proxy) - never the local agent (v0.2.1).
                 raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
     raise HTTPError(401, UNAUTHENTICATED)
 
 
+FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded")
+
+
 def host_is_loopback(host) -> bool:
-    """Did the request name this machine (a loopback Host, or none at all as in HTTP/1.0)? A *.ts.net or
-    --public-host name means it arrived through a proxy such as tailscale serve."""
+    """Did the request name this machine (a loopback Host, or none at all as in HTTP/1.0)?"""
     name, _ = split_host(host or "")
     return not host or not str(host).strip() or name in LOOPBACK
 
 
-def admit(p: Principal, host) -> None:
+def came_through_proxy(headers) -> bool:
+    """Did this loopback request come through a reverse proxy such as tailscale serve? Host alone cannot tell:
+    tailscale serve picks the route from the TLS server name and passes the client's Host through unchanged, so a
+    tagged device can send 'Host: localhost'. It does set X-Forwarded-For/-Host/-Proto itself (overwriting what the
+    client sent), so any forwarding header - or a non-loopback Host - marks a proxied request. A local agent's curl
+    sends neither."""
+    if not host_is_loopback(headers.get("Host")):
+        return True
+    return any(headers.get(h) is not None for h in FORWARDED_HEADERS)
+
+
+def admit(p: Principal, host, headers=None) -> None:
     """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
     admits logins in people.json or --allow; otherwise --allow (if set) admits only its logins. Without either,
     everyone the provider identifies is admitted (and recorded in people.json as an editor on first visit).
-    Tokens and the local owner are always admitted. A headerless request through *.ts.net (a tagged device) never gets
-    here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a list is configured, as in v0.1."""
+    Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged device) never
+    gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a list is
+    configured, as in v0.1."""
     login = p.actor.get("login")
     if p.via == "header":
         if C.members_only:
@@ -5302,7 +5316,7 @@ def admit(p: Principal, host) -> None:
             raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}))
     elif p.via == "loopback-agent" and (C.allow or C.members_only):
         hname, _ = split_host(host or "")
-        if hname.endswith(".ts.net"):
+        if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
             raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
                             page=("no-identity", {}))
 
@@ -8862,7 +8876,7 @@ class Handler(BaseHTTPRequestHandler):
         self._check_origin()
         peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
         p = identify(self.headers, peer)
-        admit(p, self.headers.get("Host"))
+        admit(p, self.headers.get("Host"), self.headers)
         self.principal = p
         return p.actor
 

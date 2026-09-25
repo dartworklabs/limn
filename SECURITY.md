@@ -31,8 +31,9 @@ What the server does defend against:
   (`trusted-proxy`).
 - Path traversal: static files are limited to the vendored PDF.js files by name.
 - Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
-  tagged devices) are refused (`403`) since v0.2.1 — only a request naming this machine (a loopback Host) can be the
-  headerless agent. `--tailnet-agent` restores the v0.2.0 behaviour, and never past `--allow` or `--members-only`.
+  tagged devices) are refused (`403`) since v0.2.1 — only a request that names this machine (a loopback Host) and
+  carries no `X-Forwarded-*`/`Forwarded` header can be the headerless agent. Host alone is not trusted for this:
+  `tailscale serve` routes by the TLS name and passes the client's Host through, but always sets `X-Forwarded-For`. `--tailnet-agent` restores the v0.2.0 behaviour, and never past `--allow` or `--members-only`.
 - Bulk deletion: `POST /api/clear` (archive and empty every pin) is refused to everyone but the `owner` role and
   needs an explicit confirmation body; it keeps a backup and records who did it (since v0.2.1).
 
