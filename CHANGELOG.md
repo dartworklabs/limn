@@ -4,27 +4,35 @@
 
 Pins follow a moved manuscript ([issue #7](https://github.com/dartworklabs/limn/issues/7), decision record
 [ADR-0006](docs/adr/0006-relative-pin-paths.md), status: proposed). The stored pin record gains one optional field. The
-HTTP API adds one field, and `file` in responses now names the file where it is now. The `pins.md` format is unchanged.
+HTTP API adds one computed field, and `file` in responses now names the file where it is now. The `pins.md` format is
+unchanged.
 
-- **`rel_path` (stored, additive).** When the server creates, edits (note, range or relocation) or restores a pin, it
+- **`file_rel` (stored, additive).** When the server creates, edits (note, range or relocation) or restores a pin, it
   also stores the file's path relative to `--manuscript` (`sections/intro.tex`) and rewrites `file` as the current
   absolute path. Records written earlier are **not** rewritten to add it (no write migration), not even when another
   write touches the file.
 - **Locating a pin's file (every read).** The stored `file` if it lies under the current manuscript folder; else a
-  `rel_path` that the stored `file` ends with (a stale one left by a 0.3.0 relocation is ignored); else, for older
-  records, the longest tail of `file` that exists under the folder (the rule `to_source()` uses for SyncTeX paths),
-  never with `..` parts. The result must still resolve inside the folder, so a symlink cannot lead out. Pins that
-  cannot be located stay outside the tree exactly as before: no line re-sync, no range edit, no quote, nothing read.
+  `file_rel` that the stored `file` ends with (a stale one left by a 0.3.0 relocation is ignored; a longer existing
+  tail of `file` wins, for a widened folder); else, for older records, the longest tail of `file` that exists under
+  the folder (the rule `to_source()` uses for SyncTeX paths), never with `..` parts. The result must still resolve
+  inside the folder, so a symlink cannot lead out. Pins that cannot be located stay outside the tree exactly as
+  before: no line re-sync, no range edit, no quote, nothing read.
+- **Line re-sync of a moved record.** Its `synced_at` was measured on another file, so the mtime shortcut is taken only
+  while the anchor's head is still at the recorded line; a re-match also writes the located path into `file`, so the
+  lines and `file` describe one file (switching back to an old checkout follows its lines again). No anchor is
+  backfilled from a located file.
 - **What changes after moving a checkout.** Pins keep following edits via their anchor, `/edit` with `lo`/`hi` works
   (it was `400`), `pins.md` keeps `sections/x.tex L12-L18` and the long-line `«…»` quote, overlaps join pins made
   before and after the move, and [View changes] uses the current path.
-- **API (additive).** Pin responses carry `rel_path`, computed for old records too, and `file` is the absolute path
-  valid on this machine now (the stored value when the pin cannot be located). The issue's suggested name `rel` is
-  already the overlap list in `GET /api/pins`.
+- **API (additive).** Pin responses carry a computed `rel_path` (old records too) and `file` is the absolute path
+  valid on this machine now (the stored value when the pin cannot be located). The stored `file_rel` is not returned.
+  The issue's suggested name `rel` is already the overlap list in `GET /api/pins`.
+- `/edit` checks a `note_append` that would exceed the note limit before changing anything (a 400 could leave a
+  partial edit when the same write re-synced lines).
 - Not covered: the paths inside a closed pin's `changes` stay absolute (after a move, [View changes] infers the hunks),
   and view-only PDF pins keep their `pdf` path (they are found by document key).
-- Rolling back to 0.3.0 is safe: 0.3.0 ignores `rel_path`, records rewritten by 0.4 carry a current `file`, and
-  untouched records look exactly as they did before the upgrade.
+- Rolling back to 0.3.0 is safe: 0.3.0 ignores `file_rel` (and never returns a `rel_path`), records rewritten by 0.4
+  carry a current `file`, and untouched records look exactly as they did before the upgrade.
 
 ## 0.3.1 — 2026-09-26
 
