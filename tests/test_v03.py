@@ -24,7 +24,7 @@ from unittest import mock
 
 from test_access import ALICE, AccessBase, talk_to
 from test_qa_021 import BrowserBase, actor
-from test_server import Base, ps, req, split_resp
+from test_server import Base, extract_js_fn, ps, req, run_node, split_resp
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)
@@ -383,16 +383,16 @@ class CloseChanges(AccessBase):
         self.assertFalse(ps.valid_rec(r))
         self.assertTrue(ps.valid_rec(dict(r, changes=[{"file": "/a.tex", "lo": 1, "hi": 2}])))
 
-    def test_pins_md_close_instruction_line_names_one_commit_per_pin_and_changes(self):
+    def test_pins_md_close_instruction_line_asks_for_changes_and_the_merged_commit(self):
+        # decided after review (ADR-0005, accepted): paper repos squash-merge and agents close after the merge, so the
+        # line asks for `changes` in the numbering of the commit `ref` names, and ref = "PR #N (<hash>)"; per-pin commits
+        # help but are optional
         text = ps.pins_md_text(ps.snapshot_pins())
         line = next(l for l in text.splitlines() if l.startswith("처리한 핀은 닫는다"))
-        self.assertTrue(line.startswith("처리한 핀은 닫는다 — 핀 하나에 커밋 하나로 고치고(PR 하나에 커밋 여럿은 괜찮다) "
-                                        "`ref` 에 그 커밋 해시를 적는다: `curl -X POST"), line)
-        self.assertIn('"ref":"그 핀의 커밋 해시(≤80자)","changes":[{"file":"main.tex","lo":12,"hi":14}]}\' '
-                      'http://127.0.0.1:18999/api/pins/N/close`', line)
-        self.assertIn("`changes` 는 선택: 그 커밋에서 이 핀 때문에 바꾼 줄 범위, 커밋 뒤 줄 번호, 경로는 위치 칸 기준", line)
-        # everything after the close example is the v0.2.2 text, unchanged
-        self.assertIn(") · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고", line)
+        self.assertTrue(line.startswith('처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl'), line)
+        self.assertIn('"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "' http://127.0.0.1:18999/api/pins/N/close`", line)
+        self.assertIn('(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)' + " · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고", line)
+        self.assertNotIn("스쿼시하지", line)
         self.assertTrue(line.endswith("에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403"))
 
 
@@ -523,6 +523,81 @@ class ScopedSourceDiff(ScopedRepo):
                 self.assertIn("+Part line twelve.", s["diff"])
                 self.assertNotIn("input", s["diff"])
                 self.assertIn("+\\input{chapter}", s["other_diff"])
+
+
+class SquashMergedPins(AccessBase):
+    """The owner's workflow (ADR-0005, accepted): a PR fixes three pins, is squash-merged into one commit on main, and
+    only then does the agent close each pin with ref = "PR #7 (<squash hash>)" and `changes` in the squash commit's
+    new-side numbers. Beta's fix is a sentence added two lines below the pin, which the pin's own range cannot find -
+    only the recorded `changes` can. A fourth change in the same commit belongs to no pin."""
+
+    def setUp(self):
+        super().setUp()
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        self.repo = self.src.parent
+        self.main.write_text(OLD, encoding="utf-8")
+        for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T"),
+                     ("add", "ms"), ("commit", "--quiet", "-m", "first")):
+            subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True)
+        self.pins = [self.add(lo=4, hi=4, note="alpha"), self.add(lo=11, hi=11, note="beta"),
+                     self.add(lo=18, hi=18, note="gamma")]
+        new = (OLD.replace("Alpha paragraph talks about apples.", "Alpha paragraph talks about pears.")
+                  .replace("Filler five.\n", "Filler five.\nBeta follow-up sentence.\n")
+                  .replace("Filler seven.", "Filler 7.")
+                  .replace("Gamma paragraph talks about cherries.", "Gamma paragraph talks about plums."))
+        self.main.write_text(new, encoding="utf-8")
+        t = time.time() + 5
+        os.utime(self.main, (t, t))
+        for args in (("add", "ms"), ("commit", "--quiet", "-m", "Resolve pins 1-3 (#7)")):
+            subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True)
+        self.squash = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
+        self.ref = "PR #7 (%s)" % self.squash[:7]
+        lines = new.split("\n")
+        self.new_lines = {"alpha": lines.index("Alpha paragraph talks about pears.") + 1,
+                          "beta": lines.index("Beta follow-up sentence.") + 1,
+                          "gamma": lines.index("Gamma paragraph talks about plums.") + 1}
+        self.assertEqual(self.new_lines, {"alpha": 4, "beta": 14, "gamma": 19})
+        for pid, key in zip(self.pins, ("alpha", "beta", "gamma")):
+            n = self.new_lines[key]
+            code, d = self.call("POST", "/api/pins/%d/close" % pid, {
+                "reply": key, "ref": self.ref, "changes": [{"file": "main.tex", "lo": n, "hi": n}]})
+            self.assertEqual(code, 200, d)
+
+    def test_each_pin_sees_its_own_change_in_the_squash_commit(self):
+        want = {"alpha": ("+Alpha paragraph talks about pears.", ("follow-up", "plums", "Filler 7"))
+                , "beta": ("+Beta follow-up sentence.", ("pears", "plums", "Filler 7")),
+                "gamma": ("+Gamma paragraph talks about plums.", ("pears", "follow-up", "Filler 7"))}
+        for pid, key in zip(self.pins, ("alpha", "beta", "gamma")):
+            with self.subTest(pin=key):
+                code, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, pid))
+                self.assertEqual(code, 200, d)
+                s = d["scope"]
+                self.assertEqual((s["mode"], s["source"], s["hunks"], s["other"]), ("pin", "changes", 1, 3))
+                mine, others = want[key]
+                self.assertIn(mine, s["diff"])
+                for o in others:
+                    self.assertNotIn(o, s["diff"])
+                    self.assertIn(o, s["other_diff"])
+                spec = ps.revision_spec(ps.cur_doc(), self.squash, pid)
+                self.assertEqual(len(spec.scope), 1)
+
+    def test_without_changes_beta_would_fall_back_to_the_whole_commit(self):
+        # the reason `changes` is what agents should send: beta's own range does not touch its fix
+        rows = ps.snapshot_pins()
+        r = ps.find_pin(rows, self.pins[1])
+        r.pop("changes")
+        ps.write_pins(rows)
+        _, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, self.pins[1]))
+        self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("commit", "none"))
+
+    def test_the_viewer_finds_the_squash_commit_from_the_ref(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+        revs = ps.revision_history(ps.cur_doc())["revisions"]
+        out = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(matchRevision(%s,%s)));"
+                       % (json.dumps(self.ref), json.dumps(revs)))
+        self.assertEqual(json.loads(out)["id"], self.squash)
 
 
 class ScopedPdf(ScopedRepo):

@@ -1418,7 +1418,7 @@ class PinsMdV2(Base):
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("curl -X POST -H 'Content-Type: application/json'", md)
-        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"그 핀의 커밋 해시(≤80자)",'
+        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)",'
                       '"changes":[{"file":"main.tex","lo":12,"hi":14}]}\'', md)   # v0.3: one commit per pin, optional changes
         self.assertIn("http://127.0.0.1:%d/api/pins/N/close" % ps.C.port, md)
         self.assertIn("본문 생략", md)   # notes that the old way of omitting the body still works
