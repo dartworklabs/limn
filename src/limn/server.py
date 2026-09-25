@@ -4067,6 +4067,10 @@ def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
 # ---------------------------------------------------------------- Pin operations
 
 def add_pin(d: dict, actor: dict) -> int:
+    """Saves a new pin from a POST /api/pin body for the current document (or the body's `doc`) -> its id. A LaTeX pin
+    stores its location, anchor, the author and - since 0.4 (ADR-0006) - rel_path next to the absolute file; a view-only
+    document gets a region pin. Queues mention/assigned events and emits them after the write. Validation errors are
+    HTTPError(400) from the clean_* parsers (404 for an unknown doc), raised before anything is written."""
     D = cur_doc()
     want = d.get("doc")
     if isinstance(want, str) and want != D.key:        # if the body's doc differs from the current document, switch to that one (404 on an unknown key)
@@ -4088,6 +4092,7 @@ def add_pin(d: dict, actor: dict) -> int:
     evs = []
 
     def fn(rows):
+        """The transact() step: completes rec (id, author, mentions, anchor, build, rel_path) and appends it -> (id, True)."""
         rec["note"] = note
         rec["at"] = now_str()
         rec["id"] = next_id(rows)
@@ -4201,6 +4206,9 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 newloc.pop("pdf_build", None)
 
     def fn(rows):
+        """The transact() step: applies the validated edit to pin pid, records where its file is now (stamp_location) and
+        bumps rev -> (public pin, True). Raises HTTPError 404 (no pin), 409 (closed pin moved, stale base_rev) or 400
+        (a range outside the file, or a pin outside the manuscript tree) before changing anything."""
         r = find_pin(rows, pid)
         if r is None:
             raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
@@ -5187,6 +5195,9 @@ def restore_pin(pid: int, actor: dict) -> dict:
 
 
 def _restore(rows: list, pid: int, actor: dict):
+    """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into rows, re-synced and
+    with rel_path and the current file recorded (ADR-0006) -> (public pin, True). HTTPError 404 if the Trash has no such
+    pin, 409 if the id is already live; rows are unchanged then."""
     old, _ = read_jsonl(C.dropped)
     hits = [r for r in _unexpired(old) if r.get("id") == pid]
     if not hits:
