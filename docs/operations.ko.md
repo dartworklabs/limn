@@ -29,6 +29,10 @@ limn serve \
   [--label <이름표>] \
   [--accent <#rrggbb>] \
   [--doc <키>=<표시 이름>:<경로> ...] \
+  [--auth tailscale|local|trusted-proxy] [--no-agent-loopback | --agent-loopback] \
+  [--bind <주소>] [--i-know-this-is-insecure] [--public-host <이름[:포트]>,...] \
+  [--trusted-proxies <ip/cidr>,...] [--proxy-user-header <h>] [--proxy-name-header <h>] [--proxy-email-header <h>] \
+  [--members-only] [--local-user <로그인>] \
   [--version]
 ```
 
@@ -51,11 +55,28 @@ limn serve \
 | `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받는다(형식이 아니면 기동 실패). 같은 `--label` 이면 지정하지 않는 한 항상 같은 기본색이 나온다 |
 | `--version` | 아니오 | — | 설치된 버전을 출력하고 종료한다(`GET /api/version` 과 같은 값) |
 
-**바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§Operations — running, security, deployment, and the viewer)
+접근 제어(v0.2, [설계](design/access-and-sync.ko.md)). 아래 인자를 하나도 주지 않으면 서버는 v0.1 과 똑같이 동작한다.
+
+| 인자 | 기본값 | 설명 |
+| --- | --- | --- |
+| `--auth` | `tailscale` | 신원 방식. `tailscale`: `Tailscale-User-*` 헤더, TCP 상대가 loopback 일 때만 믿는다(`tailscale serve`). `local`: 자기 머신의 한 사람 — loopback 요청은 모두 소유자(사람, 확인 가능), Tailscale 헤더는 무시, 다른 상대는 `401`. 에이전트는 토큰을 써야 한다. `trusted-proxy`: `--proxy-*-header` 헤더를 `--trusted-proxies` 에서 온 요청일 때만 믿고, 유효한 토큰이 없는 그 밖의 요청은 `401`. 어느 방식이든 `Authorization: Bearer <토큰>`(`limn token create`)을 받는다. 유효한 토큰은 헤더보다 앞서고, 틀리거나 폐기된 토큰은 `401` |
+| `--no-agent-loopback` / `--agent-loopback` | `tailscale` 에서 켜짐 | 신원 헤더도 토큰도 없는 loopback 요청을 에이전트(`로컬/에이전트`)로 볼지(폐지 예정인 v0.1 동작 — 서버가 시작 때와 첫 요청 때 경고를 남긴다). `--no-agent-loopback` 이면 끈다(`401`). `local`·`trusted-proxy`·loopback 이 아닌 `--bind` 에서는 늘 꺼지며, 거기서 `--agent-loopback` 을 주면 시작을 거부한다 |
+| `--bind` | `127.0.0.1` | 들을 주소(IPv4·IPv6·`localhost`). loopback 이 아니면 `--auth trusted-proxy` 나 `--i-know-this-is-insecure` 없이는 시작을 거부하고, loopback 이 아닌 바인드는 신원 방식을 밝힌 `warning` 줄을 찍는다 |
+| `--i-know-this-is-insecure` | 꺼짐 | `tailscale`/`local` 인데도 loopback 이 아닌 `--bind` 로 띄운다(큰 경고). 완전히 믿는 망에서만 |
+| `--public-host` | (없음) | 공개 호스트 이름(여러 번 또는 쉼표, `이름[:포트]`). `Host` 와 같은 출처 `Origin`(`https`, 포트를 안 주면 443)으로 받고, `GET /pins.md` 의 기준 주소로 쓴다 |
+| `--trusted-proxies` | `127.0.0.1,::1` | `trusted-proxy` 가 신원 헤더를 믿는 IP·CIDR |
+| `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `X-Forwarded-User` / `X-Forwarded-Preferred-Username` / 없음 | `trusted-proxy` 의 헤더 이름. 사용자 헤더는 필수이고, 이메일 헤더를 주면 (값이 있을 때) 이메일이 로그인이 된다 |
+| `--members-only` | 꺼짐 | `people.json`(`limn member add`)이나 `--allow` 에 있는 사람만 들인다. 나머지는 `403` 이고 기록하지 않는다. 토큰과 로컬 소유자는 늘 들어온다 |
+| `--local-user` | `$USER`, 없으면 `owner` | `--auth local` 의 소유자 로그인 |
+
+시작 로그에 `auth` 줄(신원 방식·토큰 수·loopback 에이전트 켬/끔·members-only)이 찍힌다. 역할(`people.json`):
+`viewer` 는 읽기와 `/api/pick`·`/api/revision-build` 만, `agent` 는 확인 말고 전부, `editor`(역할 없는 사람의 기본값)와
+`owner` 는 전부 한다. 소유자 전용 작업 — 멤버·토큰·설정 — 은 v0.2 에서 CLI·파일 수준이다(`limn member`, `limn token`).
+소유자 전용 HTTP 엔드포인트는 아직 없다. 자세히: [instances.ko.md](instances.ko.md#접근-토큰과-멤버), [api.md](api.md#authentication).
 
 ### 설계 초안과의 차이
 
-이 도구의 설계 초안은 `*.ts.net` 외의 도메인을 개별 허용하는 `--allow-host HOST`(여러 번 가능)와, `Host`/`Origin` 검사를 따로 끄는 `--no-host-check`, 요청 헤더를 로깅하는 `--log-headers` 를 별도로 두는 안이었다. 실제 구현은 그 세 개를 만들지 않고 위 `--allow`(로그인 기반 허용목록)·`--no-origin-check`(Host·Origin 검사를 한 번에 끔) 로 갈음했다 — 허용 호스트 집합 자체(`127.0.0.1`·`localhost`·`::1`·`*.ts.net`)는 하드코딩이고 커스텀 도메인을 추가로 허용할 길이 없다. 커스텀 `--allow-host` 가 필요해지면 별도로 구현해야 한다.
+이 도구의 설계 초안은 `*.ts.net` 외의 도메인을 개별 허용하는 `--allow-host HOST`(여러 번 가능)와, `Host`/`Origin` 검사를 따로 끄는 `--no-host-check`, 요청 헤더를 로깅하는 `--log-headers` 를 별도로 두는 안이었다. 실제 구현은 그 세 개를 만들지 않고 위 `--allow`(로그인 기반 허용목록)·`--no-origin-check`(Host·Origin 검사를 한 번에 끔) 로 갈음했다. 허용 호스트 집합은 `127.0.0.1`·`localhost`·`::1`·`*.ts.net` 에, v0.2 부터 `--public-host` 로 준 이름이 더해진다 — `--allow-host` 가 하려던 일을 이것이 맡는다.
 
 ## 여러 문서 (`--doc`)
 
@@ -92,7 +113,7 @@ limn serve \
 
 ### 인스턴스 관리자와의 계약
 
-여러 논문을 상시로 띄우고 관리할 때는(포트·상태 디렉토리·systemd 유닛 자동 배선) 이 문서가 아니라 **인스턴스 관리자**(`limn add|start|stop|update|list|status|url|snippet|doc|remove`, systemd 사용자 유닛 `limn@<이름>`)를 쓴다. 논문별 설정 키(`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, 파일 `~/.config/limn/<이름>.env`)와 서버 인자의 대응, 새 논문 추가·업데이트·제거 절차의 정본은 [instances.md](instances.md)다. 서버 쪽 `--doc`/`--main` 인자 자체의 계약(형식·키 규칙·경로 규칙)은 위 표가 정본이며 바뀌지 않는다.
+여러 논문을 상시로 띄우고 관리할 때는(포트·상태 디렉토리·systemd 유닛 자동 배선) 이 문서가 아니라 **인스턴스 관리자**(`limn add|start|stop|update|list|status|url|snippet|doc|remove`, systemd 사용자 유닛 `limn@<이름>`)를 쓴다. 논문별 설정 키(`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS` 와 접근 키 `AUTH`·`AGENT_LOOPBACK`·`BIND`·`PUBLIC_HOSTS`·`TRUSTED_PROXIES`·`PROXY_*_HEADER`·`MEMBERS_ONLY`·`LOCAL_USER`, 파일 `~/.config/limn/<이름>.env`)와 서버 인자의 대응, 새 논문 추가·업데이트·제거 절차의 정본은 [instances.md](instances.md)다. 서버 쪽 `--doc`/`--main` 인자 자체의 계약(형식·키 규칙·경로 규칙)은 위 표가 정본이며 바뀌지 않는다.
 
 ## 포트 충돌 회피 (강제)
 
@@ -105,7 +126,7 @@ ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 - 점유돼 있으면: (a) `--port`를 지정하지 않았다면 서버가 자동으로 다음 빈 포트를 시도하게 하거나, (b) 점유 프로세스가 이 도구의 이전 인스턴스인지 확인 후 재사용(같은 `--manuscript`면 기존 서버를 그대로 쓰고 새로 띄우지 않는다).
 - 서버를 내릴 때 `pkill -f "limn serve"`로 죽이지 않는다 — 자기 자신의 명령줄까지 매칭해 무관한 세션을 죽일 위험이 있다. 포트로 PID를 찾아 종료한다: `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 - 새 버전으로 바꿀 때 상태 디렉토리는 그대로 둔다. 옛 레이아웃(`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`)을 `--no-build` 로도 재빌드 없이 읽는다. 기동 때 `pages.cur`(내용 `pages`)와 `pins.seq`(기존 최대 id)를 만들고 `<state_dir>/pins.md` 를 다시 그린다. 옛 `pages/` 는 다음 재빌드가 `pages-<build_id>/` 로 교체한 뒤 직전 1개로 남았다가 그다음 재빌드에서 지워진다.
-- **배포 경로**: `limn` 은 `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1` 로 설치해 쓰는 독립 패키지다 — 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/` 는 패키지 안에 같이 설치되므로 따로 옆에 둘 필요가 없다. 새 버전으로 올리려면 그 버전을 다시 설치(또는 `limn update`, instances.md)하고 상시 인스턴스를 재시작한다 — 레포만 새로 받고 설치를 갱신하지 않으면 옛 버전이 계속 돈다.
+- **배포 경로**: `limn` 은 `uv tool install git+https://github.com/dartworklabs/limn@v0.2.0` 로 설치해 쓰는 독립 패키지다 — 레포를 체크아웃해 스크립트를 직접 실행하지 않는다. `vendor/pdfjs/` 는 패키지 안에 같이 설치되므로 따로 옆에 둘 필요가 없다. 새 버전으로 올리려면 그 버전을 다시 설치(또는 `limn update`, instances.md)하고 상시 인스턴스를 재시작한다 — 레포만 새로 받고 설치를 갱신하지 않으면 옛 버전이 계속 돈다.
 
 ## 여러 논문 인스턴스를 동시에 띄울 때
 
@@ -143,10 +164,10 @@ origin 저장소 이름 → 폴더 이름)과 `--accent`(강조색 `#rrggbb`, �
 
 | 항목 | 규칙 |
 | --- | --- |
-| 바인딩 주소 | `127.0.0.1` 고정. `0.0.0.0`·와일드카드 바인딩 금지 — 인자로도 노출하지 않는다 |
-| 외부 노출 | `tailscale serve`만 사용. **`tailscale funnel` 금지** — funnel은 공인 인터넷에 노출한다 |
+| 바인딩 주소 | 기본 `127.0.0.1`. loopback 이 아닌 `--bind`(예: `0.0.0.0`)는 인증 프록시 뒤의 `--auth trusted-proxy` 일 때만. 아니면 서버가 시작을 거부한다(`--i-know-this-is-insecure` 로 넘길 수 있지만 크게 경고한다) |
+| 외부 노출 | `tailscale serve`(`tailscale` 방식) 또는 인증 리버스 프록시(`--auth trusted-proxy`). **`tailscale funnel` 금지** — funnel은 공인 인터넷에 노출한다 |
 | 노출 후 검증 | (1) 테일넷 안에서 그 URL에 `curl`하면 `200` 확인. (2) 공인 IP·테일넷 밖 경로로는 연결이 실패하는지 확인(즉 `tailscale serve status`가 "Funnel"이 아니라 "tailnet only"로 뜨는지) — 이 둘을 확인해야 "노출됐다"고 보고한다 |
-| 인증 | 없음(테일넷 자체가 경계). 신원 헤더는 기록용이고, 필요하면 `--allow` 로 로그인 목록을 제한한다. 핀 데이터에 민감정보를 적지 않는다는 전제 |
+| 인증 | 인스턴스마다 신원 방식 하나(`--auth`, 기본 `tailscale`: 테일넷이 경계이고 헤더로 누가 했는지 기록). 에이전트는 API 토큰(`limn token create`). 들어올 사람은 `--allow`/`--members-only`, 바꿀 수 있는 일은 역할(`limn member`)로 좁힌다 |
 | 요청 경계 | 응답 전에 본문을 끝까지 읽고 오류 뒤 연결을 닫는다(요청 밀반입 차단), `Transfer-Encoding` 거부, 교차 출처 `Origin`·낯선 `Host` 는 `403`, 본문 있는 POST 는 JSON 만 — [api.md](api.md) §Request format and boundaries, 아래 §Host·Origin 검사 |
 | 경로 | 핀·스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다(밖이면 `400`) |
 | 종료 | 세션 종료 시 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스 자체를 계속 띄워둘지는 사용자 판단(재사용 이점과 유휴 리소스 비용의 트레이드오프) |
@@ -174,8 +195,7 @@ origin 저장소 이름 → 폴더 이름)과 `--accent`(강조색 `#rrggbb`, �
 | 신원 헤더를 위조하고 낯선 `Host` 로 보낸 `POST` | `403` — 헤더가 Host 검사를 건너뛰게 하지 않는다 |
 | 공인 IP 로 접근 | 연결 실패 |
 
-신원 헤더는 **구분용이지 인증이 아니다.** 서버는 이 헤더를 tailscale serve 경유 여부와 무관하게 읽는다 — `127.0.0.1` 에 직접 붙은 요청이 `Tailscale-User-Login` 을 달면 그 사람으로 기록된다(2026-09-24 실측, `/api/meta` 의 `me`). 회귀·브라우저 검증은 이것으로 두 사람을 흉내 낸다(Playwright `extra_http_headers`). 검토 대기의 '에이전트 = 헤더 없음' 도 같은 한계를 진다 — 신원은 권한이 아니라 기본값을 가른다. 같은 기기의 로컬 프로세스는 헤더를 스스로 붙일 수 있다. 바인딩이
-`127.0.0.1` 이라 테일넷을 거치지 않은 요청은 그 기기 안에서만 오고, 그 기기는 이미 사용자 것이다.
+`--auth tailscale` 에서 신원 헤더는 **TCP 상대가 loopback 일 때만 믿는다** — `tailscale serve` 는 loopback 에서 붙으므로, 다른 상대(loopback 이 아닌 `--bind` 에서만 생긴다)의 헤더는 무시한다. `127.0.0.1` 에 직접 붙은 요청이 `Tailscale-User-Login` 을 달면 여전히 그 사람으로 기록된다(2026-09-24 실측, `/api/meta` 의 `me`). 회귀·브라우저 검증은 이것으로 두 사람을 흉내 낸다(Playwright `extra_http_headers`). 같은 기기의 로컬 프로세스는 헤더를 스스로 붙일 수 있고, loopback 에이전트가 켜져 있으면 헤더 없는 로컬 요청은 에이전트다 — 여럿이 쓰는 머신이라면 에이전트에게 토큰을 주고 `--no-agent-loopback` 과 `--members-only`·역할을 쓴다. 기본 바인딩에서는 테일넷을 거치지 않은 요청이 그 기기 안에서만 온다.
 
 ## 상시로 띄울 때 — systemd 사용자 유닛
 
@@ -207,7 +227,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── pins.jsonl.corrupt-*.bak  # 깨진 줄이 있을 때 첫 쓰기 전 원본 보존(조건부)
 ├── pins_<ts>.jsonl.bak       # /api/clear 보관본
 ├── pins.md                   # 에이전트 진입점 — 이 한 장만 읽는다
-├── people.json               # @태그 후보 — 이 뷰어를 연 테일넷 사람(로컬 제외, 원자적 교체)
+├── people.json               # @태그 후보이자 멤버 — 이 뷰어를 연 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체)
+├── tokens.json               # 에이전트 API 토큰 — SHA-256 해시만, 권한 0600, `limn token` 이 쓴다(첫 토큰 전에는 없다)
+├── .people.lock · .tokens.lock   # 위 두 파일의 프로세스 간 잠금(서버와 CLI 가 동시에 쓸 수 있다)
 ├── events.jsonl               # mention·review_requested·replied·reopened 기록(추가 전용, 바깥으로 보내지 않는다)
 ├── build.log
 ├── built_at.txt

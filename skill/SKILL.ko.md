@@ -42,6 +42,10 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 `<base>` 는 원격이면 `https://<host>.<tailnet>.ts.net:<ts_port>`, 서버 머신이면 `http://127.0.0.1:<port>`. `GET <base>/api/version` 이 `{"name":"limn","version":...}` 을 돌려주면 Limn 인스턴스가 맞다.
 
+### 인증
+
+모든 요청에 API 토큰을 붙인다: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. 토큰은 사용자가 `limn token create <인스턴스>` 로 한 번 만들어 건네준다(그때만 보인다). `LIMN_TOKEN` 에 두고 저장소에는 절대 넣지 않는다. 토큰이 있으면 어디서 붙든 에이전트(`agent:<이름>`)다. 토큰 없이 `127.0.0.1` 에 헤더 없이 보내면 대부분의 인스턴스에서 아직 에이전트로 받지만, 폐지 예정이고 꺼져 있을 수 있다(`401`). `401` 이 오면 사용자에게 토큰을 달라고 한다. 자세히: [api.md](../docs/api.md) §Authentication.
+
 ### 읽는 것
 
 - `pins.md`: 원격이면 `curl -s <base>/pins.md`, 서버 머신이면 `<state_dir>/pins.md` 를 `Read`.
@@ -141,7 +145,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 ## 사용자에게 뷰어 띄워 주기
 
-1. **설치**(한 번): `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1` 뒤 `limn version` 으로 확인한다.
+1. **설치**(한 번): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.0` 뒤 `limn version` 으로 확인한다.
 2. **포트를 확인한다(강제).** 확인 없이 바인딩하지 않는다.
 
    ```bash
@@ -158,11 +162,11 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 | 항목 | 규칙 |
 | --- | --- |
-| 바인딩 | `127.0.0.1` 고정. `0.0.0.0` 금지. 바꾸는 플래그도 만들지 않는다 |
+| 바인딩 | `127.0.0.1`(기본값). `0.0.0.0` 금지. `--bind` 는 운영자가 인증 프록시 뒤에서만 쓴다 |
 | 외부 노출 | `tailscale serve` 만. `tailscale funnel` 금지(공인 인터넷 노출) |
 | 노출 보고 전 | 테일넷 안 `curl` 이 `200`, `tailscale serve status` 가 tailnet only |
 | Host·Origin 검사 | 낯선 `Host`·교차 출처 `Origin` 은 `403`. `--no-origin-check` 는 탈출구 전용 |
-| 인증 | 없다(테일넷이 경계). 막아야 하면 `--allow <login>,…` |
+| 인증 | 테일넷이 경계(`--auth tailscale`, 기본값). 에이전트는 `limn token create`. 좁히려면 `--members-only`·`--allow <login>,…` 와 `limn member` 역할 |
 | 종료 | `tailscale serve --https=<port> off` |
 
 ## 자주 쓰는 API

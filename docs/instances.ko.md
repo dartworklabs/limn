@@ -25,12 +25,27 @@ systemd 사용자 유닛 `limn@<이름>` 하나이고, 포트·상태 폴더·jo
 |---|---|
 | `MANUSCRIPT` | 원고 폴더(LaTeX 소스 루트, 절대경로) |
 | `MAIN` | 최상위 `.tex` 파일 이름(원고 폴더 맨 위) |
-| `PORT` / `TS_PORT` | 로컬 `127.0.0.1` 포트와 테일넷 `https` 포트. **실행 때 자동으로 고르지 않는다** — 알린 주소가 바뀌면 안 된다 |
+| `PORT` / `TS_PORT` | 로컬 포트(`BIND` 가 없으면 `127.0.0.1`)와 테일넷 `https` 포트. **실행 때 자동으로 고르지 않는다** — 알린 주소가 바뀌면 안 된다 |
 | `STATE_DIR` | 상태 폴더. 다른 인스턴스와 겹치면 `limn add` 가 거부한다 |
 | `GIT_PULL` | `1` 이면 재빌드마다 원고 체크아웃을 `--ff-only` 로 당긴다 |
 | `LABEL` / `ACCENT` | 뷰어 이름표와 강조색(`#rrggbb`) |
 | `EXTRA_ARGS` | 그 밖의 서버 인자(공백으로 나눔). `limn add` 기본값은 `--no-build` — 산출물이 없으면 서버가 어차피 빌드한다 |
 | `DOCS` | 여러 문서(본문·답변서·보기 전용 PDF 등)를 탭으로 전환한다. `MAIN` 과 함께 쓰지 않는다. [여러 문서](#여러-문서-docs) 참고 |
+
+접근 제어 키(v0.2, 모두 선택 — [접근: 토큰과 멤버](#접근-토큰과-멤버) 참고). 없는 키는 서버 플래그를 하나도 더하지
+않으므로 이 키가 없는 설정은 v0.1 과 똑같이 돈다. `limn run` 은 시작 전에 값을 검사해, 유닛이 같은 오류로
+재시작을 되풀이하는 대신 분명한 오류로 멈춘다.
+
+| 키 | 서버 플래그 | 뜻 |
+|---|---|---|
+| `AUTH` | `--auth` | 신원 방식: `tailscale`(없을 때 기본), `local`, `trusted-proxy`. `limn add --auth <방식>` 이 적는다 |
+| `AGENT_LOOPBACK` | `0` → `--no-agent-loopback`, `1` → `--agent-loopback` | `0` 이면 헤더 없는 loopback 요청을 거부한다(에이전트는 토큰을 써야 한다). `1` 은 `tailscale` + loopback `BIND` 에서만 된다 |
+| `BIND` | `--bind` | 들을 주소, 기본 `127.0.0.1`. loopback 이 아니면 `AUTH=trusted-proxy`(또는 `EXTRA_ARGS` 의 `--i-know-this-is-insecure`)가 있어야 한다 |
+| `PUBLIC_HOSTS` | `--public-host` | 인스턴스에 닿는 공개 이름 `이름[:포트]` 을 쉼표로(Host·Origin 으로 받고 `pins.md` 기준 주소로 쓴다) |
+| `TRUSTED_PROXIES` | `--trusted-proxies` | `trusted-proxy` 가 신원 헤더를 믿는 IP·CIDR 목록(쉼표, 기본 `127.0.0.1,::1`) |
+| `PROXY_USER_HEADER` / `PROXY_NAME_HEADER` / `PROXY_EMAIL_HEADER` | `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `trusted-proxy` 의 헤더 이름(기본 `X-Forwarded-User`, `X-Forwarded-Preferred-Username`, 없음) |
+| `MEMBERS_ONLY` | `1` → `--members-only` | `people.json`(또는 `--allow`)에 있는 사람만 들인다 |
+| `LOCAL_USER` | `--local-user` | `AUTH=local` 의 소유자 로그인(기본 `$USER`) |
 
 ## 새 원고 추가
 
@@ -127,9 +142,40 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 - 자동 배정은 테일넷 `18005–18099`(`LIMN_TS_MIN`/`LIMN_TS_MAX`)에서 첫 빈 포트를 고르고 로컬 포트는 `+100` 을 짝짓는다(18004 ↔ 18104).
 - 기기 공용 포트 장부(선택): `~/.config/served/reserved-ports.txt`(`LIMN_LEDGER`)가 있으면 그 `<포트> <주인>` 줄도 피한다. `LIMN_LEDGER_GEN=<스크립트>`(`<스크립트> <유닛 폴더> <설정 폴더>` 로 불리고 `<포트> <주인>` 줄을 찍는다)를 주면 `add`·`remove` 가 장부를 다시 만든다. 생성기가 없으면 읽기만 한다.
 
+## 접근: 토큰과 멤버
+
+```bash
+limn token create paper2 [--name ci]     # 새 에이전트 토큰을 한 번만 찍는다(stdout). 저장되는 건 해시뿐
+limn token list paper2                   # id·이름·만든 시각 — 토큰 자체는 절대 안 보인다
+limn token revoke paper2 <id|이름>       # 돌고 있는 서버가 다음 요청부터 거부한다
+limn member add paper2 alice@example.com [--role editor] [--name "Alice Kim"]
+limn member list paper2                  # 로그인·역할·이름·마지막 방문
+limn member role paper2 alice@example.com viewer
+limn member remove paper2 alice@example.com
+```
+
+둘 다 인스턴스의 `STATE_DIR`(`tokens.json`·`people.json`)를 고친다. 인스턴스 없이 `limn serve` 만 쓴다면 이름
+대신 `--state-dir <폴더>` 를 준다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 쓴다 — 재시작이 필요 없다. 토큰은
+에이전트에게 건네고(예: `export LIMN_TOKEN=…`), 에이전트는 `Authorization: Bearer $LIMN_TOKEN` 을 보낸다.
+
+| 역할 | 할 수 있는 일 |
+|---|---|
+| `owner` | editor 가 하는 모든 일. 소유자 전용 작업(멤버·토큰·설정)은 v0.2 에서는 CLI·파일 수준이다 — 소유자 전용 HTTP 엔드포인트는 아직 없다 |
+| `editor` | v0.1 에서 사람이 하던 모든 일: 핀·답글·수정·닫기·확인·다시 열기·재빌드. **역할이 없는 사람은 editor 다** |
+| `viewer` | 읽기만. `/api/pick` 과 비교 빌드(`/api/revision-build`)는 된다. 그 밖의 변경은 모두 `403` |
+| `agent` | 에이전트 계약대로: claim·답글·검토 대기로 닫기 — 확인(confirm)은 못 한다. 토큰 주체는 늘 이 역할이다 |
+
 ## 보안 규칙
 
-- 서버는 `127.0.0.1` 에만 바인드한다(코드에 박혀 있다). 테일넷 노출은 `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>` 뿐이다.
+**기본 정책(테일넷 인스턴스).** `AUTH` 가 없거나 `AUTH=tailscale` 이고 허용 목록도 없으면, 인스턴스는 닿는
+테일넷 사람 모두에게 열려 있고 누가 했는지만 기록한다. 처음 보는 테일넷 로그인도 들어올 수 있고, 첫 방문 때
+`people.json` 에 **`role` 필드 없이**(= editor) 기록되며, v0.1 과 똑같이 뷰어를 열고 핀·답글·닫기·확인을 할 수
+있다. 지금 되는 일은 하나도 막히지 않는다. 역할과 허용 목록(`MEMBERS_ONLY=1`, `--allow`, `limn member` 로 준
+역할)은 켜야만 적용된다.
+
+- 서버는 `BIND` 가 없으면 `127.0.0.1` 에 바인드한다. loopback 이 아닌 `BIND` 는 `AUTH=trusted-proxy` 일 때만 받는다(`EXTRA_ARGS` 에 `--i-know-this-is-insecure` 가 있으면 큰 경고와 함께 뜬다). 테일넷 노출은 `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>` 뿐이다.
+- `tailscale serve` 는 tailscale 방식에서만 쓴다. `AUTH=local` 인스턴스(loopback 요청이 모두 소유자라 테일넷 사람 모두가 소유자가 된다)와 `AUTH=trusted-proxy` 인스턴스(테일넷 사람이 프록시 헤더를 직접 보낼 수 있다)는 `add`·`start` 가 serve 를 거부한다. `--no-serve` 로 두고 자체 프록시 뒤에 둔다.
+- 에이전트는 토큰으로 인증한다. "헤더 없는 loopback 요청 = 에이전트"라는 v0.1 규칙은 `tailscale` 에서 아직 되지만 폐지 예정이다(서버 로그에 경고). 에이전트가 토큰을 쓰게 되면 `AGENT_LOOPBACK=0` 을 둔다.
 - **funnel 은 쓰지 않는다.** 미공개 원고다. `add`·`start` 는 serve 설정을 되읽어 그 포트가 funnel 이면 멈춘다.
 - **sudo 를 부르지 않는다.** tailscale operator 설정도 바꾸지 않는다. 권한이 없어 serve 가 안 걸리면 오류로 멈춘다.
 - 남의 serve 항목을 덮거나 내리지 않는다. `serve reset` 은 쓰지 않는다(기기 전체 설정이다).

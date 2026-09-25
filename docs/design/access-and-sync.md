@@ -1,6 +1,8 @@
 # Access control, collaboration boundaries and sync
 
-Status: draft (2026-09-25). Korean version: [access-and-sync.ko.md](access-and-sync.ko.md).
+Status: v0.2 implemented in Limn 0.2.0 (2026-09-25) — identity providers, agent tokens, member roles, bind rule
+([api.md](../api.md) §Authentication, [instances.md](../instances.md) §Access). Later stages remain a draft.
+Korean version: [access-and-sync.ko.md](access-and-sync.ko.md). The Problem section describes v0.1.
 
 ## Problem
 
@@ -58,7 +60,7 @@ One interface, several providers, chosen per instance:
 
 | Stage | Scope |
 |---|---|
-| v0.2 | identity provider interface (`local`, `tailscale`, `trusted-proxy`); agent API tokens; member roles on `people.json`; startup warning + README warning: never expose without an auth provider |
+| v0.2 (**implemented**, 0.2.0) | identity provider interface (`local`, `tailscale`, `trusted-proxy`); agent API tokens; member roles on `people.json`; startup warning + README warning: never expose without an auth provider. Also: `--bind` refused off loopback unless `trusted-proxy`, `--members-only`, `--public-host`; the headerless loopback agent is kept but deprecated. Invites stay for v1.0; owner-only operations are CLI-level for now |
 | v0.3 | live updates over SSE; audit of state-changing endpoints against roles |
 | v1.0 | `oidc` provider, sessions, invite links; HTTPS self-hosting guide (Caddy, Cloudflare Tunnel) |
 | later | `.limn/` git-backed pins; `limn connect` + Limn Cloud |

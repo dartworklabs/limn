@@ -450,5 +450,104 @@ else
     chk "add's failure message also shows the candidates and points to --doc" "grep -q 'x.tex' <<< \"\$out\" && grep -q 'y.tex' <<< \"\$out\" && grep -q -- '--doc' <<< \"\$out\""
 fi
 
+echo "── 13. access control keys (v0.2): AUTH, AGENT_LOOPBACK, BIND, … → server flags ──"
+# A v0.1-style config written by hand (no access keys) must give exactly the v0.1 argv.
+mkdir -p "$T/data/v01"
+cat > "$T/config/v01.env" << EOF
+# limn@v01 — a config as v0.1 wrote it
+LABEL="Paper V"
+MANUSCRIPT=$ms
+MAIN=main.tex
+PORT=19130
+TS_PORT=19030
+STATE_DIR=$T/data/v01
+GIT_PULL=1
+EXTRA_ARGS=--no-build
+EOF
+argv=$(LIMN_PRINT_ARGV=1 "$PV" run v01 2> "$T/v01.err")
+want=$(printf '%s\n' "$PY" "$ROOT/src/limn/server.py" --manuscript "$ms" --port 19130 --state-dir "$T/data/v01" \
+    --main main.tex --git-pull --label "Paper V" --no-build)
+chk "a v0.1 config (no access keys) yields exactly the v0.1 argv" "[[ \"\$argv\" == \"\$want\" ]]"
+
+acc="$T/config/acc.env"
+cp "$T/config/v01.env" "$acc"
+sed -i.bak 's#^STATE_DIR=.*#STATE_DIR='"$T"'/data/acc#' "$acc" && rm -f "$acc.bak"
+cat >> "$acc" << 'EOF'
+AUTH=trusted-proxy
+AGENT_LOOPBACK=0
+BIND=0.0.0.0
+PUBLIC_HOSTS=limn.example.com,alt.example.com:8443
+TRUSTED_PROXIES=10.0.0.5,::1
+PROXY_USER_HEADER=X-Auth-User
+PROXY_NAME_HEADER=X-Auth-Name
+PROXY_EMAIL_HEADER=X-Auth-Email
+MEMBERS_ONLY=1
+LOCAL_USER=alice
+EOF
+argv=$(LIMN_PRINT_ARGV=1 "$PV" run acc 2> "$T/acc.err")
+rc=$?
+pair() { grep -A1 -x -- "$1" <<< "$argv" | sed -n 2p; }
+chk "run with access keys succeeds" "[[ $rc -eq 0 ]]"
+chk "AUTH → --auth" "[[ \$(pair --auth) == trusted-proxy ]]"
+chk "AGENT_LOOPBACK=0 → --no-agent-loopback" "grep -qx -- '--no-agent-loopback' <<< \"\$argv\" && ! grep -qx -- '--agent-loopback' <<< \"\$argv\""
+chk "BIND → --bind" "[[ \$(pair --bind) == 0.0.0.0 ]]"
+chk "PUBLIC_HOSTS → --public-host" "[[ \$(pair --public-host) == 'limn.example.com,alt.example.com:8443' ]]"
+chk "TRUSTED_PROXIES → --trusted-proxies" "[[ \$(pair --trusted-proxies) == '10.0.0.5,::1' ]]"
+chk "PROXY_*_HEADER → the header flags" "[[ \$(pair --proxy-user-header) == X-Auth-User && \$(pair --proxy-name-header) == X-Auth-Name && \$(pair --proxy-email-header) == X-Auth-Email ]]"
+chk "MEMBERS_ONLY=1 → --members-only" "grep -qx -- '--members-only' <<< \"\$argv\""
+chk "LOCAL_USER → --local-user" "[[ \$(pair --local-user) == alice ]]"
+chk "the packaged server accepts every access flag run builds" \
+    "\"$PY\" '$ROOT/src/limn/server.py' --help > '$T/help.txt' && for f in --auth --no-agent-loopback --agent-loopback --bind --public-host --trusted-proxies --proxy-user-header --proxy-name-header --proxy-email-header --members-only --local-user --i-know-this-is-insecure; do grep -q -- \"\$f\" '$T/help.txt' || exit 1; done"
+
+badrun() { # badrun <label> <KEY=VALUE lines...> — the v0.1 config plus these lines must be refused with a message
+    local label=$1
+    shift
+    cp "$T/config/v01.env" "$T/config/bad.env"
+    printf '%s\n' "$@" >> "$T/config/bad.env"
+    chk "$label" "! LIMN_PRINT_ARGV=1 '$PV' run bad > /dev/null 2> '$T/bad.err' && grep -q . '$T/bad.err'"
+}
+badrun "rejects an unknown AUTH" "AUTH=oidc"
+badrun "rejects AGENT_LOOPBACK other than 0/1" "AGENT_LOOPBACK=yes"
+badrun "rejects MEMBERS_ONLY other than 0/1" "MEMBERS_ONLY=true"
+badrun "rejects a BIND that is not an IP address" "BIND=example.com"
+badrun "refuses a non-loopback BIND without AUTH=trusted-proxy (no restart loop)" "BIND=0.0.0.0"
+badrun "refuses AGENT_LOOPBACK=1 under AUTH=local" "AUTH=local" "AGENT_LOOPBACK=1"
+badrun "refuses AGENT_LOOPBACK=1 with a non-loopback BIND" "AUTH=trusted-proxy" "BIND=0.0.0.0" "AGENT_LOOPBACK=1"
+badrun "rejects a malformed PUBLIC_HOSTS" "PUBLIC_HOSTS=https://x.example.com/"
+badrun "rejects a malformed TRUSTED_PROXIES" "TRUSTED_PROXIES=proxy.example.com"
+badrun "rejects a malformed proxy header name" "PROXY_USER_HEADER=X User"
+cp "$T/config/v01.env" "$T/config/insec.env"
+printf 'BIND=0.0.0.0\nEXTRA_ARGS="--no-build --i-know-this-is-insecure"\n' >> "$T/config/insec.env"
+argv=$(LIMN_PRINT_ARGV=1 "$PV" run insec 2> /dev/null)
+chk "a non-loopback BIND is accepted with --i-know-this-is-insecure in EXTRA_ARGS" "grep -qx -- '--i-know-this-is-insecure' <<< \"\$argv\" && [[ \$(grep -A1 -x -- --bind <<< \"\$argv\" | sed -n 2p) == 0.0.0.0 ]]"
+cp "$T/config/v01.env" "$T/config/lb1.env"
+printf 'AGENT_LOOPBACK=1\n' >> "$T/config/lb1.env"
+chk "AGENT_LOOPBACK=1 → --agent-loopback (tailscale, loopback)" "LIMN_PRINT_ARGV=1 '$PV' run lb1 2>/dev/null | grep -qx -- '--agent-loopback'"
+
+"$PV" add acc-add --manuscript "$ms" --port 19131 --ts-port 19031 --auth local --no-serve --no-start > /dev/null 2>&1
+chk "add --auth local writes AUTH=local" "grep -qx 'AUTH=local' '$T/src/acc-add.env'"
+chk "add without --auth writes no AUTH line (server default = tailscale)" "! grep -q '^AUTH=' '$T/src/nonstd.env'"
+chk "add rejects an unknown --auth" "! '$PV' add acc-bad --manuscript '$ms' --port 19132 --ts-port 19032 --auth oidc --no-start >/dev/null 2>&1 && [[ ! -e '$T/src/acc-bad.env' ]]"
+chk "add --auth local refuses tailscale serve (every tailnet member would be the owner)" \
+    "! '$PV' add acc-ser --manuscript '$ms' --port 19133 --ts-port 19033 --auth local >/dev/null 2>&1 && [[ ! -e '$T/src/acc-ser.env' ]]"
+chk "start refuses to serve an AUTH=local instance" "! '$PV' start acc-add > /dev/null 2> '$T/acc-start.err' && grep -q 'owner' '$T/acc-start.err' && ! grep -q 'serve --bg' '$STUB_LOG'"
+"$PV" doc add acc-add --doc 'rr=답변서:submission/review_response/review_response.tex' > /dev/null 2>&1
+chk "doc add keeps the access keys when it rewrites the config" "grep -qx 'AUTH=local' '$T/src/acc-add.env' && grep -q '^DOCS=' '$T/src/acc-add.env'"
+
+echo "── 14. limn token / limn member resolve the instance's state dir ──"
+tok=$("$PV" token create v01 --name ci 2> "$T/tok.err")
+chk "token create prints the token on stdout only" "[[ \"\$tok\" == limn_* && \$(wc -l <<< \"\$tok\") -eq 1 ]]"
+chk "the token lands in STATE_DIR from the config, hashed and 0600" \
+    "[[ -f '$T/data/v01/tokens.json' && \$(stat -c %a '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
+chk "token list shows the name, never the token" "'$PV' token list v01 | grep -q ' ci ' && ! '$PV' token list v01 | grep -qF \"\$tok\""
+chk "token revoke by name" "'$PV' token revoke v01 ci >/dev/null && ! grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
+chk "token on an unknown instance fails" "! '$PV' token list nope >/dev/null 2>&1"
+chk "member add/role/list via the instance name" \
+    "'$PV' member add v01 alice@example.com --role viewer >/dev/null && '$PV' member role v01 alice@example.com editor >/dev/null && '$PV' member list v01 | grep -qE '^alice@example.com +editor'"
+chk "member remove" "'$PV' member remove v01 alice@example.com >/dev/null && ! grep -q alice '$T/data/v01/people.json'"
+chk "--state-dir instead of an instance" "'$PV' member add --state-dir '$T/data/plain' bob@example.com >/dev/null && grep -q bob@example.com '$T/data/plain/people.json'"
+"$PV" help > "$T/help.out" 2>&1
+chk "limn help lists token and member" "grep -q 'limn token create' '$T/help.out' && grep -q 'limn member add' '$T/help.out' && grep -q -- '--auth' '$T/help.out'"
+
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

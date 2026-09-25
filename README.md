@@ -21,11 +21,11 @@ Requires Python ≥ 3.10, [uv](https://docs.astral.sh/uv/), a TeX distribution w
 (`latexmk`/`pdflatex`) and Poppler (`pdftoppm`).
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.1.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.0
 limn version
 ```
 
-With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.1.1` works too.
+With SSH access to GitHub, `git+ssh://git@github.com/dartworklabs/limn@v0.2.0` works too.
 
 ## Run one server
 
@@ -36,14 +36,16 @@ limn serve --manuscript ~/papers/paper2 \
   --doc 'ms=Manuscript:manuscript/main.tex' --doc 'rr=Response:submission/review_response/review_response.tex'
 ```
 
-It listens on `127.0.0.1` only. Open `http://127.0.0.1:18300/`. To share it on your tailnet:
+It listens on `127.0.0.1` by default. Open `http://127.0.0.1:18300/`. To share it on your tailnet:
 `tailscale serve --bg --https=18200 http://127.0.0.1:18300`. `limn serve --help` lists all options;
 state (pins, builds) goes to `--state-dir` or `~/.local/share/limn/serve/<manuscript>-<hash>`.
 
-> **Security:** Limn has no built-in authentication yet. Anyone who can reach its port can read the
-> manuscript and create, edit or close pins. Never expose it beyond loopback except through a private
-> network you trust (e.g. `tailscale serve` on your tailnet) or an authenticating proxy — never a public
-> URL, never `tailscale funnel`. See [SECURITY.md](SECURITY.md).
+> **Security:** never expose Limn without an identity provider in front of it. The default (`--auth tailscale`)
+> binds `127.0.0.1` and trusts the identity headers of `tailscale serve`; everyone on your tailnet who reaches
+> the port is a collaborator unless you narrow it (`--members-only`, roles via `limn member`). `--auth local` is
+> for one user on their own machine; `--auth trusted-proxy` is for running behind an authenticating reverse
+> proxy, and is the only provider that may `--bind` a non-loopback address. Agents use API tokens
+> (`limn token create`). Never a public URL without a proxy, never `tailscale funnel`. See [SECURITY.md](SECURITY.md).
 
 ## Instances (one per manuscript)
 
@@ -53,6 +55,7 @@ limn list                                                  # label, ports, state
 limn status paper2 · limn url paper2 · limn snippet paper2 # details · tailnet URL · block for AGENTS.md
 limn update [--dry-run] [--ref vX.Y.Z]                     # reinstall via uv tool, restart running instances
 limn stop paper2 · limn start paper2 · limn remove paper2
+limn token create paper2 · limn member add paper2 <login> --role viewer   # agent token (shown once) · roles
 ```
 
 Config lives in `~/.config/limn/<name>.env`, state in `~/.local/share/limn/<name>` by default.
@@ -61,7 +64,8 @@ Details: [docs/instances.md](docs/instances.md).
 ## For agents
 
 An agent reads `pins.md` (`curl -s <base>/pins.md`) or `GET /api/pins`, claims one pin right before
-editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms. Agents never
+editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms. It authenticates with
+a token from `limn token create <instance>` (`Authorization: Bearer …`). Agents never
 confirm, and skip pins claimed by others, awaiting review, or assigned to a person. The full procedure
 is [skill/SKILL.md](skill/SKILL.md); the API is [docs/api.md](docs/api.md). The `pins.md` format and
 the HTTP API are a stable contract — they do not change with the UI language.
@@ -97,7 +101,7 @@ Personal data in the imported history was replaced with placeholders.
 Nothing is deleted; ports, tailnet addresses and pins carry over.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.1.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.0
 limn migrate --dry-run            # plan: ~/.config/pin-viewer/<name>.env -> ~/.config/limn/<name>.env
 limn migrate                      # copy configs (idempotent; old files stay)
 # per instance:

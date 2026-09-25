@@ -42,6 +42,10 @@ Do not use it when:
 
 `<base>` is `https://<host>.<tailnet>.ts.net:<ts_port>` when you reach the instance remotely, and `http://127.0.0.1:<port>` on the machine that runs the server. `GET <base>/api/version` returns `{"name":"limn","version":...}`; use it to confirm that the address is a Limn instance.
 
+### Authentication
+
+Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). If you get `401`, ask the user for a token. Details: [api.md](../docs/api.md) Â§Authentication.
+
 ### What you read
 
 - `pins.md`: `curl -s <base>/pins.md` remotely, or `Read` `<state_dir>/pins.md` on the server machine.
@@ -141,7 +145,7 @@ After the number, the number cell carries short plain-word markers joined by ` Â
 
 ## Starting a viewer for the user
 
-1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1`, then check with `limn version`.
+1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.0`, then check with `limn version`.
 2. **Check the port (mandatory).** Never bind without checking.
 
    ```bash
@@ -158,11 +162,11 @@ After the number, the number cell carries short plain-word markers joined by ` Â
 
 | Item | Rule |
 | --- | --- |
-| Binding | `127.0.0.1` only. Never `0.0.0.0`, and no flag to change it |
+| Binding | `127.0.0.1` (the default). Never `0.0.0.0`; only an operator runs `--bind` behind an authenticating proxy |
 | Exposure | `tailscale serve` only. Never `tailscale funnel` (public internet) |
 | Before announcing the address | A `curl` from inside the tailnet returns `200`, and `tailscale serve status` shows tailnet only |
 | Host / Origin check | Unknown `Host` or cross-origin `Origin` gets `403`. `--no-origin-check` is an escape hatch only |
-| Authentication | None (the tailnet is the boundary). To restrict, `--allow <login>,â€¦` |
+| Authentication | The tailnet is the boundary (`--auth tailscale`, the default); agents use `limn token create`. To restrict, `--members-only` / `--allow <login>,â€¦` and `limn member` roles |
 | Shutdown | `tailscale serve --https=<port> off` |
 
 ## Common API
