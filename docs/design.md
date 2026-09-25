@@ -1,535 +1,519 @@
-# 설계와 근거
+# Design and rationale
 
-구조를 고치거나 결과가 이상해 원인을 찾을 때 연다. 사용 시점 원문, 아키텍처, 역변환, 범위 사다리, 줄 맞춤, 저장 안전성, 작성자 귀속, 모바일 레이아웃·패널, 디자인 토큰·컴포넌트, 벡터 렌더링(PDF.js), PDF 영역 전용 확대, 알려진 제약을 다룬다.
+Open this when restructuring something, or when a result looks wrong and you need to find out why. Covers when to use this (original text), the architecture, reverse mapping, the scope ladder, line resync, storage safety, author attribution, the mobile layout and panels, design tokens and components, vector rendering (PDF.js), PDF-area-only zoom, and known limitations.
 
-## 사용 시점과 제외 (원문)
+## When to use and when not to (original)
 
-활성화: 사용자가 "이 부분 고쳐줘" 하면서 스크린샷을 붙여넣으려 하거나, 원고 PDF에서 특정 위치를 가리키며 수정을 요청할 때. 이미 쌓인 핀(`<state_dir>/pins.md`)을 처리할 때도 활성화.
+Activates when: the user says "fix this part" while trying to paste a screenshot, or points at a specific spot in the manuscript PDF and asks for a change. Also activates when processing pins that have already piled up (`<state_dir>/pins.md`).
 
-- 사용자가 원고의 특정 문단·표·그림·수식을 화면으로 보면서 "여기를 이렇게 고쳐줘"라고 지목하고 싶을 때.
-- 리뷰어 코멘트나 공동저자 피드백을 원고 PDF 위에 markup하듯 쌓아두고 싶을 때 (핀 = 위치가 붙은 TODO). 공저자가 같은 테일넷 주소로 들어와 핀을 남길 수 있고, 누가 남겼는지 기록된다(§작성자 귀속).
-- 에이전트가 세션 시작 시 또는 사용자가 "핀 확인해줘"라고 할 때, 열린 핀을 일괄 처리.
+- When the user wants to point at a specific paragraph, table, figure, or equation on screen and say "change this like so."
+- When you want to pile up reviewer comments or co-author feedback as markup on the manuscript PDF (a pin = a located TODO). A co-author can enter from the same tailnet address and leave pins, and who left them is recorded (§Author attribution).
+- When an agent processes the open pins in bulk, either at session start or when the user says "check the pins."
 
-쓰지 말아야 할 때:
+When not to use it:
 
-- 원고가 아직 SyncTeX 빌드가 안 되는 상태(구조적 컴파일 에러)면 먼저 `latex-editing`으로 빌드부터 고친다.
-- 위치가 이미 명확한 수정(예: 사용자가 이미 파일:줄 번호를 알고 있음)에는 이 스킬을 거치지 않고 바로 `manuscript-revision`으로 간다 — 서버를 띄우는 오버헤드가 낭비다.
-- Typst 원고에는 적용되지 않는다 (SyncTeX은 LaTeX 전용). Typst 위치 대응은 이 스킬의 범위 밖.
+- If the manuscript doesn't build under SyncTeX yet (a structural compile error), fix the build first with `latex-editing`.
+- If the location is already unambiguous (e.g. the user already knows the file:line), skip this and go straight to `manuscript-revision` — the overhead of standing up a server is wasted.
+- Doesn't apply to Typst manuscripts (SyncTeX is LaTeX-only). Typst position mapping is out of scope for this tool.
 
-## 아키텍처 개요
+## Architecture overview
 
 ```
-브라우저 (드래그로 영역 선택)
-   │  좌표
+Browser (drag to select a region)
+   │  coordinates
    ▼
-pin_server.py  ──(1)──▶  <manuscript_dir>의 사본을 별도 빌드 디렉토리에서
-  127.0.0.1:<port>         latexmk -synctex=1 빌드 (원본 체크아웃은 건드리지 않음)
+limn serve  ──(1)──▶  builds a copy of <manuscript_dir> in a separate
+  127.0.0.1:<port>      build directory with latexmk -synctex=1 (never touches the original checkout)
    │
-   ├─(2) 역변환 두 경로를 겨루게 한 뒤 범위 사다리(드래그한 줄/문단/환경) 계산 → 스니펫
-   ├─(3) 사용자가 메모를 달아 "핀"으로 저장 → <state_dir>/pins.jsonl (잠금 + 원자적 교체)
-   └─(4) <state_dir>/pins.md 재생성 — 에이전트가 이 한 장만 읽는다
+   ├─(2) races two reverse-mapping paths, then computes the scope ladder (dragged line/paragraph/environment) → snippet
+   ├─(3) the user attaches a note and saves it as a "pin" → <state_dir>/pins.jsonl (lock + atomic replace)
+   └─(4) regenerates <state_dir>/pins.md — the one file an agent reads
 ```
 
-원본 체크아웃을 직접 열지 않고 rsync 사본에서 빌드하는 이유: 원고가 동시에 편집 중이어도 빌드가 중간 상태를 물지 않게 하기 위함이다. 빌드 사본의 경로를 원본 경로로 되돌리는 매핑(`build_dir → manuscript_dir`)은 서버가 내부적으로 처리하며, 에이전트에게는 항상 원본 경로가 보고된다. 상태 디렉토리를 옮기거나 복제해 synctex 가 옛 build 경로를 가리키면, 경로 꼬리가 원고 트리 안 파일과 맞을 때만 되돌리고 트리 밖은 읽지 않는다.
+Why building happens from an rsync copy instead of opening the original checkout directly: so a build never catches the manuscript mid-edit even while it's being edited concurrently. The mapping that turns a build-copy path back into an original path (`build_dir → manuscript_dir`) is handled internally by the server — an agent is always told the original path. If the state directory is moved or duplicated and synctex points at an old build path, the path is only rewritten when its tail matches a file inside the manuscript tree; anything outside that tree is never read.
 
-## 역변환이 두 경로인 이유
+## Why reverse mapping uses two paths
 
-`synctex edit` 만으로는 부족하다. `minipage`·`tabular` 안(전형적으로 Nomenclature 기호표)은
-SyncTeX 노드가 희박해서, 그 영역을 골라도 **조용히 엉뚱한 본문 줄이 잡힌다** — 실측으로 확인했다.
-그래서 선택 사각형에 실제로 찍힌 글자를 `pdftotext` 로 뽑아 원문에서 되찾는 두 번째 경로를 둔다.
-한글 어절은 마크업을 거의 타지 않아서(`타겟--소스 $i$ 간 코사인 거리`) 원문에 그대로 남는다.
+`synctex edit` alone isn't enough. Inside `minipage`·`tabular` (typically a nomenclature table), SyncTeX nodes are sparse, and selecting that area **silently lands on the wrong body-text line** — confirmed by measurement. So a second path pulls the actual characters covered by the selection rectangle via `pdftotext` and looks them up in the source. Korean word units rarely pass through markup unchanged (e.g. `타겟--소스 $i$ 간 코사인 거리`, "cosine distance between target--source $i$"), so they survive intact in the source.
 
-두 경로는 **조건부 폴백이 아니라 같은 척도로 경쟁한다.** 어느 한쪽을 1차로 고정하면 그쪽이
-조용히 틀렸을 때 걸러낼 방법이 없다. 채점은 영역 텍스트의 어절이 후보 줄 범위에 얼마나 들어
-있는지로 하되, **어절마다 희귀도 가중**을 준다 — 가중이 없으면 `데이터`·`학습` 같은 흔한 말이
-점수를 지배해 본문 문단이 기호표만큼 잘 맞는다고 나온다(이것도 실측이다). 동점이면 SyncTeX 를
-남긴다. 글자가 없는 영역(그림)에서는 그쪽만 맞기 때문이다.
+The two paths **compete on the same scale rather than one being a conditional fallback for the other.** Pinning either one as primary means there's no way to catch it when that path is silently wrong. Scoring is based on how much of the region's word units fall within a candidate line range, but **weighted by word rarity** — without that weighting, common words like "데이터" ("data")·"학습" ("training") dominate the score, and a body paragraph scores as well as a nomenclature table (also confirmed by measurement). Ties favor SyncTeX, since it's the only path that works on a region with no text (a figure).
 
-응답의 `via`(`synctex`/`text`)와 `score`(0~1)가 어느 경로로 얼마나 확신하는지 알려 준다.
-UI 는 일치율이 90% 이상이면 아무것도 붙이지 않고, 낮을 때만 위치 옆에 '위치 불확실' 배지를 단다(30% 미만은 경고 색). 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다 — 예전 '일치 93%'·'글자 일치 100%' 는 뜻을 알 수 없었다(§상태 표현).
-`score` 가 낮으면 서버가 경고 문구를 함께 돌려준다.
+The response's `via` (`synctex`/`text`) and `score` (0 to 1) report which path was used and how confident it is. The UI attaches nothing when the match is 90% or higher, and only shows a "position uncertain" badge when it's lower (a warning color under 30%). The badge's tooltip states what method was used (coordinates/text), the match rate, and what to check — the old `일치 93%`·`글자 일치 100%` labels ("match 93%"·"text match 100%") didn't convey any of that (§Status representation).
+If `score` is low, the server also returns a warning message.
 
-## 범위 사다리
+## Scope ladder
 
-`POST /api/pick` 은 줄 범위 하나가 아니라 단계 목록(`levels`)을 준다. 클라이언트는 서버 왕복 없이 단계를 바꾼다.
+`POST /api/pick` returns not one line range but a list of levels (`levels`). The client switches between levels without a round trip to the server.
 
-| `level` | 뜻 |
+| `level` | Meaning |
 | --- | --- |
-| `raw` | 드래그 영역이 직접 가리킨 줄 |
-| `para` | 그 줄을 감싸는 문단. 앞뒤 순수 `%` 주석 줄은 뺀다 — 한 줄이 한 문단인 원고에서 TODO 주석이 범위와 앵커 꼬리가 되던 것을 막는다. 절 제목 줄을 넘지 않고, 감싸는 가장 안쪽 환경 밖으로 나가지 않으며(환경 안쪽이면 `\begin`/`\end` 줄도 뺀다), 드래그 밖 환경에 반쯤 걸치지도 않는다 |
-| `env`, `env2`, `env3` | 감싸는 `\begin{X}…\end{X}` 를 안쪽부터 최대 3단(이름 무관, `document` 제외). 바깥 환경이 안쪽을 앞뒤 한 줄로만 감싸면 같은 블록으로 보고 합친다 |
-| `lines` | 사용자가 한 줄 버튼(위·아래 +/−)으로 줄을 직접 조정한 범위 |
+| `raw` | The line(s) the drag directly pointed at |
+| `para` | The paragraph containing that line. Pure `%`-comment lines before/after are excluded — this stops a TODO comment from becoming part of the range and the anchor tail in a manuscript where one line is one paragraph. Never crosses a section-heading line, never leaves the innermost enclosing environment (excluding the `\begin`/`\end` lines themselves when inside one), and never half-straddles an environment outside the drag |
+| `env`, `env2`, `env3` | The enclosing `\begin{X}…\end{X}` from the innermost outward, up to 3 levels (any name, excluding `document`). If an outer environment wraps the inner one by exactly one line front and back, they're treated as the same block and merged |
+| `lines` | The range the user adjusted directly with the one-line +/− step buttons |
 
-범위가 같은 단계는 하나로 합치고(`merged`), 기본 단계(`default_level`)는 `--float-envs` 환경 안이면 그 `env` 단계, 아니면 `para` 다. 응답의 `lo`/`hi`/`kind` 는 기본 단계의 값이다. section 단계는 두지 않는다(수백 줄 범위가 쉽게 생긴다).
+Levels with identical ranges are merged (`merged`), and the default level (`default_level`) is that `env` level if it's inside a `--float-envs` environment, otherwise `para`. The response's `lo`/`hi`/`kind` are the default level's values. There's no section level (that would too easily produce hundred-line ranges).
 
-## 줄 번호 재동기화 (`anchor`)
+## Line renumbering resync (`anchor`)
 
-**이 스킬을 쓰는 이유가 "에이전트가 원고를 고친다"인데, 고치면 핀이 죽는 구조는 쓸 수 없다.**
-핀 하나를 처리해 세 줄을 넣는 순간 아래 핀이 전부 어긋난다.
+**The whole point of this tool is "an agent edits the manuscript" — a design where fixing a pin kills the pin isn't usable.**
+Fixing one pin by adding three lines shifts every pin below it.
 
-그래서 핀을 저장할 때 블록의 **머리·꼬리 줄 텍스트**를 함께 떠 둔다(`anchor`, 순수 주석 줄은 건너뜀). 건너뛴 주석 줄 수는 `head_off`·`tail_off` 로 남겨, 앞뒤에 주석 줄을 일부러 넣은 핀도 줄 맞춤 뒤 범위가 줄지 않는다. 핀을 읽거나 쓰는 모든 요청은 대상 파일의 mtime 이 `synced_at` 보다 새로우면 그 텍스트를 다시 찾아 `lo`/`hi` 를 갱신한다. 줄이 움직이면 `rev` 가 오르므로, 옛 화면에서 보낸 수정은 `409` 로 걸러진다.
+So when a pin is saved, the **head and tail text** of the block are captured alongside it (`anchor`, skipping pure comment lines). The number of skipped comment lines is kept as `head_off`·`tail_off`, so a pin that deliberately included leading/trailing comment lines doesn't shrink after resync. Any request that reads or writes a pin re-locates that text and refreshes `lo`/`hi` whenever the target file's mtime is newer than `synced_at`. Since `rev` increments whenever a line moves, an edit sent from a stale screen is caught with `409`.
 
-| 결과 | `sync` | 표시 |
+| Outcome | `sync` | Display |
 | --- | --- | --- |
-| 그대로 | `ok` | — |
-| 밀림 | `moved +3` | 새 줄 번호로 갱신('줄 +3 이동') |
-| 머리 줄이 원문에서 사라짐 | `lost` | `stale: true` — UI('위치 잃음')와 `<state_dir>/pins.md` 에 경고 |
+| Unchanged | `ok` | — |
+| Shifted | `moved +3` | Updated to the new line numbers ("moved +3 lines") |
+| The head line vanished from the source | `lost` | `stale: true` — a warning in the UI ("position lost") and in `<state_dir>/pins.md` |
 
-`stale` 핀은 추측해서 닫지 않는다. 사용자에게 보고한다(사용자는 [수정] → 위치 다시 잡기로 고칠 수 있다). 예외는 그 범위가 방금 자신이 고친 곳일 때다(예: 앞선 핀 처리로 그 문장 자체를 갈아엎은 경우) — 원문을 확인하고 닫아도 된다(SKILL.md 핀 처리 규칙).
+A `stale` pin is never guessed-and-closed. It's reported to the user (who can fix it via [Edit] → relocate). The exception is when that range is exactly what you yourself just edited (e.g. an earlier pin's fix rewrote that very sentence) — in that case, check the source and it's fine to close it (see SKILL.md's pin-processing rules, linked from [`SKILL.md`](../skill/SKILL.md)).
 
-## 저장소 안전성
+## Storage safety
 
-- 핀 파일을 만지는 모든 경로는 잠금 하나 아래에서 **읽기 → 줄 맞춤(sync) → 요청 변경 → 임시 파일에 쓰고 `os.replace` → `<state_dir>/pins.md` 재생성** 순서를 지킨다. 잠금이 없던 때는 핀 30건을 동시에 저장하면 2건만 남았다(실측).
-- `pins.jsonl` 은 append-only 가 아니라 **전체를 다시 쓴다.** 상태 갱신 레코드를 덧붙이는 방식은 읽는 쪽이 매번 이벤트를 접어야 해서, 파일 하나가 곧 현재 상태인 편이 단순하고 틀릴 여지가 적다.
-- id 는 `pins.seq` 로 발급하며 삭제·`clear` 뒤에도 다시 쓰지 않는다 — 채팅 속 '#2' 가 다른 핀을 가리키면 안 된다. 파일이 없으면 기동 때 한 번 기존 최대 id 로 채운다.
-- 파싱할 수 없는 줄, 또는 JSON 이어도 `id`(정수)·`file`(문자열)·`lo`/`hi`(정수, `1 ≤ lo ≤ hi`)·`page`(있으면 정수)가 틀린 레코드는 건너뛰고 경고하며, 그 상태에서 처음 쓰기 전에 원본을 `pins.jsonl.corrupt-<시각>.bak` 으로 보존한다. 레코드 하나 때문에 GET 이 `500` 이 되지 않는다.
-- `<state_dir>/pins.md` 를 메모리에서 먼저 만든 뒤 `pins.jsonl` → `<state_dir>/pins.md` 순으로 쓴다. 렌더가 실패하면 아무것도 쓰지 않는다 — 커밋한 뒤 `500` 을 주면 재시도가 중복 핀을 만든다.
-- 되살리기(`restore`)는 `pins.jsonl` 쓰기가 성공한 뒤에만 삭제 기록에서 뺀다. 중간에 죽으면 최악이 '양쪽에 다 있음'(복구 가능)이지 '양쪽에 다 없음'이 아니다.
+- Every code path that touches the pin file follows, under one lock: **read → resync → apply the requested change → write to a temp file and `os.replace` → regenerate `<state_dir>/pins.md`**. Before locking existed, saving 30 pins concurrently left only 2 of them (observed).
+- `pins.jsonl` is **rewritten in full each time**, not append-only. Appending state-update records would make every reader fold up the event log, so instead one file simply *is* the current state — simpler, with less room for error.
+- Ids are issued from `pins.seq` and never reused after a delete or `clear` — a "#2" mentioned in chat should never point at a different pin. If the file doesn't exist, it's seeded once at startup from the current max id.
+- An unparseable line, or a JSON record with a malformed `id` (integer)·`file` (string)·`lo`/`hi` (integer, `1 ≤ lo ≤ hi`)·`page` (integer, if present), is skipped with a warning, and the original file is preserved as `pins.jsonl.corrupt-<timestamp>.bak` right before the first write in that state. A single bad record never turns a `GET` into a `500`.
+- `<state_dir>/pins.md` is built in memory first, then written in the order `pins.jsonl` → `<state_dir>/pins.md`. If rendering fails, nothing is written — committing and then returning `500` would make a retry create a duplicate pin.
+- Restoring a pin (`restore`) only removes it from the drop record after the `pins.jsonl` write has succeeded. If the process dies mid-way, the worst case is "it exists in both places" (recoverable), never "it exists in neither."
 
-## 작성자 귀속
+## Author attribution
 
-공저자가 자기 컴퓨터에서 같은 테일넷 주소로 들어와 핀을 남긴다. 테일넷 구성원은 신뢰하는 동료이므로 **접근은 막지 않고 누가 무엇을 했는지만 구분한다.**
+A co-author enters pins from their own computer, over the same tailnet address. Tailnet members are trusted colleagues, so **access is never restricted — only who-did-what is distinguished.**
 
-- `tailscale serve` 는 요청마다 `Tailscale-User-Login`, `Tailscale-User-Name`, `Tailscale-User-Profile-Pic` 헤더를 붙인다. 비 ASCII 이름은 RFC 2047 로 인코딩되어 오므로 서버가 풀어 저장한다. 서버는 `127.0.0.1` 에만 바인딩되므로 이 헤더는 tailscale 을 거쳐서만 온다(같은 머신의 로컬 프로세스는 흉내 낼 수 있다 — 인증이 아니라 구분이다).
-- 헤더가 없는 요청(로컬 `curl`, 에이전트)은 `{"login": "local", "name": "로컬/에이전트"}` 로 기록된다.
-- 핀 카드에 작성자 이름과 22px 원형 아바타(사진이 없거나 못 불러오면 이름 첫 글자)가 붙고, 작성자 이름·아바타의 설명에 '작성: 이름 · 시각 / 수정: 이름 · 시각' 이 뜬다. 카드 전체에는 설명을 달지 않는다 — 메모를 읽는 동안 카드 어디에 포인터가 있든 설명이 떴고, 폰에서는 탭 뒤 목록 위에 남았다(QA 2026-09-24). 호버가 없는 기기(`(hover:none)`)는 호버·포커스 설명을 아예 띄우지 않고 길게 누르기로만 본다. 기록이 생기기 전의 옛 핀은 '기록 전' 으로 보인다.
-- `<state_dir>/pins.md` 에는 작성자 열이 없다([api.md](api.md) §pins.md 형식) — 누가 남겼는지는 `GET /api/pins` 의 `author`/`edited_by` 필드나 뷰어 카드에서 본다.
-- 권한 제한은 없다. 막아야 하면 `--allow` 로 로그인 목록을 준다. 태그 장치처럼 신원 헤더가 없는 테일넷 요청은 `--allow` 가 있을 때 거부되고, 없을 때는 `로컬/에이전트` 로 기록된다([operations.md](operations.md) §실행 인자).
-- 처리 분담도 작성자로 나누지 않는다(저자 결정 2026-09-22) — 부탁받은 쪽이 열린 핀 전부를 처리한다(SKILL.md).
+- `tailscale serve` attaches `Tailscale-User-Login`, `Tailscale-User-Name`, and `Tailscale-User-Profile-Pic` headers to every request. Non-ASCII names arrive RFC 2047-encoded, and the server decodes them before storing. Since the server binds only to `127.0.0.1`, these headers can only arrive via tailscale (a local process on the same machine could of course spoof them — this is attribution, not authentication).
+- A request with no headers (local `curl`, an agent) is recorded as `{"login": "local", "name": "로컬/에이전트"}` ("local/agent").
+- A pin card shows the author's name and a 22px circular avatar (the first letter of the name if there's no photo or it fails to load); the tooltip on the name/avatar reads "created: name · time / edited: name · time" (작성: 이름 · 시각 / 수정: 이름 · 시각). The card as a whole has no tooltip — with one on the whole card, the tooltip popped up no matter where the pointer was while reading the note, and lingered above the list after a tap on phones (QA 2026-09-24). Devices with no hover (`(hover:none)`) never show hover/focus tooltips at all — only long-press. A pin from before this feature existed shows as "기록 전" ("before this was recorded").
+- `<state_dir>/pins.md` has no author column ([api.md](api.md) §pins.md format) — who left a pin is only visible via `GET /api/pins`'s `author`/`edited_by` fields or the viewer card.
+- There's no permission restriction. If you need to block someone, pass a login allowlist with `--allow`. A tailnet request with no identity header, like one from a tagged device, is rejected when `--allow` is set and recorded as `로컬/에이전트` ("local/agent") when it isn't ([operations.md](operations.md) §Command-line arguments).
+- Who handles what is also never split up by author (author's decision, 2026-09-22) — whoever was asked to process the pins handles all of the open ones (SKILL.md).
 
-## 모바일 레이아웃
+## Mobile layout
 
-폴더블(갤럭시 Z 폴드 7: 접은 화면 약 412×915, 편 화면 약 880×790 CSS px)에서 본문이 좁아지고 드래그가 스크롤과 부딪히던 문제를 풀려고 넣었다(2026-09-23). 서버 API·핀 형식은 그대로이고 뷰어만 바뀐다.
+Added to fix narrow body text and drag-vs-scroll conflicts on foldables (Galaxy Z Fold 7: folded screen roughly 412×915, unfolded roughly 880×790 CSS px) (2026-09-23). The server API and pin format are unchanged — only the viewer changes.
 
-| 레이아웃 | 조건 | 사이드바 | 목차 |
+| Layout | Condition | Sidebar | Table of contents |
 | --- | --- | --- | --- |
-| `wide` | 1100px 이상 | 오른쪽 패널, 기본 348px, 폭 조절 | 왼쪽 고정 패널; 접힘·폭 저장값 유지 |
-| `mid` | 701–1099px, 입력 장치와 무관 | 기본 330px. 701–900px은 처음에 접힌 오버레이, 901–1099px은 처음에 열린 문서 옆 패널. 위 탐색 줄과 아래 동작 줄 사이에서만 펴고 접는다(§펼친 화면 레이아웃) | 처음에는 접힘. 펼치면 문서 위 오버레이; 핀 패널과 하나씩 연다 |
-| `narrow` | 700px 이하 | 하단 시트, 기본은 접힘; 윗가장자리 손잡이로 높이 조절 | 기존 모바일 문서 전환 유지 |
+| `wide` | ≥1100px | Right-hand panel, default 348px, resizable | Fixed left panel; collapsed state and width are remembered |
+| `mid` | 701–1099px, independent of input device | Default 330px. 701–900px starts as a collapsed overlay, 901–1099px starts open beside the document. Only opens/collapses between the top nav bar and the bottom action bar (§Unfolded-screen layout) | Starts collapsed. When expanded, overlays the document; opens exclusively with the pin panel |
+| `narrow` | ≤700px | Bottom sheet, collapsed by default; resize by dragging the top-edge handle | Keeps the existing mobile document-switch behavior |
 
-- 레이아웃은 `innerWidth` 로 JS 가 고른다(`layoutFor`). `pointer:coarse` 는 터치 버튼 크기·선택 입력만 정한다. 접기·펴기로 폭이 바뀌면 `resize`·`ResizeObserver` 가 다음 프레임에 레이아웃을 다시 고르고, 보던 자리(`topAnchor`)를 지킨 채 쪽 폭을 다시 맞춘다. 마크·선택 상자는 쪽 안 % 좌표라 따로 옮기지 않는다.
-- **목차 토글은 하나**: 문서 탐색 줄 맨 왼쪽의 `#nav-toc-toggle`이 열림·닫힘에 같은 위치를 지킨다. aria-expanded와 동작 이름을 갱신하고 Enter/Space로 누를 수 있다. 중간 폭의 목차는 Escape 또는 장·절 선택으로 닫고 토글로 초점을 돌린다. 목차를 여닫기 전의 쪽·쪽 안 비율도 복원한다. 중간 폭에서 목차를 펴고 핀 패널을 접어도 데스크톱 목차 저장값은 바꾸지 않는다.
-- 중간 폭에서 사용자가 [핀]을 직접 여닫으면 `pinPrefs.midClosed`에 기억하고 폭이 바뀌어도 유지한다. 저장한 선택이 없으면 900px 경계를 넘을 때 위 기본값을 적용한다. 작성·편집 중인 메모가 있으면 패널을 열어 둔다.
-- **상단 공간**: 문서 링크는 한 줄을 유지하며 필요하면 그 줄 안에서 가로로 스크롤된다. 중간 폭은 이름표를 [더보기]에 두고, 보기 전환과 목차 버튼은 줄어들지 않는다. 탐색 줄은 마우스 44px·터치 48px이다. 첫 안내는 `wide` 에서 탐색 줄 아래, `mid` 에서 동작 줄 바로 위 왼쪽([선택] 위)에 뜨며 안내 글은 클릭을 가로채지 않고 닫기 버튼만 입력을 받는다.
-- compact(`mid`·`narrow`)에서는 쪽 폭을 늘 화면에 맞추고 저장하지 않는다(−/＋ 를 누르면 그 레이아웃 동안만 유지). 접은 화면의 폭이 데스크톱 설정을 덮지 않게 하려는 것이다.
-- 도구 줄에 남기는 것은 `[핀 N]`(패널·시트 토글, 열린 핀 수)·`[선택]`(터치에서만)·`[PDF 재빌드]`·`[더보기]` 넷이다. 핀 다시 읽기·쪽 이동·축소·확대·폭 맞춤·테마·도움말·닫힌 핀·삭제한 핀은 `[더보기]` 대화상자로 옮긴다(파일·쪽 수·커밋·빌드 시각·작성자 줄도 거기). 원고 수정됨·빌드 진행·연결 끊김·빌드 오류 칩은 접힌 상태에서도 도구 줄 위에 남는다(`mid` 는 동작 줄 바로 위 오른쪽에 뜬 카드).
-- 핀 카드는 아코디언이다 — 접힌 카드는 머리 한 줄(번호·줄 범위·쪽 ··· 담당·답글 수·접기)과 그 아래 메모 미리보기 두 줄(`.sum`)만, 누르면 태그·메모·버튼이 펼쳐진다. 미리보기가 머리 한 줄의 남은 폭만 받아 '[C…' 한 조각이던 것을 고쳤다(QA 2026-09-24). 검토 대기 카드는 미리보기 앞에 '내 확인 차례 · '를 붙이지 않는다 — 보라 점이 상태를 말한다. 마크 배지를 누르면 패널을 펴고 그 카드를 펼친다. `wide` 는 예전 카드 그대로다.
-- 선택 입력은 Pointer Events 한 경로다. 마우스는 모드와 무관하게 예전처럼 끌어서 고른다. 터치·펜은 **선택 모드**를 켰을 때만 한 손가락 끌기가 사각형이 되고(쪽에 `touch-action:none` — 두 손가락은 §PDF 영역 전용 확대가 받는다), 탭은 **빠른 선택**이다. 선택 모드가 아니면 스크롤·확대가 평소대로 되고 **길게 누르기(450ms)** 가 빠른 선택이다. 빠른 선택은 누른 점 둘레의 작은 상자(쪽 폭 ±7%, 높이 ±0.6%)로 기존 `/api/pick` 을 부른다 — 서버의 기본 단계가 본문에서는 '문단', 그림·표에서는 '환경'이라 그대로 쓰고 범위 사다리로 넓힌다. 저장·취소하면 선택 모드는 저절로 꺼진다(다시 스크롤되게). 두 번째 손가락이 닿으면 그리던 상자를 버린다.
-- 좌표는 `clientX/Y` 를 `getBoundingClientRect` 로 나눈 쪽 안 비율이다. 둘은 같은 레이아웃 뷰포트 기준이라 브라우저 핀치 확대 중에도 맞는다(Playwright 에서 scale 5 로 확대한 뒤 끌어 오차 1e-8 확인). 지금은 PDF 영역의 브라우저 핀치를 막고 앱 확대로 바꾼다(§PDF 영역 전용 확대).
-- 터치 직후의 흉내 `mouseover`·`focusin` 으로는 툴팁을 띄우지 않는다. 설명은 버튼을 길게 누르면 뜨고, 그때 손을 뗀 click 은 삼킨다(버튼이 눌리지 않게). 터치로 고른 뒤에는 메모 칸에 자동 포커스하지 않는다 — 가상 키보드가 범위 사다리를 덮었다.
-- 가상 키보드는 viewport meta 의 `interactive-widget=resizes-content`(크롬 안드로이드)로 레이아웃 자체를 줄이고, 그 값을 모르는 브라우저는 `visualViewport` 로 잰 높이(`--kb`)만큼 화면을 올린다. 핀치 확대로 줄어든 visualViewport 는 `scale` 을 곱해 되돌려 키보드로 치지 않는다.
-- 터치 기기(`pointer:coarse`)에서는 버튼·입력 칸이 44px 이상, 입력 글자는 16px(포커스 자동 확대 방지)이고, 안전 영역(`env(safe-area-inset-*)`, `viewport-fit=cover`)을 비운다. compact 에서 알림은 탐색 줄 바로 아래 위쪽(`narrow` 는 화면 위, `mid` 는 본문 왼쪽 위)으로 옮겨 아래 도구 줄·첫 안내와 겹치지 않는다.
+- The layout is chosen by JS from `innerWidth` (`layoutFor`). `pointer:coarse` only affects touch button size and selection input. When collapsing/expanding changes the width, `resize`·`ResizeObserver` re-pick the layout on the next frame and refit the page width while preserving the viewing spot (`topAnchor`). Marks and the selection box use page-relative % coordinates, so they don't need to be moved separately.
+- **A single table-of-contents toggle**: `#nav-toc-toggle`, at the far left of the document nav bar, stays in the same spot whether open or closed. It updates `aria-expanded` and its accessible name and responds to Enter/Space. At medium width, the table of contents closes on Escape or on picking a chapter/section, returning focus to the toggle. The page and in-page ratio from before opening it are restored on close. Opening the table of contents at medium width and collapsing the pin panel never changes the desktop table-of-contents saved state.
+- At medium width, manually opening/closing [Pins] is remembered in `pinPrefs.midClosed` and persists across width changes. With no saved choice, the default above kicks in when crossing the 900px boundary. The panel stays open while a note is being written or edited.
+- **Top area**: document links keep to one line, scrolling horizontally within that line if needed. At medium width, the label goes into [more], and the view switcher and table-of-contents button never shrink. The nav bar is 44px for mouse, 48px for touch. The first-run hint appears below the nav bar in `wide`, and just above the action bar (above [Select]) at the left in `mid`; the hint text doesn't intercept clicks — only its close button does.
+- In compact layouts (`mid`·`narrow`), the page width is always fit to the screen and never saved (pressing −/+ keeps it only for that layout session). This keeps a folded screen's width from overwriting the desktop setting.
+- The toolbar keeps just four items: `[핀 N]` ("[Pins N]", panel/sheet toggle, open pin count) · `[선택]` ("[Select]", touch only) · `[PDF 재빌드]` ("[Rebuild PDF]") · `[더보기]` ("[More]"). Re-read pins, page navigation, zoom out/in, fit width, theme, help, closed pins, and dropped pins all move into the `[더보기]` ("[More]") dialog (along with the file, page count, commit, build time, and author line). The manuscript-edited, build-in-progress, disconnected, and build-error chips stay above the toolbar even when it's collapsed (`mid` shows them as a card just above and to the right of the action bar).
+- Pin cards are accordions — a collapsed card shows only a one-line header (number, line range, page … assignee chip, reply count, collapse) and a two-line note preview (`.sum`) below it; tapping expands the tags, note, and buttons. The preview used to only get the leftover width of the header line, cutting it down to something like "[C…" — fixed (QA 2026-09-24). A pending-review card's preview no longer gets "내 확인 차례 · " ("my turn to review · ") prepended — the purple dot already communicates the state. Tapping a mark badge opens the panel and expands that card. `wide` keeps the old card as-is.
+- Selection input is a single Pointer Events path. A mouse always drags to select, regardless of mode. Touch and pen only turn a one-finger drag into a rectangle when **selection mode** is on (`touch-action:none` on the page — §PDF-area-only zoom handles two fingers), and a tap is **quick select**. Outside selection mode, scrolling and zooming work as normal and a **long press (450ms)** is quick select. Quick select calls the existing `/api/pick` with a small box around the pressed point (±7% of page width, ±0.6% of height) — the server's default level is "paragraph" in body text and "environment" in figures/tables, so it's used as-is and widened with the scope ladder. Selection mode turns off by itself on save or cancel (so scrolling resumes). A second finger touching down discards the box being drawn.
+- Coordinates are the page-relative ratio of `clientX/Y` divided by `getBoundingClientRect`. Both are in the same layout-viewport frame, so they stay correct even during a browser pinch-zoom (verified with Playwright at 5× scale, dragging afterward with error under 1e-8). Browser pinch is now blocked over the PDF area in favor of the app's own zoom (§PDF-area-only zoom).
+- Simulated `mouseover`·`focusin` right after a touch never trigger a tooltip. A tooltip only shows on a long-press of a button, and the `click` that follows lifting the finger is swallowed (so the button doesn't also activate). After a touch selection, the note field never gets auto-focus — the virtual keyboard used to cover the scope ladder.
+- The virtual keyboard is handled via the viewport meta's `interactive-widget=resizes-content` (Chrome on Android) shrinking the layout itself; browsers that don't understand that value instead raise the screen by the height measured via `visualViewport` (`--kb`). A `visualViewport` shrunk by pinch-zoom is scaled back by `scale` so it isn't mistaken for the keyboard.
+- On touch devices (`pointer:coarse`), buttons and input fields are at least 44px, input text is 16px (prevents iOS auto-zoom on focus), and safe areas (`env(safe-area-inset-*)`, `viewport-fit=cover`) are kept clear. In compact layouts, notifications move to just below the nav bar (`narrow`: top of screen; `mid`: top-left of the body) so they don't collide with the bottom toolbar or the first-run hint.
 
-## 펼친 화면 레이아웃
+## Unfolded-screen layout
 
-폴드 7 사용자 지적(2026-09-24): 편 화면에서 `[핀 N]` 으로 패널을 접고 펴면 버튼이 오른쪽 위(패널 머리)와 오른쪽 아래(떠 있는 도구 줄) 사이를 뛰었고(842×758 실측 y 56 ↔ 693, 884×1104 y 56 ↔ 1039), 문서 옆 패널(901–1099px)은 문서 탐색 줄을 패널 폭만큼 잘랐다(968px 에서 탐색 줄 630px). 그래서 `mid` 는 화면을 세 층으로 고정한다. `wide`·`narrow` 는 그대로다.
+Fold-7 user feedback (2026-09-24): on an unfolded screen, collapsing/expanding the panel with `[핀 N]` ("[Pins N]") made the button jump between top-right (panel header) and bottom-right (a floating toolbar) — measured y 56 ↔ 693 at 842×758, y 56 ↔ 1039 at 884×1104 — and the beside-document panel (901–1099px) clipped the document nav bar by its own width (630px of nav bar left at 968px). So `mid` now fixes the screen into three tiers. `wide`·`narrow` are unchanged.
 
-| 층 | 자리 | 담는 것 |
+| Tier | Position | Contains |
 | --- | --- | --- |
-| 위 | 탐색 줄 `#doc-nav`, 화면 전체 폭, `position:fixed` | 목차 토글 · 문서 링크 · `원고`/`변경사항`. 패널이 자르지 않는다 |
-| 가운데 | 본문(`#main`)과 패널(`#right`) | 패널은 탐색 줄 아래에서 동작 줄 위까지만 편다(701–900px 는 문서 위 오버레이, 901–1099px 는 문서 옆) |
-| 아래 | 동작 줄 `#bar1`, 화면 전체 폭, `position:fixed` | `[선택]` ···· `[PDF 재빌드] [⋯] [핀 N]` |
+| Top | Nav bar `#doc-nav`, full screen width, `position:fixed` | Table-of-contents toggle · document links · `원고`/`변경사항` ("manuscript"/"changes"). Never clipped by the panel |
+| Middle | Body (`#main`) and panel (`#right`) | The panel only extends from below the nav bar to above the action bar (701–900px overlays the document; 901–1099px sits beside it) |
+| Bottom | Action bar `#bar1`, full screen width, `position:fixed` | `[선택]` ···· `[PDF 재빌드] [⋯] [핀 N]` |
 
-- **손의 흐름**: 편 폴드·태블릿은 대개 두 손으로 쥐고 엄지가 아래 양 끝에 닿는다. 그래서 자주 쓰는 동작을 아래로 모았다 — `[선택]` 은 왼쪽 아래 끝(PDF 위에서 쓰는 도구라 문서 쪽 엄지), 패널 토글 `[핀 N]` 은 패널이 나오는 오른쪽 아래 끝, 그 옆이 `[⋯]` 와 `[PDF 재빌드]` 다. 작성 패널의 `[취소] [핀 저장]`(`#c-actions`)은 패널 바닥, 곧 동작 줄 바로 위라 오른손 엄지 거리다. 드문 동작(쪽 이동·확대·테마·도움말)은 예전처럼 `[⋯]` 안이다. 아래 고정은 `narrow` 의 아래 시트와도 방향이 같다.
-- **자리가 움직이지 않는다**: 동작 줄은 패널을 따라다니지 않으므로 `[핀 N]` 은 패널을 펴도 접어도 같은 자리다(842×758·968×842·884×1104·820×1180 에서 ±0px 실측). 폭도 최소 88px 로 잡아 핀 수가 늘어 글자가 길어져도 오른쪽 끝이 그대로다. 펴진 상태는 버튼 바탕(`--accent`)과 화살표(`›` 펴짐 / `‹` 접힘), `aria-expanded="true"` 로 보인다.
-- **구현**: 도구 줄은 DOM 으로는 `#right` 안에 그대로 두고 `position:fixed` 로 뺀다 — `narrow` 시트가 같은 마크업을 손잡이 아래 sticky 로 쓰기 때문이다. 그래서 `mid` 의 `#right` 에는 `transform`·`filter`·`opacity`·`contain` 을 주지 않는다(fixed 자식의 기준 상자가 바뀌어 동작 줄이 패널과 함께 움직인다). 버튼 순서는 CSS `order` 로만 바꾼다(키보드 초점 순서는 DOM 순서 `[핀]→[선택]→[재빌드]→[⋯]` 그대로). 본문·패널은 `body` 의 위아래 여백(`--mid-top` = 탐색 줄 + 위 안전 영역, `--mbar-h` = 도구 높이 + 16px + 테두리 + 아래 안전 영역) 사이에만 그린다. 동작 줄 높이는 터치 60px(44px 버튼), 마우스 44px(28px 버튼)다.
-- **접힌 패널**: `#right` 는 보이지 않는 틀(입력을 받지 않음)로 남아, 상태 칩 줄(`#bar2`)과 위치 다시 잡기 배너(`#banner`)만 동작 줄 바로 위 오른쪽에 카드로 띄운다.
-- **여닫는 움직임**: 오버레이(701–900px)는 패널이 오른쪽에서 0.18초 밀려 들어온다(`right` 만 움직인다 — 위 제약). 문서 옆 패널(901–1099px)은 폭이 바뀌면 PDF 쪽 폭을 다시 맞춰야 해서 움직임 없이 바로 바뀐다. `prefers-reduced-motion: reduce` 이면 움직임이 없다(전역 규칙).
-- **문서 링크가 넘칠 때**: 줄 안에서 가로로 밀리고 스크롤바 대신 넘친 쪽 끝을 흐리게 한다(`.fade-l`·`.fade-r`, `docLinksFade`). 문서가 바뀌면 지금 문서 링크를 보이는 자리로 끌어온다(폴링으로 다시 그릴 때는 사용자가 민 자리를 두고).
-- **첫 안내**: 탐색 줄·패널을 가리지 않게 동작 줄 바로 위 왼쪽, 곧 안내가 가리키는 `[선택]` 위에 작은 칩으로 뜬다. 알림은 탐색 줄 바로 아래 왼쪽 위라 첫 안내와 겹치지 않는다.
+- **Hand ergonomics**: an unfolded fold or a tablet is usually held with two hands, thumbs reaching the bottom corners. So frequent actions were moved to the bottom — `[선택]` ("[Select]") at the bottom-left (a PDF-side tool, so it's under the document-side thumb), the panel toggle `[핀 N]` at the bottom-right where the panel appears, with `[⋯]` and `[PDF 재빌드]` next to it. The composer's `[취소] [핀 저장]` ("[Cancel] [Save pin]", `#c-actions`) sits at the bottom of the panel, right above the action bar, so it's within reach of the right thumb. Rare actions (page navigation, zoom, theme, help) stay in `[⋯]` as before. Pinning things to the bottom also matches the `narrow` bottom sheet's direction.
+- **Nothing moves**: the action bar doesn't follow the panel, so `[핀 N]` sits in the same spot whether the panel is open or closed (measured ±0px at 842×758·968×842·884×1104·820×1180). Its width is also floored at 88px, so a growing pin count doesn't shift the right edge as the label gets longer. The open state is shown with the button's fill color (`--accent`) and an arrow (`›` open / `‹` closed), plus `aria-expanded="true"`.
+- **Implementation**: the toolbar stays inside `#right` in the DOM but is pulled out visually with `position:fixed` — because the `narrow` sheet reuses the same markup as a sticky element below its handle. So `mid`'s `#right` never gets `transform`·`filter`·`opacity`·`contain` (that would change a fixed child's containing block and make the action bar move with the panel). Button order is changed with CSS `order` only (keyboard focus order stays the DOM order, `[핀]→[선택]→[재빌드]→[⋯]`). Body and panel are only drawn between `body`'s top/bottom margins (`--mid-top` = nav bar + top safe area, `--mbar-h` = toolbar height + 16px + border + bottom safe area). The action bar is 60px on touch (44px buttons), 44px on mouse (28px buttons).
+- **Collapsed panel**: `#right` remains as an invisible frame (accepts no input); only the status-chip row (`#bar2`) and the relocate banner (`#banner`) float as a card just above and to the right of the action bar.
+- **Open/close motion**: the overlay (701–900px) slides the panel in from the right over 0.18s (only `right` moves — the constraint above). The beside-document panel (901–1099px) changes the PDF's width, so it switches instantly with no motion. `prefers-reduced-motion: reduce` removes all motion (a global rule).
+- **Overflowing document links**: they scroll horizontally within the line, fading the overflowing edge instead of showing a scrollbar (`.fade-l`·`.fade-r`, `docLinksFade`). When the document changes, the current document's link is scrolled into view (a redraw from polling leaves the user's own scroll position alone).
+- **First-run hint**: shown as a small chip just above the action bar, at the left (above what it's pointing at, `[선택]`), so it never covers the nav bar or panel. Notifications sit just below the nav bar at the top-left, so they don't collide with the first-run hint.
 
-## 패널 정리와 폭 조절
+## Panel cleanup and width adjustment
 
-편 폴더블(880×790)에서 작성 패널이 어지럽다는 지적(2026-09-23)으로 정리했다. 서버 API·핀 형식은 그대로다.
+Cleaned up after feedback (2026-09-23) that the composer panel looked cluttered on an unfolded foldable (880×790). Server API and pin format are unchanged.
 
-- **한 간격 체계**: 8px 격자, 같은 줄의 버튼은 같은 높이(터치 44px, 동작 줄 48px). 강조 색(`--primary`, `.btn-default`)은 주요 동작 [핀 저장] 하나에만 칠하고, 카드의 [완료]는 옅은 파랑(`.btn-soft`, 저자 지정 2026-09-23), [삭제]는 옅은 위험 색(`.btn-destructive`)이다. 나머지는 테두리만 있는 outline 이다(§디자인 토큰과 컴포넌트).
-- **도구 줄**(compact): 접은 폴드·폰 시트는 자주 쓰는 순서로 `[핀 N] [선택] [문서] ··· [재빌드] [⋯]` 이다(QA 2026-09-24). 검토 대기 수는 [핀 N] 안의 알약(예전에는 버튼 모서리에 반쯤 걸쳐 떠 있었다), [선택]은 PDF 위 점선 상자와 같은 `square-dashed` 아이콘을 앞에 둔다, [PDF 재빌드]는 드물게 쓰므로 아이콘만(이름은 aria-label·길게 누르기), [⋯]와 함께 테두리 없는 ghost 다. 같은 높이 한 줄로 잇는다. 틈은 4px(`--space-1`)이고, 폭이 모자라면 이름표 칩이 먼저 줄어든다(`flex-shrink: 50`, 최소 28px, 전체 이름은 설명에) — 예전에는 버튼 글자가 잘려 'DF 재빌드'처럼 보였다. 데스크톱 도구 줄은 패널을 좁히면 두 줄로 접힌다. 접은 폴드(`narrow`, 344px 실측)에서는 이름표 칩을 도구 줄에서 빼고 [더보기] 첫 줄(`#more-label`, 대화상자 이름 `더보기 · <이름표>`)에 둔다 — 줄어든 칩이 'C…'만 남겨 읽을 수 없었고, 맨 위 이름표 색 띠가 이미 인스턴스를 가른다. 그 자리에서 [문서] 버튼은 줄어들지 않고 짧은 문서 이름(본문·답변서·커버레터, 5자 안팎)을 다 보인다(`커버레터`로도 실측, 도구 줄 한 줄·잘림 없음).
-- **도구 줄 높이**: 버튼·쪽 칸이 한 높이(`--tb-h`: 데스크톱 28px, 터치 44px)이고 아이콘 버튼은 정사각형이다. 쪽 칸은 54×28px·`--text-base`·왼쪽 정렬 자리표시 '쪽 이동'(터치 84×44px·`--text-xl` 16px — iOS 확대 방지)이다. '쪽' 한 글자 칸과 '폭' 글자 버튼은 버튼처럼·암호처럼 읽혔다(QA 2026-09-24) — 폭 맞춤은 `move-horizontal` 아이콘 버튼이다. 기본 348px 패널에서 마우스 도구 줄은 `[PDF 재빌드] [쪽 이동] [−] [＋] [↔] [알림] [테마] [?]`가 한 줄에 든다. 위계: 쪽·축소·확대·폭 맞춤은 테두리 있는 탐색 컨트롤, 알림·테마·도움말은 테두리 없는 유틸리티 아이콘, [PDF 재빌드]는 흐린 ghost 글자다(원고가 PDF 보다 새로우면 `.btn-default` 로 올라온다). 터치·사용자가 좁힌 패널은 필요하면 줄을 접는다. [핀 다시 읽기]는 열린 핀 목록 머리의 [다시 읽기]에 있고 compact에서는 [더보기] 안에 있다.
+- **One spacing system**: an 8px grid, buttons on the same row share a height (44px touch, 48px action bar). The accent color (`--primary`, `.btn-default`) is reserved for exactly one primary action, [핀 저장] ("[Save pin]"); a card's [완료] ("[Done]") is a soft blue (`.btn-soft`, an author choice from 2026-09-23), and [삭제] ("[Delete]") is a soft danger color (`.btn-destructive`). Everything else is outline-only (§Design tokens and components).
+- **Toolbar** (compact): the collapsed fold/phone sheet orders things by frequency of use — `[핀 N] [선택] [문서] ··· [재빌드] [⋯]` (QA 2026-09-24). The pending-review count is a pill inside `[핀 N]` (it used to float half-off the button's corner), `[선택]` gets a leading `square-dashed` icon matching the on-PDF dashed selection box, `[PDF 재빌드]` is rare enough to go icon-only (name via `aria-label`/long-press), matching `[⋯]`'s borderless ghost style. All joined in one row at the same height. Gaps are 4px (`--space-1`); if width runs out, the label chip shrinks first (`flex-shrink: 50`, minimum 28px, full name in the tooltip) — it used to clip button text down to something like "DF 재빌드" ("...D rebuild"). The desktop toolbar wraps to two rows when the panel is narrowed. On a collapsed fold (`narrow`, measured at 344px), the label chip is pulled out of the toolbar entirely and placed at the top of `[더보기]` ("[More]", `#more-label`, dialog title `더보기 · <label>`, "more · label") — a shrunk chip left only "C…", unreadable, and the top label-color stripe already distinguishes the instance. In that spot, the `[문서]` ("[Document]") button never shrinks and always shows the short document name (body·response·cover letter, roughly 5 characters — confirmed with `커버레터` ("cover letter"), one line, no clipping).
+- **Toolbar height**: buttons and the page field share one height (`--tb-h`: 28px desktop, 44px touch), and icon buttons are square. The page field is 54×28px·`--text-base`·left-aligned with placeholder `쪽 이동` ("go to page") (touch: 84×44px·`--text-xl` 16px — prevents iOS zoom). The single-character `쪽` ("page") field and the word button `폭` ("width") both read like passwords or noise (QA 2026-09-24) — fit-to-width is now a `move-horizontal` icon button. In the default 348px panel, the mouse toolbar `[PDF 재빌드] [쪽 이동] [−] [＋] [↔] [알림] [테마] [?]` ("[Rebuild PDF] [go to page] [−] [+] [fit width] [notify] [theme] [?]") fits on one line. Hierarchy: page/zoom-out/zoom-in/fit-width are outlined navigation controls, notify/theme/help are borderless utility icons, and `[PDF 재빌드]` ("[Rebuild PDF]") is dim ghost text (promoted to `.btn-default` once the manuscript is newer than the PDF). Touch, or a panel the user narrowed, wraps rows as needed. [Re-read pins] lives at the top of the open-pin list's [Reread] link, and sits inside `[더보기]` ("[More]") in compact layouts.
 
-- **위치 한 줄**: `파일 L159` + 쪽 + (낮을 때만) '위치 불확실' 배지 + [복사]. 예전에는 파일·줄, 찾은 방법 배지, '1쪽 · 문단 · 1줄 · 드래그한 줄' 줄이 세 번 같은 정보를 되풀이했다. 범위 종류·줄 수는 분절 컨트롤의 고른 칸이 이미 보이고, 드래그한 줄은 쪽 표시의 설명에 둔다. 한 줄 버튼으로 직접 맞춰 어느 칸에도 안 맞으면 쪽 옆에 '줄 직접 지정'이 붙는다.
-- **범위 사다리**: 한 줄 분절 컨트롤. 칸 이름은 짧게(`문단 · 1줄`, `abstract · 19줄`, `frontmatter · 73줄`), 같은 환경 이름이 겹칠 때만 '(바깥)'을 남긴다. 줄 범위는 칸 설명과 aria-label 로 옮겼다. 넘치면 가로 스크롤하고 고른 칸이 보이게 맞춘다. 미세 조정은 붙은 스테퍼 하나(`위 [+][−] 아래 [+][−]`).
-- **원문**: 기본 4줄로 접고(넘치면 흐리게 끊음) 원문 바로 밑 한 줄에 왼쪽 [줄바꿈] 토글(`text-wrap` 아이콘, 켜지면 변경사항 [줄바꿈]처럼 채운 면), 오른쪽 [원문 펼치기]. [줄바꿈]은 예전에 스테퍼 줄 끝에 있어 폴드(330px 패널)에서 혼자 다음 줄로 떨어졌다(QA 2026-09-25). 둘 다 원문을 어떻게 보이느냐를 바꾸므로 원문 밑에 모았다. 긴 한 줄이 여러 줄로 접히는 원고가 흔해 줄 수가 아니라 그린 높이로 넘침을 잰다.
-- **동작 줄**: `[취소] [핀 저장]` 을 1:2 로 나눠 패널 바닥에 고정한다(`#c-actions`, 작성 패널 밖·목록 뒤). wide 는 패널 flex 열의 바닥, compact 는 스크롤 상자(`#right`)의 sticky 바닥이라 목록을 내려도, 키보드가 올라와도(레이아웃이 줄어듦 / `--kb`) 보인다. narrow 시트에서는 메모 칸을 원문보다 위로 올린다(메모 칸이 동작 줄 밑에 숨지 않게).
-- **드래그 직후 저장(P0c 수선)**: 드래그 → SyncTeX `/api/pick` 역변환은 ~1.1s 걸리는데(`#c-spin`), 그 사이 [핀 저장]은 계속 눌려 있어 예전에는 `CUR` 이 아직 없어 `savePin()` 이 조용히 아무 일도 하지 않고 메모가 사라졌다(⌘/Ctrl+Enter 도 같은 경로). 지금은 pick 이 끝나기 전에 저장을 누르면 요청을 큐에 담고(`PEND_SAVE`) 버튼이 "위치 찾는 중… 저장 대기"(스피너)로 바뀐다. 메모 글은 스냅샷하지 않고 pick 이 풀려 실제 저장하는 그 순간 `#note` 를 다시 읽는다 — 대기하는 동안 고친 글자까지 반영하려는 선택이다. pick 이 성공하면 자동으로 저장을 이어 실행하고, 실패하면(`d.error`·네트워크 오류) 큐를 비우고 저장하지 않은 채 기존 오류 패널만 보인다. 버튼을 다시 누르거나 [취소]를 누르면 대기를 취소한다(토글) — Ctrl+Enter 도 버튼과 같은 경로라 동작이 같다.
-- 고르는 중에는 첫 화면 안내 문단(`#empty`)을 숨긴다.
-- **핀 카드**: 머리에 번호·줄 범위·쪽(왼쪽)과 오른쪽 묶음 `.h-meta`(담당 칩·답글 수·작성자) · 접기, 배지는 그 아래 한 줄. 자리가 모자라면 `.h-meta` 가 묶음째 다음 줄 오른쪽으로 내려간다 — 한 줄에 우겨 넣어 담당 칩이 있으면 작성자 이름이 'W' 한 글자로 잘렸다(QA 2026-09-24). 묶음 안에서는 담당 칩 이름이 먼저 말줄임되고(`담당 @Sa…`) 작성자 이름이 그다음이다. 동작은 같은 폭 격자 `[보기] [수정] [삭제] [완료]`(처리 중이면 [풀기] 추가).
+- **A single location line**: `파일 L159` ("file L159") + page + (only when the score is low) a "position uncertain" badge + [Copy]. It used to repeat the same information three times — file·line, a match-method badge, and a line like "page 1 · paragraph · 1 line · dragged line". The scope kind and line count are already visible in the segmented control's selected item, and the dragged-line detail moved into the page indicator's tooltip. A one-line "specify manually" link appears next to the page indicator if the one-line buttons don't fit any of the segments.
+- **Scope ladder**: a single-row segmented control. Segment labels are short (`문단 · 1줄` "paragraph · 1 line", `abstract · 19줄` "abstract · 19 lines", `frontmatter · 73줄` "frontmatter · 73 lines"); "(바깥)" ("(outer)") is only appended when the same environment name repeats. Line ranges moved into each segment's tooltip and `aria-label`. Overflow scrolls horizontally and scrolls the selected segment into view. Fine adjustment is a single attached stepper (`위 [+][−] 아래 [+][−]`, "top [+][−] bottom [+][−]").
+- **Source text**: collapses to 4 lines by default (fades out if it overflows), with a left [줄바꿈] toggle ("[wrap]", the `text-wrap` icon, filled like the diff view's [줄바꿈] toggle when on) on the line right below it, and [원문 펼치기] ("[expand source]") on the right. [줄바꿈] used to sit at the end of the stepper row, where it fell alone onto a new line on a folded 330px panel (QA 2026-09-25). Both change how the source is displayed, so they're grouped right below it. Since long single lines that wrap across several visual lines are common in this kind of manuscript, overflow is measured by rendered height rather than line count.
+- **Action row**: `[취소] [핀 저장]` ("[Cancel] [Save pin]") split 1:2, pinned to the bottom of the panel (`#c-actions`, outside the composer, after the list). `wide` pins it to the bottom of the panel's flex column; compact pins it to the sticky bottom of the scroll box (`#right`) so it stays visible whether the list is scrolled or the keyboard is up (the layout shrinks / `--kb`). The `narrow` sheet raises the note field above the source text (so the note field never hides beneath the action row).
+- **Saving right after a drag (P0c fix)**: the drag → SyncTeX `/api/pick` round trip takes about 1.1s (`#c-spin`), during which [핀 저장] ("[Save pin]") stays pressable — it used to silently do nothing (`CUR` wasn't set yet, so `savePin()` was a no-op) and the note vanished (⌘/Ctrl+Enter took the same path). Now, pressing save before the pick finishes queues the request (`PEND_SAVE`) and the button changes to "위치 찾는 중… 저장 대기" ("locating… queued to save", with a spinner). The note text is never snapshotted — the moment the pick resolves and the save actually happens, `#note` is re-read fresh, deliberately picking up anything typed while waiting. A successful pick auto-runs the queued save; a failure (`d.error`, a network error) clears the queue without saving, leaving only the existing error panel. Pressing the button again, or [Cancel], cancels the queue (a toggle) — Ctrl+Enter follows the same path as the button, so it behaves the same.
+- The first-run hint paragraph (`#empty`) is hidden while a selection is in progress.
+- **Pin card**: the header has number·line range·page (left) and a right-hand group `.h-meta` (assignee chip·reply count·author) · collapse, with badges on the line below. When space runs out, `.h-meta` wraps as a whole group to the next line on the right — cramming it all onto one line used to clip the author's name down to a single "W" when there was also an assignee chip (QA 2026-09-24). Within the group, the assignee chip's name truncates first (`담당 @Sa…`, "assignee @Sa…"), then the author's name. Actions are an equal-width grid, `[보기] [수정] [삭제] [완료]` ("[View] [Edit] [Delete] [Done]", plus [Unclaim] when in progress).
 
-패널 폭:
+Panel width:
 
-| | 펼친 화면(`mid`) | 데스크톱(`wide`) |
+| | Unfolded screen (`mid`) | Desktop (`wide`) |
 | --- | --- | --- |
-| 최소 | 300px — 터치 도구 줄이 한 줄에 들어가는 폭 | 280px(예전 그대로) |
-| 최대 | 701–900px: 440px 오버레이. 901–1099px: 화면 − 488px(본문 480px + 손잡이 8px) | `min(80%, 화면 − 486px)` |
-| 기본 | 330px | 348px |
-| 단계(좁게·보통·넓게) | 300 · 330 · 50%(한계 안으로 제한) | 300 · 348 · 42%(한계 안으로 제한) |
-| 기억 | `pinPrefs.sideMid` | `pinPrefs.side`(예전 키 그대로) |
+| Minimum | 300px — the width where the touch toolbar still fits on one row | 280px (unchanged) |
+| Maximum | 701–900px: 440px overlay. 901–1099px: screen − 488px (480px body + 8px handle) | `min(80%, screen − 486px)` |
+| Default | 330px | 348px |
+| Steps (narrow · normal · wide) | 300 · 330 · 50% (clamped within the limits) | 300 · 348 · 42% (clamped within the limits) |
+| Remembered as | `pinPrefs.sideMid` | `pinPrefs.side` (unchanged key) |
 
-- 손잡이(`#grip`, `role=separator`)는 wide·mid 공통의 Pointer Events 한 구현이다(데스크톱의 옛 `mousedown` 구현을 대신했다). 보이는 막대는 6–8px, 잡는 영역은 `::after` 로 터치 24px(마우스는 본문 스크롤바를 덮지 않게 12px). 손잡이는 `touch-action:none` 이라 끄는 동안 스크롤과 다투지 않고, `setPointerCapture` 로 손잡이 밖까지 따라간다. mid 에서는 가운데에 잡는 막대를 그린다.
-- 끄는 동안에는 패널 폭만 바꾸고(`body.resizing` 동안 ResizeObserver 가 다시 맞추지 않는다), 손을 떼면 한 번 `relayout` 해 쪽 폭을 다시 맞춘다. 마크·선택 상자는 쪽 안 % 좌표라 저절로 제자리다(실측 오차 0.02px 이하). 보던 자리는 `topAnchor` 로 지킨다.
-- 버튼: 터치는 손잡이를 **탭**하면 좁게 → 보통 → 넓게로 순환, 마우스는 **두 번 클릭**(한 번 클릭으로 폭이 튀지 않게). [더보기] 안에 '패널 폭' 분절 컨트롤이 있다. 키보드는 ←/→ 16px, Home/End 한계, Enter/Space 순환.
-- 화면 폭이 바뀌면(접기·펴기) 저장값은 두고 보이는 폭만 지금 한계 안으로 맞춘다 — 다시 넓은 화면으로 가면 저장한 폭이 돌아온다.
-- **시트 높이**(narrow): 윗가장자리 손잡이(`#sheet-grip`)를 끌면 높이가 바뀌고, 화면 25% 아래로 내려놓으면 접힌다. 접힌 시트에서 위로 끌거나 탭하면 펴진다. 펴진 시트를 탭하면 낮게(45%) → 보통(64%) → 높게(화면 − 48px)로 순환하고, [더보기] 에서는 '시트 높이'로 고른다. 높이는 화면 높이 비율(`pinPrefs.sheetF`)로 기억하고, 키보드가 올라오면 CSS 가 보이는 높이 안으로 줄인다.
+- The handle (`#grip`, `role=separator`) is a single Pointer Events implementation shared by wide and mid (replacing desktop's old `mousedown`-based one). The visible bar is 6–8px, and the grabbable area is 24px via `::after` on touch (12px on mouse, so it doesn't cover the body's scrollbar). The handle is `touch-action:none`, so dragging it never fights scrolling, and `setPointerCapture` keeps tracking even past the handle's own bounds. `mid` draws the grab bar centered.
+- While dragging, only the panel width changes (`body.resizing` suppresses `ResizeObserver` refitting); releasing runs one `relayout` to refit the page width. Marks and the selection box are page-relative % coordinates, so they land correctly on their own (measured error under 0.02px). The viewing spot is preserved via `topAnchor`.
+- Buttons: on touch, **tapping** the handle cycles narrow → normal → wide; on mouse, a **double-click** does the same (a single click doesn't jump the width). A "panel width" segmented control lives inside `[더보기]` ("[More]"). Keyboard: ←/→ steps 16px, Home/End hit the limits, Enter/Space cycles.
+- When the screen width changes (fold/unfold), the saved width is kept and only the visible width is clamped to the current limits — going back to a wider screen restores the saved width.
+- **Sheet height** (narrow): dragging the top-edge handle (`#sheet-grip`) resizes it, and releasing below 25% of the screen collapses it. Dragging up or tapping a collapsed sheet expands it. Tapping an expanded sheet cycles low (45%) → normal (64%) → high (screen − 48px); `[더보기]` ("[More]") offers the same as a "sheet height" choice. Height is remembered as a fraction of screen height (`pinPrefs.sheetF`), and CSS shrinks it to fit when the keyboard comes up.
 
-## 알림
+## Toasts
 
-핀을 저장하면 뜨는 `핀 #N 저장됨 · 되돌리기` 가 오른쪽 패널에서 너무 먼 곳(데스크톱 왼쪽 아래 — 저장 버튼 중심에서 1,133px, fold 는 본문 왼쪽 위 — 810px)에 떴다(저자 지적 2026-09-24). 이제 방금 누른 자리 가까이 뜬다.
+The `핀 #N 저장됨 · 되돌리기` ("pin #N saved · undo") toast that appears after saving used to pop up far from the panel (desktop bottom-left — 1,133px from the save button's center; on a fold, top-left of the body — 810px) (author feedback, 2026-09-24). Now it appears near wherever you just pressed.
 
-| 레이아웃 | 자리(`placeToasts()` 가 재서 `--toast-r`·`--toast-w`·`--toast-b` 로 넣는다) |
+| Layout | Placement (`placeToasts()` measures and sets `--toast-r`·`--toast-w`·`--toast-b`) |
 | --- | --- |
-| `wide` | 패널 열 안 오른쪽 아래(열 폭 − 24px, 최대 380px). 작성 중이면 저장·취소 줄(`#c-actions`) 윗변 바로 위 |
-| `mid` | 패널 쪽 오른쪽, 아래 동작 줄(`#bar1`) 윗변 바로 위. 작성 중이면 저장·취소 줄 위, 패널을 접었으면 떠 있는 상태 칩(`#bar2`·`#banner`) 위 |
-| `narrow` | 시트 윗변 바로 위, 화면 폭 − 16px. 시트가 화면의 70% 넘게 덮으면(시트 위에 자리가 없다) 시트 안 아래쪽 — 저장·취소 줄이 보이면 그 위. 화면 위로 올리면 시트의 도구 줄([더보기])을 가렸다 |
+| `wide` | Bottom-right inside the panel column (column width − 24px, capped at 380px). While composing, just above the save/cancel row (`#c-actions`) |
+| `mid` | Right side of the panel, just above the bottom action bar (`#bar1`). While composing, above the save/cancel row; with the panel collapsed, above the floating status chips (`#bar2`·`#banner`) |
+| `narrow` | Just above the top of the sheet, screen width − 16px. If the sheet covers more than 70% of the screen (no room above it), it moves inside the sheet, near the bottom — above the save/cancel row if it's visible. Raising it above the screen used to cover the sheet's own toolbar (`[더보기]`, "[More]") |
 
-- 터치 기기에서는 알림 몸통이 누름을 뒤로 흘려보낸다(버튼만 받는다) — 시트 바로 위에 뜬 알림이 PDF 길게 누르기를 가로채지 않게.
-- 떠 있는 동안 250ms 마다 자리를 다시 잰다(`watchToasts`) — 작성 패널이 뜨거나 패널을 여닫아도 저장·취소 버튼과 아래 도구 줄을 가리지 않는다.
-- 모양은 sonner 를 따른다: 떠 있는 면 하나(`--popover` 바탕, 가는 `--border` 테두리, `--radius-lg`, `--shadow` — 그림자는 떠 있는 면에만 쓴다), 앞머리 상태 아이콘(완료 `circle-check` 초록 · 경고 `triangle-alert` 호박 · 오류 `circle-x` 빨강), 제목 한 줄(굵게) + 흐린 설명 한 줄, 작은 outline 동작 버튼([되돌리기]·[열기]), 닫기 `x`. 글은 첫 ` — `(없으면 첫 ` · `)에서 제목과 설명으로 가른다(`toastSplit` — 알림의 제목은 `핀 #10 · 본문`). 색 띠는 없다.
-- 새 알림이 맨 위에 쌓이고 3개가 넘으면 나머지는 접힌다(마우스를 올리거나 초점이 들어가면 펼친다). 6초 뒤 사라지고 마우스를 올린 동안은 멈춘다. 들어오는 움직임(0.16초)은 `prefers-reduced-motion` 에서 꺼진다.
+- On touch devices, the toast body passes taps through (only its buttons intercept them) — so a toast appearing right above the sheet never steals a long-press on the PDF.
+- Its position is re-measured every 250ms while visible (`watchToasts`) — so opening the composer or resizing the panel never covers the save/cancel buttons or the toolbar below.
+- Its look follows sonner: a single floating surface (`--popover` background, a thin `--border`, `--radius-lg`, `--shadow` — shadow is reserved for floating surfaces), a leading state icon (done `circle-check` green · warning `triangle-alert` amber · error `circle-x` red), one bold title line + one dim description line, small outline action buttons ([되돌리기]·[열기], "[undo]"·"[open]"), and a close `x`. The text is split at the first ` — ` (or the first ` · ` if there's none) into title and description (`toastSplit` — a toast's title is `핀 #10 · 본문`, "pin #10 · body"). No color stripe.
+- New toasts stack on top; past 3, the rest collapse (hovering or focusing expands them). They disappear after 6 seconds, paused while hovered. The entrance motion (0.16s) is turned off under `prefers-reduced-motion`.
 
-## 상태 표현
+## Status representation
 
-왼쪽 세로 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽고 'AI slop' 같다). 열린 카드는 **머리 맨 앞의 작은 점(8px) 색**과 **같은 뜻의 배지**(글자·아이콘)로, 닫힌·삭제한 핀은 흐린 보관함 행의 **앞머리 아이콘**으로 가른다 — 어느 상태도 색만으로 가르지 않는다(점은 `aria-label`·설명 `상태: …` 도 가진다). 배지 문구는 뜻이 드러나는 말로 쓴다(저자 지적 2026-09-23: `⏳ 처리 중 · ~04:02`·`#20 안`·`일치 100%` 는 뜻을 알 수 없었다).
+The left vertical color stripe is gone (author feedback, 2026-09-24 — "tacky, looks like AI slop"). An open card is distinguished by a **small dot (8px) at the front of the header** and a **badge with the same meaning** (text·icon); closed and dropped pins are distinguished by a **leading icon** on their dimmed archive row — no state is ever conveyed by color alone (the dot also carries `aria-label` and a `상태: …` ("state: …") tooltip). Badge text is written to be self-explanatory (author feedback, 2026-09-23: `⏳ 처리 중 · ~04:02`·`#20 안`·`일치 100%` ("in progress"·"inside #20"·"match 100%") weren't).
 
-| 상태 | 점·아이콘 | 글자(배지) | 모양 |
+| State | Dot/icon | Text (badge) | Shape |
 | --- | --- | --- | --- |
-| 열림 | 초록 점 `--status-open` | 없음(기본) | 카드 |
-| 처리 중(claim) | 호박 점 `--status-claimed`(다크 `#f0b43c`, 라이트 `#b86e00`) | `clock` `처리 중 · …` | 카드 |
-| 검토 대기 | 보라 점 `--status-review`(다크 `#b197fc`, 라이트 `#6d28d9`) | `eye` `<작성자>님 확인 필요` | 카드(§스레드와 검토), 검토 대기 구획 |
-| 다시 열림 | 초록 점(열림) | `rotate-ccw` `다시 열림`(경고색, 설명에 누가·언제·이유) | 카드 — 스레드의 마지막 닫기·다시 열기 기록이 다시 열기일 때 |
-| 위치 잃음 | 경고색 점 `--status-warning` | `triangle-alert` `위치 잃음` | 카드, 테두리도 경고색 |
-| 질문 | (열림과 같은 점) | `circle-question-mark` `질문`(주 색) | 카드 — 상태가 아니라 종류다 |
-| 완료 | `check` 초록 `--status-closed` | 닫은 시각·답 한 줄 | 보관함 행(§보관함) |
-| 삭제 | `trash-2` 회색 `--status-dropped` | 메모 한 줄 | 보관함 행, 글자가 더 흐리다(`--subtle-foreground`) |
+| Open | Green dot `--status-open` | None (default) | Card |
+| In progress (claimed) | Amber dot `--status-claimed` (dark `#f0b43c`, light `#b86e00`) | `clock` `처리 중 · …` ("in progress · …") | Card |
+| Pending review | Purple dot `--status-review` (dark `#b197fc`, light `#6d28d9`) | `eye` `<author>님 확인 필요` ("… needs to confirm") | Card (§Threads and review), pending-review section |
+| Reopened | Green dot (open) | `rotate-ccw` `다시 열림` ("reopened") (a warning color, who/when/why in the tooltip) | Card — when the thread's last close/reopen entry is a reopen |
+| Position lost | Warning-color dot `--status-warning` | `triangle-alert` `위치 잃음` ("position lost") | Card, border also warning-colored |
+| Question | (same dot as open) | `circle-question-mark` `질문` ("question", primary color) | Card — a kind, not a state |
+| Done | `check` green `--status-closed` | Close time · one-line reply | Archive row (§Archive) |
+| Dropped | `trash-2` gray `--status-dropped` | One-line note | Archive row, dimmer text (`--subtle-foreground`) |
 
-점·아이콘 색은 두 테마 모두 카드·패널 바탕 대비 3:1(비텍스트) 이상이고(3.7–10.0), 흐린 글자는 4.5:1 이상이다(`--subtle-foreground` 다크 5.3 / 라이트 4.8).
+Dot/icon colors meet 3:1 (non-text) contrast against both the card and panel backgrounds in both themes (3.7–10.0), and dimmed text meets 4.5:1 (`--subtle-foreground` is 5.3 dark / 4.8 light).
 
-배지:
+Badges:
 
-| 배지 | 뜻 | 보일 때 |
+| Badge | Meaning | Shown when |
 | --- | --- | --- |
-| `처리 중 · 약 15분 · 20:40쯤` | 에이전트가 견적(`eta_min`)을 넣고 잡았다. 남은 분·시각 모두 5분 단위로 올림 | 견적 안 |
-| `예상보다 늦어짐 (+5분)` | 견적을 넘겼다(초과 분, 5분 단위). 경고 색 | 견적 초과 |
-| `처리 중 · 20:02부터 (23분째)` | 견적 없이 잡은 claim | 옛 claim |
-| `#20 범위 안` · `#20과 같은 범위` · `#20과 일부 겹침` | 다른 열린 핀과 겹침. 같은 범위 > 범위 안(가장 좁은 바깥 핀) > 일부 겹침 순으로 하나. 조사는 숫자 읽기로 가린다(`#2와`, `#20과`) | 겹칠 때. pins.md 번호 칸도 같은 말 |
-| `위치 불확실` | 드래그한 글자가 찾은 줄 범위에 90%보다 적게 있다. 30% 미만은 경고 색. 설명에 '좌표로 찾음/글자로 찾음 · 일치 N%'와 확인할 것 | 90% 미만일 때만(작성 패널의 위치 줄도 같다) |
-| `줄 +3 이동` · `위치 잃음` · `수정됨` | 줄 맞춤이 옮김 · 앵커를 잃음 · 저장 뒤 고침 | 그대로 |
+| `처리 중 · 약 15분 · 20:40쯤` ("in progress · ~15 min · around 20:40") | An agent claimed it with an estimate (`eta_min`). Remaining minutes and the time are both rounded up to 5 minutes | Has an estimate |
+| `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)") | Past the estimate (minutes over, rounded to 5). Warning color | Past the estimate |
+| `처리 중 · 20:02부터 (23분째)` ("in progress · since 20:02 (23 min so far)") | Claimed with no estimate | A legacy-style claim |
+| `#20 범위 안` · `#20과 같은 범위` · `#20과 일부 겹침` ("inside #20's range" · "same range as #20" · "partially overlaps #20") | Overlaps another open pin. One shown, in priority: same range > inside (narrowest containing pin) > partial overlap. The particle is chosen based on how the number reads aloud (`#2와`, `#20과`) | On overlap. The pins.md number column uses the same wording |
+| `위치 불확실` ("position uncertain") | The dragged text matched under 90% of the found line range. Warning color under 30%. Tooltip explains "found by coordinates/found by text · N% match" and what to check | Only below 90% (also shown in the composer's location line) |
+| `줄 +3 이동` · `위치 잃음` · `수정됨` ("moved +3 lines" · "position lost" · "edited") | Resync shifted it · lost its anchor · edited after saving | As-is |
 
-처리 중 배지의 시각은 보는 기기의 현지 시각이고 30초마다 다시 센다. 잠금 자동 해제 시각(`claim_until`)은 배지에 쓰지 않고 설명에만 둔다 — 그것이 예상 완료로 읽혔다. 잠금은 안전장치일 뿐이다([api.md](api.md) §처리 중 표시).
+The in-progress badge's time is the viewing device's local time, recomputed every 30 seconds. The lock auto-release time (`claim_until`) is never on the badge, only in the tooltip — it used to read as the expected completion time. The lock is only a safety net ([api.md](api.md) §In-progress marker).
 
-## 뜻과 모양
+## Meaning and appearance
 
-모든 시각적 구분은 뜻이 있어야 하고, 뜻 있는 것은 모두 눈에 갈려야 한다(저자 지적 2026-09-24). 점검한 규칙:
+Every visual distinction must carry meaning, and everything meaningful must be visually distinct (author feedback, 2026-09-24). Rules reviewed:
 
-| 무엇 | 모양 |
+| What | Shape |
 | --- | --- |
-| 누르는 참조(`#번호`·줄 범위·`N쪽`·글 속 `#12`·보관함 행의 줄 범위·[원래 요청]·[변경 보기]·[스레드 N]) | 링크 한 벌: 주 색 글자, 쉴 때 밑줄 없음, hover·초점에 실선 밑줄. 예전의 굵은 점선 · 파랑 · 회색 점선 세 모양을 하나로 모았다(QA 2026-09-24). 흐린 보관함 행에서도 누르는 말만 주 색이다. 회색 글자(작성자·시각·배지 속 `#20과 같은 범위`)는 누를 수 없다. 점선 밑줄은 이제 풀리지 않은 '@말'(`.mention-bad`)만 쓴다 |
-| 복사하는 글자(줄 범위 `.loc`) | 같은 링크 모양에 고정폭 글자 + `cursor:copy`, 설명 '누르면 복사' |
-| 동작 | 맥락마다 강조 하나(작성 패널 [핀 저장] = default, 카드 [완료] = soft). 위험 동작은 가장 눈에 띄지 않는다(카드 [삭제] = 바탕 없는 위험 색 글자). 끈 버튼은 금지 커서(not-allowed), [핀 저장]의 '저장 대기'는 옅은 주 색 + 진행 커서 |
-| 사람 | 사진 또는 머리글자 원(주 색). 나는 이름 뒤 `(나)`(카드 작성자·스레드 글쓴이) |
-| 에이전트 | `bot` 아이콘의 흐린 원 — 사람의 원과 가른다 |
-| 시각 | 스레드·보관함은 상대 시각(`방금`·`N분 전`·`N시간 전`·`N일 전`, 일주일 넘으면 `M-D`), 절대 시각은 설명에. 60초마다 다시 센다(`tickRel`). 보관함의 시각은 줄이지 않는다(예전 `09-24 1…`) |
-| 긴 글 | 스레드 글은 6줄에서 접고 [더 보기] 버튼을 둔다 — 1,000자 답글 하나가 카드를 1,390px 로 늘렸다(→ 약 310px) |
-| 검토 대기·완료 카드 | 겹침·위치 확실도 배지(`#N과 같은 범위`·`위치 불확실`)를 숨긴다 — 닫힌 핀은 줄 맞춤을 하지 않아 뜻이 없다 |
-| 답글 수(`.th-n`) | 누르면 카드를 펴고 답글 칸을 한 번에 연다(접힌 compact 카드) |
-| 검토 대기 수 | 상태 칩은 모든 문서를 센다 — 이 문서와 다르면 `검토 대기 2 (이 문서 1)` |
-| 나를 부른 핀 거르기 | 목록 머리에서 `@` 아이콘 + 수(이름은 `aria-label`·설명) — 360px 패널에서 머리가 두 줄로 꺾였다 |
-| 포커스 | 모든 조작 요소가 같은 `:focus-visible` 링(2px `--ring`). 설명(툴팁)은 뜻이 글자로 다 드러나지 않는 곳에만 — 알림 닫기 `x` 는 `aria-label` 만 |
+| A clickable reference (`#number`·line range·`N쪽`·an in-text `#12`·an archive row's line range·[원래 요청]·[변경 보기]·[스레드 N] — "[original request]"·"[view changes]"·"[thread N]") | One link style: primary-color text, no underline at rest, solid underline on hover/focus. Used to be three separate shapes (bold dotted underline · blue · gray dotted underline), now unified (QA 2026-09-24). Even in a dimmed archive row, only the clickable text is primary-colored. Gray text (author, time, `#20과 같은 범위` inside a badge) is never clickable. Dotted underline is now reserved for an unresolved "@word" (`.mention-bad`) |
+| Copyable text (a line range, `.loc`) | Same link style, but monospace + `cursor:copy`, tooltip "click to copy" |
+| Actions | One highlight per context (composer [핀 저장] = default, card [완료] = soft). The riskiest action is the least visually loud (card [삭제] = danger-colored text, no fill). A disabled button gets a not-allowed cursor; [핀 저장]'s "queued to save" state is dim primary color + a progress cursor |
+| A person | A photo or an initial-letter circle (primary color). "You" gets `(나)` ("(me)") after the name (card author, thread poster) |
+| An agent | A `bot` icon in a dim circle — visually distinct from a person's circle |
+| Time | Threads and the archive use relative time (`방금`·`N분 전`·`N시간 전`·`N일 전`, "just now"·"N min ago"·"N hr ago"·"N days ago"; `M-D` past a week), absolute time in the tooltip. Recomputed every 60 seconds (`tickRel`). Archive times are never abbreviated (they used to read as `09-24 1…`) |
+| Long text | A thread message collapses at 6 lines with a [더 보기] ("[show more]") button — one 1,000-character reply used to stretch a card to 1,390px (now ≈310px) |
+| A pending-review or done card | Hides overlap/confidence badges (`#N과 같은 범위`·`위치 불확실`) — a closed pin isn't resynced, so they're meaningless |
+| Reply count (`.th-n`) | Tapping expands the card and opens the reply field in one step (from a collapsed compact card) |
+| Pending-review count | The status chip counts across all documents — if it differs from this document, it reads `검토 대기 2 (이 문서 1)` ("2 pending review (1 in this document)") |
+| Filtering "pins addressed to me" | An `@` icon + count in the list header (name via `aria-label`/tooltip) — the header wrapped onto two lines at a 360px panel width |
+| Focus | Every interactive element shares the same `:focus-visible` ring (2px `--ring`). A tooltip is only used where the meaning isn't already fully conveyed by text — a toast's close `x` gets only an `aria-label` |
 
-같은 사건의 알림은 한 번만 뜬다: 브라우저 알림 경로(탭에 포커스가 있으면 토스트)와 목록 비교 알림(`검토 대기로 넘어왔습니다`·`다시 열림`)이 같은 핀의 같은 전환을 8초 안에 알리면 브라우저 알림 쪽이 이긴다(`toastDup`, 열쇠 `<이벤트>:<핀>`).
+A duplicate notification for the same event never fires twice: the browser-notification path (a toast if the tab has focus) and the list-comparison notification (`검토 대기로 넘어왔습니다`·`다시 열림`, "moved to pending review"·"reopened") both firing for the same pin's same transition within 8 seconds means the browser notification wins (`toastDup`, keyed by `<event>:<pin>`).
 
-[변경 보기]의 안내 줄은 글이 길면 글이 줄바꿈되고 [원고로] 버튼은 잘리지 않는다(842px 에서 화면 밖이었다). [변경 보기]를 누를 때 보던 문서를 기억해(`REV_BACK`) 그 문서로 돌아가고, 다른 문서면 버튼이 `<문서 이름>(으)로` 라고 말한다. 소스 diff 에는 [줄바꿈] 토글이 있고 터치 기기에서는 기본으로 켠다(문단 = 한 줄 원고라 폰에서 6,273px 폭이었다, `pinPrefs.diffWrap`).
+The [변경 보기] ("[view changes]") instructions line wraps its text instead of overflowing, and the [원고로] ("[back to manuscript]") button is never clipped (it used to run off-screen at 842px). Clicking [변경 보기] remembers the document you were viewing (`REV_BACK`) and returns you there; if it's a different document, the button reads `<document name>(으)로` ("back to …"). The source diff has a [줄바꿈] ("[wrap]") toggle, defaulted on for touch devices (a paragraph is one unbroken line of source, which was 6,273px wide on a phone; `pinPrefs.diffWrap`).
 
-## 스레드와 검토
+## Threads and review
 
-질문 핀(24%)과 에이전트가 닫은 뒤 다시 열린 핀(#28·#42)이 계기다(2026-09-24). 데이터와 전환은 [api.md](api.md) §스레드·§검토 대기.
+Question pins (24% of them) and pins an agent closed that later got reopened (#28, #42) were the trigger for this (2026-09-24). Data and transitions are in [api.md](api.md) §Threads and §Pending review.
 
-- **작성 패널**: 메모 위 두 칸 분절 컨트롤 `[수정 요청 | 질문]`(`#c-kind`, 기본 수정 요청, 저장·취소하면 되돌아간다). 편집 패널에도 같은 컨트롤. 질문 카드는 `질문` 배지(주 색 테두리). **종류 권하기**: 수정 요청인데 메모가 질문처럼 읽히면(끝이 `?`·`？`, 또는 한국어 물음 어미 는가·나요·까요·인가·건가·니·냐·까 — 끝의 마침표·말줄임·괄호와 끝에 붙은 @태그는 보지 않는다, `looksQuestion`) 메모 칸 바로 밑에 `질문처럼 보입니다 — [질문으로 보내기]` 한 줄(`.q-hint`)이 뜬다. 누르면 종류가 질문으로 바뀌고 줄이 사라진다. 스스로 바꾸지는 않는다. 질문이 되거나 글이 질문처럼 읽히지 않게 되면 사라진다. 작성·편집 패널 둘 다다. 계기: 공저자가 '…표현한 의도가 있는건가?' 를 수정 요청으로 저장했다(분절 컨트롤을 못 보고 지나쳤다, 2026-09-25). 컨트롤 곁이 아니라 메모 칸 밑에 둔 까닭은, 쓰는 도중 `?` 를 치는 순간 한 줄이 끼어들면 입력 칸이 밀려 커서가 움직이기 때문이다. 버튼은 링크 한 벌 모양(주 색 글자, 가리키면 밑줄)이고 상자는 없다.
-- **스레드**: 메모 아래 점선 뒤에 답글과 전환 기록(닫음·다시 엶·확인)이 한 줄씩. wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건 보기]로 펼친다. 접힌 compact 카드는 스레드를 숨기고 머리에 답글 수(말풍선 아이콘)만 둔다. [답글]을 누르면 카드 안에 입력 칸이 열린다 — 입력 칸 DOM 을 들고 있다가 5초 자동 동기화가 목록을 다시 그리면 제자리에 다시 끼우고 커서를 돌려놓는다(`REPLY`, `EDIT` 과 같은 방식). 닫으면 쓰던 글은 남긴다.
-- **검토 대기 구획**(`#sec-review`): 열린 핀과 완료 사이. 카드 모양은 열린 핀과 같고 머리의 점이 보라(`--status-review`, 다크 `#b197fc`·라이트 `#6d28d9` — 카드 바탕 대비 7:1 안팎), PDF 마크도 보라다. 배지 `<작성자>님 확인 필요`(내가 작성자면 `내 확인 차례`). 동작은 `[변경 보기] [답글] [다시 열기] [확인]` — [확인]은 작성자가 볼 때만 강조(`.btn-soft`)한다. 누구나 누를 수 있지만 자연스러운 사람을 권하는 것이다(신뢰 모델). [다시 열기]는 한 줄 이유를 받아야 보낸다.
-- **수**: compact 는 `[핀 N]` 안의 보라 알약(`#side-rv`), wide 는 상태 칩 줄의 `검토 대기 N`(`#rv-chip`, 누르면 구획으로). 문서를 가로질러 센다. 탭 제목에 `· 검토 M`.
-- 이 화면에 신원이 없으면(로컬 `127.0.0.1`, SSH 포워딩) [완료]도 에이전트 닫기로 쳐서 검토 대기가 된다 — 알림에 그렇게 밝힌다.
+- **Composer**: a two-item segmented control above the note, `[수정 요청 | 질문]` ("[fix request | question]", `#c-kind`, defaults to fix request, resets on save/cancel). The edit panel has the same control. A question card gets a `질문` ("question") badge (primary-color outline). **Suggesting the right kind**: if a fix-request note reads like a question (ends in `?`·`？`, or a Korean question ending like 는가·나요·까요·인가·건가·니·냐·까 — ignoring a trailing period, ellipsis, parenthesis, or @-mention, `looksQuestion`), a one-line hint (`.q-hint`) appears just below the note field: `질문처럼 보입니다 — [질문으로 보내기]` ("this looks like a question — [send as a question]"). Clicking it switches the kind to question and the line disappears. It never switches automatically. It disappears once the kind is question, or once the text stops reading like one. Applies to both the composer and the edit panel. Trigger: a co-author saved "…is this an intentional choice?" as a fix request (missed the segmented control entirely, 2026-09-25). It's placed below the note field rather than beside the control because inserting a line right as you type a `?` would shift the input field and move the cursor. The button is link-styled (primary-color text, underline on hover), with no surrounding box.
+- **Thread**: below the note, past a dotted divider, replies and transition records (close/reopen/confirm) appear one line at a time. `wide` shows the last 3, compact shows only the last 1, with [이전 N건 보기] ("[view previous N]") to expand. A collapsed compact card hides the thread entirely and shows only a reply count (a speech-bubble icon) in the header. Clicking [답글] ("[reply]") opens an input field inside the card — the input DOM is kept and reinserted in place (with the cursor restored) whenever the 5-second auto-sync redraws the list (`REPLY`, the same approach as `EDIT`). Closing it keeps whatever was typed.
+- **Pending-review section** (`#sec-review`): between open pins and done. Cards look like open cards, with a purple header dot (`--status-review`, dark `#b197fc`·light `#6d28d9` — roughly 7:1 against the card background), and the PDF mark is purple too. Badge: `<author>님 확인 필요` ("… needs to confirm", or `내 확인 차례`, "my turn to confirm," if you're the author). Actions: `[변경 보기] [답글] [다시 열기] [확인]` ("[view changes] [reply] [reopen] [confirm]") — [확인] ("[confirm]") is only highlighted (`.btn-soft`) when the author is viewing it. Anyone can press it, but the natural person is suggested (the trust model). [다시 열기] ("[reopen]") requires a one-line reason before it sends.
+- **Counts**: compact shows a purple pill inside `[핀 N]` (`#side-rv`); wide shows `검토 대기 N` ("pending review N", `#rv-chip`, in the status-chip row, click to jump to the section). Counted across documents. The tab title gets `· 검토 M` ("· review M").
+- If this screen has no identity (local `127.0.0.1`, SSH port-forwarding), [완료] ("[done]") is also treated as an agent close, becoming pending review — the notification says so.
 
-## 변경 보기
+## Viewing changes
 
-검토 대기 카드와 완료 행의 [변경 보기]가 변경사항 탭(#81/#82)을 그 핀에 맞춰 연다.
+[변경 보기] ("[view changes]") on a pending-review card or a done row opens the changes tab (#81/#82) scoped to that pin.
 
-| 단계 | 고르는 커밋(최근 12개 안) |
+| Step | Commit chosen (within the last 12) |
 | --- | --- |
-| 1 | 닫을 때 남긴 참조(`close_ref`)의 7–40자리 해시 앞부분(`PR #235 (f47c6bf)`) |
-| 2 | 참조의 PR 번호가 제목에 든 커밋 — 스쿼시 `(#236)`, 머지 `Merge pull request #236` |
-| 3 | 핀 파일의 핀 줄 ±5줄을 바꾼 가장 최근 커밋(커밋마다 소스 diff 를 받아 hunk 로 판정) |
-| 4 | 가장 최근 커밋 |
+| 1 | A 7–40 character hash prefix in the close-time reference (`close_ref`) (e.g. `PR #235 (f47c6bf)`) |
+| 2 | A commit whose title contains the reference's PR number — a squash `(#236)`, or a merge `Merge pull request #236` |
+| 3 | The most recent commit that touched within ±5 lines of the pin's line in the pin's file (fetched per commit and matched against diff hunks) |
+| 4 | The most recent commit |
 
-- 줄 대응은 **소스 diff 에만** 있다. 그래서 바로 [소스 diff]로 열고, 핀 파일(경로 끝 일치)을 고르고, 새 쪽 줄 번호가 핀 범위에 드는 줄을 보라로 강조해 가운데로 스크롤한다. 머리 아래 안내 줄(`#revision-pin`)이 어느 규칙으로 골랐는지와 [원고로]를 보인다.
-- 비교 PDF(latexdiff)에는 SyncTeX 대응이 없다. 그 탭을 누르면 그때 만들고(예전에는 소스를 볼 때도 늘 만들었다) 핀의 쪽 근처로만 옮기며 '대략'이라고 적는다.
-- 할 수 없는 것: 닫힌 핀은 줄 맞춤을 하지 않으므로 닫은 뒤 원고가 크게 바뀌면 강조가 빗나갈 수 있다(못 찾으면 그렇게 적는다). 최근 12개 밖의 커밋, 아직 머지 안 된 PR 브랜치의 커밋, 미커밋 수정은 볼 수 없다. 보기 전용 PDF 문서·Git 저장소가 아닌 문서는 탭을 열고 그 이유를 적는다.
-- 접은 폴드(narrow)에서도 열린다(예전에는 변경사항 보기가 없었다). 탐색 줄이 없으니 안내 줄의 [원고로]가 돌아가는 길이다.
-- 폰·폴드 QA(2026-09-25, 라이트·다크):
-  - 핀 패널이 본문 위에 겹쳐 뜨는 폭(701–900px, 폴드 842px)에서는 변경사항 보기가 패널 폭(`--side-w`)만큼 오른쪽을 비운다. 본문 PDF 는 옆으로 밀어 볼 수 있지만 diff 는 그럴 수 없어, 줄바꿈한 글의 오른쪽 절반과 안내 줄의 [원고로]가 패널 밑에 가려졌다.
-  - 터치에서 커밋 고르기(`#revision-list select`)·파일 고르기와 [빌드 경고 보기]를 44px 로 — 18px·16px 였다.
-  - 핀 범위 줄이 diff 에 없고 곁(±5줄)만 바뀌었으면 안내 줄이 그렇게 말한다(`tg.near`) — 예전에는 강조한 줄이 하나도 없는데 '강조한 줄이 핀 범위입니다'라고 했다(#47).
-  - 그대로 둔 것: 안내 줄의 `참조 PR #240` 은 누를 수 없는 회색 글이고(링크 한 벌 규칙), 누르는 것은 [원고로] 하나다.
+- Line matching only exists in the **source diff**. So it opens directly to [Source diff], selects the pin's file (matching by path suffix), and highlights and centers the new-side line numbers that fall within the pin's range. A line right below the header (`#revision-pin`) explains which rule matched and offers [원고로] ("[back to manuscript]").
+- The comparison PDF (latexdiff) has no SyncTeX mapping. Opening that tab builds it on demand (it used to always be built even when only viewing the source), scrolls near the pin's page, and labels it "approximate."
+- What it can't do: a closed pin isn't resynced, so highlighting can drift if the manuscript changes substantially after it's closed (it says so if nothing is found). Commits outside the last 12, commits on a not-yet-merged PR branch, and uncommitted changes are all invisible. A view-only PDF document, or a document not backed by a Git repository, opens the tab and states why.
+- Also opens on a collapsed fold (narrow) — it never used to. With no nav bar, the instructions line's [원고로] ("[back to manuscript]") is the way back.
+- Phone/fold QA (2026-09-25, light and dark):
+  - At widths where the pin panel overlays the body (701–900px, 842px on a fold), the changes view leaves an empty strip on the right the width of the panel (`--side-w`). The body PDF can be scrolled sideways to see under it, but the diff can't — the right half of a wrapped line, and the instructions line's [원고로], ended up hidden under the panel.
+  - Touch targets for commit selection (`#revision-list select`), file selection, and [빌드 경고 보기] ("[view build warnings]") are now 44px — they were 18px·16px.
+  - If the pin's line range isn't in the diff but its immediate neighborhood (±5 lines) changed, the instructions line says so (`tg.near`) — it used to say "the highlighted line is the pin's range" with nothing actually highlighted (#47).
+  - Left as-is: the instructions line's `참조 PR #240` ("reference PR #240") is unclickable gray text (the link-shape rule), and only [원고로] is clickable.
 
-## @태그
+## @mentions
 
-- 메모·편집·답글 칸에서 `@` 를 치면 사람 목록(`#mention-pop`, 최대 6명, 나는 뺀다)이 뜬다. 자리는 그 칸의 동작 줄(답글·다시 열기 [취소][보내기], 편집 [저장], 작성 패널 [핀 저장])을 가리지 않게 고른다(`mentionTop`): 입력 칸 바로 아래에 동작 줄 전까지 들어가면 아래, 아니면 입력 칸 위, 위에도 자리가 없으면 동작 줄 아래, 어디에도 안 들어가면 입력 칸 아래를 화면 안으로 당긴다. 답글 칸은 두 버튼이 입력 칸 바로 밑이라 위로 뜬다 — 예전에는 아래로 떠 고르는 동안 [취소][보내기]를 덮었다(QA 2026-09-25, 세 폭 모두). 고른 줄은 목록 폭 전체의 납작한 띠(`--accent`, 모서리 없음 — shadcn Command 모양)다. 틀 안에 또 둥근 상자를 두지 않는다(§한 겹 담기). ↑/↓, Enter/Tab 고르기, Esc 닫기(선택 취소보다 먼저 받는다 — window capture). 목록을 눌러도 입력 칸 포커스를 뺏지 않는다. 고르면 `@이름 ` 을 넣는다.
-- 글 속 풀린 `@이름`(그 글의 `mentions` 에 든 사람)은 **태그 토큰**이다 — 주 색 글자 + 옅은 주 색 틴트 알약(`.mention`, Slack·GitHub 처럼), 설명 `@태그 — <이름>에게 알림이 갑니다`. 지금 신원을 부른 태그는 한 단계 진한 틴트(`.mention.me`, 설명 `나를 부름`). 메모·스레드 글·접힌 카드 요약(`.sum`)·보관함의 답 한 줄·원래 요청·삭제한 핀 메모에 같다. 풀리지 않은 `@말` 은 평문 그대로다 — 부른 것처럼 보이면 안 된다(저자 지적 2026-09-24: 제대로 불린 건지 평문인지 구분이 안 됐다).
-- 찾는 규칙은 서버 `resolve_mentions()` 와 같다: 이름 전체·로그인·로그인의 `@` 앞·이름 첫 단어, 긴 것부터·대소문자 없이, `@` 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문으로 끝나는 이름 뒤에 영문이 이어지면 다른 말. 글은 먼저 `esc()` 를 거치고 토큰은 이스케이프된 글에서 감싼다(자리표로 바꿔 겹쳐 감싸지 않는다) — 사람이 쓴 글이 HTML 로 새지 않는다.
-- **입력 중 미리 보기**: textarea 안은 색을 칠할 수 없으므로 메모·편집·답글 칸 바로 아래 한 줄(`.m-preview`, `#note-mentions`)에 저장하면 알림이 갈 사람(`@ 알림  Bob Park`)과 풀리지 않을 `@말`(점선 밑줄, `등록된 사람이 아님`)을 보인다. 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않고, 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`) — `@Sa` 를 치며 목록에서 고르는 동안 경고가 먼저 떴다(QA 2026-09-25). 저장 전에 부른 것이 실제로 알림이 되는지 안다. 나를 쓴 태그는 `(나 — 알림 없음)`.
-- **`#번호` 링크**: 글 속 `#12` 는 그 핀이 있으면(열림·검토 대기·완료·삭제) 링크(`.pin-ref`, 위 링크 한 벌)다 — 누르면 그 카드·보관함 행을 펴고 스크롤해 반짝인다(다른 문서면 '모든 문서'를 켠다). 없는 번호와 `&#39;` 같은 이스케이프는 건드리지 않는다.
-- 사람을 부른 카드에는 `나를 부름`·`@이름` 배지(담당이 적히지 않은 옛 핀).
+- Typing `@` in a note, edit, or reply field opens a people list (`#mention-pop`, up to 6, excluding yourself). Its placement (`mentionTop`) avoids covering that field's action row ([취소][보내기] for reply/reopen, "[cancel][send]"; [저장] for edit, "[save]"; [핀 저장] for the composer, "[save pin]"): below the field if there's room before the action row, else above the field, else below the action row, else pull whatever fits below the field back onto the screen. A reply field's two buttons sit right below it, so the list opens upward — it used to open downward and cover [취소][보내기] while picking (QA 2026-09-25, all three widths). The selected row is a flat, full-width strip (`--accent`, no rounded corners — a shadcn Command look). No extra rounded box inside the frame (§One layer of containment). ↑/↓, Enter/Tab to pick, Escape to close (caught before selection-cancel — window capture). Clicking the list never steals focus from the input field. Picking inserts `@name `.
+- A resolved `@name` in text (someone in that message's `mentions`) is a **mention token** — primary-color text on a light primary-tint pill (`.mention`, Slack/GitHub-style), tooltip `@태그 — <name>에게 알림이 갑니다` ("@mention — a notification goes to name"). A mention naming the current identity gets a one-step-darker tint (`.mention.me`, tooltip `나를 부름`, "addressed to me"). Same treatment in the note, thread messages, collapsed-card summaries (`.sum`), archive one-liners, original requests, and dropped-pin notes. An unresolved `@word` stays plain text — it must never look like it addressed someone (author feedback, 2026-09-24: couldn't tell a real mention from plain text).
+- Resolution matches the server's `resolve_mentions()`: full name·login·the part of a login before `@`·the first word of a name, longest match first, case-insensitive; skipped if what follows `@` is a letter or digit (an email address); a different thing entirely if a Latin-ending name is immediately followed by more Latin letters. Text is escaped with `esc()` first, and tokens are wrapped within the already-escaped text (via placeholders rather than double-wrapping) — so user-written text never leaks into HTML.
+- **Live preview while typing**: since a `textarea` can't color text, one line right below the note/edit/reply field (`.m-preview`, `#note-mentions`) shows, once saved, who would be notified (`@ 알림  Bob Park`, "@ notify Bob Park") and any unresolved `@word` (dotted underline, `등록된 사람이 아님`, "not a registered person"). An `@word` still being typed (cursor at its end) isn't flagged yet — it's only evaluated once the cursor leaves it (arrow keys, a click) or the field loses focus (`mentionBadSettled`) — the warning used to fire while still picking from the list mid-`@Sa` (QA 2026-09-25). This lets you know, before saving, whether what you typed will actually notify anyone. A self-mention shows `(나 — 알림 없음)` ("(me — no notification)").
+- **`#number` links**: an in-text `#12` is a link (`.pin-ref`, the link style above) if that pin exists (open, pending review, done, or dropped) — clicking expands and scrolls to that card or archive row and flashes it (switches on "all documents" first if it's in a different one). A nonexistent number, or an escape like `&#39;`, is left untouched.
+- A card that mentions someone gets `나를 부름`·`@name` ("addressed to me"·"@name") badges (for an old pin with no assignee recorded).
 
-## 담당
+## Assignee
 
-글에서 짐작하던 '누가 처리하나'를 명시 값(`assignee`, [api.md](api.md) §@태그·사람·이벤트)으로 둔다 — A-DEMO #43(`이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다`, 수정 요청)은 서준에게 맡긴 것인데 `참고 @Bob Park` 로 떠 에이전트가 자기 일로 읽을 뻔했다.
+Turns the guessed "who handles this" into an explicit value (`assignee`, [api.md](api.md) §@mentions, people, and events) — an early pilot pin (#43, "does this call actually work, @Bob Park please confirm", a fix request) was meant for Bob Park, but showed as `참고 @Bob Park` ("for reference @Bob Park") and an agent nearly read it as its own job.
 
-- **작성 패널**: 메모에 풀린 @태그가 하나라도 있으면 알림 줄 아래 `담당  [에이전트 | @Bob Park | …]` 분절 컨트롤(`#c-assign`, 태그된 사람마다 한 칸, 나는 빠진다). 기본값 — 메모가 풀린 @태그로 **시작**하면 그 사람, 아니면 질문 핀의 첫 @태그, 아니면 에이전트(`defaultAssignee`). 고르기 전에는 메모가 바뀔 때마다 기본값을 다시 고르고, 고른 뒤에는 그 사람이 메모에서 빠질 때만 기본값으로 돌아간다. @태그가 없으면 컨트롤이 없다(에이전트).
-- **카드**: 담당이 사람이면 머리에 `담당 @이름` 칩(나면 `담당 나`, 한 단계 진한 틴트). 에이전트는 기본이라 칩이 없다. 작성자(또는 신원 없는 로컬 화면)는 칩을 눌러 [수정]을 열고 같은 컨트롤로 바꾼다 — 바뀌면 스레드에 `담당 바꿈` 한 줄이 남는다.
-- 담당이 사람이면 에이전트가 건너뛰고(`→ @이름`) 그 사람에게 `assigned` 알림이 간다(알림 순위: 담당 > 부름 > 다시 엶 > 검토 대기 > 답글). 담당이 에이전트면 @태그는 참고(`참고 @이름`)다. 어느 쪽이든 태그된 사람에게 부름 알림은 간다.
+- **Composer**: if the note resolves at least one @-mention, a `담당  [에이전트 | @Bob Park | …]` ("assignee [agent | @Bob Park | …]") segmented control appears below the notification line (`#c-assign`, one segment per tagged person, excluding yourself). Default — whichever person the note **starts** with a resolved @-mention for; otherwise, on a question pin, the first @-mention; otherwise agent (`defaultAssignee`). Before you pick one, the default is recomputed every time the note changes; once you pick, it only reverts to the default if that person drops out of the note. With no @-mentions, there's no control at all (agent).
+- **Card**: a person assignee gets a `담당 @name` ("assignee @name") chip in the header (`담당 나`, "assignee me," one step darker tint, if it's you). Agent is the default, so no chip. The author (or an identity-less local screen) can click the chip to open [Edit] and change it with the same control — a change adds a `담당 바꿈` ("assignee changed") line to the thread.
+- A person assignee means the agent skips it (`→ @name`) and that person gets an `assigned` notification (notification priority: assignee > mentioned > reopened > pending review > reply). Agent assignee means an @-mention is just `fyi` (`참고 @name`). Either way, a tagged person still gets a mention notification.
 
-- 목록 머리의 [나를 부른 핀 N] 토글(`#mention-filter`) — 지금 신원을 부른 열린·검토 대기 핀만 모든 문서에서 보인다. 없으면 숨는다. 로컬 신원에는 뜨지 않는다.
+- A `[나를 부른 핀 N]` ("[pins addressed to me, N]") toggle in the list header (`#mention-filter`) — shows only open/pending-review pins across all documents that mention the current identity. Hidden if there are none. Never shown for a local identity.
 
-## 브라우저 알림
+## Browser notifications
 
-탭이 살아 있는 동안만 쓰는 1단계 알림이다(웹 푸시·바깥 서비스·새 의존성 없음).
+A tier-one, tab-must-be-alive notification (no web push, no external service, no new dependency).
 
-- **켜기(기기마다)**: 데스크톱 도구 줄의 벨(`#btn-notify`)과 [더보기]의 [알림 켜기] 버튼(`#m-notify`). `Notification.requestPermission()` 은 이 클릭에서만 부른다. 상태는 `켜짐`/`꺼짐`/`브라우저에서 차단됨`(주소창 자물쇠 → 알림 → 허용 안내)/`이 주소에서는 안 됨`/`테일넷 주소에서만`(로컬 신원 — 아래). 켠 여부는 `pinPrefs.notify`(localStorage).
-- **로컬 신원은 켤 수 없다**: 테일넷 로그인 없이(`127.0.0.1` 직접 접속 등) 연 탭은 서버가 이벤트를 아예 안 실어(§@태그·사람·이벤트 `events_since`) 알림이 영영 오지 않는다. 버튼·메뉴 항목을 비활성(`disabled`)으로 두고 '테일넷 주소로 열면 켤 수 있습니다' 를 알린다 — 브라우저 권한을 얻어도 소용없는 상태를 숨기지 않는다.
-- **보안 컨텍스트**: 서비스 워커와 알림은 https(테일넷 `*.ts.net` 주소)와 `http://127.0.0.1`·`localhost` 에서만 된다. 다른 호스트의 plain http(예: LAN IP)는 브라우저가 막는다.
-- **흐름**: 5초 폴링(`pollLight`)이 `ev=<커서>` 를 붙여 나에게 온 이벤트를 받는다([api.md](api.md) §브라우저 알림 커서). 커서(`pinNotifyCursor`)는 브라우저의 localStorage 라 새로고침·탭 두 개가 같은 이벤트를 다시 알리지 않는다. 처음 켜면 지금 `ev_seq` 부터 센다(지난 일을 몰아 알리지 않는다).
-- **무엇을**: 나를 부름(`mention`), 내 핀이 검토 대기로 옴(`review_requested`), 내가 쓴·불린 핀의 답글(`replied`), 내 핀이 다시 열림(`reopened`). 내가 한 일은 알리지 않는다(서버 `to` 와 뷰어 둘 다 거른다). 한 번 받은 묶음 안에서는 핀마다 하나(부름 > 다시 엶 > 검토 대기 > 답글).
-- **보이기**: 늘 서비스 워커의 `registration.showNotification()`(안드로이드 크롬은 페이지의 `new Notification()` 을 막는다). `tag` = `pin-<번호>` 라 같은 핀의 알림은 한 칸으로 겹친다 — 에이전트가 답글과 닫기를 5초 틈을 두고 하면 두 번 오지만 화면에는 나중 것(`검토 대기`)만 남는다. 제목 `핀 #N · <문서 이름>`, 본문 `Bob Park님이 불렀습니다: <80자>`(부른 사람의 `name` 그대로 + '님')·`검토 대기: <답 첫 줄>`, 아이콘은 파비콘. 탭이 보이고 포커스가 있으면 알림 대신 토스트([열기]). 탭이 **숨어** 있어도 알림이 켜져 있으면(§브라우저 알림) 느린(20초) 이벤트 전용 폴링이 계속 돈다 — 목록은 다시 그리지 않는다.
-- **누르면**: 서비스 워커가 열린 뷰어 탭을 앞으로 가져와 `postMessage` 로 그 핀을 열고, 탭이 없으면 `/#doc=<키>&pin=<번호>` 로 새로 연다(해시의 `pin=` 도 부팅 때 연다).
-- 검증은 Playwright 새 헤드리스(`channel="chromium"`)로 했다 — 예전 헤드리스 셸은 권한을 주어도 `Notification.permission` 이 `denied` 다. 실기기 안드로이드·iOS 에서는 재지 못했다(iOS 는 홈 화면에 추가한 웹앱에서만 알림을 준다).
+- **Turned on per device**: a bell on the desktop toolbar (`#btn-notify`) and an [알림 켜기] ("[turn on notifications]") button under `[더보기]` ("[More]", `#m-notify`). `Notification.requestPermission()` is only called from this click. State reads `켜짐`/`꺼짐`/`브라우저에서 차단됨`/`이 주소에서는 안 됨`/`테일넷 주소에서만` ("on"/"off"/"blocked in the browser" (address-bar lock → notifications → allow)/"not available at this address"/"tailnet address only" — see local identity, below). Whether it's on is kept in `pinPrefs.notify` (localStorage).
+- **A local identity can't turn this on**: a tab opened with no tailnet login (e.g. hitting `127.0.0.1` directly) gets no events from the server at all (§@mentions, people, and events, `events_since`), so notifications never arrive. The button/menu item stays disabled with the message "open this over a tailnet address to turn this on" — it never hides a state where getting browser permission wouldn't help anyway.
+- **Secure context**: the service worker and notifications only work over https (a tailnet `*.ts.net` address) and `http://127.0.0.1`·`localhost`. Plain http on any other host (a LAN IP, say) is blocked by the browser.
+- **Flow**: the 5-second light poll (`pollLight`) appends `ev=<cursor>` to fetch events addressed to me ([api.md](api.md) §Browser notification cursor). The cursor (`pinNotifyCursor`) lives in the browser's localStorage, so a refresh or two open tabs never notify twice for the same event. Turning it on for the first time starts counting from the current `ev_seq` (it never floods you with past events).
+- **What triggers it**: being mentioned (`mention`), your pin moving to pending review (`review_requested`), a reply on a pin you wrote or were mentioned on (`replied`), your pin being reopened (`reopened`). Things you did yourself never notify you (filtered on both the server's `to` and the viewer). Within one fetched batch, at most one notification per pin (priority: mentioned > reopened > pending review > reply).
+- **Display**: always via the service worker's `registration.showNotification()` (Chrome on Android blocks a page's own `new Notification()`). `tag` = `pin-<number>`, so notifications for the same pin collapse into one slot — if an agent replies and then closes within a 5-second gap, both fire but only the later one (`검토 대기`, "pending review") stays on screen. Title `핀 #N · <document name>`, body `Bob Park님이 불렀습니다: <80 chars>` ("Bob Park mentioned you: …", using the mentioner's `name` as-is + "님") or `검토 대기: <first line of the reply>` ("pending review: …"), icon = the favicon. If the tab is visible and focused, a toast replaces the notification ([Open]). Even with the tab **hidden**, as long as notifications are on (§Browser notifications), a slower (20-second) events-only poll keeps running — it never redraws the list.
+- **On click**: the service worker brings an already-open viewer tab to the front and opens that pin via `postMessage`; with no open tab, it opens a new one at `/#doc=<key>&pin=<number>` (the hash's `pin=` also opens on boot).
+- Verified with Playwright's new headless mode (`channel="chromium"`) — the old headless shell reports `Notification.permission` as `denied` even when granted. Not tested on real Android/iOS devices (iOS only notifies a web app added to the home screen).
 
-## 보관함
+## Archive
 
-닫힌 핀·삭제한 핀을 펼치면 열린 카드와 모양이 같아 어디서부터 닫힌 핀인지 경계가 모호했다(저자 지적 2026-09-23). 목록을 세 구획(`section`)으로 나눈다.
+Expanding closed and dropped pins used to look just like open cards, with no clear boundary for where "closed" started (author feedback, 2026-09-23). The list is split into three `section`s.
 
-- **구획 머리**는 폭 전체를 쓰는 한 줄이다: `완료 18 ───────── 펼치기`(펼치면 `접기`), `삭제 2 ─── 펼치기`. 열린 목록 머리(`열린 핀 N`)도 같은 모양이다. 머리는 `position:sticky` 라 스크롤해도 위에 붙어 지금 어느 구획인지 늘 보이고, 다음 구획이 오면 앞 머리를 밀어낸다(구획마다 `section` 으로 감싼 덕). compact 에서는 `#right` 가 스크롤 상자이고 도구 줄이 먼저 위에 붙어 있어, JS 가 그 높이를 `--stick-top` 으로 잰다. 비어 있고 접힌 구획은 머리째 숨긴다.
-- **보관함 행**은 카드가 아니다 — 테두리·바탕·띠 없이 구분선 하나로 나뉘는 납작한 행이고 글자가 흐리다. 상태는 앞머리 아이콘이다.
-  - 첫 줄: 아이콘(완료 `check`, 삭제 `trash-2`) · `#번호` · 줄 범위 · 참조(`close_ref`, 예: PR 번호) · 시각(`MM-DD HH:MM`, 닫은 사람은 설명) · [다시 열기] / [되살리기].
-  - 둘째 줄: 완료는 에이전트 답(`close_reply`) 한 줄 — 넘치면 말줄임, 누르면 펼친다. 답이 없으면 '설명 없이 닫힘'. 원래 요청 메모는 [원래 요청]을 눌러야 펼쳐진다. 삭제는 그 핀의 메모 한 줄(답이 없으니 그것이 알아볼 단서다).
-  - 펼친 줄은 다시 그려도(자동 동기화) 남는다.
-- 문서 탭·'모든 문서' 토글은 열린 목록과 같은 목록 함수(`listDone`·`listDropped`)를 쓴다 — 모든 문서면 행에 문서 칩이 붙는다.
+- A **section header** is one full-width line: `완료 18 ───────── 펼치기` ("done 18 ───── expand", collapsing it reads `접기`, "collapse"), `삭제 2 ─── 펼치기` ("dropped 2 ─── expand"). The open list's header (`열린 핀 N`, "open pins N") looks the same. Headers are `position:sticky`, so scrolling keeps them visible and shows which section you're in, and the next header pushes the previous one out of the way (thanks to wrapping each in its own `section`). In compact layouts, `#right` is the scroll box and the toolbar is already sticky at the top, so JS measures its height as `--stick-top`. An empty, collapsed section is hidden header and all.
+- An **archive row** isn't a card — no border, background, or stripe, just a single divider between rows, and dimmer text. State is a leading icon.
+  - First line: icon (done `check`, dropped `trash-2`) · `#number` · line range · reference (`close_ref`, e.g. a PR number) · time (`MM-DD HH:MM`, closer's name in the tooltip) · [다시 열기] / [되살리기] ("[reopen]" / "[restore]").
+  - Second line: for done, the agent's reply (`close_reply`) on one line — truncates with an ellipsis, click to expand. With no reply, "설명 없이 닫힘" ("closed with no explanation"). The original note only appears via [원래 요청] ("[original request]"). For dropped, that pin's note (with no reply, it's the only clue for identifying it).
+  - An expanded line survives a redraw (auto-sync).
+- Document tabs and the "all documents" toggle use the same list functions as the open list (`listDone`·`listDropped`) — across all documents, a row gets a document chip.
 
-## 디자인 토큰과 컴포넌트
+## Design tokens and components
 
-색 리터럴이 49–54가지, radius 가 14가지(2·4·5·6·7·8·9·10·12·14px, 50%, 0 과 그 조합), 글자 크기가 13가지였고 토큰은 32개뿐이라, 같은 역할의 버튼·배지가 곳마다 조금씩 달랐다(2026-09-23). [shadcn/ui](https://ui.shadcn.com) 의 **체계(토큰 이름·역할·변형 이름)만** 빌려 한 벌로 모았다 — React·Tailwind·빌드 단계·CDN 은 없고, CSS 는 여전히 `pin_server.py` 안의 한 `<style>` 이다(배포는 `pin_server.py` 와 `vendor/pdfjs` 복사뿐). 동작·API·레이아웃 규칙은 그대로다.
+With 49–54 color literals, 14 radius values (2·4·5·6·7·8·9·10·12·14px, 50%, 0, and combinations), 13 font sizes, and only 32 tokens, buttons and badges playing the same role looked slightly different everywhere (2026-09-23). Only [shadcn/ui](https://ui.shadcn.com)'s **system** (token names, roles, variant names) was borrowed to unify all of this — no React, Tailwind, build step, or CDN; the CSS is still a single `<style>` block inside `src/limn/server.py` (deployment is only installing the package). Behavior, the API, and layout rules are unchanged.
 
-### 토큰
+### Tokens
 
-색 리터럴은 **두 토큰 블록**(`:root` = 다크, `:root[data-theme=light]` = 라이트) 안의 변수 정의에만 있다. 규칙은 모두 `var(--…)` 이고, 옅은 채움(선택 상자·마크·위험 버튼 바탕 등)은 `color-mix(in srgb, var(--토큰) N%, transparent)` 로 만든다. 중립색은 zinc 계열이다.
+Color literals only exist as variable definitions inside **two token blocks** (`:root` = dark, `:root[data-theme=light]` = light). Every rule uses `var(--…)`, and light fills (a selection box, a mark, a danger-button background) are made with `color-mix(in srgb, var(--token) N%, transparent)`. Neutrals are zinc-family.
 
-| 묶음 | 토큰 | 쓰임 |
+| Group | Token | Used for |
 | --- | --- | --- |
-| 면 | `--background`·`--foreground` | PDF 영역 바탕(다크 zinc-950, 라이트 zinc-200 — 흰 쪽이 떠 보이게)과 기본 글자 |
-| | `--sidebar` | 오른쪽 패널·시트·도구 줄·sticky 머리 |
-| | `--card`·`--card-foreground` | 핀 카드·작성 패널·배너 |
-| | `--popover`·`--popover-foreground` | 대화상자·알림 |
-| | `--muted`·`--muted-foreground`·`--subtle-foreground` | 옅은 면(kbd)·흐린 글자·더 흐린 글자(삭제한 핀) |
-| | `--field`·`--code` | 입력 칸 바탕·원문(`pre`) 바탕 |
-| 동작 | `--primary`·`--primary-foreground`·`--ring` | 주요 동작·선택·포커스 링(파랑 — 예전 `--acc` 값 그대로) |
-| | `--secondary`·`--secondary-foreground` | 채운 보조 버튼·셈 배지 |
-| | `--accent`·`--accent-foreground` | hover 면 |
-| | `--destructive`·`--destructive-foreground` | 삭제·오류 |
-| 선 | `--border`·`--border-strong`·`--input`·`--outline-bg` | 구분선·강조 선(배지 테두리)·컨트롤 테두리·outline 버튼 바탕 |
-| 상태 | `--success`·`--warning`(+`-foreground`) | 알림 아이콘·경고 글자 |
-| | `--status-open`·`--status-claimed`·`--status-closed`·`--status-dropped`·`--status-warning` | 마크·열림 점 / 처리 중 점 / 완료 아이콘 / 삭제 아이콘 / 위치 잃음·늦어짐·다시 열림(§상태 표현) |
-| 기타 | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | 툴팁·그림자 색·쪽 그림자 |
-| 인스턴스 | `--brand`·`--brand-foreground` | 이름표 색(`--accent` 인자로 서버가 채움, 테마와 무관)·그 위 흰 글자 |
+| Surface | `--background`·`--foreground` | The PDF-area background (dark zinc-950, light zinc-200 — so the light page reads as floating above it) and default text |
+| | `--sidebar` | Right panel·sheet·toolbar·sticky headers |
+| | `--card`·`--card-foreground` | Pin card·composer panel·banners |
+| | `--popover`·`--popover-foreground` | Dialogs·toasts |
+| | `--muted`·`--muted-foreground`·`--subtle-foreground` | A light fill (kbd)·dim text·even dimmer text (dropped pins) |
+| | `--field`·`--code` | Input-field background·source-text (`pre`) background |
+| Action | `--primary`·`--primary-foreground`·`--ring` | Primary action·selection·focus ring (blue — the old `--acc` value, unchanged) |
+| | `--secondary`·`--secondary-foreground` | Filled secondary buttons·count badges |
+| | `--accent`·`--accent-foreground` | Hover surfaces |
+| | `--destructive`·`--destructive-foreground` | Delete·error |
+| Lines | `--border`·`--border-strong`·`--input`·`--outline-bg` | Dividers·emphasis border (badge outline)·control border·outline-button fill |
+| State | `--success`·`--warning` (+`-foreground`) | Notification icons·warning text |
+| | `--status-open`·`--status-claimed`·`--status-closed`·`--status-dropped`·`--status-warning` | Mark/open dot / in-progress dot / done icon / dropped icon / position-lost·overdue·reopened (§Status representation) |
+| Other | `--tooltip`·`--tooltip-foreground`·`--shadow-color`·`--shadow-page` | Tooltip·shadow color·page shadow |
+| Instance | `--brand`·`--brand-foreground` | The label color (filled in by the server from the `--accent` argument, theme-independent)·white text on top of it |
 
-테마와 무관한 척도(세 번째 `:root` 블록):
+Theme-independent scales (a third `:root` block):
 
-| 척도 | 값 |
+| Scale | Values |
 | --- | --- |
-| radius | `--radius-sm` 4px(배지·kbd·작은 막대) · `--radius` 6px(버튼·입력·툴팁) · `--radius-lg` 10px(카드·대화상자·시트 모서리·셈 알약). 원형 점·아바타·스피너만 `50%`, 모서리를 없앨 때만 `0` |
-| 글자 | `--text-xs` 11px(배지·쪽 번호) · `--text-sm` 12px(작은 버튼·보조 글자) · `--text-base` 13px(버튼·입력·알림) · `--text-lg` 14px(본문, 터치 버튼) · `--text-xl` 16px(대화상자 제목, 터치 입력 — iOS 확대 방지) |
-| 간격 | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap 은 모두 이 격자다(격자 정리 2026-09-25 — 6·10·14·18·22px 같은 자리 값을 4/8 격자로 옮겼다. 1–2px 머리카락 선·광학 보정과 음수 margin 은 둔다). 가드 `FrontendSpacingGrid` |
-| 컨트롤 높이 | `--control-h-sm` 24 · `--control-h` 28(도구 줄 `--tb-h`) · `--control-h-lg` 36(동작 줄) · `--control-h-touch` 44 |
-| 그림자 | `--shadow-sm`·`--shadow`·`--shadow-lg` |
-| 글꼴 | `--font-sans`·`--font-mono` |
+| radius | `--radius-sm` 4px (badges·kbd·small bars) · `--radius` 6px (buttons·inputs·tooltips) · `--radius-lg` 10px (cards·dialogs·sheet corners·count pills). Only circular dots/avatars/spinners use `50%`, and only where corners are removed entirely does it use `0` |
+| font size | `--text-xs` 11px (badges·page number) · `--text-sm` 12px (small buttons·secondary text) · `--text-base` 13px (buttons·inputs·notifications) · `--text-lg` 14px (body text, touch buttons) · `--text-xl` 16px (dialog titles, touch inputs — prevents iOS zoom) |
+| spacing | `--space-1..6` = 4·8·12·16·20·24px. padding·margin·gap all sit on this grid (grid cleanup 2026-09-25 — moved odd values like 6·10·14·18·22px onto the 4/8 grid; 1–2px hairlines, optical correction, and negative margins are left alone). Guard: `FrontendSpacingGrid` |
+| control height | `--control-h-sm` 24 · `--control-h` 28 (toolbar `--tb-h`) · `--control-h-lg` 36 (action bar) · `--control-h-touch` 44 |
+| shadow | `--shadow-sm`·`--shadow`·`--shadow-lg` |
+| font | `--font-sans`·`--font-mono` |
 
-격자 정리(2026-09-25)에서 눈에 띄게 달라진 것과 그대로 둔 것: 기본 버튼 좌우 10→12px, 배지 좌우 6→8px, 입력 칸 위아래 6→8px, 분절 컨트롤 틀 3→4px, 쪽 사이 18→16px. 데스크톱 [PDF 재빌드]는 8px 로 넓히면 348px 기본 패널에서 [?]가 둘째 줄로 떨어져 좌우 4px 로 두었다. 보관함 첫 줄 틈은 4px 이고 줄 범위(`.loc`)는 줄어들지 않는다 — 긴 참조(`paper PR #236; code P…`) 옆에서 `L890-L897` 이 `L89` 로 잘렸다(격자 정리 전에도 있던 문제, 폴드에서 발견). 세 폭·두 테마 전후 스크린샷을 짝지어 비교했다.
+Notable changes and non-changes from the grid cleanup (2026-09-25): default button horizontal padding 10→12px, badge horizontal padding 6→8px, input vertical padding 6→8px, segmented-control frame padding 3→4px, gap between pages 18→16px. Widening desktop [PDF rebuild] to 8px dropped [?] to a second row in the default 348px panel, so it stayed at 4px. The archive's first-line gap is 4px, and the line-range (`.loc`) is never allowed to shrink — next to a long reference (`paper PR #236; code P…`), `L890-L897` was clipping to `L89` (a pre-existing problem, found on a fold before this cleanup). Before/after screenshots at three widths and both themes were compared in pairs.
 
-### 컴포넌트
+### Components
 
-| 컴포넌트 | 클래스 | 쓰는 곳 |
+| Component | Class | Used in |
 | --- | --- | --- |
-| 버튼 outline(기본) | 변형 클래스 없음 | 도구 줄 버튼, 카드의 [보기]·[수정]·[풀기], 보관함 [다시 열기]·[되살리기], [취소], 대화상자 버튼, 목록 머리 [다시 읽기]·[모든 문서] |
-| 버튼 default | `.btn-default` | [핀 저장], 편집 [저장], [이 위치로 바꾸기], 원고가 바뀐 뒤의 [PDF 재빌드], 켜진 [선택] |
-| 버튼 secondary | `.btn-secondary` | [더보기] 대화상자 안 버튼. 카드 안 [보기]·[수정]·[답글]·[풀기]·[변경 보기]·[다시 열기]·[확인]과 입력 칸 옆 [취소]도 같은 모양(카드 규칙이 준다) — 테두리 없이 채운다 |
-| 버튼 soft | `.btn-soft` | 카드의 [완료] 전용 — 주 색 14% 틴트 바탕 + 주 색 글자(글자 대비 다크 6.1 · 라이트 4.55, hover 는 바탕 대신 테두리를 올린다). shadcn 에 없는 변형이다: [완료]를 옅은 파랑으로 둔다는 저자 지정(2026-09-23)을 지키면서 `--secondary` 는 셈 배지용 중립색으로 남기려고 따로 두었다 |
-| 버튼 ghost | `.btn-ghost` | [원문 펼치기], 카드 접기, 알림·안내 닫기 |
-| 버튼 destructive | `.btn-destructive` | 카드의 [삭제] — 카드 안에서는 바탕 없는 위험 색 글자(hover 에만 옅은 틴트). 가장 눈에 띄는 버튼이 되지 않는다 |
-| 크기 | 기본(28px) · `.btn-sm` · `.btn-icon`(정사각형, `.btn-sm` 과 함께면 24px) | 카드·보관함·대화상자 버튼은 sm, 아이콘만 있는 버튼은 icon. 터치에서는 모두 44px 이상 |
-| 배지 | `.badge`(= 옅은 채움, 테두리 없음) · `.badge-default` · `.badge-secondary` · `.badge-destructive` · `.badge-claimed`(+`.late`) · `.badge-warning` | 카드 배지, 도구 줄 상태 칩(원고가 더 새롭습니다·PNG 보기·연결 끊김·빌드 오류), 셈(`.dcnt`·`.arc-n` = secondary 알약), 문서 칩(`.dchip`), 참조(`.arc-ref`)·보기 전용 표시(`.dvo`) |
-| 카드 | `.card` | 핀 카드(`.pin.card`) |
-| 입력 | `input`·`textarea` | 메모·쪽 칸. 도구 줄 쪽 칸은 버튼 높이(`--tb-h`) |
+| Button, outline (default) | No variant class | Toolbar buttons, card [보기]·[수정]·[풀기] ("[view]"·"[edit]"·"[unclaim]"), archive [다시 열기]·[되살리기] ("[reopen]"·"[restore]"), [취소] ("[cancel]"), dialog buttons, list header [다시 읽기]·[모든 문서] ("[reread]"·"[all documents]") |
+| Button, default | `.btn-default` | [핀 저장] ("[save pin]"), edit [저장] ("[save]"), [이 위치로 바꾸기] ("[relocate here]"), [PDF 재빌드] after the manuscript changed, active [선택] ("[select]") |
+| Button, secondary | `.btn-secondary` | Buttons inside the `[더보기]` dialog. Card [보기]·[수정]·[답글]·[풀기]·[변경 보기]·[다시 열기]·[확인] and the input field's [취소] share this look too (the card rules give it to them) — filled, no border |
+| Button, soft | `.btn-soft` | Only the card's [완료] ("[done]") — 14% primary-tint fill + primary-color text (contrast 6.1 dark · 4.55 light; hover raises the border instead of the fill). A variant shadcn doesn't have: it keeps [완료] light blue per an author decision (2026-09-23) while leaving `--secondary` as the neutral for count badges |
+| Button, ghost | `.btn-ghost` | [원문 펼치기] ("[expand source]"), card collapse, closing a notification/hint |
+| Button, destructive | `.btn-destructive` | Card [삭제] ("[delete]") — inside a card, danger-color text with no fill (a light tint only on hover). Never the loudest button |
+| Sizes | Default (28px) · `.btn-sm` · `.btn-icon` (square, 24px combined with `.btn-sm`) | Card·archive·dialog buttons are sm; icon-only buttons are icon. All at least 44px on touch |
+| Badge | `.badge` (= light fill, no border) · `.badge-default` · `.badge-secondary` · `.badge-destructive` · `.badge-claimed` (+`.late`) · `.badge-warning` | Card badges, toolbar status chips (manuscript newer·PNG view·disconnected·build error), counts (`.dcnt`·`.arc-n` = secondary pills), document chip (`.dchip`), reference (`.arc-ref`)·view-only indicator (`.dvo`) |
+| Card | `.card` | Pin card (`.pin.card`) |
+| Input | `input`·`textarea` | Note·page field. The toolbar's page field matches the button height (`--tb-h`) |
 
-예전 표시 전용 클래스(`.p`·`.x`·`.ghost`·`.ib`·`.ico`·`.tag`·`.t`, `.tag.claim`)는 없앴다. `.b-close`·`.b-drop`·`.arc-b` 같은 이름은 역할 표시로 남는다. 모양은 변형 클래스가 정한다. 버튼처럼 눌리지만 모양이 다른 것 — 분절 컨트롤(`.seg`)·스테퍼(`.step`)·구획 머리(`.arc-head`)·[원래 요청] 글자 버튼(`.arc-orig-t`, 밑줄) — 은 같은 토큰을 쓰는 별도 모양이다.
+Old display-only classes (`.p`·`.x`·`.ghost`·`.ib`·`.ico`·`.tag`·`.t`, `.tag.claim`) are gone. Names like `.b-close`·`.b-drop`·`.arc-b` remain as role markers — the variant class decides the look. Things that press like a button but look different — the segmented control (`.seg`), stepper (`.step`), section header (`.arc-head`), the [원래 요청] text link (`.arc-orig-t`, underlined) — are separate shapes that still use the same tokens.
 
-### 한 겹 담기
+### One layer of containment
 
-테두리 상자 안에 또 테두리 상자를 그리는 방식(카드 안의 테두리 배지·버튼, 테두리 있는 분절 컨트롤 안의 테두리 칸, 테두리 원문 상자, 테두리 겹침 안내, 보관함 행 안의 테두리 스레드 상자)이 촌스러웠다(저자 지적 2026-09-24). 담는 층은 하나만 둔다.
+Drawing a bordered box inside another bordered box (a bordered badge/button inside a card, a bordered cell inside a bordered segmented control, a bordered source-text box, a bordered overlap-warning box, a bordered thread box inside an archive row) looked tacky (author feedback, 2026-09-24). Only one containing layer is ever drawn.
 
-| 층 | 모양 |
+| Layer | Shape |
 | --- | --- |
-| 패널·구획 | 테두리 없음. 구획 머리 + 구분선(`.arc-head` 윗줄) |
-| 카드(`.card`) | 가는 `--border` 테두리 하나. 그림자 없음 |
-| 카드 안 | 배지 = 옅은 채움(뜻 있는 배지는 그 색 14% 틴트) · 버튼 = 채운 secondary(완료 soft, 삭제 바탕 없는 위험 색) · 스레드 = 구분선 하나 뒤 목록 · 편집 = 간격만 |
-| 작성 패널 | 상자 없음. 범위 사다리·종류 = shadcn Tabs(채운 틀 + 떠 있는 고른 칸) · 스테퍼 = 채운 묶음(안쪽 선 없음) · 원문 = `--code` 채움(테두리 없음) · 겹침 안내 = 글 + 버튼 · 테두리는 메모 입력 칸 하나 |
-| 보관함 행 | 상자 없음. 행 사이 구분선 하나, 스레드·원래 요청은 들여쓰기만 |
-| 떠 있는 면(대화상자·알림·@목록) | 가는 `--border` + `--shadow-lg`/`--shadow` — 그림자는 여기에만. 안의 버튼은 채운 secondary |
+| Panel·section | No border. Section header + one divider (the `.arc-head` top line) |
+| Card (`.card`) | One thin `--border`. No shadow |
+| Inside a card | Badge = light fill (a meaningful badge gets that color's 14% tint) · button = filled secondary (done = soft, delete = borderless danger text) · thread = one divider then a list · edit = spacing only |
+| Composer | No box at all. Scope ladder/kind = shadcn Tabs (a filled frame + a floating selected cell) · stepper = a filled group (no internal dividers) · source text = `--code` fill (no border) · overlap banner = text + buttons · the only border is the note input field |
+| Archive row | No box. One divider between rows; thread and original-request only indent |
+| A floating surface (dialog, toast, @-mention list) | A thin `--border` + `--shadow-lg`/`--shadow` — shadow is reserved for these. Buttons inside are filled secondary |
 
-가드: `FrontendNoNestedOutlines`(안쪽 컴포넌트 CSS 에 테두리 상자 없음), 스크린샷 하네스의 DOM 검사(네 변 테두리를 가진 요소가 네 변 테두리를 가진 조상 안에 있는지 — 입력 칸 제외): 고치기 전 목록 72·더보기 13 → 0.
+Guard: `FrontendNoNestedOutlines` (no bordered box inside an inner component's CSS), plus a screenshot harness's DOM check (any four-sided-border element inside a four-sided-border ancestor, excluding inputs) — before the fix: 72 in the main list, 13 in [more] → 0 after.
 
-### 리터럴 예외(허용 목록)
+### Literal exceptions (allowlist)
 
-| 자리 | 값 | 이유 |
+| Location | Value | Why |
 | --- | --- | --- |
-| 토큰 블록 세 개(`:root`·`:root[data-theme=light]`·척도 블록) | 색·px 값 | 정의하는 자리다 |
-| `#brand-stripe`·`#brand-chip` 의 `style="background:__ACCENT__"` | 인스턴스 색 | 서버가 `--accent` 값으로 채운다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 이 모양을 본다 |
-| 파비콘 SVG(`favicon_href`) | `fill="#ffffff"` 등 | CSS 밖의 data URI 이미지다 |
-| PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF 의 색이다. 테마는 종이 색을 바꾸지 않는다 |
-| `vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide 는 `currentColor` 라 글자색을 따른다) |
-| 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px 만 둔다 |
+| The three token blocks (`:root`·`:root[data-theme=light]`·the scale block) | Color·px values | This is where they're defined |
+| `#brand-stripe`·`#brand-chip`'s `style="background:__ACCENT__"` | The instance color | Filled by the server from `--accent`. Must survive a theme change, and the regression test (`BuildHtmlSubstitution`) checks this exact shape |
+| The favicon SVG (`favicon_href`) | `fill="#ffffff"` etc. | A data-URI image, outside CSS |
+| PDF pages (PNG·PDF.js canvas) | Paper color | This is the manuscript PDF's own color. A theme never changes paper color |
+| `vendor/pdfjs`·original Lucide | — | External code (Lucide uses `currentColor`, so it follows text color) |
+| Sizing literals (width·height, negative margins, position coordinates, `calc`) | px | Rounding to the scale would shift the layout. Spacing (padding·margin·gap) is not exempt — only 1–2px hairlines are |
 
-가드: `tests/test_pin_server.py` 의 `FrontendDesignTokens` 가 인라인 CSS 를 파싱해 토큰 블록 밖의 색 리터럴, 척도 밖의 radius·font-size, 인라인 `style`·JS 의 색·글자 리터럴, 정의되지 않은 `var()`(JS 가 넣는 `--kb`·`--vvh`·`--side-w`·`--sheet-f`·`--stick-top` 제외), 두 테마의 색 토큰 불일치를 막는다. 예외를 늘리면 위 표와 테스트의 허용 목록을 함께 고친다.
+Guard: `tests/test_server.py`'s `FrontendDesignTokens` parses the inline CSS and blocks color literals outside the token blocks, radius/font-size values outside the scale, color/font literals in inline `style`/JS, undefined `var()` references (excluding `--kb`·`--vvh`·`--side-w`·`--sheet-f`·`--stick-top`, which JS sets), and a color-token mismatch between the two themes. Adding an exception means updating both the table above and the test's allowlist.
 
-## 아이콘
+## Icons
 
-이모지와 기본 문자 아이콘(⏳ ▾ ▸ ☾ ◐ ✓ ✎ ⚠ ⧉ ⋯ ＋ ×)은 기기·글꼴마다 모양이 달라 보기 흉했다(저자 지적 2026-09-23). 전부 없애고 꼭 필요한 곳에만 [Lucide](https://github.com/lucide-icons/lucide)(ISC) 아이콘을 쓴다. 출처·버전·아이콘 목록은 [`vendor/lucide/README.md`](../vendor/lucide/README.md).
+Emoji and basic character icons (⏳ ▾ ▸ ☾ ◐ ✓ ✎ ⚠ ⧉ ⋯ ＋ ×) looked different across devices and fonts and looked bad (author feedback, 2026-09-23). All were removed in favor of [Lucide](https://github.com/lucide-icons/lucide) (ISC) icons, used only where truly needed. Provenance, version, and the icon list are in [`vendor/lucide/README.md`](../src/limn/vendor/lucide/README.md).
 
-- `lucide-static` npm 원본의 `<svg>` 안 요소만 `pin_server.py` 의 `LUCIDE` 에 인라인으로 넣는다(외부 CDN 없음). `stroke="currentColor"`·`stroke-width="2"`(24 격자)·16px(배지·행 안은 12–14px)이라 글자색을 따른다. 서버가 `{{ic:이름}}` 자리를 채우고, JS 는 `ic(이름)` 으로 같은 모양을 그린다.
-- 아이콘 없이 뜻이 분명한 버튼은 글자만 둔다: 카드의 [보기]·[수정]·[풀기]·[삭제]·[완료], 보관함 [다시 열기]·[되살리기], [원문 펼치기], [더보기] 안의 [축소]·[확대]·[폭 맞춤]·[테마] 등. 아이콘만 두는 버튼(축소·확대·테마·도움말·더보기·위치 복사·알림 닫기)은 `aria-label` 로 이름을 준다.
-- 산문 속 화살표(→)와 키 이름(⌘ Enter)은 글자로 남긴다 — 아이콘이 아니다.
+- Only the elements inside the `<svg>` from the `lucide-static` npm package are inlined into `src/limn/server.py`'s `LUCIDE` (no external CDN). `stroke="currentColor"`·`stroke-width="2"` (24-unit grid)·16px (12–14px in badges/rows), so it follows text color. The server fills in a `{{ic:name}}` placeholder, and JS draws the same shape via `ic(name)`.
+- A button whose meaning is clear without an icon keeps text only: card [보기]·[수정]·[풀기]·[삭제]·[완료], archive [다시 열기]·[되살리기], [원문 펼치기], and inside `[더보기]`: [축소]·[확대]·[폭 맞춤]·[테마] ("[zoom out]"·"[zoom in]"·"[fit width]"·"[theme]") etc. An icon-only button (zoom out, zoom in, theme, help, more, copy location, close notification) gets its name via `aria-label`.
+- An arrow in prose (→) and a key name (⌘ Enter) stay as text — they aren't icons.
 
-## 여러 문서
+## Multiple documents
 
-논문 저장소 하나에는 본문·답변서·커버레터·하이라이트처럼 문서가 여럿 있고, 폴더와 빌드 방식이 서로 다르다. 저자 결정(2026-09-23)은 **논문 저장소마다 뷰어 하나·주소 하나**를 두고 그 안에서 문서를 전환하는 것이다(A안). 문서마다 뷰어를 따로 띄우면 포트·테일넷 주소·브라우저 탭이 문서 수만큼 늘고, "#12 처리해줘" 가 어느 뷰어의 12번인지 모호해진다.
+A single paper repository has several documents — body, response letter, cover letter, highlights — with different folders and build methods. The author's decision (2026-09-23) was **one viewer, one address, per paper repository** (option A), switching documents within it. A separate viewer per document would multiply ports, tailnet addresses, and browser tabs by the document count, and "handle #12" would become ambiguous about which viewer's #12.
 
-### 서버
+### Server
 
-| 결정 | 이유 |
+| Decision | Reason |
 | --- | --- |
-| 핀 저장소는 하나(`pins.jsonl`·`pins.seq`) | 번호가 문서를 가로질러 유일해야 채팅의 `#12` 가 모호하지 않다. 레코드에 `doc` 을 더하고, 없는 옛 레코드는 첫 문서로 **읽을 때만** 본다(이관 쓰기 없음 — 옛 상태 폴더를 되돌려도 그대로다) |
-| 레코드 검증은 모양으로 한다 | `file` 이 있으면 LaTeX 핀(검증 그대로), `pdf` 만 있으면 보기 전용 핀. 지금 설정에 없는 문서 키여도 깨진 줄로 보지 않는다 — 깨진 줄로 치면 다음 쓰기가 그 핀을 지운다(백업만 남는다). pins.md 는 그런 핀을 `## 설정에 없는 문서` 소절로 드러낸다 |
-| 빌드·쪽·이력은 문서별 폴더(`docs/<키>/`) | 쪽 이미지 버전(`pages.cur`)·빌드 이력(`builds.json`, 위치 추정의 원천)·`built_at` 이 문서마다 다르다. 키가 `main` 인 LaTeX 문서만 상태 폴더 루트를 쓴다 — 단일 문서 인스턴스에 `--doc main=…` 으로 문서를 더해도 본문의 빌드 이력이 이어져 옛 핀이 전부 점선(추정)으로 바뀌지 않는다 |
-| 요청마다 문서를 스레드 지역 값으로 건다(`using_doc`) | 빌드·쪽·지문 함수 수십 개가 인자 없이 '지금 문서'를 본다. 단일 문서는 `C` 를 그때그때 읽는 문서(`LEGACY_DOC`)라 옛 경로와 회귀 테스트가 그대로 돈다 |
-| 빌드 잠금은 문서마다 | 빌드 폴더가 문서마다 따로라 서로 다른 문서는 동시에 빌드해도 `.aux` 를 밟지 않는다. 같은 문서는 예전처럼 하나만(`409`) |
-| `--git-pull` 은 저장소 단위 | 여러 문서면 잠금 하나로 줄 세우고 20초 안에 다른 문서가 당긴 결과를 같이 쓴다(`pull.shared`). 동시에 fetch·merge 하면 `.git/index.lock` 이 부딪히고, 한 문서가 복사하는 중에 트리가 바뀐다 |
-| LaTeX 문서는 메인 `.tex` 가 있는 폴더에서 빌드 | 평소 `cd <그 폴더> && latexmk` 하던 그대로다. `<빌드 루트>::<메인>` 의 빌드 루트는 사본으로 복사할 범위일 뿐이다 — 실측: 두 번째 논문 본문(`manuscript/2nd`)이 `\graphicspath{{../1st/images/}}` 로 옆 폴더 그림을 읽어, 폴더 하나만 복사하면 그림이 빠진다 |
-| 여러 문서면 기동 빌드를 백그라운드로 | 문서 N개 × 수십 초를 기다리지 않고 서버가 바로 뜬다. 실패해도 기동을 막지 않는다(그 탭이 오류 패널을 연다). 단일 문서는 예전처럼 동기 빌드·실패 시 종료 |
+| One pin store (`pins.jsonl`·`pins.seq`) | Numbers must be unique across documents so a chat's "#12" is never ambiguous. Records gain a `doc` field; an old record without one is only read as the first document (never migrated on write — reverting to an old state directory still works) |
+| Record validation is shape-based | A record with `file` is a LaTeX pin (validated as before); one with only `pdf` is view-only. A document key that's not in the current configuration doesn't make it a corrupt line — treating it as corrupt would let the next write erase that pin (only the backup would survive). pins.md surfaces such pins under a `## 설정에 없는 문서` ("## document not in configuration") section |
+| Build/pages/history are per-document folders (`docs/<key>/`) | Page-image version (`pages.cur`)·build history (`builds.json`, the source of position estimation)·`built_at` all differ by document. Only the key `main` LaTeX document uses the state-directory root — so adding a document to a single-document instance with `--doc main=…` keeps the body's build history intact and doesn't flip every old pin to a dotted estimate |
+| The document is threaded per-request as a thread-local value (`using_doc`) | Dozens of build/page/fingerprint functions look at "the current document" with no argument. A single document is treated as "whichever document is read at the time" (`LEGACY_DOC`), so old paths and regression tests keep running unchanged |
+| The build lock is per document | Since build folders are per document, different documents build concurrently without stepping on each other's `.aux`. The same document is still limited to one at a time (`409`) as before |
+| `--git-pull` is per repository | With multiple documents, pulls serialize behind one lock, and a document that pulls within 20 seconds of another shares that result (`pull.shared`). Simultaneous fetch/merge would collide on `.git/index.lock`, and the tree could change mid-copy for one document |
+| A LaTeX document builds from the folder its main `.tex` lives in | Exactly like running `cd <that folder> && latexmk` by hand. The build root in `<build root>::<main>` is only the range copied into the build copy — confirmed by measurement: a second paper's body (`manuscript/2nd`) reads figures from a sibling folder via `\graphicspath{{../1st/images/}}`, so copying only one folder would drop the figures |
+| Startup builds for multiple documents run in the background | So the server doesn't wait document-count × tens-of-seconds before coming up. A failure doesn't block startup (that tab opens an error panel). A single document still builds synchronously and exits on failure, as before |
 
-### 보기 전용 PDF
+### View-only PDF
 
-LaTeX 소스가 없는 PDF(리뷰어 코멘트, 받은 PDF, 커밋된 제출본)도 같은 목록에 둔다. 줄 번호를 되찾을 수 없으므로 핀의 위치는 **쪽·영역(`frac`)** 이고, `pick` 이 SyncTeX 없이 영역 글자(`pdftotext`, 160자)를 돌려준다 — 줄이 없으니 이 글자가 에이전트의 유일한 원문 단서다. 그래서 pins.md 에는 60자·긴 한 줄 조건 없이 늘 `«…»` 로 싣는다. 재빌드는 없다. 감시 스레드가 3초마다 PDF 의 `mtime:크기` 를 보고 바뀌었으면 같은 빌드 경로(`_build_tracked` → 이력·`build_seq`)로 쪽을 다시 그린다 — 뷰어는 LaTeX 재빌드와 똑같이 화면을 바꾸고, 지문(PDF 내용 해시)이 달라진 옛 핀은 점선(추정)이 된다.
+A PDF with no LaTeX source (reviewer comments, a received PDF, a committed submission copy) goes into the same list. Since there's no line number to recover, a pin's location is **page and region (`frac`)**, and `pick` returns region text with no SyncTeX (`pdftotext`, 160 characters) — with no lines, this text is the agent's only clue about the source. So pins.md always shows it as `«…»`, with no 60-character or long-single-line condition. There's no rebuild. A watcher thread checks the PDF's `mtime:size` every 3 seconds, and on a change, redraws the pages through the same build path (`_build_tracked` → history·`build_seq`) — the viewer updates the screen exactly like a LaTeX rebuild, and an old pin whose fingerprint (a hash of the PDF's content) no longer matches is drawn dotted (an estimate).
 
-### 뷰어
+### Viewer
 
-| 화면 | 전환 수단 |
+| Screen | How to switch |
 | --- | --- |
-| 데스크톱·펼친 폴드(`wide`·`mid`) | PDF 영역 위의 낮은 줄에서 인라인 문서 링크와 `원고`/`변경사항` 보기를 고른다. `목차`는 PDF.js에 실제 outline이 있을 때 왼쪽에 펼쳐 쪽으로 이동한다. 쪽·확대·재빌드 도구는 기존 오른쪽 패널에 둔다 |
-| 접은 폴드(`narrow`) | 기존 도구 줄의 `[문서 이름 ▾]` → 아래 시트 목록(이름·경로·핀 수·보기 전용). 데스크톱 탐색 줄은 숨겨 기존 모바일 PDF·시트 흐름을 유지한다 |
-| 문서 하나 | 문서 선택기·문서 버튼·'모든 문서' 토글이 숨는다. 데스크톱의 보기 전환과 목차는 쓸 수 있다 |
+| Desktop, unfolded fold (`wide`·`mid`) | A low strip above the PDF area with inline document links and `원고`/`변경사항` ("manuscript"/"changes") view switching. `목차` ("table of contents") expands on the left when PDF.js reports an actual outline, and jumps to a page. Page, zoom, and rebuild tools stay in the existing right panel |
+| Collapsed fold (`narrow`) | The existing toolbar's `[문서 이름 ▾]` ("[document name ▾]") → a sheet list below (name·path·pin count·view-only). The desktop nav bar is hidden, keeping the existing mobile PDF/sheet flow |
+| A single document | The document picker, document buttons, and "all documents" toggle disappear. Desktop's view switching and table of contents still work |
 
-- **전환이 즉각적이어야 한다.** meta 를 문서별로 캐시해 기다리지 않고 바로 그리고, 뒤에서 최신 meta 를 받아 빌드가 바뀌었으면 쪽만 바꾼다. PDF.js 문서 객체는 `문서|빌드` 로 최근 3개만 들고 있다(넘치면 오래 안 쓴 것부터 닫는다 — 워커 메모리). 실측(1440×900, 43·111쪽 원고): 캐시 없는 첫 전환 63ms, 되돌아오기 67ms(PDF 를 다시 받지 않음), 그 뒤 보이는 쪽만 벡터로 다시 그린다.
-- **문서마다 보던 자리·확대를 기억한다**(위쪽 기준 쪽·비율, 쪽 폭, compact 의 손 확대 여부, 가로 스크롤). 같은 레이아웃에서 본 폭만 되살린다 — 접은 화면에서 맞춘 폭이 데스크톱에 가지 않게. 새로고침에도 남게 `sessionStorage` 에 둔다.
-- **주소**: `#doc=<키>`(링크 공유·새로고침). 처음 볼 문서는 해시 → 이 기기의 마지막 문서(localStorage) → 첫 문서.
-- **키보드**: Ctrl+PgUp/PgDn(이전·다음), Alt+1…9(e.code — 맥의 Option+숫자는 다른 글자를 낸다). 문서 선택기는 기본 키보드 조작을 쓴다. 입력 칸에서는 전역 단축키가 동작하지 않는다.
-- **사이드바**: 기본은 지금 문서의 핀. '모든 문서' 토글이면 전부 보이고 카드에 문서 칩이 붙는다. 다른 문서 카드의 `#번호`·[보기]·[수정]은 그 문서로 바꾼 뒤 그 자리로 간다(`jumpPin`·`openEdit` 이 맨 앞에서 `viaDoc`). 마크·겹침 배너·편집은 지금 문서의 핀(`PINS`)만 본다 — 쪽 좌표는 그 문서의 PDF 에서만 뜻이 있다.
-- **빌드**: [PDF 재빌드]는 지금 문서만, 보기 전용이면 숨긴다. 다른 문서가 낡거나·빌드 중이면 선택기에 표시하고, 뒤에서 빌드가 끝나면 알림에 [열기]를 붙인다(`build_seq` 를 문서별로 센다).
-- **변경사항**: 선택한 메인 `.tex`가 있는 폴더 아래의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일에 손댄 최근 Git 커밋 12개를 보여 준다. 빌드 루트가 같은 문서라도 메인 파일 폴더가 다르면 이력이 섞이지 않는다. 첫 화면은 가장 최근 커밋의 실제 patch다. 커밋과 파일을 고를 수 있다. API는 현재 목록에 나온 40자리 커밋 ID만 받고 diff는 256 KiB에서 자른다. 별도 작업 트리의 미커밋 수정, 보기 전용 PDF의 바이너리 변경은 표시하지 않는다.
-- 전환하면 쓰던 선택·위치 다시 잡기는 거둔다(메모 글은 남긴다). 저장 안 한 편집은 닫지 않고 그 카드를 목록에 남긴다.
+- **Switching must feel instant.** Meta is cached per document, so it draws immediately with no wait, then fetches the latest meta in the background and swaps just the pages if the build changed. PDF.js document objects are kept for the most recent 3 `document|build` pairs (the least-recently-used one closes once that's exceeded — worker memory). Measured (1440×900, 43- and 111-page manuscripts): first switch with no cache 63ms, returning 67ms (the PDF isn't refetched), and only the visible pages are redrawn as vectors afterward.
+- **Per-document viewing spot and zoom are remembered** (top-anchored page and ratio, page width, compact's hand-zoom state, horizontal scroll). Only the width seen under the same layout is restored — a width fitted on a collapsed screen never leaks to desktop. Kept in `sessionStorage` to survive a refresh.
+- **Address**: `#doc=<key>` (for sharing links, refreshing). The first document shown follows: the hash → this device's last document (localStorage) → the first document.
+- **Keyboard**: Ctrl+PgUp/PgDn (previous·next), Alt+1…9 (`e.code` — Option+number on Mac produces a different character). The document picker uses standard keyboard operation. Global shortcuts don't fire while an input field has focus.
+- **Sidebar**: defaults to the current document's pins. The "all documents" toggle shows everything, with a document chip on each card. A different document's card `#number`·[보기]·[수정] switches to that document first, then jumps there (`jumpPin`·`openEdit` route through `viaDoc` up front). Marks, the overlap banner, and editing only ever look at the current document's pins (`PINS`) — page coordinates only mean something within that document's PDF.
+- **Build**: [PDF rebuild] only covers the current document, and is hidden for view-only. If another document is stale or building, the picker shows it, and a notification with an [Open] button appears once a background build finishes (`build_seq` counted per document).
+- **Changes**: shows the last 12 Git commits that touched `.tex`·`.bib`·`.sty`·`.cls`·`.bst` files under the selected main `.tex`'s folder. Documents sharing a build root but with different main-file folders never mix histories. The first screen is the actual patch of the most recent commit. Both commit and file are selectable. The API only accepts a 40-character commit id from the current list, and the diff is cut at 256 KiB. Uncommitted changes in a separate work tree, and binary changes to a view-only PDF, are never shown.
+- Switching documents drops any pending selection/relocation (keeping any note text you typed). An unsaved edit isn't closed — that card stays in the list.
 
-## 벡터 렌더링
+## Vector rendering
 
-저자 질문(2026-09-23): "PDF 빌드한 화면이 흐릿한 거는 어쩔 수 없는 거냐? 글자가 벡터로 살아있지는 않던데." 그전에는 쪽을 `pdftoppm -r 150` PNG 로 그려 `<img>` 로 보였다. A4 한 쪽이 1241×1754px 이라, 데스크톱 폭 맞춤(954 CSS px)·DPR 2 에서 이미 화면 픽셀의 0.65배였고 확대할수록 더 흐려졌다(4배에서 0.16배). 지금은 뷰어가 같은 빌드의 PDF 를 PDF.js 로 캔버스에 직접 그린다. 서버 API·핀 형식은 그대로이고, 경로 두 개(`GET /pdf`·`GET /vendor/pdfjs/…`, [api.md](api.md))만 덧붙였다.
+Author's question (2026-09-23): "is the blur when the PDF renders just unavoidable? the text doesn't seem to still be vector." Before this, pages were drawn as `pdftoppm -r 150` PNGs, shown via `<img>`. An A4 page is 1241×1754px, so at the desktop fit-width (954 CSS px) and DPR 2, it was already at 0.65× screen pixels, getting blurrier with more zoom (0.16× at 4×). Now the viewer draws the same build's PDF directly onto a canvas via PDF.js. The server API and pin format are unchanged — only two extra routes (`GET /pdf`·`GET /vendor/pdfjs/…`, [api.md](api.md)).
 
-| 항목 | 규칙 |
+| Item | Rule |
 | --- | --- |
-| 라이브러리 | `pdfjs-dist` 6.3.289 `legacy` 빌드를 `vendor/pdfjs/` 에 담는다(외부 CDN 없음). 출처·sha256·뺀 파일의 근거는 [`vendor/pdfjs/README.md`](../vendor/pdfjs/README.md) |
-| 문서 | `GET /pdf?build=<META.pages_build>` — 쪽 이미지와 같은 빌드의 PDF. 쪽 수가 화면과 다르면 쓰지 않는다 |
-| 백킹 크기 | 쪽 CSS 크기 × `devicePixelRatio` × (브라우저 핀치 배율, 1 이상). 앱 확대는 쪽 CSS 폭(`W`)에 이미 들어 있다 |
-| 가로·세로 | 따로 맞춘다(렌더 `transform` 의 세로 배율). 쪽 상자 비율은 PNG 픽셀 수에서 왔고 PDF 쪽 비율과 0.1% 안쪽으로 다르다. PNG 도 쪽을 그 상자에 꽉 채워 그렸으므로, 이렇게 해야 글자가 PNG 때와 같은 % 자리에 온다 |
-| 가시 영역 | `IntersectionObserver`(root `#left`, 위아래 150%) 안의 쪽만 그린다. 밖으로 나간 쪽의 캔버스는 크기를 0 으로 줄여 떼어 낸다(사파리도 메모리를 바로 돌려준다) |
-| 순서 | 화면 안의 쪽을 가운데에서 가까운 순으로, 한 번에 한 장. 쪽 캔버스 → 상세 캔버스 순 |
-| 픽셀 상한 | 캔버스 한 장 16,777,216 픽셀(iOS 캔버스 한계, 모바일 메모리). 넘으면 쪽 캔버스를 상한까지 낮추고, 화면에 보이는 부분(+화면 크기의 25% 여유)만 원래 해상도로 그린 **상세 캔버스**(`.dt`)를 쪽 안 % 좌표로 겹친다. 스크롤해 상세 영역을 벗어나면 다시 그린다 |
-| 다시 그리기 | 확대·창 크기·DPR 이 바뀌면 그리던 것을 취소하고 150ms 뒤 다시 그린다. 그동안에는 옛 캔버스가 CSS 로 늘어나 보인다(깜빡임 없음). 끝나면 새 캔버스로 바꿔 끼운다 |
-| 재빌드 | 캔버스를 걷어 새 PNG 를 먼저 보이고(옛 PDF 그림이 새 좌표 위에 남지 않게), 새 빌드의 PDF 를 열어 다시 그린다. 옛 문서는 `loadingTask.destroy()` 로 닫는다 |
-| 폴백 | pdf.js 를 못 불러오거나(`vendor` 404·네트워크), PDF 를 못 열거나, 쪽 수가 다르거나, 그리다 실패하면 캔버스를 모두 걷는다. 밑에 늘 있는 PNG `<img>` 가 그대로 보이고, 상태 칩 'PNG 보기'(`#vec-chip`)가 사유를 설명에 싣는다. 서버의 `pdftoppm` 렌더는 그대로 둔다(첫 화면·폴백) |
-| 텍스트 레이어 | 넣지 않는다. 드래그가 글자 선택이 아니라 영역 선택이라, 글자 선택 레이어가 있으면 끌기와 다툰다. 복사는 원문 스니펫(작성 패널)으로 한다 |
+| Library | The `pdfjs-dist` 6.3.289 `legacy` build lives in `vendor/pdfjs/` (no external CDN). Provenance, sha256, and what was excluded are documented in [`vendor/pdfjs/README.md`](../src/limn/vendor/pdfjs/README.md) |
+| Document | `GET /pdf?build=<META.pages_build>` — the PDF for the same build as the page images. If the page count differs from what's on screen, it's not used |
+| Backing size | Page CSS size × `devicePixelRatio` × (browser pinch factor, minimum 1). The app's own zoom is already baked into the page CSS width (`W`) |
+| Width and height | Fitted separately (the render `transform`'s vertical scale). The page box's aspect ratio comes from the PNG pixel dimensions and differs from the PDF page's own ratio by under 0.1% — since the PNG also filled that box exactly, this keeps text landing at the same % position it did under PNG |
+| Visible area | Only pages inside an `IntersectionObserver` (root `#left`, ±150%) are drawn. A page's canvas that scrolls out is shrunk to zero size and detached (Safari reclaims the memory immediately too) |
+| Order | Visible pages nearest the center first, one at a time. Page canvas → detail canvas, in that order |
+| Pixel cap | 16,777,216 pixels per canvas (the iOS canvas limit, and mobile memory). Above that, the page canvas is scaled down to the cap, and only the visible portion (+25% of screen size as margin) is drawn at full resolution into an overlaid **detail canvas** (`.dt`), positioned with page-relative % coordinates. Scrolling past the detail area redraws it |
+| Redraw | A zoom, window-resize, or DPR change cancels any in-progress draw and redraws 150ms later. The old canvas stretches via CSS in the meantime (no flicker). Once done, the new canvas is swapped in |
+| Rebuild | Canvases are torn down and the new PNG shown first (so the old PDF drawing never lingers over new coordinates), then the new build's PDF is opened and redrawn. The old document is closed via `loadingTask.destroy()` |
+| Fallback | If pdf.js fails to load (a `vendor` 404, network), the PDF fails to open, the page count differs, or drawing fails, every canvas is torn down. The PNG `<img>` that's always underneath shows through, and a status chip ("PNG view", `#vec-chip`) explains why in its tooltip. The server's `pdftoppm` render is kept regardless (first paint, fallback) |
+| Text layer | Not added. Dragging selects a region, not text, and a text-selection layer would fight with that. Copying uses the source snippet (composer panel) instead |
 
-좌표 체계는 바뀌지 않는다. 캔버스는 `pointer-events:none` 이라 드래그·길게 누르기는 예전처럼 쪽 상자(`.pg`)가 받고, `frac` 은 쪽 상자 대비 비율이다. 쪽 상자의 크기·비율은 PNG 때와 같다(`pt_w`·`pt_h` 는 여전히 PNG 에서 온다).
+The coordinate system is unchanged. Canvases are `pointer-events:none`, so drag/long-press are still caught by the page box (`.pg`) as before, and `frac` is a fraction of that page box. The page box's size and ratio are the same as under PNG (`pt_w`·`pt_h` still come from the PNG).
 
-실측(2026-09-23, 헤드리스 크롬, 시험 원고 28쪽, before = PNG 인 `origin/main`):
+Measured (2026-09-23, headless Chrome, a 28-page test manuscript, before = PNG on `origin/main`):
 
-| 항목 | before(PNG) | after(벡터) |
+| Item | Before (PNG) | After (vector) |
 | --- | --- | --- |
-| 데스크톱 1440×900 DPR 2, 백킹 폭 ÷ (CSS 폭 × DPR) — 1× · 2× · 4× | 0.65 · 0.33 · 0.16 | 1.00 · 1.00 · 1.00(2×·4× 는 상세 캔버스. 쪽 캔버스는 상한에 걸려 0.90 · 0.45) |
-| 같은 드래그의 `frac` · 되짚은 줄(1쪽·5쪽, 1×·3×) | — | 차이 0, 줄 범위 같음 |
-| 핀 마크 상자와 `frac` 자리의 차이 | 0.74px | 0.74px(같음) |
-| 글자 위치(같은 영역 스크린샷의 상호상관 최대점) | — | 1×·2× 0.5 CSS px, 4× 1 CSS px(PNG 한 픽셀 안) |
-| 첫 PNG · PDF 열림 · 첫 캔버스(탐색 시작부터) | 87ms · — · — | 87ms · 190ms · 310ms |
-| 28쪽 끝까지 스크롤할 때 동시에 있는 캔버스 | — | 데스크톱 최대 4장(18.2M 픽셀), 접은 폴드 최대 8장(10.5M 픽셀) |
-| 확대(1×→2× 등) 뒤 다시 그리기 끝(150ms 디바운스 포함) | — | 약 0.4초. 쪽 한 장 10–60ms(첫 쪽은 글꼴을 읽어 약 120ms) |
+| Desktop 1440×900 DPR 2, backing width ÷ (CSS width × DPR) — 1×·2×·4× | 0.65 · 0.33 · 0.16 | 1.00 · 1.00 · 1.00 (2×·4× via the detail canvas; the page canvas hits the cap at 0.90 · 0.45) |
+| `frac` of the same drag · reverse-mapped line (page 1, page 5, 1×, 3×) | — | 0 difference, same line range |
+| Difference between the pin mark box and `frac`'s position | 0.74px | 0.74px (unchanged) |
+| Text position (peak cross-correlation of the same-region screenshot) | — | 1×·2× 0.5 CSS px, 4× 1 CSS px (within a single PNG pixel) |
+| First PNG · PDF opened · first canvas (from navigation start) | 87ms · — · — | 87ms · 190ms · 310ms |
+| Simultaneous canvases while scrolling through all 28 pages | — | Desktop up to 4 (18.2M pixels), collapsed fold up to 8 (10.5M pixels) |
+| Redraw finished after a zoom step (1×→2× etc., including the 150ms debounce) | — | ≈0.4s. 10–60ms per page (the first page ≈120ms, loading fonts) |
 
-## PDF 영역 전용 확대
+## PDF-area-only zoom
 
-저자 질문(2026-09-23): "브라우저 확대 축소(pdf) 시 사이드바까지 같이 움직이는데, 이것도 기술적으로 어쩔 수 없는 건가?" 확대 입력을 가로채지 않으면 브라우저 페이지 확대가 되어 사이드바·도구 줄까지 커진다. 지금은 PDF 영역의 확대 입력을 가로채 쪽 폭(`W`)만 바꾼다.
+Author's question (2026-09-23): "when zooming the PDF with the browser's own zoom, the sidebar zooms with it — is that also just unavoidable?" Without intercepting zoom input, browser page zoom kicks in and enlarges the sidebar and toolbar too. Now zoom input over the PDF area is intercepted and only changes the page width (`W`).
 
-| 입력 | 처리 |
+| Input | Handling |
 | --- | --- |
-| Ctrl(⌘)+휠(`#left` 위) | `wheel` 을 `passive:false` 로 받아 `preventDefault`. 마우스 휠 한 칸(\|dy\|≥50 또는 줄 단위)은 버튼 한 번과 같은 1.2배, 트랙패드 핀치(크롬·파이어폭스는 ctrlKey 가 붙은 잘게 나뉜 wheel)는 `exp(−dy/100)`(크롬이 핀치 배율을 휠로 바꾸는 식의 역, 한 이벤트 ±18 로 자름). 한 프레임에 모아 한 번 적용한다 |
-| 사파리 트랙패드 핀치 | `gesturestart`/`gesturechange` 의 `e.scale`(시작 폭 × scale) |
-| Ctrl(⌘) + `=`·`+` / `−` / `0` | 확대 / 축소 / 폭 맞춤. 입력 칸에 포커스가 있으면 가로채지 않는다 |
-| 두 손가락(터치) | `#left` 에 `touch-action: pan-x pan-y` — 브라우저 핀치·두 번 탭 확대를 막고 스크롤만 넘긴다. `touchstart`/`touchmove`(`passive:false`)에서 두 손가락 거리 비율로 `W` 를 바꾸고, 두 손가락 가운데 점 밑의 자리가 손가락을 따라가게 스크롤한다. 선택 모드의 쪽은 `touch-action:none`(한 손가락 = 선택, 두 손가락 = 같은 앱 확대). 두 번째 손가락이 닿으면 그리던 선택 상자와 길게 누르기를 버린다 |
-| 버튼 [＋]·[−]·[↔ 폭 맞춤] | 같은 1.2배 단계와 폭 맞춤(PDF 영역 가운데 기준) |
+| Ctrl(⌘)+wheel (over `#left`) | `wheel` is received `passive:false` and `preventDefault`ed. One mouse-wheel notch (\|dy\|≥50, or a line unit) equals a 1.2× step, the same as one button press; a trackpad pinch (Chrome/Firefox send finely-grained wheel events with `ctrlKey` set) uses `exp(−dy/100)` (the inverse of how Chrome turns a pinch factor into wheel deltas, clamped to ±18 per event). Batched into one apply per frame |
+| Safari trackpad pinch | `gesturestart`/`gesturechange`'s `e.scale` (start width × scale) |
+| Ctrl(⌘) + `=`·`+` / `−` / `0` | Zoom in / out / fit width. Never intercepted while an input field has focus |
+| Two fingers (touch) | `touch-action: pan-x pan-y` on `#left` — blocks the browser's own pinch and double-tap zoom, letting only scroll through. `touchstart`/`touchmove` (`passive:false`) change `W` by the ratio of the two-finger distance, scrolling so the point under the fingers' midpoint tracks them. In selection mode, the page gets `touch-action:none` (one finger = select, two fingers = the same app zoom). A second finger landing discards any in-progress selection box or long-press |
+| Buttons [＋]·[−]·[↔ fit width] | The same 1.2× step and fit-width (centered on the PDF area) |
 
-- 확대는 **기준점을 지킨다**. 포인터(키보드·버튼은 PDF 영역 가운데) 밑의 쪽과 그 쪽 안 비율을 잡아 두고, 폭을 바꾼 뒤 그 비율 자리가 같은 화면 좌표에 오게 `#left` 를 스크롤한다. 폭 맞춤은 보던 쪽의 위쪽 자리를 지키고 가로 스크롤을 처음으로 되돌린다.
-- 한계는 폭 맞춤 폭의 0.5–5배(최소 160px)다. 예전 절대 상한 2200px 는 없앴다. 쪽이 넘치면 `#left` 안에서만 가로로 스크롤되고 `body` 는 넘치지 않는다.
-- 사이드바·시트·도구 줄은 `#left` 밖이라 영향이 없다. 패널 위의 Ctrl+휠은 가로채지 않는다(PDF 영역이 아니다).
-- 뷰포트 메타는 그대로다(`maximum-scale`·`user-scalable=no` 를 넣지 않는다). 패널 쪽 핀치는 여전히 브라우저 확대라 접근성 확대를 빼앗지 않는다.
+- Zoom **preserves its anchor point**. The page and in-page ratio under the pointer (keyboard/buttons anchor to the PDF area's center) are captured, the width is changed, and `#left` is scrolled so that same ratio lands at the same screen position afterward. Fit-width preserves the top of the page you were viewing and resets horizontal scroll.
+- The limit is 0.5–5× the fit-width width (minimum 160px). The old hard cap of 2200px is gone. An overflowing page only scrolls horizontally within `#left`; `body` never overflows.
+- The sidebar, sheet, and toolbar are outside `#left`, so they're unaffected. Ctrl+wheel over the panel is never intercepted (it's not the PDF area).
+- The viewport meta is unchanged (no `maximum-scale`·`user-scalable=no`) — pinching over the panel is still browser zoom, so accessibility zoom is never taken away.
 
-실측(2026-09-23, 헤드리스 크롬):
+Measured (2026-09-23, headless Chrome):
 
-| 항목 | 결과 |
+| Item | Result |
 | --- | --- |
-| 데스크톱 Ctrl+휠 위로 3칸 · 아래 1칸 · Ctrl+= · Ctrl+− · Ctrl+0 | 쪽 폭 900 → 1555 → 1296 → 1555 → 1296 → 956. `visualViewport.scale` 1, 사이드바 430px·도구 줄 높이 그대로. 모든 wheel·keydown 이 `defaultPrevented` |
-| 휠 기준점 | 포인터 밑 쪽 안 비율 차이 0.0004 이하(≈0.5px) |
-| 트랙패드 핀치 흉내(ctrl wheel dy −6 × 20) | 1.82배, 기준점 차이 3px 안쪽 |
-| 5× | 쪽 폭 4780px, `#left` 만 가로 스크롤, 문서 폭은 창 폭 그대로 |
-| 패널 위 Ctrl+휠 · 입력 칸 안 Ctrl+= | 가로채지 않음(`defaultPrevented` false) |
-| 펼친 폴드 880×790 DPR 2.5 · 접은 폴드 412×915 DPR 2.6, 두 손가락 CDP 터치(거리 80→272px) | before: `visualViewport.scale` 5(화면 전체가 커짐), after: scale 1, 쪽 폭 3.4배, 패널·시트·도구 줄 상자 그대로. 선택 모드에서도 같다 |
+| Desktop Ctrl+wheel up 3 notches · down 1 · Ctrl+= · Ctrl+− · Ctrl+0 | Page width 900 → 1555 → 1296 → 1555 → 1296 → 956. `visualViewport.scale` stays 1, sidebar 430px and toolbar height unchanged. Every wheel/keydown was `defaultPrevented` |
+| Wheel anchor point | Difference in in-page ratio under the pointer ≤0.0004 (≈0.5px) |
+| Simulated trackpad pinch (ctrl wheel dy −6 × 20) | 1.82×, anchor difference within 3px |
+| 5× | Page width 4780px, only `#left` scrolls horizontally, document width unchanged from window width |
+| Ctrl+wheel over the panel · Ctrl+= inside an input field | Never intercepted (`defaultPrevented` false) |
+| Unfolded fold 880×790 DPR 2.5 · collapsed fold 412×915 DPR 2.6, two-finger CDP touch (distance 80→272px) | Before: `visualViewport.scale` 5 (the whole screen enlarges); after: scale 1, page width 3.4×, panel/sheet/toolbar boxes unchanged. Same in selection mode |
 
-## 알려진 제약
+## Known limitations
 
-- **화면의 PDF 가 원고보다 낡으면 좌표와 원문이 어긋난다.** 에이전트가 원고를 고치고 아직 재빌드하지 않은
-  동안이 그렇다. 텍스트 경로는 그래도 비슷한 문단을 찾아 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서
-  노멘클래처를 골랐는데 서론의 기여 목록이 `0.32` 로 경고 없이 돌아왔다. 그래서 서버가 원고 `.tex` 의 수정
-  시각과 PDF 시각을 비교해 `meta.stale_build` 로 알리고, `pick` 의 `warn` 에도 점수와 무관하게 이 사실을
-  앞세운다. 화면 위쪽에는 "원고가 더 새롭습니다" 배지가 뜬다. 이 상태에서 찍은 핀은 줄 범위를 확인해야 한다.
-- SyncTeX 좌표 조회가 선택 영역 바로 바깥의 float를 잘못 물 수 있어(가장 가까운 노드 기준), 밀집 클러스터링 + 범위 사다리로 보정한다. 완전히 안전하지는 않다 — 결과의 `kind`가 `float`·`env:*`인데 사용자가 기대한 대상과 다르면 `raw_lo`/`raw_hi`(보정 전 원시 범위)를 참고해 재시도.
-- 원고를 고친 뒤 PDF 를 재빌드하지 않으면, 화면(옛 PDF)과 원문 줄 번호가 어긋난 채로 pick 이 된다. 에이전트가 원고를 고쳤으면 먼저 PDF 재빌드.
-- 여러 `.tex` 파일이 `\input`/`\include`로 쪼개져 있으면 SyncTeX이 빌드 사본 안의 개별 파일 경로를 반환한다 — 서버가 이를 `<manuscript_dir>` 기준 원본 경로로 되돌린다(§아키텍처 개요). 이 매핑이 깨지면(예: 빌드 사본과 원본의 디렉토리 구조가 다르면) 경로가 어긋난다.
-- 앵커 재동기화는 **머리 줄이 원문에 남아 있을 때만** 작동한다. 그 문장 자체를 갈아엎으면
-  `stale` 로 떨어진다 — 자동 복구가 아니라 표시가 목적이다. 빈 줄만 고른 핀은 앵커가 없어 따라가지 않는다.
-- 같은 문장이 원고에 여러 번 나오면 원래 줄 번호에 가장 가까운 것을 고른다. 반복 구조가 많은
-  원고에서는 틀릴 수 있다.
-- 참고문헌 영역을 고르면 SyncTeX 이 `.bbl`(생성 파일)을 가리킨다. 서버가 이를 감지해 편집하지
-  말라고 안내하고 선택을 거부한다.
-- 렌더 텍스트 경로는 `pdftotext` 가 글자를 뽑을 수 있어야 한다. 그림 안에 래스터로 박힌 글자는
-  잡히지 않으므로 그 영역은 SyncTeX 경로에만 의존한다.
-- 다른 사람(에이전트)이 바꾼 핀은 가벼운 polling(5초, [build-sync.md](build-sync.md) §자동 동기화)으로 몇 초 안에 저절로 반영된다.
-- `claim` 은 잠금이 아니라 TTL 있는 표시다 — 다른 사람이 유효한 claim 을 쥔 핀을 닫거나 강제로 다시 claim 하는 것을 서버가 막지 않는다. 협업은 SKILL.md 핀 처리 절차의 관례(고치기 직전에 그 핀만 claim·`처리 중(…)` 건너뛰기)에 기댄다.
-- `--git-pull` 은 `--ff-only` 만 한다 — 서버 체크아웃에 로컬 커밋이 있어 분기했으면 pull 을 건너뛰고(`skipped:diverged`) 지금 체크아웃으로 빌드한다. 리베이스·머지 커밋을 대신 만들지 않는다.
-- 허용 Host 집합은 하드코딩이다 — [operations.md](operations.md) §설계 초안과의 차이.
-- 벡터 렌더링·PDF 영역 전용 확대도 헤드리스 크롬(Playwright)으로만 쟀다. 사파리의 `gesturechange` 경로와 실기기 핀치(가속·관성), 실제 GPU 의 렌더 시간은 재지 못했다.
-- 입력 칸에 포커스가 있을 때의 Ctrl/⌘ + `=`·`−`·`0`, 패널 위의 Ctrl+휠·핀치는 가로채지 않는다(브라우저 확대가 된다). 입력 칸의 브라우저 단축키를 빼앗지 않고, 사이드바는 PDF 영역이 아니기 때문이다. 이미 브라우저로 확대해 둔 페이지는 입력 칸 밖에서 Ctrl+0 으로 되돌릴 수 없다(PDF 폭 맞춤이 된다) — 브라우저 메뉴나 입력 칸 안에서 되돌린다.
-- `GET /pdf` 는 `Range` 를 받지 않아 PDF 를 통째로 받은 뒤 연다(시험 원고 5.5 MB, PNG 28장 합계보다 작다). 아주 큰 원고에서는 첫 캔버스가 늦을 수 있다 — 그동안은 PNG 가 보인다.
-- 모바일 레이아웃과 패널 폭·시트 높이 손잡이는 헤드리스 크롬 에뮬레이션(Playwright, `isMobile`·`hasTouch`, 끌기는 CDP 터치 이벤트)으로만 쟀다. 실기기의 가상 키보드는 visualViewport 높이를 줄이는 흉내로, 핀치 확대는 두 손가락 CDP 터치로 대신했다. 실제 갤럭시 Z 폴드 7 에서 한 번 더 봐야 한다.
-- 빠른 선택의 상자는 작아서 저장된 핀의 마크도 작은 상자로 그려진다(문단 전체를 칠하지 않는다) — 서버가 문단의 PDF 좌표를 돌려주지 않기 때문이다.
-- `mid` 는 터치 화면에만 쓴다. 마우스로 1100px 보다 좁은 창을 쓰면 700px 까지는 예전 사이드바 그대로다.
-- 여러 문서의 탭 전환은 헤드리스 크롬(1440×900·880×790·412×915 터치 에뮬레이션)으로만 쟀다. Ctrl+PgUp/PgDn 은 실제 크롬에서 브라우저 탭 전환이 먼저 가져갈 수 있다(헤드리스에서는 페이지가 받았다).
-- 보기 전용 PDF 의 핀은 줄 맞춤(앵커)이 없다. PDF 가 바뀌면 영역 좌표가 그대로 남아 점선(추정)으로만 알린다 — 어디로 옮겨졌는지는 찾지 않는다.
-- 여러 문서의 `src_mtime` 은 문서마다 빌드 루트 전체를 2초 캐시로 훑는다. 빌드 루트가 크면(예: `manuscript/` 에 1차 원고 PDF·그림이 같이 있음) 그 안의 빌드와 무관한 PDF 가 바뀌어도 그 문서가 '원고 수정됨' 으로 보일 수 있다 — 빌드 루트를 좁게 잡는 편이 낫다.
+- **If the on-screen PDF is older than the manuscript, coordinates and source text disagree.** This happens while an agent has edited the manuscript but hasn't rebuilt yet. The text path still tends to find a similar-enough paragraph and narrowly clears the warning threshold (0.3) — measured once, picking a nomenclature table returned the introduction's contribution list at `0.32` with no warning. So the server compares the manuscript `.tex`'s modified time against the PDF's build time and reports it via `meta.stale_build`, and `pick`'s `warn` leads with this fact regardless of score. A "manuscript is newer" badge appears at the top of the screen. A pin picked in this state should have its line range double-checked.
+- A SyncTeX coordinate lookup can grab a float just outside the selected region (nearest-node matching), corrected with dense clustering + the scope ladder. Not fully safe — if the result's `kind` is `float`·`env:*` but differs from what the user expected, check `raw_lo`/`raw_hi` (the range before correction) and retry.
+- If the manuscript is edited and the PDF isn't rebuilt, pick still runs against the mismatched on-screen (old) PDF and source line numbers. Rebuild the PDF first whenever an agent has edited the manuscript.
+- With several `.tex` files split via `\input`/`\include`, SyncTeX returns the individual file path inside the build copy — the server maps it back to the original path relative to `<manuscript_dir>` (§Architecture overview). If that mapping breaks (e.g. the build copy's directory structure differs from the original), the path is wrong.
+- Anchor resync only works **while the head line still exists in the source**. Rewriting that sentence entirely drops it to `stale` — this is a signal, not automatic recovery. A pin picked on blank lines only has no anchor and is never resynced.
+- If the same sentence appears more than once in the manuscript, the closest one to the original line number is chosen. This can be wrong in a manuscript with a lot of repeated structure.
+- Picking a bibliography region has SyncTeX point at the generated `.bbl` file. The server detects this, advises against editing it, and refuses the selection.
+- The render text path needs `pdftotext` to be able to extract characters. Text baked as a raster inside a figure is never picked up, so that area relies on the SyncTeX path alone.
+- A pin changed by someone else (an agent) is picked up automatically within a few seconds by lightweight polling (5 seconds, [build-sync.md](build-sync.md) §Auto-sync).
+- `claim` is a TTL-bound marker, not a lock — the server never stops someone else from closing a pin with a valid claim, or force-reclaiming it. Collaboration relies on the convention in SKILL.md's pin-processing procedure (claim only the pin you're about to fix, right before you fix it, and skip anything showing `처리 중(…)`).
+- `--git-pull` only ever does `--ff-only` — if the server checkout has local commits and has diverged, the pull is skipped (`skipped:diverged`) and it builds against the current checkout. It never creates a rebase or merge commit as a substitute.
+- The allowed Host set is hardcoded — see [operations.md](operations.md) §Differences from the design draft.
+- Vector rendering and PDF-area-only zoom were only measured under headless Chrome (Playwright). Safari's `gesturechange` path, real-device pinch (with acceleration and inertia), and actual GPU render time were never measured.
+- Ctrl/⌘ + `=`·`−`·`0` while an input field has focus, and Ctrl+wheel/pinch over the panel, are never intercepted (browser zoom applies) — so as not to steal an input field's browser shortcuts, and because the sidebar isn't the PDF area. A page already zoomed by the browser can't be reset with Ctrl+0 outside an input field (that resets PDF fit-width instead) — use the browser menu or an input field to reset it.
+- `GET /pdf` doesn't accept `Range`, so the whole PDF is fetched before it opens (5.5MB for the test manuscript, smaller than the sum of all 28 PNGs). On a very large manuscript, the first canvas may be slow to appear — the PNG shows in the meantime.
+- The mobile layout and the panel-width/sheet-height handles were only measured under headless Chrome emulation (Playwright, `isMobile`·`hasTouch`, dragging via CDP touch events). A real device's virtual keyboard was simulated by shrinking the visualViewport height, and pinch-zoom was simulated with two-finger CDP touch. Needs one more pass on an actual Galaxy Z Fold 7.
+- Quick select's box is small, so a saved pin's mark also draws as a small box (it never paints the whole paragraph) — the server doesn't return a paragraph's PDF coordinates.
+- `mid` is only used on touch screens. A mouse window narrower than 1100px still gets the old sidebar all the way down to 700px.
+- Tab switching across multiple documents was only measured under headless Chrome (1440×900·880×790·412×915 touch emulation). Ctrl+PgUp/PgDn can be claimed first by real Chrome's own tab-switching (headless let the page have it).
+- A view-only PDF's pins have no line-resync anchor. If the PDF changes, the region coordinates stay put and are only flagged dotted (an estimate) — where it moved to is never searched for.
+- Multiple documents' `src_mtime` each scan their whole build root with a 2-second cache. A large build root (e.g. `manuscript/` also holding a first-round PDF and figures) can flag a document as "manuscript edited" even when an unrelated PDF inside it changed — keeping the build root narrow avoids this.

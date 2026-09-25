@@ -1,50 +1,50 @@
-# Lucide 아이콘 (vendored)
+# Lucide icons (vendored)
 
-뷰어의 아이콘은 [Lucide](https://github.com/lucide-icons/lucide)에서 가져왔다. 쓰는 아이콘의 SVG 요소만 `scripts/pin_server.py` 의 `LUCIDE` 사전에 인라인 문자열로 넣었다. 서버가 파일을 따로 주지 않고 외부 CDN 도 쓰지 않는다 — 뷰어는 테일넷 안에서만 돈다. 이 디렉토리에는 라이선스와 출처 기록만 둔다.
+The viewer's icons come from [Lucide](https://github.com/lucide-icons/lucide). Only the SVG elements of the icons in use are inlined as strings in the `LUCIDE` dict of `src/limn/server.py`. The server does not serve icon files and uses no external CDN — the viewer runs inside a private network. This directory holds only the license and provenance record.
 
-| 항목 | 값 |
+| Item | Value |
 | --- | --- |
-| 패키지 | `lucide-static@1.47.0` (npm `latest`, 2026-09-17 배포) |
-| 저장소 | <https://github.com/lucide-icons/lucide> |
-| 받은 방법 | `npm pack lucide-static@1.47.0` → `package/icons/<이름>.svg` 에서 `<svg>` 안의 요소만 옮겨 적었다. 공백만 한 칸으로 줄였고 좌표는 그대로다 |
+| Package | `lucide-static@1.47.0` (npm `latest`, published 2026-09-17) |
+| Repository | <https://github.com/lucide-icons/lucide> |
+| Obtained by | `npm pack lucide-static@1.47.0` → copied the elements inside `<svg>` from `package/icons/<name>.svg`. Whitespace was collapsed to single spaces; coordinates are unchanged |
 | tarball sha256 | `b47744c9f7b385c25fb27d212cf9830947030a57a635f8b11a5473a72ec57cfd` |
-| 라이선스 | ISC. Feather 에서 온 아이콘은 MIT — [`LICENSE`](LICENSE) (패키지의 `LICENSE` 원본 그대로, sha256 `b495047b…29c57`) |
+| License | ISC; icons derived from Feather are MIT — [`LICENSE`](LICENSE) (the package's `LICENSE`, unmodified, sha256 `b495047b…29c57`) |
 
-그릴 때는 원본 `<svg>` 의 속성을 그대로 쓴다: `viewBox="0 0 24 24"`, `fill="none"`, `stroke="currentColor"`, `stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`. 크기는 CSS 로 14–16px 로 줄여 글자색을 따른다.
+Icons are drawn with the original `<svg>` attributes: `viewBox="0 0 24 24"`, `fill="none"`, `stroke="currentColor"`, `stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`. CSS scales them to 14–16px and they follow the text colour.
 
-## 쓰는 아이콘
+## Icons in use
 
-| 이름 | 쓰는 곳 |
+| Name | Used for |
 | --- | --- |
-| `at-sign` | '나를 부름'·'@이름' 배지, [나를 부른 핀 N] |
-| `bell` · `bell-off` | 브라우저 알림 켜짐·꺼짐(데스크톱 도구 줄) |
-| `bot` | 로컬/에이전트 아바타(사람의 머리글자 원과 가른다) |
-| `check` | 닫힌 핀 행의 머리, 문서 목록에서 지금 문서 |
-| `chevron-down` · `chevron-right` | 보관함 구획 머리의 접기·펼치기, 카드 접기(좁은 화면), [문서] 버튼 |
-| `chevron-up` · `chevron-left` | [핀 N] 패널·시트 펴기·접기 방향 |
-| `circle-check` · `circle-x` | 알림(토스트) 앞머리 — 완료·오류. 경고는 `triangle-alert` |
-| `circle-question-mark` | 도움말 버튼, '질문' 배지 |
-| `message-square` | 카드 머리의 답글 수 |
-| `clock` | '처리 중' 배지 |
-| `copy` | 위치 복사 버튼 |
-| `ellipsis` | 더보기 버튼(좁은 화면) |
-| `eye` | '검토 대기' 배지(누가 확인할 차례인지) |
-| `minus` · `plus` | PDF 축소·확대, 범위 한 줄씩 좁히기·넓히기 |
-| `moon` · `sun` · `sun-moon` | 화면 테마(어둡게·밝게·시스템) |
-| `move-vertical` | '줄 +N 이동' 배지 |
-| `move-horizontal` | PDF 폭 맞춤(데스크톱 도구 줄) |
-| `panel-left` | 목차 펴기·접기(문서 탐색 줄) |
-| `pencil` | '수정됨' 배지 |
-| `refresh-cw` | [PDF 재빌드] |
-| `rotate-ccw` | '다시 열림' 배지(검토에서 되돌아온 핀) |
-| `square-dashed` | [선택] 버튼 — 터치에서 끌어 영역 고르기(PDF 위 점선 상자와 같은 모양) |
-| `text-wrap` | 소스 diff 의 [줄바꿈] |
-| `trash-2` | 삭제한 핀 행의 머리 |
-| `triangle-alert` | '위치 잃음' 배지, 경고 알림 앞머리 |
-| `x` | 알림·안내 닫기 |
+| `at-sign` | 'mentions me' and '@name' badges, [pins that mention me N] |
+| `bell` · `bell-off` | browser notifications on/off (desktop toolbar) |
+| `bot` | local/agent avatar (distinct from a person's initial circle) |
+| `check` | closed-pin row head; current document in the document list |
+| `chevron-down` · `chevron-right` | collapse/expand archive sections, card collapse (narrow screens), [Documents] button |
+| `chevron-up` · `chevron-left` | direction of opening/closing the [Pins N] panel and sheet |
+| `circle-check` · `circle-x` | toast lead icon — done/error. Warnings use `triangle-alert` |
+| `circle-question-mark` | help button, 'question' badge |
+| `message-square` | reply count in the card head |
+| `clock` | 'in progress' (claimed) badge |
+| `copy` | copy-location button |
+| `ellipsis` | more button (narrow screens) |
+| `eye` | 'awaiting review' badge (whose turn it is to confirm) |
+| `minus` · `plus` | PDF zoom out/in; shrink/grow a range by one line |
+| `moon` · `sun` · `sun-moon` | theme (dark, light, system) |
+| `move-vertical` | 'lines moved +N' badge |
+| `move-horizontal` | fit PDF width (desktop toolbar) |
+| `panel-left` | open/close the outline (document navigation bar) |
+| `pencil` | 'edited' badge |
+| `refresh-cw` | [Rebuild PDF] |
+| `rotate-ccw` | 'reopened' badge (pin sent back from review) |
+| `square-dashed` | [Select] button — drag to pick a region on touch devices (same shape as the dashed box on the PDF) |
+| `text-wrap` | [Wrap] in the source diff |
+| `trash-2` | deleted-pin row head |
+| `triangle-alert` | 'location lost' badge, warning toast lead icon |
+| `x` | close toasts and notices |
 
-## 갱신
+## Updating
 
-1. `npm pack lucide-static@<새 버전>` 을 받아 위 표의 아이콘 `.svg` 에서 `<svg>` 안의 요소를 `LUCIDE` 에 다시 옮긴다. 이름이 바뀐 아이콘이 있다(예: `alert-triangle` → `triangle-alert`, `help-circle` → `circle-question-mark`). 새 이름을 쓴다.
-2. `LICENSE` 를 새 패키지의 것으로 덮어쓰고 위 표의 버전·sha256 을 고친다.
-3. 아이콘을 더하거나 빼면 `LUCIDE_VERSION`·위 표·`LUCIDE` 를 함께 고친다. 회귀 테스트(`FrontendIcons`)가 셋이 맞는지 본다.
+1. `npm pack lucide-static@<new version>` and copy the elements inside `<svg>` of the icons listed above into `LUCIDE` again. Some icons were renamed (e.g. `alert-triangle` → `triangle-alert`, `help-circle` → `circle-question-mark`); use the new names.
+2. Replace `LICENSE` with the new package's and update the version and sha256 above.
+3. When adding or removing icons, update `LUCIDE_VERSION`, the table above and `LUCIDE` together. The regression tests (`FrontendIcons`) check that the three agree.

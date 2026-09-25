@@ -1,17 +1,19 @@
-# 운영 — 실행·보안·배포·뷰어
+English | [한국어](operations.ko.md)
 
-서버를 띄우고 노출하고 상시로 돌릴 때 연다. 실행 인자 전체, 포트 회피, 보안 제약, systemd, `tailscale serve`, 상태 파일, 사용자용 뷰어 사용법을 다룬다.
+# Operations — running, security, deployment, and the viewer
 
-## 요구 환경
+Open this when standing up the server, exposing it, or running it persistently. Covers the full set of command-line arguments, port avoidance, security constraints, systemd, `tailscale serve`, state files, and how to use the viewer as a user.
 
-Python 3.10 이상 표준 라이브러리만 쓴다(외부 패키지·CDN·빌드 단계 없음. 뷰어의 벡터 렌더러 PDF.js 는 `vendor/pdfjs/` 에 담아 서버가 직접 준다) — 가상환경 없이 시스템 Python 3.10 으로도 돈다. 외부 도구는 `latexmk`, `synctex`, `pdftoppm`, `pdftotext`, (있으면) `rsync`.
+## Requirements
 
-회귀 테스트는 포트를 열지 않고(socketpair) 돈다: `uv run python3 -m unittest discover -s tests` (이 스킬 디렉토리에서).
+Python 3.10+, standard library only (no external packages, CDN, or build step — the viewer's vector renderer, PDF.js, ships inside the package at `src/limn/vendor/pdfjs/` and is served by default). Runs fine on a system Python 3.10 with no virtual environment. External tools: `latexmk`, `synctex`, `pdftoppm`, `pdftotext`, and `rsync` if available.
 
-## 실행 인자
+The regression tests never open a port (they use socketpair): `uv run python3 -m unittest discover -s tests` (from the repository root).
+
+## Command-line arguments
 
 ```bash
-uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
+limn serve \
   --manuscript <manuscript_dir> \
   [--main <main-file>.tex] \
   [--port <port>] \
@@ -24,43 +26,45 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   [--no-origin-check] \
   [--git-pull] \
   [--pdfjs-dir <dir>] \
-  [--label <이름표>] \
+  [--label <label>] \
   [--accent <#rrggbb>] \
-  [--doc <키>=<표시 이름>:<경로> ...]
+  [--doc <key>=<display name>:<path> ...] \
+  [--version]
 ```
 
-| 인자 | 필수 | 기본값 | 설명 |
+| Argument | Required | Default | Description |
 | --- | --- | --- | --- |
-| `--manuscript` | 예 | — | LaTeX 소스 루트 디렉토리(`<manuscript_dir>`). 프로젝트마다 다르므로 하드코딩 금지. 핀이 가리킬 수 있는 파일은 이 트리 안으로 제한된다 |
-| `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략 시 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 0개 또는 2개 이상이면 후보 목록을 출력하고 종료(에러) — 추측하지 않는다. `--doc` 과 함께 쓰면 기동 실패 |
-| `--doc` | 아니오 | (없음 = 단일 문서) | 뷰어에서 선택할 문서. 여러 번 준다. 첫 문서가 기본이다. 형식·규칙은 §여러 문서 |
-| `--port` | 아니오 | 자동 선택 | 미지정 시 §포트 충돌 회피에 따라 빈 포트를 탐색해 사용하고, 실제 선택된 포트를 기동 로그에 출력한다 |
-| `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/manuscript-pin-picker/<slug>` | `<slug>`는 `--manuscript`의 절대경로를 정규화·해시한 값. 같은 머신에서 원고 A·B를 동시에 열어도 상태가 섞이지 않게 하기 위함(멀티 원고·멀티 worktree 안전) |
-| `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도. 뷰어는 PDF 를 벡터로 그리므로(§뷰어 사용법) PNG 는 첫 화면과 폴백에만 쓴다 |
-| `--float-envs` | 아니오 | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | 기본 범위 단계를 '환경'으로 둘 `\begin{...}` 이름 목록(사다리 자체는 모든 환경을 본다, [design.md](design.md) §범위 사다리) |
-| `--build-timeout` | 아니오 | `900` | `latexmk` 빌드 타임아웃(초). 넘으면 프로세스 그룹째 종료하고 `fail` 로 판정 |
-| `--no-build` | 아니오 | (끔) | 기동 시 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도 — PDF·쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
-| `--allow` | 아니오 | (비움 = 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 지정하면 `Tailscale-User-Login` 헤더가 **있는데** 목록 밖이면 `403`. 신원 헤더 없이 루프백 `Host` 로 온 요청(에이전트 `curl`)은 항상 허용. 신원 헤더 없이 `*.ts.net` `Host` 로 온 요청은 `403` — tailscale 은 **태그 장치**(와 funnel)에는 신원 헤더를 붙이지 않으므로, 이를 로컬로 치면 목록을 우회한다. `--allow` 를 비우면 태그 장치 요청도 `로컬/에이전트` 로 기록된다 |
-| `--no-origin-check` | 아니오 | (끔) | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, §Host·Origin 검사)를 끈다. **탈출구 전용** — 실제 `tailscale serve` 가 예상 밖의 `Host`/`Origin`(MagicDNS 짧은 이름, `*.ts.net` 이 아닌 사용자 도메인 등)을 넘겨 UI 요청이 전부 `403` 일 때만 쓴다. 켜면 기동 로그에 경고가 찍힌다 |
-| `--git-pull` | 아니오 | (끔) | 기동 직후와 60초마다 원격 main 을 확인해 fast-forward 하고 새 커밋이면 LaTeX PDF를 다시 만든다. 수동 재빌드도 copy 전에 업스트림을 `--ff-only` pull 한다. 자동 동기화가 더러움·분기·업스트림 없음 등으로 막히면 화면에 사유를 표시한다([build-sync.md](build-sync.md) §`--git-pull`) |
-| `--pdfjs-dir` | 아니오 | 스크립트 옆 `../vendor/pdfjs`, 없으면 `./vendor/pdfjs` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`). 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG 로 보인다(동작은 그대로) |
-| `--label` | 아니오 | `--manuscript` 의 git origin 저장소 이름(40자를 넘으면 잘라 `…`), git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표(직접 줄 때는 40자 이하 — 넘으면 기동 실패, HTML 이스케이프됨). 도구 줄 칩·탭 제목·파비콘·`<state_dir>/pins.md` 머리줄에 쓰인다(§동시 인스턴스) |
-| `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받는다(형식이 아니면 기동 실패). 같은 `--label` 이면 지정하지 않는 한 항상 같은 기본색이 나온다 |
+| `--manuscript` | Yes | — | The LaTeX source root directory (`<manuscript_dir>`). Never hardcode this — it differs per project. A pin can only point at a file inside this tree |
+| `--main` | No | Auto-detected | The top-level `.tex` filename to build. If omitted, looks for a `.tex` file containing `\documentclass` under `--manuscript`. With 0 or 2+ candidates, prints the candidate list and exits with an error — it never guesses. Fails to start if combined with `--doc` |
+| `--doc` | No | (none = single document) | A document selectable in the viewer. Repeatable. The first one is the default. Format and rules are in §Multiple documents |
+| `--port` | No | Auto-selected | If unspecified, finds and uses a free port per §Port conflict avoidance and prints the chosen port to the startup log |
+| `--state-dir` | No | `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>` | `<slug>` is a normalized hash of `--manuscript`'s absolute path — so opening manuscript A and B at once on the same machine never mixes their state (safe for multiple manuscripts/worktrees). A persistent (systemd) instance managed with `limn add` instead defaults to `~/.local/share/limn/<name>` (instances.md) |
+| `--dpi` | No | `150` | Page PNG render resolution. The viewer draws the PDF as a vector (§Using the viewer), so the PNG is only used for the first paint and as a fallback |
+| `--float-envs` | No | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | The list of `\begin{...}` names whose default scope level is "environment" (the ladder itself considers every environment, [design.md](design.md) §Scope ladder) |
+| `--build-timeout` | No | `900` | The `latexmk` build timeout, in seconds. Past it, the whole process group is killed and it's judged `fail` |
+| `--no-build` | No | (off) | Skips the rebuild at startup. Used to bring the server up quickly when output already exists — if there's no PDF or page images yet, it builds regardless of this flag |
+| `--allow` | No | (empty = everyone allowed) | A comma-separated allowlist of tailscale logins. If set, a request **with** a `Tailscale-User-Login` header outside the list gets `403`. A header-less request over a loopback `Host` (an agent's `curl`) is always allowed. A header-less request over a `*.ts.net` `Host` gets `403` — tailscale never attaches identity headers to **tagged devices** (or funnel), and treating those as local would bypass the list. With `--allow` empty, a tagged-device request is also recorded as `local/agent` (`로컬/에이전트`) |
+| `--no-origin-check` | No | (off) | Turns off `Host`/`Origin` checks (DNS-rebinding/CSRF defense, §Host/Origin checks). **An escape hatch only** — use it only when real `tailscale serve` sends an unexpected `Host`/`Origin` (a MagicDNS short name, a custom user domain that isn't `*.ts.net`) and every UI request comes back `403`. Turning it on logs a warning at startup |
+| `--git-pull` | No | (off) | Checks the remote main right after startup and every 60 seconds, fast-forwarding and rebuilding the LaTeX PDF on a new commit. A manual rebuild also pulls upstream `--ff-only` before copying. If auto-sync is blocked by a dirty tree, a divergence, or a missing upstream, the reason is shown on screen ([build-sync.md](build-sync.md) §`--git-pull`) |
+| `--pdfjs-dir` | No | The bundled `src/limn/vendor/pdfjs/` (shipped by default) | Only needed to point the viewer's PDF.js directory (`pdf.min.mjs`·`pdf.worker.min.mjs`) somewhere else. If nothing's found at the given path, a warning is logged at startup and the viewer falls back to PNG (behavior otherwise unchanged) |
+| `--label` | No | `--manuscript`'s git origin repository name (truncated with `…` past 40 characters), or the folder name if it isn't a git repository | A label to tell multiple manuscript viewers apart when several are open at once (40 characters or fewer if set explicitly — longer fails to start; HTML-escaped). Shown on the toolbar chip, tab title, favicon, and `<state_dir>/pins.md`'s header line (§Running multiple manuscript instances at once) |
+| `--accent` | No | A fixed-palette color chosen by hashing the label string | The label's accent color. Only accepts `#rrggbb` format (fails to start otherwise). The same `--label` always gets the same default color unless overridden |
+| `--version` | No | — | Prints the installed version and exits (matches `GET /api/version`) |
 
-**바인딩은 `127.0.0.1` 고정이다 — 이 값을 바꾸는 플래그를 만들지 않는다.** (§보안 제약)
+**The bind address is fixed at `127.0.0.1` — there is no flag to change it.** (§Security constraints)
 
-### 설계 초안과의 차이
+### Differences from the design draft
 
-이 스킬의 설계 초안은 `*.ts.net` 외의 도메인을 개별 허용하는 `--allow-host HOST`(여러 번 가능)와, `Host`/`Origin` 검사를 따로 끄는 `--no-host-check`, 요청 헤더를 로깅하는 `--log-headers` 를 별도로 두는 안이었다. 실제 구현은 그 세 개를 만들지 않고 위 `--allow`(로그인 기반 허용목록)·`--no-origin-check`(Host·Origin 검사를 한 번에 끔) 로 갈음했다 — 허용 호스트 집합 자체(`127.0.0.1`·`localhost`·`::1`·`*.ts.net`)는 하드코딩이고 커스텀 도메인을 추가로 허용할 길이 없다. 커스텀 `--allow-host` 가 필요해지면 별도로 구현해야 한다.
+This tool's design draft called for a separate `--allow-host HOST` (repeatable) to individually allow domains other than `*.ts.net`, a separate `--no-host-check` to turn off Host/Origin checks independently, and a `--log-headers` to log request headers. The actual implementation never built those three, substituting the `--allow` (a login-based allowlist) and `--no-origin-check` (turns off Host/Origin checks together) above — the allowed-Host set itself (`127.0.0.1`·`localhost`·`::1`·`*.ts.net`) is hardcoded, with no way to add a custom domain. A custom `--allow-host` would need to be implemented separately if it's ever needed.
 
-## 여러 문서 (`--doc`)
+## Multiple documents (`--doc`)
 
-논문 저장소 하나에 문서가 여럿이면(본문·답변서·커버레터·하이라이트, 보기 전용 리뷰어 코멘트 PDF) 뷰어 하나·주소 하나로 띄우고 문서를 선택한다. 데스크톱은 PDF 영역 위 선택기, 좁은 모바일 화면은 기존 도구 줄의 문서 버튼을 쓴다. 설계와 근거는 [design.md](design.md) §여러 문서.
+When one paper repository has several documents (body, response letter, cover letter, highlights, a view-only reviewer-comments PDF), they're served from one viewer, one address, with a document switcher. Desktop uses a picker above the PDF area; narrow mobile screens use the existing toolbar's document button. Design and rationale are in [design.md](design.md) §Multiple documents.
 
 ```bash
-# 두 번째 논문 저장소(이름표 DEMO-B)의 실제 문서 목록
-uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
-  --manuscript <저장소 루트> --state-dir <state_dir> --port <port> --git-pull --label DEMO-B \
+# The actual document list for a second paper repository (label DEMO-B)
+limn serve \
+  --manuscript <repository root> --state-dir <state_dir> --port <port> --git-pull --label DEMO-B \
   --doc 'ms=본문:manuscript::2nd/2nd_manuscript_en.tex' \
   --doc 'rr=답변서:submission/review_response/review_response.tex' \
   --doc 'cl=커버레터:submission/cover_letter/cover_letter.tex' \
@@ -68,221 +72,199 @@ uv run python3 .agents/skills/manuscript-pin-picker/scripts/pin_server.py \
   --doc 'sub=제출본 PDF:submission/submission_ready/manuscript.pdf'
 ```
 
-본문은 `\graphicspath{{./images/}{../1st/images/}}` 로 옆 폴더의 그림을 읽으므로 빌드 루트를 `manuscript/` 로 넓히고(`::`) 빌드는 `2nd/` 에서 돈다. 나머지는 `.tex` 가 있는 폴더 하나로 충분하다. 2026-09-23 이 머신의 TeX Live 2025 로 네 LaTeX 문서가 모두 빌드됐다(오류 0) — 본문 43쪽 24초, 답변서 111쪽 44초, 커버레터 1쪽 4초, 제출본 PDF 27쪽 그리기 10초.
+The body reads figures from a sibling folder via `\graphicspath{{./images/}{../1st/images/}}`, so the build root is widened to `manuscript/` (`::`) while the build itself runs in `2nd/`. Every other document just needs the one folder its `.tex` lives in. On 2026-09-23, all four LaTeX documents built cleanly (0 errors) on this machine's TeX Live 2025 — body 43 pages in 24s, response letter 111 pages in 44s, cover letter 1 page in 4s, submission PDF 27 pages rendered in 10s.
 
-| 항목 | 규칙 |
+| Item | Rule |
 | --- | --- |
-| 형식 | `<키>=<표시 이름>:<경로>`. 첫 `=` 앞이 키, 그 뒤 첫 `:` 앞이 이름, 나머지가 경로 |
-| 키 | `[a-z0-9-]{1,24}`, 중복 금지. URL 해시(`#doc=<키>`)·API(`doc=<키>`)·pins.md 소절에 쓰인다. 핀 레코드에 남으므로 **한 번 정한 키는 바꾸지 않는다** |
-| 이름 | 탭·목록·pins.md 소절 머리에 보인다. 40자 이하, `:` 없이 |
-| 경로 | `--manuscript` 기준 상대(권장) 또는 절대. 어느 쪽이든 `--manuscript` 안이어야 한다(밖이면 기동 실패 — 핀이 가리킬 수 있는 파일은 원고 트리 안뿐) |
-| `x/main.tex` | LaTeX 문서. 빌드 루트(사본으로 복사하는 범위) = `x/`, 빌드도 `x/` 에서 |
-| `root::sub/main.tex` | LaTeX 문서. 빌드 루트 = `root/`, 메인 = `root/sub/main.tex`, 빌드는 `root/sub/` 에서. 메인이 `../` 로 빌드 루트 안의 다른 폴더를 읽을 때 쓴다. `::` 는 한 번만, 메인은 빌드 루트 안 |
-| `x/file.pdf` | 보기 전용. 재빌드가 없고, 파일이 바뀌면(3초마다 확인) 쪽을 다시 그린다. 핀은 쪽·영역 |
-| 개수 | 12개까지. Alt+1…9 는 앞의 아홉 개 |
-| `--doc` 없음 | 예전 그대로 `--manuscript`·`--main` 의 문서 하나(키 `main`), 상태 폴더 배치도 그대로(§상태 파일 레이아웃) |
-| 기동 빌드 | 여러 문서면 문서마다 백그라운드로 빌드하고 서버가 바로 뜬다. 한 문서가 실패해도 기동은 계속된다(그 탭이 오류 패널). `--no-build` 는 쪽이 이미 있는 문서만 건너뛴다 |
-| `--git-pull` | 저장소 단위로 한 번. 두 문서를 동시에 재빌드해도 fetch·merge 는 한 번이고 다른 쪽은 그 결과(`pull.shared: true`)를 쓴다 |
+| Format | `<key>=<display name>:<path>`. The key is everything before the first `=`; the name is everything up to the next `:`; the rest is the path |
+| Key | `[a-z0-9-]{1,24}`, no duplicates. Used in the URL hash (`#doc=<key>`), the API (`doc=<key>`), and pins.md section headers. It's stored on pin records, so **a key, once set, never changes** |
+| Name | Shown on the tab, in the picker list, and at the top of a pins.md section. 40 characters or fewer, no `:` |
+| Path | Relative to `--manuscript` (recommended) or absolute. Either way it must be inside `--manuscript` (outside it fails to start — a pin can only point at a file inside the manuscript tree) |
+| `x/main.tex` | A LaTeX document. Build root (the range copied into the build copy) = `x/`, and the build runs there too |
+| `root::sub/main.tex` | A LaTeX document. Build root = `root/`, main = `root/sub/main.tex`, and the build runs in `root/sub/`. Use this when the main file reads other folders inside the build root via `../`. `::` appears at most once, and the main file must be inside the build root |
+| `x/file.pdf` | View-only. No rebuild; the pages redraw when the file changes (checked every 3 seconds). Pins are page + region |
+| Count | Up to 12. Alt+1…9 map to the first nine |
+| No `--doc` | Behaves exactly as before — a single document (key `main`) from `--manuscript`·`--main`, with the same state-folder layout (§State file layout) |
+| Startup build | With multiple documents, each builds in the background and the server comes up immediately. One document failing doesn't block startup (that tab shows an error panel). `--no-build` still skips only documents that already have pages |
+| `--git-pull` | Once per repository. Rebuilding two documents at once still fetches/merges only once — the other reuses that result (`pull.shared: true`) |
 
-**단일 문서 인스턴스에 문서를 더할 때**는 본문을 첫 번째 `--doc main=<이름>:<본문 경로>` 로 둔다. 키 `main` 인 LaTeX 문서는 상태 폴더 루트(옛 자리)를 그대로 써서 빌드 이력·쪽 이미지가 이어지고, `doc` 필드가 없는 옛 핀도 첫 문서(=본문)로 읽힌다. 키를 다르게 주면 본문이 `docs/<키>/` 에서 새로 빌드되고 옛 핀의 마크는 한 번 점선(추정)이 된다.
+**Adding a document to a single-document instance**: put the body first, as `--doc main=<name>:<body path>`. A LaTeX document with key `main` reuses the state folder's root (the old location), so build history and page images carry over, and an old pin with no `doc` field is still read as the first document (=the body). Using a different key instead means the body builds fresh under `docs/<key>/`, and old pins' marks get flipped to dotted (estimated) once.
 
-### 인스턴스 도구(dotfiles `pin-viewer@<이름>`)와의 계약
+### Contract with the instance manager
 
-논문별 인스턴스 설정(환경 파일 등)은 다음 값만 서버에 넘기면 된다. 서버 쪽 인자 계약은 위 표가 정본이다.
+Running and managing several papers persistently (auto-wiring ports, state directories, and systemd units) is the job of the **instance manager**, not this document — `limn add|start|stop|update|list|status|url|snippet|doc|remove`, backed by systemd user units `limn@<name>`. Per-paper configuration keys (`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, in `~/.config/limn/<name>.env`), how they map onto server arguments, and the procedures for adding, updating, and removing a paper are all authoritative in [instances.md](instances.md). The table above remains the source of truth for the server's own `--doc`/`--main` argument contract (format, key rules, path rules), which is unchanged.
 
-| 설정 키(제안) | 서버 인자 | 비고 |
-| --- | --- | --- |
-| `MANUSCRIPT=<저장소 루트>` | `--manuscript` | 여러 문서면 문서들을 모두 감싸는 폴더(보통 저장소 루트) |
-| `MAIN=<메인.tex>` | `--main` | 단일 문서일 때만. `DOCS` 와 함께 쓰지 않는다 |
-| `DOCS="ms=본문:manuscript::2nd/2nd_manuscript_en.tex;rr=답변서:submission/review_response/review_response.tex"` | `--doc` 반복 | 항목 구분은 `;`(경로·이름에 `;` 를 쓰지 않는다). 공백이 든 이름이 있으니 셸 단어 분리에 맡기지 말고 `IFS=';' read -ra` 로 나눠 항목마다 `--doc "$x"` 로 넘긴다 |
-| `PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL=1` | `--port`·`--state-dir`·`--label`·`--accent`·`--git-pull` | 예전 그대로 |
+## Port conflict avoidance (mandatory)
 
-## 포트 충돌 회피 (강제)
-
-기존에 그 포트를 쓰는 프로세스가 있는지 먼저 확인한다. 확인 없이 바로 바인딩을 시도하지 않는다.
+Always check whether a process is already using that port first. Never attempt to bind without checking.
 
 ```bash
 ss -ltnp 2>/dev/null | grep ":<port> " || lsof -i tcp:<port>
 ```
 
-- 점유돼 있으면: (a) `--port`를 지정하지 않았다면 서버가 자동으로 다음 빈 포트를 시도하게 하거나, (b) 점유 프로세스가 이 스킬의 이전 인스턴스인지 확인 후 재사용(같은 `--manuscript`면 기존 서버를 그대로 쓰고 새로 띄우지 않는다).
-- 서버를 내릴 때 `pkill -f pin_server.py`로 죽이지 않는다 — 자기 자신의 명령줄까지 매칭해 무관한 세션을 죽일 위험이 있다. 포트로 PID를 찾아 종료한다: `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
-- 새 버전 서버로 바꿔 띄울 때 상태 디렉토리는 그대로 둔다. 옛 레이아웃(`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`)을 `--no-build` 로도 재빌드 없이 읽는다. 기동 때 `pages.cur`(내용 `pages`)와 `pins.seq`(기존 최대 id)를 만들고 `<state_dir>/pins.md` 를 다시 그린다. 옛 `pages/` 는 다음 재빌드가 `pages-<build_id>/` 로 교체한 뒤 직전 1개로 남았다가 그다음 재빌드에서 지워진다.
-- **배포 경로**: 상시(systemd) 인스턴스는 이 레포의 `scripts/pin_server.py` 를 직접 실행하지 않고, `%h/.local/share/<name>/pin_server.py` 처럼 **`<state_dir>` 안에 둔 사본**을 실행한다(§상시로 띄울 때). 그래서 이 파일을 고친 뒤 실사용 인스턴스에 반영하려면 그 상태 디렉토리의 사본을 새 버전으로 덮어써야 한다 — 레포만 고치고 재시작해도 사본이 그대로면 옛 버전이 계속 돈다. 사본 옆에는 `vendor/pdfjs/` 도 함께 둔다(`<사본 디렉토리>/vendor/pdfjs/`) — 아니면 `--pdfjs-dir` 로 레포의 `vendor/pdfjs` 를 가리킨다. 둘 다 없으면 뷰어가 PNG 로 돌아가 흐리게 보인다.
+- If it's occupied: (a) if `--port` wasn't specified, let the server try the next free port automatically, or (b) check whether the occupying process is an earlier instance of this same tool and reuse it (with the same `--manuscript`, use the existing server instead of starting a new one).
+- Never kill the server with `pkill -f "limn serve"` — it can match its own command line and kill an unrelated session. Find the PID by port instead: `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
+- Leave the state directory as-is when switching to a new version. The old layout (`pages/`, `pins.jsonl`, `built_at.txt`, `head.txt`) is read fine even with `--no-build`, no rebuild needed. At startup, `pages.cur` (pointing at `pages`) and `pins.seq` (seeded from the existing max id) are created, and `<state_dir>/pins.md` is regenerated. The old `pages/` directory is replaced by the next rebuild's `pages-<build_id>/`, kept around for one more rebuild, then removed.
+- **Deployment path**: `limn` is a standalone package installed with `uv tool install git+ssh://git@github.com/dartworklabs/limn@v0.1.0` — it's never run by checking out the repository and executing a script directly. `vendor/pdfjs/` installs alongside it inside the package, with nothing extra to place next to it. To move to a new version, install that version again (or run `limn update`, see instances.md) and restart persistent instances — pulling a new repo checkout without reinstalling leaves the old version running.
 
-## 여러 논문 뷰어를 동시에 띄울 때
+## Running multiple manuscript instances at once
 
-곧 논문마다 뷰어 인스턴스가 따로 돈다 — 논문마다 저장소·포트·테일넷 주소가 다르다. 같은 서버 프로세스는
-`--manuscript` 하나만 다루므로, 논문 N개를 동시에 보려면 프로세스도 N개다.
+It's expected that each paper eventually runs its own instance — a different repository, port, and tailnet address per paper. Since a single server process only ever handles one `--manuscript`, watching N papers at once means N processes.
 
-### 동시 실행 조건 — 겹치면 안 되는 세 가지
+### Concurrent execution conditions — three things that must not overlap
 
-| 자원 | 규칙 |
+| Resource | Rule |
 | --- | --- |
-| 포트 | 인스턴스마다 다른 `--port`(비우면 자동 배정, §포트 충돌 회피). 같은 포트를 두 인스턴스가 쓸 수 없다 |
-| 상태 디렉토리(`--state-dir`) | 인스턴스마다 다른 경로. 기본값(`<slug>` = 원고 경로 해시)은 `--manuscript` 가 다르면 자동으로 갈리지만, 같은 원고를 다른 브랜치·워크트리로 두 번 열면 슬러그가 같아져 핀이 섞인다 — 그때는 `--state-dir` 을 명시로 분리한다 |
-| 빌드 폴더(`<state_dir>/build/`) | `--state-dir` 을 분리하면 자동으로 따라온다. latexmk 두 개가 같은 `build/` 를 밟으면 서로의 `.aux` 를 덮어쓴다(§빌드 잠금) |
+| Port | A different `--port` per instance (auto-assigned if unset, §Port conflict avoidance). Two instances can never share a port |
+| State directory (`--state-dir`) | A different path per instance. The default (`<slug>` = a hash of the manuscript path) diverges automatically whenever `--manuscript` differs, but opening the same manuscript twice from different branches/worktrees gets the same slug and mixes pins — separate them explicitly with `--state-dir` in that case |
+| Build folder (`<state_dir>/build/`) | Follows automatically once `--state-dir` is separated. Two `latexmk` processes hitting the same `build/` overwrite each other's `.aux` (§Build locking) |
 
-`pin-viewer add <이름> --manuscript <dir>` (dotfiles 의 systemd 템플릿 유닛)를 쓰면 포트·상태 디렉토리를
-논문별로 자동 분리한다 — 직접 `pin_server.py` 를 띄울 때만 위 표를 손으로 맞춘다.
+Using `limn add <name> --manuscript <dir>` (the instance manager, instances.md) automatically separates the port and state directory per paper —
+only reconcile the table above by hand when running `limn serve` directly.
 
-### `--label`·`--accent` — 탭을 헷갈리지 않게
+### `--label` and `--accent` — telling instances apart
 
-뷰어가 여러 개 뜨면 화면이 똑같아 탭을 헷갈리기 쉽다. `--label`(이름표, 기본은 `--manuscript` 의 git
-origin 저장소 이름 → 폴더 이름)과 `--accent`(강조색 `#rrggbb`, 기본은 이름표 해시로 고른 고정 팔레트
-색 — 같은 이름표는 항상 같은 색)가 다음 자리에 나타난다.
+With several instances open, identical-looking screens are easy to mix up. `--label` (a label, defaulting to `--manuscript`'s git
+origin repository name, then the folder name) and `--accent` (an accent color `#rrggbb`, defaulting to a fixed-palette
+color chosen by hashing the label — the same label always gets the same color) appear in the following spots.
 
-| 자리 | 무엇이 보이나 |
+| Location | What's shown |
 | --- | --- |
-| 도구 줄(데스크톱 사이드바 머리, 펼친·접은 폴드 공통 `#bar1`) | 맨 앞에 강조색 배경의 이름표 칩. 좁은 화면에서는 폭이 줄지만 사라지지 않는다 |
-| 화면 맨 위 | 강조색 얇은 띠(4px) |
-| 브라우저 탭 제목 | `<이름표> · 원고 핀 · 열린 N` |
-| 파비콘 | 강조색 원 안에 이름표 첫 글자 |
-| `GET /api/meta` | `label`·`accent`·`repo`(git origin URL, 없으면 `null`) 필드 |
-| `<state_dir>/pins.md` 머리(디스크·`GET /pins.md` 둘 다) | `원고:` 줄 다음 `논문: <이름표> · 저장소: <repo 또는 (없음)>` 한 줄. `저장소` 가 있으면 안내 문단에 "처리 전 `git remote get-url origin` 확인, 다르면 멈춘다" 가 붙는다(다른 논문의 핀을 잘못 처리하는 사고 방지) |
+| The toolbar (the desktop sidebar header, shared across unfolded/collapsed fold as `#bar1`) | A label chip with an accent background, up front. Its width shrinks on a narrow screen but never disappears |
+| The very top of the screen | A thin accent-colored stripe (4px) |
+| The browser tab title | `<label> · manuscript pins · N open` |
+| The favicon | The label's first character inside an accent-colored circle |
+| `GET /api/meta` | The `label`·`accent`·`repo` fields (the git origin URL, or `null`) |
+| `<state_dir>/pins.md`'s header (both on disk and via `GET /pins.md`) | One line after `원고:` ("manuscript:"): `논문: <label> · 저장소: <repo or (없음)>` ("paper: … · repository: … or (none)"). When `저장소` ("repository") is present, the instructions paragraph adds "confirm `git remote get-url origin` before processing, stop if it differs" (preventing the mistake of processing the wrong paper's pins) |
 
-`--label` 은 40자 이하로 자르고 HTML 이스케이프한다. `--accent` 는 `#` 뒤 6자리 16진수만 받고, 그 외
-형식이면 기동을 멈춘다.
+`--label` is truncated to 40 characters and HTML-escaped. `--accent` only accepts a 6-digit hex value after `#`; any other
+format halts startup.
 
-| 항목 | 규칙 |
+| Item | Rule |
 | --- | --- |
-| 바인딩 주소 | `127.0.0.1` 고정. `0.0.0.0`·와일드카드 바인딩 금지 — 인자로도 노출하지 않는다 |
-| 외부 노출 | `tailscale serve`만 사용. **`tailscale funnel` 금지** — funnel은 공인 인터넷에 노출한다 |
-| 노출 후 검증 | (1) 테일넷 안에서 그 URL에 `curl`하면 `200` 확인. (2) 공인 IP·테일넷 밖 경로로는 연결이 실패하는지 확인(즉 `tailscale serve status`가 "Funnel"이 아니라 "tailnet only"로 뜨는지) — 이 둘을 확인해야 "노출됐다"고 보고한다 |
-| 인증 | 없음(테일넷 자체가 경계). 신원 헤더는 기록용이고, 필요하면 `--allow` 로 로그인 목록을 제한한다. 핀 데이터에 민감정보를 적지 않는다는 전제 |
-| 요청 경계 | 응답 전에 본문을 끝까지 읽고 오류 뒤 연결을 닫는다(요청 밀반입 차단), `Transfer-Encoding` 거부, 교차 출처 `Origin`·낯선 `Host` 는 `403`, 본문 있는 POST 는 JSON 만 — [api.md](api.md) §요청 형식과 경계, 아래 §Host·Origin 검사 |
-| 경로 | 핀·스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다(밖이면 `400`) |
-| 종료 | 세션 종료 시 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스 자체를 계속 띄워둘지는 사용자 판단(재사용 이점과 유휴 리소스 비용의 트레이드오프) |
+| Bind address | Fixed at `127.0.0.1`. `0.0.0.0`/wildcard binding is forbidden — never exposed as an argument either |
+| External exposure | `tailscale serve` only. **`tailscale funnel` is forbidden** — funnel exposes it to the public internet |
+| Verify after exposing | (1) confirm `curl` against that URL from inside the tailnet returns `200`. (2) confirm a connection from a public IP or outside the tailnet fails (i.e. `tailscale serve status` reads "tailnet only," not "Funnel") — only report it "exposed" once both are confirmed |
+| Authentication | None (the tailnet itself is the boundary). Identity headers are for attribution only; restrict the login list with `--allow` if needed. Assumes pin data never contains sensitive information |
+| Request boundaries | The body is always read to completion before any response, and the connection is closed after an error (blocking request smuggling); `Transfer-Encoding` is rejected; a cross-origin `Origin` or unrecognized `Host` gets `403`; a POST with a body must be JSON — [api.md](api.md) §Request format and boundaries, §Host/Origin checks below |
+| Paths | Pins and snippets can only ever point at a file inside the `--manuscript` tree (outside it is `400`) |
+| Shutting down | Take exposure down at the end of a session with something like `tailscale serve --https=<port> off`. Whether to leave the server process running is a judgment call (reuse benefit vs. idle resource cost) |
 
-이 스킬은 `writing-agent-ops`의 원격 세션 결과물 서빙 원칙에 대한 예외다 — 여기는 `127.0.0.1` + `tailscale serve` 조합을 고정한다. 이유: PDF 뷰어가 즉석 markup 상태를 담고 있어 임의 바인딩보다 테일넷 경계 하나로 통제하는 편이 안전하다.
+### Host/Origin checks
 
-### Host·Origin 검사
+- Cross-origin requests: when `Origin` is present, it's checked **based on the kind of Host** (otherwise `403`).
+  - If Host is loopback, Origin must also be a loopback name (`127.0.0.1`·`localhost`·`::1`), and **the port is never checked** (behind SSH `-L`, the Origin/Host port differs from the server's own port — measured: a forwarder mapping 18110→18106 got `200` on `/api/pick`·`/api/pin`·`/close`).
+  - A `*.ts.net` Origin on a loopback Host is never accepted — `tailscale serve` preserves Host, so this isn't a legitimate path, and accepting it would let another tailnet's public Funnel page send a bodyless POST like `close`·`clear` to a local user's browser with no preflight (measured: `200` before the fix, `403` now).
+  - If Host is `*.ts.net`, Origin must match that host's name and port exactly (an omitted port normalizes to the scheme default — `https://h.ts.net` = `https://h.ts.net:443`).
+- The `Host` on **every request** must be a loopback name (`127.0.0.1`·`localhost`·`::1`, **port never checked**) or `*.ts.net` — so DNS rebinding can never leak a pin note or manuscript snippet. `Tailscale-User-*` headers don't exempt a request from this: a rebinding page can attach that same-origin GET's headers with no preflight. `tailscale serve` preserves the original `Host` (`<device>.<tailnet>.ts.net>`), so legitimate tailnet requests pass through fine.
+- If a co-author's browser gets `403` ("Host not allowed"/"different origin") on first deployment, record that message's value and temporarily work around it with `--no-origin-check`.
+- Why Host ignores the port: forwarding to a different local port with SSH `-L 9000:127.0.0.1:<port>` makes the browser send a `Host` like `localhost:9000` — the forwarder's own port. Requiring a port match there would make every such request `403`. The Host name itself (is it a loopback name?) is what actually defends against DNS rebinding, and that's independent of the port — dropping the port check doesn't weaken it, since a rebinding attack's `Host` was never a loopback name to begin with. Cross-origin defense is `Origin`'s job.
+- Known limitation: since a loopback Origin's port is never checked, a POST sent by another local web app on the same device (`http://localhost:3000`) through the user's browser isn't blocked — the tradeoff for supporting SSH `-L`.
 
-- 교차 출처 요청: `Origin` 이 있으면 **Host 종류로 갈라** 검사한다(아니면 `403`).
-  - Host 가 루프백이면 Origin 도 루프백 이름(`127.0.0.1`·`localhost`·`::1`)이어야 하고 **포트는 보지 않는다**(SSH `-L` 뒤에서는 Origin·Host 포트가 서버 포트와 다르다 — 실측: 포워더 18110→18106 에서 `/api/pick`·`/api/pin`·`/close` 가 200).
-  - 루프백 Host 에 `*.ts.net` Origin 은 받지 않는다 — tailscale serve 는 Host 를 보존하므로 정상 경로가 아니고, 받으면 다른 tailnet 의 Funnel 공개 페이지가 로컬 사용자 브라우저로 `close`·`clear` 같은 본문 없는 POST 를 preflight 없이 보낸다(실측: 고치기 전 200, 지금 403).
-  - Host 가 `*.ts.net` 이면 Origin 은 그 호스트와 이름·포트가 같아야 한다(생략 포트는 scheme 기본값으로 정규화 — `https://h.ts.net` = `https://h.ts.net:443`).
-- **모든 요청**의 `Host` 는 루프백 이름(`127.0.0.1`·`localhost`·`::1`, **포트는 안 본다**) 또는 `*.ts.net` 이어야 한다 — DNS rebinding 으로 핀 메모·원고 스니펫이 새지 않게. `Tailscale-User-*` 헤더가 있어도 면제하지 않는다: rebinding 페이지는 같은 출처 GET 에 그 헤더를 preflight 없이 실을 수 있다. tailscale serve 는 원래 `Host`(`<기기>.<tailnet>.ts.net`)를 보존해 넘기므로 정상 테일넷 요청은 통과한다.
-- 첫 배포 때 공저자 브라우저에서 저장이 `403`("허용되지 않은 Host"/"다른 출처")이면 그 메시지의 값을 기록하고 `--no-origin-check` 로 임시 우회한다.
-- Host 는 왜 포트를 안 보는가: SSH `-L 9000:127.0.0.1:<port>` 로 다른 로컬 포트에 포워딩하면 브라우저가 보내는 `Host` 는 `localhost:9000`처럼 포워딩 쪽 포트가 된다. 여기서 포트까지 요구하면 이런 요청이 전부 `403` 이었다. Host 이름 자체(루프백 이름인가)는 DNS rebinding 방어의 핵심이고 포트와 무관하므로, 포트를 빼도 그 방어는 약해지지 않는다 — rebinding 공격의 `Host` 는 애초에 루프백 이름이 아니라 공격자 도메인이다. 교차 출처 방어는 `Origin` 검사가 맡는다.
-- 알려진 한계: 루프백 Origin 의 포트를 보지 않으므로, 같은 기기의 다른 로컬 웹앱(`http://localhost:3000`)이 사용자 브라우저로 보내는 POST 는 막지 못한다 — SSH `-L` 지원과 맞바꾼 선택이다.
+## Behind `tailscale serve` (measured)
 
-## `tailscale serve` 뒤에서 (실측)
+`tailscale serve` attaches identity headers to every request and forwards the `*.ts.net` Host as-is. These values were measured on 2026-09-21.
 
-`tailscale serve` 는 요청마다 신원 헤더를 붙이고 `*.ts.net` Host 를 그대로 넘긴다. 2026-09-21 에 잰 값이다.
-
-| 요청 | 결과 |
+| Request | Result |
 | --- | --- |
-| 테일넷에서 `GET /` | `200`. `GET /api/meta` 의 `me` 가 `{login, name, pic}` 로 채워진다 |
-| 브라우저처럼 `Origin: https://<host>.ts.net:<port>` 를 붙인 `POST` | `200` |
-| 다른 출처(`Origin: https://evil.example`)의 `POST` | `403` |
-| 신원 헤더를 위조하고 낯선 `Host` 로 보낸 `POST` | `403` — 헤더가 Host 검사를 건너뛰게 하지 않는다 |
-| 공인 IP 로 접근 | 연결 실패 |
+| `GET /` from the tailnet | `200`. `GET /api/meta`'s `me` is filled in as `{login, name, pic}` |
+| A `POST` with `Origin: https://<host>.ts.net:<port>` (as a browser would send) | `200` |
+| A `POST` from a different origin (`Origin: https://evil.example`) | `403` |
+| A `POST` with a spoofed identity header sent to an unrecognized `Host` | `403` — a header never lets a request skip the Host check |
+| Access from a public IP | Connection fails |
 
-신원 헤더는 **구분용이지 인증이 아니다.** 서버는 이 헤더를 tailscale serve 경유 여부와 무관하게 읽는다 — `127.0.0.1` 에 직접 붙은 요청이 `Tailscale-User-Login` 을 달면 그 사람으로 기록된다(2026-09-24 실측, `/api/meta` 의 `me`). 회귀·브라우저 검증은 이것으로 두 사람을 흉내 낸다(Playwright `extra_http_headers`). 검토 대기의 '에이전트 = 헤더 없음' 도 같은 한계를 진다 — 신원은 권한이 아니라 기본값을 가른다. 같은 기기의 로컬 프로세스는 헤더를 스스로 붙일 수 있다. 바인딩이
-`127.0.0.1` 이라 테일넷을 거치지 않은 요청은 그 기기 안에서만 오고, 그 기기는 이미 사용자 것이다.
+Identity headers are **for attribution, not authentication.** The server reads this header regardless of whether it went through `tailscale serve` — a request that hits `127.0.0.1` directly with a `Tailscale-User-Login` header attached is recorded as that person (measured 2026-09-24, `/api/meta`'s `me`). Regression and browser tests impersonate two people this way (Playwright `extra_http_headers`). Pending review's "agent = no header" has the same limitation — identity decides a default, not a permission. A local process on the same device can attach the header itself. Since binding is
+`127.0.0.1`, any request that didn't go through the tailnet can only have come from that device, which already belongs to the user.
 
-## 상시로 띄울 때 — systemd 사용자 유닛
+## Running persistently — systemd user units
 
-서버 자체는 표준 라이브러리만 쓰지만, **재빌드는 외부 명령에 의존한다** — `latexmk`·`pdftoppm`·`pdftotext`·`synctex`.
-systemd 는 로그인 셸의 rc 를 거치지 않으므로, TeX 배포판이 `/usr/local/texlive/...` 처럼 기본 PATH 밖에 있으면
-유닛이 그 경로를 명시해야 한다. 그러지 않으면 **뷰어는 멀쩡히 뜨는데 재빌드만 실패한다** — 배포판 기본 `pdflatex`
-가 잡혀 저널 클래스 파일(`elsarticle.cls` 등)을 못 찾는 형태로 드러난다(2026-09-21 실측).
+A persistent instance is managed as the systemd user unit `limn@<name>`. Creating and configuring the unit (`~/.config/limn/<name>.env`), starting, stopping, and restarting it are all handled by the instance manager's `limn add|start|stop|update`. The exact unit-file format and details like setting the TeX distribution's PATH are authoritative in [instances.md](instances.md).
 
-```ini
-[Service]
-# 대화형 셸에서 `kpsewhich <클래스>.cls` 가 가리키는 배포판의 bin 을 PATH 맨 앞에 둔다.
-Environment=PATH=/usr/local/texlive/2025/bin/x86_64-linux:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/python3 %h/.local/share/<name>/pin_server.py \
-  --manuscript <manuscript_dir> --main <main>.tex --state-dir %h/.local/share/<name> --port <port> --no-build
-Restart=on-failure
-```
+The server itself uses only the standard library, but **rebuilding depends on external commands** — `latexmk`·`pdftoppm`·`pdftotext`·`synctex`. systemd never sources a login shell's rc, so if the TeX distribution lives outside the default PATH (e.g. `/usr/local/texlive/...`), the unit has to state that path explicitly (instances.md handles this) — otherwise **the viewer comes up fine but only the rebuild fails**.
 
-확인은 두 줄이면 된다.
+Verifying this takes two lines:
 
 ```bash
-tr '\0' '\n' < /proc/$(pgrep -f pin_server.py | head -1)/environ | grep ^PATH=
-curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 ok 여야 한다
+tr '\0' '\n' < /proc/$(pgrep -f 'limn serve' | head -1)/environ | grep ^PATH=
+curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state should be ok
 ```
 
-설정 파일을 홈에 직접 두지 않는 dotfiles 규약을 쓰는 기기라면 유닛도 그 저장소에서 관리하고 심링크한다.
+## State file layout
 
-## 상태 파일 레이아웃
-
-단일 문서(`--doc` 없음 — 옛 상태 폴더와 같은 배치):
+Single document (no `--doc` — same layout as the legacy state folder):
 
 ```
 <state_dir>/
-├── build/                    # rsync 사본 + latexmk 산출물 (원본 체크아웃 아님)
-├── pages.cur                 # 지금 쪽 이미지 디렉토리 이름(포인터, 원자적 교체)
-├── builds.json               # 빌드 이력(build id·원고 지문·seq·마지막 결과) — 위치 추정·build_seq 원천
-├── pages-<build_id>/         # page-*.png + 짝이 맞는 PDF·synctex 사본 (현재와 직전 1개만 유지)
-├── pages/                    # 옛 레이아웃 — pages.cur 가 없으면 이것을 그대로 쓴다
-├── pins.jsonl                # 현재 핀 전체(매번 원자적으로 다시 씀)
-├── pins.seq                  # 마지막으로 발급한 id
-├── pins.dropped.jsonl        # 삭제한 핀(restore 원천)
-├── pins.jsonl.corrupt-*.bak  # 깨진 줄이 있을 때 첫 쓰기 전 원본 보존(조건부)
-├── pins_<ts>.jsonl.bak       # /api/clear 보관본
-├── pins.md                   # 에이전트 진입점 — 이 한 장만 읽는다
-├── people.json               # @태그 후보 — 이 뷰어를 연 테일넷 사람(로컬 제외, 원자적 교체)
-├── events.jsonl              # mention·review_requested·replied·reopened 기록(추가 전용, 바깥으로 보내지 않는다)
+├── build/                    # rsync copy + latexmk output (not the original checkout)
+├── pages.cur                 # the current page-image directory name (a pointer, atomically swapped)
+├── builds.json               # build history (build id, manuscript fingerprint, seq, last result) — source of position estimation and build_seq
+├── pages-<build_id>/         # page-*.png plus a matching PDF and synctex copy (keeps only the current one and the previous one)
+├── pages/                    # legacy layout — used as-is if pages.cur is absent
+├── pins.jsonl                # every current pin (rewritten atomically on every change)
+├── pins.seq                  # the last id issued
+├── pins.dropped.jsonl        # dropped pins (the source for restore)
+├── pins.jsonl.corrupt-*.bak  # the original file preserved right before the first write when a corrupt line was found (conditional)
+├── pins_<ts>.jsonl.bak       # an /api/clear archive
+├── pins.md                   # the agent entry point — the one file to read
+├── people.json               # @mention candidates — tailnet people who've opened this viewer (excludes local, atomically swapped)
+├── events.jsonl               # mention·review_requested·replied·reopened log (append-only, never sent externally)
 ├── build.log
 ├── built_at.txt
-├── built_src_mtime.txt       # 빌드 시작 시각의 src_mtime — 자동 동기화 배지 기준(build-sync §자동 동기화, 없어도 동작)
-└── head.txt                  # 빌드 시점 커밋(짧은 해시) — 원고 repo가 git이면
+├── built_src_mtime.txt       # src_mtime at build start — basis for the auto-sync badge (build-sync §Auto-sync, works fine without this file)
+└── head.txt                  # the commit built (short hash) — if the manuscript repo is git
 ```
 
-여러 문서(`--doc`): 핀 파일은 루트에 하나, 문서별 빌드 산출물은 `docs/<키>/` 에 둔다. 키가 `main` 인 LaTeX 문서만 위 단일 문서 자리(루트)를 쓴다.
+Multiple documents (`--doc`): one pin file at the root, with per-document build output under `docs/<key>/`. Only the LaTeX document with key `main` uses the single-document location above (the root).
 
 ```
 <state_dir>/
-├── pins.jsonl · pins.seq · pins.dropped.jsonl · pins.md   # 문서 전체에 하나(핀 번호가 문서를 가로질러 유일)
+├── pins.jsonl · pins.seq · pins.dropped.jsonl · pins.md   # one set for the whole set of documents (pin numbers are unique across documents)
 └── docs/
-    ├── rr/                   # build/ · pages.cur · pages-<build_id>/ · builds.json · built_at.txt · head.txt …(위와 같은 이름)
-    └── rv/                   # 보기 전용: pages.cur · pages-<id>/(쪽 PNG + PDF 사본) · builds.json · pdf_sig.txt(그린 PDF 의 mtime:크기)
+    ├── rr/                   # build/ · pages.cur · pages-<build_id>/ · builds.json · built_at.txt · head.txt … (same names as above)
+    └── rv/                   # view-only: pages.cur · pages-<id>/ (page PNGs + a PDF copy) · builds.json · pdf_sig.txt (the rendered PDF's mtime:size)
 ```
 
-## 뷰어 사용법 (사용자)
+## Using the viewer (for users)
 
-| 동작 | 방법 |
+| Action | How |
 | --- | --- |
-| 위치 고르기 | PDF 위 드래그 → 점선 '새 핀' 상자가 저장·취소 때까지 남는다. 다시 드래그해도 메모는 지워지지 않는다 |
-| 범위 맞추기 | 패널의 한 줄 단계 컨트롤(드래그한 줄 / 문단 / 환경 이름 · 줄 수)과 한 줄씩 스테퍼 `위 [+][−] 아래 [+][−]`. 원문은 4줄로 접혀 있고 [원문 펼치기] 로 연다 |
-| 저장 | 패널 바닥에 고정된 [핀 저장] 또는 메모 칸에서 ⌘↵ / Ctrl+Enter(한글 조합 중엔 무시). 알림의 [되돌리기] |
-| 수정 | 카드의 메모를 누르거나 [수정] → 메모·범위 편집, [위치 다시 잡기] 로 PDF 에서 새 위치 지정 |
-| 질문 · 답글 | 저장 전에 `[수정 요청 | 질문]` 을 고른다. 카드의 [답글]로 스레드에 글을 단다(⌘/Ctrl+Enter). `@` 로 사람을 부른다 — 부른 핀은 에이전트가 건너뛰고, 불린 사람은 목록 머리 [나를 부른 핀 N]으로 모아 본다 |
-| 검토 대기 | 에이전트가 닫은 핀은 `검토 대기` 구획으로 온다. [변경 보기]로 고친 곳을 보고 [확인] — 완료로 — 또는 [다시 열기] — 이유 한 줄과 함께 |
-| 완료·삭제 | [완료]·[삭제] — 둘 다 알림의 [되돌리기]로 즉시 되돌린다. 닫힌 핀은 열린 목록 아래 구획 `완료 N` 에서 [다시 열기], 삭제한 핀은 그 아래 구획 `삭제 N` 에서 [되살리기]. 두 구획은 흐린 납작한 행이고 머리는 스크롤해도 위에 붙는다([design.md](design.md) §보관함). 다른 사람이 자기 핀을 지우면(공저자·에이전트) 알림이 '#N 이 완료되었습니다' 가 아니라 '#N 을 〈이름〉 가 삭제함 [되살리기]' 로 구분해 뜬다 |
-| 마크 배지 클릭 | PDF 위 초록 번호 배지를 누르면 해당 카드로 스크롤하고 `.cur`(강조 테두리)와 `.flash`(1.2초 깜빡임)를 준다(새 선택을 만들지 않는다). 1.2초 뒤 강조는 저절로 풀린다 — 정적 스타일이라 다음 클릭 전까지 남아 있지 않는다. 마크 상자 자체(배지 밖)를 드래그하면 평소처럼 새 위치를 고른다 |
-| 카드의 [보기] | 그 핀의 마크를 화면 위에서 30% 지점으로 맞추고 테두리가 잠깐 반짝인다. 점선 테두리(`.est`)는 핀을 찍은 PDF 와 지금 PDF 가 다른 원고에서 만들어졌거나 줄이 이동해 좌표가 추정치임을 뜻한다(서버 판정, [build-sync.md](build-sync.md) §위치 추정) |
-| PDF 재빌드 | 원고를 비동기로 컴파일한다(수십 초) — 누른 즉시 돌아오고, 진행 칩이 단계(`--git-pull` 이면 원격 main 당겨오는 중 → 원고 복사 중 → LaTeX 컴파일 중 → 쪽 그리는 중)와 경과 시간을 보여 준다. 다른 사람이 이미 누른 빌드도 같은 칩에 보인다. 완료 알림에 pull 결과(원격 반영 범위 또는 건너뛴 사유)가 한 줄 붙는다(`--git-pull` 일 때). '핀 다시 읽기' 는 핀 목록만 즉시 다시 읽는다(자동 동기화가 보통 몇 초 안에 대신 해 준다, build-sync §자동 동기화) |
-| 처리 중 배지 | 에이전트가 `claim` 한 핀은 카드 머리에 호박색 점이 서고 `처리 중 · 약 15분 · 20:40쯤` 배지가 뜬다. 견적을 넘기면 `예상보다 늦어짐 (+5분)`, 견적 없는 claim 은 `처리 중 · 20:02부터 (23분째)`. 누가 잡았는지와 잠금 자동 해제 시각은 배지 설명에 있다([api.md](api.md) §처리 중 표시). 뷰어에서 claim 을 걸 수는 없다 — [풀기]로 표시만 지울 수 있다(예: 그 에이전트가 멈췄을 때) |
-| 테마 | [◐] 시스템 → [☀] 밝게 → [☾] 어둡게. 설정은 브라우저에 저장된다 |
-| 폭 | [폭] 버튼(Ctrl/⌘ 0)이 쪽 폭을 왼쪽 화면에 맞춘다. 저장된 폭이 없는 첫 방문에서 화면보다 넓으면 자동으로 맞춘다 |
-| 확대·축소 | PDF 위에서 Ctrl/⌘+휠 또는 트랙패드 핀치(포인터 자리 기준), Ctrl/⌘ + `=`·`−`, [＋]·[−]. PDF 쪽만 커지고 패널·도구 줄은 그대로다. 폭 맞춤의 0.5–5배. 넘치면 PDF 영역 안에서만 가로로 스크롤된다. 입력 칸에 포커스가 있을 때와 패널 위의 Ctrl+휠은 브라우저 확대다([design.md](design.md) §PDF 영역 전용 확대) |
-| 선명도 | 쪽은 PDF.js 로 화면 해상도에 맞춰 벡터로 그린다(확대해도 글자가 선명하다). 처음 몇 백 ms 는 PNG 가 먼저 보인다. 벡터로 못 그리면 도구 줄 옆에 'PNG 보기' 칩이 뜨고 PNG 로 보인다 |
-| 패널 폭 | 본문과 패널 사이 손잡이를 끈다(280px ~ 본문 480px 를 남기는 폭). 두 번 클릭하면 좁게 → 보통 → 넓게, 포커스한 뒤 ←/→. 폭은 브라우저에 기억된다([design.md](design.md) §패널 정리와 폭 조절) |
-| 문서 전환(여러 문서) | PDF 위 탭을 누른다. 접은 폴드는 도구 줄의 [문서 이름 ▾] → 목록. Ctrl+PgUp/PgDn·Alt+1…9(입력 칸 밖). 문서마다 보던 자리·확대가 남고, 주소 `#doc=<키>` 로 링크·새로고침이 된다. 탭의 점은 원고 수정됨(재빌드 필요), 스피너는 빌드 중, `PDF` 는 보기 전용 |
-| 핀 다시 읽기 | 열린 핀 목록 머리의 [다시 읽기] — 핀 파일을 곧바로 다시 읽는다(자동 동기화 5초를 기다리지 않는다). 접은·편 폴더블에서는 [더보기] 안 |
-| 모든 문서 | 핀 목록 머리의 [모든 문서] — 다른 문서의 열린 핀도 보이고 카드에 문서 칩이 붙는다. 그 카드의 `#번호`·[보기]·[수정]은 그 문서로 바꾼 뒤 그 자리로 간다 |
-| 보기 전용 PDF | 드래그·길게 누르기로 영역을 고르면 '쪽 N 영역'과 영역 글자가 보인다(범위 단계 없음). 메모를 달아 저장한다. [PDF 재빌드]는 숨고, 파일이 바뀌면 저절로 다시 그린다 |
-| 도움말 | `?` 키 또는 [?] — 흐름·단축키·용어·`<state_dir>/pins.md` 경로 |
-| Esc | 열린 것부터 닫는다: 도움말 → 툴팁 → 위치 다시 잡기 → 편집 → 선택. 입력 칸에 있을 때는 툴팁을 닫는 데 한 번을 쓰지 않는다(메모 칸에서 Esc 한 번이면 선택이 취소된다) |
+| Pick a location | Drag over the PDF → a dashed "new pin" box stays until you save or cancel. Dragging again doesn't clear the note |
+| Adjust the range | The panel's one-row level control (dragged line / paragraph / environment name · line count) and a one-line stepper `위 [+][−] 아래 [+][−]` ("top [+][−] bottom [+][−]"). Source text collapses to 4 lines; open it with [원문 펼치기] ("[expand source]") |
+| Save | [핀 저장] ("[save pin]") pinned to the bottom of the panel, or ⌘↵ / Ctrl+Enter from the note field (ignored mid-IME composition). Or the toast's [되돌리기] ("[undo]") |
+| Edit | Click a card's note, or [수정] ("[edit]") → edit note/range, [위치 다시 잡기] ("[relocate]") to pick a new spot on the PDF |
+| Question · reply | Choose `[수정 요청 | 질문]` ("[fix request | question]") before saving. [답글] ("[reply]") on a card adds to the thread (⌘/Ctrl+Enter). `@` mentions a person — a mentioned pin is skipped by the agent, and mentioned people are gathered under the list header's [나를 부른 핀 N] ("[pins addressed to me, N]") |
+| Pending review | A pin an agent closed lands in the `검토 대기` ("pending review") section. [변경 보기] ("[view changes]") to see the fix, then [확인] ("[confirm]") — done — or [다시 열기] ("[reopen]") with a one-line reason |
+| Done · dropped | [완료] ("[done]")·[삭제] ("[delete]") — both can be undone instantly via the toast's [되돌리기] ("[undo]"). A closed pin can be reopened from the `완료 N` ("done N") section below the open list, a dropped one restored from the `삭제 N` ("dropped N") section below that. Both sections are dim, flat rows with a sticky header ([design.md](design.md) §Archive). If someone else drops your own pin (a co-author or agent), the notification distinguishes it from being done: "#N was dropped by 〈name〉 [restore]" instead of "#N is done" |
+| Click a mark badge | Clicking a green numbered badge on the PDF scrolls to that card and gives it `.cur` (an emphasis border) and `.flash` (a 1.2-second blink) — it never starts a new selection. The emphasis clears itself after 1.2 seconds (a static style, so it doesn't linger until the next click). Dragging the mark box itself (outside the badge) starts a new selection as usual |
+| A card's [보기] ("[view]") | Scrolls that pin's mark to 30% down the screen and briefly flashes its border. A dashed border (`.est`) means the PDF the pin was picked on and the current PDF come from different manuscripts, or lines shifted, so the coordinates are estimated (server-decided, [build-sync.md](build-sync.md) §Position estimation) |
+| Rebuild PDF | Compiles the manuscript asynchronously (tens of seconds) — returns immediately on click, and a progress chip shows the phase (with `--git-pull`: pulling remote main → copying the manuscript → compiling LaTeX → rendering pages) and elapsed time. A build someone else already started shows on the same chip. The completion notification gets one line about the pull result (with `--git-pull`) — what was pulled, or why it was skipped. [Re-read pins] just re-reads the pin list immediately (auto-sync usually does this within a few seconds anyway, §Auto-sync) |
+| In-progress badge | A pin an agent has `claim`ed gets an amber dot in the card header and a `처리 중 · 약 15분 · 20:40쯤` ("in progress · ~15 min · around 20:40") badge. Past the estimate: `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)"); claimed with no estimate: `처리 중 · 20:02부터 (23분째)` ("in progress · since 20:02 (23 min so far)"). Who claimed it and the lock auto-release time are in the badge's tooltip ([api.md](api.md) §In-progress marker). The viewer has no way to set a claim — only [풀기] ("[unclaim]") to clear the marker (e.g. if that agent stalled) |
+| Theme | [◐] system → [☀] light → [☾] dark. Saved in the browser |
+| Width | [폭] ("[width]", Ctrl/⌘ 0) fits the page width to the left screen. On a first visit with no saved width, it fits automatically if wider than the screen |
+| Zoom | Ctrl/⌘+wheel or trackpad pinch over the PDF (anchored to the pointer), Ctrl/⌘ + `=`·`−`, [＋]·[−]. Only the PDF page grows — panel and toolbar stay put. 0.5–5× fit-width. Overflow scrolls horizontally, only within the PDF area. Ctrl+wheel with an input field focused, or over the panel, is browser zoom instead ([design.md](design.md) §PDF-area-only zoom) |
+| Sharpness | Pages render as vectors via PDF.js, matched to screen resolution (crisp text even zoomed in). A PNG shows first for a few hundred ms. If it can't render as a vector, a "PNG view" chip appears next to the toolbar and it falls back to PNG |
+| Panel width | Drag the handle between the body and the panel (280px, leaving at least 480px for the body). Double-click to cycle narrow → normal → wide, or focus it and use ←/→. Remembered in the browser ([design.md](design.md) §Panel cleanup and width adjustment) |
+| Switching documents (multiple documents) | Click a tab over the PDF. A collapsed fold uses the toolbar's [문서 이름 ▾] ("[document name ▾]") → a list. Ctrl+PgUp/PgDn·Alt+1…9 (outside input fields). Each document remembers its own viewing spot and zoom, and `#doc=<key>` in the address bar makes links/refresh work. A tab's dot means the manuscript changed (needs a rebuild), a spinner means building, `PDF` means view-only |
+| Re-read pins | [다시 읽기] ("[reread]") at the top of the open-pin list — re-reads the pin file immediately (doesn't wait for the 5-second auto-sync). Inside `[더보기]` ("[more]") on a collapsed or unfolded foldable |
+| All documents | [모든 문서] ("[all documents]") at the top of the pin list — shows open pins from other documents too, with a document chip on each card. That card's `#number`·[보기]·[수정] switches to that document first, then jumps there |
+| View-only PDF | Dragging or long-pressing to pick a region shows "page N region" and the region's text (no scope levels). Attach a note and save. [PDF rebuild] is hidden — the pages redraw themselves automatically when the file changes |
+| Help | The `?` key or [?] — the flow, shortcuts, terminology, and the `<state_dir>/pins.md` path |
+| Esc | Closes whatever's open, innermost first: help → tooltip → relocate → edit → selection. While in an input field, it never spends one press just closing a tooltip (one Esc in the note field cancels the selection directly) |
 
-### 휴대폰·태블릿(터치)
+### Phones and tablets (touch)
 
-폭이 700px 이하(접은 폴더블·휴대폰)면 사이드바가 **하단 시트**가 되고, 700~1100px 터치 화면(편 폴더블·태블릿)이면 **좁은 패널**이 된다. 설계와 근거는 [design.md](design.md) §모바일 레이아웃.
+At 700px or narrower (a collapsed foldable, a phone), the sidebar becomes a **bottom sheet**; at 700–1100px on a touch screen (an unfolded foldable, a tablet), it becomes a **narrow panel**. Design and rationale are in [design.md](design.md) §Mobile layout.
 
-| 동작 | 방법 |
+| Action | How |
 | --- | --- |
-| 패널·시트 펴고 접기 | 도구 줄의 [핀 N ▴/▾] 버튼(시트) 또는 [핀 N ▸/◂] 버튼(패널). N 은 열린 핀 수. 처음에 시트는 접혀 있고 도구 줄만 보인다. 편 화면에서 접은 상태는 기억된다 |
-| 문단 하나 고르기 | PDF 를 **길게 누른다**. 스크롤은 평소대로 된다 |
-| 확대 | PDF 위에서 **두 손가락으로 벌리고 오므린다**. PDF 쪽만 커지고 시트·패널·도구 줄은 그대로다. 확대하면서 두 손가락을 옮기면 그쪽으로 끌려 간다 |
-| 영역 고르기 | [선택] 을 켜고(버튼이 파랗게 '선택 중') 한 손가락으로 끈다. 탭하면 그 자리 문단. 켜 둔 동안에도 두 손가락 확대는 된다(PDF 만). 핀을 저장하거나 취소하면 저절로 꺼져 다시 스크롤된다 |
-| 저장 | 고르면 시트가 펴지고 메모 칸이 원문 스니펫보다 위에 온다. [취소]·[핀 저장] 은 시트 바닥에 고정돼 있다. 메모 칸을 눌러야 키보드가 뜬다(자동으로 띄우지 않는다) |
-| 핀 카드 | 요약(번호·줄·쪽 한 줄 + 메모 미리보기 두 줄)으로 접혀 있다. 누르면 펼쳐져 [보기]·[수정]·[완료]·[삭제] 가 보인다. PDF 위 번호 배지를 누르면 그 카드가 펼쳐진다 |
-| [더보기] | 핀 다시 읽기·테마·축소·확대·폭 맞춤·패널 폭(시트는 시트 높이)·쪽 이동·닫힌 핀·삭제한 핀·도움말. 맨 위에 파일·쪽 수·커밋·빌드 시각·작성자 |
-| 패널 폭(편 화면) | 패널 왼쪽 가장자리 손잡이를 끈다(300px ~ 화면 60%). 탭하면 좁게 → 보통 → 넓게. 편 화면 폭은 데스크톱 폭과 따로 기억된다 |
-| 시트 높이(접은 화면) | 시트 윗가장자리 손잡이를 끈다. 끝까지 내리면 접히고, 탭하면 낮게 → 보통 → 높게. 높이는 기억된다 |
-| 설명 보기 | 버튼을 길게 누르면 설명이 뜬다(그 버튼은 눌리지 않는다) |
-| 위치 다시 잡기 | [수정] → [위치 다시 잡기] 를 누르면 선택 모드가 켜지고 시트가 접힌다. 끌거나 탭하면 접힌 도구 줄 위 배너에서 [이 위치로 바꾸기] |
+| Open/close the panel or sheet | The toolbar's [핀 N ▴/▾] button (sheet) or [핀 N ▸/◂] button (panel). N is the open-pin count. The sheet starts collapsed, showing only the toolbar. Its collapsed state on an unfolded screen is remembered |
+| Pick one paragraph | **Long-press** the PDF. Scrolling works as usual |
+| Zoom | **Pinch with two fingers** over the PDF. Only the PDF page grows — sheet, panel, and toolbar stay put. Moving two fingers while zoomed drags along |
+| Pick a region | Turn on [선택] ("[select]", the button turns blue, "selecting") and drag with one finger. A tap selects that spot's paragraph. Two-finger zoom (PDF only) still works while it's on. Saving or canceling a pin turns it off automatically (so scrolling resumes) |
+| Save | Picking expands the sheet, with the note field above the source-text snippet. [취소]·[핀 저장] ("[cancel]"·"[save pin]") are pinned to the bottom of the sheet. Tapping the note field is what opens the keyboard (never opened automatically) |
+| Pin card | Collapsed to a summary (number, line, page on one line + a two-line note preview). Tapping expands it, revealing [보기]·[수정]·[완료]·[삭제] ("[view]"·"[edit]"·"[done]"·"[delete]"). Tapping a numbered badge on the PDF also expands that card |
+| [더보기] ("[more]") | Reread pins, theme, zoom out/in, fit width, panel width (sheet height on a sheet), page navigation, closed pins, dropped pins, help. File, page count, commit, build time, and author are listed at the top |
+| Panel width (unfolded) | Drag the panel's left-edge handle (300px to 60% of the screen). Tap to cycle narrow → normal → wide. Remembered separately from the desktop width |
+| Sheet height (collapsed) | Drag the top-edge handle. Dragging it all the way down collapses it; tapping cycles low → normal → high. Remembered |
+| See a tooltip | Long-press a button (that press doesn't also activate the button) |
+| Relocate | [수정] → [위치 다시 잡기] ("[edit]" → "[relocate]") turns on selection mode and collapses the sheet. Drag or tap, then [이 위치로 바꾸기] ("[use this location]") on the banner above the collapsed toolbar |

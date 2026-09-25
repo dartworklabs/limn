@@ -1,281 +1,284 @@
-# HTTP API 상세
+# HTTP API details
 
-[`SKILL.md`](../SKILL.md) 의 짧은 표로 모자랄 때 연다. 엔드포인트 전체, 핀 수정·닫기·claim·겹침, 레코드 스키마, `<state_dir>/pins.md` 형식을 다룬다. 재빌드·자동 동기화·위치 추정은 [build-sync.md](build-sync.md), Host·Origin 검사는 [operations.md](operations.md) §보안 제약에 있다.
+Open this when the short table in [`SKILL.md`](../skill/SKILL.md) isn't enough. It covers the full endpoint list, editing/closing/claiming/overlapping pins, record schemas, and the `<state_dir>/pins.md` format. Rebuilds, auto-sync, and position estimation are in [build-sync.md](build-sync.md); Host/Origin checks are in [operations.md](operations.md) §Host/Origin checks.
 
-## 요청 형식과 경계
+## Request format and boundaries
 
-바디는 1 MiB 이하 JSON 객체이고 `Content-Type: application/json` 이어야 한다(아니면 `400`/`413`/`415`). 본문 없는 POST(에이전트의 `curl -X POST …/close`)는 헤더 없이 그대로 된다. 오류 응답은 항상 `{"error": "<한국어 메시지>"}` JSON 이며 예상 밖 예외도 `500` JSON 으로 돌려준다. 기존 경로는 계약을 유지하고 새 필드·경로는 덧붙이기만 했다.
+The body must be a JSON object of at most 1 MiB with `Content-Type: application/json` (otherwise `400`/`413`/`415`). A POST with no body (an agent's `curl -X POST …/close`) is fine without headers. Error responses are always `{"error": "<Korean message>"}` JSON, and unexpected exceptions also come back as `500` JSON. Existing paths keep their contract; new fields and paths were only ever added, not changed.
 
-- 서버는 **어떤 응답보다 먼저 본문을 Content-Length 만큼 끝까지 읽고**, 오류(`4xx`/`5xx`) 뒤에는 연결을 닫는다. `Transfer-Encoding` 요청은 `400`. 본문이 Content-Length 보다 짧게 끊기면 `400` 이고 동작하지 않는다(`/api/clear` 포함). 읽지 않은 본문이 같은 keep-alive 연결의 다음 요청으로 해석되면 `--allow` 와 작성자 기록을 우회하기 때문이다 — tailscale serve 는 백엔드 연결을 재사용한다.
-- 교차 출처 `Origin`·낯선 `Host` 는 `403` — 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사.
-- 소켓 타임아웃 30초 — 본문을 보내다 멈춘 연결과 유휴 keep-alive 가 닫힌다(재빌드처럼 오래 걸리는 처리 자체와는 무관).
+- The server **always reads the body to the full Content-Length before sending any response**, and closes the connection after an error (`4xx`/`5xx`). A request with `Transfer-Encoding` gets `400`. If the body is cut off shorter than Content-Length, the request gets `400` and nothing happens (including `/api/clear`). This matters because an unread body would otherwise be interpreted as the next request on the same keep-alive connection, which would bypass `--allow` and author attribution — `tailscale serve` reuses backend connections.
+- A cross-origin `Origin` or an unrecognized `Host` gets `403` — see [operations.md](operations.md) §Host/Origin checks for the rules and the reasoning.
+- The socket timeout is 30 seconds — this closes connections that stall mid-body and idle keep-alives (it is unrelated to how long an actual long-running operation such as a rebuild takes).
 
-## 문서 매개변수 (`doc=`)
+## Document parameter (`doc=`)
 
-여러 문서(`--doc`, [operations.md](operations.md) §여러 문서)로 띄운 뷰어는 문서가 걸리는 경로에 `doc=<키>` 를 받는다 — `GET /api/meta`·`/api/build`·`/pdf`·`/pages/<쪽>`·`/api/snippet`·`/api/overlaps`·`/api/pins`(그 문서의 핀만 거른다), `POST /api/pick`·`/api/pin`·`/api/rebuild`. POST 는 쿼리 또는 JSON 본문의 `doc` 둘 다 받고, 둘이 다르면 `400`. 없으면 첫 문서다. 단 `POST /api/pin` 에 `doc` 없이 `file` 만 오면(에이전트 `curl`) 그 파일을 빌드 루트가 가장 깊게 감싸는 LaTeX 문서로 짐작한다. 없는 키는 `404 {error, docs:[키…]}` — 조용히 첫 문서로 물러서지 않는다(다른 문서에 핀이 붙는다). 핀 id 로 가는 경로(`/api/pins/{id}/…`)는 `doc` 이 필요 없다 — 핀의 문서는 레코드에 있다. 단일 문서 뷰어는 `doc` 을 무시해도 된다(키는 `main`).
+An instance started with multiple documents (`--doc`, see [operations.md](operations.md) §Multiple documents) accepts `doc=<key>` on the paths that touch a document — `GET /api/meta`·`/api/build`·`/pdf`·`/pages/<page>`·`/api/snippet`·`/api/overlaps`·`/api/pins` (filters to that document's pins), `POST /api/pick`·`/api/pin`·`/api/rebuild`. POST accepts `doc` in the query string or the JSON body; if both are present and disagree, `400`. If omitted, it means the first document. One exception: `POST /api/pin` with `file` but no `doc` (an agent's `curl`) infers the document as whichever configured LaTeX document's build root most deeply contains that file. An unknown key gets `404 {error, docs:[key…]}` — it never silently falls back to the first document (that would attach the pin to the wrong document). Paths that address a pin by id (`/api/pins/{id}/…`) don't need `doc` — the pin's document is already in its record. A single-document instance can ignore `doc` entirely (the key is `main`).
 
-## 엔드포인트
+## Endpoints
 
-| 메서드 | 경로 | 설명 |
+| Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 .tex 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, operations.md §여러 논문 뷰어를 동시에 띄울 때), `n_open`·`n_done`, `pins_md`·`state_dir`(절대경로), `me`(지금 요청자), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`(build-sync §자동 동기화), `pages_build`(지금 화면 빌드 id = `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`(build-sync §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수). 여러 문서면 `docs`(= `/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig`(문서마다의 `src_mtime` 을 이은 문자열 — 뷰어가 다른 문서의 원고 변화로도 목록을 다시 읽는다)가 붙는다(라이트 포함) |
-| `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` = 설정에 없는 문서 키의 열린 핀 수 |
-| `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
-| `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 최근 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일의 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID·보기 전용 PDF는 `404` |
-| `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux`의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page`는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux`가 없는 기존 빌드는 빈 배열, 지원하지 않는 복잡한 TeX 제목은 빈 number/title 자리표시자 |
-| `POST` | `/api/revision-build` | `{commit,doc?}`. 선택 커밋 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시는 `200 {state:"ready",…}`. `doc`은 쿼리도 지원. 다른 임의 필드는 `400` |
-| `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>` | 같은 상태 스키마를 조회한다. `state`는 `idle`(미실행·만료), `running`, `ready`, `error`. `error`는 설명, `reason`은 오류 분류. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
-| `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>` | 성공한 동일 비교의 PDF. 미완성·실패·만료는 `404`이며 현재 원고 PDF로 대체하지 않는다. 현재 페이지·SyncTeX·핀 좌표와 별개인 열람 전용 결과 |
-| `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_done` 이 없고 **쓰기를 하지 않는다**(`sync`·`live_pins` 를 부르지 않음) — 폴링 전용. build-sync §자동 동기화 |
-| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — build-sync §비동기 재빌드. 서버를 다시 띄워도 마지막 빌드 결과(`state`·`errors`·`log_tail`·`seq`·`head`·`pull`)는 `builds.json` 에서 되살린다. `log_tail` 은 build-sync §에이전트 응답 다이어트를 따른다(`state=="ok"` 면 빠지고, 아니면 40줄, `?log=1` 이면 전체) |
-| `GET` | `/pins.md` | 원격 에이전트 진입점 — `text/markdown; charset=utf-8` 로 `<state_dir>/pins.md` 와 같은 내용을 낸다(`GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더). 안내 줄의 base URL 만 요청 `Host` 로 바꾼다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, 루프백이면 기존 `http://127.0.0.1:<port>`. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base 다. Host/Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 |
-| `POST` | `/api/pick` | 드래그 좌표(`page`, `x0`, `y0`, `x1`, `y1`, 선택 `frac` = 숫자 4개 목록 `[x, y, w, h]`(쪽 대비 비율) — 다른 모양이면 `400`, 선택 `pdf_build` = 드래그할 때 화면의 빌드 id — 그 빌드의 PDF 로 되짚는다. 이미 지워진 빌드면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자, `overlaps` 는 같은 파일의 열린 핀과의 겹침(§겹친 핀). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 는 [design.md](design.md) §범위 사다리·§역변환이 두 경로인 이유 |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`·`rel`(§겹친 핀)·`est`(불리언, build-sync §위치 추정) 이 채워진다 — `rel`·`est` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 |
-| `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}` — `GET /api/pins?all=1` 한 항목과 같은 모양(스레드 전부·계산 필드 포함). 없으면 `404` |
-| `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?}` → `{ok, pin, msg}` — §스레드 |
-| `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료(사람만, 아니면 403) → `{ok, pin, state}` — §검토 대기 |
-| `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없다 — 앱 데이터를 캐시하지 않는다 |
-| `GET` | `/api/people` | @태그 후보 `{people:[{login,name,pic?,last_seen?}], me}` — §@태그·사람·이벤트. 쓰기 없음 |
-| `GET` | `/api/pins/dropped` | 삭제한 핀 목록 → `{dropped: [...]}`, `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(계산 필드 없음, 쓰기 부작용 없음). 뷰어의 '삭제한 핀 N' 접힌 목록과, 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림(build-sync §자동 동기화)이 이것을 쓴다 |
-| `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([design.md](design.md) §벡터 렌더링). `build` 를 빼면 지금 빌드. 이름이 틀렸거나 이미 지워졌거나 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` — `build/` 나 다른 빌드로 물러서지 않는다(화면의 쪽 이미지와 어긋나면 좌표가 틀린다). `Range` 는 받지 않는다(통째로 준다). Host/Origin 검사는 다른 `GET` 과 같다 |
-| `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`, 뷰어가 `?v=<버전>` 을 붙여 캐시를 가른다). 이름 한 칸의 `.mjs` 만 받는다 — 하위 경로·`..`·점으로 시작하는 이름·`%` 인코딩·디렉토리 밖을 가리키는 심볼릭 링크·`.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 `404`. 디렉토리는 `--pdfjs-dir`([operations.md](operations.md) §실행 인자), 출처·버전은 [`vendor/pdfjs/README.md`](../vendor/pdfjs/README.md). Host/Origin 검사는 다른 `GET` 과 같다 |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 사다리도. 원고 트리 밖이거나 범위가 틀리면 `400` |
-| `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}` — 뷰어는 쓰지 않고(§겹친 핀) 에이전트·옛 뷰어 호환용으로 남긴다 |
-| `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. 선택 `kind_req`·`mentions`(힌트)·`assignee`(담당, §@태그·사람·이벤트). `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
-| `POST` | `/api/pins/{id}/edit` | 제자리 수정 — 아래 §핀 수정 |
-| `POST` | `/api/pins/{id}/close` | 핀 1건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 테일넷 사람이 닫으면 완료 — §검토 대기. 선택 본문 `{"reply", "ref", "review"}` — 아래 §닫을 때 사유 남기기. 레코드는 남고(`<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다 — §pins.md 형식) → `{ok, pin}`. 그 id 가 없으면 `200 {"ok": false, "pin": null}`(reopen 도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주되 아무 필드도 바꾸지 않는다**(rev 도 그대로) — §닫을 때 사유 남기기 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`/`close_ref`·`review`·`confirmed_*` 가 있었으면 지운다(다시 닫을 때 새로 남긴다). 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}` |
-| `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 `pins.dropped.jsonl` 로 옮긴다(잘못 찍은 것, `dropped_by`) → `{ok}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id 로 되살린다(서버 재시작 뒤에도, `restored_by`) → `200 {ok, pin}` / `404`(삭제 기록 없음) / `409`(같은 id 가 이미 있음) |
-| `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나(같은 신원이면) 연장한다 — §처리 중 표시(claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(정수가 아니거나 1 보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다) → `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim 을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다 — 요청자 신원과 무관하다(권한 제한 없음, 귀속만 기록하는 신뢰 모델). → `{ok, pin}`. 없는 id 면 `200 {"ok": false}` |
-| `POST` | `/api/clear` | 전체를 아카이브(`pins_<timestamp>.jsonl.bak`, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` …)하고 비움 — 일괄 리셋. id 발급 번호는 이어진다. **에이전트는 쓰지 않는다** |
-| `POST` | `/api/rebuild` | PDF 재빌드(동기) — build-sync §재빌드. 응답에 `head`(빌드한 커밋 짧은 해시, 성공 때만)·`pull`(`--git-pull` 일 때만, build-sync §`--git-pull`)이 붙는다. `log` 는 build-sync §에이전트 응답 다이어트를 따른다 |
-| `POST` | `/api/rebuild?async=1` | PDF 재빌드(비동기) — 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 `202 {"state":"running"}`. 이미 도는 중이면 `409 {"state":"running","busy":true}`. 진행 상황은 `GET /api/build` 를 폴링한다(build-sync §비동기 재빌드) |
-| `POST` | `/api/rebuild?log=1` / `GET /api/build?log=1` | build-sync §에이전트 응답 다이어트의 다이어트를 끄고 전체 로그 꼬리(4000자)를 그대로 받는다. 뷰어는 오류 패널을 위해 이 플래그를 항상 붙인다 |
+| `GET` | `/api/version` | `{"name":"limn","version":<string>}` — matches `limn serve --version`. Useful for confirming which installed version an instance is running |
+| `GET` | `/api/meta` | `pages` (page list), `built_at`, `head` (manuscript commit), `main` (top-level `.tex` filename), `label`·`accent`·`repo` (this instance's label, accent color, and git origin URL — see operations.md §Running multiple manuscript instances at once), `n_open`·`n_done`, `pins_md`·`state_dir` (absolute path), `me` (the current requester), `building` (a rebuild is in progress), `stale_build` (has the manuscript `.tex` changed since this PDF was built), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev` (build-sync §Auto-sync), `pages_build` (the build id shown right now = the `pages.cur` value), `build_seq` (count of finished builds)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}` (build-sync §Asynchronous rebuild), `doc`·`doc_name`·`kind`·`view_only`·`multi` (§Document parameter). With multiple documents it also carries `docs` (the `/api/docs` entries minus `n_open`) and `src_sig` (each document's `src_mtime` concatenated into one string — so the viewer re-reads the list even when a *different* document's manuscript changed) — included in the light variant too |
+| `GET` | `/api/docs` | Document list: `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. Read-only for pins (no sync write). `other_open` = open-pin count for document keys not present in the current configuration |
+| `GET` | `/api/revisions?doc=<key>` | The last 12 Git commits that touched `.tex`·`.bib`·`.sty`·`.cls`·`.bst` files under the selected main `.tex`'s folder → `{available,revisions:[{id,date,subject}]}`. `available:false` if it's not a Git repository or the document is a view-only PDF |
+| `GET` | `/api/revision-diff?doc=<key>&commit=<40-char SHA-1>` | The actual unified diff for a commit from the list above → `{id,diff,truncated}`. Only includes manuscript extensions inside the selected main file's folder, capped at 256 KiB. A malformed id gets `400`; an id outside the list, or a view-only PDF, gets `404` |
+| `GET` | `/api/outline-labels?doc=<key>` | The table of contents preserved alongside the `.aux` for the current PDF → `{build,labels:[{number,title,page,level,anchor}]}`. Numbers are only attached when they line up with the PDF.js outline's title, hierarchy, and order. `page` is the printed page-number string (roman numerals possible), not the physical PDF page index. An existing build without a `.aux` returns an empty array; unsupported complex TeX titles get empty `number`/`title` placeholders |
+| `POST` | `/api/revision-build` | `{commit,doc?}`. Starts an asynchronous build of the parent-of-selected-commit → selected-commit comparison PDF. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`; a cached success returns `200 {state:"ready",…}`. `doc` also accepted in the query string. Any other field is `400` |
+| `GET` | `/api/revision-build?doc=<key>&commit=<40-char SHA-1>` | Polls the same state schema. `state` is `idle` (never run / expired), `running`, `ready`, or `error`. `error` is a description, `reason` is an error classification. Rechecks the current document's recent commit list every call |
+| `GET` | `/api/revision-pdf?doc=<key>&commit=<40-char SHA-1>` | The PDF for a successful comparison of the same pair. Unfinished, failed, or expired gets `404` — it is never replaced with the current manuscript PDF. A read-only result, independent of the current page/SyncTeX/pin coordinates |
+| `GET` | `/api/meta?light=1` | Same as above but without `n_open`·`n_done` and **no write side effects** (does not call `sync`/`live_pins`) — polling only. build-sync §Auto-sync |
+| `GET` | `/api/build` | `{state:"idle\|running\|ok\|ok_errors\|fail", phase:"pull\|copy\|latex\|render"\|null, started_at, finished_at, seq, last, elapsed_s, last_s, pages, errors:[{line,msg}], log_tail, built_at, head, pull}` — build-sync §Asynchronous rebuild. Even after a server restart, the last build result (`state`·`errors`·`log_tail`·`seq`·`head`·`pull`) is restored from `builds.json`. `log_tail` follows build-sync §Trimming agent responses (dropped entirely when `state=="ok"`, otherwise 40 lines, or the full tail with `?log=1`) |
+| `GET` | `/pins.md` | The remote agent entry point — returns the same content as `<state_dir>/pins.md` as `text/markdown; charset=utf-8` (goes through the same sync path as `GET /api/pins` before rendering). Only the base URL in the instructions line changes to match the request `Host`: `https://<Host as sent>` if `Host` is `*.ts.net`, otherwise the usual `http://127.0.0.1:<port>` for loopback. The on-disk `<state_dir>/pins.md` always uses the loopback base. Host/Origin checks are the same as any other `GET` — §Remote agent entry point |
+| `POST` | `/api/pick` | Drag coordinates (`page`, `x0`, `y0`, `x1`, `y1`, optional `frac` = a list of 4 numbers `[x, y, w, h]` as a fraction of the page — any other shape is `400`; optional `pdf_build` = the build id shown on screen when the drag happened — reverse-maps against that build's PDF. If that build was already removed: `200 {error, pdf_build_gone:true}`; a malformed shape is `400`) → `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` is the selected text, whitespace-normalized and cut to 60 characters; `overlaps` is the overlap with the same file's open pins (§Overlapping pins). A bad input gets `400`; a failed reverse mapping gets `200 {error}`. `levels`·`via`·`score` are explained in [design.md](design.md) §Scope ladder and §Why reverse mapping uses two paths |
+| `GET` | `/api/pins` | The list of open pins (JSON). Each record gets `rev`·`rel` (§Overlapping pins) and `est` (boolean, build-sync §Position estimation) filled in — `rel`·`est` are computed fields and are not stored. `?all=1` includes closed pins too |
+| `GET` | `/api/pins/{id}` | A single pin `{pin}` — same shape as one item from `GET /api/pins?all=1` (full thread, computed fields included). `404` if it doesn't exist |
+| `POST` | `/api/pins/{id}/reply` | Adds a reply `{"text", "mentions"?}` → `{ok, pin, msg}` — §Threads |
+| `POST` | `/api/pins/{id}/confirm` | Pending review → done (people only, otherwise `403`) → `{ok, pin, state}` — §Pending review |
+| `GET` | `/sw.js` | The service worker for browser notifications (`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, scope `/`). Has no `fetch` handler — it never caches app data |
+| `GET` | `/api/people` | @mention candidates: `{people:[{login,name,pic?,last_seen?}], me}` — §@mentions, people, and events. Read-only |
+| `GET` | `/api/pins/dropped` | The list of dropped pins → `{dropped: [...]}`, dumping `pins.dropped.jsonl` as-is, ordered by `dropped_at` (no computed fields, no write side effects). Used by the viewer's collapsed "N dropped pins" list, and by the notification logic that distinguishes "done" from "dropped" when a pin vanishes from the open list (build-sync §Auto-sync) |
+| `GET` | `/pdf?build=<pages_build>` | Returns the PDF that matches that build's page images (`pages-<build>/<main>.pdf`) as `application/pdf` (`Cache-Control: private, max-age=600`). Used by the viewer's vector rendering ([design.md](design.md) §Vector rendering). Omitting `build` means the current build. A malformed name, an already-removed build, or a directory with no PDF gets `404 {error, pdf_build_gone, pages_build}` — it never falls back to `build/` or another build (a mismatch with the on-screen page images would break the coordinates). `Range` requests are not honored (the whole file is always sent). Host/Origin checks are the same as any other `GET` |
+| `GET` | `/vendor/pdfjs/<file>.mjs` | Serves the PDF.js bundle used by the viewer (`pdf.min.mjs`·`pdf.worker.min.mjs`) as `text/javascript; charset=utf-8` (`Cache-Control: public, max-age=86400`; the viewer appends `?v=<version>` to bust the cache). Only accepts a single-segment `.mjs` filename — subpaths, `..`, dotfiles, `%`-encoding, symlinks pointing outside the directory, and non-`.mjs` files (`LICENSE`·`README.md`) all get `404`. The vendored PDF.js ships inside the package at `src/limn/vendor/pdfjs/` and is served by default; `--pdfjs-dir` ([operations.md](operations.md) §Command-line arguments) overrides the directory. Provenance and version are in [`vendor/pdfjs/README.md`](../src/limn/vendor/pdfjs/README.md). Host/Origin checks are the same as any other `GET` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | A source-line snippet (capped at 80 lines). `&levels=1` also returns the scope ladder anchored on that range. Outside the manuscript tree or a malformed range gets `400` |
+| `GET` | `/api/overlaps?file=&lo=&hi=` | Overlap between that range (a pre-save selection) and open pins: `{overlaps}` — the viewer no longer calls this (§Overlapping pins), it is kept for agents and older viewer builds |
+| `POST` | `/api/pin` | Creates a new pin → `{id}`. The stored-field allowlist is: `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. Optional `kind_req`·`mentions` (hint)·`assignee` (owner, §@mentions, people, and events). If `pdf_build` is omitted (an agent's `curl`), it is stamped with the current build |
+| `POST` | `/api/pins/{id}/edit` | In-place edit — §Editing a pin, below |
+| `POST` | `/api/pins/{id}/close` | Closes one pin (`done: true`, `closed_by`). If an agent closes it, it goes to pending review (`review: true`); if a tailnet person closes it, it's done — §Pending review. Optional body `{"reply", "ref", "review"}` — §Leaving a reason when closing, below. The record stays around (it drops out of the open table in `<state_dir>/pins.md` and only shows up in the header count — §pins.md format) → `{ok, pin}`. If the id doesn't exist: `200 {"ok": false, "pin": null}` (same for reopen). **Closing an already-closed pin again returns `{ok: true, pin}` unchanged, without touching any field** (not even `rev`) — §Leaving a reason when closing |
+| `POST` | `/api/pins/{id}/reopen` | Reverts a closed pin (`reopened_by`). Clears `close_reply`/`close_ref`·`review`·`confirmed_*` if present (a new close will fill them in again). Optional body `{"reason"}` is recorded in the thread → `{ok, pin, state}` |
+| `POST` | `/api/pins/{id}/drop` | Removes a pin from the list into `pins.dropped.jsonl` (a mis-placed pin, `dropped_by`) → `{ok}`. A missing id gets `200 {"ok": false}` |
+| `POST` | `/api/pins/{id}/restore` | Restores a dropped pin under the same id (works even after a server restart, `restored_by`) → `200 {ok, pin}` / `404` (no drop record) / `409` (an id collision) |
+| `POST` | `/api/pins/{id}/claim` | Sets or extends the in-progress marker (if the same identity) — §In-progress marker. Optional body `{"eta_min": 1..240, "ttl_min": 1..120}` (non-integer or below 1 is `400`; above the cap is clamped to the cap) → `{ok, pin, ttl_min_applied, eta_min_applied?}`. If another identity already holds a valid claim: `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. A closed pin: `409 {"error":"done","pin":...}`. A missing id: `200 {"ok": false}` |
+| `POST` | `/api/pins/{id}/unclaim` | Clears the in-progress marker — independent of the requester's identity (no permission check, an attribution-only trust model). → `{ok, pin}`. A missing id: `200 {"ok": false}` |
+| `POST` | `/api/clear` | Archives everything (`pins_<timestamp>.jsonl.bak`; a second clear in the same second gets `pins_<timestamp>-1.jsonl.bak`, and so on) and empties the store — a bulk reset. Id numbering continues from where it left off. **Agents must never call this** |
+| `POST` | `/api/rebuild` | Rebuilds the PDF (synchronous) — build-sync §Rebuild. The response includes `head` (the short hash of the built commit, on success only) and `pull` (only with `--git-pull`, build-sync §`--git-pull`). `log` follows build-sync §Trimming agent responses |
+| `POST` | `/api/rebuild?async=1` | Rebuilds the PDF (asynchronous) — once the build lock is acquired, the actual build runs in a daemon thread and this returns `202 {"state":"running"}` immediately. Already running: `409 {"state":"running","busy":true}`. Poll `GET /api/build` for progress (build-sync §Asynchronous rebuild) |
+| `POST` | `/api/rebuild?log=1` / `GET /api/build?log=1` | Turns off build-sync §Trimming agent responses and returns the full log tail (4000 characters) either way. The viewer always sends this flag for its error panel |
 
-## 비교 PDF 실행과 캐시
+## Comparison PDF runs and caching
 
-비교는 선택 커밋의 **첫 부모 → 선택 커밋**이다. 합병 커밋도 첫 부모를 쓴다. 첫 커밋은 `422 reason:no_parent`다. Git 객체에서 빌드 루트의 두 스냅샷을 만들며 미커밋 수정은 포함하지 않는다. 과거 커밋에 현재 메인 경로가 없으면 `missing_main`으로 실패한다. 이름 변경 전 경로를 추측하지 않는다.
+The comparison is **the selected commit's first parent → the selected commit**. A merge commit also uses its first parent. The first commit in the repository is `422 reason:no_parent`. Both snapshots are built from Git objects at the build root; uncommitted changes are never included. If the current main path didn't exist at a past commit, it fails with `missing_main`. Renamed-file paths are never guessed at.
 
-Linux `bwrap`, `latexdiff`, `latexmk`가 필요하다. 실행 파일은 `/usr` 아래 시스템 설치만 허용한다. 홈·원본 저장소·네트워크를 노출하지 않는 bwrap 격리에서 `latexdiff --flatten --math-markup=off`와 `latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error`를 실행한다. 격리 실행이 불가능하면 실패하며 격리 없는 재시도는 하지 않는다. 현재 비교 엔진은 pdfLaTeX다. XeLaTeX/LuaLaTeX 전용 원고는 소스 변경사항으로 확인한다. kotex 등 원고 패키지를 임의로 제거하지 않는다.
+Requires `bwrap`, `latexdiff`, and `latexmk` on Linux. Only system-installed executables under `/usr` are allowed. `latexdiff --flatten --math-markup=off` and `latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error` run inside a bwrap sandbox that exposes neither the home directory, the original repository, nor the network. If sandboxed execution isn't available, it fails — there is no unsandboxed retry. The current comparison engine is pdfLaTeX; XeLaTeX/LuaLaTeX-only manuscripts are confirmed against source changes. Manuscript packages such as kotex are never stripped arbitrarily.
 
-`input/include/subfile` 등은 각 Git 스냅샷에서 펼친다. 포함 파일이 없으면 비교 PDF를 성공 처리하지 않는다. 파일마다 64 MiB, 스냅샷마다 256 MiB·4,000개, PDF는 32 MiB로 제한한다. 심링크·gitlink·경로 이탈은 거부한다. 두 프로세스 파이프의 합은 기본 8 MiB까지 읽고, Git 사본은 각각 60초, latexdiff는 60초, latexmk는 서버 `--timeout`과 180초 중 작은 값으로 제한한다. 시간 초과·출력 초과 시 프로세스 그룹을 종료한다.
+`input`/`include`/`subfile` and similar are flattened within each Git snapshot. If an included file is missing, the comparison PDF is not treated as a success. Limits: 64 MiB per file, 256 MiB and 4,000 files per snapshot, 32 MiB per PDF. Symlinks, gitlinks, and path escapes are rejected. The combined output of both process pipes is capped at 8 MiB by default; Git checkouts get 60 seconds each, latexdiff gets 60 seconds, and latexmk gets the smaller of the server's `--timeout` and 180 seconds. Timing out or exceeding the output cap kills the whole process group.
 
-비교 상태는 문서별 `<state>/revisions/`에 보존한다. 키에는 저장소·빌드 루트·메인 경로·두 전체 SHA·엔진·구현 버전이 포함된다. 성공 PDF와 상태를 완료 뒤 확정하고 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다. 프로세스 전체에서 최대 두 작업, 동일 문서 상태 폴더에서 최대 한 작업을 허용한다. 같은 작업의 중복 요청은 기존 상태를 반환하고 다른 작업으로 자리가 찼으면 `409 reason:busy`다. 문서별 캐시는 최대 여섯 비교, 24시간이며 다음 요청 때 정리한다. 도중 재시작한 작업은 다음 요청에서 다시 만든다. 실패한 작업은 POST로 재시도할 수 있다.
+Comparison state is kept per document under `<state>/revisions/`. The cache key includes the repository, build root, main path, both full SHAs, the engine, and the implementation version. A successful PDF and its state are committed only once the run finishes; the manuscript's `pages.cur`, `builds.json`, and pins are never touched. At most two comparisons run at once process-wide, and at most one per document's state folder. A duplicate request for the same job returns the existing state; if another job already holds the slot, it's `409 reason:busy`. Each document's cache holds at most six comparisons, for 24 hours, cleaned up on the next request. A job interrupted mid-run is rebuilt on the next request. A failed job can be retried with a new POST.
 
-경고는 실패와 구분한다. 삭제 문장이 옛 라벨을 참조해 `??`가 생길 수 있고, 수식 내부·같은 파일명의 그림 바이너리 변경은 강조되지 않을 수 있다. 서지·스타일·주석만 바뀐 경우 본문에 강조가 없을 수 있다. `warnings`를 표시하고 원래 소스 diff 경로를 함께 제공한다. 서버 파일의 `build.log`는 마지막 8,000자만 보존하며 HTTP 응답에는 로그 전체를 노출하지 않는다.
+Warnings are distinguished from failures. A deleted sentence that referenced an old label can produce `??`; changes inside math, or to a figure binary with the same filename, may not be highlighted. Bibliography-, style-, or comment-only changes may show no highlighting in the body text. `warnings` is surfaced alongside the plain source-diff path as a fallback. The server-side `build.log` keeps only the last 8,000 characters and the HTTP response never exposes the full log.
 
-## 핀 수정 (`/api/pins/{id}/edit`)
+## Editing a pin (`/api/pins/{id}/edit`)
 
 ```json
-{"note": "고친 메모", "lo": 185, "hi": 262, "scope": "env2", "kind": "env:minipage", "base_rev": 3}
+{"note": "revised note", "lo": 185, "hi": 262, "scope": "env2", "kind": "env:minipage", "base_rev": 3}
 ```
 
-- `base_rev` 는 필수다 — 수정하려는 핀을 읽을 때 받은 `rev`. 다르면 `409 {"error":"conflict","pin":<최신>}` 이고 아무것도 바뀌지 않는다. 에이전트가 먼저 닫았거나 자동 줄 맞춤이 옮긴 핀을 옛 `lo`/`hi` 로 조용히 덮어쓰지 않기 위해서다. `409` 를 받으면 최신 `pin` 을 보고 다시 보낸다.
-- 위치를 통째로 바꿀 때는 `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build}` 를 보낸다(위치 다시 잡기). `pdf_build` 는 `loc` 에 `frac` 이 있을 때만 바뀐다(없으면 pick 응답 값, 그것도 없으면 지금 빌드). 메모·`note_append`·`lo`/`hi` 만 고치는 편집은 `pdf_build` 를 건드리지 않는다. 필수는 `file`·`lo`·`hi` 다. `loc` 에 없는 `page`·`frac` 은 기존 값을 두고, `kind` 가 없으면 `lines` 가 된다(나머지 위치 필드는 지워진다). id·메모·작성자는 그대로다.
-- 범위가 바뀌면 `anchor` 를 새로 떠고 `stale`/`sync` 를 지운다 — `stale` 핀도 이 경로로 고친다.
-- 닫힌 핀은 메모만 고칠 수 있다. 범위·위치를 보내면 `409 {"error":"done"}`.
-- 성공하면 `edited_at`·`edited_by` 가 기록되고 `rev` 가 1 오른다.
-- `note_append`(빈 문자열·공백만은 `400`, 개별 조각은 ≤2000자)는 `base_rev` 없이도 받는다 — `note += "\n(추가 HH:MM) " + note_append`. 합친 뒤 길이가 메모 상한(`NOTE_MAX`, 4000자)을 넘으면 `400` 이고 아무것도 바뀌지 않는다(개별 조각이 2000자 이하여도 기존 메모와 합치면 넘을 수 있다). 겹친 핀에 "덧붙이기"로 쓸 때, 매번 최신 `rev` 를 먼저 조회하지 않아도 되게 하기 위해서다(§겹친 핀). 되돌리려면 응답의 `pin.rev` 를 `base_rev` 로 삼아 `{"note": <이전 note>}` 를 다시 보낸다.
+- `base_rev` is required — the `rev` you got when you read the pin you're about to edit. If it doesn't match, `409 {"error":"conflict","pin":<latest>}` and nothing changes. This exists so an agent can't silently overwrite a pin that another agent already closed, or that line-resync already moved, using stale `lo`/`hi`. On `409`, look at the latest `pin` in the response and resend.
+- To replace the location wholesale, send `loc: {file, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, scope, pdf_build}` (relocating). `pdf_build` only changes when `loc` includes `frac` (otherwise it's the pick response's value, or failing that, the current build). An edit that only touches the note·`note_append`·`lo`/`hi` leaves `pdf_build` alone. `file`·`lo`·`hi` are required. `page`·`frac` missing from `loc` keep their existing values; a missing `kind` becomes `lines` (the remaining location fields are cleared). The id, note, and author are untouched.
+- When the range changes, `anchor` is recomputed and `stale`/`sync` are cleared — this is also how a `stale` pin gets fixed.
+- A closed pin can only have its note edited. Sending a range or location change gets `409 {"error":"done"}`.
+- On success, `edited_at`·`edited_by` are recorded and `rev` increments by 1.
+- `note_append` (empty or whitespace-only is `400`; each chunk is capped at 2000 characters) is accepted without `base_rev` — `note += "\n(added HH:MM) " + note_append`. If the combined length exceeds the note cap (`NOTE_MAX`, 4000 characters), it's `400` and nothing changes (individual chunks under 2000 characters can still overflow once merged with the existing note). This exists so an agent "appending" to an overlapping pin doesn't have to fetch the latest `rev` every time (§Overlapping pins and appending). To undo it, resend `{"note": <previous note>}` using the response's `pin.rev` as `base_rev`.
 
-## 닫을 때 사유 남기기 (`/api/pins/{id}/close`)
+## Leaving a reason when closing (`/api/pins/{id}/close`)
 
 ```bash
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
   -H 'Content-Type: application/json' \
-  -d '{"reply": "제목을 …로 바꿈", "ref": "PR #227"}'
+  -d '{"reply": "Changed the title to …", "ref": "PR #227"}'
 ```
 
-- 둘 다 선택이다. **에이전트는 무엇을 고쳤는지와 PR 번호를 남긴다** — `reply` 에 무엇을 고쳤는지(≤500자), `ref` 에 참조(PR 번호 등, ≤80자). 나중에 공저자가 닫힌 핀을 봤을 때 왜 닫혔는지 다시 원고를 뒤지지 않아도 된다. 본문이 없거나 비어 있으면(빈 문자열·공백만) 기존과 같이 동작한다 — 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
-- 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드와 마찬가지로 뷰어에서 `esc()` 를 거쳐 렌더된다(이스케이프).
-- 성공하면 핀에 `close_reply`/`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI 가 묶어 보일 수 있다.
-- **이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다** — `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref` 모두 첫 닫기 값 그대로고, 두 번째 호출의 `reply`/`ref` 는 버려진다(적용되지 않는다). 두 번째 닫기가 `done_at`·`closed_by` 를 덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막기 위해서다. **reply 를 새로 남기려면 `/reopen` 으로 한 번 열고 다시 `/close` 한다** — `reopen` 이 옛 `close_reply`/`close_ref` 를 지우므로 다음 닫기가 새 사유로 채운다.
-- 에이전트의 `curl` 은 신원 헤더가 없으므로 `closed_by` 가 `로컬/에이전트` 로 남는다.
+- Both are optional. **Agents should leave what they changed and a PR number** — `reply` for what was fixed (≤500 characters), `ref` for a reference (a PR number, etc., ≤80 characters). This means a co-author looking at a closed pin later doesn't have to dig back through the manuscript to see why it was closed. An empty or missing body (empty string, or whitespace-only) behaves exactly as before — an old agent's bodyless `curl -X POST …/close` still goes through unchanged.
+- A non-string value, or one over the cap, is `400` and nothing changes. Like every other field, the value is rendered through `esc()` in the viewer (escaped).
+- On success, it's stored on the pin as `close_reply`/`close_ref` and shown on the closed card. Closed pins that share a `ref` may be grouped visually by the UI.
+- **Closing an already-closed pin again changes nothing** — `done_at`·`closed_by`·`rev`·`close_reply`·`close_ref` all keep their first-close values, and the second call's `reply`/`ref` are discarded (never applied). This exists because a second close used to overwrite `done_at`·`closed_by`, erasing who closed it first (an observed defect). **To leave a new reply, reopen once via `/reopen` and close again** — `reopen` clears the old `close_reply`/`close_ref`, so the next close fills in a fresh reason.
+- An agent's `curl` has no identity headers, so `closed_by` is recorded as `local/agent` (`로컬/에이전트`).
 
-## 스레드 (`/api/pins/{id}/reply`)
+## Threads (`/api/pins/{id}/reply`)
 
-A-DEMO 핀 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었는데(#30 '구간이 0을 포함한다는 게 뭐지?' 등) 답을 남길 곳이 닫기 사유 한 칸뿐이라 되물을 수 없었다. 핀마다 선택 필드 `thread` 를 두고 사람·에이전트가 같은 경로로 글을 단다.
+10 of 42 pins (24%) in an early pilot manuscript were questions rather than things to fix (e.g. #30, "what does it mean for the interval to include zero?"), and the only place to answer was the single close-reason field, with no way to ask back. Each pin has an optional `thread` field, and people and agents both post to it the same way.
 
 ```bash
-curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d '{"text": "95% 신뢰구간이다"}'
+curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d '{"text": "it is the 95% confidence interval"}'
 ```
 
-- `text` 는 문자열 1..1000자(앞뒤 공백을 걷은 뒤, CRLF→LF, 줄바꿈·탭 밖의 제어 문자는 뺀다). 틀리면 `400`, 없는 id 는 `200 {"ok": false}`, 답글이 200건이면 `409 {"error":"full"}`.
-- 메시지 `{id, by:{login,name,pic?}, at, text, mentions?, ev?, ref?}`. `id` 는 핀 안에서 1부터 오른다. 상태 전환도 한 줄씩 남는다 — `ev` 가 `close`(글 = 닫기 사유, `ref`), `reopen`(글 = 다시 연 이유), `confirm`. 닫기 사유는 옛 `close_reply`/`close_ref` 에도 그대로 적힌다(옛 뷰어·에이전트 호환).
-- 답글은 상태를 바꾸지 않는다. 질문 핀은 답글을 단 뒤 따로 닫는다.
-- 핀 종류는 `kind_req`(`fix`|`question`, 없으면 fix)다. `POST /api/pin`·`/edit` 이 받는다(`/edit` 는 닫힌 핀에서도 된다). 옛 `kind`(범위 종류)와는 다른 필드다.
+- `text` is a string of 1..1000 characters (leading/trailing whitespace trimmed, CRLF→LF, control characters other than newline/tab stripped). Invalid input is `400`, a missing id is `200 {"ok": false}`, and a 200th reply is `409 {"error":"full"}`.
+- A message looks like `{id, by:{login,name,pic?}, at, text, mentions?, ev?, ref?}`. `id` counts up from 1 within the pin. State transitions also leave a line in the thread — `ev` is `close` (text = close reason, `ref`), `reopen` (text = reopen reason), or `confirm`. The close reason is still mirrored into the legacy `close_reply`/`close_ref` fields (for older viewers/agents).
+- A reply never changes state. A question pin is closed separately, after a reply is added.
+- The pin kind is `kind_req` (`fix`|`question`, defaults to `fix`). Accepted by `POST /api/pin` and `/edit` (`/edit` accepts it even on a closed pin). This is a different field from the old `kind` (scope kind).
 
-## 검토 대기 (`close` → `review` → `confirm`)
+## Pending review (`close` → `review` → `confirm`)
 
-에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다.
+In an early pilot, 2 of 42 pins (#28, #42) that an agent closed were later reopened by their author, with no record that a person had actually looked at the outcome.
 
-| 전환 | 조건 | 결과 |
+| Transition | Condition | Result |
 | --- | --- | --- |
-| 닫기 | 신원 헤더 없음(로컬 curl·에이전트, 헤더 없는 태그 장치) | `done:true` + `review:true` = **검토 대기** |
-| 닫기 | 테일넷 사람(헤더 있음) | `done:true` = 완료(그 사람이 검토자다) |
-| 닫기 | 본문 `"review": true`/`false` | 그 값을 따른다 — 테일넷 주소로 닫는 원격 에이전트는 `true` 를 보낸다 |
-| `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`). **사람만** 누를 수 있다 — 신원 헤더 없는 요청(에이전트·로컬 curl)은 `403 {"error":"확인은 사람이 합니다"}`(뷰어는 작성자를 권할 뿐, 아무 테일넷 사람이나 누를 수 있다) |
-| `POST /confirm` | 완료 / 열림 / 없음(사람 신원) | 그대로 `{ok:true}`(멱등) / `409 {"error":"open"}` / `200 {"ok":false}` |
-| `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen`(선택 `{"reason"}` ≤1000자가 글) |
+| Close | No identity header (local curl · agent · a tagged device with no header) | `done:true` + `review:true` = **pending review** |
+| Close | A tailnet person (header present) | `done:true` = done (that person is the reviewer) |
+| Close | Body has `"review": true`/`false` | Follows that value — a remote agent closing over a tailnet address sends `true` |
+| `POST /confirm` | Pending review | Clears `review` and records `confirmed_by`·`confirmed_at` (thread `ev:confirm`). **People only** — a request with no identity header (agent, local curl) gets `403 {"error":"확인은 사람이 합니다"}` ("confirmation is done by a person" — the viewer only suggests the author, but any tailnet person can press it) |
+| `POST /confirm` | Done / open / missing (person identity) | Idempotent `{ok:true}` / `409 {"error":"open"}` / `200 {"ok":false}` |
+| `POST /reopen` | A closed pin (pending review or done) | Reopens. Clears `review`·`confirmed_*`·`close_reply`·`close_ref` and adds `ev:reopen` to the thread (optional `{"reason"}` ≤1000 characters as the text) |
 
-- **하위 호환**: 검토 대기가 `done:true` 라서 옛 계약이 그대로 선다 — `GET /api/pins`(열린 핀만)에 없고, `claim` 은 `409 done`, 줄 맞춤·겹침 계산은 건너뛰고, 옛 서버·옛 탭은 완료로 본다. `review` 가 없는 옛 `done:true` 는 완료다. 읽을 때 이관 쓰기를 하지 않는다.
-- 응답과 `GET /api/pins` 항목에는 계산 필드 `state`(`open`|`review`|`done`)가 붙는다(저장하지 않는다). `/api/meta` 는 `n_open`·`n_review`·`n_done`(완료만).
-- 두 번째 닫기는 예전처럼 아무것도 바꾸지 않는다 — 검토 대기 핀을 에이전트가 다시 닫아도 그대로다.
+- **Backward compatibility**: pending review is still `done:true`, so the old contract holds — it's absent from `GET /api/pins` (open pins only), `claim` returns `409 done`, resync and overlap calculations are skipped, and old servers/tabs treat it as done. An old `done:true` with no `review` field is done. Reading never triggers a migration write.
+- Responses and `GET /api/pins` items carry a computed `state` field (`open`|`review`|`done`; not stored). `/api/meta` has `n_open`·`n_review`·`n_done` (done only).
+- A second close still changes nothing, as before — an agent re-closing a pending-review pin leaves it unchanged.
 
-## @태그·사람·이벤트
+## @mentions, people, and events
 
-뷰어 안에서만 부른다. 바깥 알림(GitHub·Telegram·메일)은 보내지 않고, 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
+Only invoked inside the viewer. No outbound notifications (GitHub·Telegram·email) are sent; they're written to `events.jsonl` for later use.
 
-- **사람**(`<state_dir>/people.json`, `{"version":1,"people":[{login,name,pic?,first_seen,last_seen}]}`): 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 또는 쓰기 요청을 보낸 테일넷 사람. 로컬/에이전트는 적지 않는다. 같은 값이면 10분에 한 번만 다시 쓴다(`/api/meta?light=1` 폴링은 쓰지 않는다). `GET /api/people` 은 이것과 핀의 작성자·행위자·스레드 글쓴이를 합친다.
-- **풀기**: 서버가 글에서 `@이름` 을 로그인으로 푼다 — 이름 전체, 로그인, 로그인의 `@` 앞, 겹치지 않는 이름 첫 단어. 대소문자는 가리지 않고 한글 조사(`@Bob님`)는 붙어도 된다. `@` 앞이 글자면(메일 주소) 태그가 아니고, 영문 이름 뒤에 영문이 이어지면(`@Alicex`) 다른 말이다. 뷰어가 고른 로그인은 본문 `mentions`(≤10개)로 오지만 첫 단어가 여럿과 겹칠 때 가르는 힌트일 뿐이다. 글은 `@이름` 그대로 두고 풀린 로그인은 핀(메모) `mentions`·메시지 `mentions` 에 둔다. 글쓴이 자신을 가리키는 @태그(자기 언급)는 항상 뺀다 — 자기 자신을 '부른 핀'으로 만들지 않는다.
-- **사람에게 물은 핀**(담당 `assignee` 가 없는 옛 핀의 추론): 계산 필드 `addressed` = 메모의 `mentions` + 지금 차례(마지막 닫기 뒤, 다시 열렸으면 그 다시 엶부터 — [`design.md`](design.md) §스레드와 검토) 스레드 글의 `mentions`, **질문(`kind_req=question`) 핀에서만** 채워진다. pins.md 번호 칸의 `→ @이름` 이 이것이고, 에이전트는 건너뛴다. 수정 요청(`fix`) 핀의 같은 재료는 `fyi` 필드에 담기고 pins.md 에 `참고 @이름`으로만 보인다 — 건너뛰지 않는다(실측: FYI로 사람을 태그한 수정 요청 핀이 '→ @이름'으로 잡혀 영영 건너뛰었다). 번호 칸 표시 우선순위는 `다시 열림` > `→ @이름` > `질문`.
-- **담당**(`assignee`): 누가 이 핀을 처리하나를 적어 둔 값 — `"agent"` 또는 사람 로그인. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43: 수정 요청 핀 `이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다` 는 서준에게 맡긴 것인데 `참고 @Bob Park` 로 떠 에이전트가 자기 일로 읽었다). `POST /api/pin`·`/edit` 이 받는다 — `"agent"` 이거나 이 뷰어가 아는 사람(`GET /api/people`)의 로그인이 아니면 `400`(한국어 메시지). `/edit` 은 닫힌 핀에서도 받고, 바뀌면 스레드에 `ev:"assign"`(글 `담당: @이름`·`담당: 에이전트`)을 남긴다(만들 때의 담당은 기록하지 않는다). 뷰어는 새 핀에 늘 담당을 적는다(@태그가 없으면 `agent`).
-  - 담당 = 사람 → `addressed = [그 사람]`, pins.md `→ @이름`, 에이전트는 건너뛴다. 그 사람의 [나를 부른 핀]·`나를 부름`. 담당이 된 사람에게 `assigned` 이벤트.
-  - 담당 = `agent` → `addressed = []`, 메모·지금 차례의 @태그는 모두 `fyi`(pins.md `참고 @이름`) — 에이전트가 처리한다.
-  - 필드가 없는 옛 핀 → 아래 추론(질문 핀의 @태그 = `addressed`, 수정 요청 핀의 @태그 = `fyi`) 그대로. 읽을 때 이관 쓰기를 하지 않는다.
-  - 어느 쪽이든 @태그된 사람에게는 `mention` 알림이 간다.
-- **이벤트**(`<state_dir>/events.jsonl`, 한 줄 한 건, 추가 전용): `{seq, type, pin, doc, to:[login], by:{login,name}, at, ts, kind_req?, msg?, excerpt?}`.
+- **People** (`<state_dir>/people.json`, `{"version":1,"people":[{login,name,pic?,first_seen,last_seen}]}`): a tailnet person who opened this viewer (`GET /`, full `/api/meta`) or sent a write request. Local/agent requests are never recorded. The same value is only rewritten once every 10 minutes (`/api/meta?light=1` polling never writes). `GET /api/people` merges this with pin authors, actors, and thread posters.
+- **Resolution**: the server resolves `@name` in text to a login — full name, login, the part of a login before `@`, or the first word of a name if it doesn't collide with another. Case-insensitive, and Korean particles attached to a name (`@Bob님`) are fine. If the character right after `@` is a letter (an email address), it's not a mention; if a Latin name is immediately followed by more Latin letters (`@Alicex`), it's something else. The login the viewer resolves is sent as `mentions` (≤10) in the body, but that's only a disambiguation hint for when the first word matches more than one person. The raw text keeps `@name` as typed; resolved logins go in the pin's `mentions` (note) and the message's `mentions`. A self-mention (mentioning your own author) is always dropped — you never end up on your own "addressed to me" list.
+- **Pins that ask a person something** (inferred for old pins with no `assignee`): the computed field `addressed` = the note's `mentions` + the current turn's thread-message `mentions` (since the last close, or since the last reopen if it was reopened — [`design.md`](design.md) §Threads and review) — filled in **only for question pins** (`kind_req=question`). This is what produces `→ @name` in the pins.md number column, and agents skip it. The same material on a `fix` pin instead lands in the `fyi` field and only shows as `참고 @name` ("for reference") in pins.md — never skipped (observed bug: an FYI mention on a fix pin was read as `→ @name` and permanently skipped).
+- **Assignee** (`assignee`): an explicit value for who handles this pin — `"agent"` or a person's login. Guessing this from mention text used to be ambiguous (from an early pilot, #43: a fix pin reading "does this call actually work, @Bob Park please confirm" was meant for Bob, but showed as `참고 @Bob Park` and the agent read it as its own job). Accepted by `POST /api/pin`·`/edit` — must be `"agent"` or a login this instance knows (`GET /api/people`), otherwise `400` (Korean message). `/edit` accepts it even on a closed pin, and a change adds `ev:"assign"` to the thread (text `담당: @name` / `담당: 에이전트` — "assigned to: …"). The assignee at creation time is not recorded. The viewer always sets an assignee on a new pin (`agent` if no one is @-mentioned).
+  - Assignee = a person → `addressed = [that person]`, pins.md `→ @name`, agents skip it. That person's "pins addressed to me" list · `나를 부름` ("addressed to me"). An `assigned` event goes to the new assignee.
+  - Assignee = `agent` → `addressed = []`, all @-mentions in the note and current turn become `fyi` (pins.md `참고 @name`) — the agent handles it.
+  - An old pin with neither field → falls back to the inference above (a question pin's @-mention = `addressed`, a fix pin's = `fyi`). Reading never triggers a migration write.
+  - Either way, an @-mentioned person gets a `mention` notification.
+- **Events** (`<state_dir>/events.jsonl`, one record per line, append-only): `{seq, type, pin, doc, to:[login], by:{login,name}, at, ts, kind_req?, msg?, excerpt?}`.
 
-  | `type` | 언제 | `to` |
+  | `type` | When | `to` |
   | --- | --- | --- |
-  | `mention` | 메모(저장·수정)·답글·다시 연 이유가 새로 누군가를 부름 | 새로 불린 사람 |
-  | `review_requested` | 핀이 검토 대기로 감 | 작성자 |
-  | `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람(이 글로 새로 불린 사람은 `mention` 하나만) |
-  | `reopened` | 닫힌 핀을 다시 엶 | 작성자 |
-  | `assigned` | 핀을 만들거나 고치며 담당을 사람으로 정함(바뀔 때만) | 새 담당 |
+  | `mention` | A note (save/edit)·reply·reopen reason newly mentions someone | The newly mentioned person |
+  | `review_requested` | A pin goes to pending review | The author |
+  | `replied` | A reply is added | The author + anyone previously mentioned on this pin (someone newly mentioned by this text only gets `mention`) |
+  | `reopened` | A closed pin is reopened | The author |
+  | `assigned` | A pin's assignee is set to a person, on creation or edit (only when it changes) | The new assignee |
 
-  `to` 에서 행위자 자신과 `local` 은 빠지고, 비면 적지 않는다. 핀 쓰기가 커밋된 뒤 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다(앞부분은 그대로 — 추가 전용). 최근 5000건만 남기되 `seq` 는 계속 오른다 — 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
+  The actor themself and `local` are always dropped from `to`; an empty `to` means nothing is recorded. Once a pin write is committed, the whole file is atomically rewritten under the lock (the earlier part is untouched — append-only). Only the most recent 5000 entries are kept, but `seq` keeps counting up — consumers should follow `seq`, not byte offsets.
 
-## 브라우저 알림 커서 (`/api/meta?ev=<seq>`)
+## Browser notification cursor (`/api/meta?ev=<seq>`)
 
-`/api/meta`(라이트 포함)는 늘 `ev_seq`(`events.jsonl` 의 마지막 `seq`)를 싣는다. `ev=<마지막으로 본 seq>` 를 붙이면 그 뒤 이벤트 가운데 `mention`·`review_requested`·`replied`·`reopened` 이고 `to` 에 **지금 요청자**(테일넷 로그인)가 들었으며 행위자가 자기 자신이 아닌 것만 최대 20건을 `events` 로 싣는다(항목에 `doc_name` 을 더한다). 로컬/에이전트 요청은 늘 빈 목록, 정수가 아니면 `400`. 읽기만 한다 — 라이트 폴링의 쓰기 없음 계약 그대로다. 뷰어 쪽 규칙은 [design.md](design.md) §브라우저 알림.
+`/api/meta` (light variant included) always carries `ev_seq` (the last `seq` in `events.jsonl`). Appending `ev=<last seen seq>` returns, as `events` (up to 20, each with `doc_name` added), any subsequent event that is `mention`·`review_requested`·`replied`·`reopened`, has the **current requester** (a tailnet login) in `to`, and wasn't triggered by the requester themself. Local/agent requests always get an empty list; a non-integer value is `400`. Read-only — the light-polling no-write contract still holds. Viewer-side rules are in [design.md](design.md) §Browser notifications.
 
-## 원격 에이전트 진입점 (`GET /pins.md`)
+## Remote agent entry point (`GET /pins.md`)
 
-공저자의 에이전트는 서버 머신에 로그인하지 않는다 — 테일넷 주소로만 닿는다. `GET /pins.md` 는 디스크의 `<state_dir>/pins.md` 를 파일로 열 필요 없이, 지금 요청이 도착한 `Host` 에 맞춘 안내 줄로 같은 내용을 HTTP 로 낸다.
+A co-author's agent never logs into the server machine — it only reaches the instance over a tailnet address. `GET /pins.md` serves the same content as the on-disk `<state_dir>/pins.md`, over HTTP, with instructions matched to the `Host` the request arrived on — no need to open the file on disk.
 
 ```bash
-curl -s https://<기기>.<tailnet>.ts.net:<port>/pins.md
+curl -s https://<device>.<tailnet>.ts.net:<port>/pins.md
 ```
 
-- `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다 — 줄 번호가 최신이다.
-- close 예시의 base URL만 바뀐다: `Host` 가 `*.ts.net` 이면 `https://<Host 그대로, 포트 포함>`, 아니면(루프백) 지금까지의 `http://127.0.0.1:<port>`. 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다(디스크 파일 자체를 읽고 있는 루프백에는 없다 — 이미 그 파일이다).
-- 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base 로 쓴다 — 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
-- Host/Origin 검사는 다른 `GET` 과 같다([operations.md](operations.md) §Host·Origin 검사) — 낯선 Host 는 `403`.
+- Goes through the same sync path as `GET /api/pins` (`snapshot_pins()`) before rendering — line numbers are current.
+- Only the base URL in the close example changes: `https://<Host as sent, port included>` if `Host` is `*.ts.net`, otherwise (loopback) the usual `http://127.0.0.1:<port>`. When remote, the instructions paragraph gets one extra line: `원격: curl -s <base>/pins.md` (missing on loopback, since it's already reading that file directly).
+- The on-disk `<state_dir>/pins.md` always uses the loopback base, regardless of this request — a different session reading the file directly sees the same instructions.
+- Host/Origin checks are the same as any other `GET` ([operations.md](operations.md) §Host/Origin checks) — an unrecognized Host gets `403`.
 
-## 처리 중 표시 (`/api/pins/{id}/claim`, `/api/pins/{id}/unclaim`)
+## In-progress marker (`/api/pins/{id}/claim`, `/api/pins/{id}/unclaim`)
 
-두 에이전트(작성자 쪽·공저자 쪽)가 같은 핀을 동시에 고칠 수 있다. `claim` 은 **잠금이 아니라 TTL 있는 낙관적 표시**다 — 다른 사람이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다. 협업은 claim 먼저·`처리 중(…)` 건너뛰기 관례에 기댄다(SKILL.md 핀 처리 절차). **claim 은 고치기 직전에 그 핀만 건다** — 한꺼번에 잡으면 손대지 않은 핀까지 잠긴다(실측 2026-09-23: 23건을 `ttl_min` 480 으로 한꺼번에 잡았고, 뷰어의 `~04:02` 가 예상 완료처럼 읽혔다).
+Two agents (the author's side and a co-author's side) can end up working the same pin at the same time. `claim` is a **TTL-bound, optimistic marker — not a lock**. It doesn't stop someone else from closing that pin or force-reclaiming it. Collaboration relies on the convention of claiming right before you start, and skipping anything showing `처리 중(…)` ("in progress …") (SKILL.md's pin-processing procedure). **Claim only the pin you're about to fix, right before you fix it** — claiming a batch locks pins you haven't touched yet (observed 2026-09-23: 23 pins were claimed at once with `ttl_min` 480, and the viewer's `~04:02` read like an ETA for all of them).
 
 ```bash
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: application/json' -d '{"eta_min": 15}'
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 ```
 
-- 선택 본문 두 칸. 정수가 아니거나 1 보다 작으면 `400` 이고 아무것도 바뀌지 않는다. **상한을 넘는 값은 거부하지 않고 상한으로 깎는다**(`ttl_min` 480 → 120, `eta_min` 300 → 240) — 옛 절차대로 `ttl_min` 480 으로 잡아 둔 에이전트가 같은 값으로 연장하다 `400` 을 받아 작업이 깨지지 않게 하려는 하위 호환이다. 응답의 `ttl_min_applied`(늘)·`eta_min_applied`(`eta_min` 을 보냈을 때)가 실제로 적용한 값이다.
+- Two optional body fields. Non-integer or below 1 is `400` and nothing changes. **A value above the cap is clamped, not rejected** (`ttl_min` 480 → 120, `eta_min` 300 → 240) — this exists so an agent following the old convention of claiming with `ttl_min` 480 doesn't get a `400` and break its run when it tries to extend with the same value. `ttl_min_applied` (always)·`eta_min_applied` (when `eta_min` was sent) in the response are the values actually applied.
 
-  | 칸 | 범위 | 뜻 |
+  | Field | Range | Meaning |
   | --- | --- | --- |
-  | `eta_min` | 1..240 | **처리 예상 시간(견적)**. 레코드에 `eta_ts = 지금 + eta_min×60`(epoch 초)으로 저장한다. 견적 기준은 SKILL.md 핀 처리 4단계 |
-  | `ttl_min` | 1..120 | **잠금 자동 해제**까지의 시간(안전장치). 생략하면 `eta_min` 이 있을 때 `min(120, max(30, eta_min×2))`, 없으면 120. 상한은 480 에서 120 으로 낮췄다 — 멈춘 에이전트가 한나절 핀을 쥐지 않게 |
+  | `eta_min` | 1..240 | **Estimated time to fix**. Stored on the record as `eta_ts = now + eta_min×60` (epoch seconds). See SKILL.md's pin-processing step 4 for how to estimate |
+  | `ttl_min` | 1..120 | Time until the **lock auto-releases** (a safety net). If omitted: `min(120, max(30, eta_min×2))` when `eta_min` is given, otherwise 120. The cap was lowered from 480 to 120 — so a stalled agent can't hold a pin for half a day |
 
-- 신원은 작성자 귀속과 같은 방식(`Tailscale-User-Login` 또는 헤더 없으면 `로컬/에이전트`)으로 정한다. **같은 신원이 다시 걸면 연장**이다 — `claim_until` 을 지금부터 다시 재고, `eta_min` 을 주면 `eta_ts` 도 지금부터 새 견적으로 바꾼다(안 주면 앞 견적을 둔다). 시작 시각(`claimed_at`·`claim_ts`)은 그대로, `rev`+1. **다른 신원이 유효한(만료 안 된) claim 을 쥐고 있으면 `409`** — `{"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 새로 잡으면(만료된 남의 claim 포함) 옛 `eta_ts` 는 지운다.
-- `claim_until`·`claim_ts`·`eta_ts` 는 epoch 초다 — 브라우저 시간대와 무관하게 비교한다(build-sync §위치 추정과 같은 이유). 이름이 `*_at` 이 아닌 것은 일부러다: 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 보므로, 숫자 `*_at` 을 쓰면 이 필드를 모르는 옛 서버가 그 레코드를 깨진 줄로 버린다. 만료된 claim 은 모든 표시(`<state_dir>/pins.md`·뷰어 카드·충돌 판정)에서 없는 것으로 본다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
-- `claim_ts` 가 없는 옛 claim 은 `GET /api/pins` 가 `claimed_at`(서버 현지 시각 문자열)을 epoch 로 풀어 계산 필드 `claim_ts` 로 싣는다(저장하지 않는다).
-- 닫힌 핀에 `claim` 을 걸면 `409 {"error":"done","pin":...}`. 없는 id 는 기존 관례대로 `200 {"ok": false}`.
-- `unclaim` 은 요청자 신원과 무관하게 지운다 — 이 스킬의 신뢰 모델은 테일넷 구성원을 막지 않고 귀속만 기록하므로([design.md](design.md) §작성자 귀속), 처리 중 표시도 권한 검사 없이 풀 수 있다.
-- `close`·`drop` 은 claim 필드를 함께 지운다 — 닫힌·삭제된 핀에 처리 중 표시가 남지 않는다. 다른 사람이 claim 한 핀을 닫는 것 자체는 막지 않는다. 그래서 에이전트는 처리를 포기하거나 사용자에게 넘길 때만 `unclaim` 을 부른다.
-- `<state_dir>/pins.md` 번호 칸에 유효한 claim 이 있으면 `처리 중(<이름>, 약 15분)` 이 붙는다 — 남은 견적을 5분 단위로 올린 값, 넘겼으면 `예상 초과`, 견적 없이 잡았으면 `처리 중(<이름>)`(§pins.md 형식).
-- 뷰어 카드는 머리에 호박색 점을 두고 배지를 이렇게 보인다. 분과 시각은 모두 5분 단위로 올린다(견적은 대략이다). 시각은 보는 기기의 현지 시각이고, 30초마다 다시 센다.
+- Identity is resolved the same way as author attribution (`Tailscale-User-Login`, or `local/agent` (`로컬/에이전트`) with no header). **The same identity claiming again extends it** — `claim_until` is recomputed from now, and if `eta_min` is given, `eta_ts` is recomputed from now with the new estimate (kept as-is if not given). The start time (`claimed_at`·`claim_ts`) is unchanged, `rev`+1. **A different identity holding a valid (non-expired) claim gets `409`** — `{"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. A fresh claim (including reclaiming someone else's expired one) clears any old `eta_ts`.
+- `claim_until`·`claim_ts`·`eta_ts` are epoch seconds — compared independent of the browser's time zone (same reasoning as build-sync §Position estimation). The names deliberately avoid `*_at`: record validation (`valid_rec`) treats `*_at` as a string timestamp, so a numeric `*_at` field would make an old server that doesn't know about it discard the record as corrupt. An expired claim is treated as absent everywhere it's shown (`<state_dir>/pins.md`, viewer cards, conflict checks). The stored value itself is only cleaned up on the next write.
+- An old claim with no `claim_ts` has `GET /api/pins` parse `claimed_at` (a server-local time string) into epoch and expose it as the computed field `claim_ts` (not stored).
+- Claiming a closed pin gets `409 {"error":"done","pin":...}`. A missing id follows the existing convention, `200 {"ok": false}`.
+- `unclaim` clears it regardless of the requester's identity — this skill's trust model doesn't restrict tailnet members, it only records attribution ([design.md](design.md) §Author attribution), so the in-progress marker can also be cleared without a permission check.
+- `close`·`drop` also clear the claim fields — a closed or dropped pin never keeps an in-progress marker. Closing a pin someone else has claimed is not itself blocked. This is why an agent only calls `unclaim` when it's giving up on a pin or handing it off.
+- `<state_dir>/pins.md`'s number column shows `처리 중(<name>, 약 15분)` ("in progress (name, ~15 min)") when there's a valid claim — the remaining estimate rounded up to 5 minutes, `예상 초과` ("over estimate") if it's past due, or just `처리 중(<name>)` if claimed with no estimate (§pins.md format).
+- The viewer card shows an amber dot in the header and a badge like this. Minutes and times are always rounded up to 5 minutes (estimates are approximate). The time shown is the viewing device's local time, recomputed every 30 seconds.
 
-  | 상태 | 배지 |
+  | State | Badge |
   | --- | --- |
-  | 견적 안 | `처리 중 · 약 15분 · 20:40쯤` |
-  | 견적 초과 | `예상보다 늦어짐 (+5분)`(초과 분) |
-  | 견적 없는 claim | `처리 중 · 20:02부터 (23분째)` |
+  | Has an estimate | `처리 중 · 약 15분 · 20:40쯤` ("in progress · ~15 min · around 20:40") |
+  | Past the estimate | `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)") (minutes over) |
+  | Claimed with no estimate | `처리 중 · 20:02부터 (23분째)` ("in progress · since 20:02 (23 min so far)") |
 
-  잠금 자동 해제 시각(`claim_until`)은 배지에 쓰지 않고 설명(툴팁)에만 둔다 — 예상 완료로 읽혔다. [풀기] 버튼(unclaim)이 함께 뜬다 — **뷰어에는 claim 을 거는 버튼이 없다**(에이전트 전용 동작이다).
+  The lock auto-release time (`claim_until`) is never shown on the badge, only in the tooltip — it used to read as the expected completion time. An [Unclaim] button appears alongside — **the viewer has no button to set a claim** (that's agent-only).
 
-## 겹친 핀과 덧붙이기 (자동 병합 없음)
+## Overlapping pins and appending (no automatic merging)
 
-같은 파일의 열린 핀 두 개가 겹치면(한쪽이 다른 쪽 범위 안에 들거나 일부만 겹치면) `GET /api/pins`·`POST /api/pick` 응답에 계산 필드 `rel`/`overlaps` 가 붙는다 — **저장하지 않는다**, 요청마다 다시 계산한다.
+When two open pins on the same file overlap (one falls inside the other's range, or they partially overlap), `GET /api/pins` and `POST /api/pick` responses carry the computed fields `rel`/`overlaps` — **never stored**, recomputed on every request.
 
-- `rel: [{"id", "rel": "inside"|"contains"|"partial"}]` — 그 핀을 기준으로 다른 핀과의 관계(저장된 핀끼리). 범위가 완전히 같으면 id 가 작은 쪽을 `contains`(바깥)로 본다.
-- `overlaps`(pick·`/api/overlaps` 응답): `[{"id","lo","hi","rel": "equal"|"inside"|"contains"|"partial"}]` — 저장 전 선택 기준의 관계(`selection_rel`). `equal` = 범위가 같음(같은 문단·환경을 다시 찍는 가장 흔한 중복), `inside` = 선택이 핀 안, `contains` = 선택이 핀을 감쌈, `partial` = 걸침.
-- **범위가 바뀔 때마다 다시 센다.** 뷰어는 드래그·단계 전환·한 줄 버튼 때마다 이 탭의 열린 핀 목록으로 같은 규칙(`overlapsFor`/`selRel`, 회귀 테스트가 서버 구현과 대조)을 돌린다. pick 순간에만 세면 [문단] 단계로 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장됐다(실측). 서버가 본 겹친 핀이 이 탭 목록에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다.
-- 네 관계 모두 배너 대상이다. 대표 하나를 고른다: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id 가 가장 작은 것). 문구로 관계를 밝힌다 — `열린 핀 #4와 같은 범위입니다 (L405-L406)` / `… #4 범위 안입니다` / `… #4를 감쌉니다` / `… #4와 일부 겹칩니다`, 그리고 `[#4 메모에 덧붙이기] [별도 핀으로 저장]`.
-- 뷰어는 자동으로 합치지 않는다. "덧붙이기"는 `note_append` 로 기존 핀에 붙이고 지금 선택은 새 핀으로 만들지 않는다. [별도 핀으로 저장]은 **그 핀과의 그 관계**만 끈다 — 범위를 바꿔 관계가 달라지면 다시 알리고, 다음 드래그에서는 초기화한다.
-- `<state_dir>/pins.md` 번호 칸의 `#N 범위 안`·`#N과 같은 범위`(N 과 한 번에 고치고 둘 다 닫는다)·`#N과 일부 겹침`(참고만)이 이 계산의 대표값이다(§pins.md 형식). 뷰어 카드 배지도 같은 말·같은 규칙이다.
-- 뷰어 작성 패널의 겹침 배너 문구: `열린 핀 #4와 같은 범위입니다` / `… #4 범위 안입니다` / `… #4를 감쌉니다` / `… #4와 일부 겹칩니다`(조사는 숫자 읽기로 가린다).
+- `rel: [{"id", "rel": "inside"|"contains"|"partial"}]` — that pin's relationship to other pins (both already saved). If the ranges are exactly equal, the lower id is treated as `contains` (the outer one).
+- `overlaps` (pick·`/api/overlaps` response): `[{"id","lo","hi","rel": "equal"|"inside"|"contains"|"partial"}]` — the relationship of a pre-save selection to existing pins (`selection_rel`). `equal` = identical range (the most common form of duplicate — re-picking the same paragraph or environment), `inside` = the selection is inside an existing pin, `contains` = the selection wraps an existing pin, `partial` = they overlap partway.
+- **Recomputed every time the range changes.** The viewer runs the same rule (`overlapsFor`/`selRel`, checked against the server implementation by a regression test) against this tab's open-pin list on every drag, level change, and one-line-step button. Computing it only once at pick time meant switching to the [paragraph] level to reproduce an existing pin's exact range didn't trigger the banner, and a duplicate pin got saved silently (observed). If a pin the server sees isn't in this tab's list (someone else just saved it), the list is refetched.
+- All four relationships trigger the banner. One representative is chosen: same range > inside (narrowest containing pin) > contains (widest contained pin) > partial (lowest id). The wording states the relationship — `열린 핀 #4와 같은 범위입니다 (L405-L406)` ("same range as open pin #4") / `… #4 범위 안입니다` ("… inside #4's range") / `… #4를 감쌉니다` ("… contains #4") / `… #4와 일부 겹칩니다` ("… partially overlaps #4"), with `[#4 메모에 덧붙이기] [별도 핀으로 저장]` ("[append to #4's note] [save as a separate pin]").
+- The viewer never merges automatically. "Append" uses `note_append` on the existing pin, and the current selection is never turned into a new pin. "Save as a separate pin" only silences **that relationship with that pin** — if the range changes and the relationship changes, it warns again, and it resets on the next drag.
+- `<state_dir>/pins.md`'s number column shows `#N 범위 안` ("inside #N's range") · `#N과 같은 범위` ("same range as #N", fixed and closed together with N) · `#N과 일부 겹침` ("partially overlaps #N", for reference only) as the representative value of this same computation (§pins.md format). The viewer card badge uses the same wording and the same rule.
+- The composer panel's overlap banner wording: `열린 핀 #4와 같은 범위입니다` / `… #4 범위 안입니다` / `… #4를 감쌉니다` / `… #4와 일부 겹칩니다` (the particle is chosen based on how the number is read aloud).
 
-## 보기 전용 PDF 문서의 pick·핀
+## Pick and pins for view-only PDF documents
 
-`kind:"pdf"` 문서는 SyncTeX 이 없다. `POST /api/pick`(`doc` 이 보기 전용)은 좌표를 받아 `{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}` 를 돌려준다 — `quote` 는 영역 글자(pdftotext, 공백 정규화, 160자), `frac` 을 안 보냈으면 좌표로 만든다. 줄 범위(`lo`·`hi`·`levels`)는 없다.
+A `kind:"pdf"` document has no SyncTeX. `POST /api/pick` (with `doc` set to a view-only document) takes coordinates and returns `{doc, kind:"region", view_only:true, page, frac, pdf, name, quote, n_chars, warn, overlaps:[], pdf_build}` — `quote` is the text under the region (pdftotext, whitespace-normalized, 160 characters); `frac` is derived from the coordinates if not sent. There is no line range (`lo`·`hi`·`levels`).
 
-`POST /api/pin` 은 `{doc, page, frac, note?, quote?, pdf_build?}` 를 받는다. `frac` 은 필수이고 LaTeX 핀보다 엄하다(숫자 4개, 쪽 안 0..1, 넓이 > 0). `page` 는 1..쪽 수. `file`·`lo`·`hi`·`scope` 를 보내면 `400`. 저장 레코드는 `{id, doc, pdf:<절대경로>, name, kind:"region", page, frac, quote?, note, at, author, rev, pdf_build}` — `file`·`lo`·`hi`·`anchor` 가 없다. `/edit` 은 메모(`note`·`note_append`)와 영역 다시 잡기(`loc:{page, frac, quote?}`)만 받고 `lo`/`hi`/`scope`/`kind` 는 `400`. 닫기·claim·drop 은 LaTeX 핀과 같다. 보기 전용 문서의 `POST /api/rebuild` 는 `400`(재빌드가 없다 — 파일이 바뀌면 쪽을 저절로 다시 그린다, build-sync §보기 전용 PDF), `/api/snippet` 도 `400`.
+`POST /api/pin` takes `{doc, page, frac, note?, quote?, pdf_build?}`. `frac` is required and stricter than for a LaTeX pin (4 numbers, within 0..1 on the page, positive area). `page` is 1..page count. Sending `file`·`lo`·`hi`·`scope` gets `400`. The stored record is `{id, doc, pdf:<absolute path>, name, kind:"region", page, frac, quote?, note, at, author, rev, pdf_build}` — no `file`·`lo`·`hi`·`anchor`. `/edit` only accepts the note (`note`·`note_append`) and relocating the region (`loc:{page, frac, quote?}`); `lo`/`hi`/`scope`/`kind` all get `400`. Close·claim·drop work the same as LaTeX pins. `POST /api/rebuild` on a view-only document gets `400` (there is nothing to rebuild — the pages redraw themselves automatically when the file changes, build-sync §View-only PDF documents), and so does `/api/snippet`.
 
-## 핀 레코드 스키마 (`pins.jsonl`, 한 줄 = 한 레코드)
+## Pin record schema (`pins.jsonl`, one line = one record)
 
 ```json
-{"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<절대경로>/introduction.tex",
+{"id": 3, "at": "2026-09-21 20:10:00", "page": 4, "file": "<absolute path>/introduction.tex",
  "lo": 120, "hi": 134, "raw_lo": 122, "raw_hi": 131, "kind": "env:minipage", "scope": "env",
- "via": "synctex", "score": 0.93, "note": "이 문단 톤을 낮춰줘", "frac": [0.12, 0.30, 0.55, 0.18],
+ "via": "synctex", "score": 0.93, "note": "tone this paragraph down", "frac": [0.12, 0.30, 0.55, 0.18],
  "pdf_build": "pages-20260921200500",
- "anchor": {"head": "이 절에서는 소스 재선정 주기를...", "tail": "...효과가 관측된다."},
+ "anchor": {"head": "This section describes...", "tail": "...effect is observed."},
  "synced_at": 1758450000.0, "sync": "moved +3", "rev": 2, "done": false,
  "author": {"login": "bob@example.com", "name": "Bob Park", "pic": "https://..."},
  "edited_at": "2026-09-21 21:00:00", "edited_by": {"login": "local", "name": "로컬/에이전트"}}
 ```
 
-새 필드는 모두 선택이다 — 없는 옛 레코드도 그대로 읽힌다.
+All new fields are optional — an old record without them is still read fine.
 
-| 필드 | 뜻 |
+| Field | Meaning |
 | --- | --- |
-| `doc` | 핀이 속한 문서 키(§문서 매개변수). 없는 옛 레코드는 첫 문서로 **읽는다** — 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
-| `pdf` | 보기 전용 PDF 문서의 핀만 — 그 PDF 의 절대경로. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`/`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
-| `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
-| `scope` | `raw\|para\|env\|env2\|env3\|lines` — 저장할 때 고른 사다리 단계 |
-| `quote` | 선택 — 호출자가 붙인 짧은 인용(60자에서 자른다) |
-| `pdf_build` | `frac` 을 찍은 빌드 id(쪽 디렉토리 이름). 없으면 옛 핀 — 옛 필드명 `frac_build` 도 같은 뜻으로 읽는다(build-sync §위치 추정) |
-| `anchor` | `{head, tail, head_off, tail_off}` — 줄 맞춤 기준. `*_off` 가 없는 옛 앵커는 0 으로 본다([design.md](design.md) §줄 번호 재동기화) |
-| `kind` | `paragraph\|float\|block\|none`(옛 값) 또는 `env:<이름>`, `lines`. 모르는 값은 원문 그대로 둔다 |
-| `author` | 만든 사람 `{login, name, pic?}` |
-| `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각·사람 |
-| `closed_by` / `reopened_by` | 닫은·다시 연 사람(`done_at`·`reopened_at` 과 함께) |
-| `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유 — 무엇을 고쳤는지(≤500자)·참조(PR 번호 등, ≤80자). 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
-| `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
-| `kind_req` | `fix`\|`question` — 핀 종류(§스레드). 없으면 fix |
-| `thread` | 답글과 상태 전환 기록 `[{id, by, at, text, mentions?, ev?, ref?}]`(§스레드) |
-| `mentions` | 메모가 부른 사람의 로그인 목록(§@태그·사람·이벤트) |
-| `assignee` | 담당 — `agent` 또는 사람 로그인(§@태그·사람·이벤트 담당). 없으면 옛 핀(추론 규칙) |
-| `review` | `true` = 검토 대기(`done:true` 와 함께만 뜻이 있다, §검토 대기) |
-| `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람·시각 |
-| `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시) — `claimed_by`는 작성자 귀속과 같은 `{login,name}` 형식, `claimed_at`은 시작 시각 문자열, `claim_ts`(시작)·`claim_until`(잠금 자동 해제)·`eta_ts`(예상 완료)는 epoch 초. `claim_until`이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim`이 모두 지운다 |
+| `doc` | The document key this pin belongs to (§Document parameter). An old record without one is **read** as the first document — never migrated on write. `GET /api/pins` always fills it in (computed) |
+| `pdf` | Only for view-only PDF pins — the absolute path to that PDF. If this field is present and `file` is absent, it's validated as a view-only pin (`page`·`frac` required, no `lo`/`hi`). A document key that's no longer in the current configuration doesn't make it a corrupt line |
+| `rev` | +1 on every write that changes the record's content (line move/stale, edit, close, reopen, restore). Absent = 0 |
+| `scope` | `raw\|para\|env\|env2\|env3\|lines` — the scope-ladder level chosen at save time |
+| `quote` | Optional — a short quote attached by the caller (cut to 60 characters) |
+| `pdf_build` | The build id (page-directory name) `frac` was picked against. Absent = an old pin — the legacy field name `frac_build` is read the same way (build-sync §Position estimation) |
+| `anchor` | `{head, tail, head_off, tail_off}` — the basis for line resync. An old anchor with no `*_off` is treated as 0 ([design.md](design.md) §Line renumbering resync) |
+| `kind` | `paragraph\|float\|block\|none` (legacy values) or `env:<name>`, `lines`. An unknown value is left as-is |
+| `author` | The creator, `{login, name, pic?}` |
+| `edited_at`, `edited_by` | The time and person of the last edit after saving |
+| `closed_by` / `reopened_by` | Who closed/reopened it (alongside `done_at`·`reopened_at`) |
+| `close_reply` / `close_ref` | Optional reason left at close time — what was fixed (≤500 characters) · a reference like a PR number (≤80 characters). Only written on the first close; re-closing an already-closed pin never changes it (§Leaving a reason when closing). Cleared by `reopen` |
+| `dropped_by` / `restored_by` | Who dropped it (in `pins.dropped.jsonl`) and who restored it |
+| `kind_req` | `fix`\|`question` — the pin kind (§Threads). Absent = fix |
+| `thread` | Replies and state-transition log, `[{id, by, at, text, mentions?, ev?, ref?}]` (§Threads) |
+| `mentions` | Logins mentioned in the note (§@mentions, people, and events) |
+| `assignee` | Owner — `agent` or a person's login (§@mentions, people, and events, Assignee). Absent = an old pin (inference rules apply) |
+| `review` | `true` = pending review (only meaningful together with `done:true`, §Pending review) |
+| `confirmed_by` / `confirmed_at` | Who confirmed the pending review, and when |
+| `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | The in-progress marker (§In-progress marker) — `claimed_by` is the same `{login,name}` shape as author attribution, `claimed_at` is a start-time string, `claim_ts` (start)·`claim_until` (lock auto-release)·`eta_ts` (expected completion) are epoch seconds. A past `claim_until` is treated as absent. `close`·`drop`·`unclaim` all clear these |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀·build-sync §위치 추정).
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `overlaps`, `est`, `state`, `addressed` only appear in responses and are never stored (§Overlapping pins and appending, build-sync §Position estimation).
 
-## pins.md 형식
+## pins.md format
 
-`<state_dir>/pins.md` 는 5열 표다: `| # | 쪽 | 위치 | 범위 | 메모 |`(옛 `종류` 열이 `범위` 로 바뀌었다. `작성` 열은 v2 에서 없앴다 — 작성자는 `GET /api/pins`·뷰어 카드에서만 본다. 닫힌 핀도 마찬가지다). 스니펫은 일부러 넣지 않는다 — 줄 범위만 있으면 에이전트가 원본을 `Read`로 직접 읽는 편이 항상 더 싸고 정확하다(스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다).
+`<state_dir>/pins.md` is a 5-column table: `| # | 쪽 | 위치 | 범위 | 메모 |` ("# / page / location / scope / note" — the old `종류` ("kind") column became `범위` ("scope"). The `작성` ("author") column was dropped in v2 — author is only visible through `GET /api/pins` and the viewer card. Same for closed pins). Snippets are deliberately left out — given just a line range, an agent `Read`-ing the source directly is always cheaper and more accurate (a snippet is a point-in-time copy that can drift from the source).
 
-- **머리줄**: `원고: <경로>` 바로 다음 줄이 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 다(operations.md §여러 논문 뷰어를 동시에 띄울 때) — 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않도록, `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 두 줄이 온다. 없으면(git 저장소가 아니거나 아직 안 빌드) 그 두 줄만 생략한다.
-- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename 과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`/`\include` 로 쪼개진 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 파일명에 `|` 가 있으면 `\|` 로 이스케이프한다(아래 이스케이프 규칙).
-- **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`/`lines`→`lines`, 없으면 옛 `kind` 값을 그대로 쓴다.
-- **줄 번호 시점**: `<state_dir>/pins.md` 갱신 시각 기준이다. 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
-- **번호 칸의 표시** — 번호 뒤에 ` · ` 로 이어 쓴다(예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분) · 수정됨`). 예전 기호(`⊂#N` `∩#N` `⏳` `✎` `⚠`)는 뜻이 드러나지 않아 짧은 말로 바꿨다. 겹침 표시는 핀당 하나다(같은 범위 > 범위 안 > 일부 겹침):
-  - `#N과 같은 범위` — 열린 핀 `#N` 과 줄 범위가 똑같다(같은 곳을 두 번 찍음, 그런 상대가 여럿이면 id 가 가장 작은 것). 두 핀 모두에 붙는다. 한 번에 고치고 둘 다 닫는다.
-  - `#N 범위 안` — 이 핀이 열린 핀 `#N` 범위 **안**에 통째로 든다(범위가 가장 작은 바깥 핀 하나만 표시 — 뷰어 카드의 태그도 같은 규칙이라 이 파일과 화면 표기가 어긋나지 않는다). **`#N` 과 한 번에 고치고 둘 다 닫는 것을 권한다** — 따로 고치면 같은 문단을 두 번 손대거나 `#N` 의 제약을 놓칠 수 있다.
-  - `#N과 일부 겹침` — 일부만 겹친다(위 둘이 없을 때만, id 가 가장 작은 상대). 참고만 하고 각자 처리해도 된다. 조사(`과`/`와`)는 숫자 읽기의 끝소리로 가린다(`#20과`, `#2와`).
-  - `처리 중(<이름>, 약 N분)` — 다른 에이전트가 유효한 claim 을 쥐고 있다(§처리 중 표시). 이름은 `claimed_by.name`, 헤더 없는 요청이면 `로컬/에이전트`다. `약 N분` 은 남은 견적(5분 단위 올림), 넘겼으면 `예상 초과`, 견적이 없으면 이름만. **이 핀은 건너뛴다** — 처리 중인 사람과 겹치지 않도록.
-  - `수정됨` — 저장한 뒤 메모·범위를 수정했다(`edited_at` 있음).
-  - `위치 잃음` — 위치를 잃었다(`stale`). **네가 방금 그 범위를 고친 직후라면** 이미 반영됐을 수 있으니 원문을 확인하고 닫아도 된다 — 무조건 사용자에게 보고할 필요는 없다(방금 자기가 만든 변경이 원인일 때에 한한다).
-  - 표시 범례 줄(`표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …`)은 열린 핀에 표시가 하나라도 있을 때만 실린다.
-- **`«…»` 인용**: 메모 앞에 최대 60자 인용이 붙는 조건부 예외다 — 핀 범위가 **한 줄**이고, 그 줄이 **600자를 넘고**(문단 하나가 줄바꿈 없이 이어지는 원고에서 줄 번호만으로는 지목한 부분을 못 찾는다), `scope` 가 `raw`/`para`/없음일 때만 붙는다. 60자를 넘어 잘렸으면 인용 끝에 `…` 를 붙인다(예: `«문장의 앞부분까지만…»`) — 잘린 인용을 완결된 문장으로 오인하지 않도록. 이 인용은 **`pdftotext` 로 렌더된 글자**다 — 검색 힌트이지 `Edit` 의 `old_string` 으로 그대로 쓸 문자열이 아니다(리거처·하이픈·공백이 원문 LaTeX 소스와 다를 수 있다). 줄 범위로 파일을 `Read` 한 뒤 그 인용을 검색해 정확한 위치를 확인한다.
-- **메모 앞 `[작성자]`**: 열린 핀의 작성자가 2명 이상이면(`author.login` 기준, 작성자 없는 옛 핀은 한 부류) 메모 앞에 `[<author.name>] ` 이 붙는다(`@` 로 시작하지 않는다 — @태그로 잘못 읽히지 않게, 실측: `@Alice Kim: …` 가 멘션처럼 보였다). 작성자가 1명뿐이면 토큰을 아끼려고 붙이지 않는다 — 결과 보고나 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다([design.md](design.md) §작성자 귀속). 배정 기준이 아니다.
-- **질문·다시 열림·사람에게 물은 핀**: 번호 칸에 `질문`, `다시 열림`(지금 차례가 다시 엶부터 시작 — 마지막으로 완료된 뒤 다시 열린 적이 있으면), `→ @이름`(담당이 사람인 핀 — 담당 없는 옛 핀은 사람에게 물은 질문 핀, §@태그·사람·이벤트. 에이전트는 사용자가 시키지 않으면 건너뛴다), `참고 @이름`(알림만 간 참고용 태그, 건너뛰지 않는다 — 담당이 사람인 핀에서도 담당이 아닌 태그는 여기에 붙는다)이 붙는다. 표시 순서(우선순위)는 `다시 열림` > `→ @이름`/`참고 @이름` > `질문`. 메모 칸 뒤에는 지금 차례의 스레드가 `[스레드 N건] 이름: … ⏎ 다시 연 이유(이름): …` 로 붙는다(뒤 3건, 한 건 200자 — 나머지는 `GET /api/pins/{id}`). 사람에게 물은 핀이 있으면 안내 문단에 건너뛰기 규칙이 붙는다.
-- **검토 대기**: 열린 표에서 빠지고 맨 아래 `## 검토 대기 N건 — …처리하지 않는다` 소절의 4열 표 `| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |` 에 실린다(여러 문서면 위치 앞에 문서 키). 있을 때만 머리줄에 `검토 대기 N건(맨 아래, 처리하지 않는다)` 이 끼고, 없으면 머리줄은 예전 모양 그대로다.
-- **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다 — `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
-- **여러 문서**(`--doc` 이 둘 이상이거나, 첫 문서가 아닌 키의 열린 핀이 있을 때): 한 장 그대로 두고 머리에 `문서: 본문(\`ms\`) 3건 · … · 리뷰어 코멘트(\`rv\`, 보기 전용) 1건` 한 줄과 소절 안내를 둔 뒤, 열린 핀이 있는 문서마다 소절 `## <이름> · \`<키>\` · \`<--manuscript 기준 경로>\``(보기 전용이면 `— 보기 전용 PDF(줄 번호 없음)`)과 그 문서의 `기준: <head> · 빌드 <built_at>`(보기 전용은 `그림`), 5열 표가 온다. 머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `## 설정에 없는 문서 · \`<키>\`` 소절로 드러난다. 단일 문서는 예전 모양 그대로다.
-- **보기 전용 핀의 행**: 위치 칸 `쪽 3, 영역 가로 10–60% 세로 20–30%`, 범위 칸 `영역`, 메모 앞에 영역 글자 `«…»`(한 줄·600자 조건 없이 늘 — 줄 번호가 없어 유일한 원문 단서다). 보기 전용 핀이 있으면 안내 문단에 "줄 번호가 없다 — 쪽·영역 글자·메모로 판단, 고칠 곳은 LaTeX 문서에서" 가 붙는다.
-- **이스케이프는 모든 칸에 같다**(`md_cell`): `|` 는 `\|`, 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호·쪽·위치·범위·인용)에서 공백. 범위 칸의 env 분기가 빠져 kind `env:x|y` 가 8열 행을 만든 적이 있어(독립 검증 실측) 칸마다 따로 처리하지 않고 한 함수로 모았다.
+**Note on stability**: this pins.md table format and the HTTP API described throughout this document are a contract other agents depend on. The wording of the Korean literals below (column headers, in-line markers, state names, header lines) never changes even when this documentation is translated — the browser-facing viewer UI may be localized, but pins.md and the API's field and state names are not.
+
+- **Header lines**: right after `원고: <path>` ("manuscript: …") comes `논문: <label> · 저장소: <git origin URL or (없음)>` ("paper: … · repository: … or (none)", operations.md §Running multiple manuscript instances at once) — so that with several instances open at once, an agent doesn't process the wrong paper's pins. When `저장소` is present, the instructions paragraph adds `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` ("before processing, confirm your own checkout's `git remote get-url origin` matches the repository above; if it differs, these are another paper's pins — stop"). Next, if both `head.txt`·`built_at.txt` exist, two more lines: `기준: <head short hash> · 빌드 <built_at>` ("baseline: … · built …") and `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` ("if processing from a different checkout, first confirm `git rev-parse --short HEAD` matches"). If neither file exists (not a git repository, or not built yet), those two lines are simply omitted.
+- **Location**: a **relative path** against `--manuscript` (`C.src`). A root file equals its basename, so a single-file manuscript's rows look as before. A sub-file split off via `\input`/`\include` is shown like `sections/intro.tex L12-L18`. A `|` in a filename is escaped as `\|` (see the escaping rule below).
+- **Scope**: if `scope` is set — `env*`→`env:<name>`, `para`→`paragraph`, `raw`/`lines`→`lines`; otherwise the legacy `kind` value as-is.
+- **Line-number timing**: as of the last time `<state_dir>/pins.md` was regenerated. If an earlier pin's fix may have shifted line numbers, fetch the resynced values from `GET /api/pins`.
+- **Markers in the number column** — appended after the number with ` · ` (e.g. `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분) · 수정됨`, "7 · inside #6's range · in progress (Agent B, ~10 min) · edited"). The old symbols (`⊂#N` `∩#N` `⏳` `✎` `⚠`) were replaced with short words because they weren't self-explanatory. Only one overlap marker per pin (same range > inside > partial overlap):
+  - `#N과 같은 범위` ("same range as #N") — matches open pin `#N`'s line range exactly (the same spot picked twice; if there are several such matches, the lowest id). Appears on both pins. Fix and close both together.
+  - `#N 범위 안` ("inside #N's range") — this pin falls entirely inside open pin `#N`'s range (only the single narrowest containing pin is shown — the viewer card's tag follows the same rule, so this file and the screen never disagree). **Fixing and closing it together with `#N` is recommended** — fixing them separately risks touching the same paragraph twice or missing `#N`'s constraint.
+  - `#N과 일부 겹침` ("partially overlaps #N") — only when neither of the above applies (the lowest-id partial match). For reference only; each can be handled independently. The particle is chosen based on how the number reads aloud (`#20과`, `#2와`).
+  - `처리 중(<name>, 약 N분)` ("in progress (name, ~N min)") — another agent holds a valid claim (§In-progress marker). The name is `claimed_by.name`, or `로컬/에이전트` ("local/agent") for a headerless request. `약 N분` is the remaining estimate (rounded up to 5 minutes), `예상 초과` ("over estimate") if it's past due, or just the name with no estimate. **Skip this pin** — so as not to collide with whoever's already on it.
+  - `수정됨` ("edited") — the note or range was edited after saving (`edited_at` present).
+  - `위치 잃음` ("position lost") — the pin went `stale`. **If you just fixed that range yourself**, the change may already be reflected — check the source and it's fine to close (this doesn't have to be reported to the user unconditionally — only when the cause is a change you just made yourself).
+  - The legend line (`표시: '#N 범위 안'·'#N과 같은 범위' = … · '#N과 일부 겹침' = … · '처리 중(이름, 약 N분)' = … · '수정됨' = … · '위치 잃음' = … · «…» = …`) is only included when at least one open pin has a marker.
+- **`«…»` quotes**: a conditional exception attaching up to 60 characters of quoted text before the note — only when a pin's range is **a single line**, that line is **over 600 characters** (in a manuscript where one paragraph is one unbroken line, line numbers alone can't locate the target), and `scope` is `raw`/`para`/unset. If cut at 60 characters, the quote ends in `…` (e.g. `«only the start of the sentence…»`) — so a truncated quote isn't mistaken for a complete one. This quote is **text rendered by `pdftotext`** — a search hint, not a literal string to hand to `Edit`'s `old_string` (ligatures, hyphenation, and whitespace can differ from the raw LaTeX source). Read the file by line range, then search for the quote to pin down the exact spot.
+- **`[author]` before the note**: when an open pin set has 2+ distinct authors (by `author.login`; pins with no author count as one group), `[<author.name>] ` is prepended to the note (never starting with `@`, so it isn't misread as a mention — observed: `@Alice Kim: …` looked like a mention). With only one author, this is skipped to save tokens — it's there to help attribute a result report or a `close`'s `reply` to the right pin ([design.md](design.md) §Author attribution). Not an assignment rule.
+- **Question, reopened, and person-addressed pins**: the number column also gets `질문` ("question"), `다시 열림` ("reopened", the current turn starts from the reopen if it's been reopened since it was last done), `→ @name` (assignee is a person — an old pin with no assignee falls back to being a person-addressed question pin, §@mentions, people, and events; agents skip it unless the user explicitly asks), `참고 @name` ("for reference @name", a notify-only mention — never skipped, even on a pin whose assignee is a person, for any mention that isn't the assignment itself). Display priority order: `다시 열림` > `→ @이름`/`참고 @이름` > `질문`. After the note, the current turn's thread is appended as `[스레드 N건] 이름: … ⏎ 다시 연 이유(이름): …` ("[N thread messages] name: … / reopen reason (name): …", last 3, 200 characters each — the rest via `GET /api/pins/{id}`). If there are any person-addressed pins, the instructions paragraph gets the skip rule appended.
+- **Pending review**: dropped from the open table and listed at the bottom in a section `## 검토 대기 N건 — …처리하지 않는다` ("## N pending review — do not process") with a 4-column table `| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |` ("# / location / reviewer / reply left at close", with the document key prefixed to location for multiple documents). The header line only gains `검토 대기 N건(맨 아래, 처리하지 않는다)` ("N pending review (at the bottom, do not process)") when there are any; otherwise the header looks exactly as before.
+- **Closed pins**: dropped from the table, kept only as a count in the header (`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`, "N closed pins (see 'closed pins' in the viewer)"). `<state_dir>/pins.md` never grows with accumulated closed pins — the old `<details>`-expand approach is gone.
+- **Multiple documents** (two or more `--doc`, or any open pin under a non-first document's key): still a single file, but the header gains one line `문서: 본문(\`ms\`) 3건 · … · 리뷰어 코멘트(\`rv\`, 보기 전용) 1건` ("documents: body (`ms`) 3 · … · reviewer comments (`rv`, view-only) 1") plus a note on the sections, then for each document with open pins a section `## <name> · \`<key>\` · \`<path relative to --manuscript>\`` (with `— 보기 전용 PDF(줄 번호 없음)`, "view-only PDF, no line numbers", if applicable) and that document's `기준: <head> · 빌드 <built_at>` line (`그림` for view-only), then a 5-column table. The single top-level `기준:` line moves into each section instead. Pins under a document key that's no longer configured show up under a `## 설정에 없는 문서 · \`<key>\`` ("## document not in configuration · …") section. A single document looks exactly as before.
+- **View-only pin rows**: the location column reads `쪽 3, 영역 가로 10–60% 세로 20–30%` ("page 3, region x 10–60% y 20–30%"), the scope column is `영역` ("region"), and the note is preceded by the region's text as `«…»` — always (no single-line or 600-character condition, since there's no line number as an alternate hint). If there are any view-only pins, the instructions paragraph gets: "there are no line numbers — judge by page, region text, and the note; find where to fix it in the LaTeX document."
+- **Escaping is uniform across every column** (`md_cell`): `|` becomes `\|`; a newline becomes `⏎` in the note column and a space in every other column (number, page, location, scope, quote). A missing `env` branch in the scope column once produced an 8-column row for `kind` values like `env:x|y` (observed in independent verification) — so this isn't handled per-column, it's all routed through one function.
