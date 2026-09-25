@@ -74,14 +74,24 @@ def js_thread() -> str:
         "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
+def js_i18n(lang: str = "ko") -> str:
+    """The viewer's message functions tr()/tl() with the language fixed - pulled functions call them for
+    every UI string, so a node harness needs them. Korean (the source) unless lang='en'."""
+    return "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                      extract_js_fn("tr"), extract_js_fn("tl")])
+
+
 def run_node(js: str, tz: str = None):
     """Run js under node and return stdout. Returns None if node is missing (handled on the test side).
 
     If tz is given, run in that timezone — used to directly verify that isEstimated no
-    longer reads the wall clock (the frac_build path)."""
+    longer reads the wall clock (the frac_build path). The Korean tr()/tl() are prepended unless the
+    script defines its own (see js_i18n)."""
     node = shutil.which("node")
     if not node:
         return None
+    if "function tl(" not in js:
+        js = js_i18n() + "\n" + js
     env = dict(os.environ)
     if tz is not None:
         env["TZ"] = tz
@@ -1714,7 +1724,7 @@ class FrontendLogic(unittest.TestCase):
             let CUR=null, PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             """,
             extract_js_fn("selRel"), extract_js_fn("overlapsFor"), extract_js_fn("pickOverlap"),
-            extract_js_fn("josa"), extract_js_fn("overlapVerb"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
+            extract_js_fn("josa"), extract_js_fn("overlapText"), "let OVERLAP_DISMISSED=null;", extract_js_fn("recomputeOverlap"),
             extract_js_fn("renderOverlapBanner"), extract_js_fn("lvOf"), extract_js_fn("useLevel"),
             r"""
             const out=[];
@@ -3464,7 +3474,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
                          [[300, 300, 420, 528], [334, 440, 440, 300, 300, 334], [0, 1, 1, -1, 2]])
 
     def test_level_name_is_short_and_disambiguates_nested_same_env(self):
-        js = "\n".join([extract_js_fn("levelName"), extract_js_fn("rng"), r"""
+        js = "\n".join([extract_js_fn("levelName"), extract_js_fn("levelLabel"), extract_js_fn("rng"), r"""
             const A=[{level:'para',label:'문단'},{level:'env',label:'환경 abstract',env:'abstract'},
                      {level:'env2',label:'환경 frontmatter (바깥)',env:'frontmatter'}];
             const B=[{level:'env',label:'환경 itemize',env:'itemize'},{level:'env2',label:'환경 itemize (바깥)',env:'itemize'}];
@@ -3855,9 +3865,9 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn(".th-n{min-height:44px;min-width:44px;", coarse)
 
     def test_review_count_labels_scope_and_filter_is_compact(self):
-        self.assertIn("' (이 문서 '+here+')'", extract_js_fn("updateReviewCount"))
+        self.assertIn("' '+tl('(이 문서 {n})',{n:here})", extract_js_fn("updateReviewCount"))
         body = extract_js_fn("drawPins")
-        self.assertIn("mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);", body)
+        self.assertIn("mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));", body)
 
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
         self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
@@ -4109,9 +4119,10 @@ class HtmlTemplateStructure(unittest.TestCase):
     def test_document_title_prefixes_label(self):
         # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
         self.assertIn(
-            "if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
-            "+' · 열린 '+PINS.length;",
-            ps.HTML)
+            "document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
+            "+' · '+tl('열린 {n}',{n:PINS.length})",
+            extract_js_fn("docTitle"))
+        self.assertIn("docTitle(true);", extract_js_fn("loadPins"))
 
 
 class InstanceMeta(Base):
@@ -4845,8 +4856,8 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
-        self.assertIn("arcHead('완료',LDONE.length,SHOW_DONE)", body)
-        self.assertIn("arcHead('삭제',LDROP.length,SHOW_DROPPED)", body)
+        self.assertIn("arcHead(tr('완료'),LDONE.length,SHOW_DONE)", body)
+        self.assertIn("arcHead(tr('삭제'),LDROP.length,SHOW_DROPPED)", body)
         self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
         # the same list functions (listDone/listDropped) are used for document switching and the "all documents" toggle too
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
@@ -4869,7 +4880,8 @@ class FrontendArchive(unittest.TestCase):
         body = extract_js_fn("card")
         self.assertIn("(claimed?' claimed':'')", body)
         self.assertIn("stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')", body)
-        self.assertIn("aria-label=\"상태: '+ST_NAME[st]+'\"", extract_js_fn("stDot"))   # not distinguished by color alone
+        self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
+        self.assertIn("role=\"img\" aria-label=\"'+t+'\"", extract_js_fn("stDot"))   # not distinguished by color alone
         self.assertIn("ic('rotate-ccw')+'다시 열림", body)
         self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
@@ -5139,11 +5151,16 @@ class BadgeWording(Base):
     def test_overlap_banner_verbs(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
-        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapVerb"), r"""
-            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>'#'+a[1]+overlapVerb(a[0],a[1]))));
-            """])
+        cases = r"""
+            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>overlapText(a[0],a[1]))));
+            """
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapText"), cases])
         self.assertEqual(json.loads(run_node(js)),
-                         ["#4와 같은 범위입니다", "#20 범위 안입니다", "#4를 감쌉니다", "#20을 감쌉니다", "#2와 일부 겹칩니다"])
+                         ["열린 핀 #4와 같은 범위입니다", "열린 핀 #20 범위 안입니다", "열린 핀 #4를 감쌉니다", "열린 핀 #20을 감쌉니다",
+                          "열린 핀 #2와 일부 겹칩니다"])
+        self.assertEqual(json.loads(run_node(js_i18n("en") + "\n" + js)),
+                         ["Same range as open pin #4", "Inside open pin #20's range", "Encloses open pin #4", "Encloses open pin #20",
+                          "Partially overlaps open pin #2"])
 
     def test_pins_md_number_column_uses_words(self):
         a = self.add(4, 9)
@@ -5223,11 +5240,12 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
         # the single-character '쪽' field used to read as a button (QA 2026-09-24) — now left-aligned like a real input, placeholder '쪽 이동'. Height/font size match the buttons.
-        self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
+        # basis 40px, growing first to 54px: the English toolbar ('Rebuild PDF') still fits one row (FrontendEnglishChrome)
+        self.assertIn("#bar1 input.n{width:54px;flex:100 1 40px;min-width:40px;max-width:54px;padding:0 var(--space-1);font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
-        self.assertIn("#bar1 input.n{width:84px;font-size:var(--text-xl)}", coarse)
+        self.assertIn("#bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}", coarse)
         self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
         self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
 
