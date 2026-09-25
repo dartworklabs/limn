@@ -1,0 +1,73 @@
+name: Release
+
+# Publishes dartwork-limn to PyPI when a version tag is pushed.
+# Uses PyPI Trusted Publishing (OIDC): no API token is stored in this repository.
+# PyPI side, once: project "dartwork-limn" -> Publishing -> add a GitHub publisher with
+# owner "dartworklabs", repository "limn", workflow "release.yml", environment "pypi".
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Check that the tag matches the package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/limn/__init__.py)
+          echo "tag=$tag version=$version"
+          test "$tag" = "$version"
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Smoke-test the built wheel
+        run: |
+          uv tool install dist/*.whl
+          limn version
+          limn serve --help | head -3
+          python_dir=$(uv tool dir)/dartwork-limn
+          find "$python_dir" -path '*limn/vendor/pdfjs/pdf.min.mjs' | grep -q .
+          find "$python_dir" -path '*limn/instances.sh' | grep -q .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dartwork-limn/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Attach the built files to the GitHub release (created if missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* -R "$GITHUB_REPOSITORY" --clobber
