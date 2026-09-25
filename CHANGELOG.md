@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.0 — unreleased (tagged after merge)
+
+Access control, stage v0.2 of [docs/design/access-and-sync.md](docs/design/access-and-sync.md). An existing
+0.1 instance (no `AUTH`, no `tokens.json`, `people.json` without roles) behaves exactly as before; the only
+visible difference is a deprecation warning in the server log and one added guidance line in `pins.md`.
+
+- **Identity providers** (`--auth`, config `AUTH=`): `tailscale` (default — the 0.1 behaviour; the
+  `Tailscale-User-*` headers are now trusted only from a loopback TCP peer), `local` (a single user on their own
+  machine: every loopback request is the owner), `trusted-proxy` (configurable user/name/e-mail headers, trusted
+  only from `--trusted-proxies`; everything else is `401`).
+- **Agent API tokens**: `limn token create|list|revoke <instance>` (or `--state-dir`). Sent as
+  `Authorization: Bearer <token>`, accepted by every provider, stored as SHA-256 hashes in `<state>/tokens.json`
+  (mode 0600), shown once, revocable without a restart. Token principals are `agent:<name>` and follow the agent
+  contract (close goes to review, never confirm, never recorded in `people.json`).
+- **Headerless loopback agent** kept by default under `tailscale` but deprecated (warning at startup and on the
+  first such request); `--no-agent-loopback` / `AGENT_LOOPBACK=0` turns it off. Always off under `local`,
+  `trusted-proxy` and on a non-loopback bind, where asking for it refuses to start.
+- **Member roles** in `people.json` (`owner`, `editor`, `viewer`, `agent`; missing = `editor`), enforced once in
+  the handler: viewers may only read and run `/api/pick`/`/api/revision-build`, agents may not confirm.
+  `limn member add|list|remove|role <instance>`; changes apply without a restart. `--members-only`
+  (`MEMBERS_ONLY=1`) admits only listed people (and `--allow`). Without an allowlist, unknown tailnet people are
+  still auto-added as editors. `/api/people` entries and `me` carry an additive `role`.
+- **Binding**: `--bind` (`BIND=`, default `127.0.0.1`). A non-loopback address refuses to start unless
+  `--auth trusted-proxy`, or `--i-know-this-is-insecure` (loud warning). `--public-host` (`PUBLIC_HOSTS=`) adds
+  names accepted as Host/Origin and used as the `pins.md` base URL. The startup log gains an `auth` line.
+- **Instance manager**: `limn run` maps and validates the new config keys (a 0.1 config gives the same argv);
+  `limn add --auth`; `limn doc add|remove` keep the access keys; `tailscale serve` is refused for `AUTH=local`
+  and `AUTH=trusted-proxy`.
+- Docs: SECURITY.md threat model, README security note, instances/operations guides, API §Authentication, skill
+  (where an agent's token comes from).
+
 ## 0.1.1 — 2026-09-25
 
 English UI finished; no change to the agent contract (`pins.md`, HTTP API) or to the Korean UI.
