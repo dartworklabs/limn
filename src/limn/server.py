@@ -5236,15 +5236,15 @@ def maybe_purge_trash() -> int:
     return purge_trash(now)
 
 
-def purge_pin(pid: int, actor: dict) -> int:
+def purge_pin(pid: int, actor: dict) -> int | None:
     """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
-    404 if the pin is not in the Trash - an open or closed pin must be dropped first. Leaves a `purged` audit event
-    (to: [], like `cleared`), a `purged` line in audit.jsonl (v0.3.1, never rotated out) and a log line, since it
-    cannot be undone. Returns pid."""
+    Returns pid, or None (nothing written) if the pin is not in the Trash - an open or closed pin must be dropped
+    first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a `purged` line
+    in audit.jsonl (v0.3.1, never rotated out) and a log line, since it cannot be undone."""
     with PIN_LOCK:
         rows, bad = read_jsonl(C.dropped)
         if not any(r.get("id") == pid for r in _unexpired(rows)):
-            raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
+            return None
         write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
         emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
         append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))
@@ -5392,7 +5392,7 @@ def _restore(rows: list, pid: int, actor: dict):
 CLEAR_CONFIRM = "clear all pins"
 
 
-def clear_pins(actor: dict = None) -> dict:
+def clear_pins(actor: dict | None = None) -> dict:
     """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
     Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (v0.3.1 - the event can
     rotate out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
@@ -6268,6 +6268,7 @@ def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str | No
     name = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
 
     def fn(rows):
+        """The _people_update step: appends the entry -> (entry, member_added audit); ValueError if already a member."""
         if any(x["login"] == login for x in rows):
             raise ValueError("%s is already a member - change the role with `limn member role`" % login)
         entry = {"login": login, "name": name, "role": role}
@@ -6283,6 +6284,7 @@ def member_remove(state: Path, login: str) -> dict | None:
         return None
 
     def fn(rows):
+        """The _people_update step: drops the entry -> (entry, member_removed audit), or (None, None) if absent."""
         hit = next((x for x in rows if x["login"] == login), None)
         if hit is None:
             return None, None
@@ -6301,6 +6303,8 @@ def member_set_role(state: Path, login: str, role: str) -> dict | None:
         return None
 
     def fn(rows):
+        """The _people_update step: sets the role -> (entry, member_role audit or None when the role is unchanged),
+        or (None, None) if absent."""
         hit = next((x for x in rows if x["login"] == login), None)
         if hit is None:
             return None, None
@@ -10489,7 +10493,9 @@ class Handler(BaseHTTPRequestHandler):
             if act == "restore":
                 return self._json({"ok": True, "pin": restore_pin(pid, actor)})
             if act == "purge":                    # owner only (check_role)
-                return self._json({"ok": True, "purged": purge_pin(pid, actor)})
+                if purge_pin(pid, actor) is None:
+                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
+                return self._json({"ok": True, "purged": pid})
             if act == "edit":
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
             if act == "claim":
