@@ -1718,6 +1718,37 @@ def repo_pull() -> dict:
         return res
 
 
+class ManuscriptCopyError(Exception):
+    """The build copy of the manuscript is incomplete or stale; the message says why (exit code, last error line)."""
+
+
+def copy_manuscript(src: Path, dest: Path) -> None:
+    """Mirror the manuscript folder into the build folder, skipping BUILD_EXCLUDE_DIRS and *.synctex.gz.
+
+    Uses rsync -a --delete when it is installed, otherwise replaces dest with a fresh tree copy.
+    Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero (a partial
+    transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
+    an OS error. The caller must not compile dest after that.
+    """
+    rs = shutil.which("rsync")
+    try:
+        if rs:
+            excl = []
+            for d in BUILD_EXCLUDE_DIRS:
+                excl += ["--exclude", d + "/"]
+            r = subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
+                               str(src) + "/", str(dest) + "/"],
+                               capture_output=True, text=True, errors="replace", timeout=300, check=False)
+            if r.returncode != 0:
+                last = (r.stderr.strip().splitlines() or ["(no message)"])[-1]
+                raise ManuscriptCopyError("rsync exit %d: %s" % (r.returncode, last))
+        else:                                            # must still work without rsync
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
+    except (subprocess.TimeoutExpired, OSError) as e:
+        raise ManuscriptCopyError(str(e)) from e
+
+
 def _build() -> dict:
     """Builds with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
@@ -1739,18 +1770,9 @@ def _build() -> dict:
     # badge on even right after a success.
     res["src_mtime"] = src_mtime(force=True)
 
-    rs = shutil.which("rsync")
     try:
-        if rs:
-            excl = []
-            for d in BUILD_EXCLUDE_DIRS:
-                excl += ["--exclude", d + "/"]
-            subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
-                            str(D.src) + "/", str(D.build) + "/"], capture_output=True, timeout=300)
-        else:                                            # must still work without rsync
-            shutil.rmtree(D.build, ignore_errors=True)
-            shutil.copytree(D.src, D.build, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
-    except (subprocess.TimeoutExpired, OSError) as e:
+        copy_manuscript(D.src, D.build)
+    except ManuscriptCopyError as e:
         res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
