@@ -600,6 +600,85 @@ class SquashMergedPins(AccessBase):
         self.assertEqual(json.loads(out)["id"], self.squash)
 
 
+class ScopedErrorBodies(ScopedRepo):
+    """Every refusal this PR adds, with its exact status and JSON body. Error strings are part of the agent contract
+    (api.md), so moving the checks between layers (coding rule R3) must not change a byte of them."""
+
+    PIN_MSG = {"error": "pin 은 핀 번호(양의 정수)여야 합니다."}
+    NOT_HERE = {"error": "이 문서의 핀이 아닙니다."}
+
+    def raw(self, method, path, body=None):
+        """(status, parsed JSON body) for one request, without AccessBase's lenient decoding."""
+        h, data = {}, b""
+        if body is not None:
+            data, h["Content-Type"] = json.dumps(body).encode(), "application/json"
+        code, _, out = split_resp(talk_to(ps, req(method, path, data, h)))
+        return code, json.loads(out)
+
+    def test_revision_routes_refuse_a_bad_or_foreign_pin_with_the_same_bodies(self):
+        """A malformed pin is 400 and a pin of no/another document is 404, on all three GET routes and the POST."""
+        for route in ("revision-diff", "revision-build", "revision-pdf"):
+            with self.subTest(route=route):
+                self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=abc" % (route, self.fix)), (400, self.PIN_MSG))
+                self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=0" % (route, self.fix)), (400, self.PIN_MSG))
+                self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=999" % (route, self.fix)), (404, self.NOT_HERE))
+        for body, want in (({"commit": self.fix, "pin": "2"}, (400, self.PIN_MSG)),
+                           ({"commit": self.fix, "pin": True}, (400, self.PIN_MSG)),
+                           ({"commit": self.fix, "pin": 0}, (400, self.PIN_MSG)),
+                           ({"commit": self.fix, "pin": 999}, (404, self.NOT_HERE)),
+                           ({"commit": self.fix, "pins": 1}, (400, {"error": "허용되지 않는 비교 PDF 요청 필드입니다."}))):
+            with self.subTest(body=body):
+                self.assertEqual(self.raw("POST", "/api/revision-build", body), want)
+
+    def test_close_refuses_malformed_changes_with_the_same_bodies(self):
+        """Each rejection of the close body's `changes` keeps its status and message, and names the offending item."""
+        pid = self.add(lo=2, hi=2, note="for the bodies")
+        ok = {"file": "main.tex", "lo": 1, "hi": 1}
+        cases = (("x", "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다."),
+                 ([ok] * 51, "changes 는 50개 이하여야 합니다."),
+                 ([ok, {"file": "main.tex", "lo": 1}], "changes[1] 는 file·lo·hi 세 필드만 가진 객체여야 합니다."),
+                 ([{"file": " ", "lo": 1, "hi": 1}], "changes[0].file 은 비어 있지 않은 경로 문자열이어야 합니다."),
+                 ([{"file": "main.tex", "lo": 3, "hi": 2}], "changes[0] 의 lo·hi 는 1 ≤ lo ≤ hi ≤ 1000000 인 정수여야 합니다."),
+                 ([{"file": "../x.tex", "lo": 1, "hi": 1}], "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다."))
+        for changes, msg in cases:
+            with self.subTest(msg=msg):
+                self.assertEqual(self.raw("POST", "/api/pins/%d/close" % pid, {"changes": changes}), (400, {"error": msg}))
+        self.assertFalse(self.pin(pid).get("done"))
+
+    def build_status(self, pid):
+        """Start the scoped build for pid on self.fix and wait for its final status."""
+        ps.revision_start(ps.cur_doc(), self.fix, pid)
+        end = time.time() + 30
+        while time.time() < end:
+            st = ps.revision_status(ps.cur_doc(), self.fix, pid)
+            if st["state"] != "running":
+                return st
+            time.sleep(0.05)
+        self.fail("scoped build did not finish")
+
+    def test_scoped_build_failures_keep_their_status_bodies(self):
+        """When the pin's blocks cannot be re-read, do not all come back, or name an unsafe path, the build status says
+        so with the same error text and reason as before."""
+        ps.revision_spec(ps.cur_doc(), self.fix, self.p2)          # warm the scope cache: the spec is not re-read below
+        real = ps.revision_changes
+        cases = (("unreadable", lambda *a: None, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
+                 ("mismatch", lambda *a: [], "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"))
+        for name, fake, msg, reason in cases:
+            with self.subTest(case=name), mock.patch.object(ps, "revision_changes", side_effect=fake):
+                st = self.build_status(self.p2)
+                self.assertEqual((st["state"], st["error"], st["reason"]), ("error", msg, reason))
+                shutil.rmtree(ps._revision_cache_root(ps.cur_doc()))
+        spec = ps.revision_spec(ps.cur_doc(), self.fix, self.p2)
+        bad = ("ms/../evil.tex", "ms/../evil.tex", 0, 1, 0, 1)
+        evil = ps.FileChange(bad[0], bad[1], (b"x\n",), (b"y\n",), (ps.Block(0, 1, 0, 1),), False)
+        with mock.patch.object(ps, "revision_spec", return_value=spec._replace(scope=(bad,))), \
+                mock.patch.object(ps, "revision_changes", return_value=[evil]):
+            st = self.build_status(self.p2)
+        self.assertEqual((st["state"], st["error"], st["reason"]), ("error", "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"))
+        self.assertFalse((self.repo / "evil.tex").exists())
+        self.assertIs(ps.revision_changes, real)
+
+
 class ScopedPdf(ScopedRepo):
     def test_spec_key_depends_on_pin_commit_and_hunk_set(self):
         whole = ps.revision_spec(ps.cur_doc(), self.fix)
