@@ -1,6 +1,6 @@
-"""Limn 서버(limn/server.py) 회귀 테스트 — 포트를 열지 않는다(socketpair 로 핸들러를 직접 돌린다).
+"""Regression tests for the Limn server (limn/server.py) — no port is opened (the handler is driven directly over a socketpair).
 
-실행: uv run pytest tests/test_server.py
+Run: uv run pytest tests/test_server.py
 """
 import importlib.util
 import errno
@@ -21,6 +21,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 PKG = ROOT / "src" / "limn"
 SKILL_MD = ROOT / "skill" / "SKILL.md"
+SKILL_KO = ROOT / "skill" / "SKILL.ko.md"
 DOCS_DIR = ROOT / "docs"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
@@ -28,14 +29,16 @@ spec.loader.exec_module(ps)
 
 
 def extract_js_fn(name: str) -> str:
-    """ps.HTML 에서 'function NAME(...){ ... }' 정의 하나를 중괄호 균형을 맞춰 그대로 뽑는다.
+    """Pull one 'function NAME(...){ ... }' definition out of ps.HTML, balancing braces as-is.
 
-    문자열 리터럴에 중괄호가 없는(=이 파일의 순수 로직 함수들 — 그 안에 DOM/CSS 텍스트가 없는)
-    함수에만 안전하다. 이렇게 뽑은 실제 서버 소스를 node 로 그대로 돌려, 프런트엔드 로직을
-    회귀 테스트가 문자열로 베껴 둔 사본이 아니라 진짜 소스로 검증한다.
+    This is only safe for functions whose string literals contain no braces (i.e. this
+    file's pure-logic functions — no DOM/CSS text inside them). Running the actual server
+    source pulled this way through node lets the regression test verify the real source,
+    not a copy the test happened to paste as a string.
 
-    'async function NAME(' 도 뽑는다 — 'function NAME(' 만 찾으면 앞의 'async '가 잘려 나가
-    (await 가 있는 함수를) node 가 'await is only valid in async functions'로 거부한다."""
+    Also matches 'async function NAME(' — matching only 'function NAME(' would drop the
+    leading 'async ', and node would then reject a function containing await with
+    'await is only valid in async functions'."""
     src = ps.HTML
     key = "function %s(" % name
     i = src.index(key)
@@ -56,13 +59,13 @@ def extract_js_fn(name: str) -> str:
 
 
 def js_icons() -> str:
-    """뷰어의 Lucide 아이콘 표(ICONS)와 ic() — card()·archiveRow() 처럼 아이콘을 그리는 함수를 node 로 돌릴 때 함께 싣는다."""
+    """The viewer's Lucide icon table (ICONS) and ic() — included together when running icon-drawing functions like card()/archiveRow() under node."""
     m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
     return m.group(0) + "\n" + extract_js_fn("ic")
 
 
 def js_thread() -> str:
-    """스레드를 그리는 함수들(card()·doneCard() 가 부른다). 호출부는 who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY 를 준비한다."""
+    """The functions that render a thread (called by card()/doneCard()). Callers must set up who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY."""
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
     mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
@@ -72,10 +75,10 @@ def js_thread() -> str:
 
 
 def run_node(js: str, tz: str = None):
-    """js 를 node 로 실행하고 stdout 을 돌려준다. node 가 없으면 스킵한다(테스트 쪽에서 처리).
+    """Run js under node and return stdout. Returns None if node is missing (handled on the test side).
 
-    tz 를 주면 그 시간대로 실행한다 — isEstimated 가 더 이상 벽시계를 안 쓰는지(frac_build 경로)
-    직접 확인하는 용도."""
+    If tz is given, run in that timezone — used to directly verify that isEstimated no
+    longer reads the wall clock (the frac_build path)."""
     node = shutil.which("node")
     if not node:
         return None
@@ -84,7 +87,7 @@ def run_node(js: str, tz: str = None):
         env["TZ"] = tz
     r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env)
     if r.returncode != 0:
-        raise AssertionError("node 실행 실패:\n%s" % r.stderr)
+        raise AssertionError("node execution failed:\n%s" % r.stderr)
     return r.stdout
 
 TEX = """\\documentclass{article}
@@ -136,7 +139,7 @@ class Base(unittest.TestCase):
         C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
-        ps.set_docs(None)                          # 단일 문서(--doc 없음)로 시작 — 여러 문서 테스트가 남긴 목록을 지운다
+        ps.set_docs(None)                          # start as a single document (no --doc) — clears the list left over from multi-doc tests
         ps.init_seq()
 
     def tearDown(self):
@@ -150,13 +153,13 @@ class Base(unittest.TestCase):
         return ps.find_pin(ps.snapshot_pins(), pid)
 
     def talk(self, raw: bytes, shut=True) -> bytes:
-        """raw 를 한 연결로 보내고 서버가 닫을 때까지 응답 바이트를 모은다."""
+        """Send raw over one connection and collect response bytes until the server closes it."""
         a, b = socket.socketpair()
         def serve():
             try:
                 ps.Handler(b, ("127.0.0.1", 0), None)
             finally:
-                b.close()                         # socketserver 의 shutdown_request 몫
+                b.close()                         # this is socketserver's shutdown_request duty
         t = threading.Thread(target=serve, daemon=True)
         t.start()
         a.sendall(raw)
@@ -181,7 +184,7 @@ class Base(unittest.TestCase):
 
 
 def split_resp(out: bytes):
-    """응답 바이트 한 건을 (상태 코드, 소문자 헤더 dict, 본문) 으로 나눈다."""
+    """Split one response's bytes into (status code, lowercase header dict, body)."""
     head, _, body = out.partition(b"\r\n\r\n")
     lines = head.decode("latin-1").split("\r\n")
     code = int(lines[0].split()[1])
@@ -222,7 +225,7 @@ class Smuggling(Base):
 
     def test_transfer_encoding_rejected(self):
         pid = self.add()
-        body = req("POST", "/api/pins/%d/close" % pid)   # TE 를 무시하는 서버는 이것을 다음 요청으로 읽는다
+        body = req("POST", "/api/pins/%d/close" % pid)   # a server that ignores TE would read this as the next request
         raw = (b"POST /api/pins/%d/reopen HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nTransfer-Encoding: chunked\r\n\r\n"
                % pid + body)
         out = self.talk(raw)
@@ -232,7 +235,7 @@ class Smuggling(Base):
 
     def test_short_body_does_nothing(self):
         self.add()
-        raw = b"POST /api/clear HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: 5\r\n\r\n"   # 본문 없이 끊김
+        raw = b"POST /api/clear HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: 5\r\n\r\n"   # cut off without a body
         out = self.talk(raw)
         self.assertIn(b" 400 ", out)
         self.assertEqual(len(ps.snapshot_pins()), 1)
@@ -262,7 +265,7 @@ class CrossOrigin(Base):
                                                          "Content-Type": "application/json"}))
         self.assertIn(b" 200 ", out)
         pid = ps.snapshot_pins()[0]["id"]
-        out = self.talk(req("POST", "/api/pins/%d/close" % pid))           # curl 모양: 본문·Origin 없음
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid))           # curl-shaped: no body, no Origin
         self.assertIn(b" 200 ", out)
         out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net",
                                                          "Origin": "https://box.tail1234.ts.net",
@@ -270,7 +273,7 @@ class CrossOrigin(Base):
         self.assertIn(b" 200 ", out)
 
     def test_rebinding_with_forged_tailscale_header_rejected(self):
-        # rebinding 페이지는 같은 출처 GET 에 Tailscale-User-Login 을 preflight 없이 실을 수 있다.
+        # a rebinding page can attach Tailscale-User-Login to a same-origin GET without a preflight.
         pid = self.add(note="secret-note")
         h = {"Host": "evil.example:18999", "Tailscale-User-Login": "x@y"}
         for path in ("/api/pins", "/api/meta", "/api/snippet?file=main.tex&lo=4&hi=4"):
@@ -278,29 +281,30 @@ class CrossOrigin(Base):
             self.assertIn(b" 403 ", out, path)
             self.assertNotIn(b"secret-note", out)
             self.assertNotIn(b"rarewordalpha", out)
-        out = self.talk(req("POST", "/api/pins/%d/drop" % pid, headers=h))   # Origin 없는 POST
+        out = self.talk(req("POST", "/api/pins/%d/drop" % pid, headers=h))   # POST without Origin
         self.assertIn(b" 403 ", out)
         self.assertIsNotNone(self.pin(pid))
 
     def test_host_ok_ignores_loopback_port_ssh_forward(self):
-        # 결함: host_ok 가 루프백 이름이어도 포트가 C.port 와 같아야 했다 — SSH -L 로 다른 로컬
-        # 포트에 포워딩하면(Host: localhost:9000, 서버는 18999) 403 이 됐다.
+        # bug: host_ok used to require the port to equal C.port even for a loopback name — forwarding
+        # through SSH -L to a different local port (Host: localhost:9000, server on 18999) got 403'd.
         self.assertTrue(ps.host_ok("localhost:9000"))
         self.assertTrue(ps.host_ok("127.0.0.1:1"))
         self.assertTrue(ps.host_ok("[::1]:9000"))
-        self.assertTrue(ps.host_ok("localhost"))              # 포트 없음도 여전히 허용
+        self.assertTrue(ps.host_ok("localhost"))              # no port is still allowed
 
     def test_host_ok_still_rejects_non_loopback_non_tailnet(self):
         self.assertFalse(ps.host_ok("evil.example"))
-        self.assertFalse(ps.host_ok("evil.example:18999"))    # 서버 포트를 흉내내도 이름이 아니면 거부
+        self.assertFalse(ps.host_ok("evil.example:18999"))    # mimicking the server port doesn't help if the name is wrong
 
     def test_host_ok_tailnet_unaffected(self):
         self.assertTrue(ps.host_ok("box.tail1234.ts.net"))
         self.assertTrue(ps.host_ok("box.tail1234.ts.net:443"))
 
     def test_origin_ok_loopback_host_accepts_any_loopback_port(self):
-        # 설계(P0b 수선 2): Host 가 루프백이면 Origin 도 루프백이기만 하면 된다(포트 무관 — SSH -L 은 Host·Origin
-        # 포트가 서버 바인딩 포트와 다르다. 실측: 18110→18106 포워딩 뒤 POST 가 전부 403 이었다).
+        # design (P0b fix 2): if Host is loopback, Origin only needs to be loopback too (port doesn't
+        # matter — with SSH -L, Host/Origin ports differ from the server's bound port. Observed: after
+        # forwarding 18110->18106, every POST got 403).
         self.assertTrue(ps.origin_ok("http://127.0.0.1:9000", "localhost:9000"))
         self.assertTrue(ps.origin_ok("http://localhost:18999", "127.0.0.1:18999"))
         self.assertTrue(ps.origin_ok("http://127.0.0.1:18110", "localhost:18106"))
@@ -310,21 +314,22 @@ class CrossOrigin(Base):
         self.assertFalse(ps.origin_ok("null", "localhost:18999"))
 
     def test_origin_ok_loopback_host_rejects_tailnet_origin(self):
-        # 결함(should → 설계 3): 루프백 Host 에 *.ts.net Origin 을 받아, 다른 tailnet 의 Funnel 공개 페이지가
-        # 로컬 사용자 브라우저로 본문 없는 POST(close·clear)를 preflight 없이 보냈다(실측 200).
+        # bug (should -> design 3): a loopback Host accepted a *.ts.net Origin, so a public Funnel page
+        # from another tailnet could send a body-less POST (close/clear) via the local user's browser
+        # without a preflight (observed: 200).
         self.assertFalse(ps.origin_ok("https://evil-funnel.tailabcd.ts.net", "127.0.0.1:18999"))
         self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net", "localhost:18999"))
         self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net", None))
 
     def test_origin_ok_tailnet_host_requires_same_host_and_port(self):
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net"))
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))   # 기본 포트 정규화
+        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))   # default-port normalization
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net:443"))
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net:8443"))
         self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net"))
         self.assertFalse(ps.origin_ok("https://evil.tailabcd.ts.net", "box.tail1234.ts.net"))
         self.assertFalse(ps.origin_ok("http://127.0.0.1:18999", "box.tail1234.ts.net"))
-        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:99999", "box.tail1234.ts.net"))   # 틀린 포트
+        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:99999", "box.tail1234.ts.net"))   # wrong port
 
     def test_funnel_csrf_on_loopback_host_is_403_end_to_end(self):
         pid = self.add()
@@ -337,15 +342,17 @@ class CrossOrigin(Base):
         self.assertIsNotNone(self.pin(pid))
 
     def test_ssh_forwarded_port_request_allowed_end_to_end(self):
-        # SSH -L 9000:127.0.0.1:18999 뒤에서 브라우저가 보내는 모양: Host 는 포워딩 포트, Origin 은 없다(직접
-        # 주소창 접근) 또는 있어도 실제 서버 포트를 가리킨다(브라우저가 연결한 포트가 Origin 의 포트다 — 이
-        # 테스트는 curl 모양의 Origin 없는 요청으로 가장 흔한 경우를 확인한다).
+        # shape of what a browser sends behind SSH -L 9000:127.0.0.1:18999: Host is the forwarded port,
+        # and Origin is either absent (direct address-bar access) or, if present, points at the actual
+        # server port (the port the browser connected to is Origin's port — this test checks the most
+        # common case, a curl-shaped request with no Origin).
         out = self.talk(req("GET", "/api/meta", headers={"Host": "localhost:9000"}))
         self.assertIn(b" 200 ", out)
 
     def test_ssh_forwarded_port_post_with_matching_origin_allowed(self):
-        # 실제 브라우저가 포워딩 뒤에서 보내는 모양(Host 와 Origin 이 둘 다 포워딩 포트) — 고치기 전에는
-        # GET 만 통과하고 첫 드래그(POST /api/pick 류)는 항상 403 이라 뷰어가 읽기 전용이 됐다.
+        # shape of what a real browser sends behind forwarding (Host and Origin both the forwarded port) —
+        # before the fix, only GET passed and the first drag (POST /api/pick etc.) always got 403,
+        # making the viewer view-only.
         body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
         out = self.talk(req("POST", "/api/pin", body, {"Host": "localhost:9000",
                                                          "Origin": "http://localhost:9000",
@@ -354,7 +361,7 @@ class CrossOrigin(Base):
         self.assertEqual(len(ps.snapshot_pins()), 1)
 
     def test_ssh_forwarded_non_loopback_origin_still_rejected(self):
-        # 포워딩 뒤에서도 루프백이 아닌 출처는 막는다(포트만 보지 않을 뿐 이름은 본다).
+        # a non-loopback origin is still blocked even behind forwarding (only the port is ignored, not the name).
         body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
         out = self.talk(req("POST", "/api/pin", body, {"Host": "localhost:9000",
                                                          "Origin": "http://evil.example:9000",
@@ -363,7 +370,7 @@ class CrossOrigin(Base):
         self.assertEqual(ps.snapshot_pins(), [])
 
     def test_forged_host_plus_identity_header_still_403(self):
-        # Host 완화가 rebinding 방어를 깨지 않는지 — 루프백이 아닌 이름은 여전히 거부된다.
+        # whether relaxing Host breaks rebinding defense — a non-loopback name is still rejected.
         pid = self.add(note="secret-note-2")
         out = self.talk(req("GET", "/api/pins", headers={"Host": "evil.example",
                                                           "Tailscale-User-Login": "x@y"}))
@@ -378,9 +385,9 @@ class CrossOrigin(Base):
 
     def test_allow_rejects_headerless_tailnet_request(self):
         ps.C.allow = frozenset({"ok@x.com"})
-        out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net"}))   # 태그 장치 모양
+        out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net"}))   # tag-device shape
         self.assertIn(b" 403 ", out)
-        out = self.talk(req("GET", "/api/meta"))                                          # 루프백 curl
+        out = self.talk(req("GET", "/api/meta"))                                          # loopback curl
         self.assertIn(b" 200 ", out)
         out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net",
                                                          "Tailscale-User-Login": "ok@x.com"}))
@@ -390,7 +397,7 @@ class CrossOrigin(Base):
         raw = b"POST /api/pin HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: \xb2\r\n\r\n"
         out = self.talk(raw)
         self.assertIn(b" 400 ", out)
-        out = self.talk(b"GET /api/meta HTTP/1.1\r\nHost: 127.0.0.1:\xb2\r\n\r\n")   # Host 포트도 같은 함정
+        out = self.talk(b"GET /api/meta HTTP/1.1\r\nHost: 127.0.0.1:\xb2\r\n\r\n")   # same trap for the Host port
         self.assertIn(b" 403 ", out)
 
     def test_deep_json_is_400(self):
@@ -402,8 +409,21 @@ class CrossOrigin(Base):
 VENDOR = PKG / "vendor" / "pdfjs"
 
 
+class ApiVersion(Base):
+    """GET /api/version — which Limn build is serving (no writes)."""
+
+    def test_reports_name_and_package_version(self):
+        code, h, body = split_resp(self.talk(req("GET", "/api/version")))
+        self.assertEqual(code, 200)
+        self.assertEqual(h["content-type"], "application/json; charset=utf-8")
+        init = (PKG / "__init__.py").read_text(encoding="utf-8")
+        want = re.search(r'^__version__ = "([^"]+)"', init, re.M).group(1)
+        self.assertEqual(json.loads(body), {"name": "limn", "version": want})
+        self.assertEqual(ps.app_version(), want)
+
+
 class VendorPdfjs(Base):
-    """GET /vendor/pdfjs/<파일> — 벡터 렌더링용 PDF.js 정적 서빙(MIME·캐시·경로 탈출·Host 검사)."""
+    """GET /vendor/pdfjs/<file> — static serving of PDF.js for vector rendering (MIME/cache/path traversal/Host checks)."""
 
     def get(self, path, headers=None):
         return split_resp(self.talk(req("GET", path, headers=headers)))
@@ -412,7 +432,7 @@ class VendorPdfjs(Base):
         for name in ("pdf.min.mjs", "pdf.worker.min.mjs"):
             code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, ps.PDFJS_VERSION))
             self.assertEqual(code, 200, name)
-            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # 모듈 스크립트는 JS MIME 이어야 실행된다
+            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # a module script only runs with the JS MIME type
             self.assertEqual(h["x-content-type-options"], "nosniff")
             self.assertEqual(h["cache-control"], "public, max-age=86400")
             self.assertEqual(body, (VENDOR / name).read_bytes())
@@ -445,7 +465,7 @@ class VendorPdfjs(Base):
     def test_missing_vendor_dir_is_404_not_500(self):
         ps.C.pdfjs_dir = Path(self.tmp.name) / "nowhere"
         code, h, _ = self.get("/vendor/pdfjs/pdf.min.mjs")
-        self.assertEqual(code, 404)                        # 뷰어는 이것을 보고 PNG 로 돌아간다
+        self.assertEqual(code, 404)                        # the viewer sees this and falls back to PNG
 
     def test_host_and_origin_checked_like_other_gets(self):
         self.assertEqual(self.get("/vendor/pdfjs/pdf.min.mjs", {"Host": "evil.example"})[0], 403)
@@ -478,7 +498,7 @@ class VendorPdfjs(Base):
 
 
 class PdfRoute(Base):
-    """GET /pdf?build=<pages_build> — 쪽 이미지와 같은 빌드의 PDF 만 준다."""
+    """GET /pdf?build=<pages_build> — only serves the PDF from the same build as the page images."""
 
     def setUp(self):
         super().setUp()
@@ -500,7 +520,7 @@ class PdfRoute(Base):
             self.assertEqual(code, 200)
             self.assertEqual(h["content-type"], "application/pdf")
             self.assertEqual(h["cache-control"], "private, max-age=600")
-            self.assertEqual(got, body)                   # 직전 빌드를 물으면 직전 빌드 — 지금 것으로 바꾸지 않는다
+            self.assertEqual(got, body)                   # asking for the previous build gets the previous build — not swapped for the current one
 
     def test_no_build_means_current(self):
         self.assertEqual(self.get("/pdf")[2], b"%PDF-new")
@@ -515,7 +535,7 @@ class PdfRoute(Base):
             self.assertNotIn(b"%PDF", body)
 
     def test_does_not_fall_back_to_build_dir(self):
-        (ps.C.state / self.new / "main.pdf").unlink()   # 쪽 디렉토리에 짝 PDF 가 없으면 build/ 로 물러서지 않는다
+        (ps.C.state / self.new / "main.pdf").unlink()   # if the page directory has no matching PDF, don't fall back to build/
         code, _h, body = self.get("/pdf?build=%s" % self.new)
         self.assertEqual(code, 404)
         self.assertNotIn(b"%PDF-build-dir", body)
@@ -568,7 +588,7 @@ class Store(Base):
     def test_mistyped_fields_are_quarantined(self):
         self.add()
         good = {"file": str(self.main), "lo": 4, "hi": 4}
-        bad = [dict(good, id=960, file="main.tex"),               # 상대 경로
+        bad = [dict(good, id=960, file="main.tex"),               # relative path
                dict(good, id=961, author="str"),
                dict(good, id=962, frac="bad"),
                dict(good, id=963, edited_by=5),
@@ -581,7 +601,7 @@ class Store(Base):
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             for r in bad:
                 fh.write(json.dumps(r) + "\n")
-        os.utime(self.main, (time.time() + 5, time.time() + 5))   # sync_all 이 synced_at 을 비교하게
+        os.utime(self.main, (time.time() + 5, time.time() + 5))   # so sync_all compares synced_at
         self.assertEqual([r["id"] for r in ps.snapshot_pins()], [1])
         self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
 
@@ -609,8 +629,8 @@ class Store(Base):
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("%d · 위치 잃음" % pid, md)   # 위치 잃음은 번호 칸에 말로 쓴다(예전 ⚠)
-        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)          # 표시 범례 줄
+        self.assertIn("%d · 위치 잃음" % pid, md)   # "위치 잃음" is spelled out in the number column (formerly ⚠)
+        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)          # the legend line
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
@@ -652,13 +672,13 @@ class Store(Base):
         self.assertEqual(p["frac"], [0.1, 0.2, 0.3, 0.4])
 
     def test_add_pin_stamps_pdf_build(self):
-        # 설계 1: frac 이 가리키는 좌표계를 벽시계가 아니라 '어느 빌드였는지'(pdf_build)로 못박는다.
+        # design 1: pin the coordinate system frac points into by "which build it was" (pdf_build), not the wall clock.
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], ps.cur_pages().name)
 
     def test_add_pin_keeps_client_pdf_build(self):
-        # 뷰어는 pick 응답의 pdf_build(드래그할 때 화면의 빌드)를 그대로 보낸다 — 재빌드 직후 화면을 바꾸기 전의
-        # 드래그는 옛 빌드로 남아야 한다.
+        # the viewer sends back pdf_build from the pick response as-is (the build on screen at drag time) —
+        # a drag made right after a rebuild, before the screen updates, must stay tagged with the old build.
         (ps.C.state / "pages-20260101000000").mkdir()
         ps.C.pages_ptr.write_text("pages-20260101000000")
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
@@ -703,7 +723,7 @@ class Store(Base):
         self.assertNotIn("frac_build", p)
 
     def test_edit_note_only_does_not_touch_pdf_build(self):
-        # 결함(must-2 갈래 a): 메모만 고쳐도 edited_at 이 지금으로 튀어(옛 로직) '추정' 표시가 꺼졌다.
+        # bug (must-2, branch a): editing just the note used to bump edited_at to now (old logic), turning off the "estimated" flag.
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
@@ -718,7 +738,7 @@ class Store(Base):
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_lo_hi_only_edit_does_not_touch_pdf_build(self):
-        # frac 없이 lo/hi 만 손으로 옮기면 frac 좌표 자체를 다시 찍은 게 아니므로 pdf_build 도 그대로다.
+        # moving lo/hi by hand without frac doesn't re-stamp the frac coordinates themselves, so pdf_build stays put too.
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
@@ -739,29 +759,29 @@ class Legacy(Base):
         (ps.C.build / "main.synctex.gz").write_bytes(b"syn-old")
         ps.migrate_pages()
         self.assertEqual(ps.cur_pdf(), ps.C.state / "pages" / "main.pdf")
-        (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")       # 재빌드가 build/ 를 덮어써도
-        self.assertEqual(ps.cur_pdf().read_bytes(), b"%PDF-old")  # pick 은 화면과 짝인 PDF 를 읽는다
+        (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")       # even though the rebuild overwrites build/
+        self.assertEqual(ps.cur_pdf().read_bytes(), b"%PDF-old")  # pick reads the PDF paired with the screen
         self.assertEqual((ps.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
-        ps.migrate_pages()                                        # 두 번 불러도 덮지 않는다
+        ps.migrate_pages()                                        # calling it twice doesn't overwrite either
         self.assertEqual(ps.cur_pdf().read_bytes(), b"%PDF-old")
 
 
 class Anchor(Base):
     def _shift(self, n):
         lines = TEX.splitlines()
-        lines[3:3] = ["inserted %d" % i for i in range(n)]      # L4 앞에 n 줄
+        lines[3:3] = ["inserted %d" % i for i in range(n)]      # n lines before L4
         time.sleep(0.01)
         self.main.write_text("\n".join(lines) + "\n", encoding="utf-8")
         os.utime(self.main, (time.time() + 5, time.time() + 5))
 
     def test_trailing_comment_kept(self):
-        pid = self.add(8, 10)                     # 본문 두 줄 + 꼬리 주석
+        pid = self.add(8, 10)                     # two body lines + a trailing comment
         self._shift(3)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"], p["sync"]), (11, 13, "moved +3"))
 
     def test_leading_comment_kept(self):
-        pid = self.add(7, 10)                     # 앞 주석 + 본문 + 꼬리 주석
+        pid = self.add(7, 10)                     # leading comment + body + trailing comment
         self._shift(3)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"], p["sync"]), (10, 13, "moved +3"))
@@ -781,19 +801,19 @@ class Anchor(Base):
 class Ladder(Base):
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 14, 14)    # 표 안의 셀
+        lad = ps.compute_levels(lines, 14, 14)    # a cell inside the table
         para = ps.find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
 
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 17, 17)    # 표 뒤 줄 — 다음 줄이 \subsection
+        lad = ps.compute_levels(lines, 17, 17)    # the line after the table — the next line is \subsection
         para = ps.find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 
 
-# ---------------------------------------------------------------- P0b-01 비동기 빌드
+# ---------------------------------------------------------------- P0b-01 async build
 
 class AsyncBuild(Base):
     def tearDown(self):
@@ -831,7 +851,7 @@ class AsyncBuild(Base):
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             ps.build_all()
         self.assertEqual(seen, ["copy"])
-        self.assertEqual(ps.build_state_snapshot()["phase"], None)   # 끝나면 phase 를 비운다
+        self.assertEqual(ps.build_state_snapshot()["phase"], None)   # phase is cleared when it finishes
 
     def test_ok_errors_state_surfaces_in_build_state(self):
         def fake_build():
@@ -852,15 +872,16 @@ class AsyncBuild(Base):
         self.assertIsNotNone(ps.read_built_src_mtime())
 
     def test_failed_build_does_not_commit_built_src_mtime(self):
-        # 결함: built_src_mtime 을 빌드 '시작 때' 썼고 실패해도 남았다 — 화면은 옛 PDF인데
-        # '원고 수정됨' 배지가 꺼졌다. ok|ok_errors 일 때만 확정해야 한다.
+        # bug: built_src_mtime used to be written at build "start" and stayed even on failure — the screen
+        # still showed the old PDF but the "manuscript modified" badge turned off. It should only be
+        # committed on ok|ok_errors.
         self.assertIsNone(ps.read_built_src_mtime())
 
         def fake_build_fail():
             return {"ok": False, "state": "fail", "errors": [], "log": "boom", "elapsed_s": 0.1, "pages": 0}
         with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
             ps.build_all()
-        self.assertIsNone(ps.read_built_src_mtime())          # 실패했으니 여전히 없다
+        self.assertIsNone(ps.read_built_src_mtime())          # still None because it failed
         self.assertEqual(ps.build_state_snapshot()["state"], "fail")
 
         def fake_build_ok():
@@ -868,14 +889,14 @@ class AsyncBuild(Base):
         with mock.patch.object(ps, "_build", side_effect=fake_build_ok):
             ps.build_all()
         first_ok = ps.read_built_src_mtime()
-        self.assertIsNotNone(first_ok)                        # 성공하고 나서야 확정된다
+        self.assertIsNotNone(first_ok)                        # only committed once it succeeds
 
         with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
             ps.build_all()
-        self.assertEqual(ps.read_built_src_mtime(), first_ok)  # 그 다음 실패는 확정값을 건드리지 않는다
+        self.assertEqual(ps.read_built_src_mtime(), first_ok)  # a subsequent failure doesn't touch the committed value
 
     def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
-        # 결함: 비동기 빌드 워커에서 예외가 나면 BUILD_STATE 가 running 에 영원히 멈췄다.
+        # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
         with mock.patch.object(ps, "_build", side_effect=RuntimeError("boom")):
             r = ps.build_async()
             self.assertEqual(r, {"state": "running"})
@@ -905,10 +926,10 @@ class AsyncBuild(Base):
         self.assertIn("log_tail", data)
 
     def test_real_build_progresses_through_all_phases(self):
-        """실제 latexmk·pdftoppm 으로 한 번 돌려 copy→latex→render 순서를 관측한다(도구가 있을 때만)."""
+        """Run once with the real latexmk/pdftoppm and observe the copy->latex->render order (only when the tools exist)."""
         import shutil as _sh
         if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         seen = []
         stop = threading.Event()
 
@@ -935,11 +956,11 @@ class AsyncBuild(Base):
                          [("1", "Intro"), ("1.1", "Next")])
 
 
-# ---------------------------------------------------------------- 위치 추정(.est) — 서버 판정
+# ---------------------------------------------------------------- location estimation (.est) — server-side judgment
 
 class Estimate(Base):
-    """설계 1: est = (pin.pdf_build ≠ 지금 빌드) 그리고 (두 빌드의 원고 지문이 다름), 또는 sync moved/lost.
-    판정은 서버가 하고 GET /api/pins 의 est 로 싣는다 — 벽시계(브라우저 시간대·edited_at)는 쓰지 않는다."""
+    """Design 1: est = (pin.pdf_build != current build) AND (the two builds' source fingerprints differ), or sync moved/lost.
+    The judgment is made by the server and carried as est in GET /api/pins — it never uses the wall clock (browser timezone/edited_at)."""
 
     def _fake_build(self, name, src_hash, src_mtime=None):
         (ps.C.state / name).mkdir(exist_ok=True)
@@ -984,16 +1005,17 @@ class Estimate(Base):
         self.assertIs(self.est_of(pid), False)
 
     def test_pin_on_stale_pdf_is_estimated_after_rebuild(self):
-        # must-2(b): 원고를 고친 뒤 옛 PDF 위에서 찍은 핀. 찍은 시각이 다음 빌드보다 늦어도 빌드 신원으로 잡힌다.
+        # must-2(b): a pin placed on the old PDF after the manuscript was edited. Even if it was placed
+        # later than the next build, it's caught by build identity.
         self._fake_build("pages-20260101000000", "h1")
-        pid = self.add()                                  # 화면은 h1 빌드(원고는 이미 바뀜)
+        pid = self.add()                                  # the screen shows the h1 build (the manuscript has already changed)
         self._fake_build("pages-20260101000100", "h2")
         self.assertIs(self.est_of(pid), True)
 
     def test_unknown_pin_build_is_estimated(self):
         self._fake_build("pages-20260101000000", "h1")
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
-                         dict(ps.LOCAL_ACTOR))            # 이력에 없는 빌드 — 모르면 추정(보수적)
+                         dict(ps.LOCAL_ACTOR))            # a build not in history — treat unknown as estimated (conservative)
         self.assertIs(self.est_of(pid), True)
 
     def test_sync_moved_or_lost_is_estimated(self):
@@ -1014,17 +1036,17 @@ class Estimate(Base):
         self.assertFalse(ps.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
 
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
-        # pdf_build 가 없는 옛 핀: at(서버 현지 시각 문자열)을 서버가 epoch 로 풀어 built_at·빌드 시작 src_mtime 과 비교.
+        # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
         (ps.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
         ps.write_built_src_mtime(ps._epoch("2026-09-22T09:30:00+09:00"))
         ctx = ps.est_context()
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
         self.assertTrue(ps.pin_est(old, ctx))
-        # 메모만 고쳐 edited_at 이 빌드보다 늦어져도 추정 유지(must-2 a) — 기준은 at 뿐
+        # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
         self.assertTrue(ps.pin_est(dict(old, edited_at="2026-09-22T11:00:00+09:00"), ctx))
-        self.assertFalse(ps.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))   # 원고가 그 뒤로 안 바뀜
-        self.assertFalse(ps.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # 빌드 뒤에 찍음
-        self.assertTrue(ps.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))  # 옛 필드명도 신원 경로
+        self.assertFalse(ps.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))   # the manuscript hasn't changed since
+        self.assertFalse(ps.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # placed after the build
+        self.assertTrue(ps.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))  # the legacy field name also takes the identity path
 
     def test_legacy_epoch_ignores_process_timezone_for_offset_strings(self):
         with mock.patch.dict(os.environ, {"TZ": "America/New_York"}):
@@ -1046,7 +1068,7 @@ class Estimate(Base):
             (self.src / d / "x.tex").write_text("latexdiff", encoding="utf-8")
             (self.src / d / "y.pdf").write_bytes(b"%PDF")
         self.assertEqual(ps.source_fingerprint(self.src), h0)
-        os.utime(self.main, (time.time() + 10, time.time() + 10))                 # 시각만 바뀜
+        os.utime(self.main, (time.time() + 10, time.time() + 10))                 # only the timestamp changed
         self.assertEqual(ps.source_fingerprint(self.src), h0)
         self.main.write_text(TEX + "% x\n", encoding="utf-8")
         self.assertNotEqual(ps.source_fingerprint(self.src), h0)
@@ -1064,14 +1086,14 @@ class Estimate(Base):
         self.assertTrue(m["last_build"]["finished_at"])
         h = ps.load_builds()
         self.assertEqual(h["seq"], 2)
-        self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])   # 실패는 이력에 빌드를 안 남긴다
+        self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])   # a failure doesn't leave a build in history
         self.assertEqual(h["by"]["pages-20260101000000"]["src_hash"], "h1")
 
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
         self._fake_build("pages-20260101000000", "h1")
         ps.finish_build({"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L",
                          "elapsed_s": 0.1}, None)
-        ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")   # 재기동 흉내
+        ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")   # simulate a restart
         ps.seed_builds()
         st = ps.build_state_snapshot()
         self.assertEqual((st["state"], st["seq"]), ("ok_errors", 2))
@@ -1086,7 +1108,7 @@ class Estimate(Base):
         ps.seed_builds()
         ent = ps.load_builds()["by"]["pages"]
         self.assertEqual(ent["src_hash"], ps.source_fingerprint(self.src))
-        pid = self.add()                                   # 기동 뒤 첫 핀 → 원고를 안 바꾼 재빌드에서 오탐 없음
+        pid = self.add()                                   # first pin after startup -> no false positive from a rebuild that didn't change the manuscript
         self._fake_build("pages-20260101000100", ps.source_fingerprint(self.src))
         self.assertIs(self.est_of(pid), False)
 
@@ -1107,15 +1129,15 @@ class Estimate(Base):
         self.assertEqual((st.st_mtime_ns, st.st_size), (st2.st_mtime_ns, st2.st_size))
 
     def test_real_build_est_end_to_end(self):
-        """실제 latexmk 로: 무변경 재빌드 → est 없음, 원고 수정 뒤 재빌드 → est, 메모 수정 뒤에도 유지."""
+        """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
         import shutil as _sh
         if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         self.assertEqual(ps.build_all()["state"], "ok")
         b1 = ps.cur_pages().name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
-        time.sleep(1.1)                                      # 빌드 디렉토리 이름이 초 단위
+        time.sleep(1.1)                                      # build directory names are second-granularity
         self.assertEqual(ps.build_all()["state"], "ok")
         self.assertNotEqual(ps.cur_pages().name, b1)
         self.assertIs(self.est_of(pid), False)
@@ -1128,7 +1150,7 @@ class Estimate(Base):
         self.assertIs(self.est_of(pid), True)
 
 
-# ---------------------------------------------------------------- P0b-02 light meta 폴링
+# ---------------------------------------------------------------- P0b-02 light meta polling
 
 class LightMeta(Base):
     def test_light_meta_has_no_write_side_effect(self):
@@ -1148,26 +1170,27 @@ class LightMeta(Base):
         rev1 = ps.pins_rev()
         self.assertNotEqual(rev0, rev1)
         rev2 = ps.pins_rev()
-        self.assertEqual(rev1, rev2)      # 변화 없으면 그대로
+        self.assertEqual(rev1, rev2)      # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
         m0 = ps.src_mtime()
         (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
         (ps.C.src / "build").mkdir()
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
-        self.assertEqual(ps.src_mtime(), m0)          # 캐시 밖이어도(2초 지난 뒤에도) 변하면 안 된다
-        ps._SRC_MTIME_CACHE[2] = 0.0                  # 캐시를 강제로 만료시켜 재계산을 확인
+        self.assertEqual(ps.src_mtime(), m0)          # must not change even outside the cache window (even after 2s)
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
         self.assertEqual(ps.src_mtime(), m0)
 
     def test_src_mtime_ignores_diff_dir(self):
-        # 결함(should, P0b 수선): 빌드 rsync 는 diff/(latexdiff 산출물)를 빼는데(exclude "diff/") src_mtime
-        # 은 안 빼서, latexdiff 를 한 번만 돌려도 '원고 수정됨' 배지가 뜨고 다음 재빌드 뒤 모든 핀이
-        # 레이아웃이 그대로인데도 '추정'으로 바뀌는 오탐이 났다.
+        # bug (should, P0b fix): the build rsync excludes diff/ (latexdiff output, exclude "diff/") but
+        # src_mtime didn't — so running latexdiff even once flipped the "manuscript modified" badge on,
+        # and after the next rebuild every pin was falsely marked "estimated" even though the layout was
+        # unchanged.
         m0 = ps.src_mtime()
         (ps.C.src / "diff").mkdir()
         (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
         self.assertEqual(ps.src_mtime(), m0)
-        ps._SRC_MTIME_CACHE[2] = 0.0                  # 캐시를 강제로 만료시켜 재계산을 확인
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
         self.assertEqual(ps.src_mtime(), m0)
 
     def test_src_mtime_reacts_to_tex_change(self):
@@ -1184,14 +1207,15 @@ class LightMeta(Base):
         self.assertIsNone(d["build_src_mtime"])
 
     def test_src_mtime_force_bypasses_cache(self):
-        # 결함: write_built_src_mtime() 이 2초 캐시 값을 그대로 썼다 — 캐시가 채워진 지 2초 안에
-        # 원고를 고치고 바로 재빌드하면 '수정 전' mtime 이 빌드 시작 시각으로 잘못 기록됐다.
-        m0 = ps.src_mtime(force=True)      # 캐시를 채운다
+        # bug: write_built_src_mtime() used to just take the 2-second-cached value — editing the
+        # manuscript and rebuilding right away, within 2 seconds of the cache filling, wrongly recorded
+        # the "pre-edit" mtime as the build-start time.
+        m0 = ps.src_mtime(force=True)      # fill the cache
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        cached = ps.src_mtime()            # 캐시 안(2초 이내) — 옛 값
+        cached = ps.src_mtime()            # inside the cache window (within 2s) — the stale value
         self.assertEqual(cached, m0)
-        forced = ps.src_mtime(force=True)  # 캐시를 건너뛰고 실측 — 새 값
+        forced = ps.src_mtime(force=True)  # bypass the cache and measure for real — a fresh value
         self.assertGreater(forced, m0)
 
     def test_write_built_src_mtime_uses_fresh_value(self):
@@ -1207,11 +1231,11 @@ class LightMeta(Base):
         self.assertIn("pins_rev", data)
 
 
-# ---------------------------------------------------------------- P0b-03 겹침·덧붙이기
+# ---------------------------------------------------------------- P0b-03 overlaps/append
 
 class Overlaps(Base):
     def test_inside_and_contains_pair(self):
-        p1 = self.add(4, 9, note="outer")     # 앞 두 문단(빈 줄 없음 아님, 넉넉히 겹치게 lo/hi 조정)
+        p1 = self.add(4, 9, note="outer")     # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
         p2 = self.add(4, 5, note="inner")
         rows = ps.snapshot_pins()
         rel = ps.overlaps_by_id(rows)
@@ -1239,7 +1263,7 @@ class Overlaps(Base):
         self.assertEqual(ov[0]["rel"], "inside")
 
     def test_overlaps_for_range_same_range_is_equal(self):
-        # 설계 2: 같은 범위는 따로 'equal' 로 낸다 — 뷰어가 '같은 범위입니다'로 밝히고 배너를 띄운다.
+        # design 2: an identical range is reported separately as 'equal' — the viewer states "same range" and shows a banner.
         pid = self.add(4, 9, note="first")
         ov = ps.overlaps_for_range(str(self.main), 4, 9)
         self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
@@ -1254,7 +1278,7 @@ class Overlaps(Base):
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         import shutil as _sh
         if not (_sh.which("latexmk") and _sh.which("pdftoppm") and _sh.which("pdftotext")):
-            self.skipTest("latex 도구 없음")
+            self.skipTest("latex tools not available")
         res = ps.build_all()
         self.assertEqual(res["state"], "ok")
         pages = ps.page_list()
@@ -1265,7 +1289,7 @@ class Overlaps(Base):
         self.assertIn("quote", d)
         self.assertIn("overlaps", d)
         self.assertEqual(d["pdf_build"], ps.cur_pages().name)
-        # 화면이 옛 빌드면 그 빌드로 되짚고 그 이름을 돌려준다(재빌드 직후 화면을 바꾸기 전의 드래그).
+        # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = ps.cur_pages().name
         time.sleep(1.1)
         self.assertEqual(ps.build_all()["state"], "ok")
@@ -1283,7 +1307,7 @@ class Overlaps(Base):
         p1 = ps.edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR))
         self.assertIn("추가 텍스트", p1["note"])
         self.assertIn("(추가 ", p1["note"])
-        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)   # 줄 수 불변
+        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)   # line count unchanged
         undone = ps.edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR))
         self.assertEqual(undone["note"], p0["note"])
 
@@ -1297,17 +1321,17 @@ class Overlaps(Base):
         with self.assertRaises(ps.HTTPError) as cm:
             ps.edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR))
         self.assertEqual(cm.exception.code, 400)
-        with self.assertRaises(ps.HTTPError):                 # 공백만 있어도 거부한다
+        with self.assertRaises(ps.HTTPError):                 # rejected even if it's whitespace only
             ps.edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR))
-        self.assertEqual(self.pin(pid)["note"], "원본")        # 거부됐으니 안 바뀐다
+        self.assertEqual(self.pin(pid)["note"], "원본")        # unchanged since it was rejected
 
     def test_note_append_over_note_max_combined_is_rejected(self):
-        pid = self.add(note="x" * (ps.NOTE_MAX - 20))          # 여유가 20자뿐
+        pid = self.add(note="x" * (ps.NOTE_MAX - 20))          # only 20 chars of headroom
         with self.assertRaises(ps.HTTPError) as cm:
-            ps.edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # 개별 상한(2000)은 넘지 않지만 합치면 넘는다
+            ps.edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # doesn't exceed the per-field cap (2000) but does once combined
         self.assertEqual(cm.exception.code, 400)
-        self.assertEqual(len(self.pin(pid)["note"]), ps.NOTE_MAX - 20)          # 거부됐으니 원래 길이 그대로
-        self.assertEqual(self.pin(pid)["rev"], 0)                                # rev 도 안 오른다
+        self.assertEqual(len(self.pin(pid)["note"]), ps.NOTE_MAX - 20)          # unchanged length since it was rejected
+        self.assertEqual(self.pin(pid)["rev"], 0)                                # rev doesn't bump either
 
     def test_get_pins_includes_rel_field(self):
         p1 = self.add(4, 9)
@@ -1318,8 +1342,9 @@ class Overlaps(Base):
         self.assertEqual(by_id[p2]["rel"], [{"id": p1, "rel": "inside"}])
 
     def test_overlaps_endpoint_recomputes_for_arbitrary_range(self):
-        # must-1(P0b 수선): 단계 전환(useLevel)·▲▼(nudge)로 CUR.lo/hi 가 바뀌면 /api/pick(좌표 필요)을
-        # 다시 부를 수 없다 — 범위만으로 가볍게 다시 묻는 엔드포인트가 있어야 배너가 따라간다.
+        # must-1 (P0b fix): when CUR.lo/hi changes via level switching (useLevel) or up/down (nudge), we
+        # can't call /api/pick again (it needs coordinates) — there must be a lightweight endpoint that
+        # re-asks using only the range so the banner keeps up.
         pid = self.add(4, 9, note="outer")
         out = self.talk(req("GET", "/api/overlaps?file=%s&lo=4&hi=5" % str(self.main)))
         self.assertIn(b" 200 ", out)
@@ -1354,7 +1379,7 @@ class PinsMdV2(Base):
         before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
-            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # 사람이 닫음 = 완료(에이전트가 닫으면 검토 대기로 표에 남는다)
+            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -1366,7 +1391,7 @@ class PinsMdV2(Base):
         self.assertNotIn("첫줄\n둘째줄", md)
         for line in md.splitlines():
             if line.startswith("| ") and "⏎" in line:
-                self.assertEqual(line.count("|"), 6)   # 5열 표: 파이프 6개
+                self.assertEqual(line.count("|"), 6)   # 5-column table: 6 pipes
 
     def test_overlap_symbol_in_number_column(self):
         p1 = self.add(4, 9)
@@ -1376,14 +1401,14 @@ class PinsMdV2(Base):
         self.assertNotIn("⊂", md)
 
     def test_close_guidance_shows_reply_ref_body(self):
-        # 결함: pins.md 의 닫기 안내가 본문 없는 curl 만 보여줘, 이 파일 하나만 읽는 에이전트는
-        # reply·ref 를 남기는 방법을 몰랐다(§닫을 때 사유 남기기, SKILL.md 와 동일한 형태여야 한다).
+        # bug: the close guidance in pins.md only showed a body-less curl, so an agent reading only this
+        # file had no way to know how to leave a reply/ref (§Leaving a reason when closing — it must match the same shape as SKILL.md).
         self.add(4, 5)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("curl -X POST -H 'Content-Type: application/json'", md)
         self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"커밋/PR(≤80자)"}\'', md)
         self.assertIn("http://127.0.0.1:%d/api/pins/N/close" % ps.C.port, md)
-        self.assertIn("본문 생략", md)   # 본문을 생략해도 되는 옛 방식이 여전히 된다는 안내
+        self.assertIn("본문 생략", md)   # notes that the old way of omitting the body still works
 
     def test_quote_shown_only_for_single_long_raw_line(self):
         long_line = "x" * 650
@@ -1393,7 +1418,7 @@ class PinsMdV2(Base):
                           "quote": "짧은 인용"}, dict(ps.LOCAL_ACTOR))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("«짧은 인용»", md)
-        # 짧은 줄(600자 이하)에는 quote 가 있어도 붙지 않는다
+        # a short line (<=600 chars) doesn't get a quote attached even if one is present
         rows = ps.snapshot_pins()
         for r in rows:
             if r["id"] == pid:
@@ -1410,11 +1435,11 @@ class PinsMdV2(Base):
         long = "x" * 90
         cut = ps.truncate_quote(long, 60)
         self.assertEqual(cut, "x" * 59 + "…")
-        self.assertEqual(len(cut), 60)   # 결함: 61자(60자+…)가 됐었다 — 설계는 ≤60자
-        self.assertEqual(ps.truncate_quote("x" * 60, 60), "x" * 60)   # 정확히 경계면 안 붙는다
+        self.assertEqual(len(cut), 60)   # bug: it used to come out to 61 chars (60 + …) — the design calls for <=60 chars
+        self.assertEqual(ps.truncate_quote("x" * 60, 60), "x" * 60)   # exactly at the boundary, nothing is appended
 
     def test_quote_truncated_with_ellipsis_in_pins_md(self):
-        # 결함: 인용문이 60자 넘게 잘려도 말줄임표가 없어서 완전한 문장처럼 보였다.
+        # bug: when a quote was cut past 60 chars, the missing ellipsis made it look like a complete sentence.
         long_line = "y" * 650
         f = self.src / "long2.tex"
         f.write_text(long_line + "\n", encoding="utf-8")
@@ -1423,10 +1448,10 @@ class PinsMdV2(Base):
         stored = self.pin(pid)["quote"]
         self.assertEqual(stored, "가" * 59 + "…")
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("«" + stored + "»", md)   # render_quote 가 이미 …가 붙은 값을 다시 자르지 않는다
+        self.assertIn("«" + stored + "»", md)   # render_quote doesn't re-truncate a value that already has … appended
 
     def test_location_col_escapes_pipe_in_filename(self):
-        # 결함: 위치 칸의 파일명에 파이프가 있으면 표 열 구조가 깨질 수 있었다(메모·인용문은 이미 이스케이프했다).
+        # bug: a pipe in the filename in the location column could break the table's column structure (note/quote were already escaped).
         sub = self.src / "a|b"
         sub.mkdir()
         f = sub / "c.tex"
@@ -1436,14 +1461,14 @@ class PinsMdV2(Base):
         self.assertIn("a\\|b/c.tex L1-L1", md)
         for line in md.splitlines():
             if "a\\|b" in line:
-                # 5열 표 구분자 6개 + 파일명 안의 이스케이프된 파이프 1개("\|"도 문자로는 '|'다) = 7.
+                # 6 separators for a 5-column table + 1 escaped pipe in the filename ("\|" is still a '|' character) = 7.
                 self.assertEqual(line.count("|"), 7)
-                self.assertNotIn("a|b/c.tex", line)     # 이스케이프 안 된 원본 조각은 없어야 한다
+                self.assertNotIn("a|b/c.tex", line)     # the unescaped original fragment must not appear
 
     def test_range_col_escapes_pipe_in_env_kind(self):
-        # 결함(should, P0b 수선): 위치 칸(loc_label)·인용문(render_quote)은 파이프를 이스케이프했지만
-        # 범위 칸(range_label)은 env 이름을 그대로 돌려줘서, kind='env:x|y' 를 저장하면 pins.md 표 행이
-        # 6칸이 아니라 6칸을 넘겨 표가 깨졌다.
+        # bug (should, P0b fix): the location column (loc_label) and quote (render_quote) escaped pipes,
+        # but the range column (range_label) returned the env name as-is — so storing kind='env:x|y'
+        # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
                           "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR))
         self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
@@ -1451,12 +1476,12 @@ class PinsMdV2(Base):
         for line in md.splitlines():
             if "env:x" in line:
                 self.assertIn("env:x\\|y", line)
-                # 5열 표 구분자 6개 + 범위 칸 안의 이스케이프된 파이프 1개 = 7(파일명 칸 테스트와 같은 셈).
+                # 6 separators for a 5-column table + 1 escaped pipe in the range column = 7 (same arithmetic as the filename-column test).
                 self.assertEqual(line.count("|"), 7)
 
     def test_every_cell_escapes_pipe_and_newline(self):
-        # 설계 5: 모든 칸 전수 — kind(범위 칸, env·비env 두 분기), 파일명, 메모, 인용문. 어느 칸이든 '|' 나 줄바꿈이
-        # 그대로 들어가면 행이 깨진다.
+        # design 5: exhaustively cover every column — kind (range column, both env and non-env branches),
+        # filename, note, quote. Any column breaks the row if a raw '|' or newline gets through.
         ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "a|b\nc",
                     "scope": "env", "kind": "env:x|y\nz"}, dict(ps.LOCAL_ACTOR))
         ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "n", "kind": "k|1\r\nk2"},
@@ -1485,10 +1510,10 @@ class PinsMdV2(Base):
                 self.assertEqual(line.count("|"), 6)
 
 
-# ---------------------------------------------------------------- P0b-보완: 삭제/완료 구분·되살리기·닫기 사유·재닫기 무변경
+# ---------------------------------------------------------------- P0b supplement: drop/done distinction · restore · close reason · re-close no-op
 
 class CloseReplyRef(Base):
-    """§C: /close 가 선택 {"reply","ref"} 를 받아 close_reply/close_ref 로 저장한다."""
+    """§C: /close accepts optional {"reply","ref"} and stores them as close_reply/close_ref."""
 
     def test_close_with_reply_and_ref_is_stored(self):
         pid = self.add()
@@ -1520,7 +1545,7 @@ class CloseReplyRef(Base):
             ps.clean_close_body({"reply": "x" * (ps.CLOSE_REPLY_MAX + 1)})
         with self.assertRaises(ps.HTTPError):
             ps.clean_close_body({"ref": "x" * (ps.CLOSE_REF_MAX + 1)})
-        # 상한 그 자체는 통과한다.
+        # the cap itself is allowed through.
         reply, ref = ps.clean_close_body({"reply": "x" * ps.CLOSE_REPLY_MAX, "ref": "x" * ps.CLOSE_REF_MAX})
         self.assertEqual(len(reply), ps.CLOSE_REPLY_MAX)
         self.assertEqual(len(ref), ps.CLOSE_REF_MAX)
@@ -1543,7 +1568,7 @@ class CloseReplyRef(Base):
 
 
 class CloseIdempotent(Base):
-    """§D: 이미 닫힌 핀을 다시 닫으면 아무것도 바뀌지 않는다(rev 도 그대로)."""
+    """§D: re-closing an already-closed pin changes nothing (rev stays the same too)."""
 
     def test_second_close_does_not_overwrite_closed_by_or_rev(self):
         pid = self.add()
@@ -1583,7 +1608,7 @@ class CloseIdempotent(Base):
 
 
 class DroppedList(Base):
-    """§B: GET /api/pins/dropped — 삭제한 핀을 dropped_at·dropped_by 와 함께 읽기 전용으로 낸다."""
+    """§B: GET /api/pins/dropped — returns dropped pins read-only, together with dropped_at/dropped_by."""
 
     def test_dropped_payload_includes_dropped_at_and_by(self):
         pid = self.add(note="oops")
@@ -1621,18 +1646,18 @@ class DroppedList(Base):
         self.assertIn(b" 403 ", out)
 
 
-# ---------------------------------------------------------------- 프런트엔드 순수 로직(node 로 실제 소스 실행)
+# ---------------------------------------------------------------- frontend pure logic (run the real source under node)
 #
-# 서버는 표준 라이브러리·127.0.0.1 만 쓰지만, 이 테스트들은 회귀 검증을 위해 node 로 클라이언트 JS 를
-# 그대로 돌린다(서버 자체를 바꾸지 않는다). node 가 없는 환경에서는 스킵한다.
+# The server only uses the standard library and 127.0.0.1, but these tests run the client JS as-is under
+# node for regression verification (they don't change the server itself). Skipped in environments without node.
 
 class FrontendLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_is_estimated_draws_server_est_only_regardless_of_timezone(self):
-        # 설계 1: 뷰어는 서버가 준 est 를 그대로 그린다 — 시간대·edited_at·sync 로 다시 판정하지 않는다.
+        # design 1: the viewer draws the est the server gave it as-is — it never re-judges via timezone/edited_at/sync.
         js = "\n".join([
             extract_js_fn("isEstimated"),
             r"""
@@ -1647,7 +1672,7 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(seoul, ny)
 
     def test_sel_rel_matches_python_selection_rel(self):
-        # 설계 2: 뷰어는 범위가 바뀔 때마다 서버 왕복 없이 겹침을 다시 센다 — 규칙이 서버와 같아야 한다.
+        # design 2: the viewer recounts overlaps every time the range changes, without a round trip to the server — the rule must match the server's.
         cases = [(lo, hi, 4, 7) for lo in range(1, 10) for hi in range(lo, 11)]
         js = "\n".join([extract_js_fn("selRel"),
                         "console.log(JSON.stringify(%s.map(c=>selRel(c[0],c[1],c[2],c[3]))));" % json.dumps(cases)])
@@ -1679,8 +1704,9 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [6, 2, 2, 7, 8])
 
     def test_overlap_banner_follows_level_change_and_dismiss_resets(self):
-        # must-1 라이브 경로: 드래그(기본 단계 = 환경, 핀을 감쌈) → [문단] 단계로 바꿔 기존 핀과 같은 범위 → 배너가
-        # '같은 범위'로 바뀐다. [별도 핀으로 저장]은 그 관계만 끄고, 새 드래그(pick 의 리셋)에서 다시 뜬다.
+        # must-1 live path: drag (default level = env, wraps the pin) -> switch to [paragraph] level to
+        # match an existing pin's range -> the banner switches to "same range". [Save as separate pin]
+        # only turns off that relation and comes back on a fresh drag (pick's reset).
         js = "\n".join([
             r"""
             const box={hidden:true,dataset:{},innerHTML:''};
@@ -1710,8 +1736,9 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out[4], [False, "equal"])
 
     def test_poll_build_single_flight_and_once_per_seq(self):
-        # 설계 4: pollBuild 는 단일 비행 — 동시에 몇 번 불려도 /api/build 는 한 번, 완료(seq 하나) 처리도 한 번.
-        # 새로 연 탭은 이미 실패해 있는 빌드를 토스트 없이 패널로만 보인다.
+        # design 4: pollBuild is single-flight — no matter how many times it's called concurrently,
+        # /api/build fires once and completion (one seq) is handled once. A freshly opened tab shows an
+        # already-failed build in the panel only, with no toast.
         js = "\n".join([
             r"""
             const document={hidden:false};
@@ -1725,7 +1752,7 @@ class FrontendLogic(unittest.TestCase):
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
-            // 여러 문서(§여러 문서) 전역 — 단일 문서 뷰어와 같은 값
+            // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
             const DOC='main', DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
             """,
             extract_js_fn("buildChipText"), extract_js_fn("pullSuffix"), extract_js_fn("pollBuild"),
@@ -1766,8 +1793,9 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(out["skip"], {"toasts": ["ok", "err"], "panels": ["fail"]})
 
     def test_rel_badge_matches_python_smallest_inside_rule(self):
-        # 결함: relBadge(JS, 카드 태그)가 insides[0](서버가 보낸 순서, 임의)을 골랐는데 서버의
-        # rel_badge()(pins.md)는 범위가 가장 작은 바깥 핀을 골랐다 — 카드와 pins.md 표기가 어긋났다.
+        # bug: relBadge (JS, card tag) used to pick insides[0] (the order the server happened to send,
+        # arbitrary), while the server's rel_badge() (pins.md) picked the outer pin with the smallest
+        # range — the card and pins.md notations disagreed.
         js = "\n".join([
             extract_js_fn("josa"), extract_js_fn("relBadge"),
             r"""
@@ -1778,15 +1806,15 @@ class FrontendLogic(unittest.TestCase):
             """,
         ])
         out = json.loads(run_node(js))
-        self.assertEqual(out["id"], 2)     # id=2(범위 10-20, 길이 11)가 가장 작은 바깥 핀
+        self.assertEqual(out["id"], 2)     # id=2 (range 10-20, length 11) is the smallest outer pin
 
-        # Python 쪽(rel_badge, pins.md)과 같은 by_id 로 같은 규칙을 비교한다.
+        # compare the same rule with the same by_id on the Python side (rel_badge, pins.md).
         by_id = {1: {"lo": 1, "hi": 100}, 2: {"lo": 10, "hi": 20}, 3: {"lo": 5, "hi": 50}}
         rel = [{"id": 1, "rel": "inside"}, {"id": 3, "rel": "inside"}, {"id": 2, "rel": "inside"}]
         self.assertEqual(ps.rel_badge(rel, by_id), "#2 범위 안")
 
     def test_jump_to_card_sets_cur_and_clears_highlight_after_timeout(self):
-        # 결함: 배지 클릭이 .flash 만 붙였고(.cur 없음), 정적 box-shadow 라 강조가 풀리지 않았다.
+        # bug: clicking the badge only added .flash (no .cur), and since the box-shadow was static, the highlight never went away.
         js = "\n".join([
             r"""
             // jumpToCard 가 쓰는 만큼만 최소 DOM 을 흉내낸다.
@@ -1816,13 +1844,13 @@ class FrontendLogic(unittest.TestCase):
             """,
         ])
         out = json.loads(run_node(js))
-        self.assertEqual(out["mid"], [True, True])     # 클릭 직후: .cur 와 .flash 둘 다 있다
-        self.assertEqual(out["after"], [False, False])  # 1.2초 뒤: 강조가 풀린다(정적 box-shadow 버그 수정)
+        self.assertEqual(out["mid"], [True, True])     # right after clicking: both .cur and .flash are present
+        self.assertEqual(out["after"], [False, False])  # after 1.2s: the highlight clears (static box-shadow bug fixed)
 
     def test_diff_toast_distinguishes_dropped_from_closed(self):
-        # §A: 옛 구현은 열린 목록에서 사라진 핀을 전부 '완료'로 알렸다 — 공저자가 지운 핀도 작성자
-        # 화면에 '#N 이 완료되었습니다'로 떴다(실측). id 2 는 d(열림+닫힘)에 아예 없으므로 삭제,
-        # id 3 은 d 에 done:true 로 있으므로 완료다.
+        # §A: the old implementation reported every pin that disappeared from the open list as "done" —
+        # even a pin a coauthor dropped showed up on the author's screen as '#N 이 완료되었습니다' (observed).
+        # id 2 is dropped because it's absent from d (open+closed) entirely; id 3 is done because it's in d with done:true.
         js = "\n".join([
             r"""
             function who(a){return (a&&(a.name||a.login))||'';}
@@ -1852,7 +1880,7 @@ class FrontendLogic(unittest.TestCase):
         self.assertEqual(len(dropped), 1)
         self.assertEqual(dropped[0]["msg"], "#2 을 Bob 가 삭제함")
         self.assertEqual(dropped[0]["kind"], "warn")
-        self.assertTrue(dropped[0]["hasAction"])          # [되살리기] 액션이 붙는다
+        self.assertTrue(dropped[0]["hasAction"])          # the [되살리기] (restore) action is attached
 
     def test_diff_toast_dropped_action_calls_restore_pin(self):
         js = "\n".join([
@@ -1896,9 +1924,9 @@ class FrontendLogic(unittest.TestCase):
         self.assertIn("삭제함", out[0])
 
     def test_diff_toast_suppresses_own_recent_action_but_not_others(self):
-        # 결함: 자기 탭이 방금 닫거나 지운 핀도 markMine 없이 diffToast 를 그대로 타 로컬 토스트와
-        # 겹쳐 두 번 떴다. markMine(id) 로 표시해 둔 id 는 한 번만 삼키고, 표시 안 된(=다른 탭이 한)
-        # id 는 그대로 알려야 한다.
+        # bug: a pin the same tab just closed or dropped would also flow straight through diffToast
+        # without markMine, doubling up with the local toast. An id marked via markMine(id) should be
+        # swallowed exactly once; an unmarked id (= done by another tab) must still be reported.
         js = "\n".join([
             r"""
             function who(a){return (a&&(a.name||a.login))||'';}
@@ -1920,23 +1948,24 @@ class FrontendLogic(unittest.TestCase):
         ])
         out = json.loads(run_node(js))
         joined = " | ".join(out)
-        self.assertNotIn("#1", joined)                 # 자기 동작 — 억제됨
-        self.assertNotIn("#2", joined)                  # 자기 동작 — 억제됨
-        self.assertIn("#3 이 완료되었습니다", joined)     # 다른 탭이 완료 — 그대로 뜸
-        self.assertTrue(any("#4" in t and "삭제함" in t and "Coauthor" in t for t in out))  # 다른 탭이 삭제 — 그대로 뜸
+        self.assertNotIn("#1", joined)                 # own action — suppressed
+        self.assertNotIn("#2", joined)                  # own action — suppressed
+        self.assertIn("#3 이 완료되었습니다", joined)     # another tab's completion — shown as-is
+        self.assertTrue(any("#4" in t and "삭제함" in t and "Coauthor" in t for t in out))  # another tab's drop — shown as-is
 
 
-# ---------------------------------------------------------------- 프런트엔드 구조(소스 문자열 검사)
+# ---------------------------------------------------------------- frontend structure (source-string inspection)
 #
-# 타이머·fetch·visibility 를 아우르는 폴링 루프와 패널 자동 표시는 node 로 통째로 실행하려면 fetch·
-# document.hidden·setInterval 을 모두 흉내내야 해서(이 스킬의 하드 제약은 표준 라이브러리뿐이라 그런
-# 셔레이더를 서버에 추가할 수 없다) 여기서는 실제로 배포되는 ps.HTML 소스 문자열에 고친 패턴이 있고
-# 고치기 전 패턴이 없는지를 검사한다 — 실행 검증은 아니지만 회귀(원래 버그 패턴으로 되돌아감)는 잡는다.
+# Running the full polling loop and automatic panel display, which spans timers, fetch, and visibility,
+# under node would require faking fetch/document.hidden/setInterval entirely (this project's hard
+# constraint is stdlib-only, so we can't add such a shim to the server) — so instead we check the actual
+# deployed ps.HTML source string for the fixed pattern and the absence of the pre-fix pattern. This isn't
+# execution verification, but it does catch regressions (reverting to the original bug pattern).
 
 class FrontendStructure(unittest.TestCase):
     def test_build_polling_is_conditional_not_permanent(self):
-        # 결함: startBuildPolling() 이 무조건 setInterval(pollBuild,1000) 을 걸어 탭이 숨거나 할 일이
-        # 없어도 매초 /api/build 를 불렀다.
+        # bug: startBuildPolling() used to unconditionally set setInterval(pollBuild,1000), calling
+        # /api/build every second even when the tab was hidden or there was nothing to do.
         m = re.search(r"function startBuildPolling\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         self.assertNotIn("setInterval(pollBuild", m.group(1))
@@ -1957,8 +1986,8 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("pollBuild()", body)
 
     def test_light_poll_is_single_flight(self):
-        # 결함: visibilitychange 와 focus 가 겹치면 pollLight() 가 매번 새로 /api/meta·loadPins 를
-        # 불러 loadPins 가 최대 3 회 나갔다. pollBuild 와 같은 단일 비행 패턴이어야 한다.
+        # bug: when visibilitychange and focus overlapped, pollLight() would call /api/meta·loadPins
+        # fresh each time, firing loadPins up to 3 times. It needs the same single-flight pattern as pollBuild.
         m = re.search(r"\nfunction pollLight\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1).replace(" ", "")
@@ -1974,9 +2003,10 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("case 'err-close':hideBuildErr()", ps.HTML)
 
     def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
-        # 회귀: switchDoc() 이 캐시된 문서에서 동기로 drawDocTabs→drawDocsMenu 까지 돌면 열린 #docs-menu 를
-        # 다시 그려 클릭된 <a> 를 DOM 에서 떼어낸다. switchDoc() 호출 뒤에 a.closest() 를 부르면 null 이
-        # 나와 메뉴가 열린 채 남는다 — inMenu 는 반드시 switchDoc() 호출 '전'에 정해야 한다.
+        # regression: when switchDoc() runs synchronously through drawDocTabs->drawDocsMenu for a cached
+        # document, it redraws the open #docs-menu, detaching the clicked <a> from the DOM. Calling
+        # a.closest() after switchDoc() then returns null and the menu stays open — inMenu must always
+        # be determined *before* calling switchDoc().
         m = re.search(r"case 'doc':\{(.*?)\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
@@ -1995,9 +2025,9 @@ class FrontendStructure(unittest.TestCase):
             """ % body)
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         data = json.loads(out)
-        self.assertTrue(data["closed"], "캐시된 문서를 골라도 #docs-menu 가 닫혀야 한다")
+        self.assertTrue(data["closed"], "#docs-menu must close even when the selected document is cached")
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
@@ -2013,9 +2043,9 @@ class FrontendStructure(unittest.TestCase):
             self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
-        self.assertIn("pdf_build:META.pages_build", ps.HTML)                  # 드래그 → /api/pick
-        self.assertIn("quote:d.quote,pdf_build:d.pdf_build", ps.HTML)         # pick 응답 → /api/pin
-        self.assertIn("frac:c.frac,pdf_build:c.pdf_build", ps.HTML)           # 위치 다시 잡기 → loc
+        self.assertIn("pdf_build:META.pages_build", ps.HTML)                  # drag -> /api/pick
+        self.assertIn("quote:d.quote,pdf_build:d.pdf_build", ps.HTML)         # pick response -> /api/pin
+        self.assertIn("frac:c.frac,pdf_build:c.pdf_build", ps.HTML)           # relocate -> loc
 
     def test_no_wall_clock_estimate_left_in_viewer(self):
         self.assertNotIn("pinAtEpoch", ps.HTML)
@@ -2023,7 +2053,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertNotIn("LAST_SEEN_BUILD", ps.HTML)
 
     def test_dropped_list_ui_exists(self):
-        # §B: '닫힌 핀' 아래 접힌 '삭제한 핀 N ▸' 목록과 되살리기 버튼.
+        # §B: a collapsed '삭제한 핀 N ▸' list under '닫힌 핀' with a restore button.
         self.assertIn('id="dropped-toggle"', ps.HTML)
         self.assertIn('id="dropped-list"', ps.HTML)
         self.assertIn("case'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins()", ps.HTML.replace(" ", ""))
@@ -2043,29 +2073,29 @@ class FrontendStructure(unittest.TestCase):
         m = re.search(r"function drawPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertRegex(body, r"(DROPPED|LDROP)\.length")   # LDROP = listDropped()(지금 문서 또는 모든 문서)
+        self.assertRegex(body, r"(DROPPED|LDROP)\.length")   # LDROP = listDropped() (current document or all documents)
         self.assertIn("droppedCard", body)
 
     def test_done_card_shows_close_reply_and_ref(self):
-        # §C: 닫힌 카드에 닫을 때 남긴 reply·ref 를 보여 준다(둘 다 esc 를 거친다).
+        # §C: a closed card shows the reply/ref left at close time (both go through esc).
         m = re.search(r"function doneCard\(p\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
-        self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # 답 한 줄은 arcLine 이 esc 를 거쳐 그린다
-        self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))   # fmtText 가 먼저 esc 를 거친다
+        self.assertIn("arcLine('r:'+p.id,p.close_reply", body)        # the reply line is drawn by arcLine, going through esc
+        self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))   # fmtText goes through esc first
         self.assertIn("esc(p.close_ref)", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
-        # SKILL.md 의 '핀 소비 절차' 닫기 예시가 reply·ref 를 남기도록 바뀌었는지(§C).
+        # whether the close example in SKILL.md's '핀 소비 절차' section was updated to leave reply/ref (§C).
         skill = SKILL_MD.read_text(encoding="utf-8")
         self.assertIn('"reply"', skill)
         self.assertIn('"ref"', skill)
         self.assertIn("/close", skill)
 
 
-# ---------------------------------------------------------------- §P0c-B: GET /pins.md — 원격 에이전트 진입점
+# ---------------------------------------------------------------- §P0c-B: GET /pins.md — remote agent entry point
 
 class RemotePinsMd(Base):
     def test_loopback_host_uses_loopback_base(self):
@@ -2093,9 +2123,9 @@ class RemotePinsMd(Base):
         self.assertNotIn("x.tail1234.ts.net", disk)
 
     def test_pins_md_endpoint_syncs_like_api_pins(self):
-        # GET /api/pins 와 같은 sync 경로를 타야 한다 — 원고를 고쳐 줄이 밀렸으면 반영돼야 한다.
+        # must take the same sync path as GET /api/pins — if editing the manuscript shifted lines, it must be reflected.
         pid = self.add(lo=7, hi=7, note="n")
-        self.main.write_text("\n" + TEX, encoding="utf-8")   # 앞에 빈 줄 하나 — 전부 한 줄씩 밀린다
+        self.main.write_text("\n" + TEX, encoding="utf-8")   # one blank line up front — everything shifts down by one line
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
         self.assertIn("L8-L8", body)
@@ -2106,7 +2136,7 @@ class RemotePinsMd(Base):
         self.assertIn(b" 403 ", out)
 
 
-# ---------------------------------------------------------------- §P0c-C: 처리 중 표시(claim)
+# ---------------------------------------------------------------- §P0c-C: in-progress indicator (claim)
 
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
@@ -2150,14 +2180,14 @@ class Claim(Base):
         self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
-        for bad in (0, -1, "120", 12.5, True, None):                  # 형이 틀리거나 1 보다 작으면 400
+        for bad in (0, -1, "120", 12.5, True, None):                  # 400 for a wrong type or a value below 1
             with self.assertRaises(ps.HTTPError):
                 ps.clean_claim_ttl({"ttl_min": bad})
         self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
         self.assertEqual(ps.clean_claim_ttl({"ttl_min": 120}), 120)
         self.assertEqual(ps.CLAIM_TTL_MAX, 120)
-        for over in (121, 480, 10_000):                                # 상한(120, 예전 480)을 넘으면 깎아서 받는다(하위 호환)
+        for over in (121, 480, 10_000):                                # above the cap (120, formerly 480) it gets clamped down (backward compat)
             self.assertEqual(ps.clean_claim_ttl({"ttl_min": over}), 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
@@ -2201,7 +2231,7 @@ class Claim(Base):
         pid = self.add()
         ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("처리 중(Coauthor Kim)", md)                     # 예상 없이 잡으면 이름만
+        self.assertIn("처리 중(Coauthor Kim)", md)                     # just the name when there's no ETA
         self.assertNotIn("⏳", md)
         self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
 
@@ -2245,7 +2275,7 @@ class Claim(Base):
         self.assertFalse(body["ok"])
 
 
-# ---------------------------------------------------------------- §P0c-D: 기준 커밋·빌드를 pins.md 머리에
+# ---------------------------------------------------------------- §P0c-D: base commit/build at the top of pins.md
 
 class BuildHeadInPinsMd(Base):
     def test_head_line_present_when_head_and_built_at_known(self):
@@ -2263,7 +2293,7 @@ class BuildHeadInPinsMd(Base):
         self.assertNotIn("다른 체크아웃에서", md)
 
     def test_head_line_omitted_for_dash_placeholder(self):
-        # _build() 는 git 저장소가 아니면 head.txt 에 '-' 를 쓴다 — 그때는 '기준' 을 보여줄 게 없다.
+        # _build() writes '-' to head.txt when it's not a git repo — in that case there's nothing to show for "기준" (base).
         (ps.C.state / "head.txt").write_text("-", encoding="utf-8")
         (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
         self.add()
@@ -2281,11 +2311,11 @@ class BuildHeadInPinsMd(Base):
 # ---------------------------------------------------------------- §P0c-E: --git-pull
 
 class GitPull(unittest.TestCase):
-    """git_pull_phase() 를 임시 bare 저장소 + 클론으로 검증한다 — 실제 원고 저장소는 쓰지 않는다."""
+    """Verify git_pull_phase() against a temporary bare repo + clone — no real manuscript repo is used."""
 
     def setUp(self):
         if not shutil.which("git"):
-            self.skipTest("git 없음")
+            self.skipTest("git not available")
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.bare = self.root / "upstream.git"
@@ -2306,7 +2336,7 @@ class GitPull(unittest.TestCase):
     def _run(self, args, cwd):
         r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
-            raise AssertionError("%s 실패:\n%s%s" % (args, r.stdout, r.stderr))
+            raise AssertionError("%s failed:\n%s%s" % (args, r.stdout, r.stderr))
         return r.stdout
 
     def _configure(self, d):
@@ -2388,7 +2418,7 @@ class GitPull(unittest.TestCase):
         self.assertEqual(r["state"], "up_to_date")
 
     def test_no_shell_no_user_input_in_argv(self):
-        # 보안: subprocess.run 이 리스트 인자로 돈다(쉘 없음) — _git() 의 시그니처 자체가 그 계약이다.
+        # security: subprocess.run runs with list arguments (no shell) — _git()'s signature itself is that contract.
         import inspect
         src = inspect.getsource(ps._git)
         self.assertIn("subprocess.run([\"git\"]", src)
@@ -2398,11 +2428,11 @@ class GitPull(unittest.TestCase):
 class GitPullBuildIntegration(Base):
     def test_pull_result_surfaces_in_build_response_and_state(self):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
         res = ps.build_all()
         self.assertEqual(res["state"], "ok")
-        # Base.setUp() 의 임시 원고는 git 저장소가 아니다 — not_git 이 실제로 타는지 확인한다.
+        # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
         self.assertEqual(res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
         self.assertEqual(res.get("head"), ps.C.state.joinpath("head.txt").read_text().strip())
         snap = ps.build_state_snapshot()
@@ -2411,21 +2441,22 @@ class GitPullBuildIntegration(Base):
 
     def test_pull_absent_when_flag_off(self):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = False
         res = ps.build_all()
         self.assertNotIn("pull", res)
 
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
-        # 결함: _build_tracked() 가 pull 전(src_mtime_at_start)을 built_src_mtime 으로 확정해서,
-        # pull 이 .tex mtime 을 앞으로 밀면(실제 fast-forward merge 가 그렇다) 빌드가 방금 그 새
-        # 원고로 끝났는데도 '원고 수정됨' 배지가 계속 떴다. 측정은 pull 뒤(복사 전)여야 한다.
+        # bug: _build_tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
+        # so when pull pushed the .tex mtime forward (as a real fast-forward merge does), the "manuscript
+        # modified" badge kept showing even though the build had just finished with that new manuscript.
+        # The measurement must happen after pull (before copy).
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
 
         def fake_pull():
-            # git fast-forward 흉내 — 실제 merge 처럼 .tex mtime 을 앞으로 민다.
+            # simulate a git fast-forward — pushes the .tex mtime forward like a real merge would.
             os.utime(self.main, (time.time() + 50, time.time() + 50))
             return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
 
@@ -2438,15 +2469,16 @@ class GitPullBuildIntegration(Base):
         self.assertAlmostEqual(ps.read_built_src_mtime(), ps.src_mtime(force=True), delta=1.0)
 
     def test_edit_after_copy_phase_still_marks_stale(self):
-        # pull 뒤(또는 pull 없을 때 복사 시작 시각)의 mtime 을 쓰더라도, 복사 뒤(latex 컴파일 중) 원본을
-        # 고치면 그 편집은 이번 빌드에 안 들어갔으므로 여전히 '원고 수정됨' 배지가 떠야 한다.
+        # even when using the post-pull mtime (or the copy-start time when there's no pull), editing the
+        # source after copy (while latex is compiling) means that edit wasn't part of this build, so the
+        # "manuscript modified" badge must still show.
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
-            self.skipTest("latexmk/pdftoppm 없음")
+            self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
         original_run_logged = ps.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
-            os.utime(self.main, (time.time() + 50, time.time() + 50))   # 복사 끝난 뒤(latex 단계에서) 원본 편집
+            os.utime(self.main, (time.time() + 50, time.time() + 50))   # edit the source after copy finishes (during the latex phase)
             return original_run_logged(cmd, cwd, timeout)
 
         def fake_pull():
@@ -2518,7 +2550,7 @@ class ManuscriptRevisions(Base):
     def setUp(self):
         super().setUp()
         if not shutil.which("git"):
-            self.skipTest("git 없음")
+            self.skipTest("git not available")
         self.repo = self.src.parent
         self.secret = self.repo / "other" / "private.tex"
         self.secret.parent.mkdir()
@@ -2831,7 +2863,7 @@ class ManuscriptRevisions(Base):
 
 
 
-# ---------------------------------------------------------------- §P0c-F: 에이전트 응답 다이어트
+# ---------------------------------------------------------------- §P0c-F: trimming agent responses
 
 class ResponseDiet(unittest.TestCase):
     def test_ok_drops_log_and_log_tail(self):
@@ -2911,7 +2943,7 @@ class RebuildLogDiet(Base):
         self.assertIn("log_tail", body)
 
     def test_rebuild_response_shrinks_on_success(self):
-        # 라이브 실측과 같은 축(§검증) — mock 으로 같은 결론을 빠르게 확인한다.
+        # same axis as the live measurement (the live check) — mocking confirms the same conclusion quickly.
         big_log = "font path\n" * 300
 
         def fake_build_before():
@@ -2922,11 +2954,11 @@ class RebuildLogDiet(Base):
         self.assertGreater(len(before), len(after))
 
 
-# ---------------------------------------------------------------- §P0c-G: 작성자 표시(필요할 때만)
+# ---------------------------------------------------------------- §P0c-G: showing the author (only when needed)
 
 class AuthorPrefixInPinsMd(Base):
-    # 작성자 접두는 '[이름] ' 형식이다(§api.md 메모 앞 [작성자]) — '@이름: '이던 예전 모양은 @태그로 잘못
-    # 읽혔다(실측: pins.md 의 '@Wendy Kim: …'가 멘션처럼 보임).
+    # the author prefix has the form '[name] ' (§api.md note has [author] up front) — the old '@name: '
+    # shape was misread as an @-mention (observed: '@Wendy Kim: …' in pins.md looked like a mention).
     def test_single_author_has_no_prefix(self):
         self.add(note="n", actor={"login": "alice@x.com", "name": "Wendy"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -2960,7 +2992,7 @@ class AuthorPrefixInPinsMd(Base):
         self.assertIn("legacy", md)
 
     def test_closed_pins_excluded_from_author_count(self):
-        # 닫힌 핀의 작성자는 열린 표에 안 보이니 카운트에서도 빠져야 한다(열린 핀 기준 판정).
+        # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
         pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
@@ -2968,7 +3000,7 @@ class AuthorPrefixInPinsMd(Base):
         self.assertNotIn("[Bob]", md)
 
 
-# ---------------------------------------------------------------- 뷰어 구조 — claim UI·log=1
+# ---------------------------------------------------------------- viewer structure — claim UI · log=1
 
 class FrontendClaimUI(unittest.TestCase):
     def test_claim_badge_and_unclaim_button_wired(self):
@@ -2980,7 +3012,7 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("/api/pins/'+id+'/unclaim'", ps.HTML)
 
     def test_no_claim_button_offered_to_viewer(self):
-        # 뷰어는 claim 을 걸지 않는다(에이전트 전용) — 'claim' 액션 버튼이 없어야 한다.
+        # the viewer never claims (agent-only) — there must be no 'claim' action button.
         self.assertNotIn('data-act="claim"', ps.HTML)
 
     def test_build_status_fetch_requests_full_log(self):
@@ -2992,8 +3024,9 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("pullSuffix(b)", ps.HTML)
 
 
-# 모바일(갤럭시 Z 폴드 7 등) — docs/design.md §모바일 레이아웃. 실측은 Playwright 로 했고, 여기서는
-# 배포되는 HTML 에 필요한 요소·문구·CSS·이벤트 경로가 있는지와 순수 로직 함수를 node 로 검사한다.
+# Mobile (Galaxy Z Fold 7 etc.) — docs/design.md §Mobile layout. Measured live with Playwright; here we
+# check that the deployed HTML has the required elements/copy/CSS/event paths, and run the pure-logic
+# functions under node.
 class FrontendMobileStructure(unittest.TestCase):
     def test_viewport_meta_allows_zoom_and_handles_keyboard_and_notch(self):
         m = re.search(r'<meta name="viewport" content="([^"]*)"', ps.HTML)
@@ -3001,7 +3034,7 @@ class FrontendMobileStructure(unittest.TestCase):
         v = m.group(1)
         for part in ("width=device-width", "initial-scale=1", "viewport-fit=cover", "interactive-widget=resizes-content"):
             self.assertIn(part, v)
-        # 핀치 확대를 막지 않는다 — 원고를 읽으려면 확대가 필요하다
+        # pinch-zoom is not blocked — you need to zoom to read the manuscript
         self.assertNotIn("user-scalable=no", v)
         self.assertNotIn("maximum-scale", v)
 
@@ -3010,7 +3043,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertRegex(ps.HTML, r'id="btn-rebuild"[^>]*aria-label="PDF 재빌드"[^>]*><svg class="ic ic-refresh-cw"[^>]*>(?:(?!</svg>).)*</svg><span class="lbl">PDF 재빌드</span></button>')
         self.assertNotIn("다시 만들기", ps.HTML)
         self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
-        for doc in [SKILL_MD] + sorted(DOCS_DIR.glob("*.md")):
+        for doc in [SKILL_MD, SKILL_KO] + sorted(DOCS_DIR.glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
 
     def test_compact_toolbar_elements_and_more_menu(self):
@@ -3018,7 +3051,7 @@ class FrontendMobileStructure(unittest.TestCase):
                    'id="coach"', 'id="more-info"', 'id="m-theme"', 'id="m-done"', 'id="m-dropped"', 'id="m-jump"'):
             self.assertIn(el, ps.HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', ps.HTML).group(0))
-        # 덜 중요한 버튼은 compact 에서 숨고(.sec) [⋯] 안에 같은 data-act 로 있다
+        # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
         for bid, act in (("btn-reload", "reload"), ("btn-zoom-out", "zoom-out"), ("btn-zoom-in", "zoom-in"),
                          ("btn-fit", "fit"), ("btn-theme", "theme"), ("btn-help", "help")):
             tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
@@ -3035,20 +3068,21 @@ class FrontendMobileStructure(unittest.TestCase):
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}")]
         self.assertIn("min-height:44px", coarse)
-        self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)   # iOS 확대 방지 — 16px 이상
+        self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)   # prevents iOS zoom-in — 16px or larger
         self.assertIn("--text-xl:16px", css)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
-        # touch-action: PDF 영역(#left)은 스크롤만 넘기고 브라우저 핀치를 막는다(두 손가락은 앱 확대, §PDF 영역 전용
-        # 확대). 선택 모드의 쪽은 none(한 손가락 끌기 = 선택). 그 밖에는 폭·높이 손잡이 둘뿐이다(끄는 동안 스크롤과
-        # 다투지 않게 none). 사이드바·시트는 건드리지 않는다.
+        # touch-action: the PDF area (#left) allows only scroll and blocks browser pinch (two fingers do
+        # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
+        # Everything else is just the width/height grips (none so they don't fight scroll while dragging).
+        # The sidebar/sheet are left untouched.
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
                      ["#left", "#outline-grip", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)
-        # 알림은 시트·패널 도구 줄과 겹치지 않는 자리로 옮긴다
+        # toasts move to a spot that doesn't overlap the sheet/panel toolbar row
         self.assertIn("body.lay-narrow #toasts{", css)
         self.assertIn("body.lay-mid #toasts{", css)
 
@@ -3056,9 +3090,9 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("$('#doc').addEventListener('pointerdown'", ps.HTML)
         for ev in ("pointermove", "pointerup", "pointercancel"):
             self.assertIn("window.addEventListener('%s'" % ev, ps.HTML)
-        self.assertIn("if(mouse||SELMODE)", ps.HTML)            # 마우스는 모드와 무관하게 예전처럼 끈다
-        self.assertIn("if(!e.isPrimary){cancelDrag()", ps.HTML)  # 두 번째 손가락(핀치)은 선택을 버린다
-        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", ps.HTML)   # 옛 마우스 전용 경로가 없다
+        self.assertIn("if(mouse||SELMODE)", ps.HTML)            # mouse still drags like before, regardless of mode
+        self.assertIn("if(!e.isPrimary){cancelDrag()", ps.HTML)  # a second finger (pinch) drops the selection
+        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", ps.HTML)   # no old mouse-only path remains
         self.assertIn("function quickPick(", ps.HTML)
         self.assertIn("LONGPRESS_MS", ps.HTML)
 
@@ -3066,7 +3100,7 @@ class FrontendMobileStructure(unittest.TestCase):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
         self.assertIn("if(touchRecent()||MQ_NOHOVER.matches)return; armTip(", ps.HTML)
-        # 호버 없는 기기에서는 포커스 툴팁도 띄우지 않는다(QA 폰: 탭 뒤 설명이 목록 위에 남았다). 카드 전체에는 설명을 달지 않는다.
+        # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap). The card as a whole gets no tooltip.
         self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", ps.HTML)
         self.assertNotIn('data-doc="\'+esc(pdoc(p))+\'" data-tip="\'+tip+\'"', extract_js_fn("card"))
         self.assertIn("document.addEventListener('contextmenu'", ps.HTML)
@@ -3082,7 +3116,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('<img loading="lazy"', ps.HTML)
 
 
-# 벡터 렌더링(docs/design.md §벡터 렌더링) — 배포 HTML 에 PDF.js 경로·폴백·가시 영역 렌더·픽셀 상한이 있는지.
+# Vector rendering (docs/design.md §Vector rendering) — checks the deployed HTML for the PDF.js path, fallback, visible-area rendering, and the pixel cap.
 class FrontendVector(unittest.TestCase):
     def fn(self, name):
         m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
@@ -3095,24 +3129,25 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", ps.HTML)
         self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", ps.HTML)
         for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
-            self.assertNotIn(cdn, ps.HTML)                   # 테일넷 안에서만 돈다 — 외부 CDN 금지
+            self.assertNotIn(cdn, ps.HTML)                   # runs only inside the tailnet — no external CDN
         self.assertIn("isEvalSupported:false", ps.HTML)
-        self.assertIn("useWasm:false", ps.HTML)              # wasm 은 vendor 에 없다(vendor/pdfjs/README.md)
+        self.assertIn("useWasm:false", ps.HTML)              # wasm isn't in vendor (vendor/pdfjs/README.md)
 
     def test_pdf_is_the_screen_build(self):
         body = self.fn("vecOpen")
         self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
         self.assertIn("build=META.pages_build", body)
-        self.assertIn("doc.numPages!==n", body)                 # 쪽 수가 다르면 쓰지 않는다
-        # 재빌드 뒤 옛 문서를 닫는다. PDFDocumentProxy 에는 destroy 가 없다(실측: 'old.destroy is not a function').
+        self.assertIn("doc.numPages!==n", body)                 # not used if the page count differs
+        # close the old document after a rebuild. PDFDocumentProxy has no destroy (observed: 'old.destroy is not a function').
         self.assertIn("vecClose(old)", body)
         self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
         self.assertNotRegex(ps.HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
 
     def test_stale_doc_detached_before_awaiting_new_pdf(self):
-        # 다른 문서/재빌드로 캐시 미스가 나면, fetch 가 끝날 때까지 VEC.doc 를 비워 둔다 —
-        # 그 사이 IntersectionObserver 가 큐에 넣는 vecRun 이 옛 PDFDocumentProxy 를 잘못된
-        # 쪽 번호로 건드리지 않게 한다(다른 문서 오염·'Invalid page request' 로 PNG 에 고착).
+        # on a cache miss from a different document/rebuild, VEC.doc is left empty until the fetch
+        # finishes — so a vecRun queued in the meantime by IntersectionObserver can't touch the old
+        # PDFDocumentProxy with a now-wrong page number (cross-document contamination, or getting stuck
+        # on PNG via 'Invalid page request').
         body = self.fn("vecOpen")
         i_if = body.index("if(!doc){")
         i_null = body.index("VEC.doc=null")
@@ -3120,7 +3155,7 @@ class FrontendVector(unittest.TestCase):
         self.assertLess(i_if, i_null)
         self.assertLess(i_null, i_fetch)
         self.assertIn("if(prev&&!vecCached(prev))vecClose(prev)", body)
-        # old 는 이미 null 일 수 있다(위에서 비웠으므로) — null 가드 없이 vecClose(null) 을 부르면 안 된다
+        # old might already be null (cleared above) — vecClose(null) must not be called without a null guard
         self.assertIn("if(old&&old!==doc&&!vecCached(old))vecClose(old)", body)
 
     def test_fallback_to_png_on_any_failure(self):
@@ -3128,16 +3163,16 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("catch(e){VEC.lib=null; vecFail(", boot)
         self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
         run = self.fn("vecRun")
-        self.assertIn("RenderingCancelledException", run)       # 취소는 실패가 아니다
+        self.assertIn("RenderingCancelledException", run)       # a cancellation is not a failure
         self.assertIn("vecFail('쪽을 그리지 못했습니다'", run)
         fail = self.fn("vecFail")
-        self.assertIn("vecReleaseAll()", fail)                  # 캔버스를 걷으면 밑의 PNG 가 보인다
+        self.assertIn("vecReleaseAll()", fail)                  # removing the canvas reveals the PNG underneath
         self.assertIn("$('#vec-chip')", fail)
         self.assertIn('id="vec-chip" class="badge badge-warning" hidden', ps.HTML)
-        self.assertIn('<img loading="lazy"', ps.HTML)          # PNG 는 첫 화면·폴백으로 남는다
+        self.assertIn('<img loading="lazy"', ps.HTML)          # PNG remains as the first paint / fallback
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pg.drawn>img{visibility:hidden}", css)
-        self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)   # 드래그는 .pg 가 받는다
+        self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)   # .pg receives the drag
 
     def test_visible_pages_only_and_release(self):
         obs = self.fn("vecObserve")
@@ -3147,9 +3182,9 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("cv.width=0; cv.height=0", self.fn("vecDrop"))
         self.assertIn("vecObserve()", self.fn("buildDoc"))
         ref = self.fn("refreshDoc")
-        self.assertIn("vecReleaseAll()", ref)                   # 옛 PDF 로 그린 캔버스는 걷는다
-        self.assertIn("vecOpen()", ref)                         # 새 빌드의 PDF 를 다시 연다
-        self.assertIn("vecInvalidate()", self.fn("setW"))       # 확대가 바뀌면 다시 그린다
+        self.assertIn("vecReleaseAll()", ref)                   # canvases drawn from the old PDF are removed
+        self.assertIn("vecOpen()", ref)                         # reopen the PDF from the new build
+        self.assertIn("vecInvalidate()", self.fn("setW"))       # redraw when the zoom changes
 
     def test_no_text_layer(self):
         for s in ("getTextContent", "TextLayer", "textLayer"):
@@ -3159,7 +3194,7 @@ class FrontendVector(unittest.TestCase):
 class FrontendVectorLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_backing_size_is_css_times_k_until_the_pixel_cap(self):
         js = "\n".join([
@@ -3173,15 +3208,16 @@ class FrontendVectorLogic(unittest.TestCase):
         self.assertEqual(out[0][:3], [1796, 2540, False])
         self.assertEqual(out[1][:3], [962, 1360, False])
         for row in out[:2]:
-            self.assertGreaterEqual(row[4], 1.0)               # 상한 안에서는 CSS × DPR 이상
-        for row in out[2:]:                                    # 1796×2540 CSS × DPR 2 = 18.2M 픽셀 > 16.8M
-            self.assertTrue(row[2])                            # 상한을 넘으면 낮춘다(상세 캔버스가 보이는 부분을 채운다)
+            self.assertGreaterEqual(row[4], 1.0)               # within the cap, it's at least CSS x DPR
+        for row in out[2:]:                                    # 1796x2540 CSS x DPR 2 = 18.2M pixels > 16.8M
+            self.assertTrue(row[2])                            # scaled down past the cap (the detail canvas fills the visible area)
             self.assertTrue(row[3])
 
     def test_vecopen_stale_doc_not_touched_while_new_pdf_is_fetching(self):
-        # 실측 재현: VEC.doc 가 옛 문서(1쪽)를 가리킨 채 27쪽짜리 새 문서를 vecOpen 하면,
-        # fetch 가 끝나기 전에는 VEC.doc 가 null 이어야 하고(=vecNextJob 이 아무 일도 못 뽑는다),
-        # 그 사이 걸린 vecRun 도 옛 doc.getPage 를 부르면 안 된다(불렀다면 여기서 던진다).
+        # reproducing the observed case: if vecOpen is called for a new 27-page document while VEC.doc
+        # still points at the old document (1 page), VEC.doc must be null before the fetch finishes
+        # (so vecNextJob can't pull any work), and a vecRun queued in the meantime must not call the old
+        # doc.getPage (it throws here if it does).
         js = "\n".join([
             "const VEC_CACHE_MAX=3;",
             extract_js_fn("vecCacheKey"),
@@ -3249,14 +3285,14 @@ class FrontendVectorLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
 
 
-# PDF 영역 전용 확대(docs/design.md §PDF 영역 전용 확대) — 브라우저 확대 입력을 가로채 쪽 폭만 바꾸는지.
+# PDF-area-only zoom (docs/design.md §PDF 영역 전용 확대) — whether browser zoom input is intercepted to change only the page width.
 class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
         i = ps.HTML.index("L.addEventListener('wheel'")
         self.assertIn("{passive:false}", ps.HTML[i:i + 300])
-        self.assertIn("const L=$('#left')", ps.HTML[i - 200:i])     # PDF 영역에만 — 사이드바의 휠은 그대로
-        self.assertIn("zoomTo(W*f,pt[0],pt[1])", ps.HTML)            # 포인터 기준
+        self.assertIn("const L=$('#left')", ps.HTML[i - 200:i])     # PDF area only — sidebar wheel scrolling is left alone
+        self.assertIn("zoomTo(W*f,pt[0],pt[1])", ps.HTML)            # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
@@ -3264,7 +3300,7 @@ class FrontendZoom(unittest.TestCase):
         i = ps.HTML.index("L.addEventListener('touchstart'")
         blk = ps.HTML[i:i + 400]
         self.assertIn("e.touches.length!==2", blk)
-        self.assertIn("cancelDrag(); cancelLP();", blk)            # 핀치는 그리던 선택·길게 누르기를 버린다
+        self.assertIn("cancelDrag(); cancelLP();", blk)            # a pinch discards the in-progress selection/long-press
         self.assertIn("{passive:false}", blk)
 
     def test_keyboard_zoom_skips_inputs(self):
@@ -3287,7 +3323,7 @@ class FrontendZoom(unittest.TestCase):
 class FrontendZoomLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_zoom_key_map(self):
         js = "\n".join([
@@ -3307,9 +3343,9 @@ class FrontendZoomLogic(unittest.TestCase):
         ])
         out = json.loads(run_node(js))
         self.assertEqual(out[:4], [1.2, 0.8333, 1.2, 1])
-        self.assertAlmostEqual(out[4], 1.1052, places=3)          # 핀치 dy=-10 → 조금 확대
-        self.assertAlmostEqual(out[4] * out[5], 1.0, places=3)     # 벌렸다 오므리면 제자리
-        self.assertLess(out[6], 1.2)                               # 잘게 나뉜 dy 는 한 이벤트에 한 칸을 넘지 않는다
+        self.assertAlmostEqual(out[4], 1.1052, places=3)          # pinch dy=-10 -> zoom in slightly
+        self.assertAlmostEqual(out[4] * out[5], 1.0, places=3)     # spreading then pinching returns to the same spot
+        self.assertLess(out[6], 1.2)                               # dy split into small increments never exceeds one step per event
 
     def test_width_bounds_are_half_to_five_times_fit(self):
         js = "\n".join([
@@ -3322,7 +3358,7 @@ class FrontendZoomLogic(unittest.TestCase):
 class FrontendMobileLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_layout_for_breakpoints(self):
         cases = [(412, True), (700, True), (701, True), (880, True), (1099, True), (1100, True), (1440, True),
@@ -3349,7 +3385,7 @@ class FrontendMobileLogic(unittest.TestCase):
                          [[0.43, 0.494, 0.57, 0.506], [0, 0, 0.07, 0.006], [0.93, 0.994, 1, 1]])
 
     def test_keyboard_inset_ignores_pinch_zoom_and_desktop(self):
-        # 키보드(visualViewport 가 줄어듦)만 --kb 로 친다. 핀치 확대(scale>1)·작은 차이·마우스 기기는 0.
+        # only the keyboard (visualViewport shrinking) is counted as --kb. Pinch-zoom (scale>1), small differences, and mouse devices all give 0.
         js = "\n".join([
             r"""
             const props={}; let active=null;
@@ -3395,23 +3431,24 @@ class FrontendMobileLogic(unittest.TestCase):
                          ["첫 줄 &lt;b&gt;", False, '<span class="dim">(메모 없음)</span>', True, True, True, True])
 
 
-# 패널 정리·폭 조절(docs/design.md §패널 정리와 폭 조절). 실측은 Playwright(펼친 화면 880×790·접은 화면 412×915·
-# 데스크톱 1440×900)로 했고, 여기서는 한계·단계·라벨 같은 순수 로직을 node 로, 배치·배선을 HTML 문자열로 본다.
+# Panel tidy-up / width adjustment (docs/design.md §Panel cleanup and width adjustment). Measured live with Playwright
+# (expanded 880x790, collapsed 412x915, desktop 1440x900); here we check pure logic like bounds/steps/
+# labels under node, and layout/wiring via the HTML string.
 class FrontendPanelWidthLogic(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_side_bounds_per_layout(self):
         js = "\n".join([extract_js_fn("sideBounds"), r"""
             console.log(JSON.stringify([sideBounds('mid',880),sideBounds('mid',760),sideBounds('mid',701),
                                         sideBounds('wide',1440),sideBounds('wide',1100),sideBounds('wide',700)]));"""])
         got = json.loads(run_node(js))
-        # 900px 이하는 오버레이, 그 이상은 본문 480px + 손잡이 8px을 남긴다.
+        # 900px and below is an overlay; above that, 480px of body + an 8px grip are left over.
         self.assertEqual(got[0], {"min": 300, "max": 440, "def": 330, "presets": [300, 330, 440]})
         self.assertEqual(got[1]["max"], 440)
         self.assertEqual(got[2], {"min": 300, "max": 440, "def": 330, "presets": [300, 330, 351]})
-        # 데스크톱: 기본 348, 최소 280, 최대는 본문 480px + 손잡이를 남긴다
+        # desktop: default 348, min 280, max leaves 480px of body + the grip
         self.assertEqual(got[3], {"min": 280, "max": 954, "def": 348, "presets": [300, 348, 605]})
         self.assertEqual(got[4]["max"], 614)
         self.assertEqual(got[5], {"min": 280, "max": 280, "def": 280, "presets": [280, 280, 280]})
@@ -3436,7 +3473,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
                          [["문단", "abstract", "frontmatter"], ["itemize", "itemize (바깥)"], "L159", "L155-L173"])
 
     def test_via_tag_hides_confident_matches_and_flags_uncertain(self):
-        # 90% 이상은 배지를 숨기고, 낮으면 '위치 불확실'(30% 미만은 경고 색). 방법·일치율·할 일은 설명에 둔다.
+        # 90% and above hides the badge; below that shows '위치 불확실' (below 30% gets the warning color). Method/match rate/next step go in the tooltip.
         js = "\n".join(["const T={synctex:'S',text:'X'};", extract_js_fn("viaTag"), r"""
             const V="const VIA_HIDE=90,VIA_WARN=30;";
             console.log(JSON.stringify([viaTag({via:'synctex',score:0.934}),viaTag({via:'synctex',score:0.884}),
@@ -3458,8 +3495,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
             self.assertIn(part, tag)
         self.assertIn("$('#grip'); let D=null;", ps.HTML)
         self.assertIn("g.setPointerCapture(e.pointerId)", ps.HTML)
-        self.assertNotIn("$('#grip').addEventListener('mousedown'", ps.HTML)   # 옛 마우스 전용 경로가 없다
-        self.assertNotIn("body.compact #grip{display:none}", ps.HTML)          # mid 에서도 보인다
+        self.assertNotIn("$('#grip').addEventListener('mousedown'", ps.HTML)   # no old mouse-only path remains
+        self.assertNotIn("body.compact #grip{display:none}", ps.HTML)          # still visible in mid too
         self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", ps.HTML)
 
     def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
@@ -3470,8 +3507,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("relayout()", m.group(1))
         m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
         body = m.group(1)
-        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))   # 패널 폭을 먼저 정해야 쪽 폭이 맞는다
-        # 끄는 동안에는 ResizeObserver 가 매 프레임 다시 맞추지 않는다
+        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))   # the panel width must be settled first for the page width to match
+        # ResizeObserver doesn't re-fit every frame while dragging
         self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", ps.HTML)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", ps.HTML)
 
@@ -3479,7 +3516,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="sheet-grip"[^>]*>', ps.HTML).group(0)
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
-        self.assertIn(":not(#sheet-grip){display:none}", ps.HTML)   # 접힌 시트에서도 손잡이가 남는다
+        self.assertIn(":not(#sheet-grip){display:none}", ps.HTML)   # the grip stays even on a collapsed sheet
         self.assertIn("var(--sheet-f,.64)", ps.HTML)
         more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
@@ -3492,17 +3529,17 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertNotIn('id="btn-save"', comp)
         acts = right.index('<div id="c-actions">')
         self.assertGreater(acts, right.index('<div id="list">'))
-        # 취소가 먼저, 주요 동작(핀 저장)이 오른쪽에 넓게
+        # cancel comes first, the primary action (save pin) is wide on the right
         self.assertLess(right.index('id="btn-cancel"', acts), right.index('id="btn-save"', acts))
-        self.assertRegex(right, r'<button class="btn-default" id="btn-save"')   # 주요 동작 = default 변형
+        self.assertRegex(right, r'<button class="btn-default" id="btn-save"')   # primary action = the default variant
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("#composer[hidden]~#c-actions{display:none}", css)
         self.assertIn("grid-template-columns:1fr 2fr", css)
         self.assertIn("body.compact #c-actions{position:sticky;bottom:0", css)
-        self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)   # 고르는 중에는 도움말 문단을 숨긴다
+        self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)   # the help paragraph is hidden while selecting
 
     def test_composer_is_one_loc_line_segmented_ladder_and_folded_snippet(self):
-        self.assertNotIn('id="c-meta"', ps.HTML)            # 위치 정보 세 번 반복 → 한 줄
+        self.assertNotIn('id="c-meta"', ps.HTML)            # location info repeated 3x -> now one line
         self.assertNotIn("드래그한 줄 L'+d.raw_lo", ps.HTML)
         row = ps.HTML[ps.HTML.index('<div class="c-loc-row">'):ps.HTML.index('<div id="c-warn"')]
         for el in ('id="c-loc"', 'id="c-page"', 'id="c-tag"', 'id="c-copy"'):
@@ -3512,21 +3549,21 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
         self.assertIn('<div class="step" role="group"', ps.HTML)
-        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)   # 4줄 + 위아래 8px 여백
+        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)   # 4 lines + 8px top/bottom padding
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
-        # narrow 시트에서는 메모 칸이 원문보다 위(동작 줄 밑에 숨지 않게)
+        # on a narrow sheet the note field sits above the source snippet (so it doesn't hide under the action row)
         self.assertIn("body.lay-narrow #note{order:1", css)
 
     def test_card_head_tags_row_and_action_grid(self):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1)
-        self.assertNotIn('<span class="tags">', body)                        # 배지는 머리 줄 안이 아니라
-        self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))   # 머리(접기 버튼) 뒤 한 줄
-        self.assertLess(body.index('b-drop'), body.index('b-close'))         # 완료(주요)는 맨 오른쪽
+        self.assertNotIn('<span class="tags">', body)                        # badges are not inside the head row
+        self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))   # one line after the head (fold button)
+        self.assertLess(body.index('b-drop'), body.index('b-close'))         # done (primary) sits at the far right
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
-        self.assertIn('class="btn-sm btn-soft b-close"', body)               # 완료 = soft(옅은 파랑, 저자 지정 09-23), 삭제 = destructive
+        self.assertIn('class="btn-sm btn-soft b-close"', body)               # done = soft (pale blue, author-specified 09-23), drop = destructive
         self.assertNotIn('btn-secondary b-close', body)
         self.assertIn("button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)", css)
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
@@ -3537,44 +3574,46 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
-        # 펼친 폴드·태블릿(mid): 동작 줄은 패널을 따라다니지 않고 화면 아래 전체 폭에, 탐색 줄은 위 전체 폭에 고정한다
-        # (docs/design.md §펼친 화면 레이아웃). 브라우저 실측은 FrontendResponsiveBrowser 에 있다.
+        # unfolded fold devices / tablets (mid): the action row doesn't follow the panel — it's pinned
+        # full-width at the bottom of the screen, and the nav row is pinned full-width at the top
+        # (docs/design.md §Unfolded-screen layout). Live browser measurements are in FrontendResponsiveBrowser.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
         self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
-        self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)     # 본문·패널은 둘 사이에만
+        self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)     # the body/panel only occupy the space between the two
         self.assertIn("@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}", css)
-        # 엄지 순서: [선택] 왼쪽 끝, [핀 N] 오른쪽 끝. DOM 은 narrow 시트와 공유하므로 order 로만 바꾼다.
+        # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
         self.assertIn("body.lay-mid #bar1 #btn-side{order:5;", css)
-        # 도구 줄은 #right 의 fixed 자식이다 — #right 에 기준 상자를 만드는 속성을 주면 동작 줄이 패널과 함께 움직인다
+        # the toolbar is a fixed child of #right — giving #right a containing-block-creating property would make the action row move with the panel
         for sel, body in re.findall(r"([^{}]*#right[^{}]*)\{([^{}]*)\}", css_nc):
             if "lay-mid" in sel:
                 self.assertIsNone(re.search(r"(?:^|;)(?:transform|translate|filter|opacity|contain|will-change|perspective)\s*:", body), sel)
-        self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")      # 여는 움직임은 right 로만
-        # 첫 안내는 탐색 줄을 가리지 않고 동작 줄 위([선택] 위)에 뜬다. 알림은 동작 줄 바로 위 패널 쪽(FrontendToasts).
+        self.assertRegex(css_nc, r"@keyframes mid-panel-in\{from\{right:")      # the opening animation moves only via right
+        # the first-run coach mark sits above the action row ([select] above), not over the nav row. Toasts sit right above the action row, panel side (FrontendToasts).
         self.assertIn("body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h)", css)
         self.assertIn("body.lay-mid #toasts{", css)
-        # 문서 링크가 넘치면 흐린 끝으로 알린다(스크롤바 대신)
+        # an overflowing document-link row fades at the edge instead of showing a scrollbar
         self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
         self.assertIn("function docLinksFade(){", ps.HTML)
         self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", ps.HTML)
 
 
 
-# ---------------------------------------------------------------- 디자인 토큰 가드(docs/design.md §디자인 토큰)
-# 색·radius·글자 크기가 규칙마다 제각각이던 것(색 리터럴 54가지, radius 14가지, 글자 12가지)을 토큰 층으로 모았다.
-# 앞으로 규칙에 리터럴을 다시 박으면 여기서 막는다. 예외는 아래 허용 목록 하나이고, 늘리면 design.md 의 표도 함께 고친다.
-TOKEN_SELECTORS = (":root", ":root[data-theme=light]")            # 색 리터럴이 살 수 있는 유일한 곳
+# ---------------------------------------------------------------- design token guard (docs/design.md §Design tokens and components)
+# Colors, radii, and font sizes used to vary per rule (54 color literals, 14 radii, 12 font sizes) — now
+# collected into a token layer. This blocks any rule from reintroducing a literal going forward. The one
+# exception is the allowlist below; if it grows, update design.md's table too.
+TOKEN_SELECTORS = (":root", ":root[data-theme=light]")            # the only place a color literal may live
 COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|"
                       r"\b(?:white|black|red|green|blue|gray|grey|yellow|orange|purple|pink|silver)\b", re.I)
 RADIUS_OK = re.compile(r"^(?:var\(--radius(?:-sm|-lg)?\)|0|50%)$")
-INLINE_STYLE_OK = {"background:__ACCENT__"}                         # 인스턴스 이름표 색 — 서버가 --accent 값으로 채운다
+INLINE_STYLE_OK = {"background:__ACCENT__"}                         # the instance label color — the server fills it in via the --accent value
 
 
 def css_rules():
-    """<style> 안의 (선택자, [(속성, 값)]) 목록. 주석을 빼고 @media 안 규칙도 평평하게 편다."""
+    """The (selector, [(property, value)]) list inside <style>. Strips comments and flattens @media rules too."""
     css = ps.HTML[ps.HTML.index("<style>") + len("<style>"):ps.HTML.index("</style>")]
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     out = []
@@ -3595,7 +3634,7 @@ class FrontendDesignTokens(unittest.TestCase):
         for sel, decls in css_rules():
             for k, v in decls:
                 if sel in TOKEN_SELECTORS and k.startswith("--"):
-                    continue                                          # 토큰 정의
+                    continue                                          # a token definition
                 if COLOR_RE.search(v):
                     bad.append("%s { %s:%s }" % (sel, k, v))
         self.assertEqual(bad, [])
@@ -3604,8 +3643,8 @@ class FrontendDesignTokens(unittest.TestCase):
         blocks = {sel: dict(decls) for sel, decls in css_rules() if sel in TOKEN_SELECTORS and any(k == "color-scheme" for k, _ in decls)}
         dark, light = blocks[":root"], blocks[":root[data-theme=light]"]
         lit = lambda b: {k for k, v in b.items() if k.startswith("--") and COLOR_RE.search(v)}
-        self.assertEqual(lit(dark) - set(light), set())               # 다크 색이 라이트로 새어 들지 않는다
-        self.assertEqual(set(light) - set(dark), set())               # 라이트는 다크에 있는 토큰만 덮는다
+        self.assertEqual(lit(dark) - set(light), set())               # dark colors don't leak into light
+        self.assertEqual(set(light) - set(dark), set())               # light only overrides tokens that exist in dark
         for k in ("--background", "--foreground", "--card", "--card-foreground", "--muted", "--muted-foreground",
                   "--border", "--input", "--ring", "--primary", "--primary-foreground", "--secondary",
                   "--secondary-foreground", "--destructive", "--destructive-foreground", "--status-open",
@@ -3638,17 +3677,17 @@ class FrontendDesignTokens(unittest.TestCase):
         body = ps.HTML[ps.HTML.index("</style>"):]
         for st in re.findall(r'style="([^"]*)"', body):
             self.assertTrue(st in INLINE_STYLE_OK or not (COLOR_RE.search(st) or re.search(r"font-size|radius", st)), st)
-        # JS 가 요소 스타일에 색·글자 크기를 직접 쓰지 않는다(값은 폭·높이·좌표·토큰 변수뿐)
+        # JS never sets color or font size directly on an element's style (only width/height/coordinates/token variables)
         self.assertEqual(re.findall(r"\.style\.(?:color|background\w*|fontSize|borderRadius|borderColor)\s*=", body), [])
         self.assertIsNone(re.search(r"['\"]#[0-9a-fA-F]{3,8}['\"]", body))
 
     def test_every_var_is_defined(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))    # JS 가 재서 넣는 값(--kb·--side-w 등)
+        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))    # values JS measures and sets (--kb, --side-w, etc.)
         used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
         defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
-        self.assertEqual(used - defined - runtime, set())             # 이름을 바꾸다 남은 옛 토큰(--acc, --dim …)이 없다
+        self.assertEqual(used - defined - runtime, set())             # no old tokens left over from a rename (--acc, --dim, ...)
 
     def test_component_variants_exist(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
@@ -3657,13 +3696,14 @@ class FrontendDesignTokens(unittest.TestCase):
                     ".badge-destructive{", ".badge-claimed{", ".badge-warning{", ".card{"):
             self.assertIn(cls, css)
         for old in ("button.p{", "button.x{", "button.ghost{", "button.ib{", "button.ico{", ".tag{", ".tag.t{"):
-            self.assertNotIn(old, css)                                # 옛 표시 전용 클래스는 없앴다
+            self.assertNotIn(old, css)                                # old display-only classes were removed
 
 
 
-# ---------------------------------------------------------------- 알림(토스트) — docs/design.md §알림
-# 저자 지적(2026-09-24): 핀을 저장하면 '되돌리기' 알림이 오른쪽 패널에서 너무 먼 왼쪽 아래(1,100px+)에 떴고, 왼쪽 색 띠가
-# 촌스러웠다. 이제 방금 누른 자리(패널 열의 오른쪽 아래, 동작 줄 바로 위 · narrow 는 시트 위)에 sonner 모양으로 뜬다.
+# ---------------------------------------------------------------- toasts — docs/design.md §Toasts
+# author feedback (2026-09-24): saving a pin used to pop an "undo" toast at the bottom-left, far from the
+# right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
+# where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
 class FrontendToasts(unittest.TestCase):
     css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
 
@@ -3678,7 +3718,7 @@ class FrontendToasts(unittest.TestCase):
         self.assertEqual(base["border-radius"], "var(--radius-lg)")
         self.assertEqual(base["background"], "var(--popover)")
         self.assertIn("box-shadow", base)
-        # 상태는 앞머리 아이콘 색으로 — 띠가 아니다
+        # state is shown via the leading icon's color — not a stripe
         for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
             self.assertIn("%s:()=>ic('%s')" % (kind, icon), ps.HTML)
         self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
@@ -3688,16 +3728,16 @@ class FrontendToasts(unittest.TestCase):
         box = dict(self.rules(r"^#toasts$")[0][1])
         self.assertEqual(box["right"], "var(--toast-r,var(--space-3))")
         self.assertEqual(box["bottom"], "var(--toast-b,var(--space-3))")
-        self.assertNotIn("left", box)                                  # 예전: 왼쪽 아래 고정
+        self.assertNotIn("left", box)                                  # formerly: pinned bottom-left
         self.assertIn("body.lay-narrow #toasts{", self.css)
         self.assertIn("body.lay-mid #toasts{", self.css)
-        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")   # 예전: 본문 왼쪽 위
+        self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")   # formerly: top-left of the body
         body = extract_js_fn("placeToasts")
-        self.assertIn("'#c-actions'", body)                           # 저장·취소 버튼을 가리지 않는다
-        self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # 아래 도구 줄을 가리지 않는다
-        self.assertIn("right.getBoundingClientRect().top", body)      # narrow: 시트 위
-        self.assertIn("innerWidth-rr.right+12", body)                 # 패널 열 안 오른쪽
-        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)   # 거의 다 편 시트: 도구 줄을 가리지 않게 아래로
+        self.assertIn("'#c-actions'", body)                           # doesn't cover the save/cancel buttons
+        self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # doesn't cover the bottom toolbar
+        self.assertIn("right.getBoundingClientRect().top", body)      # narrow: above the sheet
+        self.assertIn("innerWidth-rr.right+12", body)                 # right edge inside the panel column
+        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)   # a nearly-full sheet: drop down so it doesn't cover the toolbar
         self.assertIn("@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css)
         for v in ("--toast-b", "--toast-r", "--toast-w"):
             self.assertIn("setProperty('%s'" % v, body)
@@ -3712,15 +3752,17 @@ class FrontendToasts(unittest.TestCase):
 
     def test_toast_title_and_description_split(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = extract_js_fn("toastSplit") + "\nconsole.log(JSON.stringify(['핀 #3 저장됨 · pins.md 갱신','빌드 실패 — 화면은 이전 PDF입니다','복사함','핀 #10 · 본문 — 서준님이 불렀습니다: 봐 주세요'].map(toastSplit)));"
         self.assertEqual(json.loads(run_node(js)), [["핀 #3 저장됨", "pins.md 갱신"], ["빌드 실패", "화면은 이전 PDF입니다"], ["복사함", ""],
                                                           ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"]])
 
 
-# ---------------------------------------------------------------- 외곽선 안의 외곽선 없음(docs/design.md §한 겹 담기)
-# 저자 지적(2026-09-24): 테두리 상자 안에 또 테두리 상자를 그리는 방식이 촌스럽다. 담는 층은 하나 — 카드(가는 테두리 하나)
-# 또는 떠 있는 면(대화상자·알림·@목록). 그 안의 배지·버튼·분절 컨트롤·스테퍼·원문·겹침 안내·스레드는 채움·간격·구분선으로만 가른다.
+# ---------------------------------------------------------------- no outline inside an outline (docs/design.md §One layer of containment)
+# author feedback (2026-09-24): drawing a bordered box inside another bordered box looks tacky. There is
+# exactly one containing layer — a card (one thin border) or a floating surface (dialog/toast/@-list).
+# Everything inside it — badges, buttons, segmented controls, steppers, source, overlap banner, thread —
+# is separated only by fill, spacing, and dividers.
 class FrontendNoNestedOutlines(unittest.TestCase):
     INNER = re.compile(r"^(?:\.badge|\.seg|\.step|pre\b|#c-overlap|\.thread|\.edit\b|\.arc-thread|\.arc-orig|\.arc-row|\.msg|\.reply-box)")
     SEPARATORS = {".thread": "border-top", ".arc-row+.arc-row": "border-top"}
@@ -3749,7 +3791,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
         more = ps.HTML[ps.HTML.index('<div class="more-grid">'):]
         more = more[:more.index("</dialog>")]
         for tag in re.findall(r"<button[^>]*>", more):
-            self.assertIn("btn-secondary", tag)                      # 대화상자 안 버튼도 테두리 없이 채운다
+            self.assertIn("btn-secondary", tag)                      # dialog buttons are filled, borderless too
 
     def test_floating_surfaces_are_the_only_shadows_with_hairlines(self):
         for sel in ("dialog", "#mention-pop"):
@@ -3758,13 +3800,13 @@ class FrontendNoNestedOutlines(unittest.TestCase):
             self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
 
 
-# ---------------------------------------------------------------- 뜻·기능 점검(docs/design.md §뜻과 모양) + UX QA(2026-09-24)
+# ---------------------------------------------------------------- meaning/function check (docs/design.md §Meaning and appearance) + UX QA (2026-09-24)
 class FrontendSemanticAudit(unittest.TestCase):
     css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
 
     def test_relative_time_with_absolute_on_hover(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = "\n".join(["const esc=t=>String(t==null?'':t);", extract_js_fn("relTime"), extract_js_fn("relSpan"), r"""
             const now=new Date(2026,8,24,15,0).getTime();
             console.log(JSON.stringify(['2026-09-24 15:00:10','2026-09-24 14:57:00','2026-09-24 11:00:00','2026-09-21 10:00:00','2026-09-01 10:00:00','x']
@@ -3773,11 +3815,11 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
         self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
         self.assertIn("setInterval(tickRel,60000);", ps.HTML)
-        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)   # 예전: '09-24 1…'
+        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)   # formerly: it could wrap to '09-24 1…'
 
     def test_one_toast_per_event_notify_wins(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = "\n".join(["const TOAST_KEYS=[];", extract_js_fn("toastDup"), r"""
             const el=()=>({isConnected:true,removed:false,remove(){this.removed=true;this.isConnected=false;}});
             const a=el(); TOAST_KEYS.push({keys:['review_requested:37'],rank:1,el:a,t:Date.now()});
@@ -3829,18 +3871,21 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
     def test_change_view_on_fold_and_phone(self):
-        # [변경 보기] 폰·폴드 QA(2026-09-25): 폴드(701–900px)는 핀 패널이 겹쳐 떠 diff 오른쪽 절반과 [원고로]가 가려졌다 —
-        # 변경사항 보기만 패널 폭만큼 비켜 준다. 커밋 고르기·빌드 경고 펼치기는 터치에서 44px.
+        # [변경 보기] phone/fold QA (2026-09-25): on a fold (701-900px), the pin panel floats on top,
+        # hiding the right half of the diff and the [원고로] button — only the change view yields space
+        # equal to the panel width. Commit picking / build-warning expand are 44px on touch.
         self.assertIn("body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
         self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
-        # 핀 범위 줄이 diff 에 없고 곁만 바뀌었으면 '강조한 줄이 핀 범위입니다' 라고 말하지 않는다(강조한 줄이 없다).
+        # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
         self.assertIn("tg.near=!first&&tg.hit", extract_js_fn("revHighlight"))
         self.assertIn("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", extract_js_fn("revTargetNote"))
 
     def test_references_share_one_link_style_and_pending_looks_pending(self):
-        # 링크 한 벌(QA 2026-09-24): #번호·줄 범위·N쪽·글 속 #12 는 같은 모양 — 주 색, 쉴 때 밑줄 없음, 가리키면 실선 밑줄.
-        # 예전에는 굵은 점선 · 파랑 · 회색 점선 세 모양이었다. 점선 밑줄은 이제 '풀리지 않은 @말'(.mention-bad)만 쓴다.
+        # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
+        # one look — primary color, no underline at rest, solid underline on hover/focus. There used to be
+        # three looks: bold dotted, blue, gray dotted. A dotted underline is now used only for an
+        # unresolved @-mention (.mention-bad).
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;", self.css)
         self.assertIn(":is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}", self.css)
         for rule in (".pin .n.go{cursor:pointer;color:var(--primary);", ".pin-ref{color:var(--primary);", ".pg-link{color:var(--primary);"):
@@ -3855,7 +3900,7 @@ if __name__ == "__main__":
 
 
 class PinNumberJump(unittest.TestCase):
-    """카드 머리의 #번호를 누르면 PDF 에서 그 핀 자리로 간다([보기]·N쪽과 같은 data-act="view")."""
+    """Clicking the #number in a card's header jumps to that pin's spot in the PDF (same data-act="view" as [보기]/page N)."""
 
     def test_number_is_a_button_that_jumps(self):
         src = ps.HTML
@@ -3866,11 +3911,13 @@ class PinNumberJump(unittest.TestCase):
         src = ps.HTML
         self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
         self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
-        # 회귀: #N 은 글자 폭만큼(26~35px)만 그려져 터치 44px 최소 히트 영역에 못 미쳤다(실측). 시각 크기는
-        # 그대로 두고 고정 44×44 ::before 히트 영역을 가운데 얹는다 — inset 방식(부모 폭에 비례)이 아니라
-        # 고정 width/height 라야 짧은 번호(예: 한 자리)에서도 44 를 보장한다. position:relative 는 .n.go 에만
-        # 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 ::before 위로 올라와
-        # 오른쪽 절반의 히트 테스트를 가로챘다(브라우저 실측으로 발견해 되돌린 회귀).
+        # regression: #N used to render at only its text width (26-35px), falling short of the 44px
+        # minimum touch hit area (observed). The visual size stays the same; a fixed 44x44 ::before hit
+        # area is centered on top of it — it must be fixed width/height, not the inset approach
+        # (proportional to the parent's width), to guarantee 44 even for a short number (e.g. one digit).
+        # position:relative is given only to .n.go — giving it to .loc/.pg-link too would let .loc, which
+        # comes later in DOM order, rise above the ::before in positioned stacking and steal the hit test
+        # for the right half (a regression found and reverted via live browser testing).
         css = src[src.index("<style>"):src.index("</style>")]
         self.assertIn(".pin .n.go{position:relative}", css)
         self.assertIn(".pin .n.go::before{content:'';position:absolute;left:50%;top:50%;"
@@ -3880,32 +3927,32 @@ class PinNumberJump(unittest.TestCase):
         self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
-        # 회귀: button.btn-icon.btn-sm{width:var(--control-h-sm)}(기본 규칙, 0-0-2-1) 이 터치 규칙
-        # button.btn-icon{width:var(--control-h-touch)}(0-0-1-1) 보다 구체적이라 카드 접기(.b-fold)·토스트
-        # 닫기 버튼이 터치에서도 24px 로 남았다(실측). 같은 specificity(.btn-icon.btn-sm) 로 @media(pointer:coarse)
-        # 안에 다시 못박아야 이긴다.
+        # regression: button.btn-icon.btn-sm{width:var(--control-h-sm)} (base rule, 0-0-2-1) is more
+        # specific than the touch rule button.btn-icon{width:var(--control-h-touch)} (0-0-1-1), so the
+        # card fold button (.b-fold) and the toast close button stayed at 24px even on touch (observed).
+        # It has to be pinned again at the same specificity (.btn-icon.btn-sm) inside @media(pointer:coarse) to win.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}\n") + 3]
         self.assertIn("button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);"
                       "height:var(--control-h-touch)}", coarse)
-        # 실제 사용처: 카드 접기 버튼과 토스트 닫기 버튼 둘 다 .btn-icon.btn-sm 조합을 쓴다.
+        # real usage: both the card fold button and the toast close button use the .btn-icon.btn-sm combination.
         self.assertIn('btn-icon btn-sm btn-ghost cmp b-fold', ps.HTML)
         self.assertIn("c.className='btn-icon btn-sm btn-ghost'", ps.HTML)
 
     def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
-        # 회귀: body.compact #bar1 button{min-width:0}(id 포함이라 구체적) 이 터치 규칙 button{min-width:44px}
-        # 보다 이겨서, lay-mid 처럼 좁은 화면에서 [선택] 버튼이 40px 까지 줄었다(실측). 같은 selector 를
-        # @media(pointer:coarse) 안에서 다시 못박아 44px 바닥을 지킨다.
+        # regression: body.compact #bar1 button{min-width:0} (specific due to the id) beat the touch rule
+        # button{min-width:44px}, so on a narrow screen like lay-mid the [select] button shrank to 40px
+        # (observed). The same selector is pinned again inside @media(pointer:coarse) to keep the 44px floor.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("body.compact #bar1 button{flex:1 1 auto;min-width:0;", css)
         self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}", css)
-        # 이 오버라이드는 위 min-width:0 규칙보다 소스상 뒤에 있어야 동률 specificity 에서 이긴다.
+        # this override must come after the min-width:0 rule in source order to win at equal specificity.
         self.assertGreater(css.index("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}"),
                             css.index("body.compact #bar1 button{flex:1 1 auto;min-width:0;"))
 
 
-# ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)
+# ---------------------------------------------------------------- instance label (§Running multiple manuscript instances at once)
 
 class RepoNameFromUrl(unittest.TestCase):
     def test_https_url(self):
@@ -3947,14 +3994,14 @@ class DefaultLabel(unittest.TestCase):
 
     def test_git_remote_url_none_when_not_a_repo(self):
         if not shutil.which("git"):
-            self.skipTest("git 없음")
+            self.skipTest("git not available")
         src = self.root / "plain-dir"
         src.mkdir()
         self.assertIsNone(ps.git_remote_url(src))
 
     def test_git_remote_url_reads_origin(self):
         if not shutil.which("git"):
-            self.skipTest("git 없음")
+            self.skipTest("git not available")
         src = self.root / "repo"
         src.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=src, check=True)
@@ -3998,8 +4045,8 @@ class AccentValidation(unittest.TestCase):
         self.assertIn(a, ps.ACCENT_PALETTE)
 
     def test_pick_accent_differs_for_different_labels_usually(self):
-        # 팔레트가 8색이라 100% 보장은 못 하지만, 서로 다른 이름표 몇 개가 전부 같은 색으로
-        # 뭉치면 해시 분산이 깨진 것이다.
+        # the palette has 8 colors so a 100% guarantee isn't possible, but if a handful of different
+        # labels all cluster onto the same color, the hash distribution is broken.
         colors = {ps.pick_accent(lbl) for lbl in ("A-DEMO", "paper-b", "grant-2026", "thesis")}
         self.assertGreater(len(colors), 1)
 
@@ -4025,20 +4072,20 @@ class BuildHtmlSubstitution(unittest.TestCase):
         out = ps.favicon_href("a-demo", "#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
         self.assertIn("circle", out)
-        # 대문자로 바꾼 첫 글자가 (url-인코딩된) svg 안에 있어야 한다
+        # the uppercased first letter must be present inside the (url-encoded) svg
         from urllib.parse import unquote
         self.assertIn(">A<", unquote(out))
 
     def test_favicon_escapes_label_first_char(self):
-        # 첫 글자가 '<' 처럼 XML 을 깨는 문자라도 안전해야 한다
+        # must be safe even if the first character, like '<', would break XML
         out = ps.favicon_href("<x", "#1d4ed8")
         from urllib.parse import unquote
         self.assertIn("&lt;", unquote(out))
 
 
 class HtmlTemplateStructure(unittest.TestCase):
-    """모듈 로드 시점(main() 실행 전)의 ps.HTML 에 이름표 자리·마크업이 있는지 — 구조 검증은 실제
-    치환값과 무관하게 항상 참이어야 한다."""
+    """Whether ps.HTML, as of module load (before main() runs), has the label placeholder and markup —
+    structural verification must always hold regardless of the actual substituted value."""
 
     def test_title_has_label_placeholder(self):
         self.assertIn("<title>Limn · __LABEL__</title>", ps.HTML)
@@ -4060,7 +4107,7 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertIn('body:not(.lay-narrow) #doc-nav{display:flex}', ps.HTML)
 
     def test_document_title_prefixes_label(self):
-        # 여러 문서면 메인 파일 이름 대신 문서 이름(META.doc_name)을 쓴다 — 이름표 접두는 그대로다.
+        # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
         self.assertIn(
             "if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
             "+' · 열린 '+PINS.length;",
@@ -4126,9 +4173,9 @@ class InstanceIdInPinsMd(Base):
         self.assertIn("논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git", body)
 
 
-# ---------------------------------------------------------------- §여러 문서(--doc) — 한 뷰어 안에서 문서 전환
+# ---------------------------------------------------------------- §Multiple documents (--doc) — switching documents inside one viewer
 
-# pdftoppm·pdftotext 가 읽는 가장 작은 PDF(한 쪽, 글자 한 줄). xref 는 poppler 가 스스로 다시 세운다.
+# the smallest PDF that pdftoppm/pdftotext can read (one page, one line of text). poppler rebuilds the xref itself.
 MINI_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
             b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
             b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R"
@@ -4172,32 +4219,32 @@ class DocArgs(unittest.TestCase):
         doc = ps.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms)[0]
         self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
         ps.C.state = Path(self.tmp.name) / "st"
-        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk 는 메인이 있는 폴더에서
+        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk runs from the folder that holds the main file
 
     def test_pdf_is_view_only(self):
         d = ps.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
         self.assertEqual(d["kind"], "pdf")
-        self.assertEqual(d["name"], "리뷰어 코멘트")                  # 이름 안의 공백은 그대로
+        self.assertEqual(d["name"], "리뷰어 코멘트")                  # a space inside the name is kept as-is
 
     def test_absolute_path_inside_manuscript_is_accepted(self):
         d = ps.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
         self.assertEqual(d["kind"], "tex")
 
     def test_rejects_bad_specs(self):
-        bad = ["rr답변서:sub/rr/rr.tex",               # '=' 없음
-               "RR=답변서:sub/rr/rr.tex",              # 대문자 키
-               "a" * 25 + "=x:sub/rr/rr.tex",          # 키 25자
-               "rr=답변서",                            # ':' 없음
-               "rr=:sub/rr/rr.tex",                    # 이름 빔
-               "rr=" + "가" * 41 + ":sub/rr/rr.tex",   # 이름 41자
-               "rr=답변서:",                           # 경로 빔
-               "rr=답변서:../outside.tex",             # --manuscript 밖
-               "rr=답변서:sub/rr/none.tex",            # 없는 파일
-               "rr=답변서:notes.txt",                  # 확장자
-               "rv=코멘트:sub::review.pdf",            # '::' 는 LaTeX 전용
-               "ms=본문:manuscript::../outside.tex",   # 메인이 빌드 루트 밖
-               "ms=본문:manuscript::2nd/m.tex::x",     # '::' 두 번
-               "ms=본문:nope::2nd/m.tex"]              # 빌드 루트 없음
+        bad = ["rr답변서:sub/rr/rr.tex",               # no '='
+               "RR=답변서:sub/rr/rr.tex",              # uppercase key
+               "a" * 25 + "=x:sub/rr/rr.tex",          # 25-char key
+               "rr=답변서",                            # no ':'
+               "rr=:sub/rr/rr.tex",                    # empty name
+               "rr=" + "가" * 41 + ":sub/rr/rr.tex",   # 41-char name
+               "rr=답변서:",                           # empty path
+               "rr=답변서:../outside.tex",             # outside --manuscript
+               "rr=답변서:sub/rr/none.tex",            # nonexistent file
+               "rr=답변서:notes.txt",                  # extension
+               "rv=코멘트:sub::review.pdf",            # '::' is LaTeX-only
+               "ms=본문:manuscript::../outside.tex",   # main is outside the build root
+               "ms=본문:manuscript::2nd/m.tex::x",     # '::' twice
+               "ms=본문:nope::2nd/m.tex"]              # no build root
         for spec in bad:
             with self.assertRaises(ValueError, msg=spec):
                 ps.parse_doc_arg(spec, self.ms)
@@ -4206,14 +4253,14 @@ class DocArgs(unittest.TestCase):
         with self.assertRaises(ValueError):
             ps.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms)
         docs = ps.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms)
-        self.assertEqual([d.root for d in docs], [True, False, False])    # 키 main 인 LaTeX 문서만 상태 폴더 루트 배치
+        self.assertEqual([d.root for d in docs], [True, False, False])    # only the LaTeX document keyed main is placed at the state-folder root
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
         with self.assertRaises(ValueError):
             ps.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(ps.DOCS_MAX + 1)], self.ms)
 
 
 class MultiDoc(Base):
-    """ms(본문, 키 main 아님)·rr(답변서, 다른 폴더)·rv(보기 전용 PDF) 세 문서."""
+    """Three documents: ms (본문, key not main), rr (답변서, a different folder), rv (view-only PDF)."""
 
     def setUp(self):
         super().setUp()
@@ -4231,7 +4278,7 @@ class MultiDoc(Base):
         super().tearDown()
 
     def fake_pages(self, D, name="pages-20260101000000", n=1):
-        """빌드 없이 쪽 디렉토리 하나를 그 문서에 둔다(1x1 PNG 헤더 + PDF 사본)."""
+        """Place a single page directory on that document without a real build (1x1 PNG header + a PDF copy)."""
         d = D.dir / name
         d.mkdir(parents=True, exist_ok=True)
         png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (417).to_bytes(4, "big") + (417).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
@@ -4246,7 +4293,7 @@ class MultiDoc(Base):
         self.assertEqual(self.rv.dir, ps.C.state / "docs" / "rv")
         with ps.using_doc(self.rrd):
             self.assertEqual(ps.cur_pages(), ps.C.state / "docs" / "rr" / "pages")
-        self.assertEqual(ps.C.pins_jsonl, ps.C.state / "pins.jsonl")          # 핀 저장소는 하나
+        self.assertEqual(ps.C.pins_jsonl, ps.C.state / "pins.jsonl")          # one pin store shared across documents
 
     def test_single_doc_mode_keeps_legacy_paths(self):
         ps.set_docs(None)
@@ -4254,20 +4301,20 @@ class MultiDoc(Base):
         self.assertIs(ps.cur_doc(), ps.LEGACY_DOC)
         self.assertEqual(ps.cur_pages(), ps.C.state / "pages")
         self.assertEqual(ps.LEGACY_DOC.build, ps.C.build)
-        self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)                        # 옛 전역 잠금·상태가 곧 이 문서의 것
+        self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)                        # the old global lock/state IS this document's
         self.assertIs(ps.LEGACY_DOC.bstate, ps.BUILD_STATE)
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
         md = ps.pins_md_text(ps.snapshot_pins())
-        self.assertNotIn("## ", md)                                             # 소절 없이 예전 모양
+        self.assertNotIn("## ", md)                                             # the old look, no subsections
         self.assertIn("| # | 쪽 | 위치 | 범위 | 메모 |", md)
 
     def test_old_pin_without_doc_reads_as_first_doc_without_rewrite(self):
         rec = {"id": 1, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "옛 핀", "at": "2026-09-01 10:00:00"}
         ps.C.pins_jsonl.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
         rows = ps.pins_payload(ps.read_pins()[0], True)
-        self.assertEqual(rows[0]["doc"], "ms")                                  # 첫 문서
-        self.assertNotIn('"doc"', ps.C.pins_jsonl.read_text(encoding="utf-8"))  # 이관 쓰기 없음
+        self.assertEqual(rows[0]["doc"], "ms")                                  # the first document
+        self.assertNotIn('"doc"', ps.C.pins_jsonl.read_text(encoding="utf-8"))  # no migration write occurs
         self.assertEqual(ps.docs_payload()["docs"][0]["n_open"], 1)
 
     def test_api_docs_lists_kind_and_counts(self):
@@ -4291,7 +4338,7 @@ class MultiDoc(Base):
         self.assertIn("rr=", m["src_sig"])
         code, _, _ = split_resp(self.talk(req("GET", "/pages/page-2.png?doc=rr")))
         self.assertEqual(code, 200)
-        code, _, _ = split_resp(self.talk(req("GET", "/pages/page-2.png?doc=ms")))   # ms 에는 쪽이 없다
+        code, _, _ = split_resp(self.talk(req("GET", "/pages/page-2.png?doc=ms")))   # ms has no pages
         self.assertEqual(code, 404)
         code, hdrs, _ = split_resp(self.talk(req("GET", "/pdf?doc=rr")))
         self.assertEqual((code, hdrs["content-type"]), (200, "application/pdf"))
@@ -4302,7 +4349,7 @@ class MultiDoc(Base):
     def test_pin_doc_is_inferred_from_file_and_body_query_must_agree(self):
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "rr/rr.tex", "lo": 4, "hi": 5})))
         self.assertEqual(code, 200)
-        self.assertEqual(self.pin(json.loads(body)["id"])["doc"], "rr")     # 에이전트 curl — file 로 짐작
+        self.assertEqual(self.pin(json.loads(body)["id"])["doc"], "rr")     # agent curl — inferred from file
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin?doc=ms", {"file": "main.tex", "lo": 4, "hi": 5, "doc": "rr"})))
         self.assertEqual(code, 400)
         code, _, body = split_resp(self.talk(jreq("GET", "/api/pins?doc=rr")))
@@ -4311,7 +4358,7 @@ class MultiDoc(Base):
     def test_view_only_pick_returns_region_without_synctex(self):
         self.fake_pages(self.rv)
         with mock.patch.object(ps, "region_text", return_value="Reviewer   one\n comment"), \
-                mock.patch.object(ps, "by_synctex", side_effect=AssertionError("SyncTeX 를 부르면 안 된다")):
+                mock.patch.object(ps, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")):
             code, _, body = split_resp(self.talk(jreq("POST", "/api/pick", {"doc": "rv", "page": 1, "x0": 10, "y0": 20,
                                                                             "x1": 110, "y1": 60})))
         self.assertEqual(code, 200)
@@ -4319,7 +4366,7 @@ class MultiDoc(Base):
         self.assertEqual((d["kind"], d["view_only"], d["page"], d["quote"], d["pdf"]),
                          ("region", True, 1, "Reviewer one comment", "review.pdf"))
         self.assertNotIn("lo", d)
-        self.assertEqual(len(d["frac"]), 4)                                     # frac 없이 와도 좌표로 만든다
+        self.assertEqual(len(d["frac"]), 4)                                     # even without frac in the request, it's built from coordinates
 
     def test_view_only_pin_save_validation_and_pins_md(self):
         self.fake_pages(self.rv, n=3)
@@ -4337,7 +4384,7 @@ class MultiDoc(Base):
                     {"frac": None}, {"page": 9}):
             code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", dict(ok, **bad))))
             self.assertEqual(code, 400, bad)
-        # LaTeX 문서의 검증은 그대로 — lo/hi 없는 핀은 400
+        # validation for LaTeX documents is unchanged — a pin without lo/hi is 400
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
         self.assertEqual(code, 400)
         ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR))
@@ -4346,11 +4393,11 @@ class MultiDoc(Base):
         self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
         self.assertIn("| %d | 2 | 쪽 2, 영역 가로 10–60%% 세로 20–30%% | 영역 | «Reviewer one» R1 코멘트 답변 |" % pid, md)
         self.assertIn("문서: 본문(`ms`) 1건 · 답변서(`rr`) 0건 · 리뷰어 코멘트(`rv`, 보기 전용) 1건", md)
-        self.assertNotIn("## 답변서", md)                                        # 열린 핀 없는 문서는 소절을 안 만든다
+        self.assertNotIn("## 답변서", md)                                        # a document with no open pins gets no subsection
         self.assertIn("보기 전용 PDF 의 핀은 줄 번호가 없다", md)
         for line in md.splitlines():
             if line.startswith("| ") and not line.startswith("|---"):
-                self.assertEqual(line.count(" | ") + 2, 6, line)               # 5열 그대로
+                self.assertEqual(line.count(" | ") + 2, 6, line)               # still a 5-column table
 
     def test_view_only_pin_edit_note_and_region_only(self):
         self.fake_pages(self.rv)
@@ -4360,23 +4407,23 @@ class MultiDoc(Base):
         with self.assertRaises(ps.HTTPError) as cm:
             ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR))
         self.assertEqual(cm.exception.code, 400)
-        p = ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR))   # 요청에 doc 이 없어도 핀의 문서로
+        p = ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR))   # even without doc in the request, it resolves via the pin's own document
         self.assertEqual(p["note"], "b")
         p = ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"}, "base_rev": p["rev"]},
                         dict(ps.LOCAL_ACTOR))
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(ps.valid_rec(self.pin(pid)))
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))                            # 닫기·drop 은 문서와 무관하게 id 로
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))                            # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
     def test_region_record_validation_is_by_shape(self):
         base = {"id": 1, "pdf": str(self.pdf), "page": 1, "frac": [0, 0, 0.5, 0.5], "kind": "region", "doc": "gone"}
-        self.assertTrue(ps.valid_rec(base))                                     # 설정에서 뺀 문서여도 깨진 줄이 아니다
+        self.assertTrue(ps.valid_rec(base))                                     # even a document removed from config isn't a broken row
         self.assertFalse(ps.valid_rec(dict(base, lo=1, hi=2)))
         self.assertFalse(ps.valid_rec(dict(base, frac=None)))
-        self.assertFalse(ps.valid_rec(dict(base, pdf="review.pdf")))            # 상대 경로
+        self.assertFalse(ps.valid_rec(dict(base, pdf="review.pdf")))            # relative path
         self.assertFalse(ps.valid_rec(dict(base, doc="Bad Key")))
-        # 설정에 없는 문서의 핀은 pins.md 에 따로 드러난다(숨지 않는다)
+        # a pin for a document not in config surfaces separately in pins.md (it's not hidden)
         ps.C.pins_jsonl.write_text(json.dumps(base) + "\n")
         md = ps.pins_md_text(ps.read_pins()[0])
         self.assertIn("## 설정에 없는 문서 · `gone`", md)
@@ -4386,7 +4433,7 @@ class MultiDoc(Base):
         with ps.using_doc(self.rv):
             rid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR))
         tid = self.add(4, 5)
-        self.main.write_text("\n" + TEX, encoding="utf-8")                     # 줄이 밀린다
+        self.main.write_text("\n" + TEX, encoding="utf-8")                     # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         rows = ps.pins_payload(ps.snapshot_pins(), False)
         by = {r["id"]: r for r in rows}
@@ -4409,12 +4456,12 @@ class MultiDoc(Base):
         with mock.patch.object(ps, "_build", side_effect=slow_build):
             with ps.using_doc(self.ms):
                 self.assertEqual(ps.build_async(), {"state": "running"})
-                self.assertTrue(ps.build_async().get("busy"))                  # 같은 문서는 한 번에 하나
+                self.assertTrue(ps.build_async().get("busy"))                  # the same document allows only one build at a time
                 self.assertTrue(ps.build_all().get("busy"))
             with ps.using_doc(self.rrd):
-                self.assertEqual(ps.build_async(), {"state": "running"})       # 다른 문서는 동시에
+                self.assertEqual(ps.build_async(), {"state": "running"})       # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
-            self.assertFalse(ps.BUILD_LOCK.locked())                           # 단일 문서의 전역 잠금은 안 건드린다
+            self.assertFalse(ps.BUILD_LOCK.locked())                           # the single-document global lock is left untouched
             gate.set()
             for _ in range(100):
                 if not (self.ms.lock.locked() or self.rrd.lock.locked()):
@@ -4424,7 +4471,7 @@ class MultiDoc(Base):
         with ps.using_doc(self.ms):
             self.assertEqual(ps.build_state_snapshot()["state"], "fail")
         with ps.using_doc(self.rv):
-            self.assertEqual(ps.build_state_snapshot()["state"], "idle")      # 빌드 상태도 문서마다
+            self.assertEqual(ps.build_state_snapshot()["state"], "idle")      # build state is per-document too
 
     def test_git_pull_is_shared_across_docs(self):
         calls = []
@@ -4432,38 +4479,38 @@ class MultiDoc(Base):
             ps._PULL_LAST.update(at=0.0, res=None)
             a = ps.repo_pull()
             b = ps.repo_pull()
-        self.assertEqual(len(calls), 1)                                         # 저장소 단위로 한 번
+        self.assertEqual(len(calls), 1)                                         # once per repository
         self.assertNotIn("shared", a)
         self.assertTrue(b["shared"])
         ps.set_docs(None)
         with mock.patch.object(ps, "git_pull_phase", side_effect=lambda m: calls.append(m) or {"state": "ok"}):
             ps.repo_pull(), ps.repo_pull()
-        self.assertEqual(len(calls), 3)                                         # 단일 문서는 빌드마다(예전 그대로)
+        self.assertEqual(len(calls), 3)                                         # single document: once per build (unchanged from before)
 
-    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm 이 없다")
+    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm not available")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         with ps.using_doc(self.rv):
-            self.assertTrue(ps.pdf_changed(self.rv))                           # 아직 안 그렸다
+            self.assertTrue(ps.pdf_changed(self.rv))                           # not rendered yet
             res = ps._build_tracked()
             self.assertEqual(res["state"], "ok", res.get("log"))
             first = ps.cur_pages().name
             self.assertTrue((ps.cur_pages() / "review.pdf").is_file())
             self.assertFalse(ps.pdf_changed(self.rv))
-            self.assertFalse(ps.refresh_pdf_doc(self.rv))                      # 그대로면 다시 그리지 않는다
+            self.assertFalse(ps.refresh_pdf_doc(self.rv))                      # unchanged, so it doesn't redraw
             self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
             os.utime(self.pdf, (time.time() + 3, time.time() + 3))
             self.assertTrue(ps.pdf_changed(self.rv))
-            time.sleep(1.1)                                                    # 쪽 디렉토리 이름은 초 단위
+            time.sleep(1.1)                                                    # page directory names are second-granularity
             res = ps._build_tracked()
             self.assertEqual(res["state"], "ok")
             self.assertNotEqual(ps.cur_pages().name, first)
             self.assertEqual(ps.build_state_snapshot()["seq"], 2)
             b = ps.load_builds()["by"]
-            self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages().name]["src_hash"])   # 위치 추정의 원천
+            self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages().name]["src_hash"])   # the source of location estimation
 
 
 class FrontendDocs(unittest.TestCase):
-    """데스크톱 문서 선택과 모바일 문서 메뉴를 구분한다."""
+    """Distinguishes the desktop document selector from the mobile document menu."""
 
     def test_document_selector_and_mobile_button(self):
         css = ps.HTML
@@ -4545,7 +4592,7 @@ class FrontendDocs(unittest.TestCase):
                         "console.log(JSON.stringify(renderRevisionDiff(%s)));" % json.dumps(patch)])
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         rendered = json.loads(out)
         self.assertRegex(rendered, r'rd-hunk[^>]*>.*?@@ -3,2 \+3,2 @@')
         self.assertRegex(rendered, r'rd-del[^>]*>.*?rd-no[^>]*>3</span>')
@@ -4567,7 +4614,7 @@ class FrontendDocs(unittest.TestCase):
             renderRevisionFile(); console.log(JSON.stringify(nodes['#revision-diff'].innerHTML));"""])
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         rendered = json.loads(out)
         self.assertIn('from second', rendered)
         self.assertNotIn('from first', rendered)
@@ -4588,7 +4635,7 @@ class FrontendDocs(unittest.TestCase):
             """])
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         self.assertEqual(json.loads(out), ["/api/meta?doc=ms", "/api/meta?light=1&doc=ms", "/pdf?build=x&doc=rr",
                                            "rr", "rv", "ms", "rv"])
 
@@ -4626,7 +4673,7 @@ class FrontendDocs(unittest.TestCase):
             """])
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         self.assertEqual(json.loads(out), [False, False, True, ["switch:rr", "then:2"]])
 
     def test_region_selection_saves_page_and_frac_only(self):
@@ -4637,9 +4684,10 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("#composer.region #c-levels", ps.HTML)
 
 
-# ---------------------------------------------------------------- 아이콘: Lucide 만, 이모지·기호 글자 없음
-# 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 보기 흉했다(저자 지적 2026-09-23). 아이콘은
-# Lucide(vendor/lucide/README.md)의 SVG 요소만 인라인으로 쓴다. 산문 속 화살표(→)와 키 이름(⌘)은 글자로 남긴다.
+# ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
+# Emoji/basic-character icons (⏳ ▾ ☾ ✎ etc.) looked ugly because they render differently per
+# device/font (author feedback 2026-09-23). Icons only use inline SVG elements from Lucide
+# (vendor/lucide/README.md). Arrows in prose (→) and key names (⌘) remain as plain characters.
 ICON_GLYPHS = re.compile("[⏳⌛▲-◃◐-◓☀☼☾✓✔✎✏⚠"
                          "⧉⋯＋×↵⊂∩★☆●○"
                          "\U0001F000-\U0001FFFF✀-➿️]")
@@ -4659,7 +4707,7 @@ class FrontendIcons(unittest.TestCase):
         self.assertIn("Lucide Icons and Contributors", lic)
         readme = (self.VENDOR / "README.md").read_text(encoding="utf-8")
         self.assertIn("lucide-static@%s" % ps.LUCIDE_VERSION, readme)
-        table = readme[readme.index("## 쓰는 아이콘"):readme.index("## 갱신")]
+        table = readme[readme.index("## Icons in use"):readme.index("## Updating")]
         names = set()
         for row in re.findall(r"^\| (`[^|]+) \|", table, flags=re.M):
             names |= set(re.findall(r"`([a-z0-9-]+)`", row))
@@ -4691,7 +4739,7 @@ class FrontendIcons(unittest.TestCase):
 
     def test_js_ic_matches_server_icon_svg(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = js_icons() + "\nconsole.log(JSON.stringify(['check','clock','x'].map(ic).concat([ic('nope')])));"
         self.assertEqual(json.loads(run_node(js)), [ps.icon_svg("check"), ps.icon_svg("clock"), ps.icon_svg("x"), ""])
 
@@ -4703,13 +4751,15 @@ class FrontendIcons(unittest.TestCase):
         self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", ps.HTML)
 
 
-# ---------------------------------------------------------------- 상태 띠·보관함(닫힌·삭제한 핀)
-# 닫힌·삭제한 핀을 펼치면 열린 카드와 모양이 같아 경계가 모호했다(저자 지적 2026-09-23). 열린 목록 뒤에 폭 전체를 쓰는
-# sticky 구획 머리('완료 N ─── 펼치기')를 두고, 그 아래는 카드가 아니라 흐린 납작한 행이다. 상태는 카드 왼쪽 띠 색으로 가른다.
+# ---------------------------------------------------------------- status stripe / archive (closed, dropped pins)
+# expanding closed/dropped pins used to look identical to open cards, so the boundary between them was
+# unclear (author feedback 2026-09-23). Now there's a full-width sticky section header after the open
+# list ('완료 N ─── 펼치기'), and below it are flat, dimmed rows instead of cards. Status is distinguished
+# via the card's left stripe color.
 class FrontendArchive(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def run_rows(self, script: str):
         js = "\n".join([r"""
@@ -4736,8 +4786,9 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
 
     def test_done_row_reopen_reuses_reason_ui_not_bare_reopen(self):
-        # 결함 실측: 완료 행의 [다시 열기]가 이유를 묻지 않고 곧장 /reopen 을 불렀다. 이제 review 카드와
-        # 같은 openReply(id,'reopen') 경로(data-act="rv-reopen")를 쓰고, 입력 칸을 스레드 안 .reply-slot 에 낀다.
+        # observed bug: [다시 열기] on a done row called /reopen directly without asking for a reason. It
+        # now uses the same openReply(id,'reopen') path (data-act="rv-reopen") as the review card, and
+        # slots the input into .reply-slot inside the thread.
         out = self.run_rows(r"""
             const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
               closed_by:{name:'에이전트'},close_reply:'고침',thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'}]};
@@ -4750,7 +4801,7 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(out, [True, True, False, True, True])
 
     def test_placeholder_ref_dash_is_hidden(self):
-        # 결함 실측: QA 스크립트·옛 호출이 ref 자리에 '-'를 넣으면 '닫음 · -' 처럼 의미 없는 참조가 떴다.
+        # observed bug: when a QA script or an old caller put '-' in the ref slot, a meaningless reference like '닫음 · -' would show.
         out = self.run_rows(r"""
             const dash=doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'});
             const real=doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'});
@@ -4785,10 +4836,11 @@ class FrontendArchive(unittest.TestCase):
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
         self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
-        # 회귀: revealList() 의 scrollIntoView({block:'start'}) 는 이 헤더의 '스티키 미보정' 정적 위치를 뷰포트
-        # 맨 위(0)로 맞춘다. scroll-margin-top 이 없으면 그 정적 위치가 실제 스티키 고정 위치(stick-top)보다
-        # 위라서, 헤더 바로 다음 행(되살리기 버튼)이 #bar1 뒤로 가려졌다(터치 QA 실측). scroll-margin-top 을
-        # 같은 --stick-top 변수로 둬 둘을 맞춘다.
+        # regression: revealList()'s scrollIntoView({block:'start'}) aligns this header's "sticky-uncorrected"
+        # static position to the top of the viewport (0). Without scroll-margin-top, that static position
+        # sits above the actual sticky-pinned position (stick-top), so the row right after the header (the
+        # restore button) got hidden behind #bar1 (observed in touch QA). scroll-margin-top uses the same
+        # --stick-top variable to keep the two aligned.
         self.assertRegex(css, r"button\.arc-head\{[^}]*scroll-margin-top:var\(--stick-top,0px\)")
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
@@ -4796,35 +4848,37 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("arcHead('완료',LDONE.length,SHOW_DONE)", body)
         self.assertIn("arcHead('삭제',LDROP.length,SHOW_DROPPED)", body)
         self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
-        # 문서 전환·모든 문서 토글에도 같은 목록 함수(listDone/listDropped)를 쓴다
+        # the same list functions (listDone/listDropped) are used for document switching and the "all documents" toggle too
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
 
     def test_status_without_stripes_dot_badge_and_icons(self):
-        # 저자 지적(2026-09-24): 왼쪽 색 띠는 촌스럽다. 상태는 카드 머리의 점 + 같은 뜻의 배지, 보관함은 앞머리 아이콘.
+        # author feedback (2026-09-24): a left color stripe looks tacky. Status uses a dot in the card
+        # header plus a badge with the same meaning; the archive uses a leading icon.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         for sel, decls in css_rules():
             if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
                 keys = [k for k, _ in decls]
                 self.assertFalse([k for k in keys if k.startswith("border-left")], sel)
-                self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))   # 겹쳐 그린 띠도 없다
+                self.assertNotIn("::before", sel.replace(".pin .n.go::before", ""))   # no overlaid stripe either
                 for k, v in decls:
-                    self.assertNotRegex(v, r"inset \d+px 0 0", sel)          # box-shadow 로 그린 띠도 없다
+                    self.assertNotRegex(v, r"inset \d+px 0 0", sel)          # no box-shadow-drawn stripe either
         self.assertNotIn(".strip{", css)
         for st in ("claimed", "review", "lost", "done", "dropped"):
             self.assertIn(".st-dot.%s{background:var(--status-" % st, css)
-        self.assertEqual(css.count("--status-claimed:"), 2)             # 다크·라이트 둘 다
+        self.assertEqual(css.count("--status-claimed:"), 2)             # both dark and light
         body = extract_js_fn("card")
         self.assertIn("(claimed?' claimed':'')", body)
         self.assertIn("stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')", body)
-        self.assertIn("aria-label=\"상태: '+ST_NAME[st]+'\"", extract_js_fn("stDot"))   # 색만으로 가르지 않는다
+        self.assertIn("aria-label=\"상태: '+ST_NAME[st]+'\"", extract_js_fn("stDot"))   # not distinguished by color alone
         self.assertIn("ic('rotate-ccw')+'다시 열림", body)
         self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
 
-# ---------------------------------------------------------------- 처리 예상 시간(eta_min) — 서버·pins.md·뷰어 표시
-# '⏳ 처리 중 · ~04:02' 가 예상 완료처럼 읽혔는데 실제로는 잠금 자동 해제 시각이었다(다른 세션이 23건을 ttl 480 분으로 한꺼번에
-# 잡음, 2026-09-23). 에이전트가 견적(eta_min)을 넣고, 화면은 5분 단위로 올린 '약 15분 · 20:40쯤'을 보인다. 잠금은 안전장치로만
-# 남고 상한은 120 분이다.
+# ---------------------------------------------------------------- estimated time to finish (eta_min) — server/pins.md/viewer display
+# '⏳ 처리 중 · ~04:02' read like an expected completion time, but it was actually the claim's
+# auto-release time (another session claimed 23 items at once with a 480-minute ttl, 2026-09-23). Now
+# the agent supplies an estimate (eta_min), and the screen shows it rounded up to the nearest 5 minutes,
+# as '약 15분 · 20:40쯤'. The claim lock remains only a safety net, capped at 120 minutes.
 class ClaimEta(Base):
     A = {"login": "alice@x.com", "name": "Wendy"}
     B = {"login": "bob@x.com", "name": "Bob"}
@@ -4833,14 +4887,14 @@ class ClaimEta(Base):
         self.assertEqual(ps.clean_claim_body({}), (ps.CLAIM_TTL_DEFAULT, None))
         for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
             self.assertEqual(ps.clean_claim_body({"eta_min": eta}), (ttl, eta), eta)
-        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # ttl 을 주면 그대로
+        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # supplying ttl passes it through unchanged
         for bad in (0, "15", 1.5, True, None, -5):
             with self.assertRaises(ps.HTTPError) as cm:
                 ps.clean_claim_body({"eta_min": bad})
             self.assertEqual(cm.exception.code, 400)
         with self.assertRaises(ps.HTTPError):
             ps.clean_claim_body({"eta_min": 15, "ttl_min": 0})
-        # 상한을 넘으면 400 이 아니라 깎는다 — 옛 절차(ttl_min 480)로 잡아 둔 에이전트가 연장하다 깨지지 않게
+        # exceeding the cap clamps instead of 400ing — so an agent that claimed via the old procedure (ttl_min 480) doesn't break when extending
         self.assertEqual(ps.clean_claim_body({"eta_min": 241}), (120, 240))
         self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
         self.assertEqual(ps.clean_claim_body({"ttl_min": 480}), (120, None))
@@ -4853,24 +4907,24 @@ class ClaimEta(Base):
         self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
         self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
         self.assertIsInstance(p["claimed_at"], str)
-        rows, _ = ps.read_pins()                                        # 저장값이다(계산 필드가 아님)
+        rows, _ = ps.read_pins()                                        # it's a stored value (not a computed field)
         self.assertIn("eta_ts", ps.find_pin(rows, pid))
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
         pid = self.add()
         first = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5}))
-        with ps.PIN_LOCK:                                              # 10분 전에 잡은 것으로 옮긴다
+        with ps.PIN_LOCK:                                              # move it back to having been claimed 10 minutes ago
             rows, _ = ps.read_pins()
             r = ps.find_pin(rows, pid)
             for k in ("claim_ts", "eta_ts", "claim_until"):
                 r[k] -= 600
             ps.write_pins(rows)
         second = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20}))
-        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # 시작 시각은 그대로
+        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # the start time stays put
         self.assertEqual(second["claimed_at"], first["claimed_at"])
-        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # 새 예상은 지금부터
+        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # the new estimate starts from now
         self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        third = ps.claim_pin(pid, self.A, *ps.clean_claim_body({}))                      # 예상 없이 연장하면 앞 예상을 둔다
+        third = ps.claim_pin(pid, self.A, *ps.clean_claim_body({}))                      # extending with no new estimate keeps the previous one
         self.assertEqual(third["eta_ts"], second["eta_ts"])
         self.assertEqual(third["rev"], second["rev"] + 1)
 
@@ -4881,13 +4935,13 @@ class ClaimEta(Base):
             ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))
         self.assertEqual(cm.exception.code, 409)
         self.assertIn("eta_ts", cm.exception.body)
-        with ps.PIN_LOCK:                                              # A 의 잠금이 풀렸다
+        with ps.PIN_LOCK:                                              # A's claim has expired
             rows, _ = ps.read_pins()
             ps.find_pin(rows, pid)["claim_until"] = time.time() - 1
             ps.write_pins(rows)
         p = ps.claim_pin(pid, self.B, *ps.clean_claim_body({}))
         self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
-        self.assertNotIn("eta_ts", p)                                   # 남의 옛 예상을 물려받지 않는다
+        self.assertNotIn("eta_ts", p)                                   # doesn't inherit someone else's old estimate
 
     def test_close_drop_unclaim_clear_all_claim_fields(self):
         for how in ("close", "drop", "unclaim"):
@@ -4918,7 +4972,7 @@ class ClaimEta(Base):
             self.assertEqual(split_resp(out)[0], 400, bad)
 
     def test_http_claim_clamps_over_limit_values_for_old_agents(self):
-        # 옛 스킬 절차대로 ttl_min=480 으로 잡아 둔 에이전트가 같은 값으로 연장해도 깨지지 않는다(200, 120 으로 적용).
+        # an agent that claimed with ttl_min=480 per the old skill procedure doesn't break when extending with the same value (200, applied as 120).
         pid = self.add()
         hj = {"Content-Type": "application/json"}
         t0 = time.time()
@@ -4931,21 +4985,21 @@ class ClaimEta(Base):
         self.assertAlmostEqual(got["pin"]["claim_until"], t0 + 120 * 60, delta=5)
         out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480, "eta_min": 300}).encode(), hj))
         code, _, body = split_resp(out)
-        self.assertEqual(code, 200)                                     # 같은 신원(헤더 없음 = 로컬/에이전트)의 연장
+        self.assertEqual(code, 200)                                     # extending under the same identity (no header = local/agent)
         got = json.loads(body)
         self.assertEqual((got["ttl_min_applied"], got["eta_min_applied"]), (120, 240))
         self.assertAlmostEqual(got["pin"]["eta_ts"], time.time() + 240 * 60, delta=5)
 
     def test_pins_payload_fills_start_for_legacy_claims(self):
         pid = self.add()
-        with ps.PIN_LOCK:                                              # eta 이전 서버가 쓴 claim 모양
+        with ps.PIN_LOCK:                                              # a claim shape written by a pre-eta server
             rows, _ = ps.read_pins()
             r = ps.find_pin(rows, pid)
             r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
             ps.write_pins(rows)
         rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
         self.assertAlmostEqual(rec["claim_ts"], ps._epoch("2026-09-23 20:02:00"), delta=0.01)
-        self.assertNotIn("claim_ts", ps.find_pin(ps.read_pins()[0], pid))   # 계산 필드 — 저장하지 않는다
+        self.assertNotIn("claim_ts", ps.find_pin(ps.read_pins()[0], pid))   # a computed field — not stored
 
     def test_pins_md_claim_text(self):
         now = 1_790_000_000.0
@@ -4964,7 +5018,7 @@ class ClaimEta(Base):
 class FrontendClaimEta(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def run_info(self, script: str, tz="Asia/Seoul"):
         js = "\n".join(["function who(a){return a?a.name:'';}", extract_js_fn("ceil5"), extract_js_fn("hhmm"),
@@ -4972,7 +5026,7 @@ class FrontendClaimEta(unittest.TestCase):
         return json.loads(run_node(js, tz=tz))
 
     def test_estimate_rounds_up_to_five_minutes_and_clock(self):
-        # 20:23:00 KST 에 보고, 예상 완료는 20:37:12 → 남은 14.2분은 '약 15분', 시각은 20:40쯤.
+        # viewed at 20:23:00 KST, expected completion 20:37:12 -> 14.2 minutes remaining becomes '약 15분', clock reads ~20:40.
         out = self.run_info(r"""
             const now=Date.parse('2026-09-23T20:23:00+09:00'), eta=Date.parse('2026-09-23T20:37:12+09:00')/1000;
             const p={claimed_by:{name:'A'},claim_ts:Date.parse('2026-09-23T20:20:00+09:00')/1000,eta_ts:eta,
@@ -5020,15 +5074,19 @@ class FrontendClaimEta(unittest.TestCase):
 
 
 class ClaimEtaDocs(unittest.TestCase):
-    """SKILL.md 핀 처리 절차가 '고치기 직전에 그 핀만 claim, eta_min 에 견적'을 가르치는지."""
+    """Whether SKILL.md's pin-handling procedure teaches "claim only that pin right before fixing it, estimate via eta_min"."""
 
     def test_skill_claim_step_teaches_single_pin_and_estimate(self):
-        skill = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("고치기 직전에 그 핀만 claim", skill)
-        self.assertIn('"eta_min"', skill)
-        for row in ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"):
-            self.assertIn(row, skill)
-        self.assertNotIn("⏳", skill)
+        en, ko = SKILL_MD.read_text(encoding="utf-8"), SKILL_KO.read_text(encoding="utf-8")
+        self.assertIn("claim only that pin, right before you edit it", en)
+        self.assertIn("고치기 직전에 그 핀만 claim", ko)
+        for skill, rows in ((en, ("| Typo or single word | 5 |", "| One sentence | 5–10 |", "| Rewrite a paragraph | 10–20 |",
+                                  "| Restructure / several places | 20–40 |")),
+                            (ko, ("| 오타·단어 | 5 |", "| 문장 하나 | 5–10 |", "| 문단 다시 쓰기 | 10–20 |", "| 구조 변경·여러 곳 | 20–40 |"))):
+            self.assertIn('"eta_min"', skill)
+            for row in rows:
+                self.assertIn(row, skill)
+            self.assertNotIn("⏳", skill)
         api = (DOCS_DIR / "api.md").read_text(encoding="utf-8")
         self.assertIn("`eta_min` | 1..240", api)
         self.assertIn("`ttl_min` | 1..120", api)
@@ -5041,9 +5099,10 @@ class ClaimEtaDocs(unittest.TestCase):
         self.assertFalse(ps.valid_rec(dict(base, claim_ts="20:02")))
 
 
-# ---------------------------------------------------------------- 배지 문구: 뜻이 드러나는 말(겹침·위치 일치율)·pins.md 표시
-# '#20 안'·'일치 100%'·'⊂#N' 은 뜻을 알 수 없었다(저자 지적 2026-09-23). 겹침은 '#20 범위 안'·'#20과 같은 범위'·'#20과 일부 겹침',
-# 위치 일치율은 90% 이상이면 숨기고 낮을 때만 '위치 불확실'. pins.md 번호 칸도 같은 말을 ' · ' 로 잇는다.
+# ---------------------------------------------------------------- badge wording: self-explanatory phrases (overlap/location match rate) · pins.md display
+# '#20 안', '일치 100%', '⊂#N' were unreadable without context (author feedback 2026-09-23). Overlaps now
+# read '#20 범위 안' / '#20과 같은 범위' / '#20과 일부 겹침'; the location match rate is hidden at 90%+ and
+# shows '위치 불확실' only when low. The pins.md number column joins the same phrases with ' · '.
 class BadgeWording(Base):
     NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
 
@@ -5067,7 +5126,7 @@ class BadgeWording(Base):
 
     def test_js_rel_badge_matches_server(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = "\n".join([extract_js_fn("josa"), extract_js_fn("relBadge"), r"""
             const PINS=[{id:1,lo:4,hi:9},{id:2,lo:4,hi:9},{id:3,lo:5,hi:6},{id:20,lo:8,hi:12}];
             console.log(JSON.stringify([relBadge([{id:1,rel:'contains'}],{id:2,lo:4,hi:9}).label,
@@ -5079,7 +5138,7 @@ class BadgeWording(Base):
 
     def test_overlap_banner_verbs(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
         js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapVerb"), r"""
             console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>'#'+a[1]+overlapVerb(a[0],a[1]))));
             """])
@@ -5101,17 +5160,21 @@ class BadgeWording(Base):
         self.assertIn("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다", md)
 
     def test_skill_symbol_table_uses_words(self):
-        skill = SKILL_MD.read_text(encoding="utf-8")
-        table = skill[skill.index("### 번호 칸의 표시"):skill.index("### 규칙")]
-        for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
-                    "| `수정됨` |", "| `위치 잃음` |"):
-            self.assertIn(row, table)
-        self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
+        # pins.md markers are a language-stable contract: both procedures quote them verbatim.
+        for path, head, end in ((SKILL_MD, "### Markers in the number column", "### Rules"),
+                                (SKILL_KO, "### 번호 칸의 표시", "### 규칙")):
+            skill = path.read_text(encoding="utf-8")
+            table = skill[skill.index(head):skill.index(end)]
+            for row in ("| `#N 범위 안` |", "| `#N과 같은 범위` |", "| `#N과 일부 겹침` |", "| `처리 중(<이름>, 약 N분)` |",
+                        "| `수정됨` |", "| `위치 잃음` |"):
+                self.assertIn(row, table)
+            self.assertNotRegex(table, r"^\| `[⊂∩⏳✎⚠]", )
 
 
 class FrontendToolbarOneRow(unittest.TestCase):
-    """1400px 데스크톱(기본 430px 패널)에서 긴 이름표('Long-DemoPaper1')여도 도구 줄이 한 줄이다(Playwright 실측,
-    docs/design.md §디자인 토큰 · 도구 줄). [핀 다시 읽기]는 열린 핀 목록 머리로 옮겼고 compact 에서는 [더보기] 안에 있다."""
+    """On a 1400px desktop (default 430px panel), the toolbar stays one row even with a long label
+    ('Long-DemoPaper1') (measured live with Playwright, docs/design.md §Design tokens and components). [핀 다시 읽기]
+    moved to the open-pin-list header, and lives inside [더보기] in compact mode."""
 
     def test_reload_lives_in_list_head_not_toolbar(self):
         bar = ps.HTML[ps.HTML.index('<div class="bar" id="bar1"'):ps.HTML.index('<div class="bar" id="bar2"')]
@@ -5124,12 +5187,12 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
         self.assertIn("flex:0 1 auto;min-width:40px}", css)
         self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
-        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)   # compact 는 이름표가 먼저 준다
+        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)   # in compact, the label yields space first
         out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
-        # 접은 폴드(344px)에서 이름표가 'C…', 문서 버튼이 '본..' 으로 줄어 읽을 수 없었다(2026-09-23).
+        # on a folded fold device (344px), the label shrank to 'C…' and the document button to '본..', unreadable (2026-09-23).
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
@@ -5141,16 +5204,17 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("#more .more-head .chip{background:var(--brand);", css)
 
     def test_fold_open_also_hides_toolbar_chip_and_relies_on_more(self):
-        # 회귀: 펼친 폴드(884px)도 #bar1 이 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄어
-        # 읽을 수 없었다(터치 QA 실측). narrow 와 같은 처방 — 도구 줄 칩은 숨기고 [더보기] 안 #more-label 로만
-        # 전체 이름을 보인다. #more(더보기) 는 레이아웃 조건 없는 공용 마크업이라 mid 에서도 그대로 쓸 수 있다.
+        # regression: an unfolded fold device (884px) also puts #bar1 under flex-wrap:nowrap pressure,
+        # shrinking the label to 'CE-iTra…' (71px), unreadable (observed in touch QA). Same fix as narrow —
+        # hide the toolbar chip and show the full name only via #more-label inside [더보기]. #more is
+        # layout-condition-free shared markup, so it works as-is in mid too.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
-        self.assertIn('id="btn-more" class="cmp btn-icon"', ps.HTML)   # [더보기] 는 compact(=mid·narrow) 공용
+        self.assertIn('id="btn-more" class="cmp btn-icon"', ps.HTML)   # [더보기] is shared across compact (= mid/narrow)
 
 
 class FrontendToolbarSize(unittest.TestCase):
-    """도구 줄 '쪽' 칸이 버튼과 같은 높이·글자 크기인지(데스크톱 28px, 터치 44px). 실측은 Playwright 로 했다."""
+    """Whether the toolbar's 쪽 (page) field matches the buttons' height/font size (desktop 28px, touch 44px). Measured live with Playwright."""
 
     def test_page_field_matches_toolbar_buttons(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
@@ -5158,7 +5222,7 @@ class FrontendToolbarSize(unittest.TestCase):
         self.assertIn("--control-h:28px", css)
         self.assertIn("--control-h-touch:44px", css)
         self.assertIn("#bar1>button,#bar1>input{height:var(--tb-h)}", css)
-        # '쪽' 한 글자 칸은 버튼처럼 읽혔다(QA 2026-09-24) — 입력 칸답게 왼쪽 정렬 '쪽 이동'. 높이·글자 크기는 버튼과 같다.
+        # the single-character '쪽' field used to read as a button (QA 2026-09-24) — now left-aligned like a real input, placeholder '쪽 이동'. Height/font size match the buttons.
         self.assertIn("#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);", css)
         self.assertIn("#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}", css)
         coarse = css[css.index("@media (pointer:coarse){"):]
@@ -5169,10 +5233,11 @@ class FrontendToolbarSize(unittest.TestCase):
 
 
 class FrontendSaveWhilePicking(unittest.TestCase):
-    """P0c 수선: 드래그 직후 SyncTeX pick 이 끝나기 전(~1.1s)에 [핀 저장]을 누르면 CUR 이 아직 없어
-    savePin() 이 조용히 아무 일도 안 하고 메모가 사라졌다(실측). 이제는 그 요청을 큐에 담아
-    pick 이 끝나면 자동 저장한다. 구조 단언(옛 무음 조기 return 이 없어졌는지) + node 로 실제
-    savePin()/pick() 소스를 돌려 큐잉·자동저장·실패시 취소·토글 취소까지 행동으로 검증한다."""
+    """P0c fix: clicking [핀 저장] right after a drag, before the SyncTeX pick finishes (~1.1s), used to
+    find CUR still unset, so savePin() silently did nothing and the note was lost (observed). It now
+    queues that request and auto-saves once pick finishes. Verified both structurally (the old silent
+    early return is gone) and behaviorally, by running the real savePin()/pick() source under node
+    through queuing, auto-save, cancel-on-failure, and toggle-cancel."""
 
     def test_save_pin_no_longer_silently_drops_missing_cur(self):
         body = extract_js_fn("savePin")
@@ -5183,7 +5248,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
     def test_pick_triggers_queued_save_on_success_and_clears_on_error(self):
         pick_body = extract_js_fn("pick")
         self.assertIn("if(PEND_SAVE){clearPendingSave(); savePin();}", pick_body)
-        # 실패 경로(catch·d.error)도 대기 중이던 저장을 비운다 — 조용히 저장해버리지 않는다.
+        # the failure path (catch/d.error) also clears the pending save — it never saves silently.
         self.assertIn("clearPendingSave();", pick_body)
         self.assertRegex(pick_body, r"catch\(e\)\{if\(seq!==PICKSEQ\)return; setBusy\(false\); if\(!rp\)\{PICKING=false; clearPendingSave\(\);\}")
 
@@ -5239,14 +5304,14 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             """)
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         data = json.loads(out)
         self.assertTrue(data["pickingWhileWaiting"])
         self.assertTrue(data["queued"])
         self.assertTrue(data["btnPendingLabel"])
-        self.assertEqual(data["pinCallsBeforeResolve"], 0)   # pick 해소 전엔 저장 요청을 보내지 않는다
+        self.assertEqual(data["pinCallsBeforeResolve"], 0)   # no save request is sent before pick resolves
         self.assertTrue(data["autoSaved"])
-        self.assertEqual(data["pinCallsAfterResolve"], 1)    # pick 이 풀리자 큐에 담긴 저장이 자동으로 나간다
+        self.assertEqual(data["pinCallsAfterResolve"], 1)    # once pick resolves, the queued save fires automatically
         self.assertTrue(data["btnLabelRestored"])
 
     def test_pick_failure_clears_queued_save_without_saving(self):
@@ -5268,11 +5333,11 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             """)
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         data = json.loads(out)
         self.assertTrue(data["queuedBeforeFailure"])
         self.assertFalse(data["queuedAfterFailure"])
-        self.assertEqual(data["pinCalls"], 0)   # pick 이 실패하면 저장하지 않는다
+        self.assertEqual(data["pinCalls"], 0)   # nothing is saved if pick fails
         self.assertTrue(data["errorShown"])
 
     def test_clicking_save_again_cancels_the_queued_save(self):
@@ -5295,7 +5360,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             """)
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         data = json.loads(out)
         self.assertTrue(data["queued"])
         self.assertTrue(data["canceled"])
@@ -5303,8 +5368,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["noAutoSaveAfterCancel"])
 
     def test_reselecting_during_pick_queues_save_for_new_location_not_stale_one(self):
-        # 회귀: 이미 CUR 이 있는 상태(첫 선택 완료)에서 다시 길게 눌러 새 선택을 시작하면, 그 응답이 오기 전에
-        # [핀 저장]을 눌러도 옛 CUR 이 즉시 저장되지 않고 PEND_SAVE 큐로 가서 새 위치가 저장돼야 한다.
+        # regression: starting a new selection with a long-press while CUR is already set (first selection
+        # done), then clicking [핀 저장] before that response arrives, must not save the old CUR right
+        # away — it should go to the PEND_SAVE queue and save the new location instead.
         js = self._harness(r"""
             (async()=>{
               const out={};
@@ -5329,34 +5395,42 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             """)
         out = run_node(js)
         if out is None:
-            self.skipTest("node 가 없다")
+            self.skipTest("node not available")
         data = json.loads(out)
         self.assertEqual(data["curAfterFirstPick"], 717)
         self.assertTrue(data["curClearedOnNewPick"])
-        self.assertEqual(data["pinCallsWhileWaiting"], 0)   # 새 응답 전엔 옛 CUR 로 저장하지 않는다
+        self.assertEqual(data["pinCallsWhileWaiting"], 0)   # doesn't save with the old CUR before the new response arrives
         self.assertTrue(data["queued"])
         self.assertTrue(data["autoSaved"])
-        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # 새 위치 응답이 오자 큐에 담긴 저장이 나간다
+        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # the queued save fires once the new location response arrives
 
 
 class FrontendResponsiveBrowser(unittest.TestCase):
     """Real Chromium layout and keyboard regression; API/PDF rendering is outside this oracle.
 
-    Run with uv run --no-project --with playwright python -m unittest discover
-    -s tests/manuscript_pin_picker -p test_pin_server.py -k FrontendResponsiveBrowser.
+    Run with: uv run pytest tests/test_server.py -k FrontendResponsiveBrowser. Uses $LIMN_CHROMIUM, a system
+    Chrome/Chromium, or Playwright's bundled Chromium (`playwright install chromium`), in that order. It skips
+    when none can start, unless LIMN_TEST_REQUIRE_BROWSER=1 (CI), where that is a failure.
     """
 
     @classmethod
     def setUpClass(cls):
+        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
+            if required:
+                raise
             raise unittest.SkipTest("Playwright unavailable")
-        chrome = shutil.which("google-chrome") or shutil.which("chromium")
-        if not chrome:
-            raise unittest.SkipTest("Chromium unavailable")
+        chrome = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
         cls.pw = sync_playwright().start()
-        cls.browser = cls.pw.chromium.launch(executable_path=chrome, args=["--no-sandbox"])
+        try:
+            cls.browser = cls.pw.chromium.launch(executable_path=chrome or None, args=["--no-sandbox"])
+        except Exception as e:
+            cls.pw.stop()
+            if required:
+                raise
+            raise unittest.SkipTest("Chromium unavailable: %s" % e)
         cls.html = ps.build_html("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
     @classmethod
@@ -5426,9 +5500,10 @@ class FrontendResponsiveBrowser(unittest.TestCase):
                         self.assertEqual(toggle.get_attribute('aria-expanded'), 'true')
 
     def test_mid_action_bar_and_tabs_stay_put_when_panel_toggles(self):
-        # 회귀(2026-09-24, 폴드 7 사용자): mid 에서 [핀 N] 이 패널을 펴면 오른쪽 위(y 56), 접으면 오른쪽 아래(y 693)로
-        # 뛰었고, 문서 옆 패널(901–1099px)이 탐색 줄을 패널 폭만큼 잘랐다. 지금은 동작 줄이 화면 아래 전체 폭에 고정되고
-        # 탐색 줄은 위 전체 폭이며, 패널은 그 사이에서만 편다.
+        # regression (2026-09-24, Fold 7 user): in mid, [핀 N] used to jump between top-right (y 56) when
+        # the panel opened and bottom-right (y 693) when it collapsed, and the document-side panel
+        # (901-1099px) clipped the nav row by the panel width. The action row is now pinned full-width at
+        # the bottom of the screen, the nav row full-width at the top, and the panel only expands between the two.
         probe = """() => {
           const r = s => document.querySelector(s).getBoundingClientRect();
           const hit = e => {const b=e.getBoundingClientRect(), p=e.closest('#doc-links'), q=p?p.getBoundingClientRect():b;
@@ -5455,7 +5530,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
                     self.assertEqual(s['blocked'], [])
                     self.assertEqual(s['clipped'], [])
                     self.assertLess(s['side']['x'] + s['side']['width'], width)
-                    self.assertGreater(s['side']['x'] + s['side']['width'], width - 40)   # 오른쪽 아래 끝(오른손 엄지)
+                    self.assertGreater(s['side']['x'] + s['side']['width'], width - 40)   # bottom-right corner (right thumb)
                 opened = a if a['open'] else b
                 self.assertGreaterEqual(opened['right']['y'], opened['nav']['y'] + opened['nav']['height'] - 1)
                 self.assertLessEqual(opened['right']['y'] + opened['right']['height'], opened['bar']['y'] + 1)
@@ -5502,9 +5577,11 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertTrue(page.locator('#docs-menu').is_visible())
 
 
-# ---------------------------------------------------------------- 핀 종류(수정 요청/질문)·스레드·답글(docs/api.md §스레드)
-# A-DEMO 42건 중 10건(24%)이 고칠 곳이 아니라 질문이었다(#30 '구간이 0을 포함한다는 게 뭐지?' 등). 답을 남길 곳이 닫기 사유 한 칸뿐이라
-# 되물을 수 없었다. kind_req 로 종류를 가르고, 핀마다 thread 를 두어 사람·에이전트가 주고받는다. 새 필드는 모두 선택이다.
+# ---------------------------------------------------------------- pin kind (fix request / question) · thread · reply (docs/api.md §Threads)
+# 10 of 42 pins (24%) in A-DEMO were questions rather than fix requests (#30 "what does it mean for the
+# interval to include 0?", etc.). With only a single close-reason field to answer in, there was no way to
+# ask a follow-up. kind_req now distinguishes the kind, and each pin has a thread so people and agents can
+# go back and forth. All new fields are optional.
 class KindAndThread(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
 
@@ -5520,7 +5597,7 @@ class KindAndThread(Base):
                        dict(self.S))
         f = self.add()
         self.assertEqual(self.pin(q)["kind_req"], "question")
-        self.assertNotIn("kind_req", self.pin(f))                 # 옛 호출(에이전트 curl)은 필드가 없다 = 수정 요청
+        self.assertNotIn("kind_req", self.pin(f))                 # an old-style call (agent curl) has no field = fix request
         with self.assertRaises(ps.HTTPError) as cm:
             ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S))
         self.assertEqual(cm.exception.code, 400)
@@ -5540,14 +5617,14 @@ class KindAndThread(Base):
         self.assertEqual(code, 200)
         self.assertTrue(d["ok"])
         self.assertEqual(d["msg"]["id"], 1)
-        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")   # CRLF → LF, 앞뒤 공백 제거
+        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")   # CRLF -> LF, leading/trailing whitespace stripped
         self.assertEqual(d["msg"]["by"], {"login": self.S["login"], "name": self.S["name"]})
         code, d = self.post("/api/pins/%d/reply" % pid, {"text": "에이전트 답"})
         self.assertEqual(d["msg"]["id"], 2)
         self.assertEqual(d["msg"]["by"]["login"], "local")
         p = self.pin(pid)
         self.assertEqual([m["id"] for m in p["thread"]], [1, 2])
-        self.assertFalse(p.get("done"))                          # 답글은 상태를 바꾸지 않는다
+        self.assertFalse(p.get("done"))                          # a reply doesn't change the status
         self.assertEqual(p["rev"], 2)
 
     def test_reply_validation(self):
@@ -5559,7 +5636,7 @@ class KindAndThread(Base):
         code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * ps.THREAD_TEXT_MAX})
         self.assertEqual(code, 200)
         code, d = self.post("/api/pins/999/reply", {"text": "없음"})
-        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # 없는 id 는 다른 경로와 같은 관례
+        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # a nonexistent id follows the same convention as other routes
 
     def test_control_characters_are_stripped_but_newlines_kept(self):
         self.assertEqual(ps.clean_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
@@ -5572,18 +5649,18 @@ class KindAndThread(Base):
             with self.assertRaises(ps.HTTPError) as cm:
                 ps.reply_pin(pid, "3", dict(self.S))
             self.assertEqual(cm.exception.code, 409)
-            ps.set_done(pid, True, dict(self.S), "닫음")          # 상태 전환 기록은 상한과 무관하다
+            ps.set_done(pid, True, dict(self.S), "닫음")          # a status-transition record is exempt from the cap
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
     def test_close_reply_is_appended_to_thread_once(self):
         pid = self.add()
         ps.reply_pin(pid, "질문이 있어요", dict(self.S))
         ps.set_done(pid, True, dict(self.S), "제목을 고침", "PR #227")
-        ps.set_done(pid, True, dict(self.S), "두 번째 닫기")      # 이미 닫힘 — 아무것도 붙지 않는다
+        ps.set_done(pid, True, dict(self.S), "두 번째 닫기")      # already closed — nothing gets appended
         th = self.pin(pid)["thread"]
         self.assertEqual([(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
                          [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")])
-        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")   # 옛 필드도 그대로 남는다(옛 뷰어·에이전트 호환)
+        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")   # the old field is left in place too (compat with old viewers/agents)
 
     def test_bodyless_close_still_works_and_records_event(self):
         pid = self.add()
@@ -5602,7 +5679,7 @@ class KindAndThread(Base):
         ps.set_done(pid, True, dict(self.S))
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
-        self.assertNotIn("state", ps.read_pins()[0][0])           # 계산 필드 — 저장하지 않는다
+        self.assertNotIn("state", ps.read_pins()[0][0])           # a computed field — not stored
 
     def test_malformed_thread_is_a_broken_line(self):
         for th in ("x", [{"id": "1", "text": "a", "at": "t", "by": {}}], [{"id": 1, "text": 3, "at": "t", "by": {}}],
@@ -5639,22 +5716,22 @@ class KindAndThread(Base):
         row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
         self.assertIn("| %d · 질문 |" % q, row)
         self.assertIn("[스레드 5건, 앞 2건은 GET /api/pins/%d]" % q, row)
-        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)   # 줄바꿈은 접고 | 는 이스케이프
+        self.assertIn("Bob Park: 답글 4 둘째 줄 \\| 파이프", row)   # a newline collapses, | gets escaped
         self.assertNotIn("답글 1", row)
-        self.assertEqual(row.count("|") - row.count("\\|"), 6)          # 5열 표 그대로
+        self.assertEqual(row.count("|") - row.count("\\|"), 6)          # still a 5-column table
         self.assertIn("/api/pins/N/reply", md)
         self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
         ps.set_done(q, True, dict(self.S), "답했다")
         ps.set_done(q, False, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % q))
-        self.assertNotIn("[스레드", row)                                  # 닫기 전 차례의 글은 싣지 않는다
+        self.assertNotIn("[스레드", row)                                  # messages from before the close aren't shown
 
 
 class FrontendThread(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def run_js(self, script, layout="wide"):
         js = "\n".join([r"""
@@ -5706,7 +5783,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
         self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
-        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc 가 입력 칸부터 닫는다
+        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
         self.assertIn("'/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply')", send)
@@ -5717,9 +5794,11 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)
 
 
-# ---------------------------------------------------------------- 검토 대기(docs/api.md §검토 대기)
-# 에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 에이전트(신원 헤더 없음)가
-# 닫으면 done=true·review=true(검토 대기), 테일넷 사람이 닫으면 바로 완료다. review 가 없는 옛 done:true 는 그대로 완료다.
+# ---------------------------------------------------------------- awaiting review (docs/api.md §Pending review)
+# an author reopened a pin an agent had closed in 2 of 42 cases (#28, #42), and there was no record that
+# a human had seen the result. When an agent (no identity header) closes a pin, it's done=true·
+# review=true (awaiting review); when a tailnet human closes it, it's done right away. A legacy
+# done:true with no review field is still just done.
 class ReviewState(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
     W = {"login": "wendy@example.com", "name": "Wendy Kim"}
@@ -5742,7 +5821,7 @@ class ReviewState(Base):
     def test_explicit_review_flag_wins(self):
         a, b = self.add(), self.add(note="m")
         code, d = self.post("/api/pins/%d/close" % a, {"review": True}, {"Tailscale-User-Login": self.S["login"]})
-        self.assertEqual(d["state"], "review")                      # 테일넷 주소로 닫는 원격 에이전트
+        self.assertEqual(d["state"], "review")                      # a remote agent closing via a tailnet address
         code, d = self.post("/api/pins/%d/close" % b, {"review": False})
         self.assertEqual(d["state"], "done")
         code, d = self.post("/api/pins/%d/close" % self.add(), {"review": "yes"})
@@ -5752,7 +5831,7 @@ class ReviewState(Base):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
-        self.assertEqual(json.loads(raw), [])                         # 열린 핀 목록(옛 계약)에 없다
+        self.assertEqual(json.loads(raw), [])                         # not in the open-pin list (legacy contract)
         with self.assertRaises(ps.HTTPError) as cm:
             ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30)
         self.assertEqual(cm.exception.body["error"], "done")
@@ -5766,26 +5845,26 @@ class ReviewState(Base):
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
         p = self.pin(pid)
-        self.assertEqual(p["confirmed_by"], self.W)                   # 작성자가 아니어도 확인할 수 있다
+        self.assertEqual(p["confirmed_by"], self.W)                   # confirmation doesn't require being the author
         self.assertTrue(p["confirmed_at"])
         self.assertEqual(p["thread"][-1]["ev"], "confirm")
         rev = p["rev"]
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
-        self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # 이미 완료 — 그대로
+        self.assertEqual((code, d["ok"], self.pin(pid)["rev"]), (200, True, rev))   # already done — unchanged
         code, d = self.post("/api/pins/%d/confirm" % self.add(), None, W)
         self.assertEqual((code, d["error"]), (409, "open"))
         code, d = self.post("/api/pins/999/confirm", None, W)
         self.assertEqual((code, d["ok"]), (200, False))
 
     def test_agent_cannot_confirm(self):
-        # 결함 실측: 신원 헤더 없는(에이전트/로컬 curl) 요청이 /confirm 을 성공시켰다 — 검토 대기는 '사람이
-        # 봤다'는 기록이라 에이전트 스스로의 확인은 그 취지를 무너뜨린다.
+        # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
+        # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
-        code, d = self.post("/api/pins/%d/confirm" % pid)             # 헤더 없음 = 에이전트
+        code, d = self.post("/api/pins/%d/confirm" % pid)             # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
-        self.assertEqual(ps.pin_state(self.pin(pid)), "review")       # 상태는 바뀌지 않는다
+        self.assertEqual(ps.pin_state(self.pin(pid)), "review")       # the status doesn't change
         with self.assertRaises(ps.HTTPError) as cm:
             ps.confirm_pin(pid, dict(ps.LOCAL_ACTOR))
         self.assertEqual(cm.exception.code, 403)
@@ -5805,7 +5884,7 @@ class ReviewState(Base):
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
         code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (ps.THREAD_TEXT_MAX + 1)})
         self.assertEqual(code, 400)
-        code, d = self.post("/api/pins/%d/reopen" % pid)              # 본문 없는 옛 reopen 도 된다(이미 열림 — 스레드 그대로)
+        code, d = self.post("/api/pins/%d/reopen" % pid)              # a body-less legacy reopen still works too (already open — thread unchanged)
         self.assertEqual(code, 200)
         self.assertEqual(len(self.pin(pid)["thread"]), 2)
 
@@ -5822,7 +5901,7 @@ class ReviewState(Base):
         self.assertEqual(ps.pin_state({"done": True}), "done")
         self.assertEqual(ps.pin_state({"done": True, "review": False}), "done")
         self.assertEqual(ps.pin_state({"done": True, "review": True}), "review")
-        self.assertEqual(ps.pin_state({"review": True}), "open")    # 열린 핀에 남은 review 는 뜻이 없다
+        self.assertEqual(ps.pin_state({"review": True}), "open")    # a review flag left on an open pin is meaningless
         self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
     def test_pins_md_review_section_and_header(self):
@@ -5836,19 +5915,19 @@ class ReviewState(Base):
         self.assertIn("| %d · 질문 | `main.tex L4-L5` | Bob Park | 구간은 0 을 포함 \\| 유의하지 않음 (PR #12) |" % a, sec)
         opn = md[:md.index("## 검토 대기")]
         starts = [l.split("|")[1].strip() for l in opn.splitlines() if l.startswith("| ") and not l.startswith("| #")]
-        self.assertEqual(starts, [str(b)])                             # 열린 표에는 열린 핀만
+        self.assertEqual(starts, [str(b)])                             # only open pins appear in the open table
         self.assertIn("`\"review\":true`", md)
         self.assertIn("검토 대기 핀은 다시 처리하지 않는다", md)
         ps.confirm_pin(a, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("## 검토 대기", md)
-        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)                # 검토 대기가 없으면 머리줄은 예전 모양
+        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)                # with nothing awaiting review, the header line reverts to the old look
 
 
 class FrontendReview(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_review_card_suggests_author_and_offers_confirm_reopen(self):
         js = "\n".join([r"""
@@ -5896,18 +5975,18 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('id="side-rv"', ps.HTML)
 
     def test_review_card_reply_hint_and_reopen_hint(self):
-        # 결함 실측: 검토 대기 카드의 답글 칸이 일반 답글과 같은 안내를 써서, 답글을 남겨도 에이전트가
-        # 다시 집지 않는다는 사실이 드러나지 않았다(§검토 대기 — 다시 처리하지 않는다).
+        # observed bug: a review card's reply field used the same hint text as a normal reply, so it
+        # wasn't clear that leaving a reply wouldn't get an agent to pick it back up (§Pending review — never re-processed).
         body = extract_js_fn("replyEl")
         self.assertIn("review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글", body)
         self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
 
 
-# ---------------------------------------------------------------- [변경 보기](docs/design.md §변경 보기)
+# ---------------------------------------------------------------- [변경 보기] (docs/design.md §Viewing changes)
 class FrontendChangeView(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def run_js(self, script):
         js = "\n".join([extract_js_fn(n) for n in ("matchRevision", "pinFileIndex", "hunkRanges", "touchesPin", "revisionFiles")]
@@ -5943,12 +6022,12 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn('id="revision-pin"', h)
         self.assertIn("showRevision(pick.id,'source')", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
-        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # 비교 PDF 는 그 형식을 볼 때만 만든다
+        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # the comparison PDF is only built while viewing that format
         css = h[h.index("<style>"):h.index("</style>")]
-        self.assertIn("body.revision-open #revision-view{display:block}", css)   # 접은 폴드에서도 열린다
+        self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
 
 
-# ---------------------------------------------------------------- @태그·people.json·events.jsonl(docs/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/api.md §@태그·사람·이벤트)
 class MentionsPeopleEvents(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
     W = {"login": "wendy@example.com", "name": "Wendy Kim"}
@@ -5977,12 +6056,12 @@ class MentionsPeopleEvents(Base):
         ppl = self.people(({"login": "wlee@x.com", "name": "Wendy Lee"}, {"login": "sy@x.com", "name": "박서준"}))
         R = ps.resolve_mentions
         self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
-        self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])            # 대소문자·한글 조사
-        self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])               # 이름 첫 단어(하나뿐)
-        self.assertEqual(R("@Wendy 어때요", ppl), [])                                   # 첫 단어가 둘 — 모호하면 풀지 않는다
-        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # 뷰어가 고른 힌트로 가른다
-        self.assertEqual(R("메일 bob@example.com 로", ppl), [])                     # 메일 주소는 태그가 아니다
-        self.assertEqual(R("@Bobx", ppl), [])                                         # 영문 이름 뒤 영문 = 다른 말
+        self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])            # case-insensitive, Korean particle attached
+        self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])               # first word of the name (only one match)
+        self.assertEqual(R("@Wendy 어때요", ppl), [])                                   # two candidates share the first word — ambiguous, don't resolve
+        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # resolved via the viewer's chosen hint
+        self.assertEqual(R("메일 bob@example.com 로", ppl), [])                     # an email address is not a mention
+        self.assertEqual(R("@Bobx", ppl), [])                                         # letters right after an English name = a different word
         self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
         self.assertEqual(R("@nobody", ppl), [])
 
@@ -5990,8 +6069,8 @@ class MentionsPeopleEvents(Base):
         self.assertFalse(ps.record_person(dict(ps.LOCAL_ACTOR)))
         self.assertFalse(ps.C.people_file.exists())
         self.assertTrue(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
-        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))   # 10분 안 같은 값 — 쓰지 않는다
-        self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))        # 이름이 바뀌면 쓴다
+        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))   # same value within 10 minutes — not written
+        self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))        # written when the name changes
         self.assertTrue(ps.record_person(dict(self.W), now=2000))
         d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
         self.assertEqual(d["version"], 1)
@@ -6005,14 +6084,14 @@ class MentionsPeopleEvents(Base):
         before = ps.C.people_file.read_bytes()
         with mock.patch.object(ps.os, "replace", side_effect=OSError("disk full")):
             self.assertFalse(ps.record_person(dict(self.W), now=2000))
-        self.assertEqual(ps.C.people_file.read_bytes(), before)         # 옛 파일 그대로(반쪽 파일 없음)
+        self.assertEqual(ps.C.people_file.read_bytes(), before)         # the old file is unchanged (no half-written file)
         with mock.patch.object(ps.os, "replace", side_effect=OSError("disk full")):
             ps.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
         self.assertFalse(ps.C.events_file.exists())
 
     def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
         self.talk(req("GET", "/", headers=self.HW))
-        self.talk(req("GET", "/api/meta?light=1", headers=self.HS))     # 폴링은 쓰지 않는다
+        self.talk(req("GET", "/api/meta?light=1", headers=self.HS))     # polling doesn't count
         self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
         ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S))
         code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
@@ -6028,30 +6107,30 @@ class MentionsPeopleEvents(Base):
         pid = d["id"]
         p = self.pin(pid)
         self.assertEqual(p["mentions"], [self.W["login"]])
-        self.assertEqual(p["note"], "@Wendy Kim 구간의 정의는?")       # 글은 그대로
+        self.assertEqual(p["note"], "@Wendy Kim 구간의 정의는?")       # the text is unchanged
         ev = self.events()
         self.assertEqual([(e["type"], e["pin"], e["to"], e["by"]["login"]) for e in ev],
                          [("mention", pid, [self.W["login"]], self.S["login"])])
         self.assertEqual(ev[0]["kind_req"], "question")
         self.assertEqual(ev[0]["seq"], 1)
         self.assertIn("구간의 정의는?", ev[0]["excerpt"])
-        # 에이전트 답글 → 작성자와 불린 사람에게 replied
+        # agent reply -> replied goes to the author and the mentioned person
         self.post("/api/pins/%d/reply" % pid, {"text": "구간은 95% 신뢰구간입니다"})
         e = self.events()[-1]
         self.assertEqual((e["type"], sorted(e["to"]), e["msg"]), ("replied", sorted([self.S["login"], self.W["login"]]), 1))
-        # 불린 사람이 답하면 자기 자신은 빠진다
+        # when the mentioned person replies, they're excluded from the recipients themselves
         self.post("/api/pins/%d/reply" % pid, {"text": "@Bob Park 맞아요"}, self.HW)
         types = [(x["type"], x["to"]) for x in self.events()[2:]]
-        self.assertEqual(types, [("mention", [self.S["login"]])])       # 이 글로 불린 작성자는 mention 하나만(replied 와 겹치지 않는다)
+        self.assertEqual(types, [("mention", [self.S["login"]])])       # the author, mentioned by this message, gets only one mention (doesn't overlap with replied)
         self.assertEqual(self.pin(pid)["thread"][-1]["mentions"], [self.S["login"]])
-        # 에이전트가 닫으면 작성자에게 review_requested, 작성자가 이유와 함께 다시 열면 reopened 는 자기 자신이라 없다
+        # when an agent closes it, review_requested goes to the author; when the author reopens with a reason, reopened is skipped since it's themself
         self.post("/api/pins/%d/close" % pid, {"reply": "답함"})
         self.assertEqual(self.events()[-1]["type"], "review_requested")
         self.assertEqual(self.events()[-1]["to"], [self.S["login"]])
         n = len(self.events())
         self.post("/api/pins/%d/reopen" % pid, {"reason": "@Wendy Kim 한 번 더 봐 주세요"}, self.HS)
         tail = self.events()[n:]
-        self.assertEqual([(x["type"], x["to"]) for x in tail], [])       # 민수은 이미 불렸고, 작성자는 자기 자신
+        self.assertEqual([(x["type"], x["to"]) for x in tail], [])       # the mentioned person was already notified, and the author is themself
         self.post("/api/pins/%d/close" % pid, {"reply": "다시 답함"})
         self.post("/api/pins/%d/reopen" % pid, {"reason": "아직"}, self.HW)
         self.assertEqual((self.events()[-1]["type"], self.events()[-1]["to"]), ("reopened", [self.S["login"]]))
@@ -6074,13 +6153,13 @@ class MentionsPeopleEvents(Base):
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(l for l in md.splitlines() if l.startswith("| %d " % a))
-        self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)   # 우선순위: 다시 열림 > → @ > 질문
+        self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)   # priority: reopened > -> @ > question
         self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
-    # ---- 담당(assignee) — docs/api.md §담당. 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43).
+    # ---- assignee — docs/api.md §Assignee. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
         ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
@@ -6089,10 +6168,10 @@ class MentionsPeopleEvents(Base):
         agent = ps.add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
                             "assignee": "agent"}, dict(self.W))
         rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
-        self.assertNotIn("assignee", rows[legacy])                        # 옛 핀: 필드 없음 → #87 추론(수정 요청 = 참고)
+        self.assertNotIn("assignee", rows[legacy])                        # legacy pin: no field -> inferred per #87 (fix request = fyi)
         self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
         self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
-        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # 질문이어도 담당이 에이전트면 참고
+        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # even a question is fyi if the assignee is an agent
         md = ps.C.pins_md.read_text(encoding="utf-8")
         line = lambda i: next(l for l in md.splitlines() if l.startswith("| %d " % i))
         self.assertIn("| %d · 참고 @Bob Park |" % legacy, line(legacy))
@@ -6113,9 +6192,9 @@ class MentionsPeopleEvents(Base):
         pid = d["id"]
         self.assertEqual(self.pin(pid)["assignee"], self.S["login"])
         self.assertEqual(sorted((e["type"], tuple(e["to"])) for e in self.events()),
-                         [("assigned", (self.S["login"],)), ("mention", (self.S["login"],))])   # 불린 사람은 알림도 받는다
-        self.assertNotIn("thread", self.pin(pid))                        # 만들 때의 담당은 스레드 기록이 아니다
-        # 담당을 에이전트로 바꾸면 ev=assign 이 남고 이벤트는 없다. 다시 사람으로 바꾸면 assigned.
+                         [("assigned", (self.S["login"],)), ("mention", (self.S["login"],))])   # the mentioned person also gets a notification
+        self.assertNotIn("thread", self.pin(pid))                        # the assignee set at creation isn't a thread record
+        # switching the assignee to an agent leaves an ev=assign entry with no event. Switching back to a person emits assigned.
         n = len(self.events())
         code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "agent", "base_rev": 0}, self.HW)
         self.assertEqual(code, 200)
@@ -6150,14 +6229,15 @@ class MentionsPeopleEvents(Base):
                         {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}}]}
         self.assertEqual(ps.addressed_to(r), ["b"])
         self.assertEqual(ps.pin_mentions_all(r), ["a", "b"])
-        self.assertEqual(ps.fyi_mentions_to(r), [])       # 질문 핀은 fyi 가 아니라 addressed 로만 잡힌다
+        self.assertEqual(ps.fyi_mentions_to(r), [])       # a question pin isn't fyi — it's captured only as addressed
         fix = dict(r, kind_req="fix")
-        self.assertEqual(ps.addressed_to(fix), [])         # 수정 요청 핀은 @태그가 있어도 건너뛰지 않는다
-        self.assertEqual(ps.fyi_mentions_to(fix), ["b"])   # 대신 참고용으로만 잡힌다
+        self.assertEqual(ps.addressed_to(fix), [])         # a fix-request pin isn't skipped even with an @-mention
+        self.assertEqual(ps.fyi_mentions_to(fix), ["b"])   # it's captured only as fyi instead
 
     def test_reopen_after_confirm_marks_reopened_symbol_not_just_first_round_msg(self):
-        # 결함 실측: 확인(confirm) 뒤 다시 열면 차례가 [confirm, reopen, ...] 로 시작해 '다시 열림' 표시가
-        # 빠졌다(옛 판정은 '차례의 첫 글이 reopen 인가'만 봤다). pin_reopened_in_round() 는 confirm 을 건너뛴다.
+        # observed bug: reopening after a confirm made the round start with [confirm, reopen, ...], so the
+        # "reopened" marker was missing (the old check only looked at "is the round's first message a
+        # reopen?"). pin_reopened_in_round() now skips over confirm.
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
         ps.confirm_pin(pid, dict(self.S))
@@ -6172,10 +6252,10 @@ class MentionsPeopleEvents(Base):
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
                           "kind_req": "question"}, dict(self.W))
         p = self.pin(pid)
-        self.assertNotIn("mentions", p)                    # 자기 자신 @태그는 저장되지 않는다
+        self.assertNotIn("mentions", p)                    # a self-@mention isn't stored
         self.assertEqual(ps.addressed_to(p), [])
         msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W))[1]
-        self.assertEqual(msg["mentions"], [self.S["login"]])  # 답글 글쓴이 자신(W)은 빠진다
+        self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
     def test_mention_hints_validated(self):
         with self.assertRaises(ps.HTTPError):
@@ -6194,7 +6274,7 @@ class MentionsPeopleEvents(Base):
 class FrontendMentions(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def run_js(self, script):
         js = "\n".join([r"""
@@ -6218,21 +6298,22 @@ class FrontendMentions(unittest.TestCase):
                                '<span class="mention"%s>@김&lt;b&gt;</span> 안녕' % tip("김&lt;b&gt;"), '@Bob Park'])
 
     def test_mention_of_me_is_stronger_and_unresolved_stays_plain(self):
-        # 저자 지적(2026-09-24): 부른 것인지 평문인지 구분이 안 됐다. 풀린 태그만 토큰, 나를 부르면 .me, 풀리지 않은 '@말'은 평문.
+        # author feedback (2026-09-24): couldn't tell a real mention from plain text. Only a resolved tag
+        # becomes a token; being mentioned gets .me; an unresolved '@word' stays plain text.
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@x']), fmtText('mail a@Bob Park',['s@x']),
               fmtText('@Bob Parkx',['s@x']), fmtText('@bob park',['s@x'])]));""")
         self.assertEqual(out[0], '<span class="mention me" data-tip="나를 부름 — 이 핀 알림이 나에게 옵니다">@Bob Park</span> 봐 주세요 @홍길동')
-        self.assertEqual(out[1], 'mail a@Bob Park')                       # 메일 주소 모양은 태그가 아니다
-        self.assertNotIn("mention", out[2])                                   # 이름 뒤에 영문이 이어지면 다른 말
-        self.assertIn('class="mention me"', out[3])                          # 대소문자 없이(서버와 같다)
+        self.assertEqual(out[1], 'mail a@Bob Park')                       # something shaped like an email address is not a mention
+        self.assertNotIn("mention", out[2])                                   # letters right after a name make it a different word
+        self.assertIn('class="mention me"', out[3])                          # case-insensitive (same as the server)
 
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
-        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12·3·40(삭제한 핀) — 없는 99 는 평문
+        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
         self.assertIn('data-ref="12"', out[0]); self.assertIn('data-ref="40"', out[0]); self.assertNotIn('data-ref="99"', out[0])
-        self.assertIn("it&#39;s", out[0])                                     # 이스케이프 &#39; 는 링크가 아니다
+        self.assertIn("it&#39;s", out[0])                                     # the escaped &#39; is not a link
         self.assertNotIn("pin-ref", out[1])
 
     def test_scan_lists_who_gets_notified_and_unresolved_words(self):
@@ -6244,7 +6325,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(out[2]["hit"][0], "wo@x")
 
     def test_default_assignee_rules(self):
-        # 메모가 풀린 @태그로 시작하면 그 사람 · 아니면 질문 핀의 첫 @태그 · 아니면 에이전트. 나(s@x)는 고를 수 없다.
+        # if the note starts with a resolved @-mention, that person; otherwise the first @-mention on a question pin; otherwise the agent. I (s@x) can't be chosen.
         out = self.run_js(r"""
             console.log(JSON.stringify([
               defaultAssignee('@Wendy Kim 확인 부탁','fix',new Set()),
@@ -6273,7 +6354,7 @@ class FrontendMentions(unittest.TestCase):
     def test_preview_row_under_every_mention_field(self):
         h = ps.HTML
         self.assertIn('<div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>', h)
-        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)   # 편집·답글
+        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)   # edit and reply
         body = extract_js_fn("mentionPreview")
         self.assertIn("등록된 사람이 아님", body)
         self.assertIn("ic('at-sign')+'알림</span>'", body)
@@ -6292,8 +6373,9 @@ class FrontendMentions(unittest.TestCase):
               mentionsMe({addressed:['s@x']}),mentionsMe({addressed:['w@x']}),mentionsMe({mentions:['s@x'],thread:[{mentions:['s@x']}]})]));""")
         self.assertEqual(out, [[{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None], ["wo@x", "w@x"], False,
                                ["w@x"], True, False, False])
-        # mentionsMe 는 서버가 미리 계산한 p.addressed(질문 핀·현재 차례)만 본다 — 옛 mentions/thread 전체 훑기가 아니다
-        # (결함 실측: 옛 차례의 @태그가 다시 열려도 계속 '나를 부른 핀'으로 남았다).
+        # mentionsMe only looks at p.addressed, pre-computed by the server (question pin, current round) —
+        # it does not scan the full legacy mentions/thread
+        # (observed bug: an @-mention from an old round stayed marked as "a pin that called me" even after reopening).
 
     def test_wiring(self):
         h = ps.HTML
@@ -6302,13 +6384,14 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;", extract_js_fn("savePin"))
         self.assertIn("mentionHints(ta)", extract_js_fn("sendReply"))
         self.assertIn("fmtText(p.note,p.mentions)", extract_js_fn("card"))
-        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # 자동 완성이 Enter·Esc 를 먼저 받는다(capture)
+        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # autocomplete gets Enter/Esc first (capture phase)
 
 
-# ---------------------------------------------------------------- 브라우저 알림(docs/design.md §브라우저 알림)
+# ---------------------------------------------------------------- browser notifications (docs/design.md §Browser notifications)
 class FrontendSpacingGrid(unittest.TestCase):
-    """간격(padding·margin·gap)은 4/8px 격자다(4·8·12·16·24). 1–2px 는 머리카락 선·광학 보정이라 둔다(배지 위아래 1px 등).
-    예전에는 6·10·14·18px 같은 자리 값이 섞여 있었다(격자 정리 QA 2026-09-25)."""
+    """Spacing (padding/margin/gap) sits on a 4/8px grid (4, 8, 12, 16, 24). 1-2px is left alone as
+    hairline borders / optical correction (e.g. 1px above/below a badge). It used to mix in ad hoc values
+    like 6, 10, 14, 18px (grid cleanup QA 2026-09-25)."""
     def test_spacing_is_on_the_grid(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         bad = []
@@ -6321,10 +6404,10 @@ class FrontendSpacingGrid(unittest.TestCase):
 
 
 class FrontendMentionPopPlacement(unittest.TestCase):
-    """@목록 자리(mentionTop): 입력 칸 밑 동작 줄([취소][보내기])을 가리지 않는다(QA 2026-09-25 — 답글 칸에서 목록이 두 버튼을 덮었다)."""
+    """@-list placement (mentionTop): doesn't cover the action row ([취소][보내기]) below the input field (QA 2026-09-25 — the list used to cover both buttons in the reply field)."""
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def top(self, r, g, h, top=0, bot=800):
         js = extract_js_fn("mentionTop") + "\nconsole.log(JSON.stringify(mentionTop(%s,%s,%d,%d,%d)));" % (
@@ -6332,19 +6415,19 @@ class FrontendMentionPopPlacement(unittest.TestCase):
         return json.loads(run_node(js))
 
     def test_reply_box_opens_above_when_actions_sit_right_below(self):
-        # 답글 칸: 입력 칸 300–360, [취소][보내기] 368–396. 목록 높이 48 은 그 사이에 안 들어가 위로 연다.
+        # reply field: input 300-360, [취소][보내기] 368-396. A list height of 48 doesn't fit between them, so it opens above.
         self.assertEqual(self.top({"top": 300, "bottom": 360}, {"top": 368, "bottom": 396}, 48), 300 - 4 - 48)
 
     def test_below_when_room_before_actions(self):
-        # 작성 패널(데스크톱): 동작 줄이 패널 바닥이라 입력 칸 밑에 자리가 있다 — 예전처럼 밑에 연다.
+        # composer (desktop): the action row is at the panel's bottom, so there's room below the input — opens below, as before.
         self.assertEqual(self.top({"top": 400, "bottom": 480}, {"top": 800, "bottom": 850}, 48, 0, 850), 484)
 
     def test_below_actions_when_no_room_above(self):
-        # 입력 칸이 화면 맨 위: 위로도 못 여니 동작 줄 밑에 연다(동작 줄은 여전히 보인다).
+        # input field at the very top of the screen: can't open above either, so it opens below the action row (which stays visible).
         self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 48), 110)
 
     def test_fallback_stays_inside_viewport(self):
-        # 어디에도 안 들어가면 입력 칸 밑(예전 자리)이되 화면 안으로 당긴다.
+        # when it doesn't fit anywhere, fall back to below the input (the old spot), pulled inside the viewport.
         self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 200, 0, 260), 56)
 
     def test_no_guard_keeps_old_behaviour(self):
@@ -6352,17 +6435,17 @@ class FrontendMentionPopPlacement(unittest.TestCase):
         self.assertEqual(self.top({"top": 700, "bottom": 780}, None, 48), 648)
 
     def test_guard_is_found_for_all_three_boxes(self):
-        # 답글·다시 열기(.reply-box → .r-acts), 편집(.edit → .e-acts), 작성 패널(#note → #c-actions)
+        # reply/reopen (.reply-box -> .r-acts), edit (.edit -> .e-acts), composer (#note -> #c-actions)
         fn = extract_js_fn("mentionGuard")
         for sel in (".reply-box,.edit", ".r-acts,.e-acts", "#c-actions"):
             self.assertIn(sel, fn)
 
 
 class FrontendMentionTypingNotFlagged(unittest.TestCase):
-    """쓰는 중인 '@말'은 '등록된 사람이 아님' 으로 먼저 알리지 않는다(QA 2026-09-25 — @Sa 를 치는 동안 경고가 떴다)."""
+    """A '@word' still being typed isn't flagged as '등록된 사람이 아님' right away (QA 2026-09-25 — a warning showed up while typing @Sa)."""
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def test_token_under_caret_is_not_flagged_until_caret_leaves(self):
         js = extract_js_fn("mentionBadSettled") + r"""
@@ -6380,11 +6463,12 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
 
 
 class FrontendQuestionHint(unittest.TestCase):
-    """질문처럼 읽히는 메모에 [질문으로 보내기] 권유(looksQuestion). 공저자가 '…표현한 의도가 있는건가?' 를
-    수정 요청으로 저장했다(2026-09-25). 판정만 하고 종류는 사용자가 눌러야 바뀐다."""
+    """Suggests [질문으로 보내기] (send as a question) for a note that reads like a question (looksQuestion).
+    A coauthor saved "...표현한 의도가 있는건가?" as a fix request (2026-09-25). This only judges — the kind
+    changes only when the user clicks."""
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def judge(self, texts):
         js = extract_js_fn("looksQuestion") + "\nconsole.log(JSON.stringify(%s.map(looksQuestion)));" % json.dumps(texts, ensure_ascii=False)
@@ -6407,14 +6491,14 @@ class FrontendQuestionHint(unittest.TestCase):
 
     def test_hint_is_wired_to_both_forms_and_never_switches_by_itself(self):
         html = ps.HTML
-        self.assertIn('id="c-qhint"', html)                                   # 작성 패널
-        self.assertIn('class="e-qhint q-hint"', html)                         # 편집 패널(종류를 바꿀 수 있다)
-        self.assertIn('data-act="kind" data-kind="question"', html)           # 누르면 바뀐다 — 기존 종류 동작 그대로
+        self.assertIn('id="c-qhint"', html)                                   # composer
+        self.assertIn('class="e-qhint q-hint"', html)                         # edit panel (the kind can be changed)
+        self.assertIn('data-act="kind" data-kind="question"', html)           # clicking it switches — same as the existing kind action
         self.assertIn('data-act="e-kind" data-kind="question"', html)
         qh = extract_js_fn("qHint")
-        self.assertNotIn("setKind", qh)                                      # 권유만 한다
+        self.assertNotIn("setKind", qh)                                      # only suggests
         self.assertNotIn("kind_req=", qh)
-        self.assertIn("kind==='question'", qh)                                # 질문이면 숨는다
+        self.assertIn("kind==='question'", qh)                                # hidden if it's already a question
 
 
 class NotifyServer(Base):
@@ -6438,7 +6522,7 @@ class NotifyServer(Base):
         self.assertIn("showNotification" if False else "notificationclick", js)
         self.assertIn("clients.openWindow", js)
         self.assertIn("postMessage({type:'open-pin'", js)
-        self.assertNotIn("'fetch'", js)                                   # 앱 데이터를 캐시하지 않는다
+        self.assertNotIn("'fetch'", js)                                   # doesn't cache app data
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
         self.assertEqual(code, 403)
         if shutil.which("node"):
@@ -6452,26 +6536,26 @@ class NotifyServer(Base):
         _, _, raw = self.get("/api/meta?light=1", self.HW)
         d = json.loads(raw)
         self.assertEqual(d["ev_seq"], 3)
-        self.assertNotIn("events", d)                                     # 커서 없이는 싣지 않는다
+        self.assertNotIn("events", d)                                     # not included without a cursor
         _, _, raw = self.get("/api/meta?light=1&ev=0", self.HW)
         self.assertEqual([(e["seq"], e["type"], e["doc_name"]) for e in json.loads(raw)["events"]], [(1, "mention", "본문")])
         _, _, raw = self.get("/api/meta?light=1&ev=1", self.HW)
-        self.assertEqual(json.loads(raw)["events"], [])                   # 자기 자신이 한 일(seq 3)은 오지 않는다
+        self.assertEqual(json.loads(raw)["events"], [])                   # something you did yourself (seq 3) doesn't come back
         _, _, raw = self.get("/api/meta?light=1&ev=0", self.HS)
         self.assertEqual([e["seq"] for e in json.loads(raw)["events"]], [2])
         _, _, raw = self.get("/api/meta?light=1&ev=0")
-        self.assertEqual(json.loads(raw)["events"], [])                   # 로컬/에이전트에게는 싣지 않는다
+        self.assertEqual(json.loads(raw)["events"], [])                   # not included for local/agent
         code, _, _ = self.get("/api/meta?light=1&ev=x", self.HW)
         self.assertEqual(code, 400)
         before = sorted(p.name for p in ps.C.state.iterdir())
         self.get("/api/meta?light=1&ev=0", self.HW)
-        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)   # 폴링은 쓰지 않는다
+        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)   # polling doesn't count
 
 
 class FrontendNotify(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
-            self.skipTest("node 없음")
+            self.skipTest("node not available")
 
     def harness(self, script):
         rank = re.search(r"^const NOTIFY_RANK=.*;$", ps.HTML, re.M).group(0)
@@ -6497,7 +6581,7 @@ class FrontendNotify(unittest.TestCase):
             console.log(JSON.stringify([a,b,c,notifyText(evs[1]),notifyText({type:'review_requested',pin:6,excerpt:'답했다\n둘째',doc_name:'본문'})]));
             """)
         out = json.loads(run_node(js))
-        self.assertEqual(out[0], [[5, "mention"], [6, "reopened"]])          # 핀마다 하나 — 부름·다시 엶이 이긴다
+        self.assertEqual(out[0], [[5, "mention"], [6, "reopened"]])          # one per pin — mention/reopened win
         self.assertEqual(out[1], [[6, "reopened"]])
         self.assertEqual(out[2], [])
         self.assertEqual(out[3], {"title": "핀 #5 · DEMO-B", "body": "Bob Park님이 불렀습니다: "})
@@ -6523,7 +6607,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertIn('id="btn-notify"', h)
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)
-        self.assertEqual(html_without_comments(h).count("requestPermission("), 1)   # 클릭 경로에서만 묻는다
+        self.assertEqual(html_without_comments(h).count("requestPermission("), 1)   # only asked on the click path
         self.assertIn("reg.showNotification(", extract_js_fn("notifyShow"))
         self.assertNotIn("new Notification(", html_without_comments(h))
         self.assertIn("tag:'pin-'+e.pin", extract_js_fn("notifyShow"))
