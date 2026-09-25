@@ -3827,6 +3827,16 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
+    def test_change_view_on_fold_and_phone(self):
+        # [변경 보기] 폰·폴드 QA(2026-09-25): 폴드(701–900px)는 핀 패널이 겹쳐 떠 diff 오른쪽 절반과 [원고로]가 가려졌다 —
+        # 변경사항 보기만 패널 폭만큼 비켜 준다. 커밋 고르기·빌드 경고 펼치기는 터치에서 44px.
+        self.assertIn("body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}", self.css)
+        self.assertIn("#revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
+        self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
+        # 핀 범위 줄이 diff 에 없고 곁만 바뀌었으면 '강조한 줄이 핀 범위입니다' 라고 말하지 않는다(강조한 줄이 없다).
+        self.assertIn("tg.near=!first&&tg.hit", extract_js_fn("revHighlight"))
+        self.assertIn("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", extract_js_fn("revTargetNote"))
+
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # 링크 한 벌(QA 2026-09-24): #번호·줄 범위·N쪽·글 속 #12 는 같은 모양 — 주 색, 쉴 때 밑줄 없음, 가리키면 실선 밑줄.
         # 예전에는 굵은 점선 · 파랑 · 회색 점선 세 모양이었다. 점선 밑줄은 이제 '풀리지 않은 @말'(.mention-bad)만 쓴다.

@@ -5259,6 +5259,9 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
   button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* 상자 자체가 44px(QA: 58×28 이었다) */
   .arc-reply{min-height:44px;display:flex;align-items:center}
+  /* [변경 보기] 폰·폴드 QA(2026-09-25): 커밋 고르기가 18px, [빌드 경고 보기]가 16px 높이였다 */
+  #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
+  #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:10px 0}
   .th-n{min-height:44px;min-width:44px;justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
@@ -5401,6 +5404,9 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 @media (min-width:701px) and (max-width:900px){
   body.lay-mid.side-open #right{position:fixed;right:0;top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
     animation:mid-panel-in .18s ease-out}
+  /* 핀 패널이 겹쳐 뜨는 폭(폴드)에서 변경사항 보기는 패널 폭만큼 비켜 준다 — 본문 PDF 와 달리 diff 는 옆으로 밀어 볼 수 없어
+     패널 밑 오른쪽 절반(줄바꿈한 글 끝, 안내 줄의 [원고로])이 가려졌다(QA 2026-09-25, 842px). */
+  body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
   body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
     animation:mid-grip-in .18s ease-out}
 }
@@ -5947,14 +5953,15 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
   const via={sha:'참조의 커밋 '+(tg.tokOf||''),pr:'참조의 PR',lines:'이 줄을 바꾼 가장 최근 커밋',latest:'참조로 커밋을 찾지 못해 가장 최근 커밋'}[tg.via]||'';
   const where=tg.region?'쪽 '+tg.page+' 영역':tg.name+' '+rng(tg.lo,tg.hi);
   let t=msg||(REVISION_FORMAT==='pdf'?'비교 PDF에는 줄 대응이 없어 원고 '+tg.page+'쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]':
-    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
+    (tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
+     tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   box.innerHTML='<span><b>핀 #'+tg.id+'</b> · '+esc(where)+(tg.ref?' · 참조 '+esc(tg.ref):'')+(via?' · '+esc(via):'')+'</span><span class="rp-msg">'+esc(t)+'</span>'+
     '<button class="btn-sm" data-act="rev-back" data-tip="'+esc(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name+' 원고 보기로 돌아갑니다':'원고 보기로 돌아갑니다')+'">'+(REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?esc(docInfo(REV_BACK).name)+'(으)로':'원고로')+'</button>';
   box.hidden=false;}
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
     if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});
-  tg.hit=!!first||touchesPin(REVISION_FILES,tg,5);
+  tg.hit=!!first||touchesPin(REVISION_FILES,tg,5); tg.near=!first&&tg.hit;   // 곁만 바뀐 경우 '강조한 줄' 이라고 말하지 않는다(강조한 줄이 없다)
   if(!first){const f=pinFileIndex(REVISION_FILES,tg.file); if(f<0)tg.hit=false;
     else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
   revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
