@@ -141,7 +141,7 @@ After the number, the number cell carries short plain-word markers joined by ` Â
 
 ## Starting a viewer for the user
 
-1. **Install** (once): `uv tool install git+ssh://git@github.com/dartworklabs/limn@v0.1.0`, then check with `limn version`.
+1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1`, then check with `limn version`.
 2. **Check the port (mandatory).** Never bind without checking.
 
    ```bash

@@ -115,8 +115,8 @@ limn update --ref v0.1.1       # a specific tag or branch
 limn update --from ~/src/limn  # a local checkout (development)
 ```
 
-`limn update` runs `uv tool install --force git+ssh://git@github.com/dartworklabs/limn@<ref>`
-(`LIMN_REPO` overrides the source), re-renders the unit template, and restarts every running
+`limn update` runs `uv tool install --force git+https://github.com/dartworklabs/limn@<ref>`
+(`LIMN_REPO` overrides the source, e.g. `git+ssh://git@github.com/dartworklabs/limn` to use SSH), re-renders the unit template, and restarts every running
 `limn@*` instance, waiting for HTTP 200. Running servers keep working during the install; they switch
 to the new version when restarted. **State directories are never touched.** To roll back, install the
 previous tag: `limn update --ref v<previous>` (the command is printed after every update). There is
@@ -156,7 +156,7 @@ no separate app copy any more — the version *is* the installed tag.
 | `LIMN_UNIT_PATH` | dir of `pdflatex` + `/usr/local/bin:/usr/bin:/bin` | `PATH` inside the unit |
 | `LIMN_LEDGER`, `LIMN_LEDGER_GEN` | see [Ports](#ports) | optional port ledger |
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | auto-assigned port range |
-| `LIMN_REPO`, `LIMN_UV` | `git+ssh://git@github.com/dartworklabs/limn`, `uv` | what `limn update` installs, with which `uv` |
+| `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | what `limn update` installs, with which `uv` |
 | `LIMN_WAIT` | `240` | seconds to wait for HTTP 200 after start/restart |
 
 Coming from an older install under a former name? See the History section of the [README](../README.md#history)

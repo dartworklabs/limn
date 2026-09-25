@@ -188,6 +188,8 @@ echo "── 6. update: reinstall through uv tool, restart running instances ─
 out=$("$PV" update --ref v9.9.9 --dry-run 2>&1)
 chk "update --dry-run shows the uv command" "grep -qF 'uv tool install --force git+ssh://git@example.invalid/limn@v9.9.9' <<< \"\$out\""
 chk "update --dry-run shows the rollback command" "grep -qE 'limn update --ref v[0-9]' <<< \"\$out\""
+out=$(env -u LIMN_REPO "$PV" update --ref v9.9.9 --dry-run 2>&1)
+chk "update defaults to the public https source" "grep -qF 'uv tool install --force git+https://github.com/dartworklabs/limn@v9.9.9' <<< \"\$out\""
 chk "update --dry-run installs nothing" "! grep -q '^uv ' '$STUB_LOG'"
 ver=$("$PV" version)
 out=$("$PV" update --ref "v${ver#limn }" 2>&1)
