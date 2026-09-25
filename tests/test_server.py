@@ -6343,6 +6343,44 @@ class FrontendMentionPopPlacement(unittest.TestCase):
             self.assertIn(sel, fn)
 
 
+class FrontendQuestionHint(unittest.TestCase):
+    """질문처럼 읽히는 메모에 [질문으로 보내기] 권유(looksQuestion). 공저자가 '…표현한 의도가 있는건가?' 를
+    수정 요청으로 저장했다(2026-09-25). 판정만 하고 종류는 사용자가 눌러야 바뀐다."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def judge(self, texts):
+        js = extract_js_fn("looksQuestion") + "\nconsole.log(JSON.stringify(%s.map(looksQuestion)));" % json.dumps(texts, ensure_ascii=False)
+        return json.loads(run_node(js))
+
+    def test_question_marks(self):
+        texts = ["여기 이렇게 쓴 이유가 있는건가?", "식의 k란..?", "100개가 어떻게 나온것인지?", "Why is this here?",
+                 "전각 물음표？", "끝에 공백 ?  ", "이거 맞나요? @Bob Park", "맞나요?)", "뭐임??"]
+        self.assertEqual(self.judge(texts), [True] * len(texts))
+
+    def test_korean_interrogative_endings_without_mark(self):
+        texts = ["의도가 있는 건가", "이 정의가 맞는가", "이거 맞나요", "그림으로 바꾸면 어떨까요", "이게 최선인가", "이거 누가 썼니",
+                 "이게 맞냐", "그래프로 보이는 게 낫지 않을까", "이해가 됩니까.", "확인했나요 @Bob Park", "정의가 있나요…"]
+        self.assertEqual(self.judge(texts), [True] * len(texts))
+
+    def test_statements_are_not_questions(self):
+        texts = ["", "   ", "예시 아님.", "이건 삭제하는게 좋을듯", "표 주석은 굳이 있을 필요 없음. 삭제.",
+                 "여기 의도가 있는건가? 그래도 고쳐줘.", "더블 컬럼", "@Bob Park 확인 부탁합니다", "?는 쓰지 말 것", "TODO: fix eq. (3)"]
+        self.assertEqual(self.judge(texts), [False] * len(texts))
+
+    def test_hint_is_wired_to_both_forms_and_never_switches_by_itself(self):
+        html = ps.HTML
+        self.assertIn('id="c-qhint"', html)                                   # 작성 패널
+        self.assertIn('class="e-qhint q-hint"', html)                         # 편집 패널(종류를 바꿀 수 있다)
+        self.assertIn('data-act="kind" data-kind="question"', html)           # 누르면 바뀐다 — 기존 종류 동작 그대로
+        self.assertIn('data-act="e-kind" data-kind="question"', html)
+        qh = extract_js_fn("qHint")
+        self.assertNotIn("setKind", qh)                                      # 권유만 한다
+        self.assertNotIn("kind_req=", qh)
+        self.assertIn("kind==='question'", qh)                                # 질문이면 숨는다
+
+
 class NotifyServer(Base):
     HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
     HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}

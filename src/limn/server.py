@@ -5067,6 +5067,12 @@ body.lay-narrow #c-assign{order:1;margin:0 0 8px}
 .m-preview .m-lab .ic{width:12px;height:12px}
 .m-preview .m-note{color:var(--muted-foreground)}
 body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
+/* 질문 권유 한 줄(.q-hint): 흐린 글 + 링크 한 벌 버튼. 상자 없음(한 겹 담기). 메모 칸 밑이라 쓰는 동안 칸이 밀리지 않는다. */
+.q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
+.q-hint svg{width:14px;height:14px;flex:none}
+.q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
+.q-hint button:is(:hover,:focus-visible){background:transparent;color:var(--primary);text-decoration:underline}
+body.lay-narrow #c-qhint{order:1;margin:-4px 0 8px}
 /* 글 속 '#12' = 그 핀으로 가는 링크(이동하는 글자는 점선 밑줄, hover 에 실선 — .pg-link·#번호와 같은 말) */
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
@@ -5259,6 +5265,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
   button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* 상자 자체가 44px(QA: 58×28 이었다) */
   .arc-reply{min-height:44px;display:flex;align-items:center}
+  .q-hint,.q-hint button{font-size:var(--text-base)}   /* 권유 버튼도 44px(전역 button 규칙), 글은 한 단계 키운다 */
   /* [변경 보기] 폰·폴드 QA(2026-09-25): 커밋 고르기가 18px, [빌드 경고 보기]가 16px 높이였다 */
   #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
   #revision-warning summary{line-height:var(--control-h-touch)}
@@ -5498,7 +5505,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="tg btn-sm btn-ghost" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">{{ic:text-wrap}}줄바꿈</button><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -7084,7 +7091,15 @@ function renderComposer(){const d=CUR; if(!d)return;
 // 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew();}
+  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
+// 질문처럼 읽히는 메모(references/design.md §스레드와 검토 — 종류 권하기). 끝이 ?/？ 이거나 한국어 물음 어미(는가·나요·까요·인가·건가·니·냐·까)면
+// 참. 끝의 마침표·말줄임·닫는 괄호·따옴표와 끝에 붙은 @태그(예: '맞나요? @Bob Park')는 보지 않는다. 판정만 한다 — 종류를 바꾸지 않는다.
+function looksQuestion(text){let t=String(text||'').trim();
+  for(let i=0;i<3;i++)t=t.replace(/[\s.…~!。)\]"'”’]+$/,'').replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/,'');
+  return /[?？]$/.test(t)||/(는가|나요|까요|인가|건가|니|냐|까)$/.test(t);}
+// 수정 요청인데 메모가 질문처럼 읽히면 종류 컨트롤 곁에 한 줄 권유를 띄운다. 스스로 바꾸지 않는다 — 누르면 바뀐다(저자 지적 2026-09-25:
+// '…표현한 의도가 있는건가?' 가 수정 요청으로 저장됐다). 질문이 되거나 글이 질문처럼 읽히지 않으면 사라진다.
+function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestion(text);}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
@@ -7620,7 +7635,8 @@ function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)retu
   if(ta.id==='note')renderAssignNew(); else if(ta.classList.contains('e-note'))renderAssignEdit();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
 document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);
-  if(e.target.id==='note')renderAssignNew(); else if(e.target.classList.contains('e-note'))renderAssignEdit();}});
+  if(e.target.id==='note'){renderAssignNew(); qHint($('#c-qhint'),e.target.value,KIND_NEW);}
+  else if(e.target.classList.contains('e-note')){renderAssignEdit(); if(EDIT)qHint(EDIT.el.querySelector('.e-qhint'),e.target.value,EDIT.kind_req);}}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation();
@@ -7670,6 +7686,7 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   el.innerHTML='<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>'+
     '<button data-act="e-kind" data-kind="question" role="radio" data-tip="'+esc(T.question)+'">질문</button></div>'+
     '<textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
+    '<div class="e-qhint q-hint" role="status" hidden>'+ic('circle-question-mark')+'<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>'+
     '<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>'+
     '<div class="e-levels seg" role="group" aria-label="범위 단계"></div>'+
     '<div class="c-tools"><div class="step" role="group" aria-label="한 줄씩 넓히고 좁히기">'+
@@ -7710,7 +7727,8 @@ function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   el.querySelector('.e-range').textContent=E.region?'쪽 '+E.page+' · 영역':rng(E.lo,E.hi);
   el.querySelector('.e-range').dataset.copy=E.region?E.name+' 쪽 '+E.page:E.name+' L'+E.lo+'-L'+E.hi;
   el.querySelector('.e-levels').innerHTML=levelBtns(E,true); segReveal(el.querySelector('.e-levels'));
-  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();}
+  const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
+  qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDIT=null; drawPins();}
 async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
