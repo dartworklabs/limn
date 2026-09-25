@@ -36,6 +36,7 @@ import ipaddress
 import json
 import math
 import os
+import pwd
 import re
 import secrets
 import selectors
@@ -200,6 +201,7 @@ ASSIGNEE_AGENT = "agent"
 MENTION_MAX = 10                   # cap on mention hints per post
 PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
 EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
+NOTE_MENTION_COOLDOWN_S = 600      # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
 EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
 GIT_PULL_TIMEOUT = 30              # seconds - one fetch for --git-pull (§P0c-E)
@@ -315,6 +317,11 @@ class Cfg:
     @property
     def tokens_file(self) -> Path:
         return self.state / "tokens.json"
+
+    @property
+    def audit_file(self) -> Path:
+        """The append-only audit log of destructive and owner actions (see append_audit)."""
+        return self.state / AUDIT_FILE
 
 
 C = Cfg()
@@ -4788,11 +4795,38 @@ def _read_events() -> tuple:
     return list(rows), sig
 
 
+def note_mention_targets(added: Sequence[str], recent: Sequence[dict], by: str | None, pin: object, now: float,
+                         window: float = NOTE_MENTION_COOLDOWN_S) -> list[str]:
+    """Which of `added` (people a note save newly tags, in order) get a mention event - the cooldown of issue #10 L3.
+
+    A person is left out when `by` already sent them a note mention about the same pin in the last `window` seconds
+    before `now`: toggling '@Bob' off and on through note edits would otherwise notify Bob on every edit. The key is
+    (actor login, target login, pin id). Only note mentions count - `mention` records without `msg`; replies and reopen
+    reasons carry their thread message id and keep notifying every time, since they leave a visible entry. A suppressed
+    mention is never written, so the window runs from the last one sent. A record counts when its `ts` lies less than
+    `window` from `now` on either side - events.jsonl rounds ts to milliseconds, so the last mention can read as a
+    moment ahead of the next save, and after the clock steps back a far-future record must not silence anyone for
+    longer than the window. Records without a numeric ts are ignored. Pure: `recent` (events.jsonl records) and `now`
+    (epoch seconds) come from the caller."""
+    cooled: set = set()
+    for e in recent:
+        if e.get("type") != "mention" or "msg" in e or e.get("pin") != pin:
+            continue
+        if (e.get("by") or {}).get("login") != by:
+            continue
+        ts = e.get("ts")
+        if _is_num(ts) and abs(now - ts) < window:
+            cooled.update(e.get("to") or [])
+    return [lg for lg in added if lg not in cooled]
+
+
 def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list, old_note: str = "") -> None:
     """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for everyone
     this save or edit explicitly @-tags: a person whose '@name' occurs more often in the new note than in old_note
     (the note before this edit; empty for a new pin). A typo fix next to an existing '@Bob' notifies nobody, while
-    an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged him."""
+    an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged him - unless
+    this actor's note already notified him about this pin within NOTE_MENTION_COOLDOWN_S (note_mention_targets).
+    Runs inside transact(): the caller emits the queued events under the same PIN_LOCK, so the next save sees them."""
     ppl = known_people(rows)
     me = (actor or {}).get("login")
     hits = mention_hits(r.get("note") or "", ppl, hints, exclude=me)
@@ -4802,8 +4836,11 @@ def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list, old_n
         r["mentions"] = new
     else:
         r.pop("mentions", None)
-    now = Counter(hits)
-    evs.append(make_event("mention", r, actor, [lg for lg in new if now[lg] > before[lg]], text=r.get("note")))
+    counts = Counter(hits)
+    added = [lg for lg in new if counts[lg] > before[lg]]
+    if added:
+        added = note_mention_targets(added, _read_events()[0], me, r.get("id"), time.time())
+    evs.append(make_event("mention", r, actor, added, text=r.get("note")))
 
 
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
@@ -4831,6 +4868,71 @@ def events_since(actor: dict, cursor) -> dict:
            and (e.get("by") or {}).get("login") != me]
     out["events"] = evs[-EVENTS_SINCE_MAX:]
     return out
+
+
+# ---------------------------------------------------------------- Audit log (<state>/audit.jsonl, docs/handbook/api.md §감사 기록 (`audit.jsonl`))
+#
+# events.jsonl keeps only the newest EVENTS_KEEP records, so ordinary notification traffic pushed out the record of who
+# cleared every pin (issue #10 L5). Destructive and owner actions are therefore also written here, one JSON object per
+# line, appended under a cross-process lock and never rewritten or truncated by Limn. The HTTP handler records clear and
+# purge (via "http"); the state helpers behind `limn token` / `limn member` record theirs as the OS account (via "cli").
+# The existing events (`cleared`, `purged`) are still written for compatibility. Old servers never open this file.
+
+AUDIT_FILE = "audit.jsonl"
+AUDIT_ACTIONS = ("cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role")
+AUDIT_VIA = ("http", "cli")
+
+
+def audit_entry(action: str, by: dict, via: str, details: dict, now: float) -> dict:
+    """One audit.jsonl line: {at, ts, action, by, via, details}.
+
+    at is the local wall-clock string of `now` (the shape now_str() writes), ts the same instant in epoch seconds; by
+    keeps only {login, name} of the principal (name falls back to login). Raises ValueError for an action or via
+    outside AUDIT_ACTIONS / AUDIT_VIA - a programming error, never a request error. Pure: the caller passes the clock."""
+    if action not in AUDIT_ACTIONS:
+        raise ValueError("unknown audit action %r" % action)
+    if via not in AUDIT_VIA:
+        raise ValueError("unknown audit channel %r" % via)
+    login = (by or {}).get("login")
+    return {"at": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S"), "ts": round(now, 3),
+            "action": action, "by": {"login": login, "name": (by or {}).get("name") or login}, "via": via,
+            "details": dict(details)}
+
+
+def append_audit(state: Path, entry: dict) -> bool:
+    """Appends entry as one line to <state>/audit.jsonl under the cross-process lock (.audit.lock), then fsyncs.
+
+    The file is opened O_APPEND, so earlier bytes are never rewritten - not even a line that does not parse - and it
+    is created, or narrowed if it already exists, with mode 0600. It is never opened through a symlink. The action it
+    records has already happened when this runs, so a failure only warns on stderr and returns False; callers do not
+    undo or fail the action. Returns True once the line is on disk."""
+    line = memoryview((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
+    path = Path(state) / AUDIT_FILE
+    try:
+        with store_lock(state, "audit"):
+            fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            try:
+                os.fchmod(fd, 0o600)
+                while line:
+                    line = line[os.write(fd, line):]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    except OSError as e:
+        print("warning: failed to write %s: %s" % (path, e), file=sys.stderr)
+        return False
+    return True
+
+
+def os_actor() -> dict:
+    """The local account running this process as an audit `by` {login, name}: who ran `limn token` / `limn member` on
+    the server machine. Read from the password database by uid, not from $USER; "uid:<n>" if the uid has no entry."""
+    uid = os.getuid()
+    try:
+        name = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        name = "uid:%d" % uid
+    return {"login": name, "name": name}
 
 
 # Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
@@ -5137,13 +5239,15 @@ def maybe_purge_trash() -> int:
 def purge_pin(pid: int, actor: dict) -> int:
     """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
     404 if the pin is not in the Trash - an open or closed pin must be dropped first. Leaves a `purged` audit event
-    (to: [], like `cleared`) and a log line, since it cannot be undone."""
+    (to: [], like `cleared`), a `purged` line in audit.jsonl (v0.3.1, never rotated out) and a log line, since it
+    cannot be undone. Returns pid."""
     with PIN_LOCK:
         rows, bad = read_jsonl(C.dropped)
         if not any(r.get("id") == pid for r in _unexpired(rows)):
             raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
         write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
         emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
+        append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
     sys.stderr.flush()
     return pid
@@ -5290,8 +5394,10 @@ CLEAR_CONFIRM = "clear all pins"
 
 def clear_pins(actor: dict = None) -> dict:
     """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
-    Records a `cleared` event (who, how many, which archive) and a log line - the only bulk-destructive operation,
-    so it always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
+    Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (v0.3.1 - the event can
+    rotate out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
+    always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
+    by = who(actor or LOCAL_ACTOR)
     with PIN_LOCK:
         n, archive = len(read_pins()[0]), None
         if C.pins_jsonl.exists():                    # clearing twice in the same second never overwrites the earlier archive
@@ -5299,7 +5405,8 @@ def clear_pins(actor: dict = None) -> dict:
             C.pins_jsonl.rename(dest)
             archive = dest.name
         render_pins_md([])
-        emit_events([{"type": "cleared", "to": [], "by": who(actor or LOCAL_ACTOR), "n": n, "archive": archive}])
+        emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
+        append_audit(C.state, audit_entry("cleared", by, "http", {"n": n, "archive": archive}, time.time()))
     print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
     sys.stderr.flush()
     return {"cleared": n, "archive": archive}
@@ -5997,8 +6104,10 @@ def _write_tokens(state: Path, rows: list) -> None:
                  json.dumps({"version": 1, "tokens": rows}, ensure_ascii=False, indent=1) + "\n", mode=0o600)
 
 
-def token_create(state: Path, name: str = None) -> tuple:
-    """Creates a token -> (entry, plaintext). Only the hash is stored; the plaintext is returned once and never again."""
+def token_create(state: Path, name: str | None = None) -> tuple:
+    """Creates a token -> (entry, plaintext). Only the hash is stored; the plaintext is returned once and never again.
+    Appends a `token_created` audit line {id, name} as the OS account (os_actor, via "cli") - never the token or its
+    hash. Raises ValueError for a bad or taken name, or an unreadable tokens.json (nothing is written then)."""
     state = Path(state)
     if name is not None and not TOKEN_NAME_RE.fullmatch(name):
         raise ValueError("token name must match [A-Za-z0-9][A-Za-z0-9._-]{0,39}: %r" % name)
@@ -6020,11 +6129,13 @@ def token_create(state: Path, name: str = None) -> tuple:
         plain = TOKEN_PREFIX + secrets.token_urlsafe(32)
         entry = {"id": tid, "name": name, "hash": token_hash(plain), "created": now_str()}
         _write_tokens(state, rows + [entry])
+        append_audit(state, audit_entry("token_created", os_actor(), "cli", {"id": tid, "name": name}, time.time()))
     return entry, plain
 
 
-def token_revoke(state: Path, ref: str):
-    """Removes the token whose id or name is ref -> the removed entry, or None if there is none."""
+def token_revoke(state: Path, ref: str) -> dict | None:
+    """Removes the token whose id or name is ref -> the removed entry, or None if there is none. A removal appends a
+    `token_revoked` audit line {id, name} as the OS account (via "cli"); None writes nothing."""
     state = Path(state)
     if not (state / "tokens.json").exists():
         return None
@@ -6034,6 +6145,8 @@ def token_revoke(state: Path, ref: str):
         if not hit:
             return None
         _write_tokens(state, [t for t in rows if t is not hit[0]])
+        append_audit(state, audit_entry("token_revoked", os_actor(), "cli", {"id": hit[0]["id"], "name": hit[0]["name"]},
+                                        time.time()))
     return hit[0]
 
 
@@ -6126,18 +6239,27 @@ def load_people_file(state: Path) -> list:
     return _valid_people(d)
 
 
-def _people_update(state: Path, fn):
-    """Read-modify-write of <state>/people.json under the same cross-process lock the server uses."""
+def _people_update(state: Path, fn: Callable[[list], tuple]):
+    """Read-modify-write of <state>/people.json under the same cross-process lock the server uses.
+
+    fn(rows) edits rows in place and returns (result, audit) where audit is (action, details) for a membership change
+    or None. After people.json is written, the change is appended to audit.jsonl as the OS account (via "cli") while
+    the lock is still held, so audit lines follow the order of the changes. Returns result; ValueError from fn
+    propagates before anything is written."""
     state = Path(state)
     state.mkdir(parents=True, exist_ok=True)
     with store_lock(state, "people"):
         rows = load_people_file(state)
-        out = fn(rows)
+        out, audit = fn(rows)
         atomic_write(state / "people.json", people_text(rows), mode=0o600)
+        if audit is not None:
+            append_audit(state, audit_entry(audit[0], os_actor(), "cli", audit[1], time.time()))
     return out
 
 
-def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str = None) -> dict:
+def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str | None = None) -> dict:
+    """Adds login to people.json with role (name defaults to the part of the login before @) -> the new entry, and
+    audits `member_added` {login, role}. Raises ValueError for an invalid login or role, or an existing member."""
     if not valid_login(login):
         raise ValueError("invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
                          % (login, LOGIN_MAX))
@@ -6150,23 +6272,29 @@ def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str = No
             raise ValueError("%s is already a member - change the role with `limn member role`" % login)
         entry = {"login": login, "name": name, "role": role}
         rows.append(entry)
-        return entry
+        return entry, ("member_added", {"login": login, "role": role})
     return _people_update(state, fn)
 
 
-def member_remove(state: Path, login: str):
+def member_remove(state: Path, login: str) -> dict | None:
+    """Removes login from people.json -> the removed entry, or None if it was not a member (or there is no file).
+    A removal audits `member_removed` {login, previous_role}."""
     if not (Path(state) / "people.json").exists():
         return None
 
     def fn(rows):
         hit = next((x for x in rows if x["login"] == login), None)
-        if hit is not None:
-            rows.remove(hit)
-        return hit
+        if hit is None:
+            return None, None
+        rows.remove(hit)
+        return hit, ("member_removed", {"login": login, "previous_role": role_value(hit.get("role"))})
     return _people_update(state, fn)
 
 
-def member_set_role(state: Path, login: str, role: str):
+def member_set_role(state: Path, login: str, role: str) -> dict | None:
+    """Sets login's role in people.json -> the updated entry, or None if it is not a member (or there is no file).
+    A change of the effective role audits `member_role` {login, role, previous_role}; setting the role it already has
+    writes the field but no audit line. Raises ValueError for an unknown role."""
     if role not in ROLES:
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     if not (Path(state) / "people.json").exists():
@@ -6174,9 +6302,13 @@ def member_set_role(state: Path, login: str, role: str):
 
     def fn(rows):
         hit = next((x for x in rows if x["login"] == login), None)
-        if hit is not None:
-            hit["role"] = role
-        return hit
+        if hit is None:
+            return None, None
+        before = role_value(hit.get("role"))
+        hit["role"] = role
+        if before == role:
+            return hit, None
+        return hit, ("member_role", {"login": login, "role": role, "previous_role": before})
     return _people_update(state, fn)
 
 
