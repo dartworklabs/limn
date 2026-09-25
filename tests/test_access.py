@@ -1,7 +1,7 @@
 """Access control (v0.2): identity providers, agent API tokens, member roles, the bind rule, and the v0.1 migration.
 
 Handler tests drive the real request handler over a socketpair (no port is opened), setting the TCP peer
-explicitly to tell loopback from non-loopback clients. docs/design/access-and-sync.md is the design.
+explicitly to tell loopback from non-loopback clients. docs/adr/0002-access-control.md is the design.
 
 Run: uv run pytest -q tests/test_access.py
 Opt-in check against a copy of real state (never the live directory — the server writes):

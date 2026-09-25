@@ -1,0 +1,18 @@
+{
+  "project_root": "../..",
+  "title": "Limn System Handbook",
+  "author": "Dartwork",
+  "language": "ko",
+  "source_url": "https://github.com/dartworklabs/limn/blob/main",
+  "font": {
+    "family": "Pretendard",
+    "path": "../../.handbook/fonts/Pretendard-Regular.otf",
+    "sha256": "3ffbacde6ab8411f1d2db54bb9b1f0b3ee2a738932033722cf0388c06aed1c93"
+  },
+  "tools": {
+    "python_min": "3.10",
+    "pandoc": "3.9.0.2",
+    "playwright": "1.63.0",
+    "chromium": "153.0.8010.12"
+  }
+}

@@ -44,7 +44,7 @@ Do not use it when:
 
 ### Authentication
 
-Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). If you get `401`, ask the user for a token. Details: [api.md](../docs/api.md) §Authentication.
+Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). If you get `401`, ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증.
 
 ### What you read
 
@@ -116,7 +116,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 
 ### Markers in the number column
 
-After the number, the number cell carries short plain-word markers joined by ` · ` (they replaced the older symbols; see [api.md](../docs/api.md) §pins.md format). Example: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`. The markers are Korean literals; match them verbatim.
+After the number, the number cell carries short plain-word markers joined by ` · ` (they replaced the older symbols; see [api.md](../docs/handbook/api.md) §pins.md 형식). Example: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`. The markers are Korean literals; match them verbatim.
 
 | Marker | Meaning | What to do |
 | --- | --- | --- |
@@ -156,8 +156,8 @@ After the number, the number cell carries short plain-word markers joined by ` �
    - Without `--port` the server picks a free port and prints it in the startup log.
    - To stop a one-off server, do not `pkill -f limn`; use `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 3. **Run.**
-   - One-off: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc` (repeatable) serves several documents from one paper repo on one address: `.tex` is LaTeX, `.pdf` is view-only. When starting servers by hand, give **each manuscript its own `--state-dir` and port**, or pins get mixed. Other arguments (`--git-pull`, `--label`, `--accent`, …): `limn serve --help` and [operations.md](../docs/operations.md).
-   - Long-running, one per manuscript: `limn add <name> --manuscript <dir> ...` assigns ports, writes the config, enables `limn@<name>` and sets up `tailscale serve`. Then `limn list`, `limn status <name>`, `limn url <name>`. `limn snippet <name>` prints the block to paste into the paper repo's AGENTS.md so that agents find the instance. Operator guide: [instances.md](../docs/instances.md).
+   - One-off: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc` (repeatable) serves several documents from one paper repo on one address: `.tex` is LaTeX, `.pdf` is view-only. When starting servers by hand, give **each manuscript its own `--state-dir` and port**, or pins get mixed. Other arguments (`--git-pull`, `--label`, `--accent`, …): `limn serve --help` and [operations.md](../docs/handbook/operations.md).
+   - Long-running, one per manuscript: `limn add <name> --manuscript <dir> ...` assigns ports, writes the config, enables `limn@<name>` and sets up `tailscale serve`. Then `limn list`, `limn status <name>`, `limn url <name>`. `limn snippet <name>` prints the block to paste into the paper repo's AGENTS.md so that agents find the instance. Operator guide: [instances.md](../docs/handbook/instances.md).
 4. **Expose — hard rules.**
 
 | Item | Rule |
@@ -191,15 +191,19 @@ After the number, the number cell carries short plain-word markers joined by ` �
 
 ## Reference files
 
+The reference files are the chapters of Limn's System Handbook, written in Korean.
+
 | For | Open |
 | --- | --- |
-| All endpoints, request limits, edit/close/claim/overlap details, threads, awaiting review, @tags, events, pin schema, `pins.md` format | [api.md](../docs/api.md) |
-| Rebuild (sync and async), `--git-pull`, auto-sync, position estimate (`est`) | [build-sync.md](../docs/build-sync.md) |
-| Architecture, the two reverse-mapping paths, range ladder, line realignment (`anchor`), storage safety, author attribution, viewer states, several documents and view-only PDFs, known limits | [design.md](../docs/design.md) |
-| All server arguments, `--doc`, port avoidance, security details (why Host/Origin), systemd, `tailscale serve`, state files, using the viewer | [operations.md](../docs/operations.md) |
-| Per-manuscript instances: `limn add`, config keys, ports, updates, removal | [instances.md](../docs/instances.md) |
+| All endpoints, request limits, edit/close/claim/overlap details, threads, awaiting review, @tags, events, pin schema, `pins.md` format | [api.md](../docs/handbook/api.md) |
+| Rebuild (sync and async), `--git-pull`, auto-sync, position estimate (`est`) | [build-sync.md](../docs/handbook/build-sync.md) |
+| Architecture and invariants | [architecture.md](../docs/handbook/architecture.md) |
+| The two reverse-mapping paths, range ladder, line realignment (`anchor`), storage safety, author attribution, several documents and view-only PDFs, known limits | [domain.md](../docs/handbook/domain.md) |
+| Viewer states and UI rules | [viewer.md](../docs/handbook/viewer.md) |
+| All server arguments, `--doc`, port avoidance, security details (why Host/Origin), systemd, `tailscale serve`, state files, using the viewer | [operations.md](../docs/handbook/operations.md) |
+| Per-manuscript instances: `limn add`, config keys, ports, updates, removal | [instances.md](../docs/handbook/instances.md) |
 
 ## Related
 
 - If your runtime has a manuscript-editing skill (e.g. `manuscript-revision`), apply its editing discipline when closing pins with edits; for a broken LaTeX build, use its build-fixing skill (e.g. `latex-editing`).
-- General "serve results to the user" guidance may allow other bindings; Limn is the exception and is fixed to `127.0.0.1` + `tailscale serve` ([operations.md](../docs/operations.md) §security).
+- General "serve results to the user" guidance may allow other bindings; Limn is the exception and is fixed to `127.0.0.1` + `tailscale serve` ([operations.md](../docs/handbook/operations.md) §보안 제약).

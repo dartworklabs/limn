@@ -1,0 +1,123 @@
+@font-face {
+  font-family: 'HandbookPinnedFont';
+  src: url('data:font/otf;base64,@@FONT_DATA@@') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  --ink: #252321;
+  --muted: #6c6862;
+  --paper: #fffdfa;
+  --canvas: #eeece8;
+  --line: #d8d2c9;
+  --soft: #f4f1ec;
+  --accent: #a3492f;
+  --accent-soft: #f3e8e2;
+  --code: #f1eee8;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: 'HandbookPinnedFont', sans-serif;
+  line-break: strict;
+  word-break: keep-all;
+}
+
+body { margin: 0; font-size: 15px; line-height: 1.72; letter-spacing: -0.012em; }
+.book-header, .handbook-toc, .chapter {
+  width: min(860px, calc(100% - 32px));
+  margin: 42px auto 28px;
+  padding: 62px 72px 68px;
+  background: var(--paper);
+  box-shadow: 0 12px 38px rgb(41 35 27 / 8%);
+}
+.book-header { padding-top: 80px; padding-bottom: 80px; }
+.book-kind, .chapter::before {
+  display: block;
+  margin: 0 0 22px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.chapter::before { content: attr(data-kicker); }
+.book-author { color: var(--muted); }
+.handbook-toc ul { columns: 2; padding-left: 1.35em; }
+.handbook-toc li { break-inside: avoid; }
+h1, h2, h3 { text-wrap: balance; }
+h1 { margin: 0 0 18px; max-width: 16em; font-size: 34px; line-height: 1.18; letter-spacing: -0.045em; }
+h2 { position: relative; margin: 30px 0 10px; padding-top: 13px; border-top: 1px solid var(--line); font-size: 20px; line-height: 1.35; letter-spacing: -0.03em; }
+h2::before { content: ''; position: absolute; top: -1px; left: 0; width: 42px; border-top: 2px solid var(--accent); }
+h3 { margin: 22px 0 8px; font-size: 15px; line-height: 1.45; letter-spacing: -0.02em; }
+p { margin: 0 0 11px; }
+strong { font-weight: 700; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 0.17em; }
+code { border-radius: 3px; padding: 0.08em 0.28em; background: var(--code); color: #433e38; font-family: 'HandbookPinnedFont', sans-serif; font-size: 0.91em; overflow-wrap: anywhere; }
+code.code-short { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+pre { margin: 10px 0 17px; padding: 13px 15px; overflow-x: auto; border: 1px solid #ded8cf; border-left: 3px solid var(--accent); border-radius: 2px; background: var(--code); color: #37332e; font-size: 12.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre code { padding: 0; background: transparent; white-space: inherit; }
+.callout { margin: 21px 0 24px; padding: 15px 18px 15px 20px; border-left: 3px solid var(--accent); background: var(--soft); break-inside: avoid-page; }
+.callout-key { background: var(--accent-soft); }
+.callout-warning { border-left-color: #74685b; background: #f0eee9; }
+.callout-example { background: #edf2eb; }
+.callout-overview { background: #f0edf4; }
+.callout-label { margin-bottom: 4px; color: var(--accent); font-size: 10px; letter-spacing: 0.13em; }
+.callout-label p, .callout p:last-child { margin-bottom: 0; }
+.callout-warning .callout-label { color: #675d51; }
+table { width: 100%; margin: 15px 0 0; border-collapse: collapse; table-layout: auto; font-size: 12.2px; line-height: 1.48; word-break: normal; overflow-wrap: anywhere; }
+thead { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink); }
+tbody tr { border-bottom: 1px solid var(--line); }
+tr { break-inside: avoid; }
+th, td { padding: 7px 8px; text-align: left; vertical-align: top; }
+.table-align-default, .table-align-left { text-align: left; }
+.table-align-center { text-align: center; }
+.table-align-right { text-align: right; }
+th { color: #46413c; font-size: 10.5px; letter-spacing: 0.035em; }
+ol, ul { margin: 8px 0 12px; padding-left: 1.35em; }
+li { margin: 3px 0; padding-left: 0.22em; }
+li::marker { color: var(--accent); font-weight: 700; }
+img { max-width: 100%; height: auto; }
+
+@media (max-width: 720px) {
+  .book-header, .handbook-toc, .chapter { width: 100%; margin: 0; padding: 42px 24px 54px; box-shadow: none; }
+  .handbook-toc ul { columns: 1; }
+  h1 { font-size: 29px; }
+  table { display: block; overflow-x: auto; }
+}
+
+@page {
+  size: A4;
+  margin: 16mm 18mm 17mm;
+  @top-left { content: 'SYSTEM HANDBOOK'; color: #706b65; font-family: 'HandbookPinnedFont', sans-serif; font-size: 7.5pt; letter-spacing: 0.10em; }
+  @bottom-right { content: counter(page, decimal-leading-zero); color: #4c4741; font-family: 'HandbookPinnedFont', sans-serif; font-size: 8pt; }
+}
+
+@media print {
+  html, body { background: white; }
+  body { font-size: 10.5pt; line-height: 1.58; }
+  .book-header { display: block; width: auto; margin: 0; padding: 52mm 0 0; box-shadow: none; break-after: page; }
+  .handbook-toc { display: none; }
+  .chapter { width: auto; margin: 0; padding: 0; box-shadow: none; break-before: page; }
+  .chapter:first-of-type { break-before: auto; }
+  .chapter::before { margin-bottom: 5mm; font-size: 7.5pt; }
+  h1, h2, h3 { break-after: avoid-page; break-inside: avoid-page; }
+  h1 { margin-bottom: 4mm; font-size: 25pt; }
+  h2 { margin: 6mm 0 2.5mm; padding-top: 3mm; font-size: 14.5pt; }
+  h3 { margin: 4mm 0 1.5mm; font-size: 10.5pt; }
+  p { margin-bottom: 2.5mm; }
+  .callout { margin: 4mm 0 5mm; padding: 3.5mm 4mm 3.5mm 4.5mm; }
+  .callout-label { font-size: 7pt; }
+  pre { margin: 2.5mm 0 3.5mm; padding: 3mm 3.5mm; font-size: 9pt; }
+  table { margin-top: 3mm; font-size: 9pt; line-height: 1.36; }
+  thead { display: table-header-group; }
+  th, td { padding: 1.7mm 1.8mm; }
+  th { font-size: 9pt; }
+  ol, ul { margin: 2mm 0 3mm; }
+  a { color: inherit; text-decoration-color: #bcb5ac; }
+}

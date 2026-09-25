@@ -59,7 +59,7 @@ limn token create paper2 · limn member add paper2 <login> --role viewer   # age
 ```
 
 Config lives in `~/.config/limn/<name>.env`, state in `~/.local/share/limn/<name>` by default.
-Details: [docs/instances.md](docs/instances.md).
+Details (Korean): [docs/handbook/instances.md](docs/handbook/instances.md).
 
 ## For agents
 
@@ -67,7 +67,7 @@ An agent reads `pins.md` (`curl -s <base>/pins.md`) or `GET /api/pins`, claims o
 editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms. It authenticates with
 a token from `limn token create <instance>` (`Authorization: Bearer …`). Agents never
 confirm, and skip pins claimed by others, awaiting review, or assigned to a person. The full procedure
-is [skill/SKILL.md](skill/SKILL.md); the API is [docs/api.md](docs/api.md). The `pins.md` format and
+is [skill/SKILL.md](skill/SKILL.md); the API contract is [docs/handbook/api.md](docs/handbook/api.md) (Korean). The `pins.md` format and
 the HTTP API are a stable contract — they do not change with the UI language.
 
 ## Documentation
@@ -75,13 +75,11 @@ the HTTP API are a stable contract — they do not change with the UI language.
 | | |
 |---|---|
 | [skill/SKILL.md](skill/SKILL.md) | agent procedure (install it as a skill in your agent runtime) |
-| [docs/instances.md](docs/instances.md) | instances, updates, ports, security rules |
-| [docs/operations.md](docs/operations.md) | running the server, options, state layout, using the viewer |
-| [docs/api.md](docs/api.md) | HTTP API and `pins.md` format |
-| [docs/design.md](docs/design.md) · [docs/build-sync.md](docs/build-sync.md) | design notes, rebuild and sync |
+| [docs/handbook/](docs/handbook/index.md) | the System Handbook (Korean): purpose, architecture, pin domain, viewer, build and sync, HTTP API and `pins.md` format, operations, instances, verification, workflow, coding roadmap |
+| [docs/adr/](docs/adr/) | architecture decision records |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 
-Roadmap: [access control, collaboration boundaries and sync](docs/design/access-and-sync.md) (draft).
+Planned access control: [ADR-0002, access control, collaboration boundaries and sync](docs/adr/0002-access-control.md) (proposed).
 
 ## License
 

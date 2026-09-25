@@ -19,7 +19,7 @@ trusted from a loopback peer only), `local` (a single user on their own machine)
 `trusted-proxy` (headers set by an authenticating reverse proxy). Agents authenticate
 with API tokens (`limn token create`), and people.json roles decide what a person may
 change. Binding anything but loopback requires `trusted-proxy` or an explicit
---i-know-this-is-insecure (docs/design/access-and-sync.md, SECURITY.md).
+--i-know-this-is-insecure (docs/adr/0002-access-control.md, SECURITY.md).
 
 Python 3.10 standard library only.
 """
@@ -180,18 +180,18 @@ CLAIM_TTL_MAX = 120                # the lock auto-expiring is a safety net - at
 CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
 CLAIM_ETA_MAX = 240
 CLAIM_TTL_FLOOR = 30               # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
-# Pin kind and thread (docs/api.md §Threads). 24% of pins (10 of 42 in A-DEMO) were questions rather than
+# Pin kind and thread (docs/handbook/api.md §스레드). 24% of pins (10 of 42 in A-DEMO) were questions rather than
 # something to fix, but the only place to leave an answer was the single close_reply field on closing, so
 # there was no way to ask back. kind_req is kept separate from the legacy kind (scope type) to avoid a name clash.
 KIND_REQS = ("fix", "question")    # defaults to fix if absent - legacy pins are all fix requests
 THREAD_TEXT_MAX = 1000             # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
 THREAD_MAX = 200                   # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
 THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
-# Assignee (docs/api.md §Assignee). Who handles this pin - either "agent" or a person's login. If absent, it's a
+# Assignee (docs/handbook/api.md §담당). Who handles this pin - either "agent" or a person's login. If absent, it's a
 # legacy pin, so addressed_to()'s inference (the @-tag on a question pin) is used as-is. Guessing this from the
 # body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
 ASSIGNEE_AGENT = "agent"
-# @-tags (docs/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
+# @-tags (docs/handbook/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
 MENTION_MAX = 10                   # cap on mention hints per post
 PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
 EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
@@ -313,7 +313,7 @@ class Cfg:
 C = Cfg()
 
 
-# ---------------------------------------------------------------- Documents (§Multiple documents, docs/design.md §Multiple documents)
+# ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
 #
 # A single paper repo has several documents - the body, the review response, the cover letter. One viewer
 # (one address) switches between them. The pin store (pins.jsonl/pins.seq) is singular - pin numbers must
@@ -2975,7 +2975,7 @@ def pin_est(r: dict, ctx: dict) -> bool:
 
 
 def pin_state(r: dict) -> str:
-    """'open' | 'review' | 'done' - a computed field, never stored (docs/api.md §Pending review).
+    """'open' | 'review' | 'done' - a computed field, never stored (docs/handbook/api.md §검토 대기).
 
     Awaiting review is the shape done=true plus review=true. Because done is still true, the legacy contract
     keeps working as-is - GET /api/pins (open pins only), the pins.md open table, claim (409 on done), line
@@ -3655,7 +3655,7 @@ def pin_reopened_in_round(r: dict) -> bool:
     return last_reopen > last_close
 
 
-# ---------------------------------------------------------------- People, @-tags, events (docs/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- People, @-tags, events (docs/handbook/api.md §@태그·사람·이벤트)
 #
 # people.json = tailnet people who have opened (or done something in) this viewer {login,name,pic,first_seen,last_seen}.
 # Local/agent is never recorded. @-tag candidates are people.json union the authors/actors left on pins. Post text
@@ -3938,7 +3938,7 @@ EVENTS_SINCE_MAX = 20
 
 
 def events_since(actor: dict, cursor) -> dict:
-    """Notification material carried in /api/meta polling (docs/api.md §Browser notifications). Always includes ev_seq (the latest event number), and if
+    """Notification material carried in /api/meta polling (docs/handbook/api.md §브라우저 알림 커서). Always includes ev_seq (the latest event number), and if
     ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
     out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
@@ -4369,7 +4369,7 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
           "'→ @이름' = 담당이 사람인 핀(담당 없는 옛 핀은 사람에게 물은 질문 핀), 사용자가 따로 시키지 않으면 건너뛴다 · "
           "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
-# v0.2: the one header line added to pins.md - how an agent authenticates (docs/api.md §Authentication).
+# v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
 TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H \"Authorization: Bearer $LIMN_TOKEN\" …`, "
                   "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
                   "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다")
@@ -4860,7 +4860,7 @@ def remote_base_for(host_raw: str) -> str:
     return "http://127.0.0.1:%d" % C.port
 
 
-# ---------------------------------------------------------------- Access control (docs/design/access-and-sync.md, v0.2)
+# ---------------------------------------------------------------- Access control (docs/adr/0002-access-control.md, v0.2)
 #
 # Who is this request (identify: one identity provider per instance, plus agent API tokens that every provider
 # accepts), may it use this instance at all (admit: --allow / --members-only), and may it change things
@@ -5276,7 +5276,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 <title>Limn · __LABEL__</title>
 <link rel="icon" href="__FAVICON_HREF__">
 <style>
-/* ---------------- Design tokens (docs/design.md §Design tokens and components). Borrows only shadcn/ui's system (names/roles) - no code.
+/* ---------------- Design tokens (docs/handbook/viewer.md §디자인 토큰과 컴포넌트). Borrows only shadcn/ui's system (names/roles) - no code.
    Color literals live only in these two blocks (dark :root, light :root[data-theme=light]). Every rule uses var(--...).
    A regression test (FrontendDesignTokens) blocks color/radius/font-size literals outside these blocks. Neutral colors are the zinc family. */
 :root{color-scheme:dark;
@@ -5322,7 +5322,7 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
-/* PDF area: blocks the browser's pinch zoom and passes through only scrolling - a two-finger gesture is handled by the app's own zoom (docs/design.md §PDF 영역 전용 확대). */
+/* PDF area: blocks the browser's pinch zoom and passes through only scrolling - a two-finger gesture is handled by the app's own zoom (docs/handbook/viewer.md §PDF 영역 전용 확대). */
 /* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
@@ -5390,7 +5390,7 @@ body.lay-narrow #section-strip{display:none}
 #revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
 body.revision-open #revision-view{display:block}
 body.revision-open #left{display:none}
-/* The pin [변경 보기] points at (docs/design.md §Viewing changes): a one-line notice below the header plus highlighting of the pin's range lines. The narrow (folded)
+/* The pin [변경 보기] points at (docs/handbook/viewer.md §변경 보기): a one-line notice below the header plus highlighting of the pin's range lines. The narrow (folded)
    layout has no nav bar, so this notice's [원고로] is the way back. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-4);background:var(--card);
   border-bottom:1px solid var(--border);font-size:var(--text-sm)}
@@ -5462,7 +5462,7 @@ body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - s
 body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* at 8px, [?] dropped to a second line in the default 348px panel (grid-cleanup QA) */
 #btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
-/* ---------------- Components (docs/design.md §Components). Classes borrowing shadcn/ui's variant names - every button/badge uses this one set.
+/* ---------------- Components (docs/handbook/viewer.md §컴포넌트). Classes borrowing shadcn/ui's variant names - every button/badge uses this one set.
    Button variants: (no class) = outline - .btn-default (primary action, one per panel) - .btn-secondary - .btn-soft ([완료]) - .btn-ghost - .btn-destructive
    Button sizes: (no class) = default (28px) - .btn-sm (around 24px) - .btn-icon (square, a smaller square when combined with .btn-sm)
    Badges: .badge (= outline) - .badge-default - .badge-secondary - .badge-destructive - status .badge-claimed - .badge-warning */
@@ -5516,7 +5516,7 @@ input.n{width:58px;text-align:center}
 .pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none}
 :root[data-theme=light] .pg{border:1px solid var(--border)}
 .pg img{width:100%;height:100%;display:block}
-/* Vector rendering (docs/design.md §Vector rendering): the page canvas (.vb) fills the page box completely, and when zoom
+/* Vector rendering (docs/handbook/viewer.md §벡터 렌더링): the page canvas (.vb) fills the page box completely, and when zoom
    exceeds the pixel ceiling, a detail canvas (.dt) rendered at native resolution for just the visible portion is overlaid at % coordinates within the page. The underlying PNG is hidden whenever a canvas is present. */
 .pg>canvas{position:absolute;display:block;pointer-events:none}
 .pg>canvas.vb{left:0;top:0;width:100%;height:100%}
@@ -5548,7 +5548,7 @@ pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--sp
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
-/* ---------------- Composer panel (docs/design.md §Panel cleanup and width adjustment): an 8px grid, uniform heights, only [핀 저장] gets the accent color (--acc).
+/* ---------------- Composer panel (docs/handbook/viewer.md §패널 정리): an 8px grid, uniform heights, only [핀 저장] gets the accent color (--acc).
    The location line (file/line + page + match badge + copy) -> range-segment control -> line-by-line stepper -> 4 lines of source -> note -> a fixed action row at the bottom. */
 .c-loc-row{display:flex;align-items:center;gap:var(--space-2)}
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
@@ -5600,7 +5600,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
-/* Status (docs/design.md §Status representation): the left-edge color stripe was removed (author feedback 2026-09-24 - looked dated). Distinguished by the small
+/* Status (docs/handbook/viewer.md §상태 표현): the left-edge color stripe was removed (author feedback 2026-09-24 - looked dated). Distinguished by the small
    dot color at the front of the card header plus a matching badge (text/icon) - never by color alone. Open is green, in-progress is amber, awaiting review is purple, location lost is the warning color.
    Closed/dropped aren't a card at all but a faded archive row, where a leading icon (check/trash-2) is the status. */
 .st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
@@ -5653,7 +5653,7 @@ button.b-close{font-weight:600}
 .pin .acts button.btn-destructive{background:transparent}
 .pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
-/* Pin kind (fix request / question) and thread (docs/design.md §Threads and review). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
+/* Pin kind (fix request / question) and thread (docs/handbook/viewer.md §스레드와 검토). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
 .kind-seg{margin:8px 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 var(--space-2)}
@@ -5729,7 +5729,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
-/* ---------------- List sections (docs/design.md §Archive): open pins - done - dropped. A section header spans the full width and stays stuck to
+/* ---------------- List sections (docs/handbook/viewer.md §보관함): open pins - done - dropped. A section header spans the full width and stays stuck to
    the top while scrolling (sticky) - so it's always clear which section is in view. Each section is wrapped in <section>, so the previous header
    gets pushed out once the next section arrives. --stick-top is the height of the tool bar (#bar1) stuck at the top in compact mode (measured by JS). A closed or dropped pin is a flat row, not a card. */
 .lsec{position:relative}
@@ -5778,7 +5778,7 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
-/* Notifications (toast, docs/design.md §Toasts): appear near where you just clicked - they used to show at the bottom-left (desktop) or
+/* Notifications (toast, docs/handbook/viewer.md §알림(토스트)): appear near where you just clicked - they used to show at the bottom-left (desktop) or
    top-left of the body (mid), ending up more than 1,100px from where the eye was after clicking [핀 저장] in the right panel (observed 2026-09-24).
    The horizontal position (--toast-r/--toast-w) and bottom height (--toast-b) are measured by placeToasts(): for wide/mid, bottom-right
    inside the panel column, just above the action row/save button; for narrow, above the sheet.
@@ -5817,7 +5817,7 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
 dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
-/* ---------------- Mobile/touch (docs/design.md §Mobile layout)
+/* ---------------- Mobile/touch (docs/handbook/viewer.md §모바일 레이아웃)
    The layout is set by JS on body: lay-wide (1100px and up) - lay-mid (over 700px, under 1100px: a narrow side panel) -
    lay-narrow (700px and below: a bottom sheet). compact = mid|narrow. side-open = the panel/sheet is expanded.
    In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the re-place-location banner remain. */
@@ -5967,7 +5967,7 @@ body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;t
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:24px;padding-top:0}
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
-   width, with the panel spread between them (docs/design.md §Unfolded-screen layout). It used to have the tool bar follow the panel, so [핀]
+   width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
    (901-1099px) clipped the nav bar by the panel's width (968px down to 630px). On a two-handed grip, the thumbs reach the two bottom
    corners - the frequently used [선택] sits bottom-left, and the panel toggle [핀 N] sits bottom-right where the panel appears, staying in
@@ -6236,14 +6236,14 @@ const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
-// Pin kind/thread (docs/design.md §Threads and review): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
+// Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDIT does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's draft text ('reply:12').
 let KIND_NEW='fix',REPLY=null;
-// @-tags (docs/design.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
+// @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE=[],MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
-// Multiple documents (§Multiple documents, docs/design.md §Multiple documents): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
+// Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
 // document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
@@ -6339,7 +6339,7 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
-// Toasts (docs/design.md §Toasts): one title line + one faded description line. Text is split into title/description at the first ' — ' (or the first ' · ' if none).
+// Toasts (docs/handbook/viewer.md §알림(토스트)): one title line + one faded description line. Text is split into title/description at the first ' — ' (or the first ' · ' if none).
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
 // If ' — ' is present, everything before it is the title (the title of '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'), otherwise everything before the first ' · '.
 function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?) — (.+)$/.exec(msg)||/^(.+?) · (.+)$/.exec(msg); return m?[m[1],m[2]]:[msg,''];}
@@ -6448,7 +6448,7 @@ document.addEventListener('scroll',hideTip,true);
 // Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
 
-// ------------------------------------------------ Multiple documents - list/tabs/switching (docs/design.md §Multiple documents)
+// ------------------------------------------------ Multiple documents - list/tabs/switching (docs/handbook/domain.md §여러 문서)
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
 function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}
@@ -6583,7 +6583,7 @@ async function loadRevisionSource(id,seq,k){
     renderRevisionFile(); if(tg)revHighlight(tg);
   }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
 }
-// ------------------------------------------------ [변경 보기] (docs/design.md §Viewing changes): opens the changes tab from an awaiting-review/done pin.
+// ------------------------------------------------ [변경 보기] (docs/handbook/viewer.md §변경 보기): opens the changes tab from an awaiting-review/done pin.
 // Commit selection: the commit hash (7+ characters) in the close-time reference (ref) > a commit whose subject contains the reference's PR number
 // ('(#236)'/'pull request #236') > among the last 12 commits, the most recent one that touched the pin's file/lines (+-5 lines) > the most recent commit.
 // Line matching exists only for the source diff - a line whose new-side line number falls within the pin's range is highlighted and scrolled to.
@@ -6905,7 +6905,7 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
     if(st==='done')toast(tl('#{id} 확인됨',{id:p.id})+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
     else toast(tl('#{id} 다시 열림',{id:p.id})+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
-// ------------------------------------------------ Browser notifications (docs/design.md §Browser notifications) - only while the tab is alive
+// ------------------------------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
 // Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기] click. The server
 // carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>), and this tab shows them as
 // notifications. The cursor (pinNotifyCursor) is kept in this browser's localStorage, so a reload or two tabs never announce the same
@@ -7043,7 +7043,7 @@ function startBuildPolling(){
   pollBuild();   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
 }
 
-// ------------------------------------------------ Panel width (P0b-06 + docs/design.md §Panel cleanup and width adjustment)
+// ------------------------------------------------ Panel width (P0b-06 + docs/handbook/viewer.md §패널 정리)
 // wide/mid adjusts the right panel's width; narrow adjusts the bottom sheet's height. Width is remembered separately
 // per screen kind (pinPrefs.side = wide, pinPrefs.sideMid = mid) - so a width fit for a spread-out screen never covers the desktop width.
 // If the saved value exceeds the current screen's limit (collapsing/expanding, shrinking the window), the saved value is kept
@@ -7143,7 +7143,7 @@ function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
 
-// ------------------------------------------------ Vector rendering (PDF.js) - docs/design.md §Vector rendering
+// ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
 // Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's pinch
 // scale), and app zoom is already baked into the page CSS width (W). The page box, aspect ratio, and % coordinates stay
 // exactly as they were for PNG, so drag frac/marks/pdf_build never change.
@@ -7360,7 +7360,7 @@ $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
 if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
 
-// ------------------------------------------------ PDF-area-only zoom - docs/design.md §PDF 영역 전용 확대
+// ------------------------------------------------ PDF-area-only zoom - docs/handbook/viewer.md §PDF 영역 전용 확대
 // Browser zoom would also enlarge the sidebar and tool bar. Zoom input over the PDF area is intercepted to change only the page width (W).
 // - Desktop: Ctrl(Cmd)+wheel over #left. Trackpad pinch also arrives as a wheel event with ctrlKey set, in Chrome/Firefox. Anchored to the pointer.
 // - Safari trackpad pinch: gesturestart/gesturechange (e.scale).
@@ -7766,7 +7766,7 @@ function renderComposer(){const d=CUR; if(!d)return;
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
-// A note that reads like a question (docs/design.md §Threads and review - suggesting the kind). True if it ends in ?/? or a
+// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
 function looksQuestion(text){let t=String(text||'').trim();
@@ -7858,7 +7858,7 @@ function relBadge(rel,p){
 // §P0c-C: the in-progress marker. claim_until is epoch seconds, compared independent of the browser's timezone (numbers
 // instead of a wall-clock string, for the same reason as §Position estimation). The viewer never places a claim (agent-only) - it only offers [풀기].
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
-// Estimated time to handle (docs/api.md §In-progress marker): if an agent gives eta_min on a claim, the server sets eta_ts
+// Estimated time to handle (docs/handbook/api.md §처리 중 표시): if an agent gives eta_min on a claim, the server sets eta_ts
 // (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded up to
 // 5-minute steps (an estimate is approximate). Past it, '예상보다 늦어짐 (+5분)'. A legacy claim with no eta shows
 // '처리 중 · 20:02부터 (23분째)'. The lock's auto-expiry (claim_until) was misread as the estimated completion (observed:
@@ -7889,7 +7889,7 @@ function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(
 // The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
-// Thread (docs/design.md §Threads and review): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
+// Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDIT.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
@@ -7899,7 +7899,7 @@ function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=
   const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
   return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></button>'
     :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></span>';}
-// Status dot (docs/design.md §Status representation): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
+// Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){const t=esc(tl('상태: {name}',{name:tr(ST_NAME[st])})); return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="'+t+'" data-tip="'+t+'"></span>';}
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
@@ -7907,7 +7907,7 @@ function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){c
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
-// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/design.md §@태그).
+// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md §@태그).
 // Text goes through esc() first, and names/numbers are found and wrapped within that already-escaped text - so text a
 // person wrote never leaks as HTML. Names are matched with the same candidates as the server's resolve_mentions() (full
 // name/login/the part of the login before @/the first word of the name), longest first, case-insensitive. Skipped if the
@@ -7931,7 +7931,7 @@ function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hi
   return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
     return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?tr('나를 부름 — 이 핀 알림이 나에게 옵니다'):tl('@태그 — {name}에게 알림이 갑니다',{name:peopleName(x.lg)}))+'">'+x.m+'</span>';});}
 function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
-// The [나를 부른 핀] filter (docs/design.md §@태그): uses the same material as the badge/pins.md's '→ @name'
+// The [나를 부른 핀] filter (docs/handbook/viewer.md §@태그): uses the same material as the badge/pins.md's '→ @name'
 // (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
 // entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
 // even after reopening (observed). addressed_to() only has a value on question pins.
@@ -8035,12 +8035,12 @@ function card(p){
     '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
-// Archive row (docs/design.md §Archive): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
+// Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
 // The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line is one line of the agent's
 // answer (close_reply) - truncated on overflow, expandable on click. The original request note is only shown by pressing
 // [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it survives a redraw.
 const ARC_OPEN=new Set();
-// Relative time (docs/design.md): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute time is in the description (hover).
+// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute time is in the description (hover).
 // The original string is kept in data-at and re-computed every 60 seconds (tickRel).
 function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
@@ -8237,7 +8237,7 @@ async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
   markMine(id); toast(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}),'ok');}catch(e){} await loadPins();}
 
-// ------------------------------------------------ @-tag autocomplete (docs/design.md §@태그)
+// ------------------------------------------------ @-tag autocomplete (docs/handbook/viewer.md §@태그)
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
 // remembers that login on the field (ta._mentions), carried as a hint (mentions) when sending - the server re-resolves
 // it from the text (dropped if the name was deleted from the text). There is no external notification.
@@ -8269,7 +8269,7 @@ function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(P
     if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
   return {hit,bad,first};}
-// Assignee (docs/design.md §Assignee): who handles this pin. Default - if the note starts with a resolved @-tag, that
+// Assignee (docs/handbook/viewer.md §담당): who handles this pin. Default - if the note starts with a resolved @-tag, that
 // person; otherwise a question pin's first @-tag; otherwise the agent. I can never be picked (just as the server
 // excludes a tag mentioning me). With no @-tags, there's nothing to pick (the agent).
 function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
@@ -8311,7 +8311,7 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
 // The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], composer panel [취소][핀 저장].
 function mentionGuard(ta){const box=ta.closest('.reply-box,.edit'); return box?box.querySelector('.r-acts,.e-acts'):ta.id==='note'?$('#c-actions'):null;}
-// The @-list's top (docs/design.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
+// The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
 // (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
 // (4) if nothing fits, below the input field (the old spot). A reply field has [취소][보내기] right below it, so (1)
 // never fits and (2) is used instead (the list used to cover both buttons, QA 2026-09-25).
@@ -8339,7 +8339,7 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 
-// ------------------------------------------------ Reply/reopen input field (docs/design.md §Threads and review)
+// ------------------------------------------------ Reply/reopen input field (docs/handbook/viewer.md §스레드와 검토)
 // Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
 // into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
 // restored too). mode is 'reply' | 'reopen' (the reopen reason).
@@ -9169,7 +9169,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--accent",
                     help="The label's accent color (#rrggbb). If omitted, one is picked from a fixed palette by "
                          "hashing the label string (the same label always gets the same color)")
-    acc = ap.add_argument_group("access control (docs/design/access-and-sync.md)")
+    acc = ap.add_argument_group("access control (docs/adr/0002-access-control.md)")
     acc.add_argument("--auth", choices=AUTH_PROVIDERS,
                      help="Identity provider. tailscale (default): Tailscale-User-* headers from a loopback peer "
                           "(tailscale serve). local: a single user on this machine - every loopback request is the "

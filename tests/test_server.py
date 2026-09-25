@@ -22,7 +22,7 @@ ROOT = HERE.parent
 PKG = ROOT / "src" / "limn"
 SKILL_MD = ROOT / "skill" / "SKILL.md"
 SKILL_KO = ROOT / "skill" / "SKILL.ko.md"
-DOCS_DIR = ROOT / "docs"
+DOCS_DIR = ROOT / "docs" / "handbook"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
@@ -3034,7 +3034,7 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("pullSuffix(b)", ps.HTML)
 
 
-# Mobile (Galaxy Z Fold 7 etc.) — docs/design.md §Mobile layout. Measured live with Playwright; here we
+# Mobile (Galaxy Z Fold 7 etc.) — docs/handbook/viewer.md §모바일 레이아웃. Measured live with Playwright; here we
 # check that the deployed HTML has the required elements/copy/CSS/event paths, and run the pure-logic
 # functions under node.
 class FrontendMobileStructure(unittest.TestCase):
@@ -3126,7 +3126,7 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn('<img loading="lazy"', ps.HTML)
 
 
-# Vector rendering (docs/design.md §Vector rendering) — checks the deployed HTML for the PDF.js path, fallback, visible-area rendering, and the pixel cap.
+# Vector rendering (docs/handbook/viewer.md §벡터 렌더링) — checks the deployed HTML for the PDF.js path, fallback, visible-area rendering, and the pixel cap.
 class FrontendVector(unittest.TestCase):
     def fn(self, name):
         m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
@@ -3295,7 +3295,7 @@ class FrontendVectorLogic(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [True, True, False, False, False])
 
 
-# PDF-area-only zoom (docs/design.md §PDF 영역 전용 확대) — whether browser zoom input is intercepted to change only the page width.
+# PDF-area-only zoom (docs/handbook/viewer.md §PDF 영역 전용 확대) — whether browser zoom input is intercepted to change only the page width.
 class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
@@ -3441,7 +3441,7 @@ class FrontendMobileLogic(unittest.TestCase):
                          ["첫 줄 &lt;b&gt;", False, '<span class="dim">(메모 없음)</span>', True, True, True, True])
 
 
-# Panel tidy-up / width adjustment (docs/design.md §Panel cleanup and width adjustment). Measured live with Playwright
+# Panel tidy-up / width adjustment (docs/handbook/viewer.md §패널 정리). Measured live with Playwright
 # (expanded 880x790, collapsed 412x915, desktop 1440x900); here we check pure logic like bounds/steps/
 # labels under node, and layout/wiring via the HTML string.
 class FrontendPanelWidthLogic(unittest.TestCase):
@@ -3586,7 +3586,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
     def test_mid_layout_pins_nav_top_and_action_bar_bottom(self):
         # unfolded fold devices / tablets (mid): the action row doesn't follow the panel — it's pinned
         # full-width at the bottom of the screen, and the nav row is pinned full-width at the top
-        # (docs/design.md §Unfolded-screen layout). Live browser measurements are in FrontendResponsiveBrowser.
+        # (docs/handbook/viewer.md §펼친 화면 레이아웃). Live browser measurements are in FrontendResponsiveBrowser.
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
@@ -3611,7 +3611,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
 
 
-# ---------------------------------------------------------------- design token guard (docs/design.md §Design tokens and components)
+# ---------------------------------------------------------------- design token guard (docs/handbook/viewer.md §디자인 토큰과 컴포넌트)
 # Colors, radii, and font sizes used to vary per rule (54 color literals, 14 radii, 12 font sizes) — now
 # collected into a token layer. This blocks any rule from reintroducing a literal going forward. The one
 # exception is the allowlist below; if it grows, update design.md's table too.
@@ -3710,7 +3710,7 @@ class FrontendDesignTokens(unittest.TestCase):
 
 
 
-# ---------------------------------------------------------------- toasts — docs/design.md §Toasts
+# ---------------------------------------------------------------- toasts — docs/handbook/viewer.md §알림(토스트)
 # author feedback (2026-09-24): saving a pin used to pop an "undo" toast at the bottom-left, far from the
 # right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
 # where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
@@ -3768,7 +3768,7 @@ class FrontendToasts(unittest.TestCase):
                                                           ["핀 #10 · 본문", "서준님이 불렀습니다: 봐 주세요"]])
 
 
-# ---------------------------------------------------------------- no outline inside an outline (docs/design.md §One layer of containment)
+# ---------------------------------------------------------------- no outline inside an outline (docs/handbook/viewer.md §한 겹 담기)
 # author feedback (2026-09-24): drawing a bordered box inside another bordered box looks tacky. There is
 # exactly one containing layer — a card (one thin border) or a floating surface (dialog/toast/@-list).
 # Everything inside it — badges, buttons, segmented controls, steppers, source, overlap banner, thread —
@@ -3810,7 +3810,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
             self.assertEqual(d["box-shadow"], "var(--shadow-lg)", sel)
 
 
-# ---------------------------------------------------------------- meaning/function check (docs/design.md §Meaning and appearance) + UX QA (2026-09-24)
+# ---------------------------------------------------------------- meaning/function check (docs/handbook/viewer.md §뜻과 모양) + UX QA (2026-09-24)
 class FrontendSemanticAudit(unittest.TestCase):
     css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
 
@@ -5190,7 +5190,7 @@ class BadgeWording(Base):
 
 class FrontendToolbarOneRow(unittest.TestCase):
     """On a 1400px desktop (default 430px panel), the toolbar stays one row even with a long label
-    ('Long-DemoPaper1') (measured live with Playwright, docs/design.md §Design tokens and components). [핀 다시 읽기]
+    ('Long-DemoPaper1') (measured live with Playwright, docs/handbook/viewer.md §디자인 토큰과 컴포넌트). [핀 다시 읽기]
     moved to the open-pin-list header, and lives inside [더보기] in compact mode."""
 
     def test_reload_lives_in_list_head_not_toolbar(self):
@@ -5595,7 +5595,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertTrue(page.locator('#docs-menu').is_visible())
 
 
-# ---------------------------------------------------------------- pin kind (fix request / question) · thread · reply (docs/api.md §Threads)
+# ---------------------------------------------------------------- pin kind (fix request / question) · thread · reply (docs/handbook/api.md §스레드)
 # 10 of 42 pins (24%) in A-DEMO were questions rather than fix requests (#30 "what does it mean for the
 # interval to include 0?", etc.). With only a single close-reason field to answer in, there was no way to
 # ask a follow-up. kind_req now distinguishes the kind, and each pin has a thread so people and agents can
@@ -5812,7 +5812,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css)
 
 
-# ---------------------------------------------------------------- awaiting review (docs/api.md §Pending review)
+# ---------------------------------------------------------------- awaiting review (docs/handbook/api.md §검토 대기)
 # an author reopened a pin an agent had closed in 2 of 42 cases (#28, #42), and there was no record that
 # a human had seen the result. When an agent (no identity header) closes a pin, it's done=true·
 # review=true (awaiting review); when a tailnet human closes it, it's done right away. A legacy
@@ -6000,7 +6000,7 @@ class FrontendReview(unittest.TestCase):
         self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
 
 
-# ---------------------------------------------------------------- [변경 보기] (docs/design.md §Viewing changes)
+# ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)
 class FrontendChangeView(unittest.TestCase):
     def setUp(self):
         if not shutil.which("node"):
@@ -6045,7 +6045,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
 
 
-# ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/handbook/api.md §@태그·사람·이벤트)
 class MentionsPeopleEvents(Base):
     S = {"login": "bob@example.com", "name": "Bob Park"}
     W = {"login": "wendy@example.com", "name": "Wendy Kim"}
@@ -6177,7 +6177,7 @@ class MentionsPeopleEvents(Base):
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
-    # ---- assignee — docs/api.md §Assignee. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
+    # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
         ps.record_person(dict(self.W)); ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
@@ -6405,7 +6405,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # autocomplete gets Enter/Esc first (capture phase)
 
 
-# ---------------------------------------------------------------- browser notifications (docs/design.md §Browser notifications)
+# ---------------------------------------------------------------- browser notifications (docs/handbook/viewer.md §브라우저 알림)
 class FrontendSpacingGrid(unittest.TestCase):
     """Spacing (padding/margin/gap) sits on a 4/8px grid (4, 8, 12, 16, 24). 1-2px is left alone as
     hairline borders / optical correction (e.g. 1px above/below a badge). It used to mix in ad hoc values

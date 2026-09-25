@@ -58,7 +58,7 @@ limn token create paper2 · limn member add paper2 <login> --role viewer   # 에
 ```
 
 설정은 `~/.config/limn/<이름>.env`, 상태는 기본 `~/.local/share/limn/<이름>`.
-자세히: [docs/instances.ko.md](docs/instances.ko.md).
+자세히: [docs/handbook/instances.md](docs/handbook/instances.md).
 
 ## 에이전트에게
 
@@ -66,7 +66,7 @@ limn token create paper2 · limn member add paper2 <login> --role viewer   # 에
 claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 확인은 사람이 한다. 인증은
 `limn token create <인스턴스>` 로 받은 토큰(`Authorization: Bearer …`)으로 한다. 에이전트는
 확인(confirm)하지 않고, 남이 claim 한 핀·검토 대기 핀·담당이 사람인 핀은 건너뛴다. 전체 절차는
-[skill/SKILL.ko.md](skill/SKILL.ko.md), API 는 [docs/api.md](docs/api.md). `pins.md` 형식과 HTTP API 는
+[skill/SKILL.ko.md](skill/SKILL.ko.md), API 계약은 [docs/handbook/api.md](docs/handbook/api.md). `pins.md` 형식과 HTTP API 는
 고정된 계약이라 UI 언어와 상관없이 바뀌지 않는다.
 
 ## 문서
@@ -74,13 +74,11 @@ claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 �
 | | |
 |---|---|
 | [skill/SKILL.ko.md](skill/SKILL.ko.md) | 에이전트 절차(에이전트 런타임에 스킬로 설치) |
-| [docs/instances.ko.md](docs/instances.ko.md) | 인스턴스·업데이트·포트·보안 규칙 |
-| [docs/operations.ko.md](docs/operations.ko.md) | 서버 실행·옵션·상태 배치·뷰어 사용법 |
-| [docs/api.md](docs/api.md) | HTTP API 와 `pins.md` 형식(영문) |
-| [docs/design.md](docs/design.md) · [docs/build-sync.md](docs/build-sync.md) | 설계 노트, 재빌드·동기화(영문) |
+| [docs/handbook/](docs/handbook/index.md) | System Handbook: 목적·구조·핀 도메인·뷰어·빌드와 동기화·HTTP API 와 `pins.md` 형식·운영·인스턴스·검증·변경 흐름·코딩 로드맵 |
+| [docs/adr/](docs/adr/) | 설계 결정 기록(ADR) |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 
-로드맵: [접근 제어·협업 경계·동기화](docs/design/access-and-sync.ko.md) (초안).
+접근 제어 계획: [ADR-0002 접근 제어·협업 경계·동기화](docs/adr/0002-access-control.md) (제안).
 
 ## 라이선스
 
