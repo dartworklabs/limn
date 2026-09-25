@@ -55,7 +55,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 
 - Claim one pin, right before you edit it, with an `eta_min` estimate (step 4).
 - Reply to a pin (`/reply`). An agent's reply never changes the pin's state; send `"reopen": true` only when the user asks.
-- Close a pin with `reply` and `ref` (step 6). When you close through the tailnet address without a token, send `"review": true`.
+- Close a pin with `reply` and `ref` (step 6), and optionally `changes`. When you close through the tailnet address without a token, send `"review": true`.
 - Rebuild the PDF after editing (§Rules).
 
 ### What you must not do
@@ -96,9 +96,12 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
    - On `409 claimed`, skip the pin.
    - If you run late, claim again with the same identity and a new estimate (an extension). Otherwise the viewer shows `예상보다 늦어짐 (+5분)` ("later than expected (+5 min)").
    - The lock releases itself after `ttl_min` (default: twice the estimate, clamped to 30–120 minutes). It is a safety net; do not use it in place of an estimate.
-5. **Edit.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, fetch the realigned values from `GET <base>/api/pins`.
+5. **Edit, one commit per pin.** `Read` `L<lo>-L<hi>` to see the context and edit as the note asks. If an earlier edit may have shifted lines, fetch the realigned values from `GET <base>/api/pins`.
+   - **Commit each pin on its own** (since v0.3): one pin's edit → one commit. One PR may hold several such commits. Then the commit is the pin, and a reviewer's [변경 보기] (view changes) shows exactly that pin's change in both the source diff and the comparison PDF. Note the lines you changed for the pin (after the commit) for `changes` in step 6.
+   - Merge a multi-pin PR with a merge commit or a rebase, not a squash: squashing removes the per-pin commits from `main`. If it will be squashed anyway, put both in `ref` (`PR #12 (abc1234)`) so the viewer can still find the squashed commit.
 6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done. When a human writes what is wrong in [답글] (reply), that reply becomes the reason for reopening and the pin returns to the open table (`다시 열림`). A reply that @tags a person is a conversation between people: the state stays, and you still do not process pins awaiting review.
-   - **Edit-request pin**: after editing, close it with what you changed (`reply`, ≤500 chars) and the PR number or commit (`ref`, ≤80 chars). The viewer's [변경 보기] (view changes) uses `ref` to find the commit.
+   - **Edit-request pin**: after editing, close it with what you changed (`reply`, ≤500 chars) and **that pin's commit hash** (`ref`, ≤80 chars; add the PR number if you like: `PR #12 (abc1234)`). The viewer's [변경 보기] (view changes) uses `ref` to find the commit.
+   - Optionally add `changes`: `[{"file": "<path as in the location column>", "lo": <first line>, "hi": <last line>}, …]` — the lines you changed **for this pin**, numbered as in that commit (after the edit). Up to 50 ranges; a file outside the manuscript folder, a non-integer line or `lo > hi` is a `400` and nothing changes. When one commit fixes several pins, this is what lets the viewer show each pin only its own hunks; without it the server infers them from the pin's range.
    - **Question pin**: do not edit the manuscript (only if the question implies an edit). Post the answer as a reply, then close.
    - When closing through the tailnet address (`https://…ts.net`) **without a token**, the request carries the human identity of the machine you run on and would be marked done immediately, so put `"review": true` in the body. With a token, or through local `127.0.0.1`, it goes to awaiting review without it (sending it anyway is harmless).
    - The same applies to replies: if you are an agent sending as a person (no token — the tailnet address from a machine signed in as a person, or a headerless `curl` to an `--auth local` instance), a reply to a pin awaiting review or done would reopen it, so send `"reopen": false` with every reply. With a token your replies never change the state.
@@ -107,7 +110,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
    ```bash
    curl -s -X POST <base>/api/pins/3/close \
      -H 'Content-Type: application/json' \
-     -d '{"reply": "Retitled the section to …", "ref": "PR #227", "review": true}'
+     -d '{"reply": "Retitled the section to …", "ref": "PR #227 (abc1234)", "changes": [{"file": "main.tex", "lo": 12, "hi": 14}], "review": true}'
    curl -s -X POST <base>/api/pins/4/reply \
      -H 'Content-Type: application/json' \
      -d '{"text": "The interval is the 95% confidence interval; if it contains 0 the effect is not significant."}'
@@ -179,11 +182,11 @@ After the number, the number cell carries short plain-word markers joined by ` �
 | `GET /api/pins` | Open pins as JSON (with `rev`). `?all=1` includes closed pins |
 | `POST /api/pins/{id}/claim` | Mark in progress. Body `{"eta_min": 1..240, "ttl_min": 1..120}` (both optional; values above the cap are clamped): estimate and lock |
 | `POST /api/pins/{id}/unclaim` | Release the claim |
-| `POST /api/pins/{id}/close` | Close. Body `{"reply", "ref", "review"}`; closed by an agent → awaiting review |
+| `POST /api/pins/{id}/close` | Close. Body `{"reply", "ref", "changes", "review"}`; closed by an agent → awaiting review. `changes` (v0.3, optional) = `[{file, lo, hi}]`, the lines changed for this pin |
 | `POST /api/pins/{id}/reply` | Reply `{"text"}` (≤1000 chars). An agent's reply keeps the state; a person's reply on a closed pin may reopen it by rule. The response adds `reopened` and `state`. Optional `"reopen": true/false` overrides the rule |
 | `GET /api/pins/{id}` | One pin with its whole thread (`pins.md` carries at most 3 thread entries) |
 | `POST /api/pins/{id}/confirm` | Awaiting review → done (**humans only**; 403 without an identity header) |
-| `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply` and `ref`). Optional `{"reason"}` stays in the thread |
+| `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |
 | `POST /api/pins/{id}/edit` | Edit note or range (`base_rev` required), or `note_append` |
 | `POST /api/pins/{id}/drop` | Move a pin to the Trash. `/restore` brings it back within 30 days (permanent `/purge` is owner-only) |
 | `POST /api/rebuild?async=1` | Rebuild the PDF; progress at `GET /api/build`. With several documents add `&doc=<key>` to both |

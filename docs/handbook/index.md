@@ -41,6 +41,7 @@ catalog_schema: 1
 | `src/limn/server.py` | 핀 저장소·핀 조작·상태 계산 구역: 핀 도메인과 저장 순서 | 상태·전이·레코드 필드·저장 순서 변경 | domain.md, api.md, architecture.md |
 | `src/limn/server.py` | 역변환·범위 사다리·anchor 구역: 위치 계산 | 점수·단계·재동기화 규칙 변경 | domain.md |
 | `src/limn/server.py` | 빌드·git pull·meta 구역: 빌드와 동기화 | 빌드 상태·폴링·추정 규칙 변경 | build-sync.md |
+| `src/limn/server.py` | 핀 단위 변경 구역(0.3): hunk 블록 귀속, 핀 hunk diff, 합성 판 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
 | `src/limn/server.py` | HTML 템플릿 구역: 뷰어 화면 | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
 | `src/limn/server.py` | Handler와 main: HTTP 경계와 실행 인자 | 경로·응답·인자 추가나 변경 | api.md, operations.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
@@ -63,6 +64,7 @@ catalog_schema: 1
 | [ADR-0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
 | [ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
 | [ADR-0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
+| [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 핀별 커밋, 닫을 때의 `changes`, 서버 추정, 핀의 hunk만 담은 소스 diff·비교 PDF | 제안 (0.3.0 구현 PR) |
 
 ## 알려진 공백
 
