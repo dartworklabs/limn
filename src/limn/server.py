@@ -4246,6 +4246,7 @@ def _unexpired(rows: list, now: float = None) -> list:
 def purge_trash(now: float = None) -> int:
     """Rewrites pins.dropped.jsonl without the entries older than TRASH_DAYS. Returns how many went (0 = no write, or the
     write failed - reads hide expired entries anyway, so a failure is only a warning)."""
+    _TRASH_CHECKED[0] = time.time() if now is None else now      # any check (startup, drop, restore) restarts the hourly clock
     with PIN_LOCK:
         rows, bad = read_jsonl(C.dropped)
         keep = _unexpired(rows, now)
@@ -4559,6 +4560,11 @@ TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer 
                   "테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다")
 
 
+REPLY_GUIDANCE = ("답글(0.2.2): 사람 신원으로 단 답글은 검토 대기·완료 핀을 다시 연다(답글이 다시 연 이유가 된다) — "
+                  "토큰 없이 사람 신원을 달고 가는 에이전트(테일넷 주소로 닫을 때 `\"review\":true` 를 넣는 경우, `--auth local` 의 "
+                  "헤더 없는 curl)는 답글 본문에 `\"reopen\":false` 를 넣는다 · 토큰을 쓰는 에이전트의 답글은 상태를 바꾸지 않는다")
+
+
 def claim_guidance(base: str) -> str:
     """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
     return ("처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
@@ -4734,6 +4740,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(TOKEN_GUIDANCE)
+    out.append(REPLY_GUIDANCE)                    # v0.2.2: one more additive line
     if any_symbol:
         out.append(LEGEND)
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
@@ -5980,8 +5987,16 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .r-outcome .ic{width:14px;height:14px;flex:none}
 .r-outcome.reopen{color:var(--status-review)}
 .r-outcome .r-out-t{flex:1 1 12em;min-width:0}
-.r-outcome button.r-keep{flex:none;background:transparent;border-color:var(--border);color:var(--muted-foreground)}
-.r-outcome button.r-keep[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
+/* The override is a switch (role=switch): a small track + knob before its label, the label naming the non-default outcome.
+   On = filled track with the knob on the right. The whole button is the touch target (44px on touch, like the other controls). */
+.r-outcome button.r-keep{flex:none;gap:var(--space-2);background:transparent;border-color:transparent;color:var(--muted-foreground);padding:0 var(--space-1)}
+.r-outcome button.r-keep::before{content:"";flex:none;width:28px;height:16px;border-radius:var(--radius-lg);box-sizing:border-box;border:1px solid var(--border-strong);
+  background:radial-gradient(circle 6px at 7px 50%,var(--muted-foreground) 96%,transparent) var(--muted)}
+.r-outcome button.r-keep[aria-checked=true]{color:var(--foreground)}
+.r-outcome button.r-keep[aria-checked=true]::before{border-color:var(--primary);background:radial-gradient(circle 6px at 19px 50%,var(--primary-foreground) 96%,transparent) var(--primary)}
+.reply-box .r-err{margin:0}
+#trash .arc-l2 .arc-reply:not(.open){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arc-sep{flex:none;color:var(--subtle-foreground)}
 .arc-thread{margin:4px 0 0 var(--space-5)}   /* indentation only - no box */
 .arc-thread .thread{margin:0;padding:0;border:0}
 .edit .c-tools{margin-top:0;flex-wrap:wrap}
@@ -6670,7 +6685,7 @@ function deferred(msg,commit,undo){let done=false,t=null;
   const d={run:()=>{if(done)return; done=true; DEFERRED.delete(d); if(t&&t.isConnected){t._gone=null; t.remove();} commit();}};
   DEFERRED.add(d);
   t=toast(msg,'ok',{label:'되돌리기',tip:'보내기 전에 취소합니다',fn:()=>{if(done)return; done=true; DEFERRED.delete(d); undo();}});
-  if(t)t._gone=d.run; else d.run();
+  d.toast=t; if(t)t._gone=d.run; else d.run();
   return d;}
 function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
 window.addEventListener('pagehide',flushDeferred);
@@ -7045,7 +7060,7 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
 async function boot(){i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
   // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
-  const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[#&])act=restore(?:&|$)/.test(location.hash||'')};
+  const link=takeLinkHash();
   applyTheme(); applyLayout(); initDiffWrap();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   $('#btn-save').innerHTML=saveBtnLabel();
@@ -7285,6 +7300,11 @@ async function notifyToggle(){const st=notifyState();
   drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
+// Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
+// reload never repeats it (a reload of an &act=restore link restored a pin someone had deleted again - PR #11 review).
+function takeLinkHash(){const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[#&])act=restore(?:&|$)/.test(location.hash||'')};
+  if(link.pin)history.replaceState(null,'',location.pathname+location.search+(link.doc?'#doc='+link.doc:''));
+  return link;}
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
 async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
   await loadPins(); if(restore&&!isViewer()&&!findAnyPin(pin)&&DROPPED.some(x=>x.id===pin))await restorePin(pin);
@@ -7293,7 +7313,7 @@ async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DO
   requestAnimationFrame(()=>jumpToCard(pin));}
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};
   if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin); else if(d.type==='restore-pin'&&!isViewer())restorePin(+d.pin);});
-window.addEventListener('hashchange',()=>{const n=hashPin(); if(n)openPinFromLink(hashDoc(),n);});
+window.addEventListener('hashchange',()=>{const l=takeLinkHash(); if(l.pin)openPinFromLink(l.doc,l.pin,l.restore);});
 
 // ------------------------------------------------ Async build-progress chip (P0b-01)
 // BUILD_TIMER only exists while a build is actually running - /api/build is never hit every second once there's
@@ -8418,18 +8438,21 @@ function droppedCard(p){
   return '<div class="arc-row dropped" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
     '<div class="arc-l1">'+ic('trash-2')+'<span class="n" data-tip="삭제한 핀 번호">#'+p.id+'</span>'+docChip(p)+arcLoc(p)+
     relSpan(p.dropped_at,'arc-t',tl('삭제한 사람 {name} · 삭제한 시각',{name:who(p.dropped_by)||tr('기록 전')}))+
-    (left!=null?'<span class="arc-t trash-left" data-tip="'+esc(tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS}))+'">'+esc(tl('{n}일 뒤 지워짐',{n:left}))+'</span>':'')+'<span class="sp"></span>'+
+    '<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-by">'+esc(tl('{name} 삭제',{name:who(p.dropped_by)||tr('기록 전')}))+'</span>'+
+    (left!=null?'<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-left" data-tip="'+esc(tl('{n}일이 지나면 저절로 지워집니다',{n:TRASH_DAYS}))+'">'+esc(tl('{n}일 뒤 지워짐',{n:left}))+'</span>':'')+'<span class="sp"></span>'+
     '<span class="arc-acts"><button class="btn-sm btn-secondary arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button>'+
     (isOwner()?'<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge" data-tip="'+esc(T.purge)+'">영구 삭제</button>':'')+'</span></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
-function drawTrash(){const L=listDropped(),box=$('#trash-list'); if(!box)return;
+let TRASH_ALL=false;   // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
+function drawTrash(){const L=TRASH_ALL?DROPPED:listDropped(),box=$('#trash-list'); if(!box)return;
   $('#trash-note').textContent=tl('삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',{n:TRASH_DAYS});
   box.innerHTML=L.length?L.slice().reverse().filter(p=>!PURGING.has(p.id)).map(droppedCard).join(''):'<div class="dim">'+esc(tr('휴지통이 비어 있습니다'))+'</div>';}
 function openTrash(flashId){const d=$('#trash');
-  if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId)){SHOW_ALL=true; drawPins();}   // another document's pin
+  if(flashId!=null&&!listDropped().some(p=>p.id===flashId)&&DROPPED.some(p=>p.id===flashId))TRASH_ALL=true;   // another document's pin
   drawTrash(); if(!d.open){hideTip(); d.showModal(); toastHost();}
   if(flashId!=null)requestAnimationFrame(()=>{const el=document.querySelector('#trash .arc-row[data-id="'+flashId+'"]'); if(!el)return;
     el.scrollIntoView({block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');});}
+$('#trash').addEventListener('close',()=>{TRASH_ALL=false;});
 $('#trash').addEventListener('click',e=>{const d=$('#trash'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
@@ -8553,7 +8576,7 @@ function jumpToCard(id){if(secOpenFor(id))drawPins();
 function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
   const st=pinState(p);
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
-  if(st==='done')SEC.done=true; else{OPEN_CARDS.add(id); SEC[st==='review'?'review':'open']=true;}
+  if(st==='done')SEC.done=true; else{OPEN_CARDS.add(id); SEC[st==='review'?'review':'open']=true;} savePrefs({sec:SEC});
   if(LAYOUT!=='wide')setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
@@ -8664,7 +8687,7 @@ function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelec
   if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
-  const r=mentionScan(ta.value,ta._mentions),me=meLogin(); r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
+  const r=mentionScan(ta.value,new Set(mentionHints(ta))),me=meLogin();   // the same hints the save/send carries r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' '+esc(tr('(나 — 알림 없음)')):'')+'</span>').join(''):'')+
     r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
@@ -8727,32 +8750,43 @@ function replyReopens(p,human,mentioned,override){if(pinState(p)==='open')return
 // offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기], reopen:true) where it keeps a closed pin
 // as it is. flip = that toggle is pressed.
 function replyPreview(p,human,mentioned,flip){if(!p||pinState(p)==='open')return null; const m=mentioned||[];
-  const reopens=replyReopens(p,human,m),toggle=reopens?'keep':'reopen';
-  if(flip)return {text:tr(reopens?'보내도 상태는 그대로입니다':'보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
+  const reopens=replyReopens(p,human,m),toggle=reopens?'keep':'reopen',names=m.map(peopleName).join(', ');
+  if(flip&&!reopens)return {text:m.length?tl('보내면 이 핀이 다시 열려 에이전트에게 가고, {names}에게 알림이 갑니다',{names}):tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
+  if(flip)return {text:tr('보내도 상태는 그대로입니다'),toggle};
   if(reopens)return {text:tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),toggle};
   if(p.kind_req==='question')return {text:tr('답으로 남고 상태는 그대로입니다'),toggle};
   if(!human)return {text:tr('이 화면은 에이전트로 보내므로 상태는 그대로입니다'),toggle};
-  return {text:tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다',{names:m.map(peopleName).join(', ')}),toggle};}
+  return {text:tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다',{names}),toggle};}
+// The empty box's placeholder says the same outcome as the line under it would for a reply without @-tags.
+function replyPlaceholder(p,human,flip){const closed=!!p&&pinState(p)!=='open',def=closed&&replyReopens(p,human,[]);
+  return tr(closed&&(flip?!def:def)?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)');}
+// After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while the
+// undo toast was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
+function replyServerNote(id,predicted,data){if(!data||!data.ok||!!data.reopened===!!predicted)return null;
+  if(data.reopened)return tl('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다',{id});
+  return data.state==='open'?tl('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다',{id}):tl('#{id} 은 다시 열리지 않고 답글로만 남았습니다',{id});}
 // The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
-function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,ta._mentions).hit.filter(l=>l!==me&&(PEOPLE.find(x=>x.login===l)||{}).role!=='agent');}
-function replyEl(p){const closed=!!p&&pinState(p)!=='open',el=document.createElement('div'); el.className='reply-box';
-  el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="'+
-    (closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
-    '<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" data-act="reply-flip" aria-pressed="false"></button></div>'+
+// Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the same hints,
+// so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will do (PR #11 review).
+function replyMentioned(ta){const me=meLogin(); return mentionScan(ta.value,new Set(mentionHints(ta))).hit.filter(l=>l!==me&&(PEOPLE.find(x=>x.login===l)||{}).role!=='agent');}
+function replyEl(p){const el=document.createElement('div'); el.className='reply-box';
+  el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="'+esc(replyPlaceholder(p,isHuman(),false))+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
+    '<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" role="switch" data-act="reply-flip" aria-checked="false"></button></div>'+
+    '<div class="r-err errline" role="alert" hidden></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
     '<button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 알림의 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>';
   return el;}
 function renderReplyOutcome(){const R=REPLY; if(!R)return; const box=R.el.querySelector('.r-outcome'),ta=R.el.querySelector('textarea'); if(!box||!ta)return;
-  const p=findAnyPin(R.id),closed=!!p&&pinState(p)!=='open',ment=replyMentioned(ta);
+  const p=findAnyPin(R.id),ment=replyMentioned(ta);
   let pv=p&&replyPreview(p,isHuman(),ment,!!R.flip);
-  ta.placeholder=tr(closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글 (⌘/Ctrl+Enter 보내기)');
+  ta.placeholder=replyPlaceholder(p,isHuman(),!!R.flip);
   if(!pv){box.hidden=true; R.flip=false; R.toggle=null; return;}
   if(R.toggle&&R.toggle!==pv.toggle&&R.flip){R.flip=false; pv=replyPreview(p,isHuman(),ment,false);}   // the rule changed direction (a tag added/removed): the override resets
   R.toggle=pv.toggle; box.hidden=false; box.querySelector('.r-out-t').textContent=pv.text;
   box.classList.toggle('reopen',replyReopens(p,isHuman(),ment,R.flip?pv.toggle==='reopen':undefined));
   const k=box.querySelector('[data-act=reply-flip]'),keep=pv.toggle==='keep';
   k.textContent=tr(keep?'상태 유지':'다시 열기'); k.dataset.tip=tr(keep?'보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)':'보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)');
-  k.setAttribute('aria-pressed',String(!!R.flip));}
+  k.setAttribute('aria-checked',String(!!R.flip));}
 function openReply(id){
   if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
@@ -8768,16 +8802,21 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=R.el
   const id=R.id,p=findAnyPin(id),body={text},mh=mentionHints(ta),hints=ta._mentions,flip=!!R.flip; if(mh.length)body.mentions=mh;
   if(flip&&p&&pinState(p)!=='open'&&R.toggle)body.reopen=R.toggle==='reopen';
   const reopens=!!p&&replyReopens(p,isHuman(),replyMentioned(ta),body.reopen);
+  // Back into the box - after [되돌리기], or with an inline error when sending failed (offline), so the draft is visibly kept.
+  const back=err=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
+    if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
+      const e=REPLY.el.querySelector('.r-err'); if(e){e.textContent=err||''; e.hidden=!err;}}};
   REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for the undo toast
-  deferred(tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),
+  const d=deferred(tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),
     async()=>{markMine(id);
       try{const {data}=await api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true});
         if(!data.ok)toast(tl('핀 #{id} 이 없습니다',{id}),'err');
-        else if(!!data.reopened!==reopens)toast(tl(data.reopened?'핀 #{id} 다시 열림':'#{id} 에 답글을 남겼습니다 · 상태는 그대로',{id}),'warn');}   // the pin changed state while the toast was up
-      catch(e){REPLY_DRAFT.set('reply:'+id,text);}
+        else{const note=replyServerNote(id,reopens,data); if(note)toast(note,'warn');}}
+      catch(e){back(tr('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'));}
       await loadPins();},
-    ()=>{REPLY_DRAFT.set('reply:'+id,text); openReply(id);
-      if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(hints)t._mentions=hints; REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();}});}
+    ()=>back(null));
+  // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the toast still commits when it goes away.
+  const b=d.toast&&d.toast.querySelector('.t-acts button'); if(b)b.focus({preventScroll:true});}
 
 // ------------------------------------------------ Edit
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;

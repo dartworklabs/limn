@@ -6018,7 +6018,8 @@ class FrontendReview(unittest.TestCase):
         # a reply would do. v0.2.2: on a closed pin the placeholder says a reply reopens it, and the outcome line under the
         # box previews the server rule (tests/test_v022.py covers every row).
         body = extract_js_fn("replyEl")
-        self.assertIn("closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글", body)
+        self.assertIn("placeholder=\"'+esc(replyPlaceholder(p,isHuman(),false))+'\"", body)   # from the same outcome as the line below
+        self.assertIn("'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'", extract_js_fn("replyPlaceholder"))
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
         self.assertIn("REPLY={id,flip:false,toggle:null,el:replyEl(p)}", extract_js_fn("openReply"))
