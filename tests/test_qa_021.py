@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import urlparse
@@ -110,15 +111,23 @@ class MentionRules(Base):
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A)
-        n = self.n()
-        ps.edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
-        self.assertEqual(self.events_after(n), [])
-        ps.edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
-        self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
-        n = self.n()
-        ps.edit_pin(pid, {"note": ps.find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
-        self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
+        """A note edit notifies whoever it tags one more time; a typo fix next to an existing tag notifies nobody.
+
+        v0.3.1 (issue #10 L3): tagging the same person again from the same pin's note by the same editor notifies at most
+        once per NOTE_MENTION_COOLDOWN_S, so the re-tag below is made after the window (fake clock)."""
+        from unittest import mock
+        t0 = float(int(time.time()))                                       # whole seconds: ts is stored rounded to ms
+        with mock.patch.object(ps.time, "time", return_value=t0):
+            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A)
+            n = self.n()
+            ps.edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
+            self.assertEqual(self.events_after(n), [])
+        with mock.patch.object(ps.time, "time", return_value=t0 + ps.NOTE_MENTION_COOLDOWN_S):
+            ps.edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
+            self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
+            n = self.n()
+            ps.edit_pin(pid, {"note": ps.find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
+            self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
 
 
 # ---------------------------------------------------------------- B. /api/clear and headerless tailnet requests
