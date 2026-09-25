@@ -485,15 +485,19 @@ class EnglishChrome(unittest.TestCase):
         page = self.open("en", viewport={"width": 1400, "height": 850})
         self.assert_english(page, "desktop list")
         page.click("#done-toggle")
-        page.click("#dropped-toggle")
         page.evaluate("SHOW_ALL=true; drawPins()")
         page.evaluate("document.querySelectorAll('.th-more').forEach(b=>b.click())")
         self.assert_english(page, "desktop archive, all documents")
+        page.click("#trash-link")
+        page.wait_for_selector("#trash[open]")
+        self.assert_english(page, "desktop Trash")
+        page.click("#trash [data-act=trash-close]")
         page.evaluate("openEdit(PINS.find(p=>p.note==='Tighten this sentence').id)")
         page.wait_for_timeout(300)
         self.assert_english(page, "desktop edit")
-        page.evaluate("openReply(REVIEW_ALL[0].id,'reopen')")
-        self.assert_english(page, "desktop reopen reason")
+        page.evaluate("openReply(REVIEW_ALL[0].id)")
+        page.fill("#review-pins textarea.r-text", "x")
+        self.assert_english(page, "desktop reply on a pin awaiting review (outcome line, keep state)")
 
     def test_touch_chrome_is_english(self):
         for name, device in (("fold", {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True}),

@@ -71,7 +71,7 @@ def js_thread() -> str:
     mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
     return "\n".join([ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
         "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "assigneeOf", "assignChip", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
+        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "pinRefGone", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
 
 
 def js_i18n(lang: str = "ko") -> str:
@@ -2064,11 +2064,13 @@ class FrontendStructure(unittest.TestCase):
         self.assertNotIn("frac_build", ps.HTML)
         self.assertNotIn("LAST_SEEN_BUILD", ps.HTML)
 
-    def test_dropped_list_ui_exists(self):
-        # §B: a collapsed '삭제한 핀 N ▸' list under '닫힌 핀' with a restore button.
-        self.assertIn('id="dropped-toggle"', ps.HTML)
-        self.assertIn('id="dropped-list"', ps.HTML)
-        self.assertIn("case'dropped-toggle':SHOW_DROPPED=!SHOW_DROPPED;drawPins()", ps.HTML.replace(" ", ""))
+    def test_trash_ui_exists(self):
+        # §B, v0.2.2: deleted pins live in the Trash dialog ([⋯] -> 휴지통 N, or the link under the list) with a restore button -
+        # not in a section of the list.
+        self.assertIn('<dialog id="trash"', ps.HTML)
+        self.assertIn('id="trash-list"', ps.HTML)
+        self.assertIn("case 'trash-open':openTrash();break;", ps.HTML)
+        self.assertNotIn('id="dropped-toggle"', ps.HTML)
         self.assertIn("function droppedCard(", ps.HTML)
         self.assertIn("data-act=\"restore\"", ps.HTML)
         self.assertIn("case 'restore':restorePin(id)", ps.HTML)
@@ -2081,12 +2083,12 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("DROPPED=dropped", body)
         self.assertIn("diffToast(prevOpen,d,dropped)", body)
 
-    def test_draw_pins_renders_dropped_toggle_and_list(self):
-        m = re.search(r"function drawPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1)
-        self.assertRegex(body, r"(DROPPED|LDROP)\.length")   # LDROP = listDropped() (current document or all documents)
-        self.assertIn("droppedCard", body)
+    def test_draw_pins_counts_the_trash(self):
+        body = extract_js_fn("drawPins")
+        self.assertIn("LDROP.filter(p=>!PURGING.has(p.id)).length", body)   # LDROP = listDropped() (current document or all documents)
+        self.assertIn("tl('휴지통 {n}',{n:nTrash})", body)
+        self.assertIn("if($('#trash').open)drawTrash();", body)
+        self.assertIn("map(droppedCard)", extract_js_fn("drawTrash"))
 
     def test_done_card_shows_close_reply_and_ref(self):
         # §C: a closed card shows the reply/ref left at close time (both go through esc).
@@ -3062,7 +3064,7 @@ class FrontendMobileStructure(unittest.TestCase):
 
     def test_compact_toolbar_elements_and_more_menu(self):
         for el in ('id="btn-side"', 'id="side-n"', 'id="btn-select"', 'id="btn-more"', '<dialog id="more"',
-                   'id="coach"', 'id="more-info"', 'id="m-theme"', 'id="m-done"', 'id="m-dropped"', 'id="m-jump"'):
+                   'id="coach"', 'id="more-info"', 'id="m-theme"', 'id="m-done"', 'id="m-trash"', 'id="m-jump"'):
             self.assertIn(el, ps.HTML)
         self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', ps.HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
@@ -4779,13 +4781,14 @@ class FrontendArchive(unittest.TestCase):
     def run_rows(self, script: str):
         js = "\n".join([r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-            const T={loc:'l',reopen:'r',restore:'s',n:'n'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
+            const T={loc:'l',reply:'y',restore:'s',purge:'u',n:'n',change:'c'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             """, js_icons(), extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
             extract_js_fn("locCopy"), extract_js_fn("docChip"),
             "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
             extract_js_fn("arcTime"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"), js_thread(),
-            extract_js_fn("arcHead"), extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
+            "const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"),
+            extract_js_fn("doneCard"), extract_js_fn("droppedCard"), script])
         return json.loads(run_node(js))
 
     def test_done_row_is_flat_with_reply_line_and_hidden_original_request(self):
@@ -4794,26 +4797,26 @@ class FrontendArchive(unittest.TestCase):
               closed_by:{name:'에이전트'},close_reply:'제목을 <b>바꿈</b>',close_ref:'PR #227',note:'원래 <메모>'};
             const a=doneCard(p); ARC_OPEN.add('o:7'); ARC_OPEN.add('r:7'); const b=doneCard(p);
             console.log(JSON.stringify([/class="arc-row done"/.test(a), !/class="pin/.test(a), /ic-check/.test(a),
-              /data-act="rv-reopen"[^>]*>다시 열기</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
+              /data-act="reply-open"[^>]*>답글</.test(a), /PR #227/.test(a), /class="rt arc-t" data-at="2026-09-23 20:40:11" data-tip="닫은 사람 에이전트 · 닫은 시각 2026-09-23 20:40:11">[^<]+</.test(a),
               /<span class="arc-reply" [^>]*>제목을 &lt;b&gt;바꿈&lt;\/b&gt;<\/span>/.test(a), /arc-orig"/.test(a), /원래 요청<\/button>/.test(a),
               /arc-reply open/.test(b), /class="arc-orig"><b>원래 요청<\/b>원래 &lt;메모&gt;/.test(b)]));
             """)
         self.assertEqual(out, [True, True, True, True, True, True, True, False, True, True, True])
 
-    def test_done_row_reopen_reuses_reason_ui_not_bare_reopen(self):
-        # observed bug: [다시 열기] on a done row called /reopen directly without asking for a reason. It
-        # now uses the same openReply(id,'reopen') path (data-act="rv-reopen") as the review card, and
-        # slots the input into .reply-slot inside the thread.
+    def test_done_row_reply_opens_the_reply_box_in_the_thread(self):
+        # observed bug (v0.2.0): [다시 열기] on a done row called /reopen directly without asking for a reason. v0.2.2 has no
+        # [다시 열기] at all: the row's [답글] opens the same reply box as a card (openReply), slotted into .reply-slot inside the
+        # expanded thread, and a person's reply reopens the pin by the server rule.
         out = self.run_rows(r"""
             const p={id:9,file:'/m.tex',name:'m.tex',lo:3,hi:5,page:2,done:true,done_at:'2026-09-23 20:40:11',
               closed_by:{name:'에이전트'},close_reply:'고침',thread:[{id:1,by:{name:'에이전트'},at:'2026-09-23 20:40:11',text:'고침',ev:'close'}]};
             const idle=doneCard(p);
-            REPLY={id:9,mode:'reopen',el:null};
-            const reopening=doneCard(p);
-            console.log(JSON.stringify([!/data-act="reopen"/.test(idle), /data-act="rv-reopen"/.test(idle),
-              /class="reply-slot"/.test(idle), /class="reply-slot"/.test(reopening), /class="arc-thread"/.test(reopening)]));
+            REPLY={id:9,el:null};
+            const replying=doneCard(p);
+            console.log(JSON.stringify([!/data-act="reopen"/.test(idle), !/rv-reopen/.test(idle), /data-act="reply-open"/.test(idle),
+              /class="reply-slot"/.test(idle), /class="reply-slot"/.test(replying), /class="arc-thread"/.test(replying)]));
             """)
-        self.assertEqual(out, [True, True, False, True, True])
+        self.assertEqual(out, [True, True, True, False, True, True])
 
     def test_placeholder_ref_dash_is_hidden(self):
         # observed bug: when a QA script or an old caller put '-' in the ref slot, a meaningless reference like '닫음 · -' would show.
@@ -4832,36 +4835,49 @@ class FrontendArchive(unittest.TestCase):
             const a=doneCard({id:3,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00'});
             const d=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'잘못 찍음',dropped_at:'2026-09-23 09:00:00',dropped_by:{name:'김'}});
             console.log(JSON.stringify([/설명 없이 닫힘/.test(a), /원래 요청/.test(a), /class="arc-row dropped"/.test(d), /ic-trash-2/.test(d),
-              /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d)]));
+              /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d),
+              /data-act="purge"/.test(d)]));
             """)
-        self.assertEqual(out, [True, False, True, True, True, True, True, False])
+        self.assertEqual(out, [True, False, True, True, True, True, True, False, False])   # [영구 삭제] is the owner's only
 
     def test_section_head_reads_label_count_and_fold_state(self):
-        out = self.run_rows(r"""
+        # One header component for open / awaiting review / done (v0.2.2): chevron, name, count, and 'new N' while collapsed.
+        js = "\n".join([js_icons(), r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const els={}; function el(id,ctl){return els[id]=els[id]||{id,innerHTML:'',hidden:false,attrs:{'aria-controls':ctl},
+              setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k];}};}
+            el('done-toggle','done-list'); el('done-list');
+            const document={getElementById:id=>els[id]||null};
+            const SEC_DEFAULT={open:true,review:true,done:false}; let SEC={open:true,review:true,done:false};
+            const SEC_SEEN={open:null,review:null,done:new Set([1,2])}; const SEC_NAME_ID={open:'list-h',review:'review-h',done:'done-h'};
+            """, extract_js_fn("secNewCount"), extract_js_fn("secHead"), r"""
             const strip=s=>s.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-            console.log(JSON.stringify([strip(arcHead('완료',18,false)), strip(arcHead('삭제',2,true)),
-              /ic-chevron-right/.test(arcHead('완료',1,false)), /ic-chevron-down/.test(arcHead('완료',1,true))]));
-            """)
-        self.assertEqual(out, ["완료 18 펼치기", "삭제 2 접기", True, True])
+            const out=[]; const b=els['done-toggle'];
+            secHead('done','완료',[1,2,3],[1,2,3,4]); out.push([strip(b.innerHTML),b.attrs['aria-expanded'],els['done-list'].hidden,/ic-chevron-right/.test(b.innerHTML)]);
+            SEC.done=true; secHead('done','완료',[1,2,3],[1,2,3,4]); out.push([strip(b.innerHTML),b.attrs['aria-expanded'],els['done-list'].hidden,/ic-chevron-down/.test(b.innerHTML)]);
+            SEC.done=false; secHead('done','완료',[1,2,3,4,5],[1,2,3,4,5]); out.push([strip(b.innerHTML)]);
+            console.log(JSON.stringify(out));"""])
+        out = json.loads(run_node(js))
+        self.assertEqual(out, [["완료 3 새 1", "false", True, True], ["완료 3", "true", False, True], ["완료 5 새 1"]])
 
     def test_sections_are_sticky_and_wired(self):
         h = ps.HTML
-        for sid in ("sec-open", "sec-done", "sec-dropped"):
+        for sid in ("sec-open", "sec-review", "sec-done"):
             self.assertIn('id="%s"' % sid, h)
+        self.assertNotIn('id="sec-dropped"', h)                              # v0.2.2: deleted pins are in the Trash dialog
         css = h[h.index("<style>"):h.index("</style>")]
-        self.assertRegex(css, r"\.list-head\{position:sticky;top:var\(--stick-top,0px\)")
-        self.assertRegex(css, r"button\.arc-head\{position:sticky;top:var\(--stick-top,0px\)")
+        self.assertRegex(css, r"\.sec-head\{position:sticky;top:var\(--stick-top,0px\)")
         # regression: revealList()'s scrollIntoView({block:'start'}) aligns this header's "sticky-uncorrected"
         # static position to the top of the viewport (0). Without scroll-margin-top, that static position
         # sits above the actual sticky-pinned position (stick-top), so the row right after the header (the
         # restore button) got hidden behind #bar1 (observed in touch QA). scroll-margin-top uses the same
         # --stick-top variable to keep the two aligned.
-        self.assertRegex(css, r"button\.arc-head\{[^}]*scroll-margin-top:var\(--stick-top,0px\)")
+        self.assertRegex(css, r"button\.sec-tg\{[^}]*scroll-margin-top:var\(--stick-top,0px\)")
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
-        self.assertIn("arcHead(tr('완료'),LDONE.length,SHOW_DONE)", body)
-        self.assertIn("arcHead(tr('삭제'),LDROP.length,SHOW_DROPPED)", body)
+        self.assertIn("secHead('done',tr('완료'),LDONE.map(p=>p.id),DONE_ALL.map(p=>p.id))", body)
+        self.assertIn("secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id))", body)
         self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
         # the same list functions (listDone/listDropped) are used for document switching and the "all documents" toggle too
         self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
@@ -5200,7 +5216,7 @@ class FrontendToolbarOneRow(unittest.TestCase):
     def test_reload_lives_in_list_head_not_toolbar(self):
         bar = ps.HTML[ps.HTML.index('<div class="bar" id="bar1"'):ps.HTML.index('<div class="bar" id="bar2"')]
         self.assertNotIn('id="btn-reload"', bar)
-        head = ps.HTML[ps.HTML.index('<div class="list-head">'):ps.HTML.index('<div id="pins">')]
+        head = ps.HTML[ps.HTML.index('<div class="sec-head">'):ps.HTML.index('<div id="pins">')]
         self.assertRegex(head, r'<button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기"')
 
     def test_label_chip_truncates_and_tip_has_full_label(self):
@@ -5808,8 +5824,9 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
-        self.assertIn("'/api/pins/'+R.id+'/'+(R.mode==='reopen'?'reopen':'reply')", send)
-        self.assertIn("{reason:text}", send)
+        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)   # one path; the server decides
+        self.assertIn("body.reopen=false", send)                              # [상태 유지]
+        self.assertIn("deferred(", send)                                      # sent when the undo toast goes away
 
     def test_compact_collapsed_card_hides_thread(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
@@ -5951,10 +5968,10 @@ class FrontendReview(unittest.TestCase):
         if not shutil.which("node"):
             self.skipTest("node not available")
 
-    def test_review_card_suggests_author_and_offers_confirm_reopen(self):
+    def test_review_card_suggests_author_and_offers_confirm_and_reply(self):
         js = "\n".join([r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',rvReopen:'o',reply:'y'};
+            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
             let EDIT=null, PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}};
             const OPEN_CARDS=new Set();
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
@@ -5970,7 +5987,7 @@ class FrontendReview(unittest.TestCase):
             const other=card(Object.assign({},base,{author:{login:'w@x',name:'Wendy Kim'}}));
             const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
             console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
-              /Wendy Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),/data-act="rv-reopen"/.test(other),
+              /Wendy Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),!/rv-reopen/.test(other)&&/data-act="reply-open"/.test(other),
               !/data-act="close"/.test(other),!/data-act="drop"/.test(other),/ev-close/.test(other),!/review/.test(open)]));
             """])
         self.assertEqual(json.loads(run_node(js)), [True] * 10)
@@ -5996,12 +6013,15 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('id="sec-review"', ps.HTML)
         self.assertIn('id="side-rv"', ps.HTML)
 
-    def test_review_card_reply_hint_and_reopen_hint(self):
-        # observed bug: a review card's reply field used the same hint text as a normal reply, so it
-        # wasn't clear that leaving a reply wouldn't get an agent to pick it back up (§Pending review — never re-processed).
+    def test_review_card_reply_hint_says_what_a_reply_does(self):
+        # observed bug (v0.2.0): a review card's reply field used the same hint text as a normal reply, so it wasn't clear what
+        # a reply would do. v0.2.2: on a closed pin the placeholder says a reply reopens it, and the outcome line under the
+        # box previews the server rule (tests/test_v022.py covers every row).
         body = extract_js_fn("replyEl")
-        self.assertIn("review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글", body)
-        self.assertIn("mode==='reply'&&!!p&&pinState(p)==='review'", extract_js_fn("openReply"))
+        self.assertIn("closed?'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)':'답글", body)
+        self.assertIn('class="r-outcome"', body)
+        self.assertIn('data-act="reply-keep"', body)
+        self.assertIn("REPLY={id,keep:false,el:replyEl(p)}", extract_js_fn("openReply"))
 
 
 # ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)
@@ -6306,8 +6326,9 @@ class FrontendMentions(unittest.TestCase):
             let META={me:{login:'s@x',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
+            function tr(s){return s;}
             function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
-            """] + [extract_js_fn(n) for n in ("peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "fmtText", "mentionsMe",
+            """] + [extract_js_fn(n) for n in ("peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "pinRefGone", "fmtText", "mentionsMe",
                                                "mentionQuery", "mentionMatches", "mentionHints", "mentionScan", "defaultAssignee", "assignPeople")]
             + [script])
         return json.loads(run_node(js))
@@ -6336,6 +6357,8 @@ class FrontendMentions(unittest.TestCase):
             console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
         self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
         self.assertIn('data-ref="12"', out[0]); self.assertIn('data-ref="40"', out[0]); self.assertNotIn('data-ref="99"', out[0])
+        self.assertIn('<span class="pin-ref gone"', out[0])                  # v0.2.2: #40 is in the Trash - it reads 'deleted pin'
+        self.assertIn('#40 <small>삭제된 핀</small>', out[0])
         self.assertIn("it&#39;s", out[0])                                     # the escaped &#39; is not a link
         self.assertNotIn("pin-ref", out[1])
 
