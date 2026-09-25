@@ -48,6 +48,7 @@ import threading
 import tempfile
 import time
 import traceback
+from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -3528,6 +3529,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             raise HTTPError(409, "done", pin=public(r), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
         if base_given and int(r.get("rev") or 0) != base:
             raise HTTPError(409, "conflict", pin=public(r))
+        old_note = str(r.get("note") or "")         # to tell a new @-tag from one the note already had (_set_note_mentions)
         range_changed = False
         if region:
             if newloc is not None:                   # re-placing the region - only page/region/region text/build change
@@ -3586,7 +3588,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         if kind_req is not None:
             r["kind_req"] = kind_req
         if has_note or note_append is not None:
-            _set_note_mentions(r, rows, hints, actor, evs)
+            _set_note_mentions(r, rows, hints, actor, evs, old_note)
         _set_assignee(r, assignee, actor, evs, record=True)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
@@ -3779,6 +3781,13 @@ def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -
     hints are included. Returned in first-seen order, no duplicates. `exclude` (usually the author's own
     login) is removed from the result - so self-@-tagging never turns into "a pin that called someone" /
     "I was called" (observed: a self-mention was picked up as addressed)."""
+    return list(dict.fromkeys(mention_hits(text, people, hints, exclude)))
+
+
+def mention_hits(text: str, people: dict, hints=None, exclude: str = None) -> list:
+    """Every resolved '@name' occurrence in text, in order and with repeats (resolve_mentions() is its de-duplicated
+    form). Counting occurrences is what tells a note edit that *adds* another '@Bob' apart from one that only
+    fixes a typo next to an existing '@Bob' (_set_note_mentions)."""
     text = str(text or "")
     if "@" not in text or not people:
         return []
@@ -3796,7 +3805,7 @@ def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -
                 continue
             pick = logins if len(logins) == 1 else logins & hints
             for lg in sorted(pick):
-                if lg != exclude and lg not in found:
+                if lg != exclude:
                     found.append(lg)
             if pick:
                 break
@@ -3922,15 +3931,22 @@ def _read_events() -> tuple:
     return list(rows), sig
 
 
-def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> None:
-    """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for anyone newly called."""
-    old = set(r.get("mentions") or [])
-    new = resolve_mentions(r.get("note") or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
+def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list, old_note: str = "") -> None:
+    """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for everyone
+    this save or edit explicitly @-tags: a person whose '@name' occurs more often in the new note than in old_note
+    (the note before this edit; empty for a new pin). A typo fix next to an existing '@Bob' notifies nobody, while
+    an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged him."""
+    ppl = known_people(rows)
+    me = (actor or {}).get("login")
+    hits = mention_hits(r.get("note") or "", ppl, hints, exclude=me)
+    before = Counter(mention_hits(old_note or "", ppl, hints, exclude=me))
+    new = list(dict.fromkeys(hits))
     if new:
         r["mentions"] = new
     else:
         r.pop("mentions", None)
-    evs.append(make_event("mention", r, actor, [lg for lg in new if lg not in old], text=r.get("note")))
+    now = Counter(hits)
+    evs.append(make_event("mention", r, actor, [lg for lg in new if now[lg] > before[lg]], text=r.get("note")))
 
 
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
@@ -3978,8 +3994,9 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 
 def reply_pin(pid: int, text: str, actor: dict, hints=None):
     """One reply (from a person or an agent). Never changes state - for a question pin, an agent replies and then closes it separately.
-    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions, and a replied event
-    is left for the author and everyone previously called on this pin, plus a mention event for anyone newly called."""
+    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions: everyone
+    this post tags gets a mention event (whether or not they were tagged before), and the author plus everyone
+    previously tagged on this pin who is not tagged here gets a replied event. The poster themself gets neither."""
     evs = []
 
     def fn(rows):
@@ -3988,13 +4005,15 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None):
             return (None, None), False
         if len(thread_replies(r)) >= THREAD_MAX:
             raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
-        before = set(pin_mentions_all(r))
+        before = pin_mentions_all(r)
         ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
         msg = _thread_append(r, actor, text, mentions=ment)
         r["rev"] = int(r.get("rev") or 0) + 1
-        evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
+        # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
+        # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
+        evs.append(make_event("mention", r, actor, ment, msg=msg))
         evs.append(make_event("replied", r, actor, [lg for lg in [(r.get("author") or {}).get("login")] + sorted(before)
-                                                    if lg not in ment], msg=msg))   # someone called by this post only gets a single mention event
+                                                    if lg not in ment], msg=msg))
         return (public(r), msg), True
     with PIN_LOCK:
         out = transact(fn)[1]
@@ -4066,11 +4085,11 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
             for k in ("review", "confirmed_by", "confirmed_at"):
                 r.pop(k, None)
             if was_done:
-                before = set(pin_mentions_all(r))
                 ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
                 msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
-                evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
-                evs.append(make_event("reopened", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
+                evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
+                evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
+                                                             if lg not in ment], msg=msg))
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     with PIN_LOCK:

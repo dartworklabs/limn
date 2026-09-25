@@ -6148,7 +6148,8 @@ class MentionsPeopleEvents(Base):
         n = len(self.events())
         self.post("/api/pins/%d/reopen" % pid, {"reason": "@Wendy Kim 한 번 더 봐 주세요"}, self.HS)
         tail = self.events()[n:]
-        self.assertEqual([(x["type"], x["to"]) for x in tail], [])       # the mentioned person was already notified, and the author is themself
+        # v0.2.1: every @-tag in a reopen reason notifies, even someone tagged before; the author reopened it themself
+        self.assertEqual([(x["type"], x["to"]) for x in tail], [("mention", [self.W["login"]])])
         self.post("/api/pins/%d/close" % pid, {"reply": "다시 답함"})
         self.post("/api/pins/%d/reopen" % pid, {"reason": "아직"}, self.HW)
         self.assertEqual((self.events()[-1]["type"], self.events()[-1]["to"]), ("reopened", [self.S["login"]]))
