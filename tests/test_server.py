@@ -100,6 +100,20 @@ def run_node(js: str, tz: str = None):
         raise AssertionError("node execution failed:\n%s" % r.stderr)
     return r.stdout
 
+def shut_wr(sock: socket.socket) -> None:
+    """Half-close the client side of a test socketpair after sending a request.
+
+    The handler may already have answered and closed its end (an early 4xx does), and then macOS
+    refuses the half-close with ENOTCONN (Linux may say EPIPE or ECONNRESET). The response is
+    still buffered for recv(), so those errors are not failures; anything else still raises.
+    """
+    try:
+        sock.shutdown(socket.SHUT_WR)
+    except OSError as exc:
+        if exc.errno not in (errno.ENOTCONN, errno.EPIPE, errno.ECONNRESET):
+            raise
+
+
 TEX = """\\documentclass{article}
 \\begin{document}
 \\section{Intro}
@@ -174,11 +188,7 @@ class Base(unittest.TestCase):
         t.start()
         a.sendall(raw)
         if shut:
-            try:
-                a.shutdown(socket.SHUT_WR)
-            except OSError as exc:
-                if exc.errno not in (errno.ENOTCONN, errno.EPIPE, errno.ECONNRESET):
-                    raise
+            shut_wr(a)
         a.settimeout(10)
         out = b""
         try:
@@ -6698,3 +6708,18 @@ class FrontendNotify(unittest.TestCase):
         self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
         self.assertIn("notifyQuery()", extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
+
+
+class SocketHarness(unittest.TestCase):
+    """The socketpair helpers every handler test goes through must not fail on their own races."""
+
+    def test_half_close_is_harmless_when_the_handler_already_closed(self):
+        """An early answer closes the server end first; shut_wr() then returns instead of raising ENOTCONN."""
+        a, b = socket.socketpair()
+        b.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        b.close()
+        try:
+            shut_wr(a)
+            self.assertEqual(a.recv(64), b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        finally:
+            a.close()

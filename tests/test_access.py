@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_server import Base, extract_js_fn, ps, req, run_node, split_resp
+from test_server import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -60,7 +60,7 @@ def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:
     t = threading.Thread(target=serve, daemon=True)
     t.start()
     a.sendall(raw)
-    a.shutdown(socket.SHUT_WR)
+    shut_wr(a)
     a.settimeout(10)
     out = b""
     try:

@@ -22,6 +22,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
+from test_server import shut_wr
+
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"
 spec = importlib.util.spec_from_file_location("limn_server_i18n", PKG / "server.py")
@@ -431,7 +433,7 @@ class EnglishChrome(unittest.TestCase):
         t = threading.Thread(target=lambda: (ps.Handler(b, ("127.0.0.1", 0), None), b.close()), daemon=True)
         t.start()
         a.sendall(raw)
-        a.shutdown(socket.SHUT_WR)
+        shut_wr(a)
         a.settimeout(20)
         out = b""
         while True:
