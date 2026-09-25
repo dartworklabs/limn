@@ -6070,6 +6070,28 @@ class FrontendChangeView(unittest.TestCase):
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
 
+    def test_pin_scope_wiring(self):
+        # v0.3 (docs/handbook/viewer.md §변경 보기, ADR-0005): the pin's hunks, the rest folded under one control, one PDF toggle
+        h = ps.HTML
+        self.assertIn('<button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" '
+                      'aria-controls="revision-other" hidden>', h)
+        self.assertIn('<pre id="revision-other" class="nowrap" hidden></pre>', h)
+        self.assertIn('<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h)
+        self.assertIn("case 'revision-other':toggleRevisionOther();break;", h)
+        self.assertIn("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;", h)
+        src = extract_js_fn("loadRevisionSource")
+        self.assertIn("'&pin='+tg0.id", src)                            # a pin's view asks for its scope; plain browsing does not
+        self.assertIn("r.scope.mode==='pin'", src)
+        pdf = extract_js_fn("loadRevisionPdf")
+        self.assertIn("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null", pdf)
+        self.assertIn("REV_SCOPE.fallback=true", pdf)                   # a subset that does not compile falls back once
+        self.assertIn("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false", extract_js_fn("showRevision"))
+        css = h[h.index("<style>"):h.index("</style>")]
+        # the folded diff shares every source-diff rule (its selector first, so the existing strings stay whole)
+        for rule in (" .rd-line{", ".wrap .rd-code{", " .rd-add{", " .rd-del{", " .rd-hunk{"):
+            self.assertIn("#revision-other%s,#revision-diff%s" % (rule[:-1], rule), css)
+        self.assertIn("#revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}", css)
+
 
 # ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/handbook/api.md §@태그·사람·이벤트)
 class MentionsPeopleEvents(Base):
