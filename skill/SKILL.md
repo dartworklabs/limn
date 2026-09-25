@@ -44,7 +44,7 @@ Do not use it when:
 
 ### Authentication
 
-Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). If you get `401`, ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증.
+Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). **Through the tailnet address a token is required** unless your machine is signed in to the tailnet as a person: a request that reaches `https://…ts.net` without a token or a person's identity (a tagged device, a CI runner) gets `403` since v0.2.1. If you get `401` or `403`, ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증.
 
 ### What you read
 
@@ -55,7 +55,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 
 - Claim one pin, right before you edit it, with an `eta_min` estimate (step 4).
 - Reply to a pin (`/reply`).
-- Close a pin with `reply` and `ref` (step 6). When you close through the tailnet address, send `"review": true`.
+- Close a pin with `reply` and `ref` (step 6). When you close through the tailnet address without a token, send `"review": true`.
 - Rebuild the PDF after editing (§Rules).
 
 ### What you must not do
@@ -64,7 +64,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 - Do not process, unless the user explicitly asks for that pin: pins claimed by someone else, pins in `## 검토 대기`, or pins whose number cell shows `→ @이름` (assigned to a person).
 - Do not edit the manuscript for a question pin unless the question implies an edit.
 - Do not process pins from a different repository: if the `pins.md` repo header does not match `git remote get-url origin`, stop and report.
-- Do not call `/api/clear`.
+- Do not call `/api/clear` (it is owner-only and refuses agents with `403`).
 
 ### Processing pins
 
@@ -100,7 +100,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 6. **Close.** A pin closed by an agent does not become done; it goes to **awaiting review**. When a human clicks [확인] (confirm) in the viewer it is done; [다시 열기] (reopen) sends it back as an open pin with a reason.
    - **Edit-request pin**: after editing, close it with what you changed (`reply`, ≤500 chars) and the PR number or commit (`ref`, ≤80 chars). The viewer's [변경 보기] (view changes) uses `ref` to find the commit.
    - **Question pin**: do not edit the manuscript (only if the question implies an edit). Post the answer as a reply, then close.
-   - When closing through the tailnet address (`https://…ts.net`), the request carries a human identity and would be marked done immediately, so put `"review": true` in the body. Through local `127.0.0.1` it goes to awaiting review without it.
+   - When closing through the tailnet address (`https://…ts.net`) **without a token**, the request carries the human identity of the machine you run on and would be marked done immediately, so put `"review": true` in the body. With a token, or through local `127.0.0.1`, it goes to awaiting review without it (sending it anyway is harmless).
    - **Agents never confirm.** `POST /api/pins/{id}/confirm` returns 403 without a human identity (tailnet header).
 
    ```bash
@@ -137,7 +137,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
 
 - Stale (`위치 잃음`): if you have just edited that range yourself, check the source and you may close it. Otherwise do not close by guessing; report it.
 - If the location is gone (file deleted, section moved) or the context does not match the note, do not close; report it.
-- No `/api/clear`: it wipes unprocessed pins too. Close pins one by one.
+- No `/api/clear`: it wipes unprocessed pins too, and only the owner may call it (with a confirmation). Close pins one by one.
 - Closing an already closed pin changes nothing (the `reply` is discarded as well). To change the reason, `/reopen` and then `/close` again.
 - `close` and `drop` clear the claim. Call `/unclaim` only when you give up a pin or hand it over.
 - To edit a pin's note or range, send the `rev` from `GET /api/pins` as `base_rev` to `/edit`. On `409 conflict`, look at the latest `pin` in the response and resend. To only append, use `note_append` (no `base_rev` needed).
@@ -145,7 +145,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
 
 ## Starting a viewer for the user
 
-1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.0`, then check with `limn version`.
+1. **Install** (once): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.1`, then check with `limn version`.
 2. **Check the port (mandatory).** Never bind without checking.
 
    ```bash

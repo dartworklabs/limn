@@ -30,8 +30,11 @@ What the server does defend against:
 - Forged identity headers: they are ignored unless the TCP peer is loopback (`tailscale`) or a configured proxy
   (`trusted-proxy`).
 - Path traversal: static files are limited to the vendored PDF.js files by name.
-- Requests that arrive through a `*.ts.net` host without identity headers (e.g. tagged devices) are refused when
-  `--allow` or `--members-only` is set.
+- Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
+  tagged devices) are refused (`403`) since v0.2.1 — only a request naming this machine (a loopback Host) can be the
+  headerless agent. `--tailnet-agent` restores the v0.2.0 behaviour, and never past `--allow` or `--members-only`.
+- Bulk deletion: `POST /api/clear` (archive and empty every pin) is refused to everyone but the `owner` role and
+  needs an explicit confirmation body; it keeps a backup and records who did it (since v0.2.1).
 
 What it does not: a `local` or `tailscale` instance trusts every process on the same machine that can reach
 loopback. On a shared machine, give agents tokens, turn off the loopback agent, and use `--members-only`.
