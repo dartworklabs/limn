@@ -1155,6 +1155,8 @@ cmd_snippet() {
 
 - Viewer: $url/ — co-authors drag on the PDF to leave pins marking where to fix things.$doclist
 - Pin list: \`curl -s $url/pins.md\` (on the same machine: \`curl -s http://127.0.0.1:$C_PORT/pins.md\`)
+- Agent token: send \`-H "Authorization: Bearer \$LIMN_TOKEN"\` with every request (the owner creates it with \`limn token create $n\`).
+  Through the tailnet address it is required unless the machine is signed in as a person: a request with neither gets 403.
 - **Check this first**: does the repo (manuscript path) at the top of pins.md match \`git remote get-url origin\` for this checkout?
   If not, this is the viewer for a different paper — don't act on it. This viewer's manuscript repo: \`$origin\`
 - Division of labor: whoever was asked handles **all** open pins. Skip pins claimed (⏳) by the other side.
