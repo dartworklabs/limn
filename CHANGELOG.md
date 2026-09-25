@@ -27,6 +27,10 @@ instruction; everything else in `pins.md` is byte-for-byte the same.
   per (pin, commit, hunk set); one toggle [Whole commit] switches to the whole-commit comparison. If the pin's hunks
   alone do not compile, the whole commit is shown with a one-line note. A commit that is entirely the pin's looks as in
   0.2.2, with no extra control.
+- Recorded `changes` count only on the commit `close_ref` names (hash, or the squash/merge commit found by PR number);
+  on any other commit the view is inferred, and the viewer scopes only the commit it picked for the pin. The
+  comparison cache is keyed by (commit, block set) and counts pin-scoped entries apart; transient read failures are
+  not cached; symlink and submodule entries are never read as text.
 - Rolling back to 0.2.2 is safe: 0.2.2 ignores the `changes` field, and the new cache entries expire on their own.
 
 ## 0.2.2 — 2026-09-25
