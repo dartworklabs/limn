@@ -1,0 +1,686 @@
+"""v0.2.2 (issue #8): one [Reply] whose outcome a server rule decides, Trash instead of the dropped section, and
+collapsible list sections that share one header component.
+
+Reply rule (docs/handbook/domain.md §전이와 할 수 있는 쪽, api.md §스레드 (답글)):
+
+| pin state            | who    | reply tags a person? | result                                   |
+| review / done        | human  | no                   | reopens; the reply is the reason (ev:reopen) |
+| review / done        | human  | yes                  | state unchanged; that person is notified |
+| open                 | anyone | -                    | state unchanged                          |
+| question pin         | anyone | -                    | recorded as an answer, state unchanged   |
+
+An optional "reopen": true/false on the request overrides the rule ([Keep state] sends false).
+
+Run: uv run pytest -q tests/test_v022.py
+"""
+import json
+import re
+import time
+import unittest
+from pathlib import Path
+
+from test_access import ALICE, BOB, CAROL, AccessBase
+from test_qa_021 import BrowserBase, actor
+from test_server import Base, extract_js_fn, js_i18n, ps, run_node
+
+ROOT = Path(__file__).resolve().parent.parent
+HANGUL = re.compile(r"[가-힣]")
+A, B, C = actor(ALICE), actor(BOB), actor(CAROL)
+
+# (state, kind_req, human, mentioned, override) -> reopens?
+RULE_CASES = []
+for _st in ("open", "review", "done"):
+    for _kind in ("fix", "question"):
+        for _human in (True, False):
+            for _ment in ([], ["bob@example.com"]):
+                for _ov in (None, True, False):
+                    if _st == "open":
+                        _want = False
+                    elif _ov is not None:
+                        _want = _ov
+                    else:
+                        _want = _kind == "fix" and _human and not _ment
+                    RULE_CASES.append((_st, _kind, _human, _ment, _ov, _want))
+
+
+def rec_for(state, kind):
+    r = {"id": 1, "file": "/m.tex", "lo": 1, "hi": 2, "kind_req": kind}
+    if state != "open":
+        r["done"] = True
+    if state == "review":
+        r["review"] = True
+    return r
+
+
+# ---------------------------------------------------------------- 1. the reply rule
+
+class ReplyRule(unittest.TestCase):
+    def test_every_row_of_the_rule_table(self):
+        for st, kind, human, ment, ov, want in RULE_CASES:
+            with self.subTest(state=st, kind=kind, human=human, mentioned=ment, override=ov):
+                self.assertIs(ps.reply_reopens(rec_for(st, kind), human, ment, ov), want)
+
+    def test_viewer_mirrors_the_server_rule(self):
+        # The one-line preview under the reply box must predict exactly what the server will do.
+        js = "\n".join([extract_js_fn("pinState"), extract_js_fn("replyReopens"),
+                        "const cases=%s;" % json.dumps([[rec_for(st, k), h, m, ov] for st, k, h, m, ov, _ in RULE_CASES]),
+                        "console.log(JSON.stringify(cases.map(c=>replyReopens(c[0],c[1],c[2],c[3]===null?undefined:c[3]))));"])
+        self.assertEqual(json.loads(run_node(js)), [w for *_, w in RULE_CASES])
+
+
+class ReplyApi(AccessBase):
+    """POST /api/pins/{id}/reply applies the rule on the server; the response adds `reopened` and `state`."""
+
+    def setUp(self):
+        super().setUp()
+        ps._EVENTS_CACHE.clear()
+        for h in (ALICE, BOB, CAROL):
+            ps.record_person(actor(h))
+
+    def review_pin(self, kind="fix", author=A):
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author)
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
+        self.assertEqual(ps.pin_state(self.pin(pid)), "review")
+        return pid
+
+    def done_pin(self):
+        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A)
+        ps.set_done(pid, True, A, reply="고침")
+        self.assertEqual(ps.pin_state(self.pin(pid)), "done")
+        return pid
+
+    def reply(self, pid, body, headers=None, token=None):
+        return self.call("POST", "/api/pins/%d/reply" % pid, body, headers, token=token)
+
+    def events(self):
+        return [(e["type"], sorted(e["to"])) for e in ps._read_events()[0]]
+
+    def test_human_reply_on_review_pin_reopens_with_the_reply_as_reason(self):
+        pid = self.review_pin()
+        n = len(self.events())
+        code, d = self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
+        self.assertEqual(code, 200, d)
+        self.assertEqual((d["ok"], d["reopened"], d["state"]), (True, True, "open"))
+        p = self.pin(pid)
+        self.assertFalse(p["done"])
+        for k in ("review", "close_reply", "close_ref", "confirmed_by"):
+            self.assertNotIn(k, p)
+        self.assertEqual(p["reopened_by"], {"login": "bob@example.com", "name": "Bob Park"})
+        self.assertEqual((p["thread"][-1]["ev"], p["thread"][-1]["text"]), ("reopen", "식 번호가 아직 틀립니다"))
+        self.assertEqual(d["msg"]["ev"], "reopen")
+        self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"])])
+
+    def test_human_reply_on_done_pin_reopens(self):
+        pid = self.done_pin()
+        code, d = self.reply(pid, {"text": "다시 보니 문장이 어색합니다"}, CAROL)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
+        self.assertEqual(self.pin(pid)["thread"][-1]["ev"], "reopen")
+
+    def test_reply_that_tags_a_person_keeps_state_and_notifies_them(self):
+        pid = self.review_pin()
+        n = len(self.events())
+        code, d = self.reply(pid, {"text": "@Carol Lee 이 수정 괜찮은지 봐 주세요"}, BOB)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+        last = self.pin(pid)["thread"][-1]
+        self.assertNotIn("ev", last)
+        self.assertEqual(last["mentions"], ["carol@example.com"])
+        self.assertEqual(self.events()[n:], [("mention", ["carol@example.com"]), ("replied", ["alice@example.com"])])
+
+    def test_tagging_only_yourself_is_not_tagging_a_person(self):
+        pid = self.review_pin()
+        code, d = self.reply(pid, {"text": "@Bob Park 메모: 다시 봐야 함"}, BOB)
+        self.assertEqual((d["reopened"], d["state"]), (True, "open"))
+
+    def test_reply_on_open_pin_never_changes_state(self):
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A)
+        for body in ({"text": "이유 없이"}, {"text": "강제로", "reopen": True}):
+            code, d = self.reply(pid, body, BOB)
+            self.assertEqual((code, d["reopened"], d["state"]), (200, False, "open"))
+        self.assertTrue(all("ev" not in m for m in self.pin(pid)["thread"]))
+
+    def test_agent_reply_never_reopens_by_rule(self):
+        pid = self.review_pin()
+        code, d = self.reply(pid, {"text": "추가 설명: 식 (3) 도 같이 고쳤습니다"})            # headerless loopback agent
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+        _, tok = ps.token_create(ps.C.state, "bot")
+        code, d = self.reply(pid, {"text": "토큰으로 단 답글"}, token=tok)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+
+    def test_person_with_agent_role_is_an_agent_for_the_rule(self):
+        self.set_people([{"login": "carol@example.com", "name": "Carol Lee", "role": "agent"}])
+        pid = self.review_pin()
+        code, d = self.reply(pid, {"text": "에이전트 역할의 답글"}, CAROL)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+
+    def test_question_pin_reply_is_an_answer(self):
+        pid = self.review_pin(kind="question")
+        code, d = self.reply(pid, {"text": "95% 신뢰구간입니다"}, BOB)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+        code, d = self.reply(pid, {"text": "그래도 다시 봐 주세요", "reopen": True}, BOB)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
+
+    def test_keep_state_override(self):
+        pid = self.review_pin()
+        code, d = self.reply(pid, {"text": "확인은 내일 할게요", "reopen": False}, BOB)
+        self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
+        self.assertNotIn("ev", self.pin(pid)["thread"][-1])
+
+    def test_explicit_reopen_by_an_agent(self):
+        pid = self.review_pin()
+        code, d = self.reply(pid, {"text": "제가 놓친 부분이 있어 다시 엽니다", "reopen": True})
+        self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
+
+    def test_reopen_field_must_be_a_boolean(self):
+        pid = self.review_pin()
+        before = self.pin(pid)
+        for bad in ("yes", 1, [], {}):
+            code, d = self.reply(pid, {"text": "x", "reopen": bad}, BOB)
+            self.assertEqual(code, 400, bad)
+        self.assertEqual(self.pin(pid), before)
+
+    def test_viewer_role_cannot_reply(self):
+        self.set_people([{"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}])
+        pid = self.review_pin()
+        code, _ = self.reply(pid, {"text": "x"}, CAROL)
+        self.assertEqual(code, 403)
+        self.assertEqual(ps.pin_state(self.pin(pid)), "review")
+
+    def test_unknown_pin(self):
+        code, d = self.reply(999, {"text": "x"}, BOB)
+        self.assertEqual((code, d["ok"]), (200, False))
+
+    def test_reopened_pin_shows_in_open_table_with_reply_as_reason(self):
+        pid = self.review_pin()
+        md = ps.pins_md_text(ps.snapshot_pins())
+        self.assertNotRegex(md, r"\n\| %d · " % pid)                          # awaiting review: not in the open table
+        self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
+        md = ps.pins_md_text(ps.snapshot_pins())
+        row = next(l for l in md.splitlines() if l.startswith("| %d · " % pid))
+        self.assertIn("다시 열림", row)
+        self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀립니다", row)
+        self.assertNotIn("## 검토 대기", md)
+
+    def test_full_thread_still_reopens(self):
+        pid = self.review_pin()
+        rows = ps.read_pins()[0]
+        r = ps.find_pin(rows, pid)
+        r["thread"] = r["thread"] + [{"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"}
+                                     for i in range(ps.THREAD_MAX)]
+        ps.write_pins(rows)
+        code, d = self.reply(pid, {"text": "다시"}, BOB)
+        self.assertEqual((code, d["reopened"]), (200, True))
+        code, d = self.reply(pid, {"text": "이제는 가득"}, BOB)
+        self.assertEqual((code, d["error"]), (409, "full"))
+
+    def test_reopen_endpoint_is_kept_for_compatibility(self):
+        pid = self.review_pin()
+        code, d = self.call("POST", "/api/pins/%d/reopen" % pid, {"reason": "옛 경로"}, BOB)
+        self.assertEqual((code, d["state"]), (200, "open"))
+
+    def test_python_api_keeps_its_two_value_return(self):
+        pid = self.review_pin()
+        pin, msg = ps.reply_pin(pid, "사람 답글", B)
+        self.assertEqual((pin["done"], msg["ev"]), (False, "reopen"))
+        pid = self.review_pin()
+        pin, msg = ps.reply_pin(pid, "에이전트 답글", dict(ps.LOCAL_ACTOR))
+        self.assertTrue(pin["done"])
+        self.assertNotIn("ev", msg)
+
+
+# ---------------------------------------------------------------- 2. Trash
+
+class Trash(AccessBase):
+    def setUp(self):
+        super().setUp()
+        ps._EVENTS_CACHE.clear()
+        for h in (ALICE, BOB, CAROL):
+            ps.record_person(actor(h))
+
+    def dropped_file(self):
+        return ps.read_jsonl(ps.C.dropped)[0]
+
+    def put_dropped(self, pid, days_ago, **extra):
+        rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old %d" % pid,
+               "author": A, "dropped_by": B, **extra}
+        if days_ago is not None:
+            rec["dropped_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days_ago * 86400))
+        ps.atomic_write(ps.C.dropped, ps.dump_jsonl(self.dropped_file() + [rec]))
+
+    def test_retention_is_thirty_days(self):
+        self.assertEqual(ps.TRASH_DAYS, 30)
+
+    def test_someone_elses_delete_notifies_the_author(self):
+        pid = self.pin_id(ALICE)
+        n = len(ps._read_events()[0])
+        code, d = self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
+        self.assertEqual((code, d["ok"]), (200, True))
+        evs = ps._read_events()[0][n:]
+        self.assertEqual([(e["type"], e["to"], e["by"]["login"], e["pin"]) for e in evs],
+                         [("dropped", ["alice@example.com"], "bob@example.com", pid)])
+        self.assertIn("dropped", ps.NOTIFY_TYPES)
+        m = self.call("GET", "/api/meta?light=1&ev=%d" % (evs[0]["seq"] - 1), headers=ALICE)[1]
+        self.assertEqual([e["type"] for e in m["events"]], ["dropped"])
+
+    def test_deleting_your_own_pin_notifies_nobody(self):
+        pid = self.pin_id(ALICE)
+        n = len(ps._read_events()[0])
+        self.call("POST", "/api/pins/%d/drop" % pid, None, ALICE)
+        self.assertEqual(ps._read_events()[0][n:], [])
+
+    def test_agent_delete_notifies_the_author(self):
+        pid = self.pin_id(ALICE)
+        n = len(ps._read_events()[0])
+        self.call("POST", "/api/pins/%d/drop" % pid)
+        self.assertEqual([(e["type"], e["to"]) for e in ps._read_events()[0][n:]], [("dropped", ["alice@example.com"])])
+
+    def test_expired_pins_are_hidden_then_purged(self):
+        self.put_dropped(50, 31)
+        self.put_dropped(51, 29)
+        self.put_dropped(52, None)                            # no timestamp (hand-edited): kept, never guessed
+        ids = sorted(r["id"] for r in ps.dropped_payload())
+        self.assertEqual(ids, [51, 52])                       # a read never shows an expired pin...
+        self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [50, 51, 52])   # ...and never writes
+        self.assertEqual(ps.purge_trash(), 1)
+        self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [51, 52])
+        self.assertEqual(ps.purge_trash(now=time.time() + 2 * 86400), 1)   # two days later #51 is 31 days old
+        self.assertEqual([r["id"] for r in self.dropped_file()], [52])
+
+    def test_a_drop_purges_expired_pins(self):
+        self.put_dropped(60, 40)
+        pid = self.pin_id(ALICE)
+        self.call("POST", "/api/pins/%d/drop" % pid, None, ALICE)
+        self.assertEqual([r["id"] for r in self.dropped_file()], [pid])
+
+    def test_an_expired_pin_cannot_be_restored(self):
+        self.put_dropped(61, 45)
+        code, _ = self.call("POST", "/api/pins/61/restore", None, ALICE)
+        self.assertEqual(code, 404)
+
+    def test_owner_deletes_permanently(self):
+        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"}])
+        pid = self.pin_id(BOB)
+        self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
+        n = len(ps._read_events()[0])
+        code, d = self.call("POST", "/api/pins/%d/purge" % pid, None, ALICE)
+        self.assertEqual((code, d["ok"], d["purged"]), (200, True, pid))
+        self.assertEqual(self.dropped_file(), [])
+        self.assertEqual([(e["type"], e["to"], e["pin"]) for e in ps._read_events()[0][n:]], [("purged", [], pid)])
+        code, _ = self.call("POST", "/api/pins/%d/restore" % pid, None, ALICE)
+        self.assertEqual(code, 404)
+        code, _ = self.call("POST", "/api/pins/%d/purge" % pid, None, ALICE)
+        self.assertEqual(code, 404)
+        nid = self.pin_id(ALICE)
+        self.assertGreater(nid, pid)                          # an id is never reused, even after a purge
+
+    def test_only_the_owner_may_delete_permanently(self):
+        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+                         {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}])
+        pid = self.pin_id(BOB)
+        self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
+        _, tok = ps.token_create(ps.C.state, "bot")
+        for who, kw in (("editor", {"headers": BOB}), ("viewer", {"headers": CAROL}), ("loopback agent", {}),
+                        ("token", {"token": tok})):
+            with self.subTest(who=who):
+                code, _ = self.call("POST", "/api/pins/%d/purge" % pid, None, **kw)
+                self.assertEqual(code, 403)
+        self.assertEqual([r["id"] for r in self.dropped_file()], [pid])
+
+    def test_purge_of_an_open_pin_is_refused(self):
+        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"}])
+        pid = self.pin_id(ALICE)
+        code, _ = self.call("POST", "/api/pins/%d/purge" % pid, None, ALICE)
+        self.assertEqual(code, 404)
+        self.assertIsNotNone(self.pin(pid))
+
+    def test_pins_md_never_lists_trash(self):
+        pid = self.pin_id(ALICE)
+        self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotRegex(md, r"\n\| %d[ ·|]" % pid)
+
+
+# ---------------------------------------------------------------- 3. viewer pure functions and markup
+
+class ViewerMarkup(unittest.TestCase):
+    def test_no_reopen_button_anywhere(self):
+        self.assertNotIn('data-act="rv-reopen"', ps.HTML)
+        self.assertNotIn("case 'rv-reopen'", ps.HTML)
+        self.assertNotIn("openReply(id,'reopen')", ps.HTML)
+
+    def test_dropped_section_left_the_list(self):
+        lst = ps.HTML[ps.HTML.index('<div id="list">'):ps.HTML.index('<div id="c-actions">')]
+        self.assertNotIn("sec-dropped", lst)
+        self.assertIn('<dialog id="trash"', ps.HTML)
+        more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))]
+        self.assertIn('id="m-trash"', more)
+        self.assertIn('data-act="trash-open"', more)
+
+    def test_three_sections_share_one_header_component(self):
+        for sec in ("open", "review", "done"):
+            with self.subTest(section=sec):
+                m = re.search(r'<button class="sec-tg" id="%s-toggle" data-act="sec-toggle" data-sec="%s" aria-expanded="(true|false)" '
+                              r'aria-controls="[a-z-]+"' % (sec, sec), ps.HTML)
+                self.assertIsNotNone(m, sec)
+
+    def test_help_defines_pin_once(self):
+        help_ = ps.HTML[ps.HTML.index('<dialog id="help"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="help"'))]
+        self.assertIn("<tr><td>핀</td><td>출력물의 한 자리 + 요청이나 질문 + 그 대화", help_)
+        self.assertEqual(help_.count("<tr><td>핀</td>"), 1)
+        en = ps.UI_EN["출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다"]
+        self.assertTrue(en.startswith("A place in the output + a request or question + its conversation"), en)
+
+    def test_dropped_is_a_notification_type(self):
+        self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
+        self.assertIn("dropped", ps.EVENT_TYPES)
+
+
+class ViewerFunctions(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def preview(self, lang, cases):
+        js = "\n".join([js_i18n(lang), "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+                        extract_js_fn("peopleName"), extract_js_fn("pinState"), extract_js_fn("replyReopens"),
+                        extract_js_fn("replyPreview"), "const cases=%s;" % json.dumps(cases),
+                        "console.log(JSON.stringify(cases.map(c=>replyPreview(c[0],c[1],c[2],c[3]))));"])
+        return json.loads(run_node(js))
+
+    def test_preview_line_for_each_outcome(self):
+        rv, dn, op, q = rec_for("review", "fix"), rec_for("done", "fix"), rec_for("open", "fix"), rec_for("review", "question")
+        cases = [[rv, True, [], False], [dn, True, [], False], [rv, True, ["bob@example.com"], False],
+                 [rv, True, [], True], [q, True, [], False], [rv, False, [], False], [op, True, [], False]]
+        ko = self.preview("ko", cases)
+        self.assertEqual([(x or {}).get("text") for x in ko], [
+            "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+            "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다", "보내도 상태는 그대로입니다",
+            "답으로 남고 상태는 그대로입니다", "이 화면은 에이전트로 보내므로 상태는 그대로입니다", None])
+        self.assertEqual([(x or {}).get("keep") for x in ko], [True, True, False, True, False, False, None])
+        en = self.preview("en", cases)
+        self.assertEqual([(x or {}).get("text") for x in en], [
+            "Sending will reopen this pin for the agent", "Sending will reopen this pin for the agent",
+            "Sending notifies Bob Park; state stays", "Sending keeps the state as it is",
+            "Recorded as an answer; state stays", "This screen posts as the agent; state stays", None])
+
+    def test_section_state_defaults_and_new_count(self):
+        js = "\n".join(["const SEC_DEFAULT={open:true,review:true,done:false};", extract_js_fn("secState"),
+                        extract_js_fn("secNewCount"), r"""
+            console.log(JSON.stringify([secState(undefined), secState({done:true}), secState({open:false,x:1,review:'no'}),
+              secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));"""])
+        self.assertEqual(json.loads(run_node(js)), [
+            {"open": True, "review": True, "done": False}, {"open": True, "review": True, "done": True},
+            {"open": False, "review": True, "done": False}, 2, 0, 0])
+
+    def test_trash_days_left(self):
+        js = "\n".join(["const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), r"""
+            const now=new Date(2026,8,25,12,0).getTime();
+            console.log(JSON.stringify([trashDaysLeft('2026-09-25 11:00:00',now), trashDaysLeft('2026-08-27 12:00:00',now),
+              trashDaysLeft('2026-08-20 12:00:00',now), trashDaysLeft('',now)]));"""])
+        self.assertEqual(json.loads(run_node(js)), [30, 1, 0, None])     # Aug 27 -> Sep 25 is 29 days: 1 left
+
+    def test_ref_to_a_deleted_pin_renders_as_deleted(self):
+        js = "\n".join([r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            let PEOPLE=[], META=null; const DROPPED=[{id:12}];
+            function findAnyPin(id){return id===3?{id:3}:null;}
+            """, extract_js_fn("mentionToks"), extract_js_fn("reEsc"), extract_js_fn("meLogin"), extract_js_fn("pinRefExists"),
+            extract_js_fn("pinRefGone"), extract_js_fn("fmtText"),
+            "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])]));"])
+        out = json.loads(run_node(js))[0]
+        self.assertIn('data-ref="3"', out)
+        self.assertRegex(out, r'<span class="pin-ref gone"[^>]*data-ref="12"[^>]*>#12 <small>삭제된 핀</small></span>')
+        self.assertIn("#99", out)
+        self.assertNotIn('data-ref="99"', out)
+
+
+# ---------------------------------------------------------------- 4. the real viewer in a browser
+
+DEVICES = {
+    "desktop": {"viewport": {"width": 1400, "height": 850}},
+    "fold": {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True},
+    "phone": {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True},
+}
+TXT = {
+    "ko": {"reopen": "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "keep": "보내도 상태는 그대로입니다", "undo": "되돌리기",
+           "mention": "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다", "trash": "휴지통 1", "restore": "되살리기",
+           "purge": "영구 삭제", "new": "새 1", "gone": "삭제된 핀"},
+    "en": {"reopen": "Sending will reopen this pin for the agent", "keep": "Sending keeps the state as it is", "undo": "Undo",
+           "mention": "Sending notifies Bob Park; state stays", "trash": "Trash (1)", "restore": "Restore",
+           "purge": "Delete forever", "new": "new 1", "gone": "deleted pin"},
+}
+
+
+class ViewerFlows(BrowserBase):
+    WHO = ALICE
+
+    def setUp(self):
+        super().setUp()
+        for h in (ALICE, BOB, CAROL):
+            ps.record_person(actor(h))
+        self.open_id = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A)
+        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A)
+        ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
+        self.dn = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A)
+        ps.set_done(self.dn, True, A, reply="고침")
+
+    def state(self, pid):
+        return ps.pin_state(ps.find_pin(ps.snapshot_pins(), pid))
+
+    def wait_state(self, pid, want, secs=8):
+        end = time.time() + secs
+        while time.time() < end:
+            if self.state(pid) == want:
+                return
+            time.sleep(0.1)
+        self.assertEqual(self.state(pid), want)
+
+    def page_for(self, device, lang, n_open=1):
+        page = self.open(n_open, lang=lang, **DEVICES[device])
+        page.evaluate("setSide(true); OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()" % (self.open_id, self.rv))
+        page.wait_for_timeout(150)
+        return page
+
+    def toast(self, page, text):
+        return page.locator("#toasts .toast").filter(has_text=text).first
+
+    def english_only(self, page, sel):
+        text = page.inner_text(sel)
+        self.assertFalse(HANGUL.search(text), (sel, text))
+
+    def run_matrix(self, fn):
+        for device in DEVICES:
+            for lang in ("ko", "en"):
+                with self.subTest(device=device, lang=lang):
+                    self.setUp_fresh()
+                    fn(self.page_for(device, lang), device, lang)
+
+    def setUp_fresh(self):
+        self.tearDown()
+        self.setUp()
+
+    # -- 1. one Reply: the rule, the preview, keep state, undo
+
+    def test_reply_reopens_with_preview_and_undo(self):
+        def flow(page, device, lang):
+            t = TXT[lang]
+            card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+            acts = page.evaluate("[...document.querySelectorAll('%s .acts [data-act]')].map(e=>e.dataset.act)" % card.replace('"', '\\"'))
+            self.assertNotIn("rv-reopen", acts)
+            self.assertIn("reply-open", acts)
+            self.assertIn("confirm", acts)
+            page.click(card + " .acts [data-act=reply-open]")
+            page.fill(card + " textarea.r-text", "식 번호가 아직 틀립니다")
+            page.wait_for_selector(card + " .r-outcome:not([hidden])")
+            self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["reopen"])
+            keep = page.locator(card + " [data-act=reply-keep]")
+            self.assertTrue(keep.is_visible())
+            self.assertEqual(keep.get_attribute("aria-pressed"), "false")
+            if lang == "en":
+                self.english_only(page, card + " .reply-box")
+            page.click(card + " [data-act=reply-send]")
+            tst = self.toast(page, t["undo"])
+            tst.wait_for(state="visible")
+            self.assertEqual(self.state(self.rv), "review")                     # nothing sent while undo is possible
+            tst.get_by_role("button", name=t["undo"]).click()
+            page.wait_for_selector(card + " textarea.r-text")
+            self.assertEqual(page.input_value(card + " textarea.r-text"), "식 번호가 아직 틀립니다")
+            page.wait_for_timeout(300)
+            self.assertEqual(self.state(self.rv), "review")
+            page.click(card + " [data-act=reply-send]")
+            tst = self.toast(page, t["undo"])
+            tst.wait_for(state="visible")
+            tst.locator("button.btn-icon").click()                             # dismissing the toast sends at once
+            self.wait_state(self.rv, "open")
+            last = ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
+            page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
+        self.run_matrix(flow)
+
+    def test_keep_state_sends_a_comment(self):
+        def flow(page, device, lang):
+            t = TXT[lang]
+            card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+            page.click(card + " .acts [data-act=reply-open]")
+            page.fill(card + " textarea.r-text", "내일 다시 볼게요")
+            page.click(card + " [data-act=reply-keep]")
+            self.assertEqual(page.get_attribute(card + " [data-act=reply-keep]", "aria-pressed"), "true")
+            self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), t["keep"])
+            page.click(card + " [data-act=reply-send]")
+            self.toast(page, t["undo"]).locator("button.btn-icon").click()
+            end = time.time() + 8
+            while time.time() < end and "내일" not in ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
+                time.sleep(0.1)
+            last = ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
+        self.run_matrix(flow)
+
+    def test_mention_preview_keeps_state(self):
+        page = self.page_for("desktop", "ko")
+        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        page.click(card + " .acts [data-act=reply-open]")
+        page.click(card + " textarea.r-text")
+        page.keyboard.type("@Bob Park 이 수정 괜찮나요")
+        page.wait_for_timeout(100)
+        self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), TXT["ko"]["mention"])
+        self.assertFalse(page.locator(card + " [data-act=reply-keep]").is_visible())
+
+    def test_done_row_offers_reply_not_reopen(self):
+        def flow(page, device, lang):
+            page.click("#done-toggle")
+            row = "#done-list .arc-row[data-id=\"%d\"]" % self.dn
+            page.wait_for_selector(row)
+            acts = page.evaluate("[...document.querySelectorAll('#done-list [data-act]')].map(e=>e.dataset.act)")
+            self.assertNotIn("rv-reopen", acts)
+            self.assertIn("reply-open", acts)
+            page.click(row + " [data-act=reply-open]")
+            page.fill(row + " textarea.r-text", "다시 보니 문장이 어색합니다")
+            self.assertEqual(page.inner_text(row + " .r-outcome .r-out-t"), TXT[lang]["reopen"])
+            page.click(row + " [data-act=reply-send]")
+            self.toast(page, TXT[lang]["undo"]).locator("button.btn-icon").click()
+            self.wait_state(self.dn, "open")
+        self.run_matrix(flow)
+
+    # -- 2. Trash
+
+    def open_trash(self, page, device):
+        if device == "desktop":
+            page.click("#trash-link")
+        else:
+            page.click("#btn-more")
+            page.click("#m-trash")
+        page.wait_for_selector("#trash[open]")
+
+    def test_delete_undo_and_trash_restore(self):
+        def flow(page, device, lang):
+            t = TXT[lang]
+            page.click("#pins .pin[data-id=\"%d\"] [data-act=drop]" % self.open_id)
+            page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
+            self.toast(page, t["undo"]).wait_for(state="visible")
+            end = time.time() + 5
+            while time.time() < end and ps.find_pin(ps.snapshot_pins(), self.open_id) is not None:
+                time.sleep(0.1)
+            self.assertIsNone(ps.find_pin(ps.snapshot_pins(), self.open_id))
+            page.wait_for_function("DROPPED.length===1", timeout=5000)
+            self.assertFalse(page.locator("#sec-dropped").count())
+            if device == "desktop":
+                self.assertEqual(page.inner_text("#trash-link").strip(), t["trash"])
+            self.open_trash(page, device)
+            row = "#trash .arc-row[data-id=\"%d\"]" % self.open_id
+            page.wait_for_selector(row)
+            self.assertFalse(page.locator(row + " [data-act=purge]").count())   # not the owner
+            if lang == "en":                                                     # the UI, not the Korean note a person wrote
+                for sel in ("#trash-h", "#trash-note", row + " .arc-l1"):
+                    self.english_only(page, sel)
+            page.click(row + " [data-act=restore]")
+            page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
+            self.assertIsNotNone(ps.find_pin(ps.snapshot_pins(), self.open_id))
+        self.run_matrix(flow)
+
+    def test_owner_deletes_forever_with_undo(self):
+        ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
+            {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+            {"login": "bob@example.com", "name": "Bob Park"}]}), encoding="utf-8")
+        ps._ROLES_CACHE.update(key=None, roles={})
+        ps.drop_pin(self.open_id, B)
+        page = self.page_for("desktop", "ko", n_open=0)
+        page.click("#trash-link")
+        row = "#trash .arc-row[data-id=\"%d\"]" % self.open_id
+        page.wait_for_selector(row + " [data-act=purge]")
+        page.click(row + " [data-act=purge]")
+        tst = self.toast(page, "되돌리기")
+        tst.get_by_role("button", name="되돌리기").click()
+        page.wait_for_timeout(300)
+        self.assertEqual([r["id"] for r in ps.read_jsonl(ps.C.dropped)[0]], [self.open_id])
+        page.click(row + " [data-act=purge]")
+        self.toast(page, "되돌리기").locator("button.btn-icon").click()
+        end = time.time() + 5
+        while time.time() < end and ps.read_jsonl(ps.C.dropped)[0]:
+            time.sleep(0.1)
+        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+
+    def test_ref_to_deleted_pin_in_a_thread(self):
+        ps.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
+        ps.drop_pin(self.dn, A)
+        for lang in ("ko", "en"):
+            with self.subTest(lang=lang):
+                page = self.page_for("desktop", lang)
+                ref = page.locator("#pins .pin[data-id=\"%d\"] .pin-ref.gone" % self.open_id)
+                self.assertEqual(ref.inner_text().replace("\n", " "), "#%d %s" % (self.dn, TXT[lang]["gone"]))
+                ref.click()
+                page.wait_for_selector("#trash[open] .arc-row[data-id=\"%d\"]" % self.dn)
+
+    # -- 3. Collapsible sections
+
+    def test_sections_toggle_remember_and_count_new(self):
+        def flow(page, device, lang):
+            heads = page.evaluate("[...document.querySelectorAll('.sec-tg')].map(b=>[b.id,b.getAttribute('aria-expanded')])")
+            self.assertEqual(heads, [["open-toggle", "true"], ["review-toggle", "true"], ["done-toggle", "false"]])
+            self.assertFalse(page.is_visible("#done-list"))
+            page.click("#open-toggle")
+            self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "false")
+            self.assertFalse(page.is_visible("#pins"))
+            page.focus("#review-toggle")
+            page.keyboard.press("Enter")
+            self.assertEqual(page.get_attribute("#review-toggle", "aria-expanded"), "false")
+            page.keyboard.press(" ")
+            self.assertEqual(page.get_attribute("#review-toggle", "aria-expanded"), "true")
+            ps.add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "새 핀"}, B)
+            page.evaluate("loadPins()")
+            page.wait_for_selector("#open-toggle .sec-new:not([hidden])")
+            self.assertEqual(page.inner_text("#open-toggle .sec-new"), TXT[lang]["new"])
+            page.reload()
+            page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=2&&META", timeout=20000)
+            page.evaluate("setSide(true)")                                   # compact: the sheet starts collapsed after a reload
+            self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "false")    # remembered
+            page.click("#open-toggle")
+            self.assertTrue(page.is_visible("#pins"))
+            self.assertFalse(page.is_visible("#open-toggle .sec-new"))
+            if lang == "en":
+                for sel in ("#open-toggle", "#review-toggle", "#done-toggle"):
+                    self.english_only(page, sel)
+        self.run_matrix(flow)
+
+
+if __name__ == "__main__":
+    unittest.main()
