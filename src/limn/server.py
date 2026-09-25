@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import fcntl
 import hashlib
 import hmac
@@ -48,6 +49,7 @@ import threading
 import tempfile
 import time
 import traceback
+from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -259,6 +261,7 @@ class Cfg:
     # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
     auth: str = "tailscale"         # identity provider: tailscale | local | trusted-proxy
     agent_loopback: bool = True     # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
+    tailnet_agent: bool = False     # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
     bind: str = "127.0.0.1"
     public_hosts: tuple = ()        # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
     trusted_proxies: tuple = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
@@ -409,10 +412,11 @@ def _fresh_build_state() -> dict:
 class HTTPError(Exception):
     """The handler turns this directly into a JSON error response."""
 
-    def __init__(self, code: int, msg: str, **extra):
+    def __init__(self, code: int, msg: str, page=None, **extra):
         super().__init__(msg)
         self.code = code
         self.body = dict({"error": msg}, **extra)
+        self.page = page            # (kind, params) for the readable HTML page a browser gets on GET / (error_page_html)
 
 
 def now_str() -> str:
@@ -3528,6 +3532,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             raise HTTPError(409, "done", pin=public(r), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
         if base_given and int(r.get("rev") or 0) != base:
             raise HTTPError(409, "conflict", pin=public(r))
+        old_note = str(r.get("note") or "")         # to tell a new @-tag from one the note already had (_set_note_mentions)
         range_changed = False
         if region:
             if newloc is not None:                   # re-placing the region - only page/region/region text/build change
@@ -3586,7 +3591,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         if kind_req is not None:
             r["kind_req"] = kind_req
         if has_note or note_append is not None:
-            _set_note_mentions(r, rows, hints, actor, evs)
+            _set_note_mentions(r, rows, hints, actor, evs, old_note)
         _set_assignee(r, assignee, actor, evs, record=True)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
@@ -3730,7 +3735,7 @@ def record_person(actor: dict, now: float = None, role: str = None) -> bool:
                 if pic:
                     cur["pic"] = pic
                 cur["last_seen"] = stamp
-                atomic_write(C.people_file, people_text(rows))
+                atomic_write(C.people_file, people_text(rows), mode=0o600)
         except OSError as e:
             print("warning: failed to write people.json: %s" % e, file=sys.stderr)
             return False
@@ -3779,6 +3784,13 @@ def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -
     hints are included. Returned in first-seen order, no duplicates. `exclude` (usually the author's own
     login) is removed from the result - so self-@-tagging never turns into "a pin that called someone" /
     "I was called" (observed: a self-mention was picked up as addressed)."""
+    return list(dict.fromkeys(mention_hits(text, people, hints, exclude)))
+
+
+def mention_hits(text: str, people: dict, hints=None, exclude: str = None) -> list:
+    """Every resolved '@name' occurrence in text, in order and with repeats (resolve_mentions() is its de-duplicated
+    form). Counting occurrences is what tells a note edit that *adds* another '@Bob' apart from one that only
+    fixes a typo next to an existing '@Bob' (_set_note_mentions)."""
     text = str(text or "")
     if "@" not in text or not people:
         return []
@@ -3796,7 +3808,7 @@ def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -
                 continue
             pick = logins if len(logins) == 1 else logins & hints
             for lg in sorted(pick):
-                if lg != exclude and lg not in found:
+                if lg != exclude:
                     found.append(lg)
             if pick:
                 break
@@ -3922,15 +3934,22 @@ def _read_events() -> tuple:
     return list(rows), sig
 
 
-def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> None:
-    """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for anyone newly called."""
-    old = set(r.get("mentions") or [])
-    new = resolve_mentions(r.get("note") or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
+def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list, old_note: str = "") -> None:
+    """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for everyone
+    this save or edit explicitly @-tags: a person whose '@name' occurs more often in the new note than in old_note
+    (the note before this edit; empty for a new pin). A typo fix next to an existing '@Bob' notifies nobody, while
+    an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged him."""
+    ppl = known_people(rows)
+    me = (actor or {}).get("login")
+    hits = mention_hits(r.get("note") or "", ppl, hints, exclude=me)
+    before = Counter(mention_hits(old_note or "", ppl, hints, exclude=me))
+    new = list(dict.fromkeys(hits))
     if new:
         r["mentions"] = new
     else:
         r.pop("mentions", None)
-    evs.append(make_event("mention", r, actor, [lg for lg in new if lg not in old], text=r.get("note")))
+    now = Counter(hits)
+    evs.append(make_event("mention", r, actor, [lg for lg in new if now[lg] > before[lg]], text=r.get("note")))
 
 
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
@@ -3978,8 +3997,9 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 
 def reply_pin(pid: int, text: str, actor: dict, hints=None):
     """One reply (from a person or an agent). Never changes state - for a question pin, an agent replies and then closes it separately.
-    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions, and a replied event
-    is left for the author and everyone previously called on this pin, plus a mention event for anyone newly called."""
+    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions: everyone
+    this post tags gets a mention event (whether or not they were tagged before), and the author plus everyone
+    previously tagged on this pin who is not tagged here gets a replied event. The poster themself gets neither."""
     evs = []
 
     def fn(rows):
@@ -3988,13 +4008,15 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None):
             return (None, None), False
         if len(thread_replies(r)) >= THREAD_MAX:
             raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
-        before = set(pin_mentions_all(r))
+        before = pin_mentions_all(r)
         ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
         msg = _thread_append(r, actor, text, mentions=ment)
         r["rev"] = int(r.get("rev") or 0) + 1
-        evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
+        # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
+        # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
+        evs.append(make_event("mention", r, actor, ment, msg=msg))
         evs.append(make_event("replied", r, actor, [lg for lg in [(r.get("author") or {}).get("login")] + sorted(before)
-                                                    if lg not in ment], msg=msg))   # someone called by this post only gets a single mention event
+                                                    if lg not in ment], msg=msg))
         return (public(r), msg), True
     with PIN_LOCK:
         out = transact(fn)[1]
@@ -4066,11 +4088,11 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
             for k in ("review", "confirmed_by", "confirmed_at"):
                 r.pop(k, None)
             if was_done:
-                before = set(pin_mentions_all(r))
                 ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
                 msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
-                evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
-                evs.append(make_event("reopened", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
+                evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
+                evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
+                                                             if lg not in ment], msg=msg))
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
     with PIN_LOCK:
@@ -4257,12 +4279,24 @@ def _restore(rows: list, pid: int, actor: dict):
     return public(rec), True
 
 
-def clear_pins() -> None:
-    """Archives everything to .bak and clears it. pins.seq is untouched, so ids keep incrementing."""
+CLEAR_CONFIRM = "clear all pins"
+
+
+def clear_pins(actor: dict = None) -> dict:
+    """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
+    Records a `cleared` event (who, how many, which archive) and a log line - the only bulk-destructive operation,
+    so it always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
     with PIN_LOCK:
+        n, archive = len(read_pins()[0]), None
         if C.pins_jsonl.exists():                    # clearing twice in the same second never overwrites the earlier archive
-            C.pins_jsonl.rename(unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak"))
+            dest = unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak")
+            C.pins_jsonl.rename(dest)
+            archive = dest.name
         render_pins_md([])
+        emit_events([{"type": "cleared", "to": [], "by": who(actor or LOCAL_ACTOR), "n": n, "archive": archive}])
+    print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
+    sys.stderr.flush()
+    return {"cleared": n, "archive": archive}
 
 
 def ceil5(minutes: float) -> int:
@@ -4372,7 +4406,15 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
 # v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
 TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H \"Authorization: Bearer $LIMN_TOKEN\" …`, "
                   "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
-                  "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다")
+                  "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · "
+                  "테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다")
+
+
+def claim_guidance(base: str) -> str:
+    """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
+    return ("처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
+            "%s/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 "
+            "잡는다 · 409 면 다른 쪽이 잡은 핀이니 건너뛴다 · 포기하면 `%s/api/pins/N/unclaim`" % (base, base))
 THREAD_MD_SHOW = 3                 # number of current-round thread posts shown in pins.md's note column (from the end)
 THREAD_MD_CHARS = 200              # character count for one of those posts - the full text is via GET /api/pins/N
 
@@ -4541,6 +4583,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
         guidance += (" · 보기 전용 PDF 의 핀은 줄 번호가 없다 — 쪽·영역 글자(«…»)·메모로 무엇을 가리키는지 판단하고, "
                      "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)")
     out.append(guidance)
+    out.append(claim_guidance(base))
     out.append(TOKEN_GUIDANCE)
     if any_symbol:
         out.append(LEGEND)
@@ -4880,6 +4923,9 @@ NAME_MAX = 100
 LOOPBACK_AGENT_DEPRECATION = ("a request from loopback without an identity header or token is treated as the agent - "
                               "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
                               "and turn it off with --no-agent-loopback (AGENT_LOOPBACK=0)")
+TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
+                      "보내세요(`limn token create <인스턴스>`).")
+OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
 UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
 
 
@@ -5041,7 +5087,11 @@ def role_of(login: str) -> str:
 
 
 def valid_login(login) -> bool:
-    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable() and login == login.strip()
+    """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
+    user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
+    for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
+    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable()
+            and not any(c.isspace() for c in login)
             and login != LOCAL_ACTOR["login"] and not login.startswith(AGENT_LOGIN_PREFIX))
 
 
@@ -5066,13 +5116,14 @@ def _people_update(state: Path, fn):
     with store_lock(state, "people"):
         rows = load_people_file(state)
         out = fn(rows)
-        atomic_write(state / "people.json", people_text(rows))
+        atomic_write(state / "people.json", people_text(rows), mode=0o600)
     return out
 
 
 def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str = None) -> dict:
     if not valid_login(login):
-        raise ValueError("invalid login %r (non-empty, at most %d characters, not 'local' or 'agent:...')" % (login, LOGIN_MAX))
+        raise ValueError("invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
+                         % (login, LOGIN_MAX))
     if role not in ROLES:
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     name = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
@@ -5204,6 +5255,9 @@ def identify(headers, peer) -> Principal:
         return Principal({"login": AGENT_LOGIN_PREFIX + t["name"], "name": t["name"]}, "agent", "token")
     loop = peer_is_loopback(peer)
     if C.auth == "local":
+        if loop and came_through_proxy(headers):
+            # every local request is the owner - one that came through a proxy is someone else (v0.2.1 hardening)
+            raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
         if loop:
             return Principal(local_owner_actor(), "owner", "local-owner")
         raise HTTPError(401, UNAUTHENTICATED)
@@ -5219,38 +5273,71 @@ def identify(headers, peer) -> Principal:
                 raise HTTPError(401, UNAUTHENTICATED)
             return Principal(a, role_of(a["login"]), "header")
         if C.agent_loopback:
+            if came_through_proxy(headers) and not C.tailnet_agent:
+                # tailscale serve connects from loopback too. Without identity headers such a request is a tagged
+                # device (or anything else behind the proxy) - never the local agent (v0.2.1).
+                raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
     raise HTTPError(401, UNAUTHENTICATED)
 
 
-def admit(p: Principal, host) -> None:
+# Headers a reverse proxy adds (tailscale serve sets X-Forwarded-For/-Host/-Proto). A local curl sends none of them.
+FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Real-IP",
+                     "Forwarded", "Via")
+
+
+def host_is_loopback(host) -> bool:
+    """Did the request name this machine (a loopback Host, or none at all as in HTTP/1.0)?"""
+    name, _ = split_host(host or "")
+    return not host or not str(host).strip() or name in LOOPBACK
+
+
+def came_through_proxy(headers) -> bool:
+    """Did this loopback request come through a reverse proxy such as tailscale serve? Host alone cannot tell:
+    tailscale serve picks the route from the TLS server name and passes the client's Host through unchanged, so a
+    tagged device can send 'Host: localhost'. It does set X-Forwarded-For/-Host/-Proto itself (overwriting what the
+    client sent), so any forwarding header - or a non-loopback Host - marks a proxied request. A local agent's curl
+    sends neither. Limit: a raw TCP forwarder that adds no header (tailscale serve --tcp/--tls-terminated-tcp,
+    ssh -L/-R, a plain port forward) is indistinguishable from a local request - use tokens and --no-agent-loopback there."""
+    if not host_is_loopback(headers.get("Host")):
+        return True
+    return any(headers.get(h) is not None for h in FORWARDED_HEADERS)
+
+
+def admit(p: Principal, host, headers=None) -> None:
     """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
     admits logins in people.json or --allow; otherwise --allow (if set) admits only its logins. Without either,
     everyone the provider identifies is admitted (and recorded in people.json as an editor on first visit).
-    Tokens and the local owner are always admitted. A headerless request through *.ts.net (a tagged device) is
-    refused when a list is configured, exactly as in v0.1."""
+    Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged device) never
+    gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a list is
+    configured, as in v0.1."""
     login = p.actor.get("login")
     if p.via == "header":
         if C.members_only:
             if login not in C.allow and login not in people_roles():
-                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login)
+                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
+                                page=("not-member", {"login": login}))
         elif C.allow and login not in C.allow:
-            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login)
+            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}))
     elif p.via == "loopback-agent" and (C.allow or C.members_only):
         hname, _ = split_host(host or "")
-        if hname.endswith(".ts.net"):
-            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.")
+        if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
+            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
+                            page=("no-identity", {}))
 
 
 def check_role(p: Principal, path: str) -> None:
     """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
     run computations (/api/pick, /api/revision-build); an agent may do everything but confirm; editor and owner may
-    do everything a person could in v0.1. (Owner-only operations - members, tokens, settings - are CLI/file level.)"""
+    do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear), which only the owner may
+    call (v0.2.1). Other owner-only operations - members, tokens, settings - are CLI/file level."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
         raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.")
     if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
         raise HTTPError(403, CONFIRM_BY_HUMAN)
+    if path in OWNER_POSTS and p.role != "owner":
+        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.")
 
 
 # ---------------------------------------------------------------- Viewer
@@ -5319,6 +5406,13 @@ document.documentElement.setAttribute('lang',window.LIMN_LANG);
   --font-mono:"JetBrains Mono",ui-monospace,monospace}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+/* Viewer role (people.json role viewer, v0.2.1): the server refuses every change anyway; the screen stops offering it.
+   Reading stays - view/jump, threads, the archive, the composer's location and source lines. */
+body.role-viewer :is([data-act=edit],[data-act=drop],[data-act=close],[data-act=reopen],[data-act=rv-reopen],[data-act=confirm],
+  [data-act=reply-open],[data-act=restore],[data-act=unclaim],[data-act=rebuild],[data-act=overlap-append],[data-act=overlap-separate],
+  [data-act=kind],[data-act=e-kind],[data-act=assign-new],[data-act=assign-edit],[data-act=esave]),
+body.role-viewer :is(#btn-save,#note,#c-kind,#c-assign,#c-qhint,#note-mentions){display:none!important}
+body:not(.role-viewer) #c-viewer{display:none}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
@@ -6118,7 +6212,7 @@ body.view-only #btn-rebuild{display:none}
       <div class="snip-foot"><button class="tg btn-sm btn-ghost" id="c-wrap" data-act="wrap" aria-pressed="true" data-tip="긴 줄을 패널 폭에 맞춰 접어 봅니다. 문단 하나가 한 줄인 원고라면 켜 두세요">{{ic:text-wrap}}줄바꿈</button><button class="btn-sm btn-ghost" id="c-expand" data-act="expand" data-tip="접어 둔 원문 줄을 모두 보여 줍니다" hidden>원문 펼치기</button></div>
     </div>
     <div id="c-kind" class="seg kind-seg" role="radiogroup" aria-label="핀 종류"><button class="on" data-act="kind" data-kind="fix" role="radio" aria-checked="true" data-tip="이 자리를 고쳐 달라는 요청입니다. 에이전트가 원고를 고친 뒤 닫습니다">수정 요청</button><button data-act="kind" data-kind="question" role="radio" aria-checked="false" data-tip="고칠 곳이 아니라 묻는 핀입니다. 답이 이 핀의 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다">질문</button></div>
-    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
+    <textarea id="note" rows="3" placeholder="메모: 여기를 어떻게 고칠지 (비워도 됩니다) · @이름으로 사람을 부릅니다" aria-label="메모" data-tip="여기를 어떻게 고칠지 적습니다. 다른 곳을 다시 드래그해도 지워지지 않습니다"></textarea><div id="note-mentions" class="m-preview" aria-live="polite" hidden></div><div id="c-viewer" class="q-hint" role="status">{{ic:eye}}<span>보기 권한만 있습니다 — 위치와 원문만 볼 수 있고 핀은 남길 수 없습니다. 소유자에게 편집 권한을 요청하세요</span></div><div id="c-qhint" class="q-hint" role="status" hidden>{{ic:circle-question-mark}}<span>질문처럼 보입니다 —</span><button data-act="kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다. 답이 이 핀의 스레드에 달립니다">질문으로 보내기</button></div><div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>
   </div>
   <div id="list">
     <div id="empty" class="hint" hidden><span class="t-mouse">PDF 위에서 <b>드래그</b>해 영역을 고르면</span><span class="t-touch">PDF를 <b>길게 누르면</b> 그 문단을, <b>[선택]</b>을 켜고 끌면 그 영역을 고르고</span> 그 자리의 <b>.tex 줄 번호</b>를 찾아 줍니다.<br>
@@ -6786,8 +6880,12 @@ function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
     s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요');
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
+function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role==='viewer');}
+// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
+function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
 function drawMeta(){
   document.body.classList.toggle('view-only',!!META.view_only);
+  document.body.classList.toggle('role-viewer',isViewer());
   $('#meta-main').textContent=META.main; $('#meta-pages').textContent=tl('{n}쪽',{n:META.pages.length});
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
@@ -7207,7 +7305,8 @@ async function loadOutline(doc,gen){
       if(typeof dest==='string')dest=await doc.getDestination(dest);
       if(Array.isArray(dest)&&dest[0]!=null){
         const page=typeof dest[0]==='number'?dest[0]+1:(await doc.getPageIndex(dest[0]))+1;
-        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth});
+        const ptH=META&&META.pages&&META.pages[page-1]?+META.pages[page-1].pt_h:0;
+        if(Number.isInteger(page)&&page>=1&&page<=doc.numPages)entries.push({title:item.title||tr('제목 없음'),page,depth,frac:destFrac(dest,ptH)});
       }
       if(depth<4)await walk(item.items,depth+1);
     }}
@@ -7222,7 +7321,7 @@ async function loadOutline(doc,gen){
     }catch(e){} // the PDF's own outline is still usable even if the numbering service can't be reached.
   }
   if(gen!==VEC.gen||doc!==VEC.doc)return;
-  OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;
+  OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;OUTLINE_PINNED=null;
   renderOutline();updateSectionStrip();
 }
 function mergeOutlineLabels(entries,labels){
@@ -7250,13 +7349,23 @@ function renderOutline(){
   if(!rows.length){box.className='outline-empty';box.textContent='찾은 장·절이 없습니다.';return;}
   box.className='';box.innerHTML=rows.map(x=>'<button class="ol-depth-'+Math.min(x.depth,4)+(x.index===OUTLINE_SELECTED?' ol-active':'')+'" data-act="outline-page" data-index="'+x.index+'" data-page="'+x.page+'" aria-current="'+(x.index===OUTLINE_SELECTED?'location':'false')+'" title="'+esc(x.title)+'"><span class="ol-no">'+esc(x.number||'·')+'</span><span class="ol-name">'+esc(x.title)+'</span><span class="ol-page">'+esc(tl('{page}쪽',{page:x.pageLabel||String(x.page)}))+'</span></button>').join('');
 }
+// Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
+// the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
+function destFrac(dest,ptH){const top=Array.isArray(dest)&&dest[1]&&dest[1].name==='XYZ'?dest[3]:null;
+  if(typeof top!=='number'||!(ptH>0))return 0; return Math.min(1,Math.max(0,1-top/ptH));}
+// The outline entry the reader is in at (page, frac): the last heading that starts at or above that point. Before the
+// first heading (a title page, the top of page 1) it is the first entry - never a later heading on the same page
+// (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on page 1). -1 without entries.
+function outlineIndexAt(entries,page,frac){let sel=-1;
+  for(let i=0;i<entries.length;i++){const e=entries[i]; if(e.page<page||(e.page===page&&(e.frac||0)<=frac+1e-6))sel=i;}
+  return sel<0&&entries.length?0:sel;}
+let OUTLINE_PINNED=null;   // an entry picked in the outline wins until the reader leaves its page
 function updateSectionStrip(){
-  const anchor=topAnchor(),page=anchor?anchor.page:1;
-  if(page!==OUTLINE_ACTIVE_PAGE){
-    OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=-1;
-    for(let i=0;i<OUTLINE_ENTRIES.length;i++)if(OUTLINE_ENTRIES[i].page<=page)OUTLINE_SELECTED=i;
-    renderOutline();
-  }
+  const L=$('#left'),probe=L?Math.min(160,L.clientHeight/4):0,anchor=topAnchor(probe),page=anchor?anchor.page:1,frac=anchor?anchor.frac:0;
+  let sel;
+  if(OUTLINE_PINNED&&OUTLINE_PINNED.page===page)sel=OUTLINE_PINNED.index;
+  else{OUTLINE_PINNED=null; sel=outlineIndexAt(OUTLINE_ENTRIES,page,frac);}
+  if(sel!==OUTLINE_SELECTED||page!==OUTLINE_ACTIVE_PAGE){OUTLINE_ACTIVE_PAGE=page;OUTLINE_SELECTED=sel;renderOutline();}
   const x=OUTLINE_ENTRIES[OUTLINE_SELECTED];$('#section-current').textContent=x?(x.number?x.number+'  ':'')+x.title:tr('원고');
   $('#section-page').textContent=tl('{page} / {n}쪽',{page,n:META&&META.pages?META.pages.length:0});
 }
@@ -8361,7 +8470,7 @@ function openReply(id,mode){mode=mode==='reopen'?'reopen':'reply';
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
   if(ta&&ta.value.trim())REPLY_DRAFT.set(REPLY.mode+':'+REPLY.id,ta.value); else REPLY_DRAFT.delete(REPLY.mode+':'+REPLY.id);
   REPLY=null; if(redraw!==false)drawPins();}
-async function sendReply(){const R=REPLY; if(!R||R.busy)return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
+async function sendReply(){const R=REPLY; if(!R||R.busy||viewerBlocked())return; const ta=R.el.querySelector('textarea'),text=ta.value.trim();
   if(!text){toast(R.mode==='reopen'?'다시 여는 이유를 한 줄 적어 주세요 — 에이전트가 그것을 읽고 다시 고칩니다':'답글이 비어 있습니다','warn'); ta.focus(); return;}
   R.busy=true; $$('.reply-box button').forEach(b=>b.disabled=true);
   const body=R.mode==='reopen'?{reason:text}:{text}; const mh=mentionHints(ta); if(mh.length)body.mentions=mh;
@@ -8424,7 +8533,7 @@ function renderEdit(){const E=EDIT; if(!E)return; const el=E.el;
   const pre=el.querySelector('.e-snip'); pre.className='e-snip '+(WRAP?'wrap':'nowrap'); pre.textContent=snipText(E.snippet,false); renderAssignEdit();
   qHint(el.querySelector('.e-qhint'),el.querySelector('.e-note').value,E.kind_req);}
 function cancelEdit(){EDIT=null; drawPins();}
-async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
+async function saveEdit(){const E=EDIT; if(!E||ESAVING||viewerBlocked())return;
   const note=E.el.querySelector('.e-note').value, body={base_rev:E.base_rev};
   if(note!==E.orig.note)body.note=note;
   if(E.kind_req&&E.kind_req!==E.orig.kind_req)body.kind_req=E.kind_req;
@@ -8477,7 +8586,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
   }catch(e){}}
 
 // ------------------------------------------------ PDF rebuild
-function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
+function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(off||0);
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
   return null;}
 function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
@@ -8535,7 +8644,7 @@ document.addEventListener('click',e=>{
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
-    case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
+    case 'save':if(!viewerBlocked())savePin();break; case 'cancel':cancelSelection(true);break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
@@ -8555,7 +8664,7 @@ document.addEventListener('click',e=>{
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
     case 'outline':toggleOutline();break;
-    case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
+    case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
     case 'revision-format':setRevisionFormat(a.dataset.format);break;
     case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
@@ -8569,7 +8678,10 @@ document.addEventListener('click',e=>{
     case 'mark-jump':revealCard(id);jumpToCard(id);break;
     case 'close':closePin(id);break; case 'drop':dropPin(id,false);break; case 'reopen':reopenPin(id,false);break;
     case 'restore':restorePin(id);break; case 'unclaim':unclaimPin(id);break;
-    case 'kind':setKind(a.dataset.kind);break;
+    case 'kind':{const fromHint=!!a.closest('#c-qhint'); setKind(a.dataset.kind);
+      // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.
+      if(fromHint){const n=$('#note'); n.focus({preventScroll:true}); n.setSelectionRange(n.value.length,n.value.length);}
+      break;}
     case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind==='question'?'question':'fix'; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id,'reply');break;
     case 'rv-reopen':if(id!=null)openReply(id,'reopen');break;
@@ -8603,7 +8715,7 @@ document.addEventListener('keydown',e=>{
     if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
   }
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
-    if(t&&t.id==='note'){e.preventDefault();savePin();}
+    if(t&&(t.id==='note'||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
@@ -8627,6 +8739,56 @@ HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
 HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
 HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort_keys=True).replace("</", "<\\/"))
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
+
+
+# A browser that opens the viewer (GET / asking for HTML) and is refused gets a short page instead of raw JSON (v0.2.1).
+# The Korean text is the key into the viewer's message table (ui_en.json), so the page follows the same ko/en table.
+ERROR_PAGE_TEXT = {
+    "not-member": ("이 뷰어의 멤버가 아닙니다: {login}", "이 뷰어의 소유자에게 멤버로 추가해 달라고 요청하세요: limn member add <인스턴스> {login}"),
+    "not-allowed": ("이 뷰어에 허용되지 않은 계정입니다: {login}", "이 뷰어의 소유자에게 --allow 목록에 넣어 달라고 요청하세요"),
+    "no-identity": ("신원을 확인할 수 없는 요청입니다",
+                    "사람 계정으로 로그인한 장치에서 여세요. 에이전트는 토큰(Authorization: Bearer)을 씁니다: limn token create <인스턴스>"),
+}
+
+
+def page_lang(headers, query: dict) -> str:
+    """ko or en for a server-rendered page: ?lang=, else the first Accept-Language tag (ko* -> ko), else en - the viewer's rule."""
+    v = (query.get("lang") or [""])[0]
+    if v in ("ko", "en"):
+        return v
+    first = (headers.get("Accept-Language") or "").split(",")[0].strip().lower()
+    return "ko" if first.startswith("ko") else "en"
+
+
+def ui_text(key: str, lang: str, **params) -> str:
+    """One message from the viewer's table, filled in (the server-side twin of the viewer's tl())."""
+    v = UI_EN.get(key, key) if lang == "en" else key
+    if isinstance(v, dict):
+        v = v.get("other", key)
+    for k, x in params.items():
+        v = v.replace("{%s}" % k, str(x))
+    return v
+
+
+def error_page_html(e: HTTPError, lang: str) -> str:
+    kind, params = e.page or ("", {})
+    if kind in ERROR_PAGE_TEXT:
+        head, hint = (ui_text(k, lang, **params) for k in ERROR_PAGE_TEXT[kind])
+        detail = ""
+    else:
+        head, hint = ui_text("이 뷰어를 열 수 없습니다 ({code})", lang, code=e.code), ""
+        detail = str(e.body.get("error") or "")
+    other = "en" if lang == "ko" else "ko"
+    esc = html.escape
+    return ("<!doctype html><html lang=\"%s\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Limn · %s</title>"
+            "<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,\"Pretendard\",\"Noto Sans KR\",sans-serif;max-width:36rem;"
+            "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
+            "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
+            "a{color:#1860cf}@media(prefers-color-scheme:dark){body{color:#fafafa;background:#09090b}p{color:#a1a1aa}a{color:#6ea8fe}}"
+            "</style></head><body><h1>%s</h1>%s%s<p><a href=\"/?lang=%s\">%s</a></p></body></html>"
+            % (lang, esc(str(e.code)), esc(head), "<p>%s</p>" % esc(hint) if hint else "",
+               "<p class=\"d\">%s</p>" % esc(detail) if detail else "", other, "English" if other == "en" else "한국어"))
 
 
 class Server(ThreadingHTTPServer):
@@ -8720,7 +8882,7 @@ class Handler(BaseHTTPRequestHandler):
         self._check_origin()
         peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
         p = identify(self.headers, peer)
-        admit(p, self.headers.get("Host"))
+        admit(p, self.headers.get("Host"), self.headers)
         self.principal = p
         return p.actor
 
@@ -8731,10 +8893,18 @@ class Handler(BaseHTTPRequestHandler):
     def _me(self, actor) -> dict:
         return dict(actor, role=self.principal.role)
 
+    def _wants_page(self) -> bool:
+        """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
+        return (self.command == "GET" and urlparse(self.path).path == "/"
+                and "text/html" in (self.headers.get("Accept") or ""))
+
     def _run(self, fn):
         try:
             fn()
         except HTTPError as e:
+            if self._wants_page():
+                lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
+                return self._send(e.code, error_page_html(e, lang).encode("utf-8"), "text/html; charset=utf-8")
             self._json(e.body, e.code)
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             self.close_connection = True
@@ -8930,9 +9100,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(pick(d))
         if path == "/api/pin":
             return self._json({"id": add_pin(d, actor)})
-        if path == "/api/clear":
-            clear_pins()
-            return self._json({"ok": True})
+        if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
+            if d.get("confirm") != CLEAR_CONFIRM:
+                raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
+                                % CLEAR_CONFIRM)
+            return self._json(dict(clear_pins(actor), ok=True))
         if path == "/api/revision-build":
             if set(d) - {"commit", "doc"}:
                 raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
@@ -9086,6 +9258,12 @@ def configure_access(a) -> None:
                  "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>"
                  % (C.auth, C.bind))
     C.agent_loopback = loopback_agent_possible and a.agent_loopback is not False
+    if a.tailnet_agent and not C.agent_loopback:
+        sys.exit("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
+                 "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
+                 "--bind %s%s). Give agents a token instead: limn token create <instance>"
+                 % (C.auth, C.bind, ", --no-agent-loopback" if a.agent_loopback is False else ""))
+    C.tailnet_agent = bool(a.tailnet_agent)
     try:
         C.public_hosts = parse_public_hosts(a.public_host)
         C.trusted_proxies = parse_networks(a.trusted_proxies)
@@ -9103,6 +9281,24 @@ def configure_access(a) -> None:
     C.insecure = bool(a.i_know_this_is_insecure) and not loop_bind and C.auth != "trusted-proxy"
 
 
+def tighten_state_perms() -> None:
+    """people.json holds logins and roles (roles are permissions). It is written 0600 since v0.2.1; an older file that
+    others may write is tightened to 0600 on startup, logged once. Other state files keep their mode - pins.md and
+    pins.jsonl are what agents (possibly another account on the machine) read."""
+    p = C.people_file
+    try:
+        mode = p.stat().st_mode & 0o777
+    except OSError:
+        return
+    if mode & 0o022:
+        try:
+            os.chmod(p, 0o600)
+        except OSError as e:
+            print("warning: %s is writable by others (%o) and could not be tightened: %s" % (p, mode, e), file=sys.stderr)
+            return
+        print("people.json: tightened %s from %o to 600 (it was writable by others)" % (p, mode), file=sys.stderr)
+
+
 def access_log_lines() -> list:
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated loopback agent."""
     parts = [C.auth]
@@ -9113,6 +9309,8 @@ def access_log_lines() -> list:
         parts.append("user header %s" % C.proxy_user_header)
     parts.append("tokens %d" % len(load_tokens(C.state)))
     parts.append("loopback agent %s" % ("on (deprecated)" if C.agent_loopback else "off"))
+    if C.agent_loopback:                          # only meaningful where the loopback agent exists
+        parts.append("tailnet agent %s" % ("on (deprecated)" if C.tailnet_agent else "off"))
     parts.append("members-only %s" % ("on" if C.members_only else "off"))
     if C.public_hosts:
         parts.append("public hosts %s" % ",".join(n + (":%d" % p if p else "") for n, p in C.public_hosts))
@@ -9128,6 +9326,10 @@ def access_log_lines() -> list:
                    "authenticating proxy, or bind 127.0.0.1 and use tailscale serve !!!" % (C.auth, C.bind))
     if C.agent_loopback:
         out.append("warning     " + LOOPBACK_AGENT_DEPRECATION)
+    if C.tailnet_agent:
+        out.append("warning     --tailnet-agent: a headerless request through tailscale serve (a tagged device) is treated "
+                   "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
+                   "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT")
     return out
 
 
@@ -9153,7 +9355,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-build", action="store_true", help="Don't rebuild on startup")
     ap.add_argument("--allow", default="",
                     help="Allowed logins (comma-separated). Everyone is allowed if empty. A loopback "
-                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no identity header (a tag device) is denied")
+                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no "
+                         "identity header (a tag device) is denied (with or without this option, unless --tailnet-agent)")
     ap.add_argument("--no-origin-check", action="store_true",
                     help="Turns off Host/Origin checking (DNS rebinding/CSRF defense). Use only when tailscale "
                          "serve passes an unexpected Host/Origin and the UI gets a 403")
@@ -9183,6 +9386,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     lb.add_argument("--agent-loopback", dest="agent_loopback", action="store_const", const=True,
                     help="Explicitly keep the deprecated headerless loopback agent. Refuses to start where it cannot "
                          "apply (--auth local or trusted-proxy, or a non-loopback --bind)")
+    acc.add_argument("--tailnet-agent", action="store_true",
+                     help="Also treat a headerless request that arrives through tailscale serve (Host *.ts.net or a "
+                          "--public-host, e.g. from a tagged device) as the agent, as v0.2.0 did. Off by default: such "
+                          "requests get 403 and remote agents use a token. Needs the loopback agent (deprecated)")
     acc.add_argument("--bind", default="127.0.0.1",
                      help="Listen address (default 127.0.0.1). A non-loopback address needs --auth trusted-proxy or "
                           "--i-know-this-is-insecure")
@@ -9206,9 +9413,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def port_in_use_message(bind: str, port: int) -> str:
+    return ("limn serve: port %d on %s is already in use - stop the other server, or pick another --port"
+            % (port, bind))
+
+
+def probe_port(bind: str, port: int) -> None:
+    """Fails fast (one line, exit 1) when --port is taken - before a build that can take minutes, and instead of the
+    Errno 98 traceback the server constructor would print (observed in the v0.2.0 QA)."""
+    fam = socket.AF_INET6 if ":" in bind else socket.AF_INET
+    s = socket.socket(fam, socket.SOCK_STREAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # the same option the server sets (allow_reuse_address)
+        s.bind((bind, port))
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:
+            print(port_in_use_message(bind, port), file=sys.stderr)
+            sys.exit(1)
+        print("limn serve: cannot listen on %s port %d: %s" % (bind, port, e.strerror or e), file=sys.stderr)
+        sys.exit(1)
+    finally:
+        s.close()
+
+
 def main() -> None:
     a = build_arg_parser().parse_args()
     configure_access(a)
+    if a.port:
+        probe_port(C.bind, a.port)
 
     C.src = Path(a.manuscript).expanduser().resolve()
     if not C.src.is_dir():
@@ -9276,6 +9508,7 @@ def main() -> None:
 
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
+    tighten_state_perms()
     print("manuscript  %s" % (C.src if docs else C.main))
     print("label       %s (%s)%s" % (C.label, C.accent, "" if C.repo else " - no git origin, using the folder name as default"))
     print("state       %s" % C.state)
@@ -9298,7 +9531,15 @@ def main() -> None:
     else:
         print("warning     pdf.js is missing (%s) - the viewer falls back to PNG" % C.pdfjs_dir)
     sys.stdout.flush()
-    (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler).serve_forever()
+    try:
+        httpd = (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
+    except OSError as e:                              # taken during the build (the probe above passed)
+        if e.errno == errno.EADDRINUSE:
+            print(port_in_use_message(C.bind, C.port), file=sys.stderr)
+        else:
+            print("limn serve: cannot listen on %s port %d: %s" % (C.bind, C.port, e.strerror or e), file=sys.stderr)
+        sys.exit(1)
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":

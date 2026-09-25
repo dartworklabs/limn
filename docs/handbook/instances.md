@@ -71,6 +71,7 @@
 | --- | --- | --- |
 | `AUTH` | `--auth` | 신원 방식. `tailscale`(없을 때 기본)·`local`·`trusted-proxy`. `limn add --auth <방식>`이 적는다 |
 | `AGENT_LOOPBACK` | `0`이면 `--no-agent-loopback`, `1`이면 `--agent-loopback` | `0`이면 헤더 없는 loopback 요청을 거부한다. 에이전트는 토큰을 써야 한다. `1`은 `tailscale` 방식과 loopback `BIND`에서만 된다 |
+| `TAILNET_AGENT` | `1`이면 `--tailnet-agent` | `1`이면 `tailscale serve`를 거쳐 온 헤더 없는 요청(태그 장치)도 0.2.0처럼 에이전트로 본다. 두지 않으면(0.2.1부터의 기본) 그런 요청은 `403`이고 원격 에이전트는 토큰을 쓴다. loopback 에이전트가 있어야 한다(`AGENT_LOOPBACK=0`, `AUTH=local`·`trusted-proxy`, loopback이 아닌 `BIND`와 함께 못 쓴다) |
 | `BIND` | `--bind` | 들을 주소. 기본 `127.0.0.1`. loopback이 아니면 `AUTH=trusted-proxy`가 있어야 한다. `EXTRA_ARGS`에 `--i-know-this-is-insecure`가 있으면 예외다 |
 | `PUBLIC_HOSTS` | `--public-host` | 인스턴스에 닿는 공개 이름 `이름[:포트]`을 쉼표로 잇는다. Host·Origin으로 받고 `pins.md`의 기준 주소로 쓴다 |
 | `TRUSTED_PROXIES` | `--trusted-proxies` | `trusted-proxy` 방식이 신원 헤더를 믿는 IP·CIDR 목록(쉼표, 기본 `127.0.0.1,::1`) |
@@ -210,7 +211,7 @@ limn add paper2 --manuscript ~/papers/paper2        # 같은 결과를 설정에
 - `MAIN` 파일이 있다.
 - `PORT`가 1024–65535 안의 값이다. 비어 있어도 자동으로 고르지 않는다.
 - `ACCENT`가 `#rrggbb` 형식이다.
-- 접근 설정 키가 위 '접근 설정 키 (v0.2)' 표의 규칙을 지킨다. 예를 들어 loopback이 아닌 `BIND`에는 `AUTH=trusted-proxy`가 있고, `AGENT_LOOPBACK=1`은 `tailscale` 방식과 loopback `BIND`에서만 쓴다.
+- 접근 설정 키가 위 '접근 설정 키 (v0.2)' 표의 규칙을 지킨다. 예를 들어 loopback이 아닌 `BIND`에는 `AUTH=trusted-proxy`가 있고, `AGENT_LOOPBACK=1`은 `tailscale` 방식과 loopback `BIND`에서만 쓴다. `TAILNET_AGENT=1`도 같은 조건에 `AGENT_LOOPBACK=0`이 아니어야 한다.
 
 > **주의**
 >
@@ -233,6 +234,8 @@ limn update --from ~/src/limn  # 로컬 체크아웃(개발용)
 4. 켜진 `limn@*` 인스턴스를 모두 재시작하고 HTTP 200을 기다린다.
 
 설치하는 동안 도는 서버는 그대로이고, 재시작할 때 새 판으로 바뀐다. **상태 폴더는 건드리지 않는다.**
+
+기본 원본은 0.1.1부터 공개 https 주소다. **0.1.0의 기본값은 `git+ssh://git@github.com/dartworklabs/limn`이었다.** `limn update`는 *설치된* 판의 스크립트로 돌기 때문에, 0.1.0에서 올리는 첫 업데이트만은 SSH로 받는다(GitHub SSH 키가 있어야 한다). 그다음부터는 https다. SSH 키가 없으면 첫 업데이트를 `LIMN_REPO=git+https://github.com/dartworklabs/limn limn update`로 돌린다. SSH를 계속 쓰려면 `LIMN_REPO`를 늘 둔다.
 
 옵션 규칙은 다음과 같다.
 
@@ -281,10 +284,10 @@ limn member remove paper2 <로그인>
 
 | 역할 | 할 수 있는 일 |
 | --- | --- |
-| `owner` | editor가 하는 모든 일. 소유자 전용 작업(멤버·토큰·설정)은 v0.2에서 CLI와 파일 수준이다. 소유자 전용 HTTP 엔드포인트는 아직 없다 |
-| `editor` | v0.1에서 사람이 하던 모든 일: 핀, 답글, 수정, 닫기, 확인, 다시 열기, 재빌드. **역할이 없는 사람은 editor다** |
+| `owner` | 전부. 소유자 전용 HTTP 엔드포인트 `POST /api/clear`(모든 핀을 보관본으로 옮기고 비운다, 본문 `{"confirm": "clear all pins"}`, 0.2.1부터)도 포함한다. 나머지 소유자 작업(멤버·토큰·설정)은 CLI와 파일 수준이다 |
+| `editor` | v0.1에서 사람이 하던 일 중 전체 지우기를 뺀 모두: 핀, 답글, 수정, 닫기, 확인, 다시 열기, 재빌드. **역할이 없는 사람은 editor다** |
 | `viewer` | 읽기만 한다. `/api/pick`과 비교 빌드(`/api/revision-build`)는 된다. 그 밖의 변경은 모두 `403`이다 |
-| `agent` | 에이전트 계약대로 claim, 답글, 검토 대기로 닫기를 한다. 확인(confirm)은 못 한다. 토큰으로 들어온 주체는 늘 이 역할이다 |
+| `agent` | 에이전트 계약대로 claim, 답글, 검토 대기로 닫기를 한다. 확인(confirm)과 전체 지우기는 못 한다. 토큰으로 들어온 주체는 늘 이 역할이다 |
 
 결정 근거는 [ADR-0002](../adr/0002-access-control.md)에 있다.
 
@@ -300,7 +303,7 @@ limn member remove paper2 <로그인>
 
 - 서버는 `BIND`가 없으면 `127.0.0.1`에 바인드한다. loopback이 아닌 `BIND`는 `AUTH=trusted-proxy`일 때만 받는다. `EXTRA_ARGS`에 `--i-know-this-is-insecure`가 있으면 큰 경고와 함께 뜬다. 테일넷 노출은 `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>` 뿐이다.
 - `tailscale serve`는 `tailscale` 방식에서만 쓴다. `add`와 `start`는 `AUTH=local`·`AUTH=trusted-proxy` 인스턴스에 serve를 거부한다. `AUTH=local`은 loopback 요청이 모두 소유자라서, serve로 열면 테일넷 사람 모두가 소유자가 된다. `AUTH=trusted-proxy`는 테일넷 사람이 프록시 헤더를 직접 보낼 수 있다. 이런 인스턴스는 `--no-serve`로 두고 자체 프록시 뒤에 둔다.
-- 에이전트는 토큰으로 인증한다. "헤더 없는 loopback 요청 = 에이전트"라는 v0.1 규칙은 `tailscale` 방식에서 아직 되지만 폐지 예정이고, 서버 로그에 경고가 남는다. 에이전트가 토큰을 쓰게 되면 `AGENT_LOOPBACK=0`을 둔다.
+- 에이전트는 토큰으로 인증한다. "헤더 없는 loopback 요청 = 에이전트"라는 v0.1 규칙은 `tailscale` 방식에서 아직 되지만 폐지 예정이고, 서버 로그에 경고가 남는다. 에이전트가 토큰을 쓰게 되면 `AGENT_LOOPBACK=0`을 둔다. 이 규칙은 이 기기를 부른 요청에만 해당한다. `tailscale serve`를 거쳐 온 헤더 없는 요청(태그 장치, 공용 CI 노드)은 0.2.1부터 `403`이다. 원격 에이전트에게는 토큰을 준다(`TAILNET_AGENT=1`이 옛 동작을 되살리지만 폐지 예정이다).
 - **funnel은 쓰지 않는다.** 미공개 원고이기 때문이다. `add`와 `start`는 serve 설정을 되읽어, 그 포트가 funnel이면 멈춘다.
 - **sudo를 부르지 않는다.** tailscale operator 설정도 바꾸지 않는다. sudo 없이 serve를 걸려면 이 사용자가 tailscale operator여야 한다. 권한이 없어 serve가 안 걸리면 오류로 멈춘다.
 - 남의 serve 항목을 덮거나 내리지 않는다. `serve reset`은 기기 전체 설정이라 쓰지 않는다.
@@ -316,7 +319,7 @@ limn member remove paper2 <로그인>
 | `LIMN_UNIT_PATH` | `pdflatex` 폴더 + `/usr/local/bin:/usr/bin:/bin` | 유닛 안의 `PATH` |
 | `LIMN_LEDGER`, `LIMN_LEDGER_GEN` | 위 '포트' 절 참고 | 포트 장부(선택) |
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
-| `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다 |
+| `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |
 | `LIMN_WAIT` | `240` | 기동·재시작 뒤 HTTP 200을 기다리는 초 |
 
 `XDG_CONFIG_HOME`이 없으면 `~/.config`, `XDG_DATA_HOME`이 없으면 `~/.local/share`를 쓴다.

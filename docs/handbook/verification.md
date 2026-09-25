@@ -40,6 +40,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_access.py`](../../tests/test_access.py) | 접근 제어: 신원 방식, 토큰, 역할별 허용 범위, 바인드 규칙, 0.1 상태 디렉터리 호환 |
 | [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저), 계약 문자열은 번역하지 않는지 |
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
+| [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
 
 > **주의**
 >

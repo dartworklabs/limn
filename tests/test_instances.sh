@@ -130,6 +130,7 @@ chk "--git-pull → GIT_PULL=1" "grep -qx 'GIT_PULL=1' '$env_a'"
 chk "the default state dir is DATA_ROOT/<name>" "grep -qx 'STATE_DIR=$T/data/paper-a' '$env_a'"
 chk "without LIMN_LEDGER_GEN the shared ledger file is left untouched" "cmp -s '$LIMN_LEDGER' '$T/ledger.orig'"
 chk "prints the AGENTS.md snippet" "grep -q 'curl -s https://box.tail0000.ts.net:18008/pins.md' <<< \"\$out\" && grep -q 'git remote get-url origin' <<< \"\$out\" && grep -q '⏳' <<< \"\$out\""
+chk "the snippet tells remote agents to send a token" "grep -qF 'Authorization: Bearer \$LIMN_TOKEN' <<< \"\$out\" && grep -q 'limn token create' <<< \"\$out\""
 chk "--no-start doesn't touch the unit or serve" "! grep -qE 'systemctl .*(enable|start)|tailscale serve --' '$STUB_LOG'"
 
 out=$("$PV" add paper-b --manuscript "$ms" --no-start 2>&1)
@@ -497,7 +498,7 @@ chk "PROXY_*_HEADER → the header flags" "[[ \$(pair --proxy-user-header) == X-
 chk "MEMBERS_ONLY=1 → --members-only" "grep -qx -- '--members-only' <<< \"\$argv\""
 chk "LOCAL_USER → --local-user" "[[ \$(pair --local-user) == alice ]]"
 chk "the packaged server accepts every access flag run builds" \
-    "\"$PY\" '$ROOT/src/limn/server.py' --help > '$T/help.txt' && for f in --auth --no-agent-loopback --agent-loopback --bind --public-host --trusted-proxies --proxy-user-header --proxy-name-header --proxy-email-header --members-only --local-user --i-know-this-is-insecure; do grep -q -- \"\$f\" '$T/help.txt' || exit 1; done"
+    "\"$PY\" '$ROOT/src/limn/server.py' --help > '$T/help.txt' && for f in --auth --no-agent-loopback --agent-loopback --tailnet-agent --bind --public-host --trusted-proxies --proxy-user-header --proxy-name-header --proxy-email-header --members-only --local-user --i-know-this-is-insecure; do grep -q -- \"\$f\" '$T/help.txt' || exit 1; done"
 
 badrun() { # badrun <label> <KEY=VALUE lines...> — the v0.1 config plus these lines must be refused with a message
     local label=$1
@@ -513,6 +514,9 @@ badrun "rejects a BIND that is not an IP address" "BIND=example.com"
 badrun "refuses a non-loopback BIND without AUTH=trusted-proxy (no restart loop)" "BIND=0.0.0.0"
 badrun "refuses AGENT_LOOPBACK=1 under AUTH=local" "AUTH=local" "AGENT_LOOPBACK=1"
 badrun "refuses AGENT_LOOPBACK=1 with a non-loopback BIND" "AUTH=trusted-proxy" "BIND=0.0.0.0" "AGENT_LOOPBACK=1"
+badrun "rejects TAILNET_AGENT other than 0/1" "TAILNET_AGENT=on"
+badrun "refuses TAILNET_AGENT=1 with AGENT_LOOPBACK=0" "TAILNET_AGENT=1" "AGENT_LOOPBACK=0"
+badrun "refuses TAILNET_AGENT=1 under AUTH=local" "AUTH=local" "TAILNET_AGENT=1"
 badrun "rejects a malformed PUBLIC_HOSTS" "PUBLIC_HOSTS=https://x.example.com/"
 badrun "rejects a malformed TRUSTED_PROXIES" "TRUSTED_PROXIES=proxy.example.com"
 badrun "rejects a malformed proxy header name" "PROXY_USER_HEADER=X User"
@@ -523,6 +527,10 @@ chk "a non-loopback BIND is accepted with --i-know-this-is-insecure in EXTRA_ARG
 cp "$T/config/v01.env" "$T/config/lb1.env"
 printf 'AGENT_LOOPBACK=1\n' >> "$T/config/lb1.env"
 chk "AGENT_LOOPBACK=1 → --agent-loopback (tailscale, loopback)" "LIMN_PRINT_ARGV=1 '$PV' run lb1 2>/dev/null | grep -qx -- '--agent-loopback'"
+cp "$T/config/v01.env" "$T/config/tn1.env"
+printf 'TAILNET_AGENT=1\n' >> "$T/config/tn1.env"
+chk "TAILNET_AGENT=1 → --tailnet-agent (v0.2.1 opt-in)" "LIMN_PRINT_ARGV=1 '$PV' run tn1 2>/dev/null | grep -qx -- '--tailnet-agent'"
+chk "a v0.1 config adds no --tailnet-agent" "! LIMN_PRINT_ARGV=1 '$PV' run v01 2>/dev/null | grep -q -- '--tailnet-agent'"
 
 "$PV" add acc-add --manuscript "$ms" --port 19131 --ts-port 19031 --auth local --no-serve --no-start > /dev/null 2>&1
 chk "add --auth local writes AUTH=local" "grep -qx 'AUTH=local' '$T/src/acc-add.env'"

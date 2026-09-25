@@ -32,7 +32,7 @@ ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Al
 BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
 CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 
-ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, bind="127.0.0.1", public_hosts=(),
+ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
                        trusted_proxies=ps.Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
                        proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
                        members_only=False, local_user=None, insecure=False)
@@ -264,7 +264,8 @@ class StartupRules(AccessBase):
     def test_defaults_are_v01(self):
         log = self.configure()
         self.assertEqual((ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False))
-        self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · members-only off")
+        self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · "
+                                 "members-only off")
         self.assertTrue(any(l.startswith("warning     ") and "deprecated" in l for l in log))
 
     def test_no_agent_loopback(self):
@@ -673,15 +674,17 @@ class PublicHost(AccessBase):
         self.assertFalse(ps.host_ok("limn.example.com"))                                     # nothing without the option
 
     def test_requests_and_pins_md_base(self):
+        # A headerless request under a public host is not the loopback agent (v0.2.1) - a person or a token is needed.
         code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            {"Host": "limn.example.com", "Origin": "https://limn.example.com"})
+                            dict(ALICE, Host="limn.example.com", Origin="https://limn.example.com"))
         self.assertEqual(code, 200)
         code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            {"Host": "limn.example.com", "Origin": "https://evil.example.com"})
+                            dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"))
         self.assertEqual(code, 403)
+        _, tok = ps.token_create(ps.C.state, "ci")
         self.assertEqual(ps.remote_base_for("limn.example.com"), "https://limn.example.com")
         self.assertEqual(ps.remote_base_for("alt.example.com:8443"), "https://alt.example.com:8443")
-        code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"})
+        code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"}, token=tok)
         self.assertEqual(code, 200)
         self.assertIn("https://limn.example.com/api/pins/N/close", md)
         self.assertIn("원격: `curl -s https://limn.example.com/pins.md`", md)
@@ -696,7 +699,8 @@ class ContractAdditions(AccessBase):
         lines = md.splitlines()
         self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
         i = lines.index(ps.TOKEN_GUIDANCE)
-        self.assertTrue(lines[i - 1].startswith("처리한 핀은 닫는다"))  # right after the existing guidance paragraph
+        self.assertTrue(lines[i - 2].startswith("처리한 핀은 닫는다"))  # after the existing guidance paragraph
+        self.assertEqual(lines[i - 1], ps.claim_guidance("http://127.0.0.1:18999"))   # and the v0.2.1 claim line
         self.assertIn("Authorization: Bearer", ps.TOKEN_GUIDANCE)
         self.assertIn("limn token create <인스턴스>", ps.TOKEN_GUIDANCE)
         self.assertIn("폐지 예정", ps.TOKEN_GUIDANCE)
@@ -857,6 +861,7 @@ class Migration(AccessBase):
         lines = md.split("\n")
         self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
         lines.remove(ps.TOKEN_GUIDANCE)
+        lines.remove(ps.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
         self.assertEqual(mask("\n".join(lines)), V01_PINS_MD.replace("{src}", str(self.src)))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
@@ -880,6 +885,9 @@ class Migration(AccessBase):
         lines = md_new.split("\n")
         self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
         lines.remove(ps.TOKEN_GUIDANCE)
+        claim = [l for l in lines if l.startswith("처리를 시작하는 핀은 먼저 잡는다")]
+        self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
+        lines.remove(claim[0])
         self.assertEqual(mask("\n".join(lines)), mask(md_old))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)

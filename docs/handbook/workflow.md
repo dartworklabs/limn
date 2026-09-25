@@ -41,6 +41,7 @@ ADR(Architecture Decision Record)은 되돌리기 어렵거나 대가가 있는 
 | --- | --- | --- |
 | [0001](../adr/0001-blueprint.md) | Limn 청사진 결정 | 제안 |
 | [0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
+| [0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
 
 ## PR과 기여 조건
 

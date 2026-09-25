@@ -37,7 +37,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 1. **`Authorization: Bearer <토큰>`** 이 있으면 에이전트 API 토큰으로 본다(§토큰). 유효한 토큰은 어떤 신원 헤더보다 앞선다. 요청자는 에이전트 `{"login": "agent:<토큰 이름>", "name": "<토큰 이름>"}` 이 된다. 이 규칙은 모든 신원 방식에 같다.
 2. 토큰이 없으면 인스턴스의 **신원 방식**(`--auth`)이 정한다. 아래 표를 본다.
-3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트).
+3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트). 0.2.1부터는 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
 
 어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다.
 
@@ -77,7 +77,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | `--allow` 만 | `--allow` 에 있는 로그인. 0.1과 같은 뜻이다 |
 | 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 방문 때 `role` 필드 없이 `people.json` 에 기록된다 |
 
-거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. 허용 목록이 있으면, `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 `403` 이다. 0.1과 같은 규칙이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
+거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 0.2.1부터 허용 목록이 없어도 `403` 이다. 0.1은 허용 목록이 있을 때만 막았고, 0.2.0은 허용 목록이 없으면 이것을 에이전트로 받았다. `--tailnet-agent` 로 0.2.0 동작을 되살려도 허용 목록이 있으면 `403` 이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
 
 ### 역할
 
@@ -86,14 +86,14 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
 | `viewer` | `role` 이 `viewer` 인 사람, 그리고 `role` 값을 알 수 없는 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
-| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm` 을 뺀 전부. confirm은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 간다 |
-| `editor` | `role` 이 없거나 `editor` 인 사람 | 전부 |
+| `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm` 과 `/api/clear` 를 뺀 전부. 둘은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 간다 |
+| `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
 - `GET` 은 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다.
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
-- 소유자 전용 동작(멤버, 토큰, 설정)은 0.2에서 CLI와 파일 수준이다(`limn member`, `limn token`). 소유자만 부를 수 있는 HTTP 경로는 아직 없다.
+- 소유자만 부를 수 있는 HTTP 경로는 `POST /api/clear` 하나다(0.2.1부터, `OWNER_POSTS`). 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다.
 
@@ -117,16 +117,19 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 - `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다.
 - `local`, `trusted-proxy` 방식이나 루프백이 아닌 `--bind` 에서는 늘 꺼져 있다. 거기서 `--agent-loopback` 을 요구하면 서버가 기동을 거부한다.
 - 같은 머신의 로컬 프로세스는 헤더를 빼서 에이전트를, 헤더를 붙여 사람을 흉내 낼 수 있다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, 이 동작을 끄고, `--members-only` 나 역할로 좁힌다.
+- **이 기기를 부른 요청에만 해당한다(0.2.1).** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) §남는 한계). 0.2.0은 허용 목록이 없을 때 이런 요청(태그 장치, 공용 CI 노드)을 에이전트로 받아 핀을 닫고 모두 지울 수도 있었다. 이제는 `403` 이고 메시지가 토큰을 쓰라고 알려 준다.
+- `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 0.2.0 동작을 일부러 되살린다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
 
 ### pins.md 안내 줄
 
-0.2.0부터 `<state_dir>/pins.md` 의 안내 문단 바로 뒤에 다음 한 줄이 늘 붙는다(§pins.md 형식). 에이전트가 표를 읽는 순간 인증 방법을 알게 하려는 것이다. 머리줄의 다른 줄은 바뀌지 않았다.
+`<state_dir>/pins.md` 의 안내 문단 바로 뒤에 다음 두 줄이 늘 붙는다(§pins.md 형식). 앞 줄은 0.2.1에 더한 claim 안내이고, `<base>` 는 close 예시와 같은 base URL이다. 뒷줄은 0.2.0부터 있던 인증 안내이고, 0.2.1에서 마지막 구절(테일넷 주소의 헤더 없는 요청은 `403`)이 붙었다. 에이전트가 표를 읽는 순간 핀을 잡는 법과 인증 방법을 알게 하려는 것이다. 머리줄의 다른 줄은 바뀌지 않았다.
 
 ```text
-에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, 토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다
+처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{"eta_min":15}' <base>/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 잡는다 · 409 면 다른 쪽이 잡은 핀이니 건너뛴다 · 포기하면 `<base>/api/pins/N/unclaim`
+에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, 토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다
 ```
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `admit`, `check_role`, `bearer_of`, `token_lookup`, `TOKEN_GUIDANCE` 다.
+실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE` 다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -220,7 +223,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 삭제 기록이 없으면 `404`, 같은 id가 이미 있으면 `409` |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나, 같은 신원이면 연장한다 — §처리 중 표시 (claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`. 정수가 아니거나 1보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다. 응답은 `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다. claim을 건 신원과 무관하다. claim은 잠금이 아니라 표시이기 때문이다 → `{ok, pin}`. 없는 id면 `200 {"ok": false}`. `viewer` 역할은 다른 변경처럼 `403` 이다 |
-| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. **에이전트는 쓰지 않는다** |
+| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1부터, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남는다. 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
 
 ## 비교 PDF 실행과 캐시
 
@@ -337,7 +340,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 | 전환 | 조건 | 결과 |
 | --- | --- | --- |
-| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl, 헤더 없는 태그 장치), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기** |
+| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 0.2.1부터 `403` 이다(§인증) |
 | 닫기 | 사람(`editor`·`owner` 역할, `local` 방식의 소유자) | `done:true` = 완료(그 사람이 검토자다) |
 | 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로 `true` 를 보낸다 |
 | `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`) |
@@ -411,13 +414,14 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 | `type` | 언제 | `to` |
 | --- | --- | --- |
-| `mention` | 메모(저장·수정), 답글, 다시 연 이유가 새로 누군가를 부름 | 새로 불린 사람 |
+| `mention` | 답글이나 다시 연 이유가 누군가를 @태그함. 전에 불린 사람이어도 **매번** 간다(0.2.1). 메모 저장·수정은 @태그 횟수가 전보다 늘어난 사람에게 간다(새 핀은 태그된 모두). 그래서 `@이름` 옆의 오타만 고치면 아무도 받지 않고, `note_append` 로 `@이름` 을 다시 쓰면 받는다 | 태그된 사람(글쓴이 자신은 빠진다) |
 | `review_requested` | 핀이 검토 대기로 감 | 작성자 |
-| `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람. 이 글로 새로 불린 사람은 `mention` 하나만 받는다 |
-| `reopened` | 닫힌 핀을 다시 엶 | 작성자 |
+| `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람. 단 이 답글이 @태그한 사람은 빠진다. 그 사람은 `mention` 하나만 받는다. 한 글로 한 사람이 두 알림을 받지 않는다 |
+| `reopened` | 닫힌 핀을 다시 엶 | 작성자. 다시 연 이유가 작성자를 @태그하면 `mention` 하나만 받는다 |
 | `assigned` | 핀을 만들거나 고치며 담당을 사람으로 정함(바뀔 때만) | 새 담당 |
+| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움(0.2.1) | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다 |
 
-- `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다.
+- `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다. `cleared` 만 예외로 `to` 가 비어도 남긴다.
 - 핀 쓰기가 커밋된 뒤, 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다. 앞부분은 그대로 두므로 추가 전용이 유지된다.
 - 최근 5000건만 남긴다. 그래도 `seq` 는 계속 오른다. 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
 
@@ -439,7 +443,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 curl -s -H "Authorization: Bearer $LIMN_TOKEN" https://<기기>.<tailnet>.ts.net:<port>/pins.md
 ```
 
-원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 그 기기 사람의 신원이 붙는다. 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기).
+원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙고, 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기). **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 0.2.1부터 `403` 이다(§인증). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다. 루프백(`http://127.0.0.1:<port>`) 에이전트는 바뀌지 않았다.
 
 - `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다. 그래서 줄 번호가 최신이다.
 - 바뀌는 것은 close 예시의 base URL뿐이다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 지금까지처럼 `http://127.0.0.1:<port>` 다.
@@ -606,7 +610,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 1. `원고: <경로>` 바로 다음 줄은 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 이다([operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때). 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않게 하려는 줄이다.
 2. `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다.
 3. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 두 줄이 온다. `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 이다. git 저장소가 아니거나 아직 빌드하지 않아 파일이 없으면 이 두 줄만 생략한다.
-4. 0.2.0부터 안내 문단 바로 뒤에 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다` 한 줄이 늘 붙는다. 전문은 §인증의 pins.md 안내 줄에 있다. 머리줄의 다른 부분은 바뀌지 않았다.
+4. 안내 문단 바로 뒤에 두 줄이 늘 붙는다. 0.2.1부터 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 이 오고, 0.2.0부터 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 온다(마지막 구절은 0.2.1). 전문은 §인증의 pins.md 안내 줄에 있다. 둘 다 더한 줄이고 머리줄의 다른 부분은 바뀌지 않았다.
 
 ### 열
 
