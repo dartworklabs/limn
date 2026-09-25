@@ -145,7 +145,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 ## 사용자에게 뷰어 띄워 주기
 
-1. **설치**(한 번): `uv tool install git+https://github.com/dartworklabs/limn@v0.1.1` 뒤 `limn version` 으로 확인한다.
+1. **설치**(한 번): `uv tool install git+https://github.com/dartworklabs/limn@v0.2.0` 뒤 `limn version` 으로 확인한다.
 2. **포트를 확인한다(강제).** 확인 없이 바인딩하지 않는다.
 
    ```bash

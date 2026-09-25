@@ -20,11 +20,11 @@ Python 3.10 이상, [uv](https://docs.astral.sh/uv/), SyncTeX 가 되는 TeX 배
 Poppler(`pdftoppm`)가 필요하다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.1.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.0
 limn version
 ```
 
-GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.1.1` 도 된다.
+GitHub SSH 접근이 있으면 `git+ssh://git@github.com/dartworklabs/limn@v0.2.0` 도 된다.
 
 ## 서버 하나 띄우기
 
@@ -100,7 +100,7 @@ Limn 은 2026-09-21 writing-agent-playbook 저장소의 `manuscript-pin-picker` 
 아무 것도 지우지 않는다. 포트·테일넷 주소·핀이 그대로 이어진다.
 
 ```bash
-uv tool install git+https://github.com/dartworklabs/limn@v0.1.1
+uv tool install git+https://github.com/dartworklabs/limn@v0.2.0
 limn migrate --dry-run            # 계획: ~/.config/pin-viewer/<이름>.env -> ~/.config/limn/<이름>.env
 limn migrate                      # 설정 복사(여러 번 불러도 같다, 옛 파일은 남는다)
 # 인스턴스마다:
