@@ -29,6 +29,10 @@ limn serve \
   [--label <label>] \
   [--accent <#rrggbb>] \
   [--doc <key>=<display name>:<path> ...] \
+  [--auth tailscale|local|trusted-proxy] [--no-agent-loopback | --agent-loopback] \
+  [--bind <addr>] [--i-know-this-is-insecure] [--public-host <name[:port]>,...] \
+  [--trusted-proxies <ip/cidr>,...] [--proxy-user-header <h>] [--proxy-name-header <h>] [--proxy-email-header <h>] \
+  [--members-only] [--local-user <login>] \
   [--version]
 ```
 
@@ -51,11 +55,29 @@ limn serve \
 | `--accent` | No | A fixed-palette color chosen by hashing the label string | The label's accent color. Only accepts `#rrggbb` format (fails to start otherwise). The same `--label` always gets the same default color unless overridden |
 | `--version` | No | — | Prints the installed version and exits (matches `GET /api/version`) |
 
-**The bind address is fixed at `127.0.0.1` — there is no flag to change it.** (§Security constraints)
+Access control (v0.2, [design](design/access-and-sync.md)). Without any of these the server behaves exactly as in v0.1.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--auth` | `tailscale` | Identity provider. `tailscale`: `Tailscale-User-*` headers, trusted only when the TCP peer is loopback (`tailscale serve`). `local`: a single user on their own machine — every loopback request is the owner (a person, may confirm), Tailscale headers are ignored, other peers get `401`; agents must use a token. `trusted-proxy`: the `--proxy-*-header` headers, trusted only from `--trusted-proxies`; everything else without a valid token gets `401`. Every provider accepts `Authorization: Bearer <token>` (`limn token create`); a valid token wins over headers, an invalid or revoked one is `401` |
+| `--no-agent-loopback` / `--agent-loopback` | on under `tailscale` | Whether a loopback request with neither identity header nor token is the agent (`로컬/에이전트`, the deprecated v0.1 behaviour; the server logs a deprecation warning at startup and on the first such request). `--no-agent-loopback` turns it off (`401`). It is always off under `local`, `trusted-proxy` and on a non-loopback `--bind`; asking for it there (`--agent-loopback`) refuses to start |
+| `--bind` | `127.0.0.1` | Listen address (IPv4, IPv6 or `localhost`). A non-loopback address refuses to start unless `--auth trusted-proxy` or `--i-know-this-is-insecure`; any non-loopback bind prints a `warning` line naming the provider |
+| `--i-know-this-is-insecure` | off | Start on a non-loopback `--bind` with `tailscale`/`local` anyway, with a loud warning. Only for a network you fully trust |
+| `--public-host` | (none) | Public host names (repeatable or comma-separated, `name[:port]`) accepted as `Host` and as same-origin `Origin` (`https`, port 443 unless given), and used as the base URL in `GET /pins.md` |
+| `--trusted-proxies` | `127.0.0.1,::1` | IPs/CIDRs whose identity headers `trusted-proxy` trusts |
+| `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `X-Forwarded-User` / `X-Forwarded-Preferred-Username` / none | Header names under `trusted-proxy`. The user header is required; with an e-mail header, the e-mail (when present) is the login |
+| `--members-only` | off | Admit only people in `people.json` (`limn member add`) or `--allow`; others get `403` and are not recorded. Tokens and the local owner are always admitted |
+| `--local-user` | `$USER`, then `owner` | The owner's login under `--auth local` |
+
+The startup log prints an `auth` line (provider, token count, loopback agent on/off, members-only). Roles
+(`people.json`): `viewer` may only read and run `/api/pick`·`/api/revision-build`; `agent` may do everything but
+confirm; `editor` (the default for a person without a role) and `owner` everything. Owner-only operations —
+members, tokens, settings — are CLI/file level in v0.2 (`limn member`, `limn token`); there are no owner-only HTTP
+endpoints yet. Details: [instances.md](instances.md#access-tokens-and-members), [api.md](api.md#authentication).
 
 ### Differences from the design draft
 
-This tool's design draft called for a separate `--allow-host HOST` (repeatable) to individually allow domains other than `*.ts.net`, a separate `--no-host-check` to turn off Host/Origin checks independently, and a `--log-headers` to log request headers. The actual implementation never built those three, substituting the `--allow` (a login-based allowlist) and `--no-origin-check` (turns off Host/Origin checks together) above — the allowed-Host set itself (`127.0.0.1`·`localhost`·`::1`·`*.ts.net`) is hardcoded, with no way to add a custom domain. A custom `--allow-host` would need to be implemented separately if it's ever needed.
+This tool's design draft called for a separate `--allow-host HOST` (repeatable) to individually allow domains other than `*.ts.net`, a separate `--no-host-check` to turn off Host/Origin checks independently, and a `--log-headers` to log request headers. The actual implementation never built those three, substituting the `--allow` (a login-based allowlist) and `--no-origin-check` (turns off Host/Origin checks together) above. The allowed-Host set is `127.0.0.1`·`localhost`·`::1`·`*.ts.net` plus, since v0.2, the names given with `--public-host` — which covers what `--allow-host` was meant for.
 
 ## Multiple documents (`--doc`)
 
@@ -92,7 +114,7 @@ The body reads figures from a sibling folder via `\graphicspath{{./images/}{../1
 
 ### Contract with the instance manager
 
-Running and managing several papers persistently (auto-wiring ports, state directories, and systemd units) is the job of the **instance manager**, not this document — `limn add|start|stop|update|list|status|url|snippet|doc|remove`, backed by systemd user units `limn@<name>`. Per-paper configuration keys (`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, in `~/.config/limn/<name>.env`), how they map onto server arguments, and the procedures for adding, updating, and removing a paper are all authoritative in [instances.md](instances.md). The table above remains the source of truth for the server's own `--doc`/`--main` argument contract (format, key rules, path rules), which is unchanged.
+Running and managing several papers persistently (auto-wiring ports, state directories, and systemd units) is the job of the **instance manager**, not this document — `limn add|start|stop|update|list|status|url|snippet|doc|remove`, backed by systemd user units `limn@<name>`. Per-paper configuration keys (`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, and the access keys `AUTH`·`AGENT_LOOPBACK`·`BIND`·`PUBLIC_HOSTS`·`TRUSTED_PROXIES`·`PROXY_*_HEADER`·`MEMBERS_ONLY`·`LOCAL_USER`, in `~/.config/limn/<name>.env`), how they map onto server arguments, and the procedures for adding, updating, and removing a paper are all authoritative in [instances.md](instances.md). The table above remains the source of truth for the server's own `--doc`/`--main` argument contract (format, key rules, path rules), which is unchanged.
 
 ## Port conflict avoidance (mandatory)
 
@@ -142,10 +164,10 @@ format halts startup.
 
 | Item | Rule |
 | --- | --- |
-| Bind address | Fixed at `127.0.0.1`. `0.0.0.0`/wildcard binding is forbidden — never exposed as an argument either |
-| External exposure | `tailscale serve` only. **`tailscale funnel` is forbidden** — funnel exposes it to the public internet |
+| Bind address | `127.0.0.1` by default. A non-loopback `--bind` (e.g. `0.0.0.0`) only with `--auth trusted-proxy` behind an authenticating proxy; otherwise the server refuses to start (`--i-know-this-is-insecure` overrides, loudly) |
+| External exposure | `tailscale serve` (provider `tailscale`) or an authenticating reverse proxy (`--auth trusted-proxy`). **`tailscale funnel` is forbidden** — funnel exposes it to the public internet |
 | Verify after exposing | (1) confirm `curl` against that URL from inside the tailnet returns `200`. (2) confirm a connection from a public IP or outside the tailnet fails (i.e. `tailscale serve status` reads "tailnet only," not "Funnel") — only report it "exposed" once both are confirmed |
-| Authentication | None (the tailnet itself is the boundary). Identity headers are for attribution only; restrict the login list with `--allow` if needed. Assumes pin data never contains sensitive information |
+| Authentication | An identity provider per instance (`--auth`, default `tailscale`: the tailnet is the boundary and the headers attribute). Agents use API tokens (`limn token create`). Restrict who may enter with `--allow`/`--members-only` and what they may change with roles (`limn member`) |
 | Request boundaries | The body is always read to completion before any response, and the connection is closed after an error (blocking request smuggling); `Transfer-Encoding` is rejected; a cross-origin `Origin` or unrecognized `Host` gets `403`; a POST with a body must be JSON — [api.md](api.md) §Request format and boundaries, §Host/Origin checks below |
 | Paths | Pins and snippets can only ever point at a file inside the `--manuscript` tree (outside it is `400`) |
 | Shutting down | Take exposure down at the end of a session with something like `tailscale serve --https=<port> off`. Whether to leave the server process running is a judgment call (reuse benefit vs. idle resource cost) |
@@ -173,8 +195,7 @@ format halts startup.
 | A `POST` with a spoofed identity header sent to an unrecognized `Host` | `403` — a header never lets a request skip the Host check |
 | Access from a public IP | Connection fails |
 
-Identity headers are **for attribution, not authentication.** The server reads this header regardless of whether it went through `tailscale serve` — a request that hits `127.0.0.1` directly with a `Tailscale-User-Login` header attached is recorded as that person (measured 2026-09-24, `/api/meta`'s `me`). Regression and browser tests impersonate two people this way (Playwright `extra_http_headers`). Pending review's "agent = no header" has the same limitation — identity decides a default, not a permission. A local process on the same device can attach the header itself. Since binding is
-`127.0.0.1`, any request that didn't go through the tailnet can only have come from that device, which already belongs to the user.
+Under `--auth tailscale` the identity headers are **trusted only from a loopback TCP peer** — `tailscale serve` connects from loopback, so from any other peer (possible only with a non-loopback `--bind`) they are ignored. A request that hits `127.0.0.1` directly with a `Tailscale-User-Login` header attached is still recorded as that person (measured 2026-09-24, `/api/meta`'s `me`); regression and browser tests impersonate two people this way (Playwright `extra_http_headers`). A local process on the same device can attach the header itself, and a headerless local request is the agent while the loopback agent is on — so on a shared machine give agents tokens, set `--no-agent-loopback`, and use `--members-only`/roles. With the default bind, any request that didn't go through the tailnet can only have come from that device.
 
 ## Running persistently — systemd user units
 
@@ -206,7 +227,9 @@ Single document (no `--doc` — same layout as the legacy state folder):
 ├── pins.jsonl.corrupt-*.bak  # the original file preserved right before the first write when a corrupt line was found (conditional)
 ├── pins_<ts>.jsonl.bak       # an /api/clear archive
 ├── pins.md                   # the agent entry point — the one file to read
-├── people.json               # @mention candidates — tailnet people who've opened this viewer (excludes local, atomically swapped)
+├── people.json               # @mention candidates and members — people who've opened this viewer or were added with `limn member` (optional `role`; excludes agents, atomically swapped)
+├── tokens.json               # agent API tokens — SHA-256 hashes only, mode 0600, written by `limn token` (absent until the first token)
+├── .people.lock · .tokens.lock   # cross-process locks for the two files above (the server and the CLI may write at once)
 ├── events.jsonl               # mention·review_requested·replied·reopened log (append-only, never sent externally)
 ├── build.log
 ├── built_at.txt

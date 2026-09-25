@@ -35,13 +35,16 @@ limn serve --manuscript ~/papers/paper2 \
   --doc 'ms=본문:manuscript/main.tex' --doc 'rr=답변서:submission/review_response/review_response.tex'
 ```
 
-`127.0.0.1` 에만 붙는다. `http://127.0.0.1:18300/` 을 연다. 테일넷에 나누려면
+기본으로 `127.0.0.1` 에만 붙는다. `http://127.0.0.1:18300/` 을 연다. 테일넷에 나누려면
 `tailscale serve --bg --https=18200 http://127.0.0.1:18300`. 옵션은 `limn serve --help`. 상태(핀·빌드)는
 `--state-dir` 또는 `~/.local/share/limn/serve/<원고>-<해시>` 에 쌓인다.
 
-> **보안:** Limn 에는 아직 자체 인증이 없다. 포트에 닿는 누구나 원고를 읽고 핀을 만들고 고치고 닫을 수
-> 있다. 믿을 수 있는 사설망(예: 테일넷의 `tailscale serve`)이나 인증 프록시를 거치지 않고는 loopback 밖으로
-> 절대 내보내지 않는다 — 공개 주소도, `tailscale funnel` 도 안 된다. [SECURITY.md](SECURITY.md) 참고.
+> **보안:** 신원 방식(identity provider) 없이 Limn 을 밖에 열지 않는다. 기본값(`--auth tailscale`)은
+> `127.0.0.1` 에 붙고 `tailscale serve` 가 붙여 주는 신원 헤더를 믿는다. 포트에 닿는 테일넷 사람은 누구나
+> 공동 작업자이며, 좁히려면 `--members-only` 와 `limn member` 역할을 쓴다. `--auth local` 은 자기 머신의 한
+> 사람용이고, `--auth trusted-proxy` 는 인증 리버스 프록시 뒤에서 쓰며 loopback 이 아닌 주소에 `--bind` 할 수
+> 있는 유일한 방식이다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 프록시 없는 공개 주소도,
+> `tailscale funnel` 도 안 된다. [SECURITY.md](SECURITY.md) 참고.
 
 ## 인스턴스 (원고마다 하나)
 
@@ -51,6 +54,7 @@ limn list                                                  # 이름표·포트·
 limn status paper2 · limn url paper2 · limn snippet paper2 # 자세히 · 테일넷 주소 · AGENTS.md 조각
 limn update [--dry-run] [--ref vX.Y.Z]                     # uv tool 로 다시 설치, 켜진 인스턴스 재시작
 limn stop paper2 · limn start paper2 · limn remove paper2
+limn token create paper2 · limn member add paper2 <login> --role viewer   # 에이전트 토큰(한 번만 보임) · 역할
 ```
 
 설정은 `~/.config/limn/<이름>.env`, 상태는 기본 `~/.local/share/limn/<이름>`.
@@ -59,7 +63,8 @@ limn stop paper2 · limn start paper2 · limn remove paper2
 ## 에이전트에게
 
 에이전트는 `pins.md`(`curl -s <base>/pins.md`) 또는 `GET /api/pins` 를 읽고, 고치기 직전에 그 핀 하나만
-claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 확인은 사람이 한다. 에이전트는
+claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 확인은 사람이 한다. 인증은
+`limn token create <인스턴스>` 로 받은 토큰(`Authorization: Bearer …`)으로 한다. 에이전트는
 확인(confirm)하지 않고, 남이 claim 한 핀·검토 대기 핀·담당이 사람인 핀은 건너뛴다. 전체 절차는
 [skill/SKILL.ko.md](skill/SKILL.ko.md), API 는 [docs/api.md](docs/api.md). `pins.md` 형식과 HTTP API 는
 고정된 계약이라 UI 언어와 상관없이 바뀌지 않는다.

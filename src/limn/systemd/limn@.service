@@ -9,11 +9,14 @@
 #   manage   `limn add|start|stop|update|list|status|url|snippet|doc|remove`
 #
 # ExecStart goes through `limn run` instead of calling the server directly because some arguments
-# are conditional (--git-pull only when GIT_PULL=1; LABEL, ACCENT and DOCS only when set), which
-# systemd cannot express. `limn run` validates the config and then execs the server.
+# are conditional (--git-pull only when GIT_PULL=1; LABEL, ACCENT, DOCS and the access keys AUTH,
+# AGENT_LOOPBACK, BIND, … only when set), which systemd cannot express. `limn run` validates the
+# config and then execs the server.
 #
-# The server binds 127.0.0.1 only (hard-coded). Tailnet exposure is done by `tailscale serve`,
-# set up by `limn add|start`. Never use funnel — manuscripts are unpublished.
+# The server binds 127.0.0.1 unless BIND says otherwise, and refuses a non-loopback BIND unless
+# AUTH=trusted-proxy (an authenticating proxy in front). Tailnet exposure is done by `tailscale
+# serve`, set up by `limn add|start` for the tailscale provider only. Agents authenticate with
+# `limn token create %i`. Never use funnel — manuscripts are unpublished.
 [Unit]
 Description=Limn manuscript instance %i (PDF drag -> SyncTeX .tex line)
 After=network-online.target

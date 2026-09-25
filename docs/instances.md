@@ -26,12 +26,27 @@ sources it with a shell**, so do not use shell syntax in values. `limn add` refu
 |---|---|
 | `MANUSCRIPT` | manuscript folder (LaTeX source root, absolute path) |
 | `MAIN` | top-level `.tex` file name (at the top of the manuscript folder) |
-| `PORT` / `TS_PORT` | local `127.0.0.1` port and tailnet `https` port. **Never auto-picked at run time** — an advertised address must not change |
+| `PORT` / `TS_PORT` | local port (on `127.0.0.1` unless `BIND` is set) and tailnet `https` port. **Never auto-picked at run time** — an advertised address must not change |
 | `STATE_DIR` | state directory. `limn add` refuses one that another instance uses |
 | `GIT_PULL` | `1`: fast-forward (`--ff-only`) the manuscript checkout before every rebuild |
 | `LABEL` / `ACCENT` | the viewer's label and accent colour (`#rrggbb`) |
 | `EXTRA_ARGS` | further server arguments (split on spaces). `limn add` defaults to `--no-build`; the server builds anyway when there is no output yet |
 | `DOCS` | several documents (manuscript, response letter, view-only PDFs, …) switched by tabs. Not together with `MAIN`. See [Multiple documents](#multiple-documents-docs) |
+
+Access control keys (v0.2, all optional — see [Access: tokens and members](#access-tokens-and-members)). Unset keys
+add no server flag, so a config without them runs exactly as in v0.1. `limn run` validates them before starting and
+stops with a clear error instead of letting the unit restart into the same failure.
+
+| Key | Server flag | Meaning |
+|---|---|---|
+| `AUTH` | `--auth` | identity provider: `tailscale` (default when unset), `local`, `trusted-proxy`. `limn add --auth <provider>` writes it |
+| `AGENT_LOOPBACK` | `0` → `--no-agent-loopback`, `1` → `--agent-loopback` | `0` refuses headerless loopback requests (agents must use a token). `1` only works with `tailscale` on a loopback `BIND` |
+| `BIND` | `--bind` | listen address, default `127.0.0.1`. A non-loopback address needs `AUTH=trusted-proxy` (or `--i-know-this-is-insecure` in `EXTRA_ARGS`) |
+| `PUBLIC_HOSTS` | `--public-host` | comma-separated `name[:port]` the instance is reached under (accepted as Host/Origin, used as the `pins.md` base URL) |
+| `TRUSTED_PROXIES` | `--trusted-proxies` | comma-separated IPs/CIDRs whose identity headers `trusted-proxy` trusts (default `127.0.0.1,::1`) |
+| `PROXY_USER_HEADER` / `PROXY_NAME_HEADER` / `PROXY_EMAIL_HEADER` | `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | header names under `trusted-proxy` (defaults `X-Forwarded-User`, `X-Forwarded-Preferred-Username`, none) |
+| `MEMBERS_ONLY` | `1` → `--members-only` | admit only people in `people.json` (or `--allow`) |
+| `LOCAL_USER` | `--local-user` | the owner's login under `AUTH=local` (default `$USER`) |
 
 ## Adding a manuscript
 
@@ -138,9 +153,40 @@ no separate app copy any more — the version *is* the installed tag.
   `<script> <unit dir> <config dir>`, printing `<port> <owner>` lines), `add` and `remove` regenerate
   the ledger. Without a generator the ledger is only read.
 
+## Access: tokens and members
+
+```bash
+limn token create paper2 [--name ci]     # prints a new agent token once (stdout); only its hash is stored
+limn token list paper2                   # id, name, created — never the token
+limn token revoke paper2 <id|name>       # the running server refuses it from the next request
+limn member add paper2 alice@example.com [--role editor] [--name "Alice Kim"]
+limn member list paper2                  # login, role, name, last seen
+limn member role paper2 alice@example.com viewer
+limn member remove paper2 alice@example.com
+```
+
+Both work on the instance's `STATE_DIR` (`tokens.json`, `people.json`); for a plain `limn serve` pass
+`--state-dir <dir>` instead of the name. Changes apply to a running server on its next request — no restart.
+Give the token to the agent (e.g. `export LIMN_TOKEN=…`); it sends `Authorization: Bearer $LIMN_TOKEN`.
+
+| Role | May |
+|---|---|
+| `owner` | everything an editor may. Owner-only operations (members, tokens, settings) are CLI/file level in v0.2 — there are no owner-only HTTP endpoints yet |
+| `editor` | everything a person could do in v0.1: pin, reply, edit, close, confirm, reopen, rebuild. **A person without a role is an editor** |
+| `viewer` | read only; may still run `/api/pick` and comparison builds (`/api/revision-build`). Every other change is `403` |
+| `agent` | the agent contract: claim, reply, close into review — never confirm. Token principals always have this role |
+
 ## Security rules
 
-- The server binds `127.0.0.1` only (hard-coded). Tailnet exposure is only `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>`.
+**Default policy (tailnet instances).** With no `AUTH` (or `AUTH=tailscale`) and no allowlist, an instance stays
+open to everyone on the tailnet who reaches it, with attribution only: an unknown tailnet login is admitted,
+recorded in `people.json` on first visit **without a `role` field** (= editor), and may open the viewer, pin,
+reply, close and confirm exactly as in v0.1. Nothing that works today is denied. Roles and allowlists
+(`MEMBERS_ONLY=1`, `--allow`, roles set with `limn member`) are strictly opt-in.
+
+- The server binds `127.0.0.1` unless `BIND` says otherwise; a non-loopback `BIND` is refused unless `AUTH=trusted-proxy` (or `--i-know-this-is-insecure` is in `EXTRA_ARGS`, which starts with a loud warning). Tailnet exposure is only `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>`.
+- `tailscale serve` only for the tailscale provider: `add` and `start` refuse to serve an `AUTH=local` instance (every loopback request is the owner, so every tailnet member would be) or an `AUTH=trusted-proxy` one (tailnet users could send the proxy headers themselves). Use `--no-serve` and put those behind their own proxy.
+- Agents authenticate with tokens. The v0.1 rule "a headerless loopback request is the agent" still works under `tailscale` but is deprecated (the server logs a warning); set `AGENT_LOOPBACK=0` once your agents use tokens.
 - **Never funnel.** Manuscripts are unpublished. `add` and `start` re-read the serve config and stop if the port is funneled.
 - **No sudo.** `limn` does not change tailscale operator settings; if `serve` fails for lack of rights it stops with an error.
 - Other services' serve entries are never overwritten or removed; `serve reset` is never used (it is machine-wide).

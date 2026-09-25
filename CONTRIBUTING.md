@@ -30,7 +30,9 @@ dependency-free. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdf
 - The app is called **Limn** everywhere. `tests/test_naming.py` fails on former names outside the
   README history section and `limn migrate`, and on personal data (real e-mails, home paths, host names).
   Use `alice@example.com` / `bob@example.com` style fixtures.
-- Security invariants (see SECURITY.md): bind `127.0.0.1` only; no public exposure paths.
+- Security invariants (see SECURITY.md): bind `127.0.0.1` by default and refuse a non-loopback bind unless
+  `--auth trusted-proxy` (or the explicit `--i-know-this-is-insecure`); identity headers only from loopback or a
+  configured proxy; tokens stored hashed; a v0.1 instance keeps behaving as v0.1; no public exposure paths.
 
 ## Pull requests
 

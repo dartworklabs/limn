@@ -1,6 +1,8 @@
 # 접근 제어, 협업 범위, 동기화
 
-상태: 초안 (2026-09-25). 영어 정본: [access-and-sync.md](access-and-sync.md).
+상태: v0.2 는 Limn 0.2.0 에 구현됨(2026-09-25) — 신원 방식, 에이전트 토큰, 멤버 역할, 바인딩 규칙
+([api.md](../api.md) §Authentication, [instances.ko.md](../instances.ko.md) §접근). 이후 단계는 아직 초안입니다.
+영어 정본: [access-and-sync.md](access-and-sync.md). "문제" 절은 v0.1 기준 설명입니다.
 
 ## 문제
 
@@ -58,7 +60,7 @@
 
 | 단계 | 범위 |
 |---|---|
-| v0.2 | 신원 방식 인터페이스(`local`, `tailscale`, `trusted-proxy`), 에이전트 API 토큰, `people.json` 멤버 역할, 서버 시작 메시지와 README에 "인증 방식 없이 밖에 열지 말 것" 경고 |
+| v0.2 (**구현됨**, 0.2.0) | 신원 방식 인터페이스(`local`, `tailscale`, `trusted-proxy`), 에이전트 API 토큰, `people.json` 멤버 역할, 서버 시작 메시지와 README에 "인증 방식 없이 밖에 열지 말 것" 경고. 함께 들어간 것: `trusted-proxy` 가 아니면 loopback 밖 `--bind` 거부, `--members-only`, `--public-host`. 헤더 없는 loopback 에이전트는 남기되 폐지 예정. 초대 링크는 v1.0, 소유자 전용 작업은 당분간 CLI 수준 |
 | v0.3 | SSE 실시간 반영, 상태를 바꾸는 엔드포인트를 역할 기준으로 점검 |
 | v1.0 | `oidc` 방식, 세션, 초대 링크, HTTPS 자체 호스팅 안내(Caddy, Cloudflare Tunnel) |
 | 이후 | `.limn/` git 기반 핀, `limn connect`와 Limn Cloud |
