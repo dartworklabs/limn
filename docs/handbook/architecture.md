@@ -32,18 +32,18 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-지금 Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에 표준 라이브러리만 쓰는 큰 모듈 하나**가 대부분의 일을 한다. 아래는 2026-09-25 Limn 0.2.0 시점의 실측이다.
+지금 Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에 표준 라이브러리만 쓰는 큰 모듈 하나**가 대부분의 일을 한다. 아래는 2026-09-25 Limn 0.2.2 시점의 실측이다.
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 9,305 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 접근 제어, HTTP 처리, 그리고 뷰어 HTML·CSS·JS 전부 |
-| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,364 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
+| [`src/limn/server.py`](../../src/limn/server.py) | 9,892 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 접근 제어, HTTP 처리, 그리고 뷰어 HTML·CSS·JS 전부 |
+| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,373 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
 | [`src/limn/cli.py`](../../src/limn/cli.py) | 249 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고, 나머지는 `instances.sh`로 넘긴다 |
-| [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 871 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
+| [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 940 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
-`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·빌드·빌드 이력·`--git-pull`·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어·HTTP 처리기·입구다. 뷰어는 5,258행부터 8,625행까지 약 3,370행짜리 파이썬 문자열 `HTML` 하나에 들어 있다.
+`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·빌드·빌드 이력·`--git-pull`·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어·HTTP 처리기·입구다. 뷰어는 5,504행부터 9,075행까지 약 3,570행짜리 파이썬 문자열 `HTML` 하나에 들어 있다.
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
