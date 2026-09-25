@@ -598,7 +598,7 @@ class BrowserBase(unittest.TestCase):
             return route.abort()
         if u.path == "/api/pick":
             lines = ps.tex_lines(self.main)
-            lad = ps.compute_levels(lines, 5, 5)
+            lad = ps.compute_levels(lines, 5, 5, ps.C.envs)
             d = {"file": str(self.main), "name": "main.tex", "page": 1, "lo": lad["lo"], "hi": lad["hi"], "raw_lo": 5,
                  "raw_hi": 5, "kind": lad["kind"], "via": "synctex", "score": 1.0, "warn": "", "n_lines": len(lines),
                  "snippet": ps.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",

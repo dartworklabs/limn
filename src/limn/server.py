@@ -59,6 +59,13 @@ from collections.abc import Callable, Sequence, Set as AbstractSet
 from typing import Literal, NamedTuple, TypedDict
 from urllib.parse import parse_qs, quote, urlparse
 
+if __package__ in (None, ""):
+    # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from limn.mapping import (  # noqa: E402 - after the path bootstrap above
+    anchor_of, by_text, compute_levels, densest, find_line, norm, score_range, snippet, truncate_quote,
+)
+
 APP_NAME = "limn"
 
 
@@ -97,12 +104,9 @@ def load_ui_messages() -> dict:
 UI_EN = load_ui_messages()
 
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
-FLOAT_KINDS = ("figure", "table", "algorithm")
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
-ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
-
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
 VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
@@ -3031,29 +3035,6 @@ def meta(actor: dict, light: bool = False) -> dict:
 
 # ---------------------------------------------------------------- Source-text access
 
-def norm(line: str) -> str:
-    return " ".join(line.split())
-
-
-def truncate_quote(s, n: int = 60) -> str:
-    """Truncates a quote to at most n characters (ellipsis included, matching the «...» convention).
-
-    If a truncated quote looked like a complete sentence, it would be confusing when trying to relocate the
-    source - the truncation mark is what tells the user/agent to read this as a "search hint", not the
-    "whole thing". When truncating, the ellipsis is appended after n-1 characters of body text, so the
-    result is always n characters or fewer (never n+1 from n characters plus the ellipsis)."""
-    s = str(s)
-    return s[:n - 1] + "…" if len(s) > n else s
-
-
-def is_comment(line: str) -> bool:
-    return line.lstrip().startswith("%")
-
-
-def strip_comment(line: str) -> str:
-    return re.sub(r"(?<!\\)%.*", "", line)
-
-
 def tex_lines(path: Path) -> list:
     try:
         return path.read_text(encoding="utf-8").splitlines()
@@ -3121,23 +3102,6 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float):
         if inp and line:
             return inp, line
     return None
-
-
-def densest(values: list, gap: int = 30) -> list:
-    """Breaks at large gaps and keeps only the densest cluster.
-
-    synctex returns the node *closest* to the query coordinate, so even a point inside the selection
-    rectangle can pull in a line from an adjacent float (observed: selecting a single table returned a
-    range spanning 740-801)."""
-    if not values:
-        return values
-    groups = [[values[0]]]
-    for v in values[1:]:
-        if v - groups[-1][-1] <= gap:
-            groups[-1].append(v)
-        else:
-            groups.append([v])
-    return max(groups, key=len)
 
 
 def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float):
@@ -3210,245 +3174,12 @@ def token_weights(text: str, lines: list, key: tuple) -> list:
     return out
 
 
-def score_range(tw: list, lines: list, lo: int, hi: int) -> float:
-    """Scores 0-1 how much of the region's characters a candidate line range contains."""
-    if not tw:
-        return 0.0
-    blob = " ".join(lines[max(0, lo - 2):hi + 1])
-    return sum(w for t, w in tw if t in blob) / sum(w for _, w in tw)
-
-
-def by_text(tw: list, lines: list, near=None):
-    """Recovers source lines from the rendered text's word tokens.
-
-    This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
-    Korean word tokens survive almost untouched by markup (e.g. `타겟--소스 $i$ 간 코사인 거리`), so they
-    remain in the source text as-is."""
-    if len(tw) < 2:
-        return None
-    scores = [sum(w for t, w in tw if t in ln) for ln in lines]
-    if max(scores, default=0) <= 0:
-        return None
-    peak = max(range(len(scores)), key=lambda i: (scores[i], -abs(i + 1 - (near or i + 1))))
-    lo = hi = peak
-    while lo > 0 and scores[lo - 1] > 0:
-        lo -= 1
-    while hi < len(scores) - 1 and scores[hi + 1] > 0:
-        hi += 1
-    return lo + 1, hi + 1, score_range(tw, lines, lo + 1, hi + 1)
-
-
 # ---------------------------------------------------------------- Block expansion and the range ladder
-
-def expand_block(lines: list, lo: int, hi: int):
-    """Expands the selected lines to the enclosing environment (--float-envs) or paragraph boundary. Used to determine the default level.
-
-    An environment must be closed by a \\end of the same name - without matching the name, the selection
-    leaks into an adjacent float (observed: selecting one table pulled in 109 lines)."""
-    n = len(lines)
-    if not n:
-        return lo, hi, "none"
-    lo, hi = max(1, min(lo, n)), max(lo, min(hi, n))
-    alt = "|".join(re.escape(e) for e in C.envs)
-    b_re = re.compile(r"\\begin\{(" + alt + r")(\*?)\}")
-    e_re = re.compile(r"\\end\{(" + alt + r")(\*?)\}")
-
-    for i in range(lo - 1, -1, -1):
-        if e_re.search(lines[i]) and i < lo - 1:
-            break
-        m = b_re.search(lines[i])
-        if not m:
-            continue
-        env = m.group(1) + m.group(2)
-        close = re.compile(r"\\end\{" + re.escape(env) + r"\}")
-        opens = re.compile(r"\\begin\{" + re.escape(env) + r"\}")
-        depth = 0
-        for j in range(i + 1, n):
-            if opens.search(lines[j]):
-                depth += 1
-            if close.search(lines[j]):
-                if depth:
-                    depth -= 1
-                    continue
-                return i + 1, j + 1, "float" if m.group(1) in FLOAT_KINDS else "block"
-        break
-
-    a, b = para_bounds(lines, lo, hi)
-    return a, b, "paragraph"
-
-
-SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
-
-
-def para_bounds(lines: list, lo: int, hi: int) -> tuple:
-    """Expands to the nearest blank line. A section-heading line (\\section/\\subsection/...) is never crossed in either direction."""
-    n = len(lines)
-    a, b = lo, hi
-    while a > 1 and lines[a - 2].strip() and not SECTION_RE.match(lines[a - 2]):
-        a -= 1
-    while b < n and lines[b].strip() and not SECTION_RE.match(lines[b]):
-        b += 1
-    return a, b
-
-
-def trim_comments(lines: list, a: int, b: int) -> tuple:
-    """Trims leading/trailing pure-comment lines (starting with %). Does nothing if every line is a comment.
-
-    In a manuscript where one paragraph is one line, this stops a trailing TODO comment from becoming the tail of the pin range and its anchor."""
-    x, y = a, b
-    while x <= y and is_comment(lines[x - 1]):
-        x += 1
-    while y >= x and is_comment(lines[y - 1]):
-        y -= 1
-    return (a, b) if x > y else (x, y)
-
-
-def env_spans(lines: list) -> list:
-    """(start line, end line, name) - every environment paired up by matching name and depth. A \\begin inside a comment is ignored."""
-    stack, spans = [], []
-    for i, ln in enumerate(lines):
-        for m in ENV_TOK_RE.finditer(strip_comment(ln)):
-            name = m.group(2).strip()
-            if m.group(1) == "begin":
-                stack.append((name, i + 1))
-                continue
-            for k in range(len(stack) - 1, -1, -1):
-                if stack[k][0] == name:
-                    spans.append((stack[k][1], i + 1, name))
-                    del stack[k:]
-                    break
-    return spans
-
-
-def snippet(lines: list, lo: int, hi: int, cap: int = 80) -> str:
-    chunk = lines[lo - 1:hi]
-    extra = len(chunk) - cap
-    if extra > 0:
-        chunk = chunk[:cap]
-    out = "\n".join("%5d  %s" % (lo + k, t) for k, t in enumerate(chunk))
-    return out + ("\n      ... (%d줄 더)" % extra if extra > 0 else "")
-
-
-def find_level(levels: list, key: str):
-    for lv in levels:
-        if lv["level"] == key or key in lv.get("merged", ()):
-            return lv
-    return None
-
-
-def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
-    """The range ladder: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels.
-
-    Snippets are included up front so the client can switch levels without a server round trip. There is no
-    section level - that would easily produce hundred-line ranges, against the "hand over only a line range" principle."""
-    n = len(lines)
-    raw_lo = max(1, min(raw_lo, n))
-    raw_hi = max(raw_lo, min(raw_hi, n))
-    levels: list = []
-
-    def add(level, lo, hi, label, env=None):
-        item = {"level": level, "lo": lo, "hi": hi, "label": label, "n": hi - lo + 1,
-                "snippet": snippet(lines, lo, hi)}
-        if env:
-            item["env"] = env
-        for i, old in enumerate(levels):              # levels with the same range are merged (keeping the later name)
-            if (old["lo"], old["hi"]) == (lo, hi):
-                item["merged"] = old.get("merged", []) + [old["level"]]
-                levels[i] = item
-                return
-        levels.append(item)
-
-    add("raw", raw_lo, raw_hi, "드래그한 줄")
-    spans = env_spans(lines)
-    encl = sorted((s for s in spans if s[0] <= raw_lo <= s[1] and s[2] != "document"),
-                  key=lambda s: (s[1] - s[0], -s[0]))
-    pa, pb = para_bounds(lines, raw_lo, raw_hi)
-    if encl:
-        # A paragraph never crosses the innermost enclosing environment. If the drag is strictly inside that
-        # environment, the \begin/\end lines are also excluded - otherwise a "paragraph" inside a table would
-        # swallow \end{table*} and the line after it, drifting out of sync with the environment (observed: L187-L270).
-        ea, eb = encl[0][0], encl[0][1]
-        if ea < raw_lo and raw_hi < eb:
-            ea, eb = ea + 1, eb - 1
-        pa, pb = max(pa, ea), min(pb, eb)
-        if pa > pb:
-            pa, pb = raw_lo, raw_hi
-    # Also never half-overlaps an environment outside the drag (a paragraph right after \end{table*} was
-    # swallowing the table's tail). An environment fully contained in the paragraph (an equation with no
-    # blank-line break) is left as-is.
-    for a, b, name in spans:
-        if name == "document" or a <= raw_lo <= b:
-            continue
-        if b < raw_lo and a < pa <= b:
-            pa = b + 1
-        elif a > raw_hi and a <= pb < b:
-            pb = a - 1
-    pa, pb = min(pa, raw_lo), max(pb, raw_hi)
-    pa, pb = trim_comments(lines, pa, pb)
-    add("para", pa, pb, "문단")
-    # If the outer environment wraps the inner one by exactly one line on each side (a single tabular inside
-    # a minipage), treat them as the same block - listing the inner one separately would waste a ladder
-    # rung on an almost-identical range. The outer name is kept.
-    encl = [s for i, s in enumerate(encl)
-            if not any(o[0] == s[0] - 1 and o[1] == s[1] + 1 for o in encl[i + 1:])]
-    for k, (a, b, name) in enumerate(encl[:3]):
-        key = "env" if k == 0 else "env%d" % (k + 1)
-        suffix = "" if k == 0 else (" (바깥)" if k == 1 else " (바깥 2)")
-        add(key, a, b, "환경 %s%s" % (name, suffix), env=name)
-
-    ea, eb, kind = expand_block(lines, raw_lo, raw_hi)
-    default = None
-    if kind in ("float", "block"):
-        for lv in levels:
-            if lv["level"].startswith("env") and (lv["lo"], lv["hi"]) == (ea, eb):
-                default = lv
-                break
-        if default is None:
-            default = next((lv for lv in levels if lv["level"].startswith("env")), None)
-    if default is None:
-        default = find_level(levels, "para")
-        kind = "paragraph"
-    if not default["level"].startswith("env") and kind != "paragraph":
-        kind = "paragraph"
-    return {"levels": levels, "default_level": default["level"], "lo": default["lo"],
-            "hi": default["hi"], "kind": kind}
-
 
 # ---------------------------------------------------------------- Anchors and re-syncing
 
-def anchor_of(lines: list, lo: int, hi: int) -> dict:
-    """Captures the head/tail text of the block a pin points at (pure-comment lines are skipped).
-
-    Storing only line numbers means every pin drifts the moment the manuscript is edited once. The whole
-    point of this tool is "an agent edits the manuscript", so a design where editing kills the pins is
-    unusable. Comments are skipped because a TODO comment is a line about to be deleted - anchoring to it
-    would kill the pin first.
-
-    head_off/tail_off are the distance from lo to the head line, and from the tail line to hi. Without
-    these, a pin that deliberately included comment lines at its edges would silently shrink on the first
-    line-matching pass (observed: L7-L9 -> L10-L11)."""
-    idx = [i for i in range(lo - 1, min(hi, len(lines))) if lines[i].strip()]
-    body = [i for i in idx if not is_comment(lines[i])] or idx
-    if not body:
-        return {}
-    return {"head": norm(lines[body[0]]), "tail": norm(lines[body[-1]]),
-            "head_off": body[0] - (lo - 1), "tail_off": (hi - 1) - body[-1]}
-
-
 def _off(v) -> int:
     return v if _is_int(v) and 0 <= v < 10000 else 0
-
-
-def find_line(nlines: list, needle: str, near: int):
-    if not isinstance(needle, str) or not needle:
-        return None
-    cands = [i for i, t in enumerate(nlines) if t == needle]
-    if not cands and len(needle) >= 12:
-        key = needle[:40]
-        cands = [i for i, t in enumerate(nlines) if key in t]
-    if not cands:
-        return None
-    return min(cands, key=lambda i: abs(i + 1 - near)) + 1
 
 
 def sync_all(rows: list) -> bool:
@@ -5814,7 +5545,7 @@ def pick(d: dict) -> dict:
     if tw and best < 0.3:
         warn = "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요." % (best * 100)
 
-    lad = compute_levels(lines, raw_lo, raw_hi)
+    lad = compute_levels(lines, raw_lo, raw_hi, C.envs)
     lo, hi = lad["lo"], lad["hi"]
     if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
         # If both expand into the same block, the two paths haven't actually diverged - don't warn.
@@ -5871,7 +5602,7 @@ def snippet_api(q: dict) -> dict:
     out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
            "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
     if (q.get("levels") or ["0"])[0] == "1":
-        lad = compute_levels(lines, lo, hi)
+        lad = compute_levels(lines, lo, hi, C.envs)
         out["levels"] = lad["levels"]
         out["default_level"] = lad["default_level"]
     return out
