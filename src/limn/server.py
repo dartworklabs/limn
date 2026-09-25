@@ -7595,9 +7595,19 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   pop.innerHTML=MENTION.items.length?MENTION.items.map((p,i)=>'<button type="button" role="option" aria-selected="'+(i===MENTION.sel)+'" data-act="mention-pick" data-i="'+i+'">'+
     avatar(p)+'<span>'+esc(p.name)+'</span><span class="ml">'+esc(p.login)+'</span></button>').join(''):
     '<div class="dim">'+(q.q?'\''+esc(q.q)+'\' 와 맞는 사람이 없습니다 — ':'부를 수 있는 사람이 없습니다 — ')+'이 뷰어를 연 테일넷 사람만 부를 수 있습니다</div>';
-  pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth;
-  const below=r.bottom+4+h<=((window.visualViewport&&visualViewport.height)||innerHeight);
-  pop.style.top=Math.max(4,below?r.bottom+4:r.top-4-h)+'px'; pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
+  pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
+  const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
+  pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
+// @목록이 가리면 안 되는 그 입력 칸의 동작 줄: 답글·다시 열기 [취소][보내기], 편집 [저장], 작성 패널 [취소][핀 저장].
+function mentionGuard(ta){const box=ta.closest('.reply-box,.edit'); return box?box.querySelector('.r-acts,.e-acts'):ta.id==='note'?$('#c-actions'):null;}
+// @목록의 top(references/design.md §@태그). 동작 줄(guard)을 가리지 않는 자리를 이 순서로 고른다 —
+// ① 입력 칸 바로 아래(동작 줄 위까지 들어가면) ② 입력 칸 위 ③ 동작 줄 아래 ④ 들어가는 곳이 없으면 입력 칸 아래(예전 자리).
+// 답글 칸은 [취소][보내기]가 입력 칸 바로 밑이라 ①이 안 되고 ②가 된다(예전에는 목록이 두 버튼을 덮었다, QA 2026-09-25).
+function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
+  if(r.bottom+gap+h<=lim)return r.bottom+gap;
+  if(r.top-gap-h>=top+gap)return r.top-gap-h;
+  if(g&&g.bottom+gap+h<=bot)return g.bottom+gap;
+  return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
   (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);

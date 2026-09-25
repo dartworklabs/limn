@@ -6295,6 +6295,44 @@ class FrontendMentions(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- 브라우저 알림(references/design.md §브라우저 알림)
+class FrontendMentionPopPlacement(unittest.TestCase):
+    """@목록 자리(mentionTop): 입력 칸 밑 동작 줄([취소][보내기])을 가리지 않는다(QA 2026-09-25 — 답글 칸에서 목록이 두 버튼을 덮었다)."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def top(self, r, g, h, top=0, bot=800):
+        js = extract_js_fn("mentionTop") + "\nconsole.log(JSON.stringify(mentionTop(%s,%s,%d,%d,%d)));" % (
+            json.dumps(r), json.dumps(g), h, top, bot)
+        return json.loads(run_node(js))
+
+    def test_reply_box_opens_above_when_actions_sit_right_below(self):
+        # 답글 칸: 입력 칸 300–360, [취소][보내기] 368–396. 목록 높이 48 은 그 사이에 안 들어가 위로 연다.
+        self.assertEqual(self.top({"top": 300, "bottom": 360}, {"top": 368, "bottom": 396}, 48), 300 - 4 - 48)
+
+    def test_below_when_room_before_actions(self):
+        # 작성 패널(데스크톱): 동작 줄이 패널 바닥이라 입력 칸 밑에 자리가 있다 — 예전처럼 밑에 연다.
+        self.assertEqual(self.top({"top": 400, "bottom": 480}, {"top": 800, "bottom": 850}, 48, 0, 850), 484)
+
+    def test_below_actions_when_no_room_above(self):
+        # 입력 칸이 화면 맨 위: 위로도 못 여니 동작 줄 밑에 연다(동작 줄은 여전히 보인다).
+        self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 48), 110)
+
+    def test_fallback_stays_inside_viewport(self):
+        # 어디에도 안 들어가면 입력 칸 밑(예전 자리)이되 화면 안으로 당긴다.
+        self.assertEqual(self.top({"top": 10, "bottom": 70}, {"top": 78, "bottom": 106}, 200, 0, 260), 56)
+
+    def test_no_guard_keeps_old_behaviour(self):
+        self.assertEqual(self.top({"top": 300, "bottom": 360}, None, 48), 364)
+        self.assertEqual(self.top({"top": 700, "bottom": 780}, None, 48), 648)
+
+    def test_guard_is_found_for_all_three_boxes(self):
+        # 답글·다시 열기(.reply-box → .r-acts), 편집(.edit → .e-acts), 작성 패널(#note → #c-actions)
+        fn = extract_js_fn("mentionGuard")
+        for sel in (".reply-box,.edit", ".r-acts,.e-acts", "#c-actions"):
+            self.assertIn(sel, fn)
+
+
 class NotifyServer(Base):
     HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
     HW = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
