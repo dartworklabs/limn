@@ -1,6 +1,27 @@
 # Changelog
 
-## 0.3.0 — unreleased
+## 0.3.1 — unreleased
+
+Two low-severity findings of the v0.2.1 security review ([issue #10](https://github.com/dartworklabs/limn/issues/10)).
+The `pins.md` format and the HTTP API are unchanged. One notification behaviour changes; the state directory gains two
+files once something is audited (`audit.jsonl` and its lock `.audit.lock`).
+
+- **Note mentions have a ten-minute cooldown (L3).** A note save, edit or `note_append` that tags someone again sends
+  that person a `mention` at most once per ten minutes per (editor, person, pin) (`NOTE_MENTION_COOLDOWN_S` = 600 s).
+  Toggling `@Bob` off and on through repeated edits used to notify Bob on every edit. Suppressed mentions are not
+  written; the pin's `mentions` field still follows the note. Replies and reopen reasons still notify every time.
+  The rule reads `events.jsonl`: a `mention` without `msg` came from a note.
+- **Audit log (L5).** Destructive and owner actions are appended to `<state_dir>/audit.jsonl`, one
+  `{at, ts, action, by, via, details}` per line: `cleared` and `purged` from the server (`via: "http"`), and
+  `token_created`, `token_revoked`, `member_added`, `member_role`, `member_removed` from `limn token` / `limn member`
+  (`via: "cli"`, `by` = the OS account that ran the command). Limn only ever appends to it (never truncated, unlike
+  `events.jsonl`, which keeps the newest 5000 and could rotate the `cleared` record out), under a cross-process lock
+  (`.audit.lock`), mode 0600, no symlinks followed. Token lines carry the id and name, never the token or its hash.
+  A failed audit write is a warning; the action stands. The `cleared` and `purged` events are still written.
+- Rolling back to 0.3.0 is safe: 0.3.0 never opens `audit.jsonl` or `.audit.lock`, and the cooldown keeps no state
+  of its own.
+
+## 0.3.0 — 2026-09-26
 
 Pin-scoped [View changes] ([issue #9](https://github.com/dartworklabs/limn/issues/9), decision record
 [ADR-0005](docs/adr/0005-pin-scoped-changes.md)). The HTTP API changes are additive. One `pins.md` line changes: the close

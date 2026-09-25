@@ -372,7 +372,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ├── people.json               # @태그 후보이자 멤버 — 이 뷰어를 연 사람과 `limn member` 로 넣은 사람(선택 `role`, 에이전트 제외, 원자적 교체, 권한 0600)
 ├── tokens.json               # 에이전트 API 토큰 — SHA-256 해시만, 권한 0600, `limn token` 이 쓴다(첫 토큰 전에는 없다)
 ├── .people.lock · .tokens.lock   # 위 두 파일의 프로세스 간 잠금(서버와 CLI 가 동시에 쓸 수 있다)
-├── events.jsonl              # mention·review_requested·replied·reopened·assigned·dropped·cleared·purged 기록(추가 전용, 바깥으로 보내지 않는다)
+├── events.jsonl              # mention·review_requested·replied·reopened·assigned·dropped·cleared·purged 기록(추가 전용, 최근 5000건, 바깥으로 보내지 않는다)
+├── audit.jsonl · .audit.lock # 0.3.1: 감사 기록 — clear·purge·토큰 발급/폐기·멤버 추가/역할/제거(덧붙이기만, 자르지 않음, 권한 0600, 첫 기록 전에는 없다)
 ├── build.log
 ├── built_at.txt
 ├── built_src_mtime.txt       # 빌드 시작 시각의 src_mtime — 자동 동기화 배지 기준(없어도 동작)
@@ -382,6 +383,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 `built_src_mtime.txt`가 쓰이는 자동 동기화 배지는 [build-sync.md](build-sync.md) §자동 동기화에서 설명한다.
 
 `people.json`과 `tokens.json`은 접근 제어의 상태다. `people.json`의 각 사람에게는 `role` 필드가 있을 수 있고(`owner`·`editor`·`viewer`·`agent`), 없으면 editor다. `tokens.json`에는 토큰 원문이 아니라 해시만 남으므로 토큰을 잃으면 새로 만든다. 두 파일 모두 권한 `0600` 으로 쓴다. 0.2.1 이전에 만든 `people.json` 을 남이 쓸 수 있으면 서버가 기동 때 `0600` 으로 좁히고 한 번 기록한다. 서버와 `limn token`·`limn member` 명령이 두 파일을 동시에 고칠 수 있어서 `.people.lock`·`.tokens.lock`으로 프로세스 사이 쓰기를 잠근다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 읽으므로 재시작이 필요 없다.
+
+`audit.jsonl`(0.3.1)은 누가 되돌릴 수 없는 일을 했는지 남기는 감사 기록이다. 서버는 `/api/clear`·영구 삭제를, `limn token`·`limn member` 명령은 토큰 발급·폐기와 멤버 추가·역할 변경·제거를 명령을 돌린 OS 계정 이름으로 덧붙인다. `events.jsonl` 과 달리 회전하지 않으므로 오래 운영한 인스턴스에서는 필요할 때 옮겨 보관한다. 옛 버전은 이 파일을 읽지 않으므로 되돌려도 된다. 레코드 모양은 [api.md](api.md) §감사 기록 (`audit.jsonl`)에 있다.
 
 ### 여러 문서
 

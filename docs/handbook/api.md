@@ -221,10 +221,10 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409` |
-| `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그를 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
+| `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그, 0.3.1부터 `audit.jsonl` 한 줄(§감사 기록 (`audit.jsonl`))을 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나, 같은 신원이면 연장한다 — §처리 중 표시 (claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`. 정수가 아니거나 1보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다. 응답은 `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다. claim을 건 신원과 무관하다. claim은 잠금이 아니라 표시이기 때문이다 → `{ok, pin}`. 없는 id면 `200 {"ok": false}`. `viewer` 역할은 다른 변경처럼 `403` 이다 |
-| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1부터, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남는다. 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
+| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1부터, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남고, 0.3.1부터 잘리지 않는 `audit.jsonl` 에도 남는다(§감사 기록 (`audit.jsonl`)). 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
 
 ## 비교 PDF 실행과 캐시
 
@@ -479,18 +479,43 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 | `type` | 언제 | `to` |
 | --- | --- | --- |
-| `mention` | 답글이나 다시 연 이유가 누군가를 @태그함. 전에 불린 사람이어도 **매번** 간다(0.2.1). 메모 저장·수정은 @태그 횟수가 전보다 늘어난 사람에게 간다(새 핀은 태그된 모두). 그래서 `@이름` 옆의 오타만 고치면 아무도 받지 않고, `note_append` 로 `@이름` 을 다시 쓰면 받는다 | 태그된 사람(글쓴이 자신은 빠진다) |
+| `mention` | 답글이나 다시 연 이유가 누군가를 @태그함. 전에 불린 사람이어도 **매번** 간다(0.2.1). 메모 저장·수정은 @태그 횟수가 전보다 늘어난 사람에게 간다(새 핀은 태그된 모두). 그래서 `@이름` 옆의 오타만 고치면 아무도 받지 않고, `note_append` 로 `@이름` 을 다시 쓰면 받는다. 단 메모에서 온 mention 은 (행위자, 받는 사람, 핀)마다 10분에 한 번이다(0.3.1, 아래) | 태그된 사람(글쓴이 자신은 빠진다) |
 | `review_requested` | 핀이 검토 대기로 감 | 작성자 |
 | `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람. 단 이 답글이 @태그한 사람은 빠진다. 그 사람은 `mention` 하나만 받는다. 한 글로 한 사람이 두 알림을 받지 않는다 |
 | `reopened` | 닫힌 핀을 다시 엶 | 작성자. 다시 연 이유가 작성자를 @태그하면 `mention` 하나만 받는다 |
 | `assigned` | 핀을 만들거나 고치며 담당을 사람으로 정함(바뀔 때만) | 새 담당 |
-| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움(0.2.1) | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다 |
+| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움(0.2.1) | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다. 이 기록은 5000건 회전에 밀려날 수 있어서 0.3.1부터 `audit.jsonl` 에도 남긴다 |
 | `dropped` | 핀을 휴지통으로 보냄(0.2.2) | 작성자(작성자 자신이 지웠으면 기록하지 않는다). `excerpt` 는 메모다. 뷰어는 [되살리기]를 단 알림으로 보인다 |
 | `purged` | 소유자가 휴지통에서 영구 삭제함(0.2.2) | 아무도 아님(`to` 는 `[]`). `cleared` 처럼 감사 기록이다. `pin` 과 `by` 만 싣는다 |
 
 - `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다. `cleared`·`purged` 만 예외로 `to` 가 비어도 남긴다.
 - 핀 쓰기가 커밋된 뒤, 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다. 앞부분은 그대로 두므로 추가 전용이 유지된다.
-- 최근 5000건만 남긴다. 그래도 `seq` 는 계속 오른다. 소비자는 바이트 위치가 아니라 `seq` 로 따라온다.
+- 최근 5000건만 남긴다. 그래도 `seq` 는 계속 오른다. 소비자는 바이트 위치가 아니라 `seq` 로 따라온다. 오래 남아야 하는 감사 기록은 §감사 기록 (`audit.jsonl`)에 따로 쓴다.
+- **메모 mention 의 재알림 간격(0.3.1, 이슈 #10 L3).** 메모 저장·수정·`note_append` 가 보내는 `mention` 은 (행위자 로그인, 받는 사람 로그인, 핀 번호)마다 10분(`NOTE_MENTION_COOLDOWN_S`)에 한 번만 기록한다. 편집할 수 있는 사람이 메모의 `@Bob` 을 지웠다 다시 쓰기를 되풀이하면 편집마다 Bob 에게 알림이 가고, 메모 수정은 `edited_at` 말고는 흔적을 남기지 않기 때문이다. 판단은 `events.jsonl` 에 남은 기록으로 한다. 메모에서 온 `mention` 은 `msg` 가 없고, 답글·다시 연 이유의 `mention` 은 스레드 글 번호 `msg` 를 싣는다. 걸러진 알림은 쓰지 않으므로 10분은 마지막으로 보낸 알림부터 잰다. 핀의 `mentions` 필드(메모가 부른 사람)는 그대로 갱신된다. 답글과 다시 연 이유는 보이는 스레드 글을 남기므로 지금처럼 매번 간다.
+
+## 감사 기록 (`audit.jsonl`)
+
+`<state_dir>/audit.jsonl` 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다(0.3.1, 이슈 #10 L5). `events.jsonl` 은 최근 5000건만 남겨서, 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려났다. 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
+
+```json
+{"at": "2026-09-26 10:12:03", "ts": 1790392323.412, "action": "cleared", "by": {"login": "alice@example.com", "name": "Alice Kim"}, "via": "http", "details": {"n": 42, "archive": "pins_260926_101203.jsonl.bak"}}
+```
+
+| `action` | 언제 | `via` | `by` | `details` |
+| --- | --- | --- | --- | --- |
+| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움 | `http` | 요청한 사람 | `{n, archive}` |
+| `purged` | 소유자가 휴지통에서 영구 삭제함 | `http` | 요청한 사람 | `{pin}` |
+| `token_created` · `token_revoked` | `limn token create` · `revoke` | `cli` | 명령을 돌린 OS 계정 | `{id, name}`. 토큰 원문과 해시는 적지 않는다 |
+| `member_added` | `limn member add` | `cli` | OS 계정 | `{login, role}` |
+| `member_role` | `limn member role` 이 실제 역할을 바꿈 | `cli` | OS 계정 | `{login, role, previous_role}`. 같은 역할로 다시 정하면 적지 않는다 |
+| `member_removed` | `limn member remove` | `cli` | OS 계정 | `{login, previous_role}` |
+
+- `at` 은 서버 현지 시각 문자열(`now_str` 모양), `ts` 는 같은 순간의 epoch 초다. `by` 는 `{login, name}` 만 싣는다. `cli` 의 `by` 는 `$USER` 가 아니라 프로세스 uid 의 계정 이름이다.
+- 일이 끝난 뒤에 적는다. 거부된 요청(`400`·`403`·`404`), 없는 토큰·멤버를 고른 명령은 적지 않는다.
+- 쓰기는 `.audit.lock` 프로세스 간 잠금 아래에서 `O_APPEND` 로 줄을 덧붙이고 `fsync` 한다. 앞의 바이트는 읽지 못하는 줄이어도 고치지 않는다. 파일은 권한 `0600` 으로 만들고, 이미 있으면 `0600` 으로 좁힌다. 심볼릭 링크를 따라가지 않는다.
+- 쓰기가 실패하면 서버 로그(stderr)에 경고만 남기고 일은 그대로 끝난다. 이미 일어난 일을 되돌리지 않는다.
+- 기존 `cleared`·`purged` 이벤트는 호환을 위해 `events.jsonl` 에도 계속 쓴다. 뷰어와 API는 이 파일을 읽지 않는다. 회전이 없으므로 오래 쓰면 운영자가 옮겨 보관한다(드문 일만 적어서 크게 늘지 않는다).
+- 0.3.0 이하로 되돌려도 된다. 옛 서버와 옛 `limn` 명령은 이 파일을 모르고 열지 않는다. 되돌린 동안의 일은 적히지 않는다.
 
 ## 브라우저 알림 커서
 
