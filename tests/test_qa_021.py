@@ -285,6 +285,55 @@ class PrincipalMatrix(AccessBase):
         self.expect(self.run_ops(), **self.REFUSED_401)
 
 
+class ProxyHardening(AccessBase):
+    """Security review follow-ups (L1, L2, L4)."""
+
+    def test_more_proxy_markers_refuse_the_headerless_agent(self):
+        for extra in ({"X-Real-IP": "100.64.0.9"}, {"Via": "1.1 proxy"}, {"X-Forwarded-Port": "443"},
+                      {"X-Forwarded-Proto": "https"}, {"X-Forwarded-Host": TS_HOST}):
+            h = dict(extra, Host="localhost")
+            self.assertEqual(self.call("GET", "/pins.md", headers=h)[0], 403, h)
+            self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5}, h)[0], 403, h)
+        self.assertEqual(self.call("GET", "/pins.md")[0], 200)                      # a real local agent
+
+    def test_local_auth_refuses_proxied_requests(self):
+        ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
+        self.add()
+        for h in ({"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"}, {"Host": "localhost", "X-Forwarded-For": "100.64.0.9"},
+                  {"Host": "localhost", "X-Real-IP": "100.64.0.9"}):
+            code, d = self.call("POST", "/api/clear", {"confirm": "clear all pins"}, h)
+            self.assertEqual(code, 403, (h, d))
+            self.assertEqual(self.call("GET", "/api/meta?light=1", headers=h)[0], 403, h)
+        self.assertEqual(len(ps.snapshot_pins()), 1)
+        code, d = self.call("GET", "/api/meta?light=1")                               # the owner at the keyboard
+        self.assertEqual((code, d["me"]["role"]), (200, "owner"))
+        _, tok = ps.token_create(ps.C.state, "ci")                                     # tokens still work through a proxy
+        self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST, "X-Forwarded-For": "1.2.3.4"})[0], 200)
+
+    def test_people_json_is_written_0600(self):
+        ps._PEOPLE_SEEN.clear()
+        ps.record_person({"login": "bob@example.com", "name": "Bob"})
+        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
+        os.chmod(ps.C.people_file, 0o644)
+        ps.member_add(ps.C.state, "carol@example.com")
+        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
+
+    def test_startup_tightens_a_group_or_world_writable_people_json(self):
+        import io
+        from unittest import mock
+        ps.C.people_file.write_text('{"version": 1, "people": []}\n', encoding="utf-8")
+        os.chmod(ps.C.people_file, 0o666)
+        err = io.StringIO()
+        with mock.patch.object(ps.sys, "stderr", err):
+            ps.tighten_state_perms()
+            ps.tighten_state_perms()
+        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(len([l for l in err.getvalue().splitlines() if "tightened" in l]), 1, err.getvalue())   # logged once
+        os.chmod(ps.C.people_file, 0o644)                                              # only writable-by-others is changed
+        ps.tighten_state_perms()
+        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)
+
+
 class TailnetAgentStartup(AccessBase):
     def configure(self, *args):
         ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
