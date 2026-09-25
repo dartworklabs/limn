@@ -139,6 +139,16 @@ class Attribution(unittest.TestCase):
         # recorded on the new side instead (line 13), the same anchor lands on the new side
         self.assertEqual(self.blocks_for(dict(pin, lo=13, hi=15)), ("inferred", [(8, 1, 13, 1)]))
 
+    def test_pin_lines_count_like_splitlines_and_blocks_like_git(self):
+        # a form feed splits a line for str.splitlines() (how pins are numbered) but not for git: line 3 of the pin is
+        # git's line 2, and the change on git line 4 is the pin's line 5
+        old = "a\nb\x0cc\nd\ne\n"
+        new = "a\nb\x0cc\nd\nE\n"
+        self.files = [fc(old, new, b"@@ -4 +4 @@\n-e\n+E\n")]
+        self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 5, "hi": 5}), ("inferred", [(3, 1, 3, 1)]))
+        self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 4, "hi": 4}), ("none", []))
+        self.assertEqual(self.blocks_for(anchored(5, 5, text=old.replace("\x0c", "\n"))), ("inferred", [(3, 1, 3, 1)]))
+
     def test_raw_range_without_an_anchor(self):
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 12, "hi": 12}), ("inferred", [B_BLK]))
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 11, "hi": 11, "stale": True}), ("inferred", [B_BLK]))
@@ -177,6 +187,19 @@ class Attribution(unittest.TestCase):
 class ScopedPatch(unittest.TestCase):
     def setUp(self):
         self.files = [fc()]
+
+    def test_payload_cuts_patches_in_bytes_and_says_so(self):
+        big = "".join("줄 %d 한국어 문장입니다\n" % i for i in range(20000))
+        f = fc(big, big.replace("줄 5 ", "줄 5! "), b"@@ -6 +6 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
+        files = [f, fc()]
+        sc = ps.pin_scope(1, files, {"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex", [("ms/main.tex", 12, 12)])
+        out = ps.scope_payload(sc)
+        self.assertEqual((out["mode"], out["truncated"], out["other_truncated"]), ("pin", False, False))
+        f = fc(big, big.replace("\n", " x\n"), b"@@ -1,20000 +1,20000 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
+        sc = ps.pin_scope(1, [f, fc()], {"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex", [("ms/main.tex", 12, 12)])
+        out = ps.scope_payload(sc)
+        self.assertTrue(out["other_truncated"])
+        self.assertLessEqual(len(out["other_diff"].encode()), ps.REVISION_DIFF_MAX)
 
     def test_pin_hunk_keeps_real_new_side_line_numbers_and_no_foreign_lines(self):
         text, n = ps.scoped_patch(self.files, {(0, 1)}, True)
@@ -457,6 +480,14 @@ class ScopedSourceDiff(ScopedRepo):
         code, d = self.diff(self.fix)
         self.assertEqual((code, sorted(d)), (200, ["diff", "id", "truncated"]))
 
+    def test_git_config_cannot_merge_two_pins_blocks(self):
+        # diff.interHunkContext would glue nearby -U0 hunks together and give both pins both edits
+        self.git("config", "diff.interHunkContext", "10")
+        ps.SCOPE_CACHE.clear()
+        _, d = self.diff(self.fix, self.p2)
+        self.assertEqual((d["scope"]["hunks"], d["scope"]["other"]), (1, 2))
+        self.assertNotIn("pears", d["scope"]["diff"])
+
     def test_bad_or_foreign_pins_are_refused(self):
         self.assertEqual(self.diff(self.fix, "x")[0], 400)
         self.assertEqual(self.diff(self.fix, "-1")[0], 400)
@@ -508,6 +539,53 @@ class ScopedPdf(ScopedRepo):
         ps.find_pin(rows, self.p1)["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]
         ps.write_pins(rows)
         self.assertNotEqual(ps.revision_spec(ps.cur_doc(), self.fix, self.p1).key, s1.key)
+
+    def test_changes_recorded_by_an_earlier_close_are_ignored(self):
+        # 0.2.2 (after a rollback) neither clears changes on reopen nor writes them on close: a set whose changes_at is
+        # not this close's done_at belongs to an older close, so inference decides (alpha's own hunk), not those lines.
+        rows = ps.snapshot_pins()
+        r = ps.find_pin(rows, self.p1)
+        self.assertEqual(r["changes_at"], r["done_at"])
+        r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]     # beta's line
+        r["done_at"] = "2026-09-26 09:00:00"
+        ps.write_pins(rows)
+        _, d = self.diff(self.fix, self.p1)
+        self.assertEqual((d["scope"]["source"], "pears" in d["scope"]["diff"]), ("inferred", True))
+
+    def test_status_without_pin_never_carries_another_requests_pin_fields(self):
+        def compile(spec, jobdir, timeout):
+            (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
+            return {"state": "ready", "warnings": [], "error": None, "reason": None}
+        with mock.patch.object(ps, "revision_compile", side_effect=compile):
+            code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})   # shares the whole key
+            self.assertEqual((d["scope"], d["pin"]), ("commit", self.p4))
+            end = time.time() + 10
+            while time.time() < end and self.call("GET", "/api/revision-build?commit=%s" % self.solo)[1]["state"] == "running":
+                time.sleep(0.05)
+        for path in ("/api/revision-build?commit=%s" % self.solo,):
+            code, d = self.call("GET", path)
+            self.assertEqual(d["state"], "ready")
+            self.assertFalse(set(d) & set(ps.SCOPE_META), d)
+        code, d = self.call("POST", "/api/revision-build", {"commit": self.solo})
+        self.assertFalse(set(d) & set(ps.SCOPE_META), d)
+        code, d = self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.solo, self.p4))
+        self.assertEqual((d["scope"], d["pin"]), ("commit", self.p4))
+
+    def test_a_pin_subset_that_failed_is_answered_from_the_cache(self):
+        calls = []
+
+        def fail(spec, jobdir, timeout):
+            calls.append(spec.scope)
+            raise ps.HTTPError(422, "비교 PDF 컴파일에 실패했습니다.", reason="compile_failed")
+        with mock.patch.object(ps, "revision_compile", side_effect=fail):
+            for _ in range(2):
+                self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
+                end = time.time() + 10
+                while time.time() < end and self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))[1]["state"] == "running":
+                    time.sleep(0.05)
+            code, d = self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
+            self.assertEqual((d["state"], d["reason"], d["scope"]), ("error", "compile_failed", "pin"))
+        self.assertEqual(len(calls), 1)                   # built once; the whole commit still retries (0.2.2 behaviour)
 
     def test_http_build_accepts_pin_and_reports_scope(self):
         seen = []
