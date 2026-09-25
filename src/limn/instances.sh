@@ -3,7 +3,7 @@
 #
 # Each paper has its own repository, and when two papers are being worked on at once, Limn has to run
 # separately for each too. So each instance gets its own port, state dir (pins, build, build.log), and
-# journal, while sharing a single installed limn package. Structure and procedure: docs/instances.md.
+# journal, while sharing a single installed limn package. Structure and procedure: docs/handbook/instances.md.
 #
 # This script is invoked by the `limn` command (limn.cli). Do not call it directly — the CLI passes the
 # server path, Python, and version number in via LIMN_SERVER/LIMN_PYTHON/LIMN_VERSION.
@@ -42,7 +42,7 @@
 #   limn token create|list|revoke <name> … agent API tokens; limn member add|list|remove|role <name> … roles
 #                                          (Python, see limn help — they edit the instance's state dir)
 #
-# Access control (v0.2, docs/instances.md §Config keys): AUTH, AGENT_LOOPBACK, BIND, PUBLIC_HOSTS,
+# Access control (v0.2, docs/handbook/instances.md §설정 키): AUTH, AGENT_LOOPBACK, BIND, PUBLIC_HOSTS,
 # TRUSTED_PROXIES, PROXY_USER_HEADER/PROXY_NAME_HEADER/PROXY_EMAIL_HEADER, MEMBERS_ONLY, LOCAL_USER map to
 # the server flags of the same meaning. Unset keys add no flag, so a v0.1 config runs exactly as before.
 #
@@ -51,7 +51,7 @@
 # no duplicates, up to 12 documents, and paths must be inside --manuscript. `<build root>::<main.tex>`
 # is an extended notation (LaTeX only) that widens the copy scope to the build root. In the config file
 # this is written as DOCS="<key1>=<name1>:<path1>;<key2>=..." (split on `;`). MAIN and DOCS are not
-# used together — see docs/operations.md §Multiple documents for the full contract.
+# used together — see docs/handbook/operations.md §여러 문서 for the full contract.
 
 # Security rules (do not change): the server binds 127.0.0.1 unless BIND says otherwise, and a non-loopback
 # BIND is refused unless AUTH=trusted-proxy (or EXTRA_ARGS carries --i-know-this-is-insecure). Tailnet
@@ -603,7 +603,7 @@ serve_on() {
             || die "tailscale serve failed — check whether this user is the operator (permissions are never changed automatically)"
         say "tailscale serve :$ts → $want"
     fi
-    # Read it back to confirm it's set and not exposed via funnel (see operations.md §security constraints).
+    # Read it back to confirm it's set and not exposed via funnel (see docs/handbook/operations.md §보안 제약).
     local line
     line=$(ts_map | awk -v p="$ts" '$1 == p')
     [[ "$(awk '{print $2}' <<< "$line")" == "$want" ]] || die "could not read back the serve entry(:$ts)"
@@ -1246,7 +1246,7 @@ cmd_doc_add() {
         # Single document (MAIN) -> multi-document switch: moves the body into the first entry
         # main=body:<MAIN>. A LaTeX document keyed main uses the state dir root as-is (the old
         # location) on the server side, so build history and page images carry over, and old pins
-        # without a doc field are also read as this document (operations.md §Multiple documents).
+        # without a doc field are also read as this document (docs/handbook/operations.md §여러 문서).
         specs=("main=본문:$C_MAIN")
     else
         die "config has neither MAIN nor DOCS -- check it by hand: $C_FILE"

@@ -5,3 +5,6 @@ dist/
 build/
 .pytest_cache/
 *.egg-info/
+
+# Handbook publisher: local font and build output
+.handbook/

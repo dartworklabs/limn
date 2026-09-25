@@ -1,0 +1,68 @@
+---
+handbook_format: markdown
+catalog_schema: 1
+---
+
+# Limn System Handbook
+
+이 Handbook은 Limn의 설계 교과서다. 사람은 처음부터 순서대로 읽을 수 있고, 에이전트는 작업에 맞는 topic만 골라 읽는다. Limn의 모든 문서는 여기에 모여 있다. 저장소 밖 사용자를 위한 첫 안내는 [README.ko.md](../../README.ko.md)와 [README.md](../../README.md), 에이전트 작업 절차는 [SKILL.ko.md](../../skill/SKILL.ko.md)다. 결정 기록은 `docs/adr/`에 있다 (§결정 기록).
+
+> **핵심**
+>
+> 무엇의 현재값이 어디에 있는지 모르겠으면 [purpose.md](purpose.md) §진실 소스부터 본다. 구조를 바꾸기 전에는 [architecture.md](architecture.md) §멈춤 신호를 확인한다. 코드를 쓰기 전에는 [code-style-roadmap.md](code-style-roadmap.md)의 규칙을 따른다.
+
+## 목록
+
+아래 순서가 처음 읽는 사람을 위한 읽기 순서다. role 열의 `purpose`·`architecture`·`verification`은 반드시 있어야 하는 세 책임이 어느 파일에 있는지 표시한다.
+
+<!-- handbook-catalog:start -->
+| role | file | responsibility | read or update when |
+| --- | --- | --- | --- |
+| purpose | [purpose.md](purpose.md) | Limn이 줄이는 비용, 사용자, 범위, 영역별 진실 소스 | 처음 읽을 때, 현재값의 정본 위치가 헷갈릴 때 / 제품 범위나 정본 위치가 바뀔 때 |
+| architecture | [architecture.md](architecture.md) | 현재 구조, 채택한 설계 축, 목표 구조, 불변식, 멈춤 신호 | 코드를 놓을 자리를 고르거나 의존성·저장·보안 경계를 건드리기 전 / 구조 단위·불변식·채택값이 바뀔 때 |
+|  | [domain.md](domain.md) | 핀 용어, 상태와 전이, 역변환·범위 사다리·anchor 재동기화, 저장소 안전성, 작성자 귀속, 여러 문서 서버 규칙, 알려진 제약 | 핀 규칙이나 위치 계산을 고치기 전 / 상태·전이·위치 규칙·한도가 바뀔 때 |
+|  | [viewer.md](viewer.md) | 뷰어 레이아웃, 패널, 상태 표시, 협업 UI, 디자인 토큰·컴포넌트, 벡터 렌더링·확대, 화면 쪽 제약 | 뷰어 HTML·CSS·JS를 고치기 전 / 화면 규칙이나 가드 테스트가 바뀔 때 |
+|  | [build-sync.md](build-sync.md) | 동기·비동기 재빌드, git pull, 자동 동기화 폴링, 위치 추정 est, 응답 다이어트, 보기 전용 PDF 감시 | 빌드·동기화·추정 코드를 고치기 전 / 빌드 상태나 폴링 규칙이 바뀔 때 |
+|  | [api.md](api.md) | 에이전트 계약: HTTP API 전체, 요청 경계, 핀 레코드 스키마, pins.md 형식 | 에이전트 연동을 만들거나 요청 처리를 고치기 전 / 경로·필드·상태·pins.md 형식이 바뀔 때 |
+|  | [operations.md](operations.md) | 서버 하나 실행: 요구 환경, 실행 인자, 포트, 보안 제약, tailscale serve, systemd, 상태 파일, 뷰어 사용법 | 서버를 띄우거나 운영 문제를 볼 때 / 실행 인자·상태 파일·보안 제약이 바뀔 때 |
+|  | [instances.md](instances.md) | 원고별 인스턴스 관리자: limn 명령, 설정 키, 문서 탭, 업데이트·되돌리기, 포트, 환경 변수 | 인스턴스를 추가·업데이트·제거할 때 / limn 명령·설정 키·유닛 템플릿이 바뀔 때 |
+| verification | [verification.md](verification.md) | 게이트별 측정 대상·적용 조건·실행·합격 기준·보장 범위, 없는 게이트 | PR 전과 리뷰할 때 / 테스트·CI 단계·합격 기준이 바뀔 때 |
+|  | [workflow.md](workflow.md) | 설계에서 릴리스까지의 변경 흐름, 예외 경로, ADR 규칙, PR·CLA, 릴리스 | 작업을 시작하거나 PR·릴리스를 할 때 / 절차나 기여 조건이 바뀔 때 |
+|  | [code-style-roadmap.md](code-style-roadmap.md) | 팀 코딩 규칙의 우선순위, 규칙별 현재 모습과 바꾼 모습, 단계별 정렬 계획과 진행 상황 | 코드를 쓰거나 리뷰하기 전 / 단계를 끝내거나 순서를 바꿀 때 |
+<!-- handbook-catalog:end -->
+
+## 파일 지도
+
+어느 경로를 고치면 어느 topic을 함께 봐야 하는지 적는다. 전체 파일 목록이 아니라 의미 있는 경로만 담는다.
+
+<!-- handbook-filemap:start -->
+| 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
+| --- | --- | --- | --- |
+| `src/limn/server.py` | 핀 저장소·핀 조작·상태 계산 구역: 핀 도메인과 저장 순서 | 상태·전이·레코드 필드·저장 순서 변경 | domain.md, api.md, architecture.md |
+| `src/limn/server.py` | 역변환·범위 사다리·anchor 구역: 위치 계산 | 점수·단계·재동기화 규칙 변경 | domain.md |
+| `src/limn/server.py` | 빌드·git pull·meta 구역: 빌드와 동기화 | 빌드 상태·폴링·추정 규칙 변경 | build-sync.md |
+| `src/limn/server.py` | HTML 템플릿 구역: 뷰어 화면 | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
+| `src/limn/server.py` | Handler와 main: HTTP 경계와 실행 인자 | 경로·응답·인자 추가나 변경 | api.md, operations.md |
+| `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
+| `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자와 limn 명령 | 명령·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
+| `src/limn/migrate.py` | 옛 설치에서 옮기기 | 이전 절차 변경 | instances.md |
+| `src/limn/vendor/**` | 번들한 PDF.js와 Lucide | 버전 교체나 파일 추가 | viewer.md, 해당 vendor README |
+| `pyproject.toml`, `uv.lock` | 의존성과 지원 파이썬 | 의존성·파이썬 범위 변경 | architecture.md 불변식 2, verification.md |
+| `tests/**` | 자동 게이트 | 테스트 추가·이동·합격 기준 변경 | verification.md |
+| `.github/workflows/*` | CI | 작업·행렬·단계 변경 | verification.md, workflow.md |
+| `skill/*` | 에이전트 절차 | 에이전트 행동 규칙 변경 | api.md와 함께, 영어·한국어 두 벌 |
+| `docs/adr/*` | 결정 기록 | 새 결정, 상태 변경 | workflow.md ADR 목록 |
+| `docs/handbook/book.json`, `tools/handbook-publish/*` | Handbook 출판 설정과 출판기 | 폰트·도구 버전·출판기 교체 | verification.md |
+<!-- handbook-filemap:end -->
+
+## 결정 기록
+
+| ADR | 내용 | 상태 |
+| --- | --- | --- |
+| [ADR-0001](../adr/0001-blueprint.md) | 청사진: 설계 축 채택값과 이유 | 제안 |
+| [ADR-0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
+
+## 알려진 공백
+
+- HTML 출판은 로컬 폰트(`.handbook/fonts/`, git 밖)에 기대고, CI에서 출판을 검사하지 않는다. 방법은 [verification.md](verification.md) §7 Handbook 출판에 있다.
+- Handbook 안 링크와 `§절 제목` 참조를 자동으로 검사하는 게이트가 없다 ([verification.md](verification.md) §6).

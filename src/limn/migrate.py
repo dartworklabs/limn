@@ -66,7 +66,7 @@ def parse(text: str) -> dict:
 
 
 def render(name: str, text: str, state_dir: str, had_state: bool) -> str:
-    out = ["# %s@%s — written by `limn migrate` on %s. Keys: docs/instances.md." % (
+    out = ["# %s@%s — written by `limn migrate` on %s. Keys: docs/handbook/instances.md." % (
         NEW, name, date.today().isoformat()), HEADER_2]
     for ln in text.splitlines():
         s = ln.rstrip("\r")

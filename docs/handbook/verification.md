@@ -1,0 +1,116 @@
+# 검증 — 무엇을 재고 언제 합격인가
+
+이 topic은 Limn의 변경이 합격인지 판단하는 게이트를 모은다. 각 게이트마다 무엇을 재는지, 어떤 변경에서 돌리는지, 어떻게 돌리는지, 무엇이면 통과인지, 그리고 통과가 무엇까지 보장하는지를 적는다. PR을 올리기 전, 리뷰할 때, 새 테스트나 CI 단계를 더할 때 읽는다. 게이트를 더하거나 합격 기준을 바꾸면 이 파일을 같은 변경에서 고친다.
+
+> **한눈에**
+>
+> - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크
+> - 사람이 확인하는 게이트: §4 에이전트 계약 호환, §5 화면 실측
+> - 아직 없는 게이트: §6 정량 게이트가 없는 영역
+> - 문서 출판: §7 Handbook 출판
+> - 결과 보고 규칙: §결과를 보고하는 법
+
+## 합격의 뜻
+
+Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이 아니다. [architecture.md](architecture.md) §채택한 설계 축에서 정한 검수 진실원은 세 겹이다.
+
+1. 자동 테스트가 녹색이다.
+2. 에이전트 계약(`pins.md`, HTTP API)이 호환을 지킨다.
+3. 화면을 바꿨다면 실제 화면에서 규칙대로 보이는지 실측했다.
+
+게이트는 머지 전에 막는다. CI([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml))가 `main` 푸시, `v*` 태그, 모든 PR에서 돈다.
+
+## 1. 파이썬 테스트
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생 |
+| 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
+| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 레이아웃 테스트까지 돌리려면 먼저 `uv run playwright install chromium` |
+| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다 |
+| 보장 범위 | 테스트가 고정한 동작만 보장한다. CI에는 TeX(`latexmk`)와 Poppler가 없어서 실제 빌드가 필요한 테스트는 CI에서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다 |
+
+테스트 파일마다 맡은 범위가 다르다.
+
+| 파일 | 맡은 범위 |
+| --- | --- |
+| [`tests/test_server.py`](../../tests/test_server.py) | 서버 전반. 처리기를 소켓 쌍으로 직접 몰아 포트를 열지 않는다. `Frontend*` 클래스는 뷰어 HTML·CSS·JS 규칙을 지킨다 (예: `FrontendDesignTokens`, `FrontendNoNestedOutlines`) |
+| [`tests/test_cli.py`](../../tests/test_cli.py) | `limn` 명령 표면: version, serve 전달, 도움말 |
+| [`tests/test_migrate.py`](../../tests/test_migrate.py) | 옛 설치에서 옮기기 (systemctl 스텁) |
+| [`tests/test_access.py`](../../tests/test_access.py) | 접근 제어: 신원 방식, 토큰, 역할별 허용 범위, 바인드 규칙, 0.1 상태 디렉터리 호환 |
+| [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저), 계약 문자열은 번역하지 않는지 |
+| [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
+
+> **주의**
+>
+> 일부 테스트는 문서 문장을 직접 확인한다. 예를 들어 [api.md](api.md)의 claim 한도 행(`eta_min` 1..240, `ttl_min` 1..120)과 [SKILL.ko.md](../../skill/SKILL.ko.md)의 견적 표가 그렇다. 이 문장을 고치면 테스트도 함께 고친다.
+
+## 2. 인스턴스 관리자 테스트
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | `limn add`·`start`·`stop`·`update`·`list`·`status`·`url`·`snippet`·`doc`·`remove`·`run`의 동작과 출력 |
+| 적용 조건 | [`src/limn/instances.sh`](../../src/limn/instances.sh), [`src/limn/cli.py`](../../src/limn/cli.py), systemd 유닛 템플릿을 바꿀 때. CI는 항상 돌린다 |
+| 실행 | `bash tests/test_instances.sh` |
+| 합격 기준 | 스크립트가 0으로 끝난다 |
+| 보장 범위 | systemctl·tailscale·ss·uv를 가짜로 바꿔 호스트를 건드리지 않고 확인한다. 실제 systemd·tailscale과의 상호작용은 보장하지 않는다 |
+
+## 3. 설치 스모크
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
+| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `ui_en.json`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
+| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
+| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`가 설치 경로에 있다 |
+| 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
+
+## 4. 에이전트 계약 호환
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | `pins.md` 형식(열·표시어·한국어 머리말)과 HTTP API(경로·JSON 필드·상태 이름)가 옛 에이전트를 깨지 않는지 |
+| 적용 조건 | 핀 렌더링, 요청 처리, 레코드 필드, 상태 계산을 건드리는 변경 |
+| 실행 | 사람이 diff를 [api.md](api.md)와 대조한다. PR 템플릿의 계약 체크 항목에 표시한다. `PinsMdV2` 같은 기존 테스트가 형식 일부를 고정한다 |
+| 합격 기준 | 경로·필드·상태 이름의 삭제나 의미 변경이 없다. 추가만 있다면 [api.md](api.md)가 같은 변경에서 갱신됐다. 바꿔야 한다면 이슈에서 버전이 붙은 이전 계획이 먼저 합의됐다 |
+| 보장 범위 | 사람 확인이다. 계약 전체를 자동으로 비교하는 테스트는 아직 없다 (§6) |
+
+## 5. 화면 실측
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | 뷰어 레이아웃·간격·상태 표시가 [viewer.md](viewer.md)의 규칙대로 보이는지 |
+| 적용 조건 | `HTML` 템플릿의 CSS·마크업·레이아웃 JS를 바꿀 때 |
+| 실행 | Playwright로 세 너비(`wide`·`mid`·`narrow`)와 두 테마에서 바꾸기 전후 스크린샷을 짝지어 비교한다. 바꾼 규칙에 해당하는 수치(버튼 높이, 위치 이동량 등)를 잰다 |
+| 합격 기준 | 바꾼 규칙이 측정값으로 확인되고, 바꾸지 않은 화면에 회귀가 없다. 수치는 [viewer.md](viewer.md)의 해당 절에 날짜와 함께 남긴다 |
+| 보장 범위 | 헤드리스 Chrome 에뮬레이션이다. 실제 기기(Galaxy Z Fold 7, iOS)의 가상 키보드·관성 핀치는 보장하지 않는다 |
+
+## 6. 정량 게이트가 없는 영역
+
+아래는 아직 자동 게이트가 없다. 통과라고 추정하지 말고 "확인하지 않음"으로 보고한다.
+
+| 영역 | 현재 상태 | 계획 |
+| --- | --- | --- |
+| 포매터·린터 | 정량 게이트 없음. 설정 파일도 없다 | [code-style-roadmap.md](code-style-roadmap.md) 1단계에서 Ruff 도입 |
+| 타입 검사 | 정량 게이트 없음 | 로드맵 1단계에서 범위를 정해 도입 |
+| 셸 스크립트 정적 검사 | 정량 게이트 없음. `instances.sh`는 shellcheck 주석을 일부 쓰지만 CI가 돌리지 않는다 | 로드맵 1단계 |
+| 실제 LaTeX 빌드 | CI에 TeX가 없어 로컬에서만 돈다 | 필요해지면 TeX 설치 작업을 CI에 더하는 것을 검토 |
+| Handbook 링크·형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다 | 폰트를 CI에 준비할 방법을 정한 뒤 CI에 추가 검토 |
+| 에이전트 계약 전체 비교 | 정량 게이트 없음 (§4는 사람 확인) | 계약 스냅숏 테스트 검토 |
+
+## 7. Handbook 출판
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | Handbook이 작성 표준(목록·role 배정·H1 하나·강조 상자 label·코드 언어·단순 표·내부 링크와 절 대상)을 지키고 한 장짜리 HTML로 묶이는지 |
+| 적용 조건 | `docs/handbook/`, `docs/adr/`, `docs/handbook/book.json`, `tools/handbook-publish/`를 바꿀 때 |
+| 실행 | 폰트를 `.handbook/fonts/Pretendard-Regular.otf`에 둔 뒤 `uv run python tools/handbook-publish/publish.py check docs/handbook/index.md`, 이어서 `uv run python tools/handbook-publish/publish.py build docs/handbook/index.md --output .handbook/out/index.html` |
+| 합격 기준 | 두 명령이 0으로 끝난다. 폰트 SHA-256과 Pandoc 버전은 `book.json`의 값과 정확히 같아야 한다 |
+| 보장 범위 | 형식과 링크 대상까지다. 내용이 코드와 맞는지는 보장하지 않는다. PDF 출판은 `book.json`에 고정한 Playwright·Chromium이 따로 필요하다 |
+
+## 결과를 보고하는 법
+
+- 실제로 돌린 명령과 결과만 적는다. 돌리지 않은 게이트는 "돌리지 않음"이라고 쓴다.
+- 건너뛴 테스트(`skipped`)는 개수와 이유를 함께 적는다. 건너뜀은 통과가 아니다.
+- 화면 변경은 어느 너비·테마에서 무엇을 쟀는지 적는다.
+- 실패를 재시도로 통과시켰다면 그 사실을 숨기지 않는다. 재시도는 원인 해결의 증거가 아니다.

@@ -1,6 +1,6 @@
 # PDF.js (vendored)
 
-The Mozilla PDF.js build the viewer uses to draw the manuscript PDF as vectors. The viewer runs inside a private network, so it does not use an external CDN; the server serves these files itself at `GET /vendor/pdfjs/<file>`. The endpoint contract is in [docs/api.md](../../../../docs/api.md).
+The Mozilla PDF.js build the viewer uses to draw the manuscript PDF as vectors. The viewer runs inside a private network, so it does not use an external CDN; the server serves these files itself at `GET /vendor/pdfjs/<file>`. The endpoint contract is in [docs/handbook/api.md](../../../../docs/handbook/api.md).
 
 | Item | Value |
 | --- | --- |

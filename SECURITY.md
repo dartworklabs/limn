@@ -3,7 +3,7 @@
 > **Warning:** Never expose Limn beyond loopback without an identity provider in front of it: keep the
 > default `127.0.0.1` and share it through a private network you trust (`tailscale serve`), or run it
 > behind an authenticating proxy with `--auth trusted-proxy`. Never through `tailscale funnel`.
-> The design is [docs/design/access-and-sync.md](docs/design/access-and-sync.md).
+> The design is [ADR-0002](docs/adr/0002-access-control.md) (Korean).
 
 ## Threat model in one paragraph
 

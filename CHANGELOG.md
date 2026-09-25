@@ -1,8 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Documentation moved into a Korean System Handbook (`docs/handbook/`) with decision records
+  (`docs/adr/`). The former `docs/design.md`, `docs/build-sync.md`, `docs/api.md`,
+  `docs/operations*.md`, `docs/instances*.md` and `docs/design/access-and-sync*.md` are its chapters
+  now; the access-control draft is ADR-0002.
+- Roadmap for aligning the code with the team coding rules: `docs/handbook/code-style-roadmap.md`.
+- The `pins.md` format and the HTTP API are unchanged by this documentation move.
+
 ## 0.2.0 — unreleased (tagged after merge)
 
-Access control, stage v0.2 of [docs/design/access-and-sync.md](docs/design/access-and-sync.md). An existing
+Access control, stage v0.2 of [ADR-0002](docs/adr/0002-access-control.md). An existing
 0.1 instance (no `AUTH`, no `tokens.json`, `people.json` without roles) behaves exactly as before; the only
 visible difference is a deprecation warning in the server log and one added guidance line in `pins.md`.
 

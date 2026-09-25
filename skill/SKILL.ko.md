@@ -44,7 +44,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 ### 인증
 
-모든 요청에 API 토큰을 붙인다: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. 토큰은 사용자가 `limn token create <인스턴스>` 로 한 번 만들어 건네준다(그때만 보인다). `LIMN_TOKEN` 에 두고 저장소에는 절대 넣지 않는다. 토큰이 있으면 어디서 붙든 에이전트(`agent:<이름>`)다. 토큰 없이 `127.0.0.1` 에 헤더 없이 보내면 대부분의 인스턴스에서 아직 에이전트로 받지만, 폐지 예정이고 꺼져 있을 수 있다(`401`). `401` 이 오면 사용자에게 토큰을 달라고 한다. 자세히: [api.md](../docs/api.md) §Authentication.
+모든 요청에 API 토큰을 붙인다: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. 토큰은 사용자가 `limn token create <인스턴스>` 로 한 번 만들어 건네준다(그때만 보인다). `LIMN_TOKEN` 에 두고 저장소에는 절대 넣지 않는다. 토큰이 있으면 어디서 붙든 에이전트(`agent:<이름>`)다. 토큰 없이 `127.0.0.1` 에 헤더 없이 보내면 대부분의 인스턴스에서 아직 에이전트로 받지만, 폐지 예정이고 꺼져 있을 수 있다(`401`). `401` 이 오면 사용자에게 토큰을 달라고 한다. 자세히: [api.md](../docs/handbook/api.md) §인증.
 
 ### 읽는 것
 
@@ -116,7 +116,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 ### 번호 칸의 표시
 
-번호 칸에는 번호 뒤에 ` · ` 로 이어 뜻이 드러나는 짧은 말이 붙는다(예전 기호를 말로 바꿨다, [api.md](../docs/api.md) §pins.md 형식). 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`.
+번호 칸에는 번호 뒤에 ` · ` 로 이어 뜻이 드러나는 짧은 말이 붙는다(예전 기호를 말로 바꿨다, [api.md](../docs/handbook/api.md) §pins.md 형식). 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분)`.
 
 | 표시 | 뜻 | 할 일 |
 | --- | --- | --- |
@@ -156,8 +156,8 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
    - `--port` 를 빼면 서버가 빈 포트를 골라 기동 로그에 찍는다.
    - 일회성 서버를 내릴 때 `pkill -f limn` 금지. `pid=$(lsof -ti tcp:<port>); [ -n "$pid" ] && kill $pid`.
 3. **실행한다.**
-   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/operations.md).
-   - 상시, 원고마다 하나: `limn add <이름> --manuscript <dir> ...` 이 포트를 배정하고 설정을 쓰고 `limn@<이름>` 을 켜고 `tailscale serve` 까지 잡는다. 그다음 `limn list`, `limn status <이름>`, `limn url <이름>`. `limn snippet <이름>` 은 논문 저장소 AGENTS.md 에 붙일 조각을 찍는다 — 에이전트가 인스턴스를 찾는 입구다. 운영 안내: [instances.md](../docs/instances.md).
+   - 일회성: `limn serve --manuscript <dir> [--main main.tex | --doc KEY=NAME:PATH ...] [--port N] [--state-dir DIR]`. `--doc`(반복)은 논문 저장소 하나의 문서 여럿을 한 주소에서 고르게 한다. `.tex` 는 LaTeX, `.pdf` 는 보기 전용. 직접 띄울 때는 **원고마다 `--state-dir` 과 포트를 따로 둔다** — 같은 값을 공유하면 핀이 섞인다. 다른 인자(`--git-pull`·`--label`·`--accent` 등)는 `limn serve --help` 와 [operations.md](../docs/handbook/operations.md).
+   - 상시, 원고마다 하나: `limn add <이름> --manuscript <dir> ...` 이 포트를 배정하고 설정을 쓰고 `limn@<이름>` 을 켜고 `tailscale serve` 까지 잡는다. 그다음 `limn list`, `limn status <이름>`, `limn url <이름>`. `limn snippet <이름>` 은 논문 저장소 AGENTS.md 에 붙일 조각을 찍는다 — 에이전트가 인스턴스를 찾는 입구다. 운영 안내: [instances.md](../docs/handbook/instances.md).
 4. **노출한다 — Hard Rule.**
 
 | 항목 | 규칙 |
@@ -193,13 +193,15 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 
 | 할 일 | 열 파일 |
 | --- | --- |
-| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 스레드·검토 대기·@태그·이벤트, 핀 스키마, `pins.md` 형식 | [api.md](../docs/api.md) |
-| 재빌드(동기·비동기), `--git-pull`, 자동 동기화, 위치 추정(`est`) | [build-sync.md](../docs/build-sync.md) |
-| 아키텍처, 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 뷰어 상태 표현, 여러 문서·보기 전용 PDF, 알려진 제약 | [design.md](../docs/design.md) |
-| 서버 인자 전체, `--doc`, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve`, 상태 파일, 뷰어 사용법 | [operations.md](../docs/operations.md) |
-| 원고별 인스턴스: `limn add`, 설정 키, 포트, 업데이트, 제거 | [instances.md](../docs/instances.md) |
+| 엔드포인트 전체, 요청 경계, edit·close·claim·겹침 상세, 스레드·검토 대기·@태그·이벤트, 핀 스키마, `pins.md` 형식 | [api.md](../docs/handbook/api.md) |
+| 재빌드(동기·비동기), `--git-pull`, 자동 동기화, 위치 추정(`est`) | [build-sync.md](../docs/handbook/build-sync.md) |
+| 구조와 불변식 | [architecture.md](../docs/handbook/architecture.md) |
+| 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 여러 문서·보기 전용 PDF, 알려진 제약 | [domain.md](../docs/handbook/domain.md) |
+| 뷰어 상태 표현과 화면 규칙 | [viewer.md](../docs/handbook/viewer.md) |
+| 서버 인자 전체, `--doc`, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve`, 상태 파일, 뷰어 사용법 | [operations.md](../docs/handbook/operations.md) |
+| 원고별 인스턴스: `limn add`, 설정 키, 포트, 업데이트, 제거 | [instances.md](../docs/handbook/instances.md) |
 
 ## 연관
 
 - 런타임에 원고 편집 스킬(예: `manuscript-revision`)이 있으면 핀을 닫으며 원고를 고칠 때 그 편집 규율을 따른다. LaTeX 빌드가 깨졌으면 빌드 수정 스킬(예: `latex-editing`)로 먼저 고친다.
-- 결과물 서빙 일반 원칙이 다른 바인딩을 허용하더라도, Limn 은 그 예외로 `127.0.0.1` + `tailscale serve` 를 고정한다([operations.md](../docs/operations.md) §Operations — running, security, deployment, and the viewer).
+- 결과물 서빙 일반 원칙이 다른 바인딩을 허용하더라도, Limn 은 그 예외로 `127.0.0.1` + `tailscale serve` 를 고정한다([operations.md](../docs/handbook/operations.md) §보안 제약).

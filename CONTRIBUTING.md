@@ -15,10 +15,23 @@ The server is a single stdlib-only module (`src/limn/server.py`, Python 3.10+). 
 dependency-free. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdflatex`) and Poppler
 (`pdftoppm`) at runtime, but the tests do not.
 
+## Design documentation
+
+The System Handbook in [docs/handbook/](docs/handbook/index.md) (Korean) is where the design lives:
+purpose and sources of truth, architecture and invariants, the pin domain, the viewer, build and sync,
+the HTTP API contract, operations, verification gates, the change workflow, and the roadmap for
+aligning the code with our coding rules. Decisions and their reasons are in [docs/adr/](docs/adr/).
+Read the chapters that touch your change before you start, and update them in the same pull request
+when the current behaviour changes.
+
 ## Conventions
 
-- Code, comments, docstrings, test names, commit messages, CLI help and log/error messages are in
-  **English**. User-facing docs have Korean counterparts (`*.ko.md`); keep both in sync when you change one.
+- Code, comments, docstrings, test names, commit messages, CLI help and log messages are in
+  **English**. The Handbook is Korean. `README.md`/`README.ko.md` and `skill/SKILL.md`/`skill/SKILL.ko.md`
+  are pairs; keep both in sync when you change one.
+- Coding rules come from our coding skills (`code-implement`, `code-testing`, `code-security`) and take
+  precedence over conventions found in the existing code. The order in which the code is brought in
+  line is [docs/handbook/code-style-roadmap.md](docs/handbook/code-style-roadmap.md).
 - UI strings go through the viewer's message table (Korean and English, `src/limn/ui_en.json`). The Korean
   text in the template is the key. Strings built at run time use `tl('<Korean template>', {params})` with
   `{name}` slots, e.g. `tl('{n}쪽', {n: 3})`; the English value may be plural forms `{"one": ..., "other": ...}`
