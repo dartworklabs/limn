@@ -54,7 +54,8 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import NamedTuple
+from collections.abc import Callable, Sequence, Set as AbstractSet
+from typing import NamedTuple, TypedDict
 from urllib.parse import parse_qs, quote, urlparse
 
 APP_NAME = "limn"
@@ -1056,7 +1057,7 @@ def revision_history(D: Doc) -> dict:
     return {"available": True, "revisions": rows}
 
 
-def revision_diff(D: Doc, commit: str, pin: int = None) -> dict:
+def revision_diff(D: Doc, commit: str, pin: int | None = None) -> dict:
     """The selected commit's unified diff. With pin (v0.3), an additive `scope` says which of its hunks belong to that pin
     (scope_payload); the whole-commit `diff` is returned unchanged either way."""
     if not REVISION_ID_RE.fullmatch(commit or ""):
@@ -1102,7 +1103,7 @@ def revision_diff(D: Doc, commit: str, pin: int = None) -> dict:
            "truncated": too_large}
     if pin is not None:
         base = revision_first_parent(repo, commit)
-        sc = (revision_pin_scope(D, repo, paths, base, commit, pin) if base
+        sc = (revision_pin_scope(D, repo, paths, base, commit, pin) if base          # may raise ScopeRejected
               else PinScope(scope_pin_record(D, pin)["id"], "commit", "none", 0, 0))
         out["scope"] = scope_payload(sc)
     return out
@@ -1114,7 +1115,8 @@ def revision_diff(D: Doc, commit: str, pin: int = None) -> dict:
 # change belonged to which pin. The commit's -U0 hunks ("blocks") are now attributed to the pin: the agent's recorded
 # `changes` (new-side line ranges) pick them, or - for a pin without it - the pin's own range mapped through the commit
 # does. The source diff then shows only those blocks, and the comparison PDF compiles old + only those blocks.
-# Everything below up to revision_changes() is pure: bytes and records in, values out.
+# Everything from here to "the git edge" is pure (coding rule R1): bytes and records in, values out - no file, clock, git
+# or HTTP. Expected refusals are ScopeRejected with a reason; the HTTP layer maps reasons in one table (SCOPE_REJECTIONS).
 
 SCOPE_CONTEXT = 3                     # context lines around a scoped hunk, git's default
 SCOPE_FILES_MAX = 60                  # a commit touching more manuscript files than this stays a whole-commit view
@@ -1122,6 +1124,15 @@ SCOPE_BYTES_MAX = 16 * 1024 * 1024    # both sides of every changed file togethe
 SCOPE_CACHE_KEEP = 32                 # entries hold counts and the two patches only (at most 2 x 256 KiB each)
 SCOPE_SECONDS_MAX = 60                # reading one commit's files for scoping, all git calls together
 _U0_HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
+
+
+class ScopeRejected(Exception):
+    """An expected refusal while scoping a commit to one pin. reason is one of the keys of SCOPE_REJECTIONS, which the
+    HTTP layer (Handler._run) and the build worker turn into the status code, Korean message and API reason."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class Block(NamedTuple):
@@ -1139,10 +1150,86 @@ class FileChange(NamedTuple):
     binary file have no blocks - they are shown as a header and never attributed to a pin."""
     old_path: str | None
     new_path: str | None
-    old: tuple
-    new: tuple
-    blocks: tuple
+    old: tuple[bytes, ...]
+    new: tuple[bytes, ...]
+    blocks: tuple[Block, ...]
     binary: bool
+
+
+BlockId = tuple[int, int]                         # (index into the files, index into that file's blocks)
+ScopeItem = tuple[str, str, int, int, int, int]   # (old path or "", new path or "", *Block) - see scope_key()
+
+
+class Placement(NamedTuple):
+    """Where a pin's range may sit on one side of a commit: side "new" or "old", 1-based lines in git's numbering."""
+    side: str
+    lo: int
+    hi: int
+
+
+class RepoRange(NamedTuple):
+    """A recorded change as attribution sees it: the repo-relative POSIX path and its new-side lines, 1 ≤ lo ≤ hi."""
+    path: str
+    lo: int
+    hi: int
+
+
+class ChangeRecord(TypedDict):
+    """One item of a pin record's stored `changes` (api.md §핀 레코드 스키마): an absolute path and 1 ≤ lo ≤ hi."""
+    file: str
+    lo: int
+    hi: int
+
+
+class CloseChange(NamedTuple):
+    """One validated range of a close body's `changes` (clean_close_changes), immutable: an absolute, resolved path
+    inside the manuscript folder, and the new-side lines 1 ≤ lo ≤ hi ≤ CHANGE_LINE_MAX the agent changed for the pin.
+    (A NamedTuple rather than a dataclass: the tests load server.py outside sys.modules, where dataclasses cannot
+    resolve postponed annotations.)"""
+    file: str
+    lo: int
+    hi: int
+
+    def record(self) -> ChangeRecord:
+        """The JSON shape stored on the pin record."""
+        return {"file": self.file, "lo": self.lo, "hi": self.hi}
+
+
+Changes = tuple[CloseChange, ...]
+
+
+class ScopeMeta(TypedDict):
+    """The additive fields of a revision-build status for a pin request (api.md §핀 단위 변경 보기). Never stored in
+    status.json: several pins and pin-less requests share the whole-commit comparison."""
+    scope: str
+    pin: int
+    source: str
+    hunks: int
+    other: int
+
+
+class _ScopeCounts(TypedDict):
+    pin: int
+    mode: str
+    source: str
+    hunks: int
+    other: int
+
+
+class ScopePayload(_ScopeCounts, total=False):
+    """The additive `scope` object of GET /api/revision-diff?pin=; the patches and their truncation flags only in mode
+    "pin"."""
+    diff: str
+    other_diff: str
+    truncated: bool
+    other_truncated: bool
+
+
+class ScopeWrite(NamedTuple):
+    """One file of the synthetic "old + this pin's blocks" tree: path relative to the build root, and the bytes to write
+    there, or None to remove the file (the pin's block deletes it)."""
+    rel: str
+    data: bytes | None
 
 
 class PinScope(NamedTuple):
@@ -1154,18 +1241,18 @@ class PinScope(NamedTuple):
     source: str
     hunks: int
     other: int
-    blocks: tuple = ()                # scope_key() of the pin's blocks, in mode "pin" only
-    diff: bytes = b""                 # the two patches (UTF-8), in mode "pin" only
+    blocks: tuple[ScopeItem, ...] = ()   # scope_key() of the pin's blocks, in mode "pin" only
+    diff: bytes = b""                    # the two patches (UTF-8), in mode "pin" only
     other_diff: bytes = b""
 
 
-def git_lines(data: bytes) -> tuple:
+def git_lines(data: bytes) -> tuple[bytes, ...]:
     """Split the way git counts lines - on "\\n" only, keeping it; a last line without one stays as it is."""
     parts = data.split(b"\n")
     return tuple([p + b"\n" for p in parts[:-1]] + ([parts[-1]] if parts[-1] else []))
 
 
-def parse_u0_blocks(patch: bytes) -> list:
+def parse_u0_blocks(patch: bytes) -> list[Block]:
     """The blocks of one file's `git diff -U0` output. Only the @@ headers are read: the lines themselves come from
     the two blobs, so a missing final newline or odd bytes never have to be reconstructed from the patch."""
     out = []
@@ -1177,18 +1264,20 @@ def parse_u0_blocks(patch: bytes) -> list:
     return out
 
 
-def touch_range(lo0: int, n: int) -> tuple:
+def touch_range(lo0: int, n: int) -> tuple[int, int]:
     """The 1-based lines a block touches on one side. An empty side (pure insertion or deletion) touches the lines on
     both sides of the point, so a range naming the line before or after a deletion still names the deletion."""
     return (lo0 + 1, lo0 + n) if n > 0 else (max(1, lo0), lo0 + 1)
 
 
-def _hits(rng: tuple, lo: int, hi: int) -> bool:
+def _hits(rng: tuple[int, int], lo: int, hi: int) -> bool:
+    """Whether the inclusive line ranges rng and lo..hi share at least one line (overlap only - no nearby lines,
+    ADR-0005 §3: attributing a neighbour's change is worse than showing the whole commit)."""
     return rng[0] <= hi and rng[1] >= lo
 
 
-def pin_range_candidates(f: FileChange, pin: dict) -> list:
-    """Where the pin's range may sit in this commit: [("new"|"old", lo, hi), ...], 1-based, best first.
+def pin_range_candidates(f: FileChange, pin: dict) -> list[Placement]:
+    """Where the pin's range may sit in this commit, best first; the pin must have int lo/hi.
 
     A closed pin keeps the lines of its last sync, and nothing records which version that was: the commit's new side
     when the anchor survived the fix, the old side when the fix rewrote the anchored text (sync lost it and kept the
@@ -1214,13 +1303,13 @@ def pin_range_candidates(f: FileChange, pin: dict) -> list:
             a = max(1, head - ho)
             tail = find_line(nl, anc.get("tail", ""), hi - to + (a - lo))
             b = max(a, min(len(texts), tail + to if tail is not None and tail >= head else a + (hi - lo)))
-            found.append((abs(a - lo), rank, (side, to_git(a), to_git(b))))
+            found.append((abs(a - lo), rank, Placement(side, to_git(a), to_git(b))))
     raw = "old" if pin.get("stale") else "new"
-    return [c for _, _, c in sorted(found)] + [(raw, sides[raw][1](lo), sides[raw][1](hi))]
+    return [c for _, _, c in sorted(found)] + [Placement(raw, sides[raw][1](lo), sides[raw][1](hi))]
 
 
-def _pin_lines(lines: tuple) -> tuple:
-    """(texts, to_git) for one side. A pin's lines are numbered by str.splitlines() (tex_lines), git's by "\n" only; they
+def _pin_lines(lines: tuple[bytes, ...]) -> tuple[list[str], Callable[[int], int]]:
+    """(texts, to_git) for one side. A pin's lines are numbered by str.splitlines() (tex_lines), git's by "\\n" only; they
     differ after a form feed, a lone CR, U+2028 and the like. texts are the splitlines lines (what anchors match) and
     to_git maps a 1-based splitlines line number to git's line number (identity when the two agree)."""
     text = b"".join(lines).decode("utf-8", "replace")
@@ -1234,12 +1323,13 @@ def _pin_lines(lines: tuple) -> tuple:
     return texts, lambda n: starts[min(max(n, 1), len(starts)) - 1] if starts else n
 
 
-def attribute_blocks(files, pin: dict, pin_rel, changes) -> tuple:
-    """(source, {(file index, block index)}) - the blocks of this commit that belong to the pin.
+def attribute_blocks(files: Sequence[FileChange], pin: dict, pin_rel: str | None,
+                     changes: Sequence[RepoRange]) -> tuple[str, set[BlockId]]:
+    """(source, block ids) - the blocks of this commit that belong to the pin.
 
-    changes is the recorded [(repo-relative path, lo, hi)] on the new side. If none of it hits a block (another
-    commit's numbers, a wrong path) the pin's own range decides, and if that hits nothing either the answer is
-    ("none", set()) and the caller shows the whole commit as before."""
+    changes are the pin's recorded new-side ranges. If none of them hits a block (another commit's numbers, a wrong
+    path) the pin's own range decides (pin_range_candidates; pin_rel is its repo-relative file, None for a region pin),
+    and if that hits nothing either the answer is ("none", set()) and the caller shows the whole commit as before."""
     chosen = set()
     for fi, f in enumerate(files):
         if f.new_path is None:
@@ -1262,14 +1352,20 @@ def attribute_blocks(files, pin: dict, pin_rel, changes) -> tuple:
     return ("inferred" if chosen else "none"), chosen
 
 
-def _patch_line(prefix: str, line: bytes) -> list:
+def _patch_line(prefix: str, line: bytes) -> list[str]:
+    """One diff body line for a file line (prefix " ", "-" or "+"), without its newline or a trailing CR; a line that
+    has no newline (the file's last) is followed by git's "\\ No newline at end of file" marker. Undecodable bytes
+    become U+FFFD - the patch is for display."""
     text = line.decode("utf-8", "replace")
     if text.endswith("\n"):
         return [prefix + text[:-1].rstrip("\r")]
     return [prefix + text.rstrip("\r"), "\\ No newline at end of file"]
 
 
-def _file_header(f: FileChange) -> list:
+def _file_header(f: FileChange) -> list[str]:
+    """git-style header lines for one file of a scoped patch: diff --git, new/deleted/rename lines, and either the
+    ---/+++ pair (when hunks follow) or the "Binary files ... differ" line. The viewer's revisionFiles() splits files
+    on "diff --git" and names them after " b/"."""
     a, b = f.old_path or f.new_path, f.new_path or f.old_path
     out = ["diff --git a/%s b/%s" % (a, b)]
     if f.old_path is None:
@@ -1287,7 +1383,7 @@ def _file_header(f: FileChange) -> list:
     return out
 
 
-def _hunk(f: FileChange, i: int, j: int) -> list:
+def _hunk(f: FileChange, i: int, j: int) -> list[str]:
     """One unified hunk for blocks i..j of f (adjacent in f.blocks). Context stops at any neighbouring block, so a
     change that is not in this hunk never shows up as context; the new-side numbers count every block before i -
     they are the commit's real line numbers, the same ones the whole-commit diff and the pin's range use."""
@@ -1315,7 +1411,7 @@ def _hunk(f: FileChange, i: int, j: int) -> list:
     return ["@@ -%d,%d +%d,%d @@" % (start + 1 if oc else start, oc, start + shift + 1 if nc else start + shift, nc)] + body
 
 
-def scoped_patch(files, chosen, want: bool) -> tuple:
+def scoped_patch(files: Sequence[FileChange], chosen: AbstractSet[BlockId], want: bool) -> tuple[str, int]:
     """(unified patch text, number of places) for the blocks whose membership in chosen equals want. A place is one
     changed spot (a block); blocks of the same side within 2 x context of each other with nothing between them share
     one hunk, like git. Files without blocks (pure rename, mode change, binary) are one place on the "other" side."""
@@ -1343,7 +1439,7 @@ def scoped_patch(files, chosen, want: bool) -> tuple:
     return "".join(line + "\n" for line in out), places
 
 
-def apply_blocks(f: FileChange, chosen) -> bytes:
+def apply_blocks(f: FileChange, chosen: AbstractSet[int]) -> bytes:
     """The file's old bytes with only the chosen blocks (indices into f.blocks) replaced by their new lines - the
     synthetic "old + this pin's changes" version the pin-scoped comparison PDF compiles."""
     out, pos = [], 0
@@ -1356,15 +1452,17 @@ def apply_blocks(f: FileChange, chosen) -> bytes:
     return b"".join(out)
 
 
-def scope_key(files, chosen) -> tuple:
+def scope_key(files: Sequence[FileChange], chosen: AbstractSet[BlockId]) -> tuple[ScopeItem, ...]:
     """The chosen blocks as plain values (path pair + block), sorted - the part of a comparison's identity that says
     which hunks it applies. It does not depend on file order or indices, so it is stable across requests."""
     return tuple(sorted((files[fi].old_path or "", files[fi].new_path or "") + tuple(files[fi].blocks[bi])
                         for fi, bi in chosen))
 
 
-def pin_scope(pid: int, files, pin: dict, pin_rel, changes) -> PinScope:
-    """The pure decision for one pin and one commit's files (None = the commit could not be read for scoping)."""
+def pin_scope(pid: int, files: Sequence[FileChange] | None, pin: dict, pin_rel: str | None,
+              changes: Sequence[RepoRange]) -> PinScope:
+    """The decision for one pin and one commit's files (None = the commit could not be read for scoping, which
+    shows the whole commit). Mode "pin" only when the pin owns some but not all places of the commit."""
     if files is None:
         return PinScope(pid, "commit", "none", 0, 0)
     source, chosen = attribute_blocks(files, pin, pin_rel, changes)
@@ -1376,47 +1474,79 @@ def pin_scope(pid: int, files, pin: dict, pin_rel, changes) -> PinScope:
                     mine_text.encode("utf-8", "replace"), other_text.encode("utf-8", "replace"))
 
 
-def clean_close_changes(v, root: Path):
-    """Validates the close body's optional `changes`: [{file, lo, hi}] - the new-side lines the agent changed for this
-    pin. file is a path inside the manuscript folder, absolute or relative to it (the pins.md location column); it is
-    stored resolved and absolute, like a pin's file. Absent or [] -> None (the pre-0.3 close)."""
-    if v is None:
-        return None
-    if not isinstance(v, list):
-        raise HTTPError(400, "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.")
-    if len(v) > CLOSE_CHANGES_MAX:
-        raise HTTPError(400, "changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX)
-    out, base = [], root.resolve()
-    for i, c in enumerate(v):
-        what = "changes[%d]" % i
-        if not isinstance(c, dict) or set(c) != {"file", "lo", "hi"}:
-            raise HTTPError(400, "%s 는 file·lo·hi 세 필드만 가진 객체여야 합니다." % what)
-        f, lo, hi = c["file"], c["lo"], c["hi"]
-        if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
-            raise HTTPError(400, "%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what)
-        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
-            raise HTTPError(400, "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX))
-        try:
-            path = (Path(f) if os.path.isabs(f) else base / f).resolve()
-            path.relative_to(base)
-        except (ValueError, OSError, RuntimeError):
-            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what)
-        out.append({"file": str(path), "lo": lo, "hi": hi})
-    return out or None
+def recorded_changes(pin: dict) -> tuple[ChangeRecord, ...]:
+    """The pin's stored `changes` that belong to its current close: none unless changes_at equals done_at. A 0.2.2
+    server (after a rollback) neither clears nor writes them, so an older close's set may still be on the record;
+    items of the wrong shape are skipped."""
+    if pin.get("changes_at") != pin.get("done_at"):
+        return ()
+    return tuple(c for c in (pin.get("changes") or []) if _valid_changes([c]))
 
 
-def _valid_changes(v) -> bool:
+def scope_meta(sc: PinScope) -> ScopeMeta:
+    """The per-request status fields of a pin's comparison PDF (added to every build status answer, never stored)."""
+    return {"scope": sc.mode, "pin": sc.pin, "source": sc.source, "hunks": sc.hunks, "other": sc.other}
+
+
+def scope_payload(sc: PinScope) -> ScopePayload:
+    """The additive `scope` object of GET /api/revision-diff?pin=. The two patches are only sent in mode "pin", each cut
+    at REVISION_DIFF_MAX bytes like the whole-commit diff, with truncated / other_truncated saying so."""
+    out: ScopePayload = {"pin": sc.pin, "mode": sc.mode, "source": sc.source, "hunks": sc.hunks, "other": sc.other}
+    if sc.mode == "pin":
+        out["diff"] = sc.diff[:REVISION_DIFF_MAX].decode("utf-8", "ignore")
+        out["other_diff"] = sc.other_diff[:REVISION_DIFF_MAX].decode("utf-8", "ignore")
+        out["truncated"] = len(sc.diff) > REVISION_DIFF_MAX
+        out["other_truncated"] = len(sc.other_diff) > REVISION_DIFF_MAX
+    return out
+
+
+def plan_scope_writes(files: Sequence[FileChange] | None, scope: Sequence[ScopeItem], source: str) -> list[ScopeWrite]:
+    """The files to write into an old-side snapshot so it becomes old + only the scope's blocks.
+
+    source is the build root relative to the repo ("." for the root); files outside it are not part of the compiled
+    document and are skipped. Files keep their old names - a rename that belongs to the pin is applied as an edit in
+    place, so the old main still finds what it \\inputs; an added file is written, a deleted one removed.
+    Raises ScopeRejected: "scope_unreadable" (files is None), "unsafe_path" (a path that could leave the snapshot),
+    "scope_mismatch" (a block of the scope is not in the commit any more)."""
+    if files is None:
+        raise ScopeRejected("scope_unreadable")
+    want, found, out = set(scope), set(), []
+    prefix = "" if source == "." else source + "/"
+    for f in files:
+        idx = {bi for bi, b in enumerate(f.blocks) if ((f.old_path or "", f.new_path or "") + tuple(b)) in want}
+        if not idx:
+            continue
+        found |= {(f.old_path or "", f.new_path or "") + tuple(f.blocks[bi]) for bi in idx}
+        name = f.old_path if f.old_path is not None else f.new_path
+        if not name.startswith(prefix):
+            continue
+        rel = name[len(prefix):]
+        if (not rel or rel.startswith("/") or "\\" in rel or any(ord(c) < 32 for c in rel)
+                or any(part in ("", ".", "..", ".git") for part in rel.split("/"))):
+            raise ScopeRejected("unsafe_path")
+        out.append(ScopeWrite(rel, None if f.new_path is None else apply_blocks(f, idx)))
+    if found != want:
+        raise ScopeRejected("scope_mismatch")
+    return out
+
+
+def _valid_changes(v: object) -> bool:
+    """Whether v has the stored shape of `changes` - a list of {file: str, lo: int, hi: int}. valid_rec() treats a
+    record failing this as a broken line; recorded_changes() skips such items."""
     return isinstance(v, list) and all(isinstance(c, dict) and isinstance(c.get("file"), str) and _is_int(c.get("lo"))
                                        and _is_int(c.get("hi")) for c in v)
 
 
-# -------- the git edge of pin scoping
+# -------- the git edge of pin scoping (reads git and pins.jsonl; decisions above)
 
 SCOPE_CACHE_LOCK = threading.Lock()
 SCOPE_CACHE = {}                      # (repo, base, head, pin facts) -> PinScope; bounded, commits are immutable
 
 
-def _blob(repo: Path, oid: str, budget: list) -> bytes:
+def _blob(repo: Path, oid: str, budget: list[int]) -> bytes:
+    """The bytes of one git blob, charged against budget[0] (bytes left for the whole commit, updated in place).
+    Raises ValueError when git fails or the budget runs out; revision_exec's HTTPError on timeout/size passes up -
+    revision_changes() turns both into "not scoped"."""
     rc, data, _ = revision_exec(["git", "cat-file", "blob", oid], repo, 15, budget[0] + 4096)
     if rc != 0:
         raise ValueError("unreadable blob")
@@ -1426,7 +1556,7 @@ def _blob(repo: Path, oid: str, budget: list) -> bytes:
     return data
 
 
-def revision_changes(repo: Path, base: str, head: str, paths) -> list:
+def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> list[FileChange] | None:
     """The commit's manuscript files as FileChange values (renames detected), or None when they cannot be read or are
     over the scoping limits - the caller then shows the whole commit, exactly as before 0.3. git runs without a
     shell; only full SHA-1s from revision_history() and git's own object ids reach its arguments."""
@@ -1479,26 +1609,31 @@ def revision_changes(repo: Path, base: str, head: str, paths) -> list:
         return None
 
 
-def _repo_rel(repo: Path, path) -> str:
+def _repo_rel(repo: Path, path: str) -> str | None:
+    """path (absolute, as stored on pins) relative to the repository root in POSIX form, symlinks resolved; None when
+    it lies outside the repository or cannot be resolved."""
     try:
         return Path(path).resolve().relative_to(repo.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError, TypeError):
         return None
 
 
-def scope_pin_record(D: Doc, pid) -> dict:
-    """The pin a scoped request names. Read without the sync write; it must belong to this document."""
+def scope_pin_record(D: Doc, pid: int) -> dict:
+    """The pin a scoped request names, read from pins.jsonl without the sync write. Raises
+    ScopeRejected("pin_not_in_doc") when there is no such pin or it belongs to another document than D."""
     rows, _ = read_pins()
     r = find_pin(rows, pid)
     if r is None or pin_doc_key(r) != D.key:
-        raise HTTPError(404, "이 문서의 핀이 아닙니다.")
+        raise ScopeRejected("pin_not_in_doc")
     return r
 
 
-def revision_pin_scope(D: Doc, repo: Path, paths, base: str, head: str, pid: int) -> PinScope:
+def revision_pin_scope(D: Doc, repo: Path, paths: Sequence[str], base: str, head: str, pid: int) -> PinScope:
+    """How pin pid of document D sees commit head (compared with its first parent base): reads the pin and, unless
+    the same pin facts were seen for this commit before (SCOPE_CACHE), the commit's files; then decides with
+    pin_scope(). Raises ScopeRejected("pin_not_in_doc"); an unreadable commit is mode "commit", not an error."""
     r = scope_pin_record(D, pid)
-    recorded = r.get("changes") if r.get("changes_at") == r.get("done_at") else None   # a close by 0.2.2 after a rollback keeps an older set
-    changes = [(_repo_rel(repo, c["file"]), c["lo"], c["hi"]) for c in (recorded or []) if _valid_changes([c])]
+    changes = [RepoRange(_repo_rel(repo, c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r)]
     facts = json.dumps([r.get(k) for k in ("file", "lo", "hi", "stale", "anchor")] + [changes], sort_keys=True, default=str)
     key = (str(repo), base, head, pid, facts)
     with SCOPE_CACHE_LOCK:
@@ -1507,7 +1642,7 @@ def revision_pin_scope(D: Doc, repo: Path, paths, base: str, head: str, pid: int
         return hit
     files = revision_changes(repo, base, head, paths)
     pin_rel = _repo_rel(repo, r["file"]) if not is_region_pin(r) else None
-    out = pin_scope(pid, files, r, pin_rel, [c for c in changes if c[0]])
+    out = pin_scope(pid, files, r, pin_rel, [c for c in changes if c.path])
     with SCOPE_CACHE_LOCK:
         if len(SCOPE_CACHE) >= SCOPE_CACHE_KEEP:
             SCOPE_CACHE.pop(next(iter(SCOPE_CACHE)))
@@ -1515,30 +1650,9 @@ def revision_pin_scope(D: Doc, repo: Path, paths, base: str, head: str, pid: int
     return out
 
 
-def scope_payload(sc: PinScope) -> dict:
-    """The additive `scope` object of GET /api/revision-diff?pin=. The two patches are only sent in mode "pin", each cut
-    at REVISION_DIFF_MAX bytes like the whole-commit diff, with truncated / other_truncated saying so."""
-    out = {"pin": sc.pin, "mode": sc.mode, "source": sc.source, "hunks": sc.hunks, "other": sc.other}
-    if sc.mode == "pin":
-        out["diff"] = sc.diff[:REVISION_DIFF_MAX].decode("utf-8", "ignore")
-        out["other_diff"] = sc.other_diff[:REVISION_DIFF_MAX].decode("utf-8", "ignore")
-        out["truncated"] = len(sc.diff) > REVISION_DIFF_MAX
-        out["other_truncated"] = len(sc.other_diff) > REVISION_DIFF_MAX
-    return out
-
-
-def clean_pin_param(v):
-    """The optional pin of a revision request: None if absent, else a positive pin id (query string or JSON int)."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,8}", v):
-        return int(v)
-    if _is_int(v) and 1 <= v <= 999999999:
-        return v
-    raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
-
-
-def revision_first_parent(repo: Path, commit: str):
+def revision_first_parent(repo: Path, commit: str) -> str | None:
+    """The full SHA-1 of commit's first parent, or None for a root commit or when git cannot tell (the source diff
+    then shows the whole commit for a pin)."""
     rc, out, _ = _git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     return parents[1] if rc == 0 and len(parents) >= 2 and REVISION_ID_RE.fullmatch(parents[1]) else None
@@ -1559,21 +1673,25 @@ REVISION_SLOTS = threading.BoundedSemaphore(2)
 
 
 class RevisionSpec(NamedTuple):
+    """One comparison to build: repo, build root (source, relative to repo) and main (relative to it), the first parent
+    base and the commit head, and key - the cache identity (revision_spec). For a pin that owns part of the commit,
+    scope names the blocks the new side applies; meta carries the per-request status fields for a pin request."""
     repo: Path
     source: str
     main: Path
     base: str
     head: str
     key: str
-    paths: tuple = ()                 # the manuscript pathspec (revision_scope) - a scoped build re-reads the commit with it
-    scope: tuple = ()                 # v0.3: the pin's blocks (scope_key); () = the whole commit
-    pin: int = None                   # the pin that asked, when the request named one
-    meta: dict = None                 # additive status fields for a pin request: scope, pin, source, hunks, other
+    paths: tuple[str, ...] = ()       # the manuscript pathspec (revision_scope) - a scoped build re-reads the commit with it
+    scope: tuple[ScopeItem, ...] = ()  # v0.3: the pin's blocks (scope_key); () = the whole commit
+    pin: int | None = None            # the pin that asked, when the request named one
+    meta: ScopeMeta | None = None     # additive status fields for a pin request: scope, pin, source, hunks, other
 
 
-def revision_spec(D: Doc, commit: str, pin: int = None) -> RevisionSpec:
+def revision_spec(D: Doc, commit: str, pin: int | None = None) -> RevisionSpec:
     """What to compare. With pin (v0.3) the new side is old + only that pin's blocks - unless the pin owns the whole
-    commit or none of it, in which case the spec (and its cache entry) is the whole-commit one."""
+    commit or none of it, in which case the spec (and its cache entry) is the whole-commit one. Raises HTTPError for a
+    bad or foreign commit (as before 0.3) and ScopeRejected("pin_not_in_doc") for a pin D does not have."""
     if not isinstance(commit, str) or not REVISION_ID_RE.fullmatch(commit):
         raise HTTPError(400, "올바른 커밋 ID가 아닙니다.")
     scope = revision_scope(D)
@@ -1594,7 +1712,7 @@ def revision_spec(D: Doc, commit: str, pin: int = None) -> RevisionSpec:
     blocks, meta = (), None
     if pin is not None:
         sc = revision_pin_scope(D, repo, paths, base, commit, pin)
-        meta = {"scope": sc.mode, "pin": pin, "source": sc.source, "hunks": sc.hunks, "other": sc.other}
+        meta = scope_meta(sc)
         if sc.mode == "pin":
             blocks = sc.blocks
             identity += ["pin", pin, [list(b) for b in blocks]]
@@ -1692,38 +1810,20 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None:
 
 
 def revision_apply_scope(spec: RevisionSpec, dest: Path) -> None:
-    """Turns dest (a snapshot of the old side) into old + only spec.scope's blocks. Files keep their old names - a
-    rename that belongs to the pin is applied as an edit in place, so the old main still finds what it \\inputs;
-    an added file is written, a deleted one removed. The commit is re-read from git (revision_changes), which is
-    deterministic for two SHA-1s, and every block of the scope must be found again."""
-    files = revision_changes(spec.repo, spec.base, spec.head, spec.paths)
-    if files is None:
-        raise HTTPError(422, "이 핀의 변경만 골라 적용하지 못했습니다.", reason="scope_failed")
-    want, found = set(spec.scope), set()
-    prefix = "" if spec.source == "." else spec.source + "/"
-    for f in files:
-        idx = {bi for bi, b in enumerate(f.blocks) if ((f.old_path or "", f.new_path or "") + tuple(b)) in want}
-        if not idx:
-            continue
-        found |= {(f.old_path or "", f.new_path or "") + tuple(f.blocks[bi]) for bi in idx}
-        name = f.old_path if f.old_path is not None else f.new_path
-        if not name.startswith(prefix):
-            continue                              # outside the build root: not part of the compiled document
-        rel = name[len(prefix):]
-        if (not rel or rel.startswith("/") or "\\" in rel or any(ord(c) < 32 for c in rel)
-                or any(part in ("", ".", "..", ".git") for part in rel.split("/"))):
-            raise HTTPError(422, "사본에 허용되지 않는 경로가 있습니다.", reason="unsafe_snapshot")
-        target = dest / rel
+    """Turns dest (a fresh snapshot of the old side) into old + only spec.scope's blocks: re-reads the commit from git
+    (deterministic for two SHA-1s), lets plan_scope_writes() decide, and writes or removes those files under dest.
+    Raises ScopeRejected ("scope_unreadable", "scope_mismatch", "unsafe_path" - also for a symlink or a parent outside
+    dest); the build worker reports it in the status like any other build failure."""
+    for w in plan_scope_writes(revision_changes(spec.repo, spec.base, spec.head, spec.paths), spec.scope, spec.source):
+        target = dest / w.rel
         if target.is_symlink() or not target.parent.resolve().is_relative_to(dest.resolve()):
-            raise HTTPError(422, "사본에 허용되지 않는 경로가 있습니다.", reason="unsafe_snapshot")
-        if f.new_path is None:
+            raise ScopeRejected("unsafe_path")
+        if w.data is None:
             if target.is_file():
                 target.unlink()
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(apply_blocks(f, idx))
-    if found != want:
-        raise HTTPError(422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", reason="scope_failed")
+        target.write_bytes(w.data)
 
 
 def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list) -> list:
@@ -1753,6 +1853,10 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list) -> li
 
 
 def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> dict:
+    """Builds the comparison PDF of spec into jobdir/revision.pdf (and jobdir/build.log) inside the bwrap sandbox:
+    snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, then
+    latexmk with timeout seconds. Returns the "ready" status fields with warnings. Raises HTTPError with a reason
+    for a failed step (as before 0.3) or ScopeRejected from the scope step; the worker records either."""
     warnings = ["수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."]
     with tempfile.TemporaryDirectory(prefix="work-", dir=jobdir) as tmp:
         work = Path(tmp)
@@ -1813,10 +1917,15 @@ SCOPE_META = ("scope", "pin", "source", "hunks", "other")   # per-request fields
 
 
 def _without_meta(d: dict) -> dict:
+    """d without the per-request pin fields (SCOPE_META), so a stored or shared status never carries another
+    request's pin."""
     return {k: v for k, v in d.items() if k not in SCOPE_META}
 
 
 def _revision_cached(spec: RevisionSpec, root: Path) -> dict:
+    """The finished status of spec from its cache folder under root ("ready" only with a PDF of sane size), else an
+    "idle" status; always with spec's identity and, for a pin request, its per-request fields. Reads files only;
+    a corrupt, oversized, symlinked or expired entry is a miss."""
     path = root / spec.key
     identity = dict({"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **(spec.meta or {}))
     try:
@@ -1848,7 +1957,9 @@ def _revision_prune(root: Path, keep_key: str) -> None:
             kept += 1
 
 
-def revision_status(D: Doc, commit: str, pin: int = None) -> dict:
+def revision_status(D: Doc, commit: str, pin: int | None = None) -> dict:
+    """GET /api/revision-build: the running job's status or the cached one, re-authorising the commit (and pin) on
+    every poll. Raises what revision_spec raises."""
     spec = revision_spec(D, commit, pin)         # Reauthorize cache hits and poll requests too.
     with REVISION_JOBS_LOCK:
         root = _revision_cache_root(D)
@@ -1856,7 +1967,10 @@ def revision_status(D: Doc, commit: str, pin: int = None) -> dict:
         return dict(_without_meta(active), **(spec.meta or {})) if active else _revision_cached(spec, root)
 
 
-def revision_start(D: Doc, commit: str, pin: int = None) -> dict:
+def revision_start(D: Doc, commit: str, pin: int | None = None) -> dict:
+    """POST /api/revision-build: returns the running or cached status, or starts a worker thread and returns
+    "running". A pin subset that failed deterministically is answered from the cache. Raises HTTPError 409 when both
+    build slots or this document's lock are taken, and what revision_spec raises."""
     spec = revision_spec(D, commit, pin)
     with REVISION_JOBS_LOCK:
         root = _revision_cache_root(D)
@@ -1896,10 +2010,13 @@ def revision_start(D: Doc, commit: str, pin: int = None) -> dict:
             raise
 
         def worker():
+            """Runs the build, stores its final status in jobdir/status.json, and frees the slot and lock. An expected
+            failure (HTTPError, or ScopeRejected mapped by the one SCOPE_REJECTIONS table) becomes an "error" status."""
             try:
                 result = revision_compile(spec, jobdir, timeout)
-            except HTTPError as exc:
-                result = {"state": "error", "error": exc.body["error"], "reason": exc.body.get("reason", "build_failed"), "warnings": []}
+            except (HTTPError, ScopeRejected) as exc:
+                err = exc if isinstance(exc, HTTPError) else scope_http_error(exc)
+                result = {"state": "error", "error": err.body["error"], "reason": err.body.get("reason", "build_failed"), "warnings": []}
             except Exception:
                 traceback.print_exc()
                 result = {"state": "error", "error": "비교 PDF를 만들지 못했습니다.", "reason": "build_failed", "warnings": []}
@@ -1924,7 +2041,9 @@ def revision_start(D: Doc, commit: str, pin: int = None) -> dict:
         return dict(running, **(spec.meta or {}))
 
 
-def revision_pdf(D: Doc, commit: str, pin: int = None) -> bytes:
+def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes:
+    """GET /api/revision-pdf: the finished comparison PDF of the commit (or of the pin's part of it). Raises HTTPError
+    404 when it is not ready or has expired, and what revision_spec raises."""
     spec = revision_spec(D, commit, pin)
     with REVISION_JOBS_LOCK:
         root = _revision_cache_root(D)
@@ -3743,6 +3862,48 @@ def clean_close_body(d: dict) -> tuple:
     return reply, ref
 
 
+def clean_close_changes(v: object, root: Path) -> Changes | None:
+    """HTTP-boundary parser for the close body's optional `changes`: [{file, lo, hi}] - the new-side lines the agent
+    changed for this pin. file is a path inside root (the manuscript folder), absolute or relative to it (the pins.md
+    location column); the result carries it resolved and absolute, like a pin's file. Absent or [] -> None (the
+    pre-0.3 close). Raises HTTPError(400) naming the offending item - the messages are part of the agent contract."""
+    if v is None:
+        return None
+    if not isinstance(v, list):
+        raise HTTPError(400, "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.")
+    if len(v) > CLOSE_CHANGES_MAX:
+        raise HTTPError(400, "changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX)
+    out, base = [], root.resolve()
+    for i, c in enumerate(v):
+        what = "changes[%d]" % i
+        if not isinstance(c, dict) or set(c) != {"file", "lo", "hi"}:
+            raise HTTPError(400, "%s 는 file·lo·hi 세 필드만 가진 객체여야 합니다." % what)
+        f, lo, hi = c["file"], c["lo"], c["hi"]
+        if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
+            raise HTTPError(400, "%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what)
+        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
+            raise HTTPError(400, "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX))
+        try:
+            path = (Path(f) if os.path.isabs(f) else base / f).resolve()
+            path.relative_to(base)
+        except (ValueError, OSError, RuntimeError):
+            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what)
+        out.append(CloseChange(str(path), lo, hi))
+    return tuple(out) or None
+
+
+def clean_pin_param(v: object) -> int | None:
+    """HTTP-boundary parser for the optional pin of a revision request (query string or JSON int): None if absent or
+    empty, else a pin id 1..999999999. Raises HTTPError(400) otherwise; whether the pin exists is decided later."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,8}", v):
+        return int(v)
+    if _is_int(v) and 1 <= v <= 999999999:
+        return v
+    raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
+
+
 def clean_assignee(v, rows: list = None):
     """Assignee - "agent" or the login of a person this viewer knows (known_people). None if absent (not sent = unchanged)."""
     if v is None:
@@ -4603,8 +4764,8 @@ def clean_review_flag(d: dict):
     return v
 
 
-def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = None, review: bool = None,
-             reason: str = None, hints=None, changes: list = None):
+def set_done(pid: int, done: bool, actor: dict, reply: str | None = None, ref: str | None = None,
+             review: bool | None = None, reason: str | None = None, hints=None, changes: Changes | None = None):
     """Open/close. `reply`/`ref` (already validated by clean_close_body) are only used when closing, and only recorded on the first close.
 
     Re-closing an already-closed pin changes nothing (§P0b-보완 D) - this prevents a second close from
@@ -4618,10 +4779,15 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
     closes it, that person is the reviewer, so it's done right away. If the body supplies review, that's
     followed instead - a remote agent closing via a tailnet address arrives with a person's identity, so it
     sends review=true. Reopening clears the review/confirm record, and if the pin had been closed, the
-    reopen reason (reason) is recorded in the thread."""
+    reopen reason (reason) is recorded in the thread.
+
+    changes (v0.3, validated by clean_close_changes) are stored on the first close with changes_at = done_at, which
+    ties them to that close (docs/adr/0005-pin-scoped-changes.md); a reopen clears both."""
     evs = []
 
     def fn(rows):
+        """The transact() step: applies the close or reopen to pin pid in rows. Returns (public pin or None, whether
+        rows changed); an already closed pin is returned unchanged."""
         r = find_pin(rows, pid)
         if r is None:
             return None, False
@@ -4636,7 +4802,7 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
             if ref:
                 r["close_ref"] = ref
             if changes:
-                r["changes"] = changes            # v0.3: already validated by clean_close_changes (docs/adr/0005)
+                r["changes"] = [c.record() for c in changes]   # v0.3 (docs/adr/0005)
                 r["changes_at"] = r["done_at"]    # ties the set to this close (a 0.2.2 re-close after a rollback would not)
             if review if review is not None else is_agent(actor):
                 r["review"] = True
@@ -5134,7 +5300,7 @@ def review_md(rows: list, sectioned: bool) -> list:
     return out
 
 
-def pins_md_text(rows: list, base: str = None) -> str:
+def pins_md_text(rows: list, base: str | None = None) -> str:
     """The summary an agent reads in one pass. Snippets are deliberately omitted -
     given just a line range, an agent reading the source directly is always cheaper and more accurate.
     Only %s is used as a format specifier - so a single malformed record never kills the whole summary.
@@ -9652,6 +9818,23 @@ ERROR_PAGE_TEXT = {
 }
 
 
+# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason or None). The one place they
+# become responses - Handler._run for requests, the revision worker for the build status it stores. The messages and
+# reasons are part of the agent contract (api.md §핀 단위 변경 보기); tests pin every body.
+SCOPE_REJECTIONS = {
+    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", None),
+    "scope_unreadable": (422, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
+    "scope_mismatch": (422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
+    "unsafe_path": (422, "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
+}
+
+
+def scope_http_error(e: ScopeRejected) -> HTTPError:
+    """The HTTP form of a pin-scoping refusal, from SCOPE_REJECTIONS. An unknown reason is a bug: KeyError, a 500."""
+    code, msg, reason = SCOPE_REJECTIONS[e.reason]
+    return HTTPError(code, msg, reason=reason) if reason else HTTPError(code, msg)
+
+
 def page_lang(headers, query: dict) -> str:
     """ko or en for a server-rendered page: ?lang=, else the first Accept-Language tag (ko* -> ko), else en - the viewer's rule."""
     v = (query.get("lang") or [""])[0]
@@ -9800,9 +9983,13 @@ class Handler(BaseHTTPRequestHandler):
                 and "text/html" in (self.headers.get("Accept") or ""))
 
     def _run(self, fn):
+        """Runs one request handler and turns its refusal into the response: HTTPError as is, ScopeRejected through
+        the SCOPE_REJECTIONS table (one table for every pin-scoping refusal), a dropped connection silently, anything
+        else as a 500 with the traceback on stderr. A browser opening / gets an HTML page instead of JSON."""
         try:
             fn()
-        except HTTPError as e:
+        except (HTTPError, ScopeRejected) as err:
+            e = err if isinstance(err, HTTPError) else scope_http_error(err)
             if self._wants_page():
                 lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
                 return self._send(e.code, error_page_html(e, lang).encode("utf-8"), "text/html; charset=utf-8")
@@ -9830,7 +10017,21 @@ class Handler(BaseHTTPRequestHandler):
         with using_doc(request_doc(q)):
             return self._get_doc(actor, path, q)
 
+    def _get_revision(self, path: str, D: Doc, q: dict) -> None:
+        """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
+        optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
+        and refusals (HTTPError, ScopeRejected) propagate to _run."""
+        commit, pin = (q.get("commit") or [""])[0], clean_pin_param((q.get("pin") or [None])[0])
+        if path == "/api/revision-diff":
+            return self._json(revision_diff(D, commit, pin))
+        if path == "/api/revision-build":
+            return self._json(revision_status(D, commit, pin))
+        return self._send(200, revision_pdf(D, commit, pin), "application/pdf", cache="private, max-age=600")
+
     def _get_doc(self, actor, path, q):
+        """GET routes that act on the request's document (?doc=, bound by using_doc in _get): the viewer page, people,
+        pins and pins.md, meta, snippets, builds and the revision routes. Returns after sending one response; refusals
+        propagate to _run as HTTPError (or ScopeRejected from the revision routes)."""
         if path == "/":
             self._record(actor)                   # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             return self._send(200, HTML.encode(), "text/html; charset=utf-8")
@@ -9855,15 +10056,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
         if path == "/api/revisions":
             return self._json(revision_history(cur_doc()))
-        if path == "/api/revision-diff":
-            return self._json(revision_diff(cur_doc(), (q.get("commit") or [""])[0], clean_pin_param((q.get("pin") or [None])[0])))
+        if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
+            return self._get_revision(path, cur_doc(), q)
         if path == "/api/outline-labels":
             return self._json(outline_labels(cur_doc()))
-        if path == "/api/revision-build":
-            return self._json(revision_status(cur_doc(), (q.get("commit") or [""])[0], clean_pin_param((q.get("pin") or [None])[0])))
-        if path == "/api/revision-pdf":
-            return self._send(200, revision_pdf(cur_doc(), (q.get("commit") or [""])[0], clean_pin_param((q.get("pin") or [None])[0])),
-                              "application/pdf", cache="private, max-age=600")
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(diet_log(build_state_snapshot(), full))
@@ -9964,6 +10160,9 @@ class Handler(BaseHTTPRequestHandler):
         return self._post_doc(actor, path, u, d)
 
     def _post_doc(self, actor, path, u, d):
+        """POST routes that act on the request's document: pin changes (close takes the optional v0.3 `changes`,
+        parsed against the manuscript folder), pick, new pins, clear, the revision build and rebuilds. d is the parsed
+        JSON body; refusals propagate to _run."""
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
             pid, act = int(m.group(1)), m.group(2)

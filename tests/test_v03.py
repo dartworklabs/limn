@@ -794,7 +794,7 @@ class ScopedPdf(ScopedRepo):
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
         ps.set_done(opener, True, dict(ps.LOCAL_ACTOR), ref=both[:8],
-                    changes=[{"file": str(self.main.resolve()), "lo": 7, "hi": 7}])
+                    changes=(ps.CloseChange(str(self.main.resolve()), 7, 7),))
         spec = ps.revision_spec(ps.cur_doc(), both, opener)
         self.assertEqual(len(spec.scope), 1)
         dest = self.repo / "job-half"
@@ -839,7 +839,7 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(ps.LOCAL_ACTOR)
-        ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=[{"file": str(self.main.resolve()), "lo": 4, "hi": 5}])
+        ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(ps.CloseChange(str(self.main.resolve()), 4, 5),))
         ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
         ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])
         self.p4 = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A)
