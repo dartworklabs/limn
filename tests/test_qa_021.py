@@ -430,11 +430,10 @@ class UpdateSource(unittest.TestCase):
     def test_default_is_https_everywhere(self):
         sh = (SRC / "limn" / "instances.sh").read_text(encoding="utf-8")
         self.assertIn('REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"', sh)
-        for doc in ("instances.md", "instances.ko.md"):
-            text = (ROOT / "docs" / doc).read_text(encoding="utf-8")
-            row = next(l for l in text.splitlines() if l.startswith("| `LIMN_REPO`"))
-            self.assertIn("git+https://github.com/dartworklabs/limn", row, doc)
-            self.assertIn("0.1.0", text, doc)                               # the note on the v0.1.0 ssh default
+        text = (ROOT / "docs" / "handbook" / "instances.md").read_text(encoding="utf-8")
+        row = next(l for l in text.splitlines() if l.startswith("| `LIMN_REPO`"))
+        self.assertIn("git+https://github.com/dartworklabs/limn", row)
+        self.assertIn("0.1.0의 기본값은 `git+ssh://", text)                  # the note on the v0.1.0 ssh default
 
 
 # ---------------------------------------------------------------- browser: viewer-only UI and the question nudge

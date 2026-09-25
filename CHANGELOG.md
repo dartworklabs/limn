@@ -11,6 +11,7 @@ Fixes from the end-to-end QA of 0.2.0. Two changes affect the agent contract; bo
   `Authorization: Bearer <token>`**; agents on a machine signed in to the tailnet as a person keep working (they carry
   that person's identity and still send `"review": true` when closing), and loopback agents are unchanged.
   `--tailnet-agent` (`TAILNET_AGENT=1`) restores the 0.2.0 behaviour on purpose (logged as deprecated).
+  Decision record: [ADR-0003](docs/adr/0003-tailnet-headerless-and-owner-clear.md).
 - **`POST /api/clear` is owner-only and needs a confirmation (contract change).** Editors, viewers and every agent get
   `403`; the owner must send `{"confirm": "clear all pins"}` (else `400`). The `.jsonl.bak` archive is kept, the
   response adds `cleared` and `archive`, and a `cleared` event records who did it. The viewer never used it.
