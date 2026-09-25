@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import fcntl
 import hashlib
 import hmac
@@ -5085,7 +5086,11 @@ def role_of(login: str) -> str:
 
 
 def valid_login(login) -> bool:
-    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable() and login == login.strip()
+    """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
+    user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
+    for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
+    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable()
+            and not any(c.isspace() for c in login)
             and login != LOCAL_ACTOR["login"] and not login.startswith(AGENT_LOGIN_PREFIX))
 
 
@@ -5116,7 +5121,8 @@ def _people_update(state: Path, fn):
 
 def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str = None) -> dict:
     if not valid_login(login):
-        raise ValueError("invalid login %r (non-empty, at most %d characters, not 'local' or 'agent:...')" % (login, LOGIN_MAX))
+        raise ValueError("invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
+                         % (login, LOGIN_MAX))
     if role not in ROLES:
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     name = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
@@ -9283,9 +9289,34 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def port_in_use_message(bind: str, port: int) -> str:
+    return ("limn serve: port %d on %s is already in use - stop the other server, or pick another --port"
+            % (port, bind))
+
+
+def probe_port(bind: str, port: int) -> None:
+    """Fails fast (one line, exit 1) when --port is taken - before a build that can take minutes, and instead of the
+    Errno 98 traceback the server constructor would print (observed in the v0.2.0 QA)."""
+    fam = socket.AF_INET6 if ":" in bind else socket.AF_INET
+    s = socket.socket(fam, socket.SOCK_STREAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # the same option the server sets (allow_reuse_address)
+        s.bind((bind, port))
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:
+            print(port_in_use_message(bind, port), file=sys.stderr)
+            sys.exit(1)
+        print("limn serve: cannot listen on %s port %d: %s" % (bind, port, e.strerror or e), file=sys.stderr)
+        sys.exit(1)
+    finally:
+        s.close()
+
+
 def main() -> None:
     a = build_arg_parser().parse_args()
     configure_access(a)
+    if a.port:
+        probe_port(C.bind, a.port)
 
     C.src = Path(a.manuscript).expanduser().resolve()
     if not C.src.is_dir():
@@ -9375,7 +9406,15 @@ def main() -> None:
     else:
         print("warning     pdf.js is missing (%s) - the viewer falls back to PNG" % C.pdfjs_dir)
     sys.stdout.flush()
-    (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler).serve_forever()
+    try:
+        httpd = (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
+    except OSError as e:                              # taken during the build (the probe above passed)
+        if e.errno == errno.EADDRINUSE:
+            print(port_in_use_message(C.bind, C.port), file=sys.stderr)
+        else:
+            print("limn serve: cannot listen on %s port %d: %s" % (C.bind, C.port, e.strerror or e), file=sys.stderr)
+        sys.exit(1)
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":

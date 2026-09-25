@@ -201,7 +201,7 @@ def cmd_member(argv: list) -> int:
             print("%-32s %-7s %-24s %s" % (x["login"], role + ("" if "role" in x else "*"), x.get("name") or "",
                                            x.get("last_seen") or "-"))
         if any("role" not in x for x in rows):
-            print("* no role recorded — editor by default (recorded on first visit)")
+            print("* no role recorded — editor by default (set one with `limn member role <instance> <login> <role>`)")
         return 0
     if sub in ("remove", "rm"):
         state, pos, _ = split_target("limn member remove", rest, 1)
