@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Limn — 원고 PDF에서 영역을 드래그하면 그 자리의 .tex 줄 번호를 되찾는 로컬 뷰어.
+"""Limn — a local viewer that maps a dragged region of a manuscript PDF back to .tex line numbers.
 
-에이전트에게 스크린샷 대신 "파일:줄범위"를 넘기는 것이 목적이다. 이미지 한 장이
-1~2천 토큰인 데 비해 줄 범위는 수십 토큰이고, 무엇보다 에이전트가 그 줄을 바로
-읽고 고칠 수 있다 — 스크린샷은 위치를 다시 찾는 왕복을 강제한다.
+The goal is to hand an agent a "file:line-range" instead of a screenshot. A single
+image runs 1-2 thousand tokens, while a line range is a few dozen, and more
+importantly the agent can read and fix the line directly - a screenshot forces a
+round trip just to relocate it.
 
-역변환은 두 경로를 **같은 척도로 겨루게** 한다. SyncTeX 좌표 조회가 1차이고,
-선택 영역에 찍힌 글자를 원문에서 되찾는 것이 2차다. 어느 한쪽을 조건부 폴백으로
-두면 SyncTeX 가 조용히 틀렸을 때 걸러낼 방법이 없다 — minipage·tabular 안
-(예: Nomenclature)에서 실제로 그런 일이 일어난다.
+The reverse mapping pits two paths against each other **on equal footing**. A SyncTeX
+coordinate lookup is the primary path, and recovering the characters inside the
+selected region from the source text is the secondary one. Treating either as a
+conditional fallback leaves no way to catch SyncTeX being silently wrong - this
+actually happens inside minipage/tabular (e.g. Nomenclature).
 
-바인딩은 127.0.0.1 고정이다. 외부 노출은 tailscale serve 가 담당하며, 그것을
-바꾸는 플래그는 의도적으로 두지 않았다. tailscale serve 는 요청마다
-Tailscale-User-Login/Name/Profile-Pic 헤더를 붙이므로, 그 헤더로 누가 핀을
-남겼는지 기록한다(막지는 않는다 — 테일넷 구성원은 신뢰하는 동료다).
+The bind address is fixed at 127.0.0.1. External exposure is handled by tailscale
+serve, and a flag to change that is deliberately omitted. Because tailscale serve
+attaches Tailscale-User-Login/Name/Profile-Pic headers to every request, those
+headers are used to record who left a pin (not to gate access - tailnet members
+are trusted colleagues).
 
-Python 3.10 표준 라이브러리만 쓴다.
+Python 3.10 standard library only.
 """
 from __future__ import annotations
 
@@ -50,8 +53,9 @@ APP_NAME = "limn"
 
 
 def app_version() -> str:
-    """패키지 버전(src/limn/__init__.py 의 __version__). 모듈로 불러도(python -m limn.server) 파일 경로로
-    직접 실행해도(python .../limn/server.py) 같은 값을 내도록 옆 파일을 읽는다."""
+    """Package version (__version__ in src/limn/__init__.py). Reads the neighboring file so it
+    returns the same value whether imported as a module (python -m limn.server) or run
+    directly by file path (python .../limn/server.py)."""
     try:
         m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']',
                       Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"), re.M)
@@ -60,6 +64,22 @@ def app_version() -> str:
     return m.group(1) if m else "0+unknown"
 
 
+
+def load_ui_messages() -> dict:
+    """The viewer's English message table (ui_en.json next to this file): Korean UI string -> English.
+
+    The Korean strings in the HTML template stay the source; in English mode the viewer swaps every
+    UI string it finds in this table (text, tooltips, aria labels, toasts). pins.md and the API are
+    not translated — they are a language-stable contract for agents."""
+    try:
+        d = json.loads(Path(__file__).with_name("ui_en.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in d.items() if isinstance(k, str) and isinstance(v, str) and k and v}
+
+
+UI_EN = load_ui_messages()
+
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 FLOAT_KINDS = ("figure", "table", "algorithm")
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
@@ -67,13 +87,14 @@ PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 
-# 뷰어가 PDF 를 벡터로 그리는 PDF.js(vendor/pdfjs/README.md). 버전은 브라우저 캐시를 가르는 ?v= 값이기도 하다.
+# PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
 VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
 VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 
-# 뷰어 아이콘 — Lucide(ISC, vendor/lucide/README.md). 쓰는 아이콘의 <svg> 안 요소만 npm 의 lucide-static 원본
-# 그대로 옮겼다(공백만 줄임). 이모지·기본 문자 아이콘(⏳ ▾ ☾ ✎ 등)은 기기·글꼴마다 모양이 달라 쓰지 않는다.
+# Viewer icons - Lucide (ISC, vendor/lucide/README.md). Only the <svg> inner elements of the icons in use are
+# copied verbatim from the npm lucide-static source (only whitespace trimmed). Emoji/default character icons
+# (e.g. hourglass, chevron, moon, pencil) are avoided since they render differently across devices and fonts.
 LUCIDE_VERSION = "1.47.0"
 LUCIDE = {
     "bell": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 '
@@ -131,38 +152,40 @@ ICON_TOKEN_RE = re.compile(r"\{\{ic:([a-z0-9-]+)\}\}")
 
 
 def icon_svg(name: str) -> str:
-    """Lucide 아이콘 하나를 인라인 <svg> 로. 원본 속성 그대로이고 크기는 CSS(.ic)가 정한다.
-    뷰어 JS 의 ic() 와 같은 모양을 낸다(회귀 테스트가 대조)."""
+    """One Lucide icon as an inline <svg>. Attributes are kept as-is; size is set by CSS (.ic).
+    Produces the same shape as the viewer's JS ic() (the regression tests compare them)."""
     return ('<svg class="ic ic-%s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%s</svg>'
             % (name, LUCIDE[name]))
 
 MAX_BODY = 1 << 20
 NOTE_MAX = 4000
-CLOSE_REPLY_MAX = 500              # 닫을 때 남기는 '무엇을 고쳤는지'(§P0b-보완 C)
-CLOSE_REF_MAX = 80                 # 같은 값(PR 번호 등)이면 UI 가 닫힌 핀을 묶어 보일 수 있는 참조
-CLAIM_TTL_DEFAULT = 120            # 분 — claim 을 걸 때 ttl_min·eta_min 을 둘 다 안 주면 쓰는 잠금 시간(§P0c-C)
+CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (§P0b-보완 C)
+CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
+CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (§P0c-C)
 CLAIM_TTL_MIN = 1
-CLAIM_TTL_MAX = 120                # 잠금 자동 해제는 안전장치다 — 480 이면 멈춘 에이전트가 한나절 핀을 쥐었다(실측 23건)
-CLAIM_ETA_MIN = 1                  # 분 — 처리 예상 시간(eta_min). 화면은 5분 단위로 올려 보인다
+CLAIM_TTL_MAX = 120                # the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
+CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
 CLAIM_ETA_MAX = 240
-CLAIM_TTL_FLOOR = 30               # eta_min 만 주면 잠금은 min(상한, max(이 값, eta×2)) — 짧은 견적도 30분은 쥔다
-# 핀 종류와 스레드(docs/api.md §스레드). 핀의 24%(A-DEMO 42건 중 10건)가 고칠 곳이 아니라 질문이었는데 답을 남길 곳이
-# 닫기 사유(close_reply) 한 칸뿐이라 되물을 수 없었다. kind_req 는 옛 kind(범위 종류)와 이름이 겹치지 않게 따로 둔다.
-KIND_REQS = ("fix", "question")    # 없으면 fix — 옛 핀은 모두 수정 요청이다
-THREAD_TEXT_MAX = 1000             # 답글 한 건 — 메모(NOTE_MAX)처럼 문자열·길이만 보고 화면에서 esc() 로 그린다
-THREAD_MAX = 200                   # 핀 하나의 스레드 상한(답글). 상태 전환 기록(닫기·다시 열기·확인)은 상한과 무관하게 붙는다
+CLAIM_TTL_FLOOR = 30               # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
+# Pin kind and thread (docs/api.md §Threads). 24% of pins (10 of 42 in A-DEMO) were questions rather than
+# something to fix, but the only place to leave an answer was the single close_reply field on closing, so
+# there was no way to ask back. kind_req is kept separate from the legacy kind (scope type) to avoid a name clash.
+KIND_REQS = ("fix", "question")    # defaults to fix if absent - legacy pins are all fix requests
+THREAD_TEXT_MAX = 1000             # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
+THREAD_MAX = 200                   # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
 THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
-# 담당(docs/api.md §담당). 누가 이 핀을 처리하나 — "agent" 또는 사람 로그인. 없으면 옛 핀이라 addressed_to() 의 추론(질문 핀의
-# @태그)을 그대로 쓴다. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했다(A-DEMO #43: 수정 요청 핀의 '@서준 확인 부탁'이 사람에게 맡긴 것).
+# Assignee (docs/api.md §Assignee). Who handles this pin - either "agent" or a person's login. If absent, it's a
+# legacy pin, so addressed_to()'s inference (the @-tag on a question pin) is used as-is. Guessing this from the
+# body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
 ASSIGNEE_AGENT = "agent"
-# @태그(docs/api.md §@태그·사람·이벤트). 뷰어 안에서만 부른다 — 바깥 알림은 보내지 않고 events.jsonl 에 적어 둔다.
-MENTION_MAX = 10                   # 글 하나의 mentions 힌트 개수 상한
-PEOPLE_TOUCH_S = 600               # people.json 의 last_seen 을 이 간격보다 자주 다시 쓰지 않는다(폴링마다 쓰지 않게)
-EVENTS_KEEP = 5000                 # events.jsonl 에 남기는 최근 이벤트 수. seq 는 계속 오른다(소비자는 seq 로 따라온다)
+# @-tags (docs/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
+MENTION_MAX = 10                   # cap on mention hints per post
+PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
 EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned")
-GIT_PULL_TIMEOUT = 30              # 초 — --git-pull 의 fetch 한 번(§P0c-E)
-REVISION_DIFF_MAX = 256 * 1024     # 응답·메모리 상한. 큰 변경은 저장소에서 검토한다.
+GIT_PULL_TIMEOUT = 30              # seconds - one fetch for --git-pull (§P0c-E)
+REVISION_DIFF_MAX = 256 * 1024     # response/memory cap. Review large changes in the repo instead.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
@@ -170,37 +193,40 @@ ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "v
 LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "scope", "quote")
 LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
-# 빌드 사본(rsync)이 빼는 디렉토리. 원고 지문·src_mtime 도 같은 목록을 쓴다 — 빌드에 안 들어가는
-# latexdiff 산출물이 바뀌었다고 '원고 수정됨'·위치 추정이 켜지면 안 된다(실측: diff/ 에 PDF 17개).
+# Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
+# list - a latexdiff artifact changing must not turn on "manuscript modified" / location re-estimation
+# when it isn't part of the build (observed: 17 PDFs under diff/).
 BUILD_EXCLUDE_DIRS = ("diff", "diff_temporary")
-BUILDS_KEEP = 200                  # builds.json 에 남길 성공 빌드 수(한 건 200바이트 안팎)
+BUILDS_KEEP = 200                  # number of successful builds kept in builds.json (roughly 200 bytes each)
 
-# 여러 논문 뷰어를 동시에 열어도 탭을 헷갈리지 않게 다는 이름표(§동시 인스턴스). 길이 제한은 도구 줄·탭
-# 제목이 한 논문 이름으로 끝없이 길어지지 않게 하는 안전판이다.
+# Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
+# The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
 LABEL_MAX = 40
 ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-# 다크·라이트 테마 배경(--bg #14161a / #e9ebef) 모두에서, 그리고 흰 글자(칩 텍스트) 아래에서도 대비가
-# 충분한 채도 높은 "700번대" 팔레트. 이름표 문자열의 해시로 하나를 고른다 — 같은 이름표는 항상 같은 색.
+# A high-saturation "700-level" palette with enough contrast on both the dark and light theme backgrounds
+# (--bg #14161a / #e9ebef) and under white text (chip text). One is chosen by hashing the label string -
+# the same label always gets the same color.
 ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9",
                    "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
 
-# 핀 파일을 만지는 모든 경로가 이 잠금 하나를 거친다. 잠금 없이 읽고-고치고-쓰면
-# 동시에 저장한 핀 30건 중 2건만 남는다(실측) — 나머지는 서로의 쓰기에 덮인다.
+# Every path that touches the pin file goes through this single lock. Without it, a read-modify-write
+# race loses most concurrent writes - of 30 pins saved at once, only 2 survived (observed) - the rest
+# were clobbered by each other's writes.
 PIN_LOCK = threading.RLock()
-# latexmk 두 개가 같은 build/ 에서 돌면 서로의 .aux 를 밟는다.
+# If two latexmk runs share the same build/, they trample each other's .aux.
 BUILD_LOCK = threading.Lock()
-# BUILD_STATE 딕셔너리(진행 칩·오류 패널용)를 보호한다. BUILD_LOCK(한 번에 하나만 빌드)과는
-# 별개다 — 이 잠금은 그 상태를 "읽는" GET /api/build 요청과 경합하지 않게 하는 용도다.
+# Guards the BUILD_STATE dict (progress chip / error panel). Separate from BUILD_LOCK (only one build at
+# a time) - this lock exists just so that state doesn't race with the GET /api/build request that "reads" it.
 BUILD_STATE_LOCK = threading.Lock()
 BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
                "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
                "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
-# builds.json(빌드 이력)의 읽기-고치기-쓰기를 묶는다.
+# Bundles the read-modify-write of builds.json (build history).
 BUILDS_LOCK = threading.Lock()
 
 
 class Cfg:
-    """실행 인자를 담는다. 프로젝트 고유값은 전부 여기를 거친다."""
+    """Holds the run arguments. Every project-specific value passes through here."""
     src: Path
     main: Path
     state: Path
@@ -213,9 +239,9 @@ class Cfg:
     origin_check: bool = True
     git_pull: bool = False
     pdfjs_dir: Path = None          # None = default_pdfjs_dir()
-    label: str = "원고"             # 여러 인스턴스를 구분하는 이름표(§동시 인스턴스). main() 이 채운다
-    accent: str = ACCENT_PALETTE[0]  # 이름표의 강조색(#rrggbb)
-    repo: str = None                # --manuscript 의 git origin URL. 없으면 None
+    label: str = "원고"             # label distinguishing multiple instances (§Running multiple manuscript instances at once). Filled in by main()
+    accent: str = ACCENT_PALETTE[0]  # the label's accent color (#rrggbb)
+    repo: str = None                # git origin URL of --manuscript. None if absent
 
     @property
     def pins_jsonl(self) -> Path:
@@ -257,12 +283,14 @@ class Cfg:
 C = Cfg()
 
 
-# ---------------------------------------------------------------- 문서(§여러 문서, docs/design.md §여러 문서)
+# ---------------------------------------------------------------- Documents (§Multiple documents, docs/design.md §Multiple documents)
 #
-# 논문 저장소 하나에는 본문·답변서·커버레터처럼 문서가 여럿 있다. 뷰어 하나(주소 하나)가 그 문서들을 전환한다.
-# 핀 저장소(pins.jsonl·pins.seq)는 하나다 — 번호가 문서를 가로질러 유일해야 '#12 처리해줘'가 모호하지 않다.
-# 빌드·쪽 이미지·PDF 사본·빌드 이력은 문서별 폴더(Doc.dir)에 둔다. 요청 하나는 문서 하나를 다루고, 그 문서를
-# 스레드 지역 값(using_doc)으로 건다 — 빌드·쪽 함수들이 인자 없이 '지금 문서'를 보게 해 기존 경로를 그대로 쓴다.
+# A single paper repo has several documents - the body, the review response, the cover letter. One viewer
+# (one address) switches between them. The pin store (pins.jsonl/pins.seq) is singular - pin numbers must
+# be unique across documents so "handle #12" is unambiguous. Build/page images/PDF copy/build history live
+# under a per-document folder (Doc.dir). A single request handles a single document, and it's hung off a
+# thread-local value (using_doc) - so build/page functions can look at "the current document" without
+# taking a parameter, keeping the existing code paths as-is.
 
 DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
 DOC_NAME_MAX = 40
@@ -271,12 +299,14 @@ DEFAULT_DOC_KEY = "main"
 
 
 class Doc:
-    """문서 하나. kind 는 'tex'(LaTeX, SyncTeX 로 줄을 되짚는다) 또는 'pdf'(보기 전용 — 쪽·영역만).
+    """One document. kind is 'tex' (LaTeX, lines traced back via SyncTeX) or 'pdf' (view-only - page/region only).
 
-    legacy=True 는 --doc 없이 띄운 단일 문서다. 원고 경로·상태 폴더를 C 에서 그때그때 읽는다(C.src·C.main·
-    C.state·C.build) — 옛 상태 폴더 배치를 그대로 쓰고, C 를 바꿔 끼우는 회귀 테스트도 그대로 돈다.
-    root=True 면 빌드 산출물을 상태 폴더 루트에 둔다(단일 문서와 같은 자리). --doc 에서는 키가 main 인
-    LaTeX 문서만 그렇다 — 단일 문서 인스턴스에 문서를 더해도 본문의 빌드 이력(위치 추정의 원천)이 이어진다."""
+    legacy=True means a single document started without --doc. The manuscript path/state folder are read
+    from C on demand (C.src/C.main/C.state/C.build) - this keeps the legacy state-folder layout working, and
+    the regression tests that swap out C keep working too. root=True puts build artifacts at the state
+    folder root (the same place as for a single document). Under --doc, only the LaTeX document keyed
+    main gets this - so adding documents to a single-document instance keeps the body's build history
+    (the source of location estimation) continuous."""
 
     def __init__(self, key: str, name: str, kind: str = "tex", src: Path = None, main: Path = None,
                  legacy: bool = False, root: bool = None, lock=None, bstate=None, bstate_lock=None,
@@ -292,17 +322,17 @@ class Doc:
 
     @property
     def src(self) -> Path:
-        """빌드 루트 — 빌드 사본으로 복사하는 범위. 보기 전용이면 PDF 가 든 폴더."""
+        """Build root - the scope copied into the build copy. For view-only, the folder holding the PDF."""
         return C.src if self.legacy else self._src
 
     @property
     def main(self) -> Path:
-        """LaTeX 면 메인 .tex, 보기 전용이면 그 PDF 파일."""
+        """The main .tex for LaTeX, or the PDF file for view-only."""
         return C.main if self.legacy else self._main
 
     @property
     def dir(self) -> Path:
-        """쪽 이미지·빌드 이력·built_at 등 문서별 상태 폴더."""
+        """Per-document state folder - page images, build history, built_at, etc."""
         return C.state if self.root else C.state / "docs" / self.key
 
     @property
@@ -318,13 +348,14 @@ class Doc:
 
     @property
     def out(self) -> Path:
-        """latexmk 를 돌리고 PDF 가 나오는 폴더. --doc 문서는 메인 .tex 가 있는 폴더에서 돈다(평소 그 폴더에서
-        latexmk 하던 그대로 — '::' 앞의 빌드 루트는 복사 범위일 뿐이다). 단일 문서는 예전처럼 빌드 루트다."""
+        """The folder where latexmk runs and the PDF comes out. A --doc document runs in the folder holding
+        its main .tex (the same as running latexmk there normally would - the build root before '::' is only
+        the copy scope). A single document is the build root, as before."""
         return self.build if self.legacy else self.build / self.main_rel.parent
 
     @property
     def pdf_name(self) -> str:
-        """쪽 디렉토리 안 PDF 사본 이름."""
+        """Name of the PDF copy inside the page directory."""
         return self.main.stem + ".pdf"
 
     @property
@@ -332,7 +363,7 @@ class Doc:
         return self.kind == "pdf"
 
     def rel_path(self) -> str:
-        """--manuscript 기준 상대경로(표시·pins.md 머리용). 메인 파일을 가리킨다."""
+        """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""
         try:
             return str(self.main.resolve().relative_to(C.src.resolve()))
         except (ValueError, OSError, RuntimeError):
@@ -346,7 +377,7 @@ def _fresh_build_state() -> dict:
 
 
 class HTTPError(Exception):
-    """핸들러가 그대로 JSON 오류 응답으로 바꾼다."""
+    """The handler turns this directly into a JSON error response."""
 
     def __init__(self, code: int, msg: str, **extra):
         super().__init__(msg)
@@ -359,7 +390,7 @@ def now_str() -> str:
 
 
 def atomic_write(path: Path, text: str) -> None:
-    """같은 디렉토리의 임시 파일에 쓰고 os.replace 한다 — 읽는 쪽은 옛 파일 아니면 새 파일만 본다."""
+    """Write to a temp file in the same directory, then os.replace - readers only ever see the old file or the new one."""
     tmp = path.with_name(".%s.tmp%d.%d" % (path.name, os.getpid(), threading.get_ident()))
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)
@@ -368,37 +399,37 @@ def atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-# ---------------------------------------------------------------- 기동 준비
+# ---------------------------------------------------------------- Startup preparation
 
 def detect_main(src: Path) -> Path:
-    """최상위 .tex 를 찾는다. 모호하면 추측하지 않고 후보를 보여주고 멈춘다."""
+    """Find the top-level .tex. If it's ambiguous, don't guess - show the candidates and stop."""
     cands = [p for p in sorted(src.glob("*.tex"))
              if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]]
     if len(cands) == 1:
         return cands[0]
-    how = "찾지 못했습니다" if not cands else "여러 개 찾았습니다"
-    listing = "\n".join("  - %s" % p.name for p in cands) or "  (없음)"
-    sys.exit("%s 에서 최상위 .tex 를 %s. --main 으로 지정하세요.\n%s" % (src, how, listing))
+    how = "found none" if not cands else "found several"
+    listing = "\n".join("  - %s" % p.name for p in cands) or "  (none)"
+    sys.exit("%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing))
 
 
 def free_port(start: int = 18300, end: int = 18400) -> int:
-    """비어 있는 포트를 찾는다. 남의 포트를 빼앗지 않는 것이 요점이다."""
+    """Find a free port. The point is not to steal someone else's port."""
     for p in range(start, end):
         with socket.socket() as s:
             if s.connect_ex(("127.0.0.1", p)) != 0:
                 return p
-    sys.exit("%d-%d 구간에 빈 포트가 없습니다. --port 로 지정하세요." % (start, end))
+    sys.exit("No free port in the %d-%d range. Specify one with --port." % (start, end))
 
 
 def state_slug(src: Path) -> str:
-    """원고마다 상태를 분리한다 — 원고 A·B 를 동시에 열어도 핀이 섞이지 않게."""
+    """Separates state per manuscript - so opening manuscripts A and B at once doesn't mix their pins."""
     return "%s-%s" % (src.name, hashlib.sha1(str(src).encode()).hexdigest()[:8])
 
 
-# ---------------------------------------------------------------- 인스턴스 이름표(§동시 인스턴스)
+# ---------------------------------------------------------------- Instance label (§Running multiple manuscript instances at once)
 
 def git_remote_url(src: Path):
-    """--manuscript 의 git origin URL. git 저장소가 아니거나 origin 이 없으면 None — 실패해도 기동을 막지 않는다."""
+    """git origin URL of --manuscript. None if it isn't a git repo or has no origin - a failure never blocks startup."""
     if not shutil.which("git"):
         return None
     try:
@@ -411,10 +442,10 @@ def git_remote_url(src: Path):
 
 
 def repo_name_from_url(url: str) -> str:
-    """git remote URL 마지막 조각에서 저장소 이름만 뽑는다(.git 접미사·트레일링 슬래시 제거).
+    """Pulls just the repo name out of the last segment of a git remote URL (strips the .git suffix / trailing slash).
 
-    scp 스타일(user@host:name, '/' 없이 ':' 로만 경로를 구분)도 받는다 — '/' 가 있으면 그걸 기준으로
-    자르고, 없을 때만 ':' 기준으로 자른다(호스트명의 ':' 를 이름으로 착각하지 않게)."""
+    Also accepts scp-style URLs (user@host:name, path separated by ':' only, no '/') - if a '/' is present,
+    split on that; only fall back to ':' when it isn't (so a ':' in the hostname isn't mistaken for the name)."""
     tail = url.rstrip("/")
     tail = tail.rsplit("/", 1)[-1] if "/" in tail else tail.rsplit(":", 1)[-1]
     if tail.endswith(".git"):
@@ -423,7 +454,7 @@ def repo_name_from_url(url: str) -> str:
 
 
 def default_label(src: Path, repo_url) -> str:
-    """--label 이 없을 때 쓸 기본 이름표: git 저장소 이름, 없으면 원고 폴더 이름."""
+    """Default label used when --label is absent: the git repo name, or the manuscript folder name if none."""
     if repo_url:
         name = repo_name_from_url(repo_url)
         if name:
@@ -432,18 +463,18 @@ def default_label(src: Path, repo_url) -> str:
 
 
 def clean_label(v) -> str:
-    """이름표를 검증한다. 줄바꿈·과도한 길이는 도구 줄·탭 제목을 깨뜨리므로 여기서 막는다."""
+    """Validate a label. Newlines and excessive length are blocked here since they'd break the tool bar / tab title."""
     v = "" if v is None else str(v).strip()
-    v = " ".join(v.split())         # 줄바꿈·탭·중복 공백을 한 칸으로
+    v = " ".join(v.split())         # collapse newlines/tabs/repeated whitespace to a single space
     if not v:
         v = "원고"
     if len(v) > LABEL_MAX:
-        sys.exit("--label 은 %d자 이하여야 합니다: %r" % (LABEL_MAX, v))
+        sys.exit("--label must be %d characters or fewer: %r" % (LABEL_MAX, v))
     return v
 
 
 def pick_accent(label: str) -> str:
-    """이름표 문자열의 해시로 팔레트에서 하나를 고른다 — 같은 이름표는 항상 같은 색."""
+    """Pick one from the palette by hashing the label string - the same label always gets the same color."""
     idx = int(hashlib.sha1(label.encode("utf-8")).hexdigest(), 16) % len(ACCENT_PALETTE)
     return ACCENT_PALETTE[idx]
 
@@ -453,7 +484,7 @@ def valid_accent(v) -> bool:
 
 
 def favicon_href(label: str, accent: str) -> str:
-    """이름표 첫 글자를 강조색 원 안에 넣은 SVG data URL. data: 안의 특수문자는 quote 로 인코딩한다."""
+    """An SVG data URL with the label's first character inside an accent-colored circle. Special characters inside data: are quote-encoded."""
     ch = (label.strip()[:1] or "?").upper()
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
            '<circle cx="16" cy="16" r="16" fill="%s"/>'
@@ -463,10 +494,10 @@ def favicon_href(label: str, accent: str) -> str:
 
 
 def build_html(label: str, accent: str) -> str:
-    """뷰어 HTML 템플릿의 __LABEL__·__ACCENT__·__FAVICON_HREF__ 자리표시자를 채운다.
+    """Fills in the __LABEL__/__ACCENT__/__FAVICON_HREF__ placeholders of the viewer HTML template.
 
-    실행 인자(라벨·강조색)에 좌우되므로 argparse 뒤(main())에서 호출한다 — 모듈 로드 시점에 정해지는
-    __PDFJS_VERSION__ 과 달리 이건 C 가 채워진 다음에만 값이 있다."""
+    Depends on run arguments (label/accent), so it's called after argparse (in main()) - unlike
+    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in."""
     out = HTML.replace("__LABEL__", html.escape(label, quote=True))
     out = out.replace("__LABEL_INITIAL__", html.escape((label.strip()[:1] or "?").upper(), quote=True))
     out = out.replace("__ACCENT__", accent)
@@ -474,13 +505,13 @@ def build_html(label: str, accent: str) -> str:
     return out
 
 
-# ---------------------------------------------------------------- 쪽 이미지 버전 디렉토리
+# ---------------------------------------------------------------- Page-image version directories
 
 def cur_pages() -> Path:
-    """지금 보여 줄 쪽 이미지 디렉토리. pages.cur 포인터가 가리킨다.
+    """The page-image directory to show right now. Pointed to by the pages.cur pointer.
 
-    포인터가 없으면 옛 레이아웃(<state>/pages/)을 그대로 쓴다 — 재빌드 없이 이관된다.
-    문서마다 따로다(cur_doc().dir — 단일 문서는 상태 폴더 루트)."""
+    If the pointer is absent, the legacy layout (<state>/pages/) is used as-is - migrated without a rebuild.
+    Per-document (cur_doc().dir - the state folder root for a single document)."""
     base = cur_doc().dir
     try:
         name = (base / "pages.cur").read_text(encoding="utf-8").strip()
@@ -496,11 +527,12 @@ def valid_build_name(v) -> bool:
 
 
 def pages_dir_for(name) -> Path:
-    """브라우저가 지금 보고 있는 빌드의 쪽 디렉토리. 이름이 틀렸거나 이미 지워졌으면 지금 것을 쓴다.
+    """The page directory of the build the browser is currently looking at. Falls back to the current one if the name is wrong or already deleted.
 
-    재빌드가 끝난 뒤 뷰어가 새 화면으로 바꾸기 전(폴링 틈새)의 드래그는 옛 레이아웃 좌표다 —
-    그 좌표를 새 PDF 에 대 보면 다른 줄을 짚는다. 직전 빌드 디렉토리는 한 번 더 남겨 두므로
-    (_build 가 현재+직전을 유지) 대개 화면과 같은 PDF 로 되짚을 수 있다."""
+    A drag made in the gap between a rebuild finishing and the viewer switching to the new view (a polling
+    gap) uses coordinates from the old layout - mapping those onto the new PDF would point at a different
+    line. Because the previous build directory is kept one generation back (_build keeps current + previous),
+    it can usually still be traced back using the same PDF the screen was showing."""
     base = cur_doc().dir
     if valid_build_name(name) and (base / name).is_dir():
         return base / name
@@ -508,14 +540,15 @@ def pages_dir_for(name) -> Path:
 
 
 def default_pdfjs_dir() -> Path:
-    """패키지에 함께 든 PDF.js(limn/vendor/pdfjs)."""
+    """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
     return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
 def vendor_file(name: str):
-    """GET /vendor/pdfjs/<name> 이 줄 파일. 이름 한 칸(.mjs)만 받고 디렉토리 밖은 절대 가리키지 않는다.
+    """The file GET /vendor/pdfjs/<name> serves. Accepts only a single (.mjs) name component and never points outside the directory.
 
-    이름 규칙이 '/'·'..'·'%' 를 모두 거르지만, 심볼릭 링크 등으로 밖을 가리키는 경우까지 resolve 로 한 번 더 막는다."""
+    The name pattern already filters out '/', '..', and '%', but resolve() adds a second check against
+    escaping via symlinks and the like."""
     if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
         return None
     base = C.pdfjs_dir or default_pdfjs_dir()
@@ -530,10 +563,11 @@ def vendor_file(name: str):
 
 
 def build_pdf(name) -> Path:
-    """GET /pdf?build=<name> 이 줄 PDF — 그 빌드의 쪽 이미지와 짝인 사본(pages-<build>/<main>.pdf)만 준다.
+    """The PDF GET /pdf?build=<name> serves - only the copy that matches that build's page images (pages-<build>/<main>.pdf).
 
-    cur_pdf 와 달리 build/ 로 물러서지 않는다. build/ 의 것은 재빌드가 제자리에서 덮어써 화면의 쪽 이미지와
-    어긋날 수 있다 — 뷰어가 그 위에서 좌표를 재면 PNG 와 다른 자리를 짚는다. 없으면 None."""
+    Unlike cur_pdf, this never falls back to build/. The one in build/ can be overwritten in place by a
+    rebuild and drift out of sync with the on-screen page images - measuring coordinates against it would
+    point at a different spot than the PNG. Returns None if there is none."""
     D = cur_doc()
     if name in (None, ""):
         pdir = cur_pages()
@@ -546,21 +580,21 @@ def build_pdf(name) -> Path:
 
 
 def cur_pdf(pdir: Path = None) -> Path:
-    """쪽 이미지와 짝이 맞는 PDF. 버전 디렉토리에 사본이 있으면 그것을, 없으면(옛 레이아웃) build/ 의 것을 쓴다.
+    """The PDF matched to the page images. Uses the copy in the version directory if present, otherwise (legacy layout) the one in build/.
 
-    짝을 맞추는 이유: 빌드가 실패해도 화면은 옛 PDF 인데, pick 이 새로 깨진 PDF 를 읽으면
-    보이는 것과 다른 자리를 짚는다."""
+    Why matching matters: even if a build fails, the screen still shows the old PDF - if pick read the
+    newly broken PDF instead, it would point at a different spot than what's visible."""
     D = cur_doc()
     f = (pdir or cur_pages()) / D.pdf_name
     if f.exists():
         return f
-    if D.is_pdf:                                          # 보기 전용: 아직 쪽을 안 그렸으면 원본 PDF
+    if D.is_pdf:                                          # view-only: the original PDF if pages haven't been rendered yet
         return D.main
     return D.out / D.pdf_name
 
 
 def build_ref_mtime(name: str):
-    """그 빌드를 시작할 때의 원고 src_mtime(빌드 이력 → built_src_mtime.txt → PDF 시각 순으로 찾는다)."""
+    """The manuscript src_mtime at the time that build started (looked up via build history -> built_src_mtime.txt -> PDF timestamp, in that order)."""
     ent = load_builds()["by"].get(name)
     if ent and _is_num(ent.get("src_mtime")):
         return float(ent["src_mtime"])
@@ -575,13 +609,15 @@ def build_ref_mtime(name: str):
 
 
 def source_newer(name: str = None) -> float:
-    """원고가 그 빌드(기본: 지금 화면의 빌드)보다 새로우면 그 차이(초)를, 아니면 0.0 을 돌려준다.
+    """If the manuscript is newer than that build (default: the build currently on screen), returns the difference in seconds; otherwise 0.0.
 
-    화면이 낡은 PDF 면 드래그한 자리와 원문이 어긋난다. 그런데 텍스트 경로는 그래도
-    비슷한 문단을 찾아내 경고선(0.3)을 아슬하게 넘기기도 한다 — 실측에서 노멘클래처를
-    골랐는데 서론의 기여 목록이 0.32 로 경고 없이 돌아왔다. 점수로는 이 상황을 못 거르므로
-    사실 자체를 알린다. 비교 기준은 '빌드 시작 때의 src_mtime' 이다 — 빌드 도중에 고친 파일도
-    잡히고, 빌드에 안 들어가는 diff/ 는 src_mtime 이 이미 뺀다(옛 구현은 *.tex 전부와 PDF 시각을 봤다)."""
+    If the screen shows a stale PDF, the dragged spot and the source text drift apart. Yet the text path
+    can still find a similar-looking paragraph and just barely clear the warning threshold (0.3) - in one
+    observed case, selecting the Nomenclature returned the introduction's contribution list at 0.32 with no
+    warning. A score alone can't filter that out, so the fact itself is surfaced instead. The comparison
+    baseline is "src_mtime at the moment the build started" - this also catches files edited mid-build, and
+    src_mtime already excludes diff/, which isn't part of the build (the old implementation looked at every
+    *.tex plus the PDF timestamp)."""
     ref = build_ref_mtime(name or cur_pages().name)
     if ref is None:
         return 0.0
@@ -589,10 +625,10 @@ def source_newer(name: str = None) -> float:
 
 
 def migrate_pages() -> None:
-    """옛 레이아웃(<state>/pages/ + build/<main>.pdf)을 버전 디렉토리처럼 만든다.
+    """Turns the legacy layout (<state>/pages/ + build/<main>.pdf) into a version directory.
 
-    PDF·synctex 사본을 pages/ 에 넣어 두어야 pick 이 화면의 쪽과 같은 PDF 를 읽는다 —
-    build/ 의 것은 재빌드가 제자리에서 덮어쓴다(빌드 중이거나 뒤 단계에서 실패하면 어긋난다)."""
+    The PDF/synctex copies must sit in pages/ so pick reads the same PDF as the on-screen pages - the one
+    in build/ gets overwritten in place by a rebuild (and drifts if a build is in progress or fails partway)."""
     D = cur_doc()
     if D.is_pdf:
         return
@@ -612,13 +648,13 @@ def migrate_pages() -> None:
                 shutil.copy2(src, tmp)
                 os.replace(tmp, dst)
             except OSError as e:
-                print("경고: %s 를 쪽 디렉토리로 복사하지 못했습니다: %s" % (src.name, e), file=sys.stderr)
+                print("warning: failed to copy %s into the page directory: %s" % (src.name, e), file=sys.stderr)
 
 
-# ---------------------------------------------------------------- 빌드
+# ---------------------------------------------------------------- Build
 
 def latex_errors(text: str) -> list:
-    """'! ' 줄과 그 뒤 첫 'l.<n>' 줄을 최대 5건 뽑는다(파일 추정은 하지 않는다)."""
+    """Pulls out up to 5 '! ' lines and the first following 'l.<n>' line each (no file guessing)."""
     out = []
     lines = text.splitlines()
     for i, ln in enumerate(lines):
@@ -639,7 +675,7 @@ def latex_errors(text: str) -> list:
 
 
 def run_logged(cmd: list, cwd: Path, timeout: int):
-    """프로세스 그룹째 돌리고, 시간이 넘으면 그룹째 죽인다(latexmk 가 띄운 pdflatex 까지)."""
+    """Runs the whole process group, and kills the whole group on timeout (including pdflatex spawned by latexmk)."""
     try:
         p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              encoding="utf-8", errors="replace", start_new_session=True)
@@ -664,7 +700,7 @@ def build_state_update(**kw) -> None:
 
 
 def build_state_snapshot() -> dict:
-    """GET /api/build 가 돌려줄 모양. 돌아가는 중이면 elapsed_s 를 지금 시각으로 다시 잰다."""
+    """The shape GET /api/build returns. If a build is running, elapsed_s is re-measured against the current time."""
     D = cur_doc()
     with D.bstate_lock:
         d = dict(D.bstate)
@@ -678,13 +714,13 @@ def build_state_snapshot() -> dict:
     return d
 
 
-LOG_TAIL_LINES = 40                # 성공하지 않은 빌드에서 다이어트 응답에 남기는 줄 수(§P0c-F)
+LOG_TAIL_LINES = 40                # lines kept in the diet response for a non-successful build (§P0c-F)
 
 
 def diet_log(payload: dict, full: bool) -> dict:
-    """에이전트 응답 다이어트: state=='ok' 면 log·log_tail 을 뺀다(성공 때도 폰트 경로로 수 KB였다).
-    ok_errors|fail 은 마지막 LOG_TAIL_LINES 줄로 줄인다. full(?log=1)이면 손대지 않는다.
-    내부 상태(BUILD_STATE·builds.json)는 그대로 두고 HTTP 응답 직전에만 적용한다."""
+    """Diets the agent response: drops log/log_tail when state=='ok' (even a success ran a few KB via font paths).
+    ok_errors|fail are trimmed to the last LOG_TAIL_LINES lines. Left untouched when full (?log=1).
+    Internal state (BUILD_STATE/builds.json) is left alone; this only applies right before the HTTP response."""
     if full:
         return payload
     out = dict(payload)
@@ -700,8 +736,8 @@ def diet_log(payload: dict, full: bool) -> dict:
 
 
 def build_all() -> dict:
-    """PDF 를 다시 만든다(동기). 이미 빌드 중이면 기다리지 않고 busy 를 돌려준다.
-    잠금은 문서마다 하나다 — 서로 다른 문서는 동시에 빌드된다(빌드 폴더가 문서마다 따로다)."""
+    """Rebuild the PDF (synchronous). If a build is already running, returns busy without waiting.
+    One lock per document - different documents build concurrently (each has its own build folder)."""
     lock = cur_doc().lock
     if not lock.acquire(blocking=False):
         return {"ok": False, "busy": True}
@@ -712,17 +748,17 @@ def build_all() -> dict:
 
 
 def build_async() -> dict:
-    """POST /api/rebuild?async=1: 잠금을 얻으면 데몬 스레드로 같은 빌드 함수를 돌리고 바로 돌아온다."""
+    """POST /api/rebuild?async=1: if the lock is acquired, runs the same build function on a daemon thread and returns immediately."""
     D = cur_doc()
     if not D.lock.acquire(blocking=False):
         return {"state": "running", "busy": True}
     build_state_update(state="running", phase="copy", started_at=now_str(), start_ts=time.time())
 
     def worker():
-        with using_doc(D):                             # 빌드 스레드도 같은 문서를 본다
+        with using_doc(D):                             # the build thread sees the same document
             try:
                 _build_tracked()
-            except Exception as e:                     # noqa: BLE001 — _build_tracked 자체가 죽어도 running 에 멈추지 않는다
+            except Exception as e:                     # noqa: BLE001 — must not stay stuck at running even if _build_tracked itself dies
                 finish_build({"ok": False, "state": "fail", "errors": [],
                               "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}, None)
             finally:
@@ -732,16 +768,17 @@ def build_async() -> dict:
 
 
 def _build_tracked() -> dict:
-    """_build() 를 감싸 BUILD_STATE(진행 칩·오류 패널용)와 빌드 이력을 채운다. 동기·비동기 양쪽이 같은 경로를 쓴다.
+    """Wraps _build() to fill in BUILD_STATE (progress chip / error panel) and the build history. Sync and async both use this path.
 
-    _build() 가 예상 밖 예외를 내도(예: rsync/latexmk 호출 근처의 OSError) BUILD_STATE 를 running 에
-    묶어 두지 않는다 — 비동기 워커에서 이 함수가 죽으면 다음 폴링이 영원히 '만드는 중'을 보여 주게 된다.
-    built_src_mtime 은 '이 빌드가 실제로 컴파일한 원고'의 mtime 으로 확정한다 — --git-pull 이면 pull 뒤
-    (fast-forward 가 .tex mtime 을 밀어 올릴 수 있다), 아니면 복사 직전 실측한 값을 _build() 가
-    res["src_mtime"] 으로 돌려준다(force=True, 2초 캐시를 건너뜀). _build() 가 그 값을 못 돌려줄 때만
-    (PDF 문서, 또는 res["src_mtime"] 이 채워지기 전에 실패) 빌드 시작 시각(src_mtime_at_start)으로
-    대신한다. ok|ok_errors 로 끝났을 때만 파일에 확정한다 — 실패하면 화면은 옛 PDF 그대로이므로
-    '원고 수정됨' 배지가 꺼지면 안 된다."""
+    Even if _build() raises an unexpected exception (e.g. an OSError near an rsync/latexmk call), BUILD_STATE
+    is never left stuck at running - if this function died inside an async worker, the next poll would show
+    "building" forever. built_src_mtime is fixed to the mtime of "the manuscript this build actually
+    compiled" - with --git-pull that's after the pull (fast-forward can bump the .tex mtime); otherwise
+    _build() measures it right before the copy and returns it as res["src_mtime"] (force=True, skipping the
+    2-second cache). Only when _build() can't return that value (a PDF document, or a failure before
+    res["src_mtime"] gets filled in) does the build start time (src_mtime_at_start) stand in instead. It's
+    only committed to file on ok|ok_errors - on failure the screen still shows the old PDF, so the
+    "manuscript modified" badge must not turn off."""
     D = cur_doc()
     with D.bstate_lock:
         last_s = D.bstate.get("last_s")
@@ -750,12 +787,12 @@ def _build_tracked() -> dict:
     src_mtime_at_start = src_mtime(force=True)
     try:
         res = _render_pdf_doc() if D.is_pdf else _build()
-    except Exception as e:                            # noqa: BLE001 — 빌드가 죽어도 running 에 멈추지 않는다
+    except Exception as e:                            # noqa: BLE001 — must not stay stuck at running even if the build dies
         res = {"ok": False, "state": "fail", "errors": [],
                "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
     src_mtime_for_build = res.get("src_mtime")
     if not _is_num(src_mtime_for_build):
-        src_mtime_for_build = src_mtime_at_start          # PDF 문서·복사 전 실패 등 res 에 못 채운 경우의 대체값
+        src_mtime_for_build = src_mtime_at_start          # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
     if res.get("state") in ("ok", "ok_errors"):
         write_built_src_mtime(src_mtime_for_build)
     finish_build(res, src_mtime_for_build)
@@ -763,16 +800,17 @@ def _build_tracked() -> dict:
 
 
 def finish_build(res: dict, src_mtime_for_build) -> None:
-    """빌드 하나가 끝났다(성공·실패 무관) — 이력에 남기고 build_seq 를 올린 뒤 BUILD_STATE 를 바꾼다.
+    """A build finished (success or failure either way) - record it in history, bump build_seq, then update BUILD_STATE.
 
-    src_mtime_for_build 는 '이 빌드가 실제로 컴파일한 원고'의 mtime(--git-pull 이면 pull 뒤,
-    아니면 복사 직전 실측 — 호출부 _build_tracked() 참조)이다. build_ref_mtime() 이 이 이력
-    엔트리를 built_src_mtime.txt 보다 먼저 찾으므로, 여기 기록되는 값이 '원고 수정됨' 배지의
-    실질적 기준선이다.
+    src_mtime_for_build is the mtime of "the manuscript this build actually compiled" (after the pull with
+    --git-pull, otherwise measured right before the copy - see the caller _build_tracked()). Because
+    build_ref_mtime() looks at this history entry before built_src_mtime.txt, the value recorded here is the
+    effective baseline for the "manuscript modified" badge.
 
-    build_seq 는 '끝난 빌드 수'다. 뷰어는 이 값이 바뀌었는지로 자기가 못 본 빌드를 알아챈다 —
-    5초 폴링 틈새에 시작해 끝난 빌드도 running 을 한 번도 못 봤을 뿐 seq 는 올라 있다.
-    seq 와 최종 state 는 한 번에 바꾼다(최종 state 인데 seq 는 옛 값인 순간이 보이지 않게)."""
+    build_seq is "number of finished builds". The viewer notices a build it never saw by checking whether
+    this value changed - even a build that starts and finishes inside a single 5-second polling gap (never
+    observed as running) still bumps seq. seq and the final state are changed together (so there's never a
+    visible moment where the state is final but seq is still the old value)."""
     state = res.get("state", "fail")
     last = {"state": state, "errors": list(res.get("errors") or [])[:5],
             "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -794,12 +832,13 @@ def finish_build(res: dict, src_mtime_for_build) -> None:
                               "seq": seq, "head": last["head"], "pull": last["pull"]})
 
 
-# ---------------------------------------------------------------- 빌드 이력(builds.json)과 원고 지문
+# ---------------------------------------------------------------- Build history (builds.json) and manuscript fingerprint
 #
-# 위치 추정(.est)을 서버가 판정하려면 '핀을 찍을 때 화면에 있던 빌드'와 '지금 빌드'가 같은 원고에서
-# 나왔는지를 알아야 한다. 그래서 빌드마다 쪽 디렉토리 이름(build id)과 그 빌드가 컴파일한 원고의
-# 지문(내용 해시 + 시작 때 src_mtime)을 남긴다. 벽시계 비교(옛 방식)는 브라우저 시간대·메모 편집·
-# 낡은 PDF 위 핀에서 전부 틀렸다(독립 검증 실측).
+# For the server to judge location estimation (.est), it needs to know whether "the build on screen when
+# the pin was placed" and "the current build" came from the same manuscript. So every build records its
+# page-directory name (build id) and a fingerprint of the manuscript it compiled (content hash + src_mtime
+# at start). Wall-clock comparison (the old approach) was wrong across the board with browser time zones,
+# note edits, and pins placed on a stale PDF (confirmed by independent verification).
 
 def _empty_builds() -> dict:
     return {"seq": 0, "builds": [], "last": None}
@@ -812,7 +851,7 @@ def _valid_build_entry(b) -> bool:
 
 
 def load_builds() -> dict:
-    """{seq, builds, last, by}. 파일이 없거나 깨졌으면 빈 이력 — 이력이 없어도 서버는 돈다(추정이 보수적일 뿐)."""
+    """{seq, builds, last, by}. Empty history if the file is missing or broken - the server still runs without history (estimation just stays conservative)."""
     try:
         d = json.loads((cur_doc().dir / "builds.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):
@@ -834,11 +873,11 @@ def _write_builds(h: dict) -> None:
     try:
         atomic_write(cur_doc().dir / "builds.json", json.dumps(body, ensure_ascii=False, indent=1) + "\n")
     except OSError as e:
-        print("경고: 빌드 이력을 쓰지 못했습니다: %s" % e, file=sys.stderr)
+        print("warning: failed to write build history: %s" % e, file=sys.stderr)
 
 
 def record_build(last: dict, ent) -> int:
-    """끝난 빌드 하나를 이력에 더하고 새 seq 를 돌려준다. 쓰기가 실패해도 seq 는 오른다(메모리 기준)."""
+    """Add one finished build to the history and return the new seq. seq still advances (in memory) even if the write fails."""
     D = cur_doc()
     with D.builds_lock:
         h = load_builds()
@@ -854,12 +893,14 @@ def record_build(last: dict, ent) -> int:
 
 
 def seed_builds() -> None:
-    """이력에 없는 지금 빌드(옛 인스턴스가 만든 것)를 한 번 올리고, 마지막 빌드 결과를 BUILD_STATE 로 되살린다.
+    """Add the current build (made by an earlier instance) to history once if it isn't already there, and restore the last build result into BUILD_STATE.
 
-    그 빌드가 어떤 원고로 만들어졌는지는 모른다. 다만 지금 원고의 src_mtime 이 그 빌드 기준 시각
-    (built_src_mtime.txt, 없으면 PDF 시각) 이하면 그 뒤로 고친 파일이 없다는 뜻이므로 지금 원고의
-    지문을 그 빌드의 지문으로 삼는다 — 그래야 기동 뒤 처음 찍은 핀이 '원고를 안 바꾼 재빌드'에서
-    추정으로 오탐되지 않는다. 판단이 안 서면 지문을 비워 둔다(그 빌드의 핀은 다음 빌드 뒤 보수적으로 추정)."""
+    Which manuscript that build was made from is unknown. But if the current manuscript's src_mtime is at or
+    before that build's reference time (built_src_mtime.txt, or the PDF timestamp if absent), no file has
+    been edited since, so the current manuscript's fingerprint is adopted as that build's fingerprint - this
+    keeps the first pin placed after startup from being misjudged as estimated on a "rebuild that didn't
+    change the manuscript". If it can't be determined, the fingerprint is left empty (that build's pins fall
+    back to conservative estimation after the next build)."""
     D = cur_doc()
     with D.builds_lock:
         h = load_builds()
@@ -908,15 +949,16 @@ def _read_head():
         return None
 
 
-# ---------------------------------------------------------------- --git-pull(§P0c-E)
+# ---------------------------------------------------------------- --git-pull (§P0c-E)
 #
-# 재빌드 copy 단계 전에 원고 저장소를 원격 main 으로 fast-forward 한다. 공저자가 PR 을 머지해도
-# 서버 쪽 체크아웃은 그대로였다 — 뷰어가 옛 원고를 계속 보여 줬다. 실패해도(더러움·분기·업스트림
-# 없음) 빌드 자체는 지금 체크아웃으로 계속한다 — pull 은 있으면 좋은 것이지 빌드의 전제조건이 아니다.
+# Fast-forwards the manuscript repo to the remote main before the rebuild's copy step. A co-author merging a
+# PR wasn't reflected on the server-side checkout - the viewer kept showing the old manuscript. Even on
+# failure (dirty tree, diverged, no upstream), the build itself continues with the current checkout - a
+# pull is nice to have, not a build prerequisite.
 
 def _git(args: list, cwd, timeout: int = GIT_PULL_TIMEOUT):
-    """git 을 쉘 없이 돌린다. 인자에 사용자 입력을 넣지 않는다. (returncode, stdout, stderr).
-    시간 초과·실행 실패는 returncode=None 으로 구분한다."""
+    """Run git without a shell. Never puts user input into the args. Returns (returncode, stdout, stderr).
+    Timeout and exec failure are both distinguished by returncode=None."""
     try:
         r = subprocess.run(["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True)
         return r.returncode, r.stdout, r.stderr
@@ -925,10 +967,10 @@ def _git(args: list, cwd, timeout: int = GIT_PULL_TIMEOUT):
 
 
 def revision_scope(D: Doc):
-    """선택한 메인 .tex 폴더 안의 원고 텍스트만 Git pathspec 으로 돌려준다.
+    """Returns a Git pathspec scoped to just the manuscript text inside the chosen main .tex's folder.
 
-    D.src 는 빌드 사본의 범위라 여러 문서가 같은 루트를 공유할 수 있다. 변경 이력은
-    D.main.parent 로 가려야 본문·하이라이트·커버레터의 커밋이 섞이지 않는다."""
+    D.src is the build-copy scope, so multiple documents can share the same root. The change history must
+    be filtered to D.main.parent, or commits from the body, highlights, and cover letter get mixed together."""
     if D.is_pdf:
         return None
     root = D.main.resolve().parent
@@ -945,7 +987,7 @@ def revision_scope(D: Doc):
     except ValueError:
         return None
     prefix = "" if prefix == "." else prefix + "/"
-    # Git :(glob) 의 ** 는 하위 폴더만 잡으므로 루트 파일도 별도 패턴으로 포함한다.
+    # Git :(glob) ** only matches subfolders, so root files are included via a separate pattern.
     exts = ("tex", "bib", "sty", "cls", "bst")
     paths = [":(glob)%s*.%s" % (prefix, ext) for ext in exts]
     paths += [":(glob)%s**/*.%s" % (prefix, ext) for ext in exts]
@@ -975,7 +1017,7 @@ def revision_diff(D: Doc, commit: str) -> dict:
     if scope is None:
         raise HTTPError(404, "이 문서는 원고 변경사항을 볼 수 없습니다.")
     repo, paths = scope
-    # 현재 문서의 최근 목록에 나온 커밋만 읽는다. 임의 Git 객체·다른 문서의 이력은 노출하지 않는다.
+    # Only read commits that appear in the current document's recent list. Never exposes arbitrary Git objects or another document's history.
     if commit not in {row["id"] for row in revision_history(D)["revisions"]}:
         raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.")
     cmd = ["git", "-C", str(repo), "show", "--format=", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3",
@@ -1464,9 +1506,9 @@ def outline_labels(D: Doc) -> dict:
 def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
 
-    순서: 저장소 루트 탐색(아니면 skipped:not_git) → fetch(실패하면 error) → 업스트림 확인
-    (없으면 skipped:no_upstream) → 더러움 확인(있으면 skipped:dirty) → --ff-only 머지
-    (분기했으면 skipped:diverged). 어느 단계든 git 호출 자체가 시간 초과·실행 실패면 error."""
+    Order: locate the repo root (skipped:not_git if not found) -> fetch (error on failure) -> check
+    upstream (skipped:no_upstream if none) -> check for a dirty tree (skipped:dirty if dirty) -> --ff-only
+    merge (skipped:diverged if diverged). At any step, a timeout or exec failure on the git call itself is error."""
     rc, top, _ = _git(["-C", str(manuscript), "rev-parse", "--show-toplevel"], manuscript)
     if rc != 0 or not top.strip():
         return {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}
@@ -1506,8 +1548,8 @@ def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
 
 _PULL_LOCK = threading.Lock()
 _PULL_LAST = {"at": 0.0, "res": None}
-PULL_SHARE_S = 20                  # 초 — 이 안에 다른 문서가 이미 당겼으면 그 결과를 같이 쓴다
-SYNC_EVERY_S = 60                  # 원격 main 확인 간격. 브라우저가 열려 있지 않아도 확인한다.
+PULL_SHARE_S = 20                  # seconds - if another document already pulled within this window, reuse its result
+SYNC_EVERY_S = 60                  # interval for checking remote main. Checked even when no browser is open.
 _SYNC_LOCK = threading.Lock()
 _SYNC_STATE = {"state": "checking", "reason": None, "checked_at": None,
                "head_before": None, "head_after": None}
@@ -1547,10 +1589,10 @@ def sync_status() -> dict:
 
 
 def sync_main_once() -> dict:
-    """원격 main 을 확인하고 바뀐 문서만 새 PDF 로 만든다. --no-build 기동에도 호출한다.
+    """Check remote main and rebuild the PDF only for documents that changed. Also called on --no-build startup.
 
-    빌드 중인 문서가 있으면 이번 회차를 미룬다. Git 체크아웃을 갱신하는 동안 문서 잠금을 모두
-    쥐므로 다른 빌드가 소스 사본을 복사하는 중에 fast-forward 하지 않는다.
+    If any document is currently building, this round is deferred. While updating the Git checkout, every
+    document lock is held, so a fast-forward never happens while another build is mid-copy of the source.
     """
     if not C.git_pull:
         return {"state": "disabled"}
@@ -1601,11 +1643,11 @@ def sync_main_once() -> dict:
 
 
 def watch_main(stop: threading.Event, every: float = SYNC_EVERY_S) -> None:
-    """기동 직후와 이후 주기적으로 동기화한다. 오류가 나도 감시 스레드는 살아남는다."""
+    """Syncs right after startup and then periodically. The watch thread survives even if an error occurs."""
     while not stop.is_set():
         try:
             result = sync_main_once()
-        except Exception:                         # noqa: BLE001 — 다음 회차가 다시 시도한다
+        except Exception:                         # noqa: BLE001 — the next round will retry
             traceback.print_exc(file=sys.stderr)
             with _SYNC_LOCK:
                 _SYNC_STATE.update(state="error", reason="unexpected",
@@ -1616,9 +1658,11 @@ def watch_main(stop: threading.Event, every: float = SYNC_EVERY_S) -> None:
 
 
 def repo_pull() -> dict:
-    """--git-pull 은 저장소 단위다. 단일 문서는 빌드마다 한 번(예전 그대로). 여러 문서면 잠금 하나로 줄 세우고,
-    PULL_SHARE_S 안에 다른 문서의 빌드가 이미 당겼으면 다시 당기지 않고 그 결과(shared=True)를 쓴다 — 두 문서를
-    동시에 재빌드해도 git fetch·merge 가 겹치지 않고(.git/index.lock 충돌), 한쪽이 복사하는 중에 트리가 바뀌지 않는다."""
+    """--git-pull operates per repo. A single document pulls once per build (as before). With multiple
+    documents, a single lock serializes them, and if another document's build already pulled within
+    PULL_SHARE_S, that result is reused (shared=True) instead of pulling again - so rebuilding two
+    documents at once never collides on git fetch/merge (.git/index.lock conflicts), and the tree
+    never changes mid-copy for one of them."""
     if not multi_doc():
         return git_pull_phase(C.src)
     with _PULL_LOCK:
@@ -1631,23 +1675,24 @@ def repo_pull() -> dict:
 
 
 def _build() -> dict:
-    """원본을 건드리지 않고 사본에서 -synctex=1 로 빌드한 뒤, 새 디렉토리에 쪽을 그리고 포인터만 바꾼다.
+    """Builds with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
-    판정은 세 가지다. fail = 새 PDF 가 없거나 시간 초과(화면은 옛 PDF 그대로),
-    ok_errors = 새 PDF 는 나왔지만 LaTeX 오류('! ' 줄)가 있음, ok = 오류 없음."""
+    Three outcomes: fail = no new PDF or timeout (screen keeps the old PDF), ok_errors = a new PDF came
+    out but there are LaTeX errors ('! ' lines), ok = no errors."""
     t0 = time.time()
     D = cur_doc()
     D.build.mkdir(parents=True, exist_ok=True)
     res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
 
-    if C.git_pull:                                        # copy 단계 전에 원격 main 으로 fast-forward(§P0c-E)
+    if C.git_pull:                                        # fast-forward to remote main before the copy step (§P0c-E)
         build_state_update(phase="pull")
         res["pull"] = repo_pull()
         build_state_update(phase="copy")
-    # 이 빌드가 실제로 컴파일할 원고의 mtime — pull 이 있었으면 pull 뒤(fast-forward 가 .tex mtime 을
-    # 밀어 올릴 수 있다), 없었으면 지금(복사 직전)을 실측한다. _build_tracked() 가 이 값을
-    # built_src_mtime/이력에 확정한다 — 빌드 시작 시각(pull 전)을 쓰면 pull 로 생긴 새 mtime이
-    # '아직 안 빌드됨'으로 잘못 잡혀 성공 직후에도 '원고 수정됨' 배지가 계속 떴다.
+    # mtime of the manuscript this build will actually compile - after the pull if there was one (a
+    # fast-forward can bump the .tex mtime), otherwise measured now (right before the copy). _build_tracked()
+    # commits this value to built_src_mtime/history - using the build start time (before the pull) instead
+    # caused the new mtime from the pull to be misread as "not built yet", leaving the "manuscript modified"
+    # badge on even right after a success.
     res["src_mtime"] = src_mtime(force=True)
 
     rs = shutil.which("rsync")
@@ -1658,21 +1703,21 @@ def _build() -> dict:
                 excl += ["--exclude", d + "/"]
             subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
                             str(D.src) + "/", str(D.build) + "/"], capture_output=True, timeout=300)
-        else:                                            # rsync 없이도 돌아가야 한다
+        else:                                            # must still work without rsync
             shutil.rmtree(D.build, ignore_errors=True)
             shutil.copytree(D.src, D.build, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
     except (subprocess.TimeoutExpired, OSError) as e:
         res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
-    # 지문은 사본에서 뜬다 — 이 빌드가 실제로 컴파일하는 바로 그 파일들이다(원본은 그사이 또 바뀔 수 있다).
+    # The fingerprint is taken from the copy - these are exactly the files this build actually compiles (the original can still change meanwhile).
     try:
         res["src_hash"] = source_fingerprint(D.build)
     except OSError:
         res["src_hash"] = None
 
     build_state_update(phase="latex")
-    # 단일 문서는 예전처럼 빌드 루트에서, --doc 문서는 메인 .tex 가 있는 폴더에서 돈다(Doc.out).
+    # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
     _rc, out, timed_out = run_logged(
         ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, C.timeout)
     try:
@@ -1723,8 +1768,8 @@ def _build() -> dict:
 
 
 def _render_pages(pdf: Path, extra: list):
-    """새 디렉토리에 쪽을 그리고 PDF(와 extra — synctex)를 사본으로 넣는다. 끝나기 전까지 화면은 옛 디렉토리를 본다.
-    (디렉토리, None) 또는 (None, 오류 문구)."""
+    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps showing the old directory until this finishes.
+    Returns (directory, None) or (None, error message)."""
     D = cur_doc()
     D.dir.mkdir(parents=True, exist_ok=True)
     bid = time.strftime("%Y%m%d%H%M%S")
@@ -1756,11 +1801,11 @@ def _render_pages(pdf: Path, extra: list):
 
 
 def _commit_pages(newdir: Path) -> str:
-    """포인터를 새 쪽 디렉토리로 한 번에 바꾸고(원자적), 현재+직전만 남기고, built_at·head 를 쓴다. head 짧은 해시."""
+    """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash."""
     D = cur_doc()
     prev = cur_pages().name
-    atomic_write(D.dir / "pages.cur", newdir.name)       # 원자적 교체 한 번
-    for d in D.dir.iterdir():                            # 현재와 직전 하나만 남긴다
+    atomic_write(D.dir / "pages.cur", newdir.name)       # a single atomic swap
+    for d in D.dir.iterdir():                            # keep only current and previous
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
@@ -1774,10 +1819,11 @@ def _commit_pages(newdir: Path) -> str:
     return head_short
 
 
-# ---------------------------------------------------------------- 보기 전용 PDF 문서
+# ---------------------------------------------------------------- View-only PDF documents
 #
-# LaTeX 소스가 없는 PDF(리뷰어 코멘트 등)는 재빌드가 없다. 대신 그 PDF 파일이 바뀌면(mtime·크기) 쪽 이미지를
-# 다시 그린다 — 같은 빌드 경로(_build_tracked → 이력·build_seq)를 타므로 뷰어는 LaTeX 재빌드와 똑같이 화면을 바꾼다.
+# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
+# (mtime/size), the page images are re-rendered - since it goes through the same build path
+# (_build_tracked -> history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
 
 def pdf_signature(D: Doc):
     try:
@@ -1788,7 +1834,7 @@ def pdf_signature(D: Doc):
 
 
 def _render_pdf_doc() -> dict:
-    """보기 전용 문서의 '빌드' — 원본 PDF 를 쪽 이미지로 그린다. LaTeX·SyncTeX·git pull 은 없다."""
+    """The 'build' for a view-only document - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
     t0 = time.time()
     D = cur_doc()
     res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
@@ -1804,7 +1850,7 @@ def _render_pdf_doc() -> dict:
     if newdir is None:
         res["log"] = err
         res["elapsed_s"] = round(time.time() - t0, 1)
-        try:                                         # 같은 파일로 3초마다 다시 시도하지 않는다 — 파일이 바뀌면 다시 그린다
+        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
             atomic_write(D.dir / "pdf_sig.txt", sig)
         except OSError:
             pass
@@ -1820,7 +1866,7 @@ def _render_pdf_doc() -> dict:
 
 
 def pdf_changed(D: Doc) -> bool:
-    """보기 전용 PDF 가 지금 쪽 이미지를 그린 뒤 바뀌었는가(또는 아직 안 그렸는가)."""
+    """Has the view-only PDF changed since the page images were last rendered (or have they never been rendered)?"""
     sig = pdf_signature(D)
     if sig is None:
         return False
@@ -1832,7 +1878,7 @@ def pdf_changed(D: Doc) -> bool:
 
 
 def refresh_pdf_doc(D: Doc) -> bool:
-    """PDF 가 바뀌었으면 백그라운드로 다시 그린다(이미 그리는 중이면 아무것도 안 한다). 시작했으면 True."""
+    """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
     if not D.is_pdf or not pdf_changed(D):
         return False
     with using_doc(D):
@@ -1840,7 +1886,7 @@ def refresh_pdf_doc(D: Doc) -> bool:
     return not r.get("busy")
 
 
-# ---------------------------------------------------------------- 메타
+# ---------------------------------------------------------------- Meta
 
 def png_size(path: Path) -> tuple:
     with path.open("rb") as fh:
@@ -1861,13 +1907,14 @@ def page_list(pdir: Path = None) -> list:
 SRC_TEX_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst")
 SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
 SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
-# 빌드 산출물 디렉토리(상태 디렉토리를 원고 안에 둔 배치 대비) + 빌드 rsync 가 빼는 디렉토리.
+# Build artifact directories (in case the state directory is placed inside the manuscript) + directories the build rsync excludes.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
 
-_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src 문자열, 값, 잰 시각] — 2초 캐시(단일 문서의 것)
+_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 _SRC_MTIME_LOCK = threading.Lock()
 
-# 단일 문서(--doc 없음). 모듈 전역 잠금·상태를 그대로 쥐므로 옛 경로·회귀 테스트가 보던 객체가 곧 이 문서의 것이다.
+# Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
+# and regression tests see is exactly this document's.
 LEGACY_DOC = Doc(DEFAULT_DOC_KEY, "본문", legacy=True, lock=BUILD_LOCK, bstate=BUILD_STATE,
                  bstate_lock=BUILD_STATE_LOCK, builds_lock=BUILDS_LOCK, mcache=_SRC_MTIME_CACHE)
 DOCS: list = [LEGACY_DOC]
@@ -1875,12 +1922,12 @@ _TL = threading.local()
 
 
 def set_docs(docs=None) -> None:
-    """문서 목록을 바꾼다(main()·테스트). 비우면 단일 문서로 돌아간다."""
+    """Change the document list (main()/tests). Reverts to a single document when empty."""
     DOCS[:] = list(docs) if docs else [LEGACY_DOC]
 
 
 def cur_doc() -> Doc:
-    """이 스레드가 다루는 문서. 요청 처리기·빌드 스레드가 using_doc 으로 건다. 없으면 첫 문서."""
+    """The document this thread is handling. Request handlers / build threads hang it off via using_doc. Falls back to the first document."""
     d = getattr(_TL, "doc", None)
     return d if d is not None else DOCS[0]
 
@@ -1904,13 +1951,13 @@ def doc_by_key(key):
 
 
 def pin_doc_key(r: dict) -> str:
-    """핀이 속한 문서 키. doc 필드가 없는 옛 레코드는 첫 문서로 읽는다(이관 쓰기 없음)."""
+    """The document key a pin belongs to. Legacy records without a doc field are read as the first document (no migration write)."""
     k = r.get("doc")
     return k if isinstance(k, str) and k else DOCS[0].key
 
 
 def doc_for_file(path) -> Doc:
-    """file 로만 온 요청(에이전트 curl)이 어느 LaTeX 문서의 것인지. 빌드 루트가 가장 깊게 감싸는 문서, 없으면 첫 문서."""
+    """Which LaTeX document a request that only gave file (agent curl) belongs to. The document whose build root most deeply contains it, or the first document if none."""
     try:
         p = Path(path) if os.path.isabs(str(path)) else C.src / str(path)
         p = p.resolve()
@@ -1935,14 +1982,15 @@ def _excluded_dir(name: str) -> bool:
 
 
 def iter_sources(root: Path):
-    """root 아래 원고·그림 확장자 파일을 (상대경로 'a/b.tex', os.DirEntry) 로 낸다.
+    """Yields manuscript/figure-extension files under root as (relative path 'a/b.tex', os.DirEntry).
 
-    src_mtime(배지·낡은 PDF 경고)과 source_fingerprint(빌드 지문)가 같은 목록을 본다 — 둘이 다른 파일을
-    보면 '배지는 꺼졌는데 추정은 켜짐' 같은 어긋남이 생긴다. 점(.) 디렉토리, 빌드 산출물·빌드 rsync 가
-    빼는 디렉토리(BUILD_OUTDIRS), 원고 안에 둔 상태 디렉토리, 루트의 메인 PDF 는 뺀다."""
+    src_mtime (badge / stale-PDF warning) and source_fingerprint (build fingerprint) look at the same list -
+    if they saw different files, mismatches like "badge is off but estimation is on" would appear. Dot (.)
+    directories, build artifacts / directories the build rsync excludes (BUILD_OUTDIRS), a state directory
+    placed inside the manuscript, and the root's main PDF are all excluded."""
     D = cur_doc()
     main_pdf = D.pdf_name
-    main_at = tuple(D.main_rel.parent.parts)            # 메인 .tex 옆의 PDF(빌드 산출물·커밋된 사본)는 원고가 아니다
+    main_at = tuple(D.main_rel.parent.parts)            # the PDF next to the main .tex (a build artifact / committed copy) is not part of the manuscript
     state_in_root = None
     try:
         state_in_root = tuple(C.state.resolve().relative_to(root.resolve()).parts)
@@ -1971,7 +2019,7 @@ def iter_sources(root: Path):
 
 
 def doc_fingerprint(D: Doc) -> str:
-    """문서의 원고 지문. 보기 전용이면 그 PDF 파일 내용의 해시다."""
+    """The document's manuscript fingerprint. For view-only, this is the hash of the PDF file's contents."""
     if D.is_pdf:
         h = hashlib.sha256()
         with open(D.main, "rb") as fh:
@@ -1983,8 +2031,8 @@ def doc_fingerprint(D: Doc) -> str:
 
 
 def source_fingerprint(root: Path) -> str:
-    """원고 지문 — iter_sources 가 내는 파일들의 (상대경로, 내용) 해시. mtime 은 넣지 않는다:
-    git checkout 처럼 내용은 같고 시각만 바뀐 파일로 레이아웃이 바뀌지는 않는다."""
+    """Manuscript fingerprint - a hash of (relative path, content) over the files iter_sources yields. mtime is not included:
+    a file whose content is unchanged but timestamp changed (e.g. via git checkout) should not change the layout."""
     h = hashlib.sha256()
     for rel, e in iter_sources(root):
         try:
@@ -1997,16 +2045,17 @@ def source_fingerprint(root: Path) -> str:
 
 
 def src_mtime(force: bool = False) -> float:
-    """C.src 아래 원고·그림 확장자의 최대 mtime(2초 캐시). 빌드 산출물과 메인 PDF 는 뺀다(iter_sources).
+    """Max mtime over manuscript/figure extensions under C.src (2-second cache). Build artifacts and the main PDF are excluded (iter_sources).
 
-    build_all() 이 rsync 로 만드는 C.build 는 보통 C.state 아래(즉 C.src 밖)이지만, 상태 디렉토리를
-    원고 트리 안에 둔 드문 배치에서도 빌드 산출물이 '원고가 바뀌었다'는 오탐을 만들지 않게 이름으로도 뺀다.
-    캐시 키에 C.src 를 넣는 이유: 같은 프로세스 안에서 원고 경로가 바뀌면(테스트, 또는 드문 재구성)
-    옛 경로의 값을 새 경로에 잘못 돌려주지 않기 위해서다.
+    C.build, which build_all() populates via rsync, is normally under C.state (i.e. outside C.src), but it
+    is also excluded by name so that even the rare layout with the state directory inside the manuscript
+    tree doesn't false-positive "manuscript changed" from build artifacts. C.src is included in the cache
+    key so that if the manuscript path changes within the same process (tests, or a rare reconfiguration),
+    the old path's value is never mistakenly returned for the new path.
 
-    force=True 는 캐시를 건너뛰고 실측한다 — write_built_src_mtime() 이 빌드 시작 시각의 mtime 을
-    남길 때 2초 캐시 값을 그대로 쓰면, 캐시가 채워진 지 2초 안에 원고를 고치고 바로 재빌드했을 때
-    수정 전 mtime 이 '빌드 시작 시각'으로 잘못 기록된다."""
+    force=True skips the cache and measures now - if write_built_src_mtime() used the 2-second cache value
+    as-is when recording the build-start mtime, then editing the manuscript within 2 seconds of the cache
+    being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time"."""
     D = cur_doc()
     cache = D.mcache
     key = str(D.src)
@@ -2016,7 +2065,7 @@ def src_mtime(force: bool = False) -> float:
             if ckey == key and time.time() - at < 2.0:
                 return val
     newest = 0.0
-    if D.is_pdf:                                          # 보기 전용: 그 PDF 파일 하나가 원고다
+    if D.is_pdf:                                          # view-only: that one PDF file is the manuscript
         try:
             newest = D.main.stat().st_mtime
         except OSError:
@@ -2040,12 +2089,12 @@ def read_built_src_mtime():
 
 
 def write_built_src_mtime(value: float = None) -> None:
-    """value 를 안 주면 지금 src_mtime(force=True) 를 실측해 기록한다(2초 캐시를 건너뛴다).
+    """If value is omitted, measures the current src_mtime(force=True) and records it (skipping the 2-second cache).
 
-    호출부(_build_tracked)는 '이 빌드가 실제로 컴파일한 원고'의 mtime을 넘긴다 — --git-pull 이면
-    pull 뒤(fast-forward 가 .tex mtime 을 밀어 올릴 수 있다), 아니면 복사 직전 실측한 값이다.
-    빌드가 ok|ok_errors 로 끝났을 때만 이 함수를 불러 확정한다 — 실패한 빌드는 화면이 옛 PDF
-    그대로이므로 '원고 수정됨' 배지가 꺼지면 안 된다."""
+    The caller (_build_tracked) passes the mtime of "the manuscript this build actually compiled" - after
+    the pull with --git-pull (a fast-forward can bump the .tex mtime), otherwise the value measured right
+    before the copy. This function is only called to commit that value when the build finished ok|ok_errors -
+    a failed build still shows the old PDF on screen, so the "manuscript modified" badge must not turn off."""
     try:
         v = src_mtime(force=True) if value is None else value
         atomic_write(cur_doc().dir / "built_src_mtime.txt", "%f" % v)
@@ -2062,7 +2111,7 @@ def pins_rev() -> str:
 
 
 def doc_brief(D: Doc) -> dict:
-    """문서 하나의 요약 — /api/docs 와 (여러 문서일 때) /api/meta 의 docs. 쓰기를 하지 않는다(폴링에서 부른다)."""
+    """A summary of one document - used by /api/docs and (with multiple documents) /api/meta's docs. Never writes (called from polling)."""
     with using_doc(D):
         b = build_state_snapshot()
         stale = (not D.is_pdf) and source_newer() > 2
@@ -2076,7 +2125,7 @@ def doc_brief(D: Doc) -> dict:
 
 
 def docs_payload() -> dict:
-    """GET /api/docs — 문서 목록과 문서별 열린 핀 수. 핀은 읽기만 한다(sync 쓰기 없음)."""
+    """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
     rows, _ = read_pins()
     counts: dict = {}
     for r in rows:
@@ -2099,46 +2148,47 @@ def meta(actor: dict, light: bool = False) -> dict:
             return "?"
     bstate = build_state_snapshot()
     sm = src_mtime()
-    newer = 0.0 if D.is_pdf else source_newer()     # 보기 전용은 PDF 가 바뀌면 서버가 알아서 다시 그린다
+    newer = 0.0 if D.is_pdf else source_newer()     # view-only: the server re-renders on its own when the PDF changes
     out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
            "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
            "label": C.label, "accent": C.accent, "repo": C.repo,
            "building": D.lock.locked(), "sync": sync_status(),
            "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
-           # 원고가 화면의 PDF 보다 새로운가 — 서버가 숫자로 판정한다(브라우저 시계·시간대와 무관).
+           # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
            "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
            "src_mtime": sm, "build_src_mtime": read_built_src_mtime(),
            "pages_build": cur_pages().name,
            "pins_rev": pins_rev(),
-           # build_seq = 끝난 빌드 수, last_build = 가장 최근에 끝난 빌드(진행 중인 빌드와 무관하게 유지).
+           # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
            "build_seq": bstate.get("seq", 0),
            "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
            "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
-    if multi_doc():                       # 다른 문서의 낡음·빌드 — 뷰어가 탭에 점·진행 표시를 단다
+    if multi_doc():                       # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
         out["docs"] = [doc_brief(d) for d in DOCS]
         out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"])
-    if light:                             # 폴링 전용 — snapshot_pins() 의 sync 쓰기를 부르지 않는다
+    if light:                             # polling only - skips the sync write in snapshot_pins()
         return out
     rows = snapshot_pins()
     states = [pin_state(r) for r in rows]
     out["n_open"] = states.count("open")
-    out["n_done"] = states.count("done")          # 완료만 — 검토 대기(done=true·review=true)는 n_review
+    out["n_done"] = states.count("done")          # done only - awaiting review (done=true, review=true) is n_review
     out["n_review"] = states.count("review")
     return out
 
 
-# ---------------------------------------------------------------- 원문 접근
+# ---------------------------------------------------------------- Source-text access
 
 def norm(line: str) -> str:
     return " ".join(line.split())
 
 
 def truncate_quote(s, n: int = 60) -> str:
-    """인용문을 최대 n 자(말줄임표 포함)로 자른다(«…» 예시와 맞춘다).
+    """Truncates a quote to at most n characters (ellipsis included, matching the «...» convention).
 
-    잘린 인용문이 온전한 문장처럼 보이면 원문을 다시 찾을 때 헷갈린다 — 잘렸다는 표시가 있어야
-    사용자·에이전트가 이걸 '전체'가 아니라 '검색 힌트'로 읽는다. 잘렸을 때 본문 n-1자 뒤에
-    말줄임표를 붙이므로 결과는 항상 n자 이하다(n자+말줄임표로 n+1자가 되지 않게)."""
+    If a truncated quote looked like a complete sentence, it would be confusing when trying to relocate the
+    source - the truncation mark is what tells the user/agent to read this as a "search hint", not the
+    "whole thing". When truncating, the ellipsis is appended after n-1 characters of body text, so the
+    result is always n characters or fewer (never n+1 from n characters plus the ellipsis)."""
     s = str(s)
     return s[:n - 1] + "…" if len(s) > n else s
 
@@ -2159,7 +2209,7 @@ def tex_lines(path: Path) -> list:
 
 
 def to_source(path: str) -> Path:
-    """빌드 사본 경로를 원본 체크아웃 경로로 되돌린다."""
+    """Maps a build-copy path back to the original checkout path."""
     D = cur_doc()
     p = Path(path)
     for base in (D.build, D.build.resolve()):
@@ -2171,8 +2221,8 @@ def to_source(path: str) -> Path:
         return D.src / p.resolve().relative_to(D.build.resolve())
     except (ValueError, OSError):
         pass
-    # 상태 디렉토리를 옮겼거나 복제하면 synctex 가 옛 build 경로를 가리킨다. 경로 꼬리가
-    # 원고 트리 안의 실제 파일과 맞으면 그것으로 되돌린다(가장 긴 꼬리 우선, 트리 밖은 읽지 않는다).
+    # If the state directory was moved or cloned, synctex points at the old build path. If the path's tail
+    # matches a real file inside the manuscript tree, fall back to that (longest tail wins; never reads outside the tree).
     parts = p.parts
     for k in range(1, len(parts)):
         cand = D.src.joinpath(*parts[k:])
@@ -2182,7 +2232,7 @@ def to_source(path: str) -> Path:
 
 
 def safe_src(p) -> Path:
-    """원고 트리 안의 실제 파일만 통과시킨다. 밖이면 400 — 첫 줄이 pins.md 에 새어 나간다."""
+    """Only passes real files inside the manuscript tree. Otherwise 400 - the first line leaks into pins.md."""
     if not isinstance(p, str) or not p or "\x00" in p or len(p) > 4096:
         raise HTTPError(400, "file 이 올바르지 않습니다.")
     q = Path(p)
@@ -2198,7 +2248,7 @@ def safe_src(p) -> Path:
     return out
 
 
-# ---------------------------------------------------------------- 역변환 1: SyncTeX
+# ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
 
 def synctex_edit(pdf: Path, page: int, x: float, y: float):
     try:
@@ -2221,10 +2271,11 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float):
 
 
 def densest(values: list, gap: int = 30) -> list:
-    """큰 간격에서 끊고 가장 많이 모인 덩어리만 남긴다.
+    """Breaks at large gaps and keeps only the densest cluster.
 
-    synctex 는 질의 좌표에서 *가장 가까운* 노드를 주므로, 선택 사각형 안의 점이라도
-    바로 옆 float 의 줄을 물고 온다(실측: 표 하나를 골랐는데 범위가 740-801 로 벌어졌다)."""
+    synctex returns the node *closest* to the query coordinate, so even a point inside the selection
+    rectangle can pull in a line from an adjacent float (observed: selecting a single table returned a
+    range spanning 740-801)."""
     if not values:
         return values
     groups = [[values[0]]]
@@ -2253,10 +2304,10 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
     return best, ls[0], ls[-1]
 
 
-# ---------------------------------------------------------------- 역변환 2: 렌더 텍스트
+# ---------------------------------------------------------------- Reverse mapping 2: rendered text
 
 def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> str:
-    """선택 사각형 안에 실제로 찍힌 글자를 뽑는다(-r 72 이므로 1px = 1pt)."""
+    """Pulls out the characters actually printed inside the selection rectangle (1px = 1pt since -r 72)."""
     try:
         return subprocess.run(
             ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
@@ -2280,12 +2331,12 @@ def file_key(path: Path) -> tuple:
 
 
 def token_weights(text: str, lines: list, key: tuple) -> list:
-    """영역 텍스트의 어절에 희귀도 가중을 준다.
+    """Weights the region text's word tokens by rarity.
 
-    가중이 없으면 '타겟'·'데이터'·'학습' 같은 흔한 말이 점수를 지배해, 실제로는
-    Nomenclature 를 고른 선택이 본문 문단과도 높게 겹친다고 나온다(실측). 드문
-    어절일수록 위치를 특정하는 힘이 크다. 캐시 키는 (경로, mtime_ns, 크기)다 —
-    id(lines) 는 목록이 버려지면 재사용되어 다른 파일의 빈도를 물 수 있다."""
+    Without weighting, common words like "target"/"data"/"training" dominate the score, so a selection that
+    actually picked the Nomenclature can come out scoring high overlap with a body paragraph too (observed).
+    The rarer a token, the more power it has to pin down a location. The cache key is (path, mtime_ns,
+    size) - id(lines) gets reused once the list is garbage-collected and can pick up another file's frequencies."""
     with _DF_LOCK:
         df = _DF_CACHE.get(key)
     if df is None:
@@ -2300,14 +2351,14 @@ def token_weights(text: str, lines: list, key: tuple) -> list:
     out = []
     for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
         freq = df.get(t, 0)
-        if freq > n * 0.05:            # 원고 전체에 흩뿌려진 말은 위치를 못 짚는다
+        if freq > n * 0.05:            # a word scattered across the whole manuscript can't pin down a location
             continue
         out.append((t, 1.0 / (1.0 + freq)))
     return out
 
 
 def score_range(tw: list, lines: list, lo: int, hi: int) -> float:
-    """후보 줄 범위가 그 영역의 글자를 얼마나 담고 있는지 0~1 로 매긴다."""
+    """Scores 0-1 how much of the region's characters a candidate line range contains."""
     if not tw:
         return 0.0
     blob = " ".join(lines[max(0, lo - 2):hi + 1])
@@ -2315,11 +2366,11 @@ def score_range(tw: list, lines: list, lo: int, hi: int) -> float:
 
 
 def by_text(tw: list, lines: list, near=None):
-    """렌더 텍스트의 어절로 원문 줄을 되찾는다.
+    """Recovers source lines from the rendered text's word tokens.
 
-    표·수식 영역에서 SyncTeX 가 침묵하거나 엉뚱한 곳을 짚을 때의 경로다. 한글
-    어절은 마크업을 거의 타지 않아서(`타겟--소스 $i$ 간 코사인 거리`) 원문에
-    그대로 남아 있다."""
+    This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
+    Korean word tokens survive almost untouched by markup (e.g. `타겟--소스 $i$ 간 코사인 거리`), so they
+    remain in the source text as-is."""
     if len(tw) < 2:
         return None
     scores = [sum(w for t, w in tw if t in ln) for ln in lines]
@@ -2334,13 +2385,13 @@ def by_text(tw: list, lines: list, near=None):
     return lo + 1, hi + 1, score_range(tw, lines, lo + 1, hi + 1)
 
 
-# ---------------------------------------------------------------- 블록 확장과 범위 사다리
+# ---------------------------------------------------------------- Block expansion and the range ladder
 
 def expand_block(lines: list, lo: int, hi: int):
-    """선택 줄을 감싸는 환경(--float-envs) 또는 문단 경계까지 넓힌다. 기본 단계를 정하는 데 쓴다.
+    """Expands the selected lines to the enclosing environment (--float-envs) or paragraph boundary. Used to determine the default level.
 
-    환경은 반드시 같은 이름의 \\end 로 닫는다 — 이름을 안 맞추면 선택이 인접한 다른
-    float 로 새어 나간다(실측: 표 하나를 골랐는데 109줄이 잡혔다)."""
+    An environment must be closed by a \\end of the same name - without matching the name, the selection
+    leaks into an adjacent float (observed: selecting one table pulled in 109 lines)."""
     n = len(lines)
     if not n:
         return lo, hi, "none"
@@ -2377,7 +2428,7 @@ SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|pa
 
 
 def para_bounds(lines: list, lo: int, hi: int) -> tuple:
-    """빈 줄까지 넓힌다. 절 제목 줄(\\section·\\subsection …)은 위아래 어느 쪽으로도 넘어 들이지 않는다."""
+    """Expands to the nearest blank line. A section-heading line (\\section/\\subsection/...) is never crossed in either direction."""
     n = len(lines)
     a, b = lo, hi
     while a > 1 and lines[a - 2].strip() and not SECTION_RE.match(lines[a - 2]):
@@ -2388,9 +2439,9 @@ def para_bounds(lines: list, lo: int, hi: int) -> tuple:
 
 
 def trim_comments(lines: list, a: int, b: int) -> tuple:
-    """앞뒤의 순수 주석 줄(% 로 시작)을 잘라낸다. 전부 주석이면 자르지 않는다.
+    """Trims leading/trailing pure-comment lines (starting with %). Does nothing if every line is a comment.
 
-    한 줄이 한 문단인 원고에서 문단 뒤에 붙은 TODO 주석이 핀 범위와 앵커 꼬리가 되던 것을 막는다."""
+    In a manuscript where one paragraph is one line, this stops a trailing TODO comment from becoming the tail of the pin range and its anchor."""
     x, y = a, b
     while x <= y and is_comment(lines[x - 1]):
         x += 1
@@ -2400,7 +2451,7 @@ def trim_comments(lines: list, a: int, b: int) -> tuple:
 
 
 def env_spans(lines: list) -> list:
-    """(시작 줄, 끝 줄, 이름) — 이름과 깊이를 맞춰 짝지은 모든 환경. 주석 안의 \\begin 은 무시한다."""
+    """(start line, end line, name) - every environment paired up by matching name and depth. A \\begin inside a comment is ignored."""
     stack, spans = [], []
     for i, ln in enumerate(lines):
         for m in ENV_TOK_RE.finditer(strip_comment(ln)):
@@ -2433,10 +2484,10 @@ def find_level(levels: list, key: str):
 
 
 def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
-    """범위 사다리: 드래그한 줄 / 문단(주석 꼬리 제외) / 감싸는 환경 안쪽→바깥 최대 3단.
+    """The range ladder: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels.
 
-    클라이언트가 서버 왕복 없이 단계를 바꾸도록 스니펫까지 한 번에 준다. section 단계는
-    두지 않는다 — 수백 줄 범위가 쉽게 생겨 '줄 범위만 넘긴다'는 원칙에 반한다."""
+    Snippets are included up front so the client can switch levels without a server round trip. There is no
+    section level - that would easily produce hundred-line ranges, against the "hand over only a line range" principle."""
     n = len(lines)
     raw_lo = max(1, min(raw_lo, n))
     raw_hi = max(raw_lo, min(raw_hi, n))
@@ -2447,7 +2498,7 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
                 "snippet": snippet(lines, lo, hi)}
         if env:
             item["env"] = env
-        for i, old in enumerate(levels):              # 범위가 같은 단계는 합친다(뒤쪽 이름으로)
+        for i, old in enumerate(levels):              # levels with the same range are merged (keeping the later name)
             if (old["lo"], old["hi"]) == (lo, hi):
                 item["merged"] = old.get("merged", []) + [old["level"]]
                 levels[i] = item
@@ -2460,16 +2511,18 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
                   key=lambda s: (s[1] - s[0], -s[0]))
     pa, pb = para_bounds(lines, raw_lo, raw_hi)
     if encl:
-        # 문단은 감싸는 가장 안쪽 환경을 넘지 않는다. 드래그가 그 환경의 안쪽이면 \begin/\end 줄도 뺀다 —
-        # 안 그러면 표 안의 '문단' 이 \end{table*} 와 그 뒤 줄까지 먹어 환경과 엇갈린다(실측: L187-L270).
+        # A paragraph never crosses the innermost enclosing environment. If the drag is strictly inside that
+        # environment, the \begin/\end lines are also excluded - otherwise a "paragraph" inside a table would
+        # swallow \end{table*} and the line after it, drifting out of sync with the environment (observed: L187-L270).
         ea, eb = encl[0][0], encl[0][1]
         if ea < raw_lo and raw_hi < eb:
             ea, eb = ea + 1, eb - 1
         pa, pb = max(pa, ea), min(pb, eb)
         if pa > pb:
             pa, pb = raw_lo, raw_hi
-    # 드래그 밖의 환경에 반쯤 걸치지도 않는다(\end{table*} 바로 뒤 문단이 표 꼬리를 먹던 것).
-    # 문단 안에 통째로 든 환경(빈 줄 없이 이어진 equation)은 그대로 둔다.
+    # Also never half-overlaps an environment outside the drag (a paragraph right after \end{table*} was
+    # swallowing the table's tail). An environment fully contained in the paragraph (an equation with no
+    # blank-line break) is left as-is.
     for a, b, name in spans:
         if name == "document" or a <= raw_lo <= b:
             continue
@@ -2480,8 +2533,9 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
     pa, pb = min(pa, raw_lo), max(pb, raw_hi)
     pa, pb = trim_comments(lines, pa, pb)
     add("para", pa, pb, "문단")
-    # 바깥 환경이 안쪽 환경을 앞뒤 한 줄로만 감싸면(minipage 안의 tabular 하나) 같은 블록이다 —
-    # 안쪽을 따로 세우면 사다리 한 칸이 거의 같은 범위로 낭비된다. 바깥 쪽 이름을 남긴다.
+    # If the outer environment wraps the inner one by exactly one line on each side (a single tabular inside
+    # a minipage), treat them as the same block - listing the inner one separately would waste a ladder
+    # rung on an almost-identical range. The outer name is kept.
     encl = [s for i, s in enumerate(encl)
             if not any(o[0] == s[0] - 1 and o[1] == s[1] + 1 for o in encl[i + 1:])]
     for k, (a, b, name) in enumerate(encl[:3]):
@@ -2507,17 +2561,19 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int) -> dict:
             "hi": default["hi"], "kind": kind}
 
 
-# ---------------------------------------------------------------- 앵커와 재동기화
+# ---------------------------------------------------------------- Anchors and re-syncing
 
 def anchor_of(lines: list, lo: int, hi: int) -> dict:
-    """핀이 가리키는 블록의 머리·꼬리 텍스트를 떠 둔다(순수 주석 줄은 건너뛴다).
+    """Captures the head/tail text of the block a pin points at (pure-comment lines are skipped).
 
-    줄 번호만 저장하면 원고를 한 번 고치는 순간 모든 핀이 어긋난다. 이 도구를 쓰는
-    이유가 '에이전트가 원고를 고친다'인데, 고치면 핀이 죽는 구조는 쓸 수 없다.
-    주석을 건너뛰는 이유: TODO 주석은 곧 지워질 줄이라 앵커로 삼으면 핀이 먼저 죽는다.
+    Storing only line numbers means every pin drifts the moment the manuscript is edited once. The whole
+    point of this tool is "an agent edits the manuscript", so a design where editing kills the pins is
+    unusable. Comments are skipped because a TODO comment is a line about to be deleted - anchoring to it
+    would kill the pin first.
 
-    head_off/tail_off 는 lo 에서 머리 줄까지, 꼬리 줄에서 hi 까지의 거리다. 이것이 없으면
-    앞뒤에 주석 줄을 일부러 넣은 핀이 첫 줄 맞춤에서 조용히 줄어든다(실측: L7-L9 → L10-L11)."""
+    head_off/tail_off are the distance from lo to the head line, and from the tail line to hi. Without
+    these, a pin that deliberately included comment lines at its edges would silently shrink on the first
+    line-matching pass (observed: L7-L9 -> L10-L11)."""
     idx = [i for i in range(lo - 1, min(hi, len(lines))) if lines[i].strip()]
     body = [i for i in idx if not is_comment(lines[i])] or idx
     if not body:
@@ -2543,11 +2599,11 @@ def find_line(nlines: list, needle: str, near: int):
 
 
 def sync_all(rows: list) -> bool:
-    """원고가 핀보다 새로우면 앵커로 줄 번호를 다시 맞춘다. 줄이나 stale 이 바뀐 레코드는 rev+1."""
+    """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1."""
     changed = False
     cache: dict = {}
     for r in rows:
-        if r.get("done") or not r.get("file"):         # 보기 전용 PDF 의 핀은 줄이 없다 — 맞출 것도 없다
+        if r.get("done") or not r.get("file"):         # a view-only PDF's pin has no lines - nothing to re-match
             continue
         f = Path(r.get("file", ""))
         if not in_tree(str(f)):
@@ -2561,16 +2617,16 @@ def sync_all(rows: list) -> bool:
             ls = tex_lines(f)
             cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
         lines, nlines, mtime = cache[f]
-        if "anchor" not in r:                        # 앵커 없이 저장된 옛 핀을 한 번만 채운다
+        if "anchor" not in r:                        # backfill a legacy pin saved without an anchor, once
             r["anchor"] = anchor_of(lines, r["lo"], r["hi"])
             r["synced_at"] = mtime
             changed = True
             continue
-        if not r["anchor"] or r.get("synced_at", 0) >= mtime:   # 빈 줄만 고른 핀은 따라갈 앵커가 없다
+        if not r["anchor"] or r.get("synced_at", 0) >= mtime:   # a pin that selected only blank lines has no anchor to follow
             continue
         before = (r["lo"], r["hi"], bool(r.get("stale")))
         anc = r["anchor"]
-        ho, to = _off(anc.get("head_off")), _off(anc.get("tail_off"))   # 옛 앵커는 0
+        ho, to = _off(anc.get("head_off")), _off(anc.get("tail_off"))   # 0 for a legacy anchor
         span = r["hi"] - r["lo"]
         head = find_line(nlines, anc.get("head", ""), r["lo"] + ho)
         if head is None:
@@ -2591,23 +2647,24 @@ def sync_all(rows: list) -> bool:
     return changed
 
 
-# ---------------------------------------------------------------- 핀 저장소
+# ---------------------------------------------------------------- Pin store
 
 def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
 def valid_rec(r) -> bool:
-    """저장소가 믿고 인덱싱하는 필드만 검사한다. 하나라도 틀리면 그 줄은 깨진 줄로 본다.
+    """Checks only the fields the store trusts and indexes on. If even one is wrong, the line is treated as broken.
 
-    id 만 보던 때는 lo 가 문자열이거나 file 이 없는 레코드 하나가 모든 GET·POST 를 500 으로
-    만들었고, 그 500 직전에 pins.jsonl 쓰기가 이미 커밋돼 재시도가 중복 핀을 만들었다(실측)."""
+    Back when only id was checked, a single record with a string lo or no file turned every GET/POST into a
+    500 - and because the pins.jsonl write had already committed right before that 500, a retry created a
+    duplicate pin (observed)."""
     if not isinstance(r, dict) or not _is_int(r.get("id")):
         return False
     if r.get("doc") is not None and not (isinstance(r["doc"], str) and DOC_KEY_RE.fullmatch(r["doc"])):
         return False
     if is_region_pin(r):
-        # 보기 전용 PDF 의 핀: file·lo·hi 대신 pdf(절대경로)·쪽·영역(frac)이 위치다(§보기 전용 문서).
+        # A view-only PDF's pin: instead of file/lo/hi, its location is pdf (absolute path)/page/region (frac) (see "View-only PDF documents" above).
         if not os.path.isabs(r["pdf"]) or not (_is_int(r.get("page")) and r["page"] >= 1):
             return False
         if r.get("lo") is not None or r.get("hi") is not None:
@@ -2621,7 +2678,7 @@ def valid_rec(r) -> bool:
         lo, hi = r.get("lo"), r.get("hi")
         if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi):
             return False
-        if not os.path.isabs(r["file"]):              # 상대 경로는 서버 cwd 에 따라 다른 파일을 가리킨다
+        if not os.path.isabs(r["file"]):              # a relative path would point at a different file depending on the server's cwd
             return False
     if "page" in r and not _is_int(r["page"]):
         return False
@@ -2630,7 +2687,7 @@ def valid_rec(r) -> bool:
     for k in ("close_reply", "close_ref"):
         if r.get(k) is not None and not isinstance(r[k], str):
             return False
-    # 새 필드(kind_req·thread·mentions·review)는 모두 선택이다. 뷰어가 그대로 그리는 값이라 모양이 틀리면 깨진 줄로 본다.
+    # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
     if r.get("kind_req") is not None and r["kind_req"] not in KIND_REQS:
         return False
     if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
@@ -2644,7 +2701,7 @@ def valid_rec(r) -> bool:
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not _is_int(r[k]):
             return False
-    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch 초 — '*_at'(문자열 시각)과 이름을 가른다
+    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch seconds - named apart from '*_at' (string timestamps)
         if r.get(k) is not None and not _is_num(r[k]):
             return False
     for k in ("done", "stale", "review"):
@@ -2671,13 +2728,13 @@ def _is_num(v) -> bool:
 
 
 def is_region_pin(r: dict) -> bool:
-    """보기 전용 PDF 문서의 핀인가 — file 이 없고 pdf 경로가 있다(레코드 모양으로만 가른다: 지금 설정에서 그 문서를
-    뺐어도 레코드는 깨진 줄이 아니다 — 깨진 줄로 치면 다음 쓰기가 그 핀을 지운다)."""
+    """Is this a pin on a view-only PDF document - no file, but a pdf path present (distinguished purely by record shape: even if the
+    current config no longer includes that document, the record is not treated as broken - treating it as broken would delete the pin on the next write)."""
     return isinstance(r, dict) and r.get("file") is None and isinstance(r.get("pdf"), str) and bool(r["pdf"])
 
 
 def _is_actor(v) -> bool:
-    """author·*_by 는 {login,name,pic?} 문자열 사전이어야 한다 — UI 가 name.trim() 을 부른다."""
+    """author/*_by must be a {login,name,pic?} string dict - the UI calls name.trim()."""
     return isinstance(v, dict) and all(v.get(k) is None or isinstance(v[k], str) for k in ("login", "name", "pic"))
 
 
@@ -2686,7 +2743,7 @@ def _is_str_list(v) -> bool:
 
 
 def _valid_thread(th) -> bool:
-    """thread = [{id, by, at, text, ev?, ref?, mentions?}] — 뷰어가 by.name·text 를 그대로 그린다."""
+    """thread = [{id, by, at, text, ev?, ref?, mentions?}] - the viewer renders by.name/text as-is."""
     if not isinstance(th, list):
         return False
     for m in th:
@@ -2704,8 +2761,8 @@ def _valid_thread(th) -> bool:
 
 
 def in_tree(p: str) -> bool:
-    """레코드의 file 이 원고 트리 안인가. 밖이면 줄 맞춤·편집이 그 파일을 읽지 않는다
-    (읽으면 앵커에 트리 밖 파일의 줄이 담겨 GET /api/pins 로 나간다)."""
+    """Is the record's file inside the manuscript tree? If outside, line-matching/editing never reads that
+    file (reading it would let a line from outside the tree leak into the anchor and out via GET /api/pins)."""
     try:
         Path(p).resolve().relative_to(C.src.resolve())
         return True
@@ -2714,9 +2771,9 @@ def in_tree(p: str) -> bool:
 
 
 def read_jsonl(path: Path) -> tuple:
-    """(레코드, 깨진 줄 번호). 깨진 줄은 건너뛰고 경고한다 — GET 전체가 500 이 되지 않게.
+    """(records, broken line numbers). Broken lines are skipped with a warning - so the whole GET doesn't become a 500.
 
-    JSON 으로 읽혀도 필수 필드(file·lo·hi·id)의 형이 틀리면 깨진 줄로 친다(valid_rec)."""
+    Even a line that parses as JSON is treated as broken if the required fields (file/lo/hi/id) have the wrong type (valid_rec)."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -2734,7 +2791,7 @@ def read_jsonl(path: Path) -> tuple:
             continue
         rows.append(r)
     if bad:
-        print("경고: %s 의 %d줄을 읽지 못했습니다(줄 %s)." % (path.name, len(bad), bad[:10]),
+        print("warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]),
               file=sys.stderr)
     return rows, bad
 
@@ -2748,7 +2805,7 @@ def dump_jsonl(rows: list) -> str:
 
 
 def unique_path(stem: str, suffix: str) -> Path:
-    """<state>/<stem><suffix> 가 이미 있으면 -1, -2 … 를 붙인다 — 같은 초에 두 번 보관해도 덮지 않게."""
+    """If <state>/<stem><suffix> already exists, appends -1, -2, ... - so archiving twice in the same second never overwrites."""
     p = C.state / (stem + suffix)
     k = 1
     while p.exists():
@@ -2758,21 +2815,21 @@ def unique_path(stem: str, suffix: str) -> Path:
 
 
 def write_pins(rows: list, bad=None) -> None:
-    """pins.md 를 메모리에서 먼저 만든다. 렌더가 실패하면 아무것도 쓰지 않는다 —
-    pins.jsonl 을 커밋한 뒤 500 을 돌려주면 클라이언트가 재시도해 중복 핀이 생긴다."""
+    """Builds pins.md in memory first. If rendering fails, nothing is written -
+    committing pins.jsonl and then returning a 500 would make the client retry and create a duplicate pin."""
     md = pins_md_text(rows)
     data = dump_jsonl(rows)
-    if bad and C.pins_jsonl.exists():                # 조용한 데이터 손실 방지: 원본 바이트를 남긴다
+    if bad and C.pins_jsonl.exists():                # avoid silent data loss: keep the original bytes
         shutil.copy2(C.pins_jsonl, unique_path("pins.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
     atomic_write(C.pins_jsonl, data)
     atomic_write(C.pins_md, md)
 
 
 def transact(fn):
-    """쓰기 순서 불변식: with PIN_LOCK → read → sync → 요청 변경 → atomic write → pins.md.
+    """Write-order invariant: with PIN_LOCK -> read -> sync -> apply the request's change -> atomic write -> pins.md.
 
-    변경을 sync 뒤에 적용하므로 사용자가 준 lo/hi 가 옛 앵커로 되돌아가지 않는다.
-    fn(rows) 는 (결과, 바뀌었는지) 를 돌려준다. fn 은 검증을 끝낸 뒤에만 rows 를 고친다."""
+    The change is applied after sync, so a caller-supplied lo/hi never gets reverted by a stale anchor.
+    fn(rows) returns (result, whether it mutated). fn only modifies rows after validation is done."""
     with PIN_LOCK:
         rows, bad = read_pins()
         synced = sync_all(rows)
@@ -2798,15 +2855,17 @@ def public(r: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- 위치 추정(.est) — 서버가 판정하는 계산 필드
+# ---------------------------------------------------------------- Location estimation (.est) — a computed field the server judges
 #
-# 마크는 핀을 찍을 때의 frac(쪽 대비 비율)에 고정된다. 그 좌표가 지금 화면의 PDF 와 안 맞을 수 있으면
-# '추정'(점선)이다. 판정은 빌드 신원으로 한다: 핀이 찍힌 화면의 빌드(pdf_build)가 지금 빌드와 다르고,
-# 두 빌드가 컴파일한 원고 지문이 다르면 추정. 또는 앵커 줄 맞춤이 옮겼거나(moved) 잃었으면(lost) 추정.
-# 벽시계는 쓰지 않는다 — 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은 핀에서 전부 틀렸다.
+# A mark is fixed to frac (the ratio relative to the page) at the moment the pin was placed. If those
+# coordinates might no longer match the PDF currently on screen, it's "estimated" (dashed). The judgment
+# is made by build identity: estimated if the build the pin was placed on screen with (pdf_build) differs
+# from the current build and the two builds' manuscript fingerprints differ. Also estimated if anchor line
+# matching moved or lost the pin. The wall clock is never used - browser timezone, a note-only edited_at,
+# and a pin placed on a stale PDF were all wrong across the board.
 
 def pin_build(r: dict):
-    """핀 좌표가 속한 빌드 이름. frac_build 는 같은 뜻의 옛 필드명(83b91a5)이다."""
+    """The name of the build a pin's coordinates belong to. frac_build is the legacy field name with the same meaning (83b91a5)."""
     for k in ("pdf_build", "frac_build"):
         v = r.get(k)
         if isinstance(v, str) and v:
@@ -2815,7 +2874,7 @@ def pin_build(r: dict):
 
 
 def _epoch(s):
-    """'YYYY-MM-DD HH:MM:SS'(서버 현지 시각, now_str 이 쓴 모양) 또는 ISO+오프셋 → epoch 초. 서버에서만 푼다."""
+    """'YYYY-MM-DD HH:MM:SS' (server local time, the shape now_str writes) or ISO+offset -> epoch seconds. Resolved server-side only."""
     if not isinstance(s, str) or not s.strip():
         return None
     try:
@@ -2823,16 +2882,16 @@ def _epoch(s):
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.astimezone()          # 서버 현지 시각으로 쓴 값이다 — 같은 기계에서 되읽는다
+        dt = dt.astimezone()          # this value was written in server local time - read back on the same machine
     return dt.timestamp()
 
 
 def est_context() -> dict:
-    """요청 하나 동안 쓸 판정 재료(이력 한 번 읽기)."""
+    """Judgment material for one request (history read once)."""
     h = load_builds()
     cur = cur_pages().name
     by = dict(h["by"])
-    if cur not in by:                                 # seed_builds() 전(테스트·드문 경합) — 알려진 것만으로 판정
+    if cur not in by:                                 # before seed_builds() (tests / a rare race) - judge with what's known
         by[cur] = {"build": cur, "src_mtime": read_built_src_mtime(), "src_hash": None}
     bsm = read_built_src_mtime()
     if bsm is None and _is_num(by[cur].get("src_mtime")):
@@ -2841,8 +2900,8 @@ def est_context() -> dict:
 
 
 def same_source(a, b) -> bool:
-    """두 빌드가 같은 원고로 만들어졌는가. 해시가 둘 다 있으면 해시로, 아니면 시작 때 src_mtime 으로.
-    어느 쪽도 모르면 False(다르다고 본다) — 모르는 채로 '정확한 위치'라고 그리는 편이 더 해롭다."""
+    """Were two builds made from the same manuscript? By hash if both have one, otherwise by src_mtime at start.
+    False (treated as different) if neither is known - rendering it as "exact location" while actually unsure would be worse."""
     if not a or not b:
         return False
     if a.get("src_hash") and b.get("src_hash"):
@@ -2852,11 +2911,12 @@ def same_source(a, b) -> bool:
 
 
 def legacy_est(r: dict, ctx: dict) -> bool:
-    """pdf_build 가 없는 옛 핀의 대체 휴리스틱(옛 뷰어의 규칙을 서버에서 epoch 수치로): 핀이 지금 PDF 보다
-    먼저 찍혔고, 지금 PDF 를 만든 원고(시작 때 src_mtime)가 그 핀보다 나중에 바뀌었으면 추정.
+    """Fallback heuristic for a legacy pin without pdf_build (the old viewer's rule, redone server-side with epoch numbers): estimated if
+    the pin was placed before the current PDF, and the manuscript that produced the current PDF (src_mtime at start) changed after the pin.
 
-    기준 시각은 찍은 시각(at)뿐이다 — edited_at 을 쓰면 메모만 고쳐도 추정이 꺼진다(독립 검증 실측).
-    frac 을 다시 찍는 편집(loc)은 이제 pdf_build 를 남기므로 이 휴리스틱을 더 타지 않는다."""
+    The only reference time is when it was placed (at) - using edited_at would turn off estimation just from
+    editing the note (confirmed by independent verification). An edit that re-places frac (loc) now records
+    pdf_build, so it no longer falls through to this heuristic."""
     ba, pa = ctx["built_at"], _epoch(r.get("at"))
     if ba is None or pa is None or pa >= ba:
         return False
@@ -2866,7 +2926,7 @@ def legacy_est(r: dict, ctx: dict) -> bool:
 def pin_est(r: dict, ctx: dict) -> bool:
     sync = r.get("sync")
     if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
-        return True                                   # moved ±N / lost — 앵커가 옮기거나 잃었다
+        return True                                   # moved +-N / lost - the anchor shifted or was lost
     b = pin_build(r)
     if b is None:
         return legacy_est(r, ctx)
@@ -2876,18 +2936,20 @@ def pin_est(r: dict, ctx: dict) -> bool:
 
 
 def pin_state(r: dict) -> str:
-    """'open' | 'review' | 'done' — 저장하지 않는 계산 필드(docs/api.md §검토 대기).
+    """'open' | 'review' | 'done' - a computed field, never stored (docs/api.md §Pending review).
 
-    검토 대기는 done=true 에 review=true 를 더한 모양이다. done 이 true 라서 옛 계약이 그대로 선다 — GET /api/pins(열린 핀만)·
-    pins.md 열린 표·claim(409 done)·줄 맞춤·겹침 계산이 모두 검토 대기 핀을 '에이전트 몫이 끝난 핀'으로 본다. 옛 서버·옛 뷰어가
-    읽으면 완료로 보일 뿐 깨지지 않는다. review 가 없는 옛 done:true 레코드는 그대로 완료다 — 읽을 때 이관 쓰기를 하지 않는다."""
+    Awaiting review is the shape done=true plus review=true. Because done is still true, the legacy contract
+    keeps working as-is - GET /api/pins (open pins only), the pins.md open table, claim (409 on done), line
+    matching, and overlap computation all treat an awaiting-review pin as "the agent's part is finished".
+    An old server or old viewer just sees it as done, and nothing breaks. A legacy done:true record with no
+    review field stays plain done - reading it never triggers a migration write."""
     if not r.get("done"):
         return "open"
     return "review" if r.get("review") is True else "done"
 
 
 def pins_payload(rows: list, allp: bool) -> list:
-    """GET /api/pins 응답: 저장 레코드 + 계산 필드 rel(겹침)·est(위치 추정)·state. 모두 저장하지 않는다."""
+    """GET /api/pins response: stored records + the computed fields rel (overlap), est (location estimated), state. None of these are stored."""
     rel = overlaps_by_id(rows)
     ctxs: dict = {}
     out = []
@@ -2895,7 +2957,7 @@ def pins_payload(rows: list, allp: bool) -> list:
         if not (allp or not r.get("done")):
             continue
         k = pin_doc_key(r)
-        if k not in ctxs:                              # 판정 재료는 문서마다(빌드 이력이 문서마다 따로다)
+        if k not in ctxs:                              # judgment material is per document (build history is separate per document)
             D = doc_by_key(k)
             if D is None:
                 ctxs[k] = None
@@ -2906,7 +2968,7 @@ def pins_payload(rows: list, allp: bool) -> list:
         rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k, state=pin_state(r),
                    addressed=addressed_to(r), fyi=fyi_mentions_to(r))
         if claim_active(r) and not _is_num(r.get("claim_ts")):
-            ts = _epoch(r.get("claimed_at"))          # eta 이전 claim — 뷰어의 '20:02부터 (23분째)'가 쓸 시작 epoch(계산 필드)
+            ts = _epoch(r.get("claimed_at"))          # a pre-eta claim - the start epoch (computed field) the viewer's "since 20:02 (23 min in)" uses
             if ts is not None:
                 rec["claim_ts"] = ts
         out.append(rec)
@@ -2914,19 +2976,20 @@ def pins_payload(rows: list, allp: bool) -> list:
 
 
 def dropped_payload() -> list:
-    """GET /api/pins/dropped 응답: pins.dropped.jsonl 을 dropped_at 순으로 그대로 낸다(계산 필드 없음).
+    """GET /api/pins/dropped response: pins.dropped.jsonl emitted as-is, ordered by dropped_at (no computed fields).
 
-    읽기 전용이고 잠금 밖이다 — 삭제·되살리기는 이미 PIN_LOCK 을 쥐고 이 파일을 쓴다(drop_pin·restore_pin).
-    여기서는 원자적 교체(atomic_write)가 끝난 파일만 읽으므로 별도 잠금이 없어도 반쪽짜리를 보지 않는다."""
+    Read-only and outside the lock - dropping/restoring already hold PIN_LOCK while writing this file
+    (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
+    read here, no separate lock is needed to avoid seeing a half-written file."""
     rows, _ = read_jsonl(C.dropped)
     rows.sort(key=lambda r: str(r.get("dropped_at") or ""))
     return [public(r) for r in rows]
 
 
-# ---------------------------------------------------------------- 겹침(overlap) — 저장하지 않는 계산 필드
+# ---------------------------------------------------------------- Overlap - a computed field, never stored
 
 def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
-    """a 를 기준으로 b 와의 관계. 겹치지 않으면 None."""
+    """a's relationship to b. None if they don't overlap."""
     if a_hi < b_lo or b_hi < a_lo:
         return None
     if b_lo <= a_lo and a_hi <= b_hi:
@@ -2937,17 +3000,17 @@ def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
 
 
 def overlaps_by_id(rows: list) -> dict:
-    """같은 file 의 열린 핀 쌍마다 관계를 계산한다(저장하지 않는다). {id: [{"id","rel"}, …]}.
+    """Computes the relationship for every pair of open pins on the same file (never stored). {id: [{"id","rel"}, ...]}.
 
-    범위가 완전히 같으면 id 가 작은 쪽을 바깥(contains)으로 본다 — 어느 쪽도 진짜로 안에 든 것이
-    아니므로 결정적인 규칙 하나가 필요하다."""
+    When two ranges are exactly equal, the one with the smaller id is treated as the outer one (contains) -
+    since neither is truly nested inside the other, a single deterministic rule is needed."""
     out: dict = {}
     by_file: dict = {}
     for r in rows:
         if r.get("done"):
             continue
         out.setdefault(r["id"], [])
-        if not r.get("file"):                          # 보기 전용 PDF 의 핀 — 줄 범위 겹침이 없다
+        if not r.get("file"):                          # a view-only PDF's pin - no line-range overlap
             continue
         by_file.setdefault(r.get("file"), []).append(r)
     for group in by_file.values():
@@ -2958,7 +3021,7 @@ def overlaps_by_id(rows: list) -> dict:
                     out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
                     out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
                     continue
-                rel_a = _range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # a 가 b 안에 드는가
+                rel_a = _range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # does a fall inside b?
                 if rel_a == "inside":
                     out[a["id"]].append({"id": b["id"], "rel": "inside"})
                     out[b["id"]].append({"id": a["id"], "rel": "contains"})
@@ -2972,21 +3035,23 @@ def overlaps_by_id(rows: list) -> dict:
 
 
 def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int):
-    """아직 저장 전인 선택(lo..hi)과 저장된 핀(b_lo..b_hi)의 관계 — 선택 기준.
+    """The relationship between a not-yet-saved selection (lo..hi) and a saved pin (b_lo..b_hi) - from the selection's point of view.
 
-    equal(범위가 같음 — 같은 문단·환경을 두 번 찍는 가장 흔한 중복) · inside(선택이 핀 안) ·
-    contains(선택이 핀을 감쌈) · partial(걸침) · None(안 겹침). 뷰어의 overlapsFor() 와 같은 규칙이다
-    (범위가 바뀔 때마다 브라우저가 서버 왕복 없이 다시 계산한다 — 회귀 테스트가 두 구현을 대조한다)."""
+    equal (same range - the most common duplicate: placing a pin on the same paragraph/environment twice) -
+    inside (selection is inside the pin) - contains (selection wraps the pin) - partial (overlapping) -
+    None (no overlap). Same rule as the viewer's overlapsFor() (the browser recomputes this on every range
+    change without a server round trip - a regression test compares the two implementations)."""
     if (lo, hi) == (b_lo, b_hi):
         return "equal"
     return _range_rel(lo, hi, b_lo, b_hi)
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
-    """pick 이 고른 (아직 저장 전인) 범위가 그 파일의 열린 핀들과 겹치는 관계. 저장은 하지 않는다.
+    """The overlap relationships between the (not-yet-saved) range pick chose and that file's open pins. Nothing is saved.
 
-    저장된 핀끼리(overlaps_by_id)는 범위가 같으면 id 로 안팎을 가르지만, 새 선택에는 아직 id 가 없으므로
-    같은 범위를 따로 'equal' 로 낸다 — 뷰어는 네 관계 모두 배너로 알리고 문구로 관계를 밝힌다."""
+    Between saved pins (overlaps_by_id), equal ranges are split into inner/outer by id, but a new selection
+    has no id yet, so an identical range is reported separately as 'equal' - the viewer surfaces all four
+    relationships via a banner with wording that spells out the relationship."""
     out = []
     for r in snapshot_pins():
         if r.get("done") or r.get("file") != file:
@@ -2998,20 +3063,22 @@ def overlaps_for_range(file: str, lo: int, hi: int) -> list:
 
 
 def josa(n, cons: str, vowel: str) -> str:
-    """숫자 뒤 조사 — '#20과'·'#2와', '#20을'·'#2를'. 한자어 읽기의 끝소리로 가른다: 0 으로 끝나면(십·백·천·만·영) 받침,
-    아니면 끝자리 1·3·6·7·8(일·삼·육·칠·팔)이 받침이다. 뷰어 josa() 와 같은 규칙."""
+    """Korean particle after a number - '#20과'/'#2와', '#20을'/'#2를'. Decided by the final sound of the Sino-Korean reading:
+    ending in 0 (ship/baek/cheon/man/yeong) takes the consonant-final particle, and so do the digits 1/3/6/7/8
+    (il/sam/yuk/chil/pal). Same rule as the viewer's josa()."""
     d = str(n)[-1:]
     return cons if d == "0" or d in "13678" else vowel
 
 
 def rel_badge(rel: list, by_id: dict, me: dict = None) -> str:
-    """pins.md·카드 태그용 대표 관계 하나 — 뜻이 드러나는 짧은 말로 쓴다(예전 ⊂#N·∩#N 은 뜻을 알 수 없었다).
+    """Picks one representative relationship for pins.md / card tags - phrased as a short, meaningful label (the old ⊂#N/∩#N marks were unreadable).
 
-    1. 범위가 똑같은 핀이 있으면(같은 곳을 두 번 찍음) id 가 가장 작은 것: '#N과 같은 범위'
-    2. inside 가 있으면 범위가 가장 작은 바깥 핀: '#N 범위 안'
-    3. partial 중 id 가 가장 작은 것: '#N과 일부 겹침'
-    contains(감쌈)는 표기하지 않는다. GET /api/pins 의 rel 항목은 {id,rel} 뿐이라(계약), 범위는 by_id(전체 행)에서
-    찾는다. me(이 핀)가 없으면 같은 범위를 가려내지 못하고 예전처럼 안/겹침만 본다."""
+    1. If there's a pin with the exact same range (the same spot marked twice), the one with the smallest id: '#N과 같은 범위'
+    2. If there's an inside relationship, the smallest enclosing outer pin: '#N 범위 안'
+    3. The smallest-id partial: '#N과 일부 겹침'
+    contains (wraps) is never shown. Since the rel entries from GET /api/pins are only {id,rel} (the
+    contract), ranges are looked up from by_id (the full rows). Without me (this pin), same-range pins
+    can't be singled out, so it falls back to only inside/overlap, as before."""
     if me is not None:
         same = [x for x in rel if (by_id.get(x["id"]) or {}).get("lo") == me.get("lo")
                 and (by_id.get(x["id"]) or {}).get("hi") == me.get("hi")]
@@ -3038,7 +3105,7 @@ def max_id_in(path: Path) -> int:
 
 
 def init_seq() -> None:
-    """pins.seq 가 없으면 한 번만 현재·보관·삭제 기록의 최대 id 로 채운다(1회 이관)."""
+    """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (a one-time migration)."""
     with PIN_LOCK:
         if C.seq.exists():
             return
@@ -3049,7 +3116,7 @@ def init_seq() -> None:
 
 
 def next_id(rows: list) -> int:
-    """id 는 다시 쓰지 않는다 — 채팅 속 '#2' 가 다른 핀을 가리키게 되면 안 된다."""
+    """An id is never reused - "#2" in a chat message must never end up pointing at a different pin."""
     try:
         last = int(C.seq.read_text().strip() or 0)
     except (OSError, ValueError):
@@ -3067,7 +3134,7 @@ def who(actor: dict) -> dict:
     return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
 
 
-# ---------------------------------------------------------------- 입력 검증
+# ---------------------------------------------------------------- Input validation
 
 def _int(v, what: str) -> int:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
@@ -3092,8 +3159,8 @@ def clean_note(v) -> str:
 
 
 def clean_close_body(d: dict) -> tuple:
-    """close 본문의 선택 필드 {"reply", "ref"} 를 검증한다. 없거나 빈 문자열(공백만 포함)이면
-    (None, None) — 기존 '본문 없는 curl POST' 동작을 그대로 둔다(§P0b-보완 C)."""
+    """Validates the close body's optional {"reply", "ref"} fields. Absent or an empty (whitespace-only)
+    string both become (None, None) - preserving the existing "curl POST with no body" behavior (§P0b-보완 C)."""
     reply = d.get("reply")
     if reply is not None:
         if not isinstance(reply, str):
@@ -3114,7 +3181,7 @@ def clean_close_body(d: dict) -> tuple:
 
 
 def clean_assignee(v, rows: list = None):
-    """담당 — "agent" 또는 이 뷰어가 아는 사람(known_people)의 로그인. 없으면 None(보내지 않음 = 그대로)."""
+    """Assignee - "agent" or the login of a person this viewer knows (known_people). None if absent (not sent = unchanged)."""
     if v is None:
         return None
     if v == ASSIGNEE_AGENT:
@@ -3127,7 +3194,7 @@ def clean_assignee(v, rows: list = None):
 
 
 def _set_assignee(r: dict, value, actor: dict, evs: list, record: bool) -> None:
-    """담당을 바꾼다. 바뀌면(record=True 일 때) 스레드에 ev=assign 한 줄을 남기고, 사람이 새로 담당이 되면 assigned 이벤트를 쌓는다."""
+    """Changes the assignee. If it changes (and record=True), leaves an ev=assign line in the thread, and if a person newly becomes the assignee, queues an assigned event."""
     if value is None or r.get("assignee") == value:
         return
     before = r.get("assignee")
@@ -3143,7 +3210,7 @@ def _person_name(login: str) -> str:
 
 
 def clean_kind_req(v):
-    """핀 종류 — 'fix'(수정 요청) | 'question'(질문). 없으면 None(= fix, 옛 핀과 같다)."""
+    """Pin kind - 'fix' (fix request) | 'question'. None if absent (= fix, same as a legacy pin)."""
     if v is None:
         return None
     if v not in KIND_REQS:
@@ -3152,8 +3219,9 @@ def clean_kind_req(v):
 
 
 def clean_thread_text(v, what: str = "text", required: bool = True):
-    """답글·다시 열기 사유 한 건. 메모처럼 문자열·길이만 본다(화면은 esc() 로 그린다). 줄바꿈은 \\n 으로 맞추고
-    제어 문자(줄바꿈·탭 말고)는 뺀다 — pins.md 표와 알림 본문이 깨지지 않게. 앞뒤 공백을 걷은 뒤 비면 400(required)."""
+    """One reply or reopen reason. Like a note, only string type and length are checked (the screen renders via esc()). Newlines are
+    normalized to \\n and control characters (other than newline/tab) are stripped - so the pins.md table and notification bodies
+    don't break. After trimming whitespace, an empty result is 400 (when required)."""
     if v is None:
         if required:
             raise HTTPError(400, "%s 가 필요합니다." % what)
@@ -3172,7 +3240,7 @@ def clean_thread_text(v, what: str = "text", required: bool = True):
 
 
 def clean_loc(d: dict) -> dict:
-    """위치 필드를 검증해 저장할 모양으로 만든다. file 은 원고 트리 안, 1 ≤ lo ≤ hi ≤ 줄 수."""
+    """Validates location fields into the shape to store. file must be inside the manuscript tree, and 1 <= lo <= hi <= line count."""
     out: dict = {}
     f = safe_src(d.get("file"))
     n = len(tex_lines(f))
@@ -3210,19 +3278,19 @@ def clean_loc(d: dict) -> dict:
         if not isinstance(d["quote"], str):
             raise HTTPError(400, "quote 는 문자열입니다.")
         out["quote"] = truncate_quote(d["quote"], 60)
-    if d.get("pdf_build") is not None:                # 드래그할 때 화면에 있던 빌드(pick 응답의 pdf_build)
+    if d.get("pdf_build") is not None:                # the build on screen at drag time (pdf_build from the pick response)
         if not valid_build_name(d["pdf_build"]):
             raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
         out["pdf_build"] = d["pdf_build"]
     return out
 
 
-PDF_QUOTE_MAX = 160               # 보기 전용 핀의 영역 글자 — 줄 번호가 없으니 60자보다 넉넉히(에이전트의 판단 재료)
+PDF_QUOTE_MAX = 160               # region text for a view-only pin - more generous than 60 chars since there's no line number (material for the agent's judgment)
 REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build")
 
 
 def clean_frac(fr) -> list:
-    """보기 전용 핀의 위치는 영역뿐이라 LaTeX 핀보다 엄하게 본다: 숫자 4개, 쪽 안(0..1), 넓이가 있다."""
+    """A view-only pin's location is region-only, so it's checked more strictly than a LaTeX pin: 4 numbers, within the page (0..1), positive area."""
     if not isinstance(fr, list) or len(fr) != 4:
         raise HTTPError(400, "frac 은 숫자 4개 목록 [x, y, w, h](쪽 대비 비율)입니다.")
     x, y, w, h = [_num(v, "frac") for v in fr]
@@ -3234,7 +3302,7 @@ def clean_frac(fr) -> list:
 
 
 def clean_region(d: dict) -> dict:
-    """보기 전용 문서(지금 문서)의 핀 위치 — 쪽·영역. lo/hi·file 은 받지 않는다."""
+    """A view-only document's (the current document's) pin location - page/region. lo/hi/file are not accepted."""
     D = cur_doc()
     for k in ("file", "lo", "hi", "scope"):
         if d.get(k) is not None:
@@ -3259,8 +3327,8 @@ def clean_region(d: dict) -> dict:
 
 
 def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
-    """요청이 가리키는 문서: ?doc= 또는 본문 doc. 둘 다 없으면 file 로 짐작하고(에이전트 curl), 그것도 없으면 첫 문서.
-    없는 키는 404 — 조용히 첫 문서로 물러서면 다른 문서에 핀이 붙는다."""
+    """The document a request refers to: ?doc= or body doc. If neither is present, guessed from file (agent curl); if that's absent too, the first document.
+    An unknown key is 404 - silently falling back to the first document would attach the pin to the wrong document."""
     key = (q.get("doc") or [None])[0] if q else None
     bkey = body.get("doc") if isinstance(body, dict) else None
     if bkey is not None and not isinstance(bkey, str):
@@ -3278,12 +3346,12 @@ def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
     return D
 
 
-# ---------------------------------------------------------------- 핀 조작
+# ---------------------------------------------------------------- Pin operations
 
 def add_pin(d: dict, actor: dict) -> int:
     D = cur_doc()
     want = d.get("doc")
-    if isinstance(want, str) and want != D.key:        # 본문의 doc 이 지금 문서와 다르면 그 문서로(없는 키면 404)
+    if isinstance(want, str) and want != D.key:        # if the body's doc differs from the current document, switch to that one (404 on an unknown key)
         other = request_doc({}, {"doc": want})
         with using_doc(other):
             return add_pin(dict(d, doc=other.key), actor)
@@ -3312,9 +3380,10 @@ def add_pin(d: dict, actor: dict) -> int:
         _set_assignee(rec, assignee, actor, evs, record=False)
         rec["anchor"] = anchor_of(lines, rec["lo"], rec["hi"])
         rec["synced_at"] = f.stat().st_mtime if f.exists() else 0
-        # frac 이 어느 빌드의 레이아웃 좌표인지를 빌드 신원으로 못박는다(§위치 추정). 뷰어는 pick 응답의
-        # pdf_build(드래그할 때 화면에 있던 빌드)를 그대로 돌려보낸다 — 재빌드 직후 화면을 바꾸기 전의
-        # 드래그도 옛 빌드로 남는다. 안 보낸 호출(에이전트 curl)은 지금 빌드다.
+        # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation).
+        # The viewer just echoes back pdf_build from the pick response (the build on screen at drag time) -
+        # so a drag made right after a rebuild but before the screen switches still stays tagged to the old build.
+        # A call that doesn't send it (agent curl) is treated as the current build.
         rec.setdefault("pdf_build", cur_pages().name)
         rec["doc"] = D.key
         rec["rev"] = 0
@@ -3327,7 +3396,7 @@ def add_pin(d: dict, actor: dict) -> int:
 
 
 def _add_region_pin(d: dict, actor: dict) -> int:
-    """보기 전용 문서의 핀: {doc, pdf, name, page, frac, kind:'region', quote?, note, pdf_build}. 줄·앵커가 없다."""
+    """A pin on a view-only document: {doc, pdf, name, page, frac, kind:'region', quote?, note, pdf_build}. No line or anchor."""
     D = cur_doc()
     rec = clean_region({k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d})
     note = clean_note(d.get("note"))
@@ -3357,10 +3426,10 @@ def _add_region_pin(d: dict, actor: dict) -> int:
 
 
 def edit_pin(pid: int, d: dict, actor: dict) -> dict:
-    """메모·범위·위치를 제자리에서 고친다. id·at·done 은 바꾸지 않는다.
+    """Edits the note/range/location in place. id/at/done are never changed.
 
-    base_rev 가 지금 rev 와 다르면 409 — 에이전트가 닫았거나 자동 줄 맞춤이 옮긴 핀을
-    옛 lo/hi 로 조용히 덮어쓰지 않기 위해서다."""
+    If base_rev differs from the current rev, 409 - so a pin the agent closed, or one auto-line-matching
+    already moved, is never silently overwritten with stale lo/hi."""
     has_note = "note" in d
     note = clean_note(d.get("note")) if has_note else None
     note_append = d.get("note_append")
@@ -3382,9 +3451,9 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         raise HTTPError(400, "kind 가 올바르지 않습니다.")
-    kind_req = clean_kind_req(d.get("kind_req"))   # 핀 종류(수정 요청/질문) — 닫힌 핀에서도 바꿀 수 있는 메모 수준 값
+    kind_req = clean_kind_req(d.get("kind_req"))   # pin kind (fix request/question) - a note-level value that can be changed even on a closed pin
     hints = clean_mention_hints(d.get("mentions"))
-    assignee = clean_assignee(d.get("assignee"))   # 담당 — kind_req 처럼 닫힌 핀에서도 바꿀 수 있다. 바뀌면 스레드에 ev=assign
+    assignee = clean_assignee(d.get("assignee"))   # assignee - like kind_req, can be changed even on a closed pin. Changing it leaves an ev=assign in the thread
     evs = []
     base_given = "base_rev" in d
     if not base_given and note_append is None:
@@ -3394,7 +3463,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
     if not (has_note or moves or scope is not None or kind is not None or note_append is not None or kind_req is not None
             or assignee is not None):
         raise HTTPError(400, "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).")
-    # 위치 검증·기본 빌드는 그 핀의 문서 기준이다(요청이 ?doc= 를 안 붙여도). 핀의 종류(LaTeX/보기 전용)는 바뀌지 않는다.
+    # Location validation and the default build are scoped to that pin's document (even if the request omits ?doc=). A pin's kind (LaTeX/view-only) never changes.
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
     pdoc = (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
@@ -3406,7 +3475,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         else:
             newloc = clean_loc(loc) if loc is not None else None
         if newloc is not None:
-            # pdf_build 는 frac 이 어느 빌드의 좌표인지다 — frac 을 새로 찍지 않은 loc 는 그 값을 못 바꾼다.
+            # pdf_build records which build frac's coordinates belong to - a loc that doesn't re-place frac cannot change this value.
             if "frac" in loc:
                 newloc.setdefault("pdf_build", cur_pages().name)
             else:
@@ -3422,25 +3491,25 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
             raise HTTPError(409, "conflict", pin=public(r))
         range_changed = False
         if region:
-            if newloc is not None:                   # 영역 다시 잡기 — 쪽·영역·영역 글자·빌드만 바뀐다
+            if newloc is not None:                   # re-placing the region - only page/region/region text/build change
                 for k in ("page", "frac", "quote", "pdf_build"):
                     if k in newloc:
                         r[k] = newloc[k]
                     elif k == "quote":
                         r.pop("quote", None)
         elif newloc is not None:
-            # loc 에 없는 page·frac 은 그대로 둔다 — 에이전트가 file/lo/hi 만 보내도 쪽이 1로 튀지 않게.
+            # page/frac not present in loc are left as-is - so page doesn't snap back to 1 just because the agent sent only file/lo/hi.
             keep = {k: r[k] for k in ("page", "frac") if k not in loc and k in r}
             for k in LOC_FIELDS:
                 r.pop(k, None)
             r.update(newloc)
             r.update(keep)
-            if "kind" not in newloc:                 # add 와 같은 기본값
+            if "kind" not in newloc:                 # same default as add
                 r["kind"] = kind if kind is not None else "lines"
             if scope is not None and "scope" not in newloc:
                 r["scope"] = scope
-            if "frac" in loc:                        # frac 을 실제로 다시 찍었을 때만 빌드 신원이 바뀐다
-                r.pop("frac_build", None)            # 옛 필드명(83b91a5) — pdf_build 로 대체
+            if "frac" in loc:                        # build identity only changes when frac was actually re-placed
+                r.pop("frac_build", None)            # legacy field name (83b91a5) - superseded by pdf_build
             range_changed = True
         elif lo is not None or hi is not None:
             a = lo if lo is not None else r["lo"]
@@ -3453,7 +3522,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
                 raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, a, b))
             range_changed = (a, b) != (r["lo"], r["hi"]) or bool(r.get("stale"))
             r["lo"], r["hi"] = a, b
-            if range_changed:                        # 손으로 옮긴 범위는 더 이상 좌표·글자 매칭 결과가 아니다
+            if range_changed:                        # a manually moved range is no longer the result of coordinate/text matching
                 r.pop("via", None)
                 r.pop("score", None)
         if newloc is None:
@@ -3491,7 +3560,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
 
 
 def _msg_by(actor: dict) -> dict:
-    """스레드 글쓴이 — who() 에 아바타(pic)를 더한다(카드가 22px 원을 그린다)."""
+    """The thread author - adds an avatar (pic) to who() (the card renders a 22px circle)."""
     out = who(actor)
     if isinstance(actor.get("pic"), str) and actor["pic"]:
         out["pic"] = actor["pic"]
@@ -3499,9 +3568,9 @@ def _msg_by(actor: dict) -> dict:
 
 
 def _thread_append(r: dict, actor: dict, text: str = "", ev: str = None, ref: str = None, mentions=None) -> dict:
-    """스레드에 한 건을 덧붙인다(호출부가 검증을 끝낸 뒤, transact 안에서만). id 는 핀 안에서 1부터 늘어나고 다시 쓰지 않는다.
+    """Appends one entry to the thread (only after the caller has finished validating, and only inside transact). id increments from 1 within a pin and is never reused.
 
-    ev(close·reopen·confirm)는 상태 전환 기록이다 — 닫기 사유(reply)·다시 연 이유가 답글과 한 줄의 이력으로 남는다."""
+    ev (close/reopen/confirm) is a state-transition record - the close reason (reply) and reopen reason are recorded in the same single-line history as replies."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
     mid = max((m.get("id", 0) for m in th if isinstance(m, dict) and _is_int(m.get("id"))), default=0) + 1
     msg = {"id": mid, "by": _msg_by(actor), "at": now_str(), "text": text or ""}
@@ -3516,17 +3585,18 @@ def _thread_append(r: dict, actor: dict, text: str = "", ev: str = None, ref: st
 
 
 def thread_replies(r: dict) -> list:
-    """상태 전환 기록(ev)을 뺀 답글만."""
+    """Replies only, excluding state-transition records (ev)."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
     return [m for m in th if isinstance(m, dict) and not m.get("ev")]
 
 
 def thread_round(r: dict) -> list:
-    """지금 열린 차례의 스레드 — 마지막 닫기(ev=close) 뒤의 글. 한 번도 닫힌 적 없으면 전부.
-    다시 열린 핀이면 다시 연 이유(ev=reopen)부터 시작한다(포함) — 에이전트가 다시 고칠 때 읽어야 하는
-    부분이다. 마지막 다시 엶이 마지막 닫기보다 나중이어야 그렇다 — 아니면(검토 중이라 아직 다시 열리지
-    않았으면) 그대로 마지막 닫기 뒤부터다. 이걸 안 가르면, 검토 중(닫힘~다시 엶 사이)에 단 답글이 다시
-    엶 뒤의 새 차례로 새는 결함이 있었다(예: 그 답글의 @태그가 엉뚱하게 새 차례의 addressed_to 에 남음)."""
+    """The thread of the currently open round - posts after the last close (ev=close). Everything, if never closed.
+    For a reopened pin, starts from (and includes) the reopen reason (ev=reopen) - this is the part an agent
+    needs to read when fixing it again. That only applies if the last reopen is after the last close -
+    otherwise (still under review, not yet reopened), it's simply everything after the last close. Without
+    this distinction, a reply posted during review (between close and reopen) leaked into the new round after
+    reopening as a defect (e.g. that reply's @-tags incorrectly ended up in the new round's addressed_to)."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
     last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
     last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
@@ -3535,26 +3605,28 @@ def thread_round(r: dict) -> list:
 
 
 def pin_reopened_in_round(r: dict) -> bool:
-    """마지막으로 완료된 뒤(마지막 close) 다시 열린 적이 있는가 — pins.md '다시 열림' 표시(§검토 대기).
-    thread_round() 가 지금 차례를 다시 엶부터 잡으므로 사실상 같은 조건이지만, 둘의 정의가 갈릴 미래를
-    대비해 따로 둔다(예전엔 '차례의 첫 글이 다시 엶인가'만 봐서 다시 엶 뒤 확인(ev=confirm)이 낀 차례를
-    놓쳤다 — 확인 후 다시 열면 차례가 [확인, 다시 엶, …]이 아니라 [다시 엶, …]부터 시작해야 맞다)."""
+    """Has it been reopened since it was last completed (last close) - drives pins.md's "reopened" marker (§Pending review).
+    This is effectively the same condition as thread_round() starting the current round from the reopen,
+    but it's kept separate in case their definitions diverge in the future (the old version only checked
+    "is the round's first post a reopen", which missed a round where a confirm (ev=confirm) followed the
+    reopen - after a confirm-then-reopen, the round must start at [reopen, ...], not [confirm, reopen, ...])."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
     last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
     last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
     return last_reopen > last_close
 
 
-# ---------------------------------------------------------------- 사람·@태그·이벤트(docs/api.md §@태그·사람·이벤트)
+# ---------------------------------------------------------------- People, @-tags, events (docs/api.md §@태그·사람·이벤트)
 #
-# people.json = 이 뷰어를 연(또는 무엇을 한) 테일넷 사람 {login,name,pic,first_seen,last_seen}. 로컬/에이전트는 적지 않는다.
-# @태그 후보는 people.json ∪ 핀에 남은 작성자·행위자다. 글은 '@이름' 그대로 두고, 풀린 로그인만 mentions 에 적는다.
-# events.jsonl = 나중에 붙일 바깥 알림(GitHub·Telegram·메일)이 읽을 추가 전용 기록. 지금은 쓰기만 하고 아무것도 보내지 않는다.
-# 두 파일 모두 잠금 아래에서 임시 파일에 쓰고 os.replace 한다(원자적) — 읽는 쪽은 옛 파일 아니면 새 파일만 본다.
+# people.json = tailnet people who have opened (or done something in) this viewer {login,name,pic,first_seen,last_seen}.
+# Local/agent is never recorded. @-tag candidates are people.json union the authors/actors left on pins. Post text
+# keeps '@name' as-is; only the resolved login is recorded in mentions. events.jsonl = an append-only record for a
+# future external notification integration (GitHub/Telegram/email) to read. For now it's write-only - nothing is sent.
+# Both files are written to a temp file under a lock and then os.replace'd (atomic) - readers only ever see the old file or the new one.
 
 PEOPLE_LOCK = threading.Lock()
 EVENTS_LOCK = threading.Lock()
-_PEOPLE_SEEN: dict = {}            # (people.json 경로, login) → (name, pic, 마지막으로 쓴 epoch) — 같은 값이면 다시 쓰지 않는다
+_PEOPLE_SEEN: dict = {}            # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
 
 
 def load_people() -> list:
@@ -3568,8 +3640,8 @@ def load_people() -> list:
 
 
 def record_person(actor: dict, now: float = None) -> bool:
-    """테일넷 사람을 people.json 에 올린다(새 사람·이름·사진이 바뀜·last_seen 이 PEOPLE_TOUCH_S 넘게 묵음일 때만 쓴다).
-    로컬/에이전트는 적지 않는다. 쓰기에 실패해도 요청은 계속한다(경고만). 썼으면 True."""
+    """Records a tailnet person into people.json (only written for a new person, a name/picture change, or when last_seen is stale past PEOPLE_TOUCH_S).
+    Local/agent is never recorded. The request continues even if the write fails (only a warning). Returns True if it wrote."""
     login = (actor or {}).get("login")
     if not login or is_agent(actor):
         return False
@@ -3594,14 +3666,14 @@ def record_person(actor: dict, now: float = None) -> bool:
         try:
             atomic_write(C.people_file, json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n")
         except OSError as e:
-            print("경고: people.json 을 쓰지 못했습니다: %s" % e, file=sys.stderr)
+            print("warning: failed to write people.json: %s" % e, file=sys.stderr)
             return False
         _PEOPLE_SEEN[key] = (name, pic, now)
     return True
 
 
 def known_people(rows: list = None) -> dict:
-    """@태그 후보 {login: {login,name,pic?,last_seen?}} — people.json 과 핀의 작성자·행위자·스레드 글쓴이. 로컬은 뺀다."""
+    """@-tag candidates {login: {login,name,pic?,last_seen?}} - from people.json plus authors/actors/thread posters on pins. Local is excluded."""
     out: dict = {}
     def add(a, seen=None):
         if not isinstance(a, dict) or not isinstance(a.get("login"), str) or not a["login"] or is_agent(a):
@@ -3623,7 +3695,7 @@ def known_people(rows: list = None) -> dict:
 
 
 def _mention_tokens(people: dict) -> list:
-    """(글자, {login…}) — 긴 것부터. 이름 전체·로그인·로그인의 @ 앞, 그리고 이름 첫 단어(겹치면 여러 로그인)."""
+    """(text, {login...}) - longest first. Full name, login, the part of the login before @, and the first word of the name (multiple logins if they collide)."""
     toks: dict = {}
     for login, p in people.items():
         name = str(p.get("name") or "")
@@ -3634,10 +3706,13 @@ def _mention_tokens(people: dict) -> list:
 
 
 def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -> list:
-    """'@이름' 을 로그인으로 푼다(글은 그대로 둔다). '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문 글자로 끝나는 이름 뒤에 영문
-    글자가 이어지면(@Alicex) 다른 말로 본다. 한글 조사('@서준님')는 붙어도 된다. 한 글자가 여러 사람을 가리키면(이름 첫 단어가 같다)
-    뷰어가 고른 hints 에 든 사람만 넣는다. 반환은 처음 나온 순서, 중복 없음. `exclude`(대개 글쓴이 자신의 로그인)는 결과에서
-    뺀다 — 자기 자신을 @태그해도 '사람을 부른 핀'·'나를 부름'이 되지 않게(실측: 자기 언급이 addressed 로 잡혔다)."""
+    """Resolves '@name' to a login (post text is left unchanged). Skipped if the character before '@' is
+    alphanumeric (an email address); treated as a different word if an ASCII letter immediately follows a
+    name ending in an ASCII letter (@Alicex). A Korean particle attached right after ('@서준님') is fine.
+    When a token matches multiple people (same first word of the name), only those in the viewer-selected
+    hints are included. Returned in first-seen order, no duplicates. `exclude` (usually the author's own
+    login) is removed from the result - so self-@-tagging never turns into "a pin that called someone" /
+    "I was called" (observed: a self-mention was picked up as addressed)."""
     text = str(text or "")
     if "@" not in text or not people:
         return []
@@ -3671,7 +3746,7 @@ def clean_mention_hints(v) -> list:
 
 
 def pin_mentions_all(r: dict) -> list:
-    """이 핀에서 불린 모든 사람(메모 + 스레드 전체)."""
+    """Every person called out on this pin (note + the entire thread)."""
     out = list(r.get("mentions") or [])
     for m in r.get("thread") or []:
         for lg in m.get("mentions") or []:
@@ -3681,7 +3756,7 @@ def pin_mentions_all(r: dict) -> list:
 
 
 def _round_mentions(r: dict) -> list:
-    """메모의 @태그 + 지금 차례(thread_round) 스레드 글의 @태그 — addressed_to·fyi_mentions_to 공통 재료."""
+    """The note's @-tags plus @-tags in the current round's (thread_round) thread posts - shared material for addressed_to/fyi_mentions_to."""
     out = list(r.get("mentions") or [])
     for m in thread_round(r):
         for lg in m.get("mentions") or []:
@@ -3691,13 +3766,13 @@ def _round_mentions(r: dict) -> list:
 
 
 def addressed_to(r: dict) -> list:
-    """사람에게 **물은** 핀인가 — 질문(kind_req=question) 핀에서만 뜻이 있다. pins.md 가 '→ @이름'으로 표시하고
-    에이전트는(요청한 사용자가 따로 시키지 않으면) 건너뛴다. 수정 요청(fix) 핀의 @태그는 참고일 뿐 사람이
-    답해야 끝나는 것이 아니므로 여기 안 넣는다 — fyi_mentions_to() 가 그쪽을 맡는다(실측: FYI로 사람을
-    태그한 수정 요청 핀이 '→ @이름'으로 잡혀 에이전트가 영영 건너뛰었다). 닫고 다시 열린 핀은 옛 차례의
-    글을 세지 않는다(thread_round)."""
+    """Is this a pin that **asked** a person something - only meaningful for a question pin (kind_req=question). pins.md marks it
+    '→ @name', and an agent skips it (unless the requesting user says otherwise). A fix pin's @-tags are just
+    for reference, not something a person must answer to close it, so they don't go here - fyi_mentions_to()
+    handles those instead (observed: a fix pin that FYI-tagged someone was picked up as '→ @name' and an agent
+    skipped it forever). A closed-then-reopened pin doesn't count posts from the old round (thread_round)."""
     a = r.get("assignee")
-    if a:                                   # 담당이 정해진 핀: 사람이면 그 사람에게 맡긴 것, 에이전트면 아무도 부르지 않았다
+    if a:                                   # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
         return [] if a == ASSIGNEE_AGENT else [a]
     if r.get("kind_req") != "question":
         return []
@@ -3705,8 +3780,8 @@ def addressed_to(r: dict) -> list:
 
 
 def fyi_mentions_to(r: dict) -> list:
-    """수정 요청(kind_req != question) 핀에서 참고로 부른 사람 — 건너뛰지 않는다, pins.md 에 '참고 @이름'으로만
-    보인다. addressed_to() 의 반대쪽(질문이 아닌 핀). 담당이 정해진 핀은 담당이 아닌 @태그 전부가 참고다."""
+    """People called for reference on a fix pin (kind_req != question) - never skipped, only shown in pins.md as '참고 @name'.
+    The opposite of addressed_to() (non-question pins). On a pin with an assignee, every @-tag other than the assignee is FYI."""
     if r.get("assignee"):
         to = addressed_to(r)
         return [lg for lg in _round_mentions(r) if lg not in to]
@@ -3720,7 +3795,7 @@ def _excerpt(s, n: int = 140) -> str:
 
 
 def make_event(typ: str, r: dict, actor: dict, to, msg: dict = None, text: str = None) -> dict:
-    """events.jsonl 한 줄(seq·at 은 emit_events 가 채운다). to 에서 행위자 자신과 로컬은 뺀다 — 비면 None(적지 않는다)."""
+    """One events.jsonl line (seq/at are filled in by emit_events). The actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
     me = (actor or {}).get("login")
     to = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != LOCAL_ACTOR["login"]]
     if not to:
@@ -3737,8 +3812,8 @@ def make_event(typ: str, r: dict, actor: dict, to, msg: dict = None, text: str =
 
 
 def emit_events(events: list) -> None:
-    """이벤트를 events.jsonl 끝에 붙인다(잠금 + 전체 원자적 교체, 앞부분은 그대로 — 추가 전용). seq 는 파일의 마지막 seq+1 부터.
-    핀 쓰기가 커밋된 뒤에만 부른다(유령 이벤트 방지). 실패는 경고만 — 핀 변경은 이미 끝났다."""
+    """Appends events to the end of events.jsonl (lock + full atomic replace, leaving the earlier part untouched - append-only). seq starts from the file's last seq+1.
+    Only called after the pin write has committed (prevents phantom events). A failure is just a warning - the pin change already went through."""
     events = [e for e in events or [] if e]
     if not events:
         return
@@ -3753,14 +3828,14 @@ def emit_events(events: list) -> None:
         try:
             atomic_write(C.events_file, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in rows))
         except OSError as e:
-            print("경고: events.jsonl 을 쓰지 못했습니다: %s" % e, file=sys.stderr)
+            print("warning: failed to write events.jsonl: %s" % e, file=sys.stderr)
 
 
 _EVENTS_CACHE: dict = {}
 
 
 def _read_events() -> tuple:
-    """(이벤트 목록, 파일 서명). 폴링이 자주 읽으므로 mtime·크기가 같으면 캐시를 쓴다."""
+    """(event list, file signature). Since polling reads this often, the cache is used when mtime/size are unchanged."""
     try:
         st = C.events_file.stat()
     except OSError:
@@ -3782,7 +3857,7 @@ def _read_events() -> tuple:
 
 
 def _set_note_mentions(r: dict, rows: list, hints, actor: dict, evs: list) -> None:
-    """메모의 @태그를 풀어 r['mentions'] 에 둔다(없으면 필드를 뺀다). 새로 불린 사람에게 mention 이벤트를 쌓는다."""
+    """Resolves the note's @-tags into r['mentions'] (drops the field if none). Queues a mention event for anyone newly called."""
     old = set(r.get("mentions") or [])
     new = resolve_mentions(r.get("note") or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
     if new:
@@ -3797,8 +3872,8 @@ EVENTS_SINCE_MAX = 20
 
 
 def events_since(actor: dict, cursor) -> dict:
-    """/api/meta 폴링에 싣는 알림 재료(docs/api.md §브라우저 알림). 늘 ev_seq(마지막 이벤트 번호)를 주고, ev=<번호> 를 받으면
-    그 뒤의 이벤트 중 지금 요청자(테일넷 로그인)에게 온 것만 최대 20건 싣는다 — 로컬/에이전트에게는 싣지 않는다. 읽기만 한다."""
+    """Notification material carried in /api/meta polling (docs/api.md §Browser notifications). Always includes ev_seq (the latest event number), and if
+    ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
     out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
     if cursor is None:
@@ -3819,8 +3894,9 @@ def events_since(actor: dict, cursor) -> dict:
     return out
 
 
-# 서비스 워커: 알림을 보이고(showNotification — 안드로이드 크롬은 페이지의 new Notification() 을 막는다) 누르면 뷰어 탭을 앞으로
-# 가져와 그 핀을 연다. fetch 처리기가 없다 — 앱 데이터·쪽 이미지를 캐시하지 않는다.
+# Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
+# Notification()) and, on click, brings the viewer tab forward and opens that pin. There is no fetch handler -
+# app data and page images are never cached.
 SW_JS = r"""'use strict';
 self.addEventListener('install',()=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
@@ -3835,9 +3911,9 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 
 
 def reply_pin(pid: int, text: str, actor: dict, hints=None):
-    """답글 한 건(사람·에이전트 모두). 상태는 바꾸지 않는다 — 질문 핀이면 에이전트는 답글을 단 뒤 따로 닫는다.
-    없는 id 는 (None, None). 스레드가 가득 찼으면 409. 글의 @태그는 mentions 로 풀고, 작성자·이 핀에서 불린 사람에게 replied,
-    새로 불린 사람에게 mention 이벤트를 남긴다."""
+    """One reply (from a person or an agent). Never changes state - for a question pin, an agent replies and then closes it separately.
+    An unknown id returns (None, None). 409 if the thread is full. The post's @-tags are resolved into mentions, and a replied event
+    is left for the author and everyone previously called on this pin, plus a mention event for anyone newly called."""
     evs = []
 
     def fn(rows):
@@ -3852,7 +3928,7 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None):
         r["rev"] = int(r.get("rev") or 0) + 1
         evs.append(make_event("mention", r, actor, [lg for lg in ment if lg not in before], msg=msg))
         evs.append(make_event("replied", r, actor, [lg for lg in [(r.get("author") or {}).get("login")] + sorted(before)
-                                                    if lg not in ment], msg=msg))   # 이 글로 불린 사람은 mention 하나만 받는다
+                                                    if lg not in ment], msg=msg))   # someone called by this post only gets a single mention event
         return (public(r), msg), True
     with PIN_LOCK:
         out = transact(fn)[1]
@@ -3861,12 +3937,12 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None):
 
 
 def is_agent(actor: dict) -> bool:
-    """신원 헤더 없는 요청(로컬 curl·에이전트, 헤더 없는 태그 장치) = 에이전트. 권한이 아니라 기본값을 가르는 데만 쓴다."""
+    """A request with no identity header (local curl/agent, a tag device with no header) = agent. Used only to pick defaults, not for permissions."""
     return (actor or {}).get("login", "local") == LOCAL_ACTOR["login"]
 
 
 def clean_review_flag(d: dict):
-    """close 본문의 선택 review — true 면 검토 대기로, false 면 바로 완료로. 없으면 None(닫는 쪽으로 정한다)."""
+    """The close body's optional review - true means awaiting review, false means done right away. None if absent (left to the closer to decide)."""
     v = d.get("review")
     if v is not None and not isinstance(v, bool):
         raise HTTPError(400, "review 는 true/false 입니다.")
@@ -3875,16 +3951,20 @@ def clean_review_flag(d: dict):
 
 def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = None, review: bool = None,
              reason: str = None, hints=None):
-    """열기·닫기. `reply`/`ref`(이미 clean_close_body 로 검증된 값)는 닫을 때만 쓰고 첫 닫기에만 적힌다.
+    """Open/close. `reply`/`ref` (already validated by clean_close_body) are only used when closing, and only recorded on the first close.
 
-    이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다(§P0b-보완 D) — 두 번째 닫기가 done_at·closed_by 를
-    덮어써 처음 닫은 사람이 사라지던 결함(실측)을 막는다. rev 도 그대로다. reply 를 다시 남기려면
-    한 번 열고 닫아야 한다 — 그래서 다시 열 때 옛 close_reply/close_ref 를 지운다(다음 닫기가 새로 채운다).
+    Re-closing an already-closed pin changes nothing (§P0b-보완 D) - this prevents a second close from
+    overwriting done_at/closed_by and erasing who closed it first (observed defect). rev also stays
+    unchanged. To leave a new reply, the pin must be reopened and closed again - so a reopen clears the old
+    close_reply/close_ref (the next close fills them in fresh).
 
-    검토 대기(§검토 대기): 에이전트(신원 헤더 없음)가 닫으면 review=true 로 남아 사람이 [확인]할 때까지 완료가 아니다 — 에이전트가
-    닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42)이었고, 사람이 결과를 봤다는 기록이 없었다. 테일넷 사람이 닫으면
-    그 사람이 검토자이므로 바로 완료다. 본문 review 가 있으면 그것을 따른다 — 테일넷 주소로 닫는 원격 에이전트는 요청이 사람 신원을
-    달고 오므로 review=true 를 보낸다. 다시 열면 review·확인 기록을 지우고, 닫혀 있던 핀이면 다시 연 이유(reason)를 스레드에 남긴다."""
+    Awaiting review (§Pending review): if an agent (no identity header) closes it, review=true is left on, so it
+    isn't done until a person [confirms] it - out of 42 observed cases, an author reopened an agent-closed
+    pin twice (#28, #42) with no record that a person had ever looked at the result. If a tailnet person
+    closes it, that person is the reviewer, so it's done right away. If the body supplies review, that's
+    followed instead - a remote agent closing via a tailnet address arrives with a person's identity, so it
+    sends review=true. Reopening clears the review/confirm record, and if the pin had been closed, the
+    reopen reason (reason) is recorded in the thread."""
     evs = []
 
     def fn(rows):
@@ -3893,7 +3973,7 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
             return None, False
         if done:
             if r.get("done"):
-                return public(r), False           # 이미 닫힘 — 아무것도 바꾸지 않는다(rev 도 그대로)
+                return public(r), False           # already closed - changes nothing (rev unchanged too)
             r["done"] = True
             r["done_at"] = now_str()
             r["closed_by"] = who(actor)
@@ -3903,10 +3983,10 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
                 r["close_ref"] = ref
             if review if review is not None else is_agent(actor):
                 r["review"] = True
-            msg = _thread_append(r, actor, reply or "", ev="close", ref=ref)   # 닫기 사유도 스레드에 — 이력이 한 줄이다
+            msg = _thread_append(r, actor, reply or "", ev="close", ref=ref)   # the close reason also goes in the thread - one unified line of history
             if r.get("review"):
                 evs.append(make_event("review_requested", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
-            _clear_claim(r)                       # 닫으면 처리 중 표시도 함께 지운다(§P0c-C)
+            _clear_claim(r)                       # closing also clears the in-progress claim (§P0c-C)
         else:
             was_done = bool(r.get("done"))
             r["done"] = False
@@ -3931,10 +4011,11 @@ def set_done(pid: int, done: bool, actor: dict, reply: str = None, ref: str = No
 
 
 def confirm_pin(pid: int, actor: dict):
-    """검토 대기 → 완료. **사람만** 누를 수 있다(뷰어는 작성자를 검토자로 권할 뿐이다 — 신뢰 모델. 신원 헤더 없는
-    요청(에이전트·로컬 curl)은 403 — 검토 대기는 애초에 에이전트가 닫은 핀을 사람이 봤다는 기록이라, 에이전트가
-    스스로 확인하면 그 취지가 무너진다). confirmed_by·confirmed_at 을 남기고 스레드에 ev=confirm 을 붙인다.
-    이미 완료면 아무것도 바꾸지 않고 그대로 돌려준다(닫기와 같은 멱등). 열린 핀이면 409 open. 없는 id 는 None."""
+    """Awaiting review -> done. **Only a person** can press this (the viewer merely suggests the author as reviewer - it's a trust model.
+    A request with no identity header (agent/local curl) gets 403 - awaiting review exists specifically as a
+    record that a person looked at a pin the agent closed, so an agent confirming its own work would defeat
+    the point). Records confirmed_by/confirmed_at and appends ev=confirm to the thread. Already done changes
+    nothing and just returns as-is (idempotent, like close). 409 open for an open pin. An unknown id returns None."""
     if is_agent(actor):
         raise HTTPError(403, "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요.")
 
@@ -3957,13 +4038,13 @@ def confirm_pin(pid: int, actor: dict):
 
 
 def drop_pin(pid: int, actor: dict) -> bool:
-    """핀을 pins.jsonl 에서 빼 pins.dropped.jsonl 로 옮긴다. restore 로 같은 id 를 되살린다."""
+    """Removes a pin from pins.jsonl and moves it to pins.dropped.jsonl. restore brings the same id back."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
             return False, False
         rows.remove(r)
-        _clear_claim(r)                           # 삭제해도 처리 중 표시를 남기지 않는다(§P0c-C)
+        _clear_claim(r)                           # a claim is never left behind on delete either (§P0c-C)
         gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
         old, _ = read_jsonl(C.dropped)
         atomic_write(C.dropped, dump_jsonl(old + [gone]))
@@ -3971,13 +4052,13 @@ def drop_pin(pid: int, actor: dict) -> bool:
     return transact(fn)[1]
 
 
-# ---------------------------------------------------------------- 처리 중 표시(claim, §P0c-C)
+# ---------------------------------------------------------------- In-progress marker (claim, §P0c-C)
 #
-# 공저자와 그 에이전트가 같은 핀을 동시에 고칠 수 있다. TTL 있는 낙관적 표시로 충돌을 줄인다 —
-# 잠금이 아니라 신호다: 다른 신원이 유효한 claim 을 쥔 핀을 닫거나 강제로 잡는 것을 막지는 않는다.
+# A co-author and their agent can work on the same pin at the same time. A TTL'd optimistic marker reduces
+# conflicts - it's a signal, not a lock: nothing stops closing or force-claiming a pin another identity holds a valid claim on.
 
 def claim_active(r: dict) -> bool:
-    """이 핀에 만료되지 않은 claim 이 있는가. claim_until 은 epoch 초(시간대와 무관하게 비교)다."""
+    """Does this pin have an unexpired claim? claim_until is epoch seconds (compared independent of timezone)."""
     cu = r.get("claim_until")
     return _is_num(cu) and float(cu) > time.time()
 
@@ -3991,10 +4072,11 @@ def _clear_claim(r: dict) -> None:
 
 
 def _claim_int(d: dict, key: str, lo: int, hi: int):
-    """본문의 선택 정수 하나. 없으면 None. 정수가 아니거나 lo 보다 작으면 400, hi 를 넘으면 hi 로 깎는다.
+    """One optional integer from the body. None if absent. 400 if not an integer or below lo; clamped to hi if it exceeds the ceiling.
 
-    깎는 쪽은 하위 호환이다 — 옛 절차대로 ttl_min=480 을 보내던 에이전트가 상한을 120 으로 낮춘 뒤 같은 값으로 연장하다
-    400 을 받아 작업이 깨지지 않게 한다. 실제로 적용한 값은 응답의 *_applied 로 돌려준다."""
+    Clamping is for backward compatibility - so an agent that still sends the old ttl_min=480 doesn't break
+    when trying to extend with the same value after the ceiling was lowered to 120, instead of getting a 400.
+    The value actually applied is returned as *_applied in the response."""
     if key not in d:
         return None
     v = d[key]
@@ -4007,11 +4089,12 @@ def _claim_int(d: dict, key: str, lo: int, hi: int):
 
 
 def clean_claim_body(d: dict) -> tuple:
-    """claim 본문 → (ttl_min, eta_min 또는 None). 둘 다 선택이다.
+    """The claim body -> (ttl_min, eta_min or None). Both are optional.
 
-    eta_min(1..240)은 처리 예상 시간 — 뷰어에 '처리 중 · 약 15분 · 20:40쯤'으로 보인다. ttl_min(1..120)은 잠금 자동
-    해제까지의 시간(안전장치)이다. 상한을 넘는 값은 상한으로 깎는다(옛 ttl_min 480 호환). ttl_min 을 빼면 eta_min 이 있을 때
-    min(120, max(30, eta×2)), 없으면 120."""
+    eta_min (1..240) is the estimated time to handle - shown in the viewer as "in progress - about 15 min -
+    around 20:40". ttl_min (1..120) is the time until the lock auto-expires (a safety net). Values past the
+    ceiling are clamped to it (compatible with the legacy ttl_min 480). If ttl_min is omitted, it's
+    min(120, max(30, eta x 2)) when eta_min is given, otherwise 120."""
     eta = _claim_int(d, "eta_min", CLAIM_ETA_MIN, CLAIM_ETA_MAX)
     ttl = _claim_int(d, "ttl_min", CLAIM_TTL_MIN, CLAIM_TTL_MAX)
     if ttl is None:
@@ -4020,17 +4103,18 @@ def clean_claim_body(d: dict) -> tuple:
 
 
 def clean_claim_ttl(d: dict) -> int:
-    """예전 호출부 호환 — clean_claim_body 의 ttl 만."""
+    """Compatibility for legacy callers - just the ttl from clean_claim_body."""
     return clean_claim_body(d)[0]
 
 
 def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
-    """처리 중 표시를 걸거나(같은 신원이면) 연장한다. 없는 id 는 (None, False) — 호출부가
-    {"ok": false} 를 낸다. 닫힌 핀이거나 다른 신원이 유효한 claim 을 쥐고 있으면 409.
+    """Places the in-progress marker (or extends it, for the same identity). An unknown id returns (None, False) -
+    the caller then reports {"ok": false}. 409 for a closed pin, or one where another identity holds a valid claim.
 
-    연장(같은 신원의 유효한 claim)은 시작 시각(claimed_at·claim_ts)을 그대로 두고 잠금(claim_until)을 지금부터 다시
-    잰다. eta_min 을 주면 예상(eta_ts)도 지금부터 다시 잡고, 안 주면 앞서 준 예상을 둔다 — 넘겼으면 화면이
-    '예상보다 늦어짐'으로 알린다. 새로 잡을 때 eta_min 이 없으면 eta_ts 도 없다(시작 시각과 경과 분으로 보인다)."""
+    An extension (a valid claim from the same identity) leaves the start time (claimed_at/claim_ts) as-is
+    and re-measures the lock (claim_until) from now. If eta_min is given, the estimate (eta_ts) is also
+    reset from now; if not, the earlier estimate is kept - if it's been exceeded, the screen shows "running
+    behind estimate". On a fresh claim with no eta_min, there is no eta_ts either (shown as start time plus elapsed minutes)."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -4047,7 +4131,7 @@ def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
             _clear_claim(r)
             r["claimed_at"] = now_str()
             r["claim_ts"] = now
-        elif not _is_num(r.get("claim_ts")):          # 옛 claim 을 연장 — 시작 시각을 epoch 로 채워 둔다
+        elif not _is_num(r.get("claim_ts")):          # extending a legacy claim - backfills the start time as an epoch
             r["claim_ts"] = _epoch(r.get("claimed_at")) or now
         r["claimed_by"] = me
         r["claim_until"] = now + ttl_min * 60
@@ -4059,8 +4143,8 @@ def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
 
 
 def unclaim_pin(pid: int, actor: dict):
-    """처리 중 표시를 지운다 — 요청자 신원과 무관하다(신뢰 모델상 권한 제한을 두지 않는다).
-    없는 id 는 (None, False)."""
+    """Clears the in-progress marker - independent of the requester's identity (the trust model imposes no permission restriction here).
+    An unknown id returns (None, False)."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
@@ -4074,11 +4158,11 @@ def unclaim_pin(pid: int, actor: dict):
 
 
 def restore_pin(pid: int, actor: dict) -> dict:
-    """pins.jsonl 에 먼저 쓰고, 그것이 성공한 뒤에만 삭제 기록에서 뺀다.
+    """Writes to pins.jsonl first, and only removes it from the dropped record once that succeeds.
 
-    순서를 바꾸면 두 쓰기 사이에서 죽었을 때 핀이 양쪽 파일에서 모두 사라진다(실측).
-    이 순서면 최악이 '양쪽에 다 있음'이고, 그것은 복구할 수 있다."""
-    with PIN_LOCK:                                   # RLock — transact 와 삭제 기록 정리를 한 덩어리로
+    Reversing the order means a crash between the two writes makes the pin vanish from both files (observed).
+    With this order, the worst case is "present in both", which is recoverable."""
+    with PIN_LOCK:                                   # RLock - bundles transact and cleaning up the dropped record together
         rec = transact(lambda rows: _restore(rows, pid, actor))[1]
         old, _ = read_jsonl(C.dropped)
         atomic_write(C.dropped, dump_jsonl([r for r in old if r.get("id") != pid]))
@@ -4105,21 +4189,22 @@ def _restore(rows: list, pid: int, actor: dict):
 
 
 def clear_pins() -> None:
-    """전체를 .bak 으로 보관하고 비운다. pins.seq 는 건드리지 않으므로 id 는 이어진다."""
+    """Archives everything to .bak and clears it. pins.seq is untouched, so ids keep incrementing."""
     with PIN_LOCK:
-        if C.pins_jsonl.exists():                    # 같은 초에 두 번 비워도 앞 보관본을 덮지 않는다
+        if C.pins_jsonl.exists():                    # clearing twice in the same second never overwrites the earlier archive
             C.pins_jsonl.rename(unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak"))
         render_pins_md([])
 
 
 def ceil5(minutes: float) -> int:
-    """분을 5분 단위로 올린다(최소 5). 뷰어 ceil5() 와 같은 규칙 — 견적은 대략이라 1분 단위로 보이면 거짓 정밀이다."""
+    """Rounds minutes up to 5-minute steps (minimum 5). Same rule as the viewer's ceil5() - an estimate is approximate, so showing it to the minute would be false precision."""
     return max(5, int(math.ceil(minutes / 5.0 - 1e-9)) * 5)
 
 
 def claim_md(r: dict, now: float = None) -> str:
-    """pins.md 번호 칸의 처리 중 표시 — '처리 중(이름, 약 15분)'. 남은 예상은 5분 단위로 올리고, 넘겼으면 '예상 초과',
-    예상 없이 잡은 옛 claim 은 이름만. 잠금 자동 해제 시각은 쓰지 않는다(예상 완료로 읽혔다)."""
+    """The in-progress marker for pins.md's number column - "처리 중(이름, 약 15분)". The remaining estimate is rounded up to 5-minute
+    steps, or "예상 초과" if exceeded; a legacy claim made without an estimate shows just the name. The lock auto-expiry time is never
+    used (it was misread as the estimated completion time)."""
     now = time.time() if now is None else now
     name = md_cell((r.get("claimed_by") or {}).get("name") or "?")
     eta = r.get("eta_ts")
@@ -4134,14 +4219,14 @@ def render_pins_md(rows: list) -> None:
 
 
 def md_cell(v, newline: str = " ") -> str:
-    """pins.md 표 칸 하나. '|' 는 열을 늘리고 줄바꿈은 행을 끊는다 — 어느 칸이든 레코드 값이 그대로 들어가면
-    표가 깨진다(실측: kind 'env:x|y' 가 8열 행을 만들었다). 모든 칸이 이 함수를 거친다."""
+    """One pins.md table cell. '|' would add a column and a newline would break the row - if a record value
+    went in as-is, the table would break (observed: kind 'env:x|y' produced an 8-column row). Every cell goes through this function."""
     s = str("" if v is None else v).replace("\r\n", "\n").replace("\r", "\n")
     return s.replace("|", "\\|").replace("\n", newline)
 
 
 def region_text_of(r: dict) -> str:
-    """보기 전용 핀의 위치 글: '쪽 3, 영역 가로 12–55% 세로 30–48%'."""
+    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%"."""
     fr = r.get("frac") if isinstance(r.get("frac"), list) and len(r["frac"]) == 4 else [0, 0, 0, 0]
     try:
         x, y, w, h = [float(v) * 100 for v in fr]
@@ -4151,8 +4236,8 @@ def region_text_of(r: dict) -> str:
 
 
 def location_col(r: dict) -> str:
-    """C.src 기준 상대경로 — 루트 파일은 basename 과 같아서 기존 행이 변하지 않는다.
-    보기 전용 PDF 의 핀은 줄이 없으니 '쪽 N, 영역 …' 이다(PDF 경로는 문서 소절 머리에 있다)."""
+    """Path relative to C.src - for a root file this equals the basename, so existing rows are unchanged.
+    A view-only PDF's pin has no line, so it's "쪽 N, 영역 ..." instead (the PDF path is in the document section header)."""
     if is_region_pin(r):
         return md_cell(region_text_of(r))
     f = Path(str(r.get("file", "")))
@@ -4165,8 +4250,8 @@ def location_col(r: dict) -> str:
 
 
 def range_label(r: dict) -> str:
-    """범위 칸: scope 가 있으면 env*→env:<이름>, para→paragraph, raw/lines→lines, 없으면 기존 kind.
-    어느 분기든 md_cell 로 이스케이프한다(env 분기만 빠져 있던 것이 결함이었다)."""
+    """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines; otherwise the legacy kind.
+    Every branch escapes via md_cell (missing that on just the env branch used to be a bug)."""
     if is_region_pin(r):
         return "영역"
     scope = r.get("scope")
@@ -4181,8 +4266,8 @@ def range_label(r: dict) -> str:
 
 
 def render_quote(r: dict) -> str:
-    """«quote…» 인용 예외: 핀 범위가 한 줄이고, 그 줄이 600자를 넘고, scope 가 raw/para/없음일 때만.
-    보기 전용 PDF 의 핀은 늘 붙인다 — 줄 번호가 없어 영역 글자가 에이전트의 유일한 원문 단서다."""
+    """The «quote...» exception: only when the pin range is a single line, that line exceeds 600 characters, and scope is raw/para/absent.
+    Always attached for a view-only PDF's pin - with no line number, the region text is the agent's only clue to the source."""
     if is_region_pin(r):
         q = r.get("quote")
         return "«%s» " % md_cell(q) if q else ""
@@ -4201,8 +4286,9 @@ def render_quote(r: dict) -> str:
     lines = tex_lines(f)
     if not (1 <= lo <= len(lines)) or len(lines[lo - 1]) <= 600:
         return ""
-    # q 는 저장될 때 이미 truncate_quote() 로 잘렸다(잘렸으면 …가 붙어 있다) — 여기서 다시 60자로
-    # 자르면 이미 붙은 …까지 잘려 이중으로 잘린 것처럼 보인다. 파이프만 이스케이프한다.
+    # q was already truncated by truncate_quote() when it was saved (an ellipsis is already attached if it
+    # was cut) - truncating again to 60 characters here would cut into that ellipsis and look
+    # double-truncated. Only the pipe character is escaped.
     return "«%s» " % md_cell(q)
 
 
@@ -4214,18 +4300,18 @@ LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고�
           "'→ @이름' = 담당이 사람인 핀(담당 없는 옛 핀은 사람에게 물은 질문 핀), 사용자가 따로 시키지 않으면 건너뛴다 · "
           "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
           "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
-THREAD_MD_SHOW = 3                 # pins.md 메모 칸에 싣는 지금 차례 스레드 글 수(뒤에서부터)
-THREAD_MD_CHARS = 200              # 그 글 하나의 글자 수 — 전부는 GET /api/pins/N
+THREAD_MD_SHOW = 3                 # number of current-round thread posts shown in pins.md's note column (from the end)
+THREAD_MD_CHARS = 200              # character count for one of those posts - the full text is via GET /api/pins/N
 
 
 def _flat(s, n: int) -> str:
-    """공백·줄바꿈을 한 칸으로 접고 n 자에서 자른다(잘렸으면 …)."""
+    """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut)."""
     return truncate_quote(" ".join(str(s or "").split()), n)
 
 
 def thread_md(r: dict) -> str:
-    """pins.md 메모 칸 뒤에 붙는 지금 차례의 스레드(마지막 닫기 뒤): '[스레드 2건] 서준: … ⏎ 다시 연 이유(서준): …'.
-    에이전트가 질문의 되물음이나 다시 연 이유를 놓치지 않게 싣는다. 길면 뒤 THREAD_MD_SHOW 건만, 나머지는 GET /api/pins/N."""
+    """The current round's thread (after the last close), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
+    Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
     msgs = [m for m in thread_round(r) if m.get("ev") != "close" and (m.get("text") or not m.get("ev"))]
     if not msgs:
         return ""
@@ -4241,8 +4327,9 @@ def thread_md(r: dict) -> str:
 
 
 def review_md(rows: list, sectioned: bool) -> list:
-    """pins.md 맨 아래 '검토 대기' 소절 — 에이전트가 닫았고 사람이 아직 확인하지 않은 핀. 열린 표와 다른 4열 표라 열린 핀으로
-    잘못 읽히지 않는다. 확인할 사람은 작성자다(누구나 확인할 수 있지만 뷰어가 작성자를 권한다). 비어 있으면 소절이 없다."""
+    """The "awaiting review" subsection at the bottom of pins.md - pins closed by an agent that a person hasn't confirmed yet. A
+    different 4-column table from the open table, so it's never misread as open pins. The expected confirmer is the author (anyone
+    can confirm, but the viewer suggests the author). No subsection at all if empty."""
     if not rows:
         return []
     out = ["", "## 검토 대기 %d건 — 사람이 확인할 차례. 에이전트는 다시 처리하지 않는다(다시 열리면 위 열린 표로 돌아온다)" % len(rows),
@@ -4261,17 +4348,18 @@ def review_md(rows: list, sectioned: bool) -> list:
 
 
 def pins_md_text(rows: list, base: str = None) -> str:
-    """에이전트가 한 번에 읽을 요약. 스니펫은 일부러 넣지 않는다 —
-    줄 범위만 있으면 에이전트가 원본을 직접 읽는 편이 항상 더 싸고 정확하다.
-    형식 지정자는 %s 만 쓴다 — 레코드 하나의 형이 틀려도 요약 전체가 죽지 않게.
-    닫힌 핀은 목록에 내려받지 않는다(머리줄 건수로만) — 쌓여도 pins.md 크기가 늘지 않는다.
+    """The summary an agent reads in one pass. Snippets are deliberately omitted -
+    given just a line range, an agent reading the source directly is always cheaper and more accurate.
+    Only %s is used as a format specifier - so a single malformed record never kills the whole summary.
+    Closed pins are never listed (only counted in the header line) - so pins.md's size doesn't grow as they pile up.
 
-    base(§P0c-B): 안내 줄의 close 예시가 쓸 base URL. 안 주면(디스크에 쓰는 기본 경로) 지금처럼
-    루프백이다. GET /pins.md 는 요청 Host 로 바꾼 값을 넘긴다 — 원격 base 일 때만 '원격: curl …'
-    한 줄을 안내 문단에 덧붙인다(루프백은 이미 그 파일을 읽고 있으므로 생략).
+    base (§P0c-B): the base URL the guidance line's close example uses. If omitted (the default path written
+    to disk), it's loopback, as now. GET /pins.md passes the value rewritten to the request Host - only when
+    it's a remote base does a "원격: curl ..." line get appended to the guidance paragraph (omitted for
+    loopback, since that means the file is already being read locally).
 
-    여러 문서(§여러 문서): 한 장 그대로 두고 문서별 소절(## 이름 · 키 · 경로)로 묶는다. 단일 문서이고 다른 문서
-    키의 열린 핀도 없으면 소절 없이 예전 모양 그대로다."""
+    Multiple documents (§Multiple documents): kept as a single sheet, grouped into per-document subsections
+    (## name - key - path). With a single document and no open pins under any other document key, it keeps the old shape with no subsections."""
     loopback_base = "http://127.0.0.1:%d" % C.port
     is_remote = base is not None and base != loopback_base
     base = base or loopback_base
@@ -4281,7 +4369,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
     rel = overlaps_by_id(rows)
     by_id = {r["id"]: r for r in rows}
 
-    # §P0c-G: 작성자가 2명 이상(로그인 기준, 작성자 없는 옛 핀은 한 부류)일 때만 메모 앞에 @이름 을 붙인다.
+    # §P0c-G: @name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author count as one group).
     author_groups = set()
     for r in openn:
         a = r.get("author")
@@ -4294,15 +4382,15 @@ def pins_md_text(rows: list, base: str = None) -> str:
     n_human = 0
     for r in openn:
         syms = []
-        # 번호 칸 우선순위(다시 열림 > → @ > 질문): 가장 급하게 다시 봐야 할 신호부터 왼쪽에 둔다.
+        # Number-column priority (reopened > -> @ > question): the most urgent signal to re-check goes leftmost.
         if pin_reopened_in_round(r):
             syms.append("다시 열림")
         to = addressed_to(r)
-        if to:                                    # 사람에게 맡긴 핀(담당 = 사람, 또는 옛 핀의 질문 @태그) — 에이전트는 건너뛴다
+        if to:                                    # a pin handed to a person (assignee = a person, or a legacy pin's question @-tag) - an agent skips it
             n_human += 1
             syms.append("→ " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in to))
         fyi = fyi_mentions_to(r)
-        if fyi:                                    # 참고용 @태그 — 알림만 갔다, 건너뛰지 않는다
+        if fyi:                                    # FYI @-tags - notification only, never skipped
             syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
         if r.get("kind_req") == "question":
             syms.append("질문")
@@ -4324,7 +4412,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
             note = (note + " ⏎ " if note else "") + md_cell(th)
         if multi_author:
             an = (r.get("author") or {}).get("name")
-            if an:                                 # '@이름' 이 아니라 '[이름]' — @태그로 잘못 읽히지 않게(실측)
+            if an:                                 # '[name]' rather than '@name' - so it's never misread as an @-tag (observed)
                 note = "[%s] " % md_cell(an) + note
         q = render_quote(r)
         if q:
@@ -4341,7 +4429,7 @@ def pins_md_text(rows: list, base: str = None) -> str:
            "논문: %s · 저장소: %s" % (C.label, C.repo or "(없음)")]
     if not sectioned:
         head_short, built_at = _read_head(), _read_built_at()
-        if head_short and head_short != "-" and built_at:           # §P0c-D: 없으면 통째로 생략한다
+        if head_short and head_short != "-" and built_at:           # §P0c-D: omitted entirely if absent
             out.append("기준: %s · 빌드 %s" % (head_short, built_at))
             out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
     else:
@@ -4414,18 +4502,18 @@ def pins_md_text(rows: list, base: str = None) -> str:
     return "\n".join(out + review_md(reviewn, sectioned)) + "\n"
 
 
-# ---------------------------------------------------------------- 선택 해석
+# ---------------------------------------------------------------- Selection resolution
 
 def pick(d: dict) -> dict:
-    """드래그 영역 → 원문 줄 범위 + 범위 사다리.
+    """Dragged region -> source line range + range ladder.
 
-    SyncTeX 후보와 텍스트 후보를 같은 척도로 겨루게 한다. 어느 한쪽을 조건부
-    폴백으로 두면, SyncTeX 가 조용히 틀렸을 때(minipage·tabular 안) 그 오답을
-    걸러낼 방법이 없다.
+    Pits the SyncTeX candidate and the text candidate against each other on equal footing. Treating either
+    as a conditional fallback leaves no way to catch SyncTeX being silently wrong (inside minipage/tabular).
 
-    pdf_build(선택)는 드래그할 때 화면에 있던 빌드다(META.pages_build). 재빌드가 끝난 뒤 뷰어가 쪽을
-    바꾸기 전의 드래그는 옛 레이아웃 좌표이므로 그 빌드의 PDF 로 되짚고, 응답의 pdf_build 로 돌려준다 —
-    뷰어는 그 값을 핀 저장(/api/pin)에 그대로 실어 '어느 빌드의 좌표인지'를 남긴다(§위치 추정)."""
+    pdf_build (optional) is the build on screen at drag time (META.pages_build). A drag made after a rebuild
+    finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
+    against that build's PDF and returned as pdf_build in the response - the viewer carries that value
+    through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
     want = d.get("pdf_build")
     if want is not None:
         if not valid_build_name(want):
@@ -4479,7 +4567,7 @@ def pick(d: dict) -> dict:
     if not cands:
         return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요."}
 
-    # 동점이면 SyncTeX 를 남긴다 — 글자가 없는 영역(그림)에서는 그쪽만 맞다.
+    # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
     cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
     via, raw_lo, raw_hi, best = cands[0]
     warn = ""
@@ -4489,7 +4577,7 @@ def pick(d: dict) -> dict:
     lad = compute_levels(lines, raw_lo, raw_hi)
     lo, hi = lad["lo"], lad["hi"]
     if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
-        # 같은 블록으로 확장되면 두 경로가 갈린 것이 아니다 — 경고하지 않는다.
+        # If both expand into the same block, the two paths haven't actually diverged - don't warn.
         if not (lo <= cands[1][1] <= hi):
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
@@ -4510,8 +4598,8 @@ def pick(d: dict) -> dict:
 
 
 def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, rtext: str) -> dict:
-    """보기 전용 문서의 pick — SyncTeX 없이 쪽·영역과 영역 글자(pdftotext)만 돌려준다.
-    frac 을 안 보냈으면(에이전트 curl) 좌표로 만든다 — 보기 전용 핀은 영역이 위치의 전부다."""
+    """pick for a view-only document - returns only page/region and the region's text (pdftotext), no SyncTeX.
+    If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
     x0, y0, x1, y1 = box
     pw, ph = size
     if frac is None:
@@ -4550,10 +4638,11 @@ def snippet_api(q: dict) -> dict:
 
 
 def overlaps_api(q: dict) -> dict:
-    """GET /api/overlaps — 파일·범위만으로 저장 전 선택의 겹침을 묻는다(에이전트·옛 뷰어 호환용).
+    """GET /api/overlaps — asks about a not-yet-saved selection's overlap using only file/range (kept for agent/legacy-viewer compatibility).
 
-    지금 뷰어는 범위가 바뀔 때마다 자기 PINS 로 같은 규칙(overlapsFor)을 돌려 왕복 없이 센다 — 응답이
-    늦게 오는 사이 [핀 저장]을 누르면 배너 없이 중복이 저장될 수 있어서다. 이 경로는 83b91a5 뷰어가 불렀다."""
+    The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
+    range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
+    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer."""
     f = safe_src((q.get("file") or [""])[0])
     lines = tex_lines(f)
     try:
@@ -4566,17 +4655,17 @@ def overlaps_api(q: dict) -> dict:
     return {"overlaps": overlaps_for_range(str(f), lo, hi)}
 
 
-# ---------------------------------------------------------------- 신원(tailscale serve 헤더)
+# ---------------------------------------------------------------- Identity (tailscale serve headers)
 
 def hdr_text(v) -> str:
-    """tailscale 은 비 ASCII 값을 RFC 2047(=?utf-8?q?…?=)로 싣는다. 날것 UTF-8 이 오면 latin-1 로 풀린 것을 되돌린다."""
+    """tailscale carries non-ASCII values as RFC 2047 (=?utf-8?q?...?=). If raw UTF-8 arrives instead, undoes a latin-1 mis-decode."""
     if not v:
         return ""
     v = str(v).strip()
     if "=?" in v:
         try:
             v = str(make_header(decode_header(v)))
-        except Exception:                                # noqa: BLE001 — 헤더 하나 때문에 요청을 떨구지 않는다
+        except Exception:                                # noqa: BLE001 — a single bad header must never drop the request
             pass
     else:
         try:
@@ -4587,7 +4676,7 @@ def hdr_text(v) -> str:
 
 
 def actor_of(headers) -> tuple:
-    """(행위자, 헤더로 왔는지). 서버는 127.0.0.1 에만 바인딩되므로 이 헤더는 tailscale serve 를 거쳐서만 온다."""
+    """(actor, whether it came from a header). The server binds only to 127.0.0.1, so this header only ever arrives via tailscale serve."""
     login = hdr_text(headers.get("Tailscale-User-Login"))
     if not login:
         return dict(LOCAL_ACTOR), False
@@ -4602,7 +4691,7 @@ LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
 def split_host(v: str) -> tuple:
-    """'name:port' / '[::1]:port' → (소문자 이름, 포트 또는 None). 형식이 틀리면 ('', None)."""
+    """'name:port' / '[::1]:port' -> (lowercase name, port or None). ('', None) if malformed."""
     v = (v or "").strip().lower()
     if v.startswith("["):
         name, _, rest = v[1:].partition("]")
@@ -4615,10 +4704,11 @@ def split_host(v: str) -> tuple:
 
 
 def host_ok(host: str) -> bool:
-    """루프백 이름이면 포트는 보지 않는다 — SSH -L 로 다른 로컬 포트에 포워딩해도 Host 가
-    'localhost:9000'처럼 실제 서버 포트와 달라질 수 있다. DNS 리바인딩 공격의 Host 는 루프백 이름이
-    아니므로(외부 도메인이 127.0.0.1 로 풀리는 것이지 Host 헤더 자체가 'localhost'가 되는 게 아니다)
-    여기서 포트를 빼도 그 방어는 약해지지 않는다. 교차 출처(CSRF) 방어는 origin_ok 가 맡는다."""
+    """For a loopback name, the port is never checked - forwarding via SSH -L to a different local port can
+    make Host something like 'localhost:9000', different from the actual server port. A DNS-rebinding
+    attack's Host is never a loopback name (an external domain resolving to 127.0.0.1 doesn't turn the Host
+    header itself into 'localhost'), so leaving the port out here doesn't weaken that defense. Cross-origin
+    (CSRF) defense is origin_ok's job."""
     name, _ = split_host(host)
     if name in LOOPBACK:
         return True
@@ -4629,24 +4719,25 @@ DEFAULT_PORT = {"http": 80, "https": 443}
 
 
 def origin_ok(origin: str, host) -> bool:
-    """Origin 이 이 요청이 도착한 Host 와 같은 편인가. 규칙은 Host 종류로 갈린다.
+    """Is Origin on the same side as the Host this request arrived on? The rule branches on the kind of Host.
 
-    - Host 가 루프백: Origin 도 루프백이어야 한다. 포트는 보지 않는다 — SSH -L 로 포워딩하면 브라우저의
-      Origin·Host 포트가 서버 바인딩 포트와 다르다(실측: 18110→18106 POST 가 403). 루프백 Host 로
-      *.ts.net Origin 이 오는 정상 경로는 없다(tailscale serve 는 Host 를 보존한다, SKILL.md 실측) —
-      받으면 다른 tailnet 의 Funnel 공개 페이지가 로컬 사용자 브라우저로 CSRF 를 한다(실측: 200).
-    - Host 가 *.ts.net: Origin 은 그 호스트와 이름·포트가 같아야 한다(생략 포트는 scheme 기본값).
-    Origin 이 없는 요청(curl·에이전트·같은 출처 GET)은 이 함수까지 오지 않는다."""
+    - Host is loopback: Origin must also be loopback. The port is never checked - forwarding via SSH -L
+      makes the browser's Origin/Host port differ from the server's bind port (observed: an 18110->18106
+      POST got a 403). There is no legitimate path for a *.ts.net Origin to arrive with a loopback Host
+      (tailscale serve preserves Host, confirmed in SKILL.md) - accepting one would let another tailnet's
+      public Funnel page CSRF the local user's browser (observed: 200).
+    - Host is *.ts.net: Origin must match that host's name and port (a missing port falls back to the scheme default).
+    A request with no Origin (curl/agent/same-origin GET) never reaches this function."""
     u = urlparse(origin.strip())
     if u.scheme not in ("http", "https") or not u.hostname:
-        return False                                   # 'null' 출처(샌드박스 iframe·file://) 포함
+        return False                                   # includes a 'null' origin (sandboxed iframe/file://)
     try:
         oport = u.port
     except ValueError:
         return False
     name = u.hostname.lower().rstrip(".")
     hname, hport = split_host(host or "")
-    if not hname or hname in LOOPBACK:                 # Host 가 없으면(HTTP/1.0) 루프백으로 친다 — 더 엄한 쪽
+    if not hname or hname in LOOPBACK:                 # no Host at all (HTTP/1.0) is treated as loopback - the stricter side
         return name in LOOPBACK
     if hname.endswith(".ts.net"):
         dflt = DEFAULT_PORT[u.scheme]
@@ -4655,16 +4746,16 @@ def origin_ok(origin: str, host) -> bool:
 
 
 def remote_base_for(host_raw: str) -> str:
-    """GET /pins.md 안내 줄에 쓸 base URL(§P0c-B). Host 가 *.ts.net 이면 'https://<Host 그대로,
-    포트 포함>', 아니면(루프백·Host 없음) 지금까지의 루프백 URL. _check_origin() 이 이미 Host 를
-    검증한 뒤(루프백 또는 *.ts.net)이므로 여기서는 종류만 가른다."""
+    """The base URL used in GET /pins.md's guidance line (§P0c-B). If Host is *.ts.net, 'https://<Host as-is,
+    including port>'; otherwise (loopback/no Host) the loopback URL as before. Since _check_origin() has
+    already validated Host by this point (loopback or *.ts.net), only the kind needs to be distinguished here."""
     name, _ = split_host(host_raw or "")
     if name.endswith(".ts.net"):
         return "https://%s" % host_raw.strip()
     return "http://127.0.0.1:%d" % C.port
 
 
-# ---------------------------------------------------------------- 뷰어
+# ---------------------------------------------------------------- Viewer
 
 HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset="utf-8">
 <script>
@@ -4674,13 +4765,22 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
  var t=p.theme,eff=t;if(t==='system'){eff=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}
  document.documentElement.setAttribute('data-theme',eff==='light'?'light':'dark');})();
 </script>
+<script>
+// Interface language: ?lang=ko|en (remembered), then the saved choice, then the browser language.
+window.LIMN_LANG=(function(){var v=null;try{v=new URLSearchParams(location.search).get('lang');}catch(e){}
+ if(v==='ko'||v==='en'){try{localStorage.setItem('limnLang',v);}catch(e){}return v;}
+ try{v=localStorage.getItem('limnLang');}catch(e){v=null;}
+ if(v==='ko'||v==='en')return v;
+ return String(navigator.language||'').toLowerCase().indexOf('ko')===0?'ko':'en';})();
+document.documentElement.setAttribute('lang',window.LIMN_LANG);
+</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Limn · __LABEL__</title>
 <link rel="icon" href="__FAVICON_HREF__">
 <style>
-/* ---------------- 디자인 토큰(docs/design.md §디자인 토큰). shadcn/ui 의 체계(이름·역할)만 빌렸다 — 코드는 없다.
-   색 리터럴은 이 두 블록(다크 :root · 라이트 :root[data-theme=light]) 안에만 둔다. 규칙은 전부 var(--…) 로 쓴다.
-   회귀 테스트(FrontendDesignTokens)가 블록 밖의 색·radius·font-size 리터럴을 막는다. 중립색은 zinc 계열이다. */
+/* ---------------- Design tokens (docs/design.md §Design tokens and components). Borrows only shadcn/ui's system (names/roles) - no code.
+   Color literals live only in these two blocks (dark :root, light :root[data-theme=light]). Every rule uses var(--...).
+   A regression test (FrontendDesignTokens) blocks color/radius/font-size literals outside these blocks. Neutral colors are the zinc family. */
 :root{color-scheme:dark;
   --background:#09090b;--foreground:#fafafa;
   --sidebar:#18181b;--card:#131316;--card-foreground:#fafafa;--popover:#18181b;--popover-foreground:#fafafa;
@@ -4708,8 +4808,8 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
   --status-review:#6d28d9;--status-review-foreground:#ffffff;
   --tooltip:#18181b;--tooltip-foreground:#fafafa;
   --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color)}
-/* 테마와 무관한 척도: radius 3단(원형 점·아바타만 50%), 글자 5단, 간격 6단, 컨트롤 높이. 이름표 색(--brand)은 인스턴스마다
-   서버가 채우고(--accent 인자) 테마가 바뀌어도 그대로다. */
+/* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
+   6 steps, control heights. The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes. */
 :root{--brand:__ACCENT__;--brand-foreground:#ffffff;
   --outline-width:240px;--doc-nav-h:44px;
   --radius-sm:4px;--radius:6px;--radius-lg:10px;
@@ -4724,8 +4824,8 @@ HTML = r"""<!doctype html><html lang="ko" data-theme="light"><head><meta charset
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
-/* PDF 영역: 브라우저 핀치 확대를 막고 스크롤만 넘긴다 — 두 손가락은 앱 확대가 받는다(docs/design.md §PDF 영역 전용 확대). */
-/* #main = 문서 탐색 + PDF 영역. #right 의 편집·핀 화면은 독립적으로 유지한다. */
+/* PDF area: blocks the browser's pinch zoom and passes through only scrolling - a two-finger gesture is handled by the app's own zoom (docs/design.md §PDF 영역 전용 확대). */
+/* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
@@ -4749,7 +4849,7 @@ body.docs-multi:not(.lay-narrow) #doc-links{display:flex}
 #doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
 #doc-links button:hover,#doc-links button:focus-visible{color:var(--foreground)}
 #doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
-#doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* 이름표 색 글자는 다크에서 대비 2.8(QA) — 지금 문서는 밑줄 막대가 이름표 색이다 */
+#doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
 #doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
 #doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:4px 20px 4px 2px}
 #view-switch{padding-left:0}
@@ -4778,7 +4878,7 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 #outline-items button.ol-depth-3,#outline-items button.ol-depth-4{padding-left:var(--space-6)}
 #outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
 #outline-items button:hover,#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
-#outline-items button:is(.ol-active,:hover,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* 옅은 쪽 번호가 --accent 면 위에서 대비 3.8(QA) */
+#outline-items button:is(.ol-active,:hover,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
 #outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
 #outline-grip::after{content:'';position:absolute;inset:0 -9px}
 #outline-grip:hover,#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
@@ -4792,18 +4892,18 @@ body.lay-narrow #section-strip{display:none}
 #revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
 body.revision-open #revision-view{display:block}
 body.revision-open #left{display:none}
-/* [변경 보기]가 가리키는 핀(docs/design.md §변경 보기): 머리 아래 한 줄 안내와 핀 범위 줄 강조. 접은 폴드(narrow)에는 탐색 줄이 없어
-   이 안내의 [원고로]가 돌아가는 길이다. */
+/* The pin [변경 보기] points at (docs/design.md §Viewing changes): a one-line notice below the header plus highlighting of the pin's range lines. The narrow (folded)
+   layout has no nav bar, so this notice's [원고로] is the way back. */
 #revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-4);background:var(--card);
   border-bottom:1px solid var(--border);font-size:var(--text-sm)}
 #revision-pin .rp-msg{color:var(--muted-foreground);min-width:0;flex:1 1 12em;overflow-wrap:anywhere}
 #revision-pin>span:first-child{min-width:0;overflow-wrap:anywhere}
-#revision-pin button{flex:none;margin-left:auto}   /* 글이 길면 글이 줄바꿈된다 — 버튼은 잘리지 않는다(QA: 842px 에서 [원고로]가 화면 밖) */
+#revision-pin button{flex:none;margin-left:auto}   /* if the text is long it wraps - the button is never clipped (QA: at 842px, [원고로] was going off-screen) */
 #revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
 body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
 body.lay-narrow #revision-head h2{display:none}
 body.lay-narrow #revision-view{height:100%}
-body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84px}   /* 접힌 시트의 도구 줄이 아래를 가린다 */
+body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84px}   /* the folded sheet's tool bar covers the bottom */
 #revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
 #revision-head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
 #revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
@@ -4837,8 +4937,8 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #revision-source{flex:1;min-height:0;overflow:auto}
 .revision-page{width:min(100%,780px);min-height:500px;margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
 .revision-page canvas{display:block;max-width:100%;margin:auto}
-/* 패널 폭 손잡이(wide·mid 공통, Pointer Events): 보이는 막대는 6px, 잡는 영역은 ::after 로 넓힌다(터치 24px).
-   마우스에서는 왼쪽 본문 스크롤바를 덮지 않게 좌우 3px 만 넓힌다. */
+/* Panel width grip (shared by wide/mid, Pointer Events): the visible bar is 6px; the grab area is widened via
+   ::after (24px for touch). For mouse, only 3px on each side is added, so it doesn't cover the body scrollbar on the left. */
 #grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
 #grip::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px}
 #grip:hover,#grip.on,#grip:focus-visible{background:var(--border-strong)}
@@ -4848,45 +4948,45 @@ body.resizing #left{pointer-events:none}
 #right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
   display:flex;flex-direction:column;flex:none;min-height:0}
 .bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
-#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* 좁힌 패널에서는 두 줄로 — 가로로 넘치지 않게 */
-/* 도구 줄은 한 높이(--tb-h: 데스크톱 28px, 터치 44px). 쪽 칸도 버튼과 같은 높이·글자 크기다 — 일반 입력 칸 규칙(14px, 6px 여백)을
-   그대로 받아 버튼보다 8px 크고 글자도 커서 줄의 조화가 깨졌다(저자 지적 2026-09-23). 아이콘 버튼은 정사각형이다. */
+#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* wraps to two lines in a narrowed panel - so it never overflows horizontally */
+/* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
+   generic input field rule (14px, 6px padding) as-is made it 8px taller than the buttons with larger text, breaking the row's harmony (author feedback 2026-09-23). Icon buttons are square. */
 #bar1>button,#bar1>input{height:var(--tb-h)}
 #bar1 button{padding:0 var(--space-2);white-space:nowrap}
 #bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
-#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* '쪽' 한 글자 칸은 버튼처럼 읽혔다(QA) — 입력 칸답게 왼쪽 정렬 '쪽 이동' */
-/* 도구 줄의 위계(QA 2026-09-24): 쪽·확대·축소·폭 맞춤은 테두리 있는 탐색 컨트롤, 알림·테마·도움말은 테두리 없는 유틸리티 아이콘,
-   [PDF 재빌드]는 드물게 쓰는 동작이라 흐린 ghost 다 — 원고가 PDF 보다 새로우면 updateStaleBadge 가 .btn-default 로 올린다. */
+#bar1 input.n{width:54px;flex:none;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* the single-character '쪽' field read like a button (QA) - left-aligned like a proper input field for '쪽 이동' */
+/* Tool bar hierarchy (QA 2026-09-24): page/zoom-in/zoom-out/fit-width are bordered navigation controls, notification/theme/help
+   are borderless utility icons, and [PDF 재빌드] is a rarely used action so it's a faint ghost - if the manuscript is newer than the PDF, updateStaleBadge promotes it to .btn-default. */
 #bar1 :is(#btn-notify,#btn-theme,#btn-help){background:transparent;border-color:transparent;color:var(--muted-foreground)}
 #bar1 :is(#btn-notify,#btn-theme,#btn-help):hover{background:var(--accent);color:var(--foreground)}
 #btn-rebuild:not(.btn-default){background:transparent;border-color:transparent;color:var(--muted-foreground)}
-body.lay-wide #btn-rebuild .ic{display:none}   /* 넓은 화면은 글자만 — 348px 패널의 도구 줄이 한 줄에 들어가게 */
-body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* 8px 면 348px 기본 패널에서 [?]가 둘째 줄로 떨어졌다(격자 정리 QA) */
+body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - so the 348px panel's tool bar fits on one line */
+body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* at 8px, [?] dropped to a second line in the default 348px panel (grid-cleanup QA) */
 #btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
 #bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}
-/* ---------------- 컴포넌트(docs/design.md §컴포넌트). shadcn/ui 의 변형 이름을 빌린 클래스 — 모든 버튼·배지가 이 한 벌이다.
-   버튼 변형: (클래스 없음) = outline · .btn-default(주요 동작, 패널에 하나) · .btn-secondary · .btn-soft([완료]) · .btn-ghost · .btn-destructive
-   버튼 크기: (클래스 없음) = default(28px) · .btn-sm(24px 안팎) · .btn-icon(정사각형, .btn-sm 과 겹치면 작은 정사각형)
-   배지: .badge(= outline) · .badge-default · .badge-secondary · .badge-destructive · 상태 .badge-claimed · .badge-warning */
+/* ---------------- Components (docs/design.md §Components). Classes borrowing shadcn/ui's variant names - every button/badge uses this one set.
+   Button variants: (no class) = outline - .btn-default (primary action, one per panel) - .btn-secondary - .btn-soft ([완료]) - .btn-ghost - .btn-destructive
+   Button sizes: (no class) = default (28px) - .btn-sm (around 24px) - .btn-icon (square, a smaller square when combined with .btn-sm)
+   Badges: .badge (= outline) - .badge-default - .badge-secondary - .badge-destructive - status .badge-claimed - .badge-warning */
 button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);
   background:var(--outline-bg);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);
   padding:var(--space-1) var(--space-3);cursor:pointer;font:inherit;font-size:var(--text-base);line-height:1.4;
   transition:background-color .12s,border-color .12s,color .12s}
-/* 아이콘(Lucide, vendor/lucide/README.md): 글자색을 따르는 선 아이콘. 버튼 안에서는 글자 옆에 4px 틈으로 붙는다. */
+/* Icons (Lucide, vendor/lucide/README.md): outline icons that follow the text color. Inside a button they sit next to the text with a 4px gap. */
 .ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
 .kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
 button:hover{background:var(--accent);color:var(--accent-foreground)}
 button:disabled{opacity:.65;cursor:not-allowed}
-button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]의 '저장 대기' — 눌린 채 기다리는 모양 */
+button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]'s "saving" - looks pressed-and-waiting */
 button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
 button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
 button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
 button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}
 button.btn-ghost{background:transparent;border-color:transparent}
 button.btn-ghost:hover{background:var(--accent)}
-/* soft: 옅은 강조(주 색 틴트). 카드의 [완료] 전용 — 저자 지정 2026-09-23(옅은 파랑). secondary 토큰은 셈 배지가 쓰므로 건드리지 않는다 */
+/* soft: a light accent (a tint of the primary color). Only for the card's [완료] - set by the author 2026-09-23 (light blue). The secondary token is used by count badges, so it's left untouched */
 button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
-button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}   /* 바탕을 더 칠하면 라이트 글자 대비가 4.5 아래로 — 테두리로 표시 */
+button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
 button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
 button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}
 button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
@@ -4895,8 +4995,8 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
 .badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border:1px solid transparent;border-radius:var(--radius-sm);
   background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
-/* 배지는 테두리 없는 옅은 채움이다(shadcn secondary 배지) — 테두리 있는 카드 안에 테두리 있는 배지를 또 그리지 않는다(저자 지적 2026-09-24:
-   외곽선 안에 외곽선). 뜻 있는 배지는 그 색의 옅은 틴트 바탕 + 그 색 글자. */
+/* A badge is a borderless light fill (the shadcn secondary badge) - a bordered badge is never drawn inside a bordered card
+   (author feedback 2026-09-24: an outline inside an outline). A meaningful badge is that color's light tint background + text in that color. */
 .badge .ic{width:12px;height:12px}
 .badge-default{background:var(--primary);color:var(--primary-foreground)}
 .badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
@@ -4918,8 +5018,8 @@ input.n{width:58px;text-align:center}
 .pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none}
 :root[data-theme=light] .pg{border:1px solid var(--border)}
 .pg img{width:100%;height:100%;display:block}
-/* 벡터 렌더링(docs/design.md §벡터 렌더링): 쪽 캔버스(.vb)는 쪽 상자를 꽉 채우고, 확대가 픽셀 상한을 넘으면
-   보이는 부분만 원래 해상도로 그린 상세 캔버스(.dt)를 쪽 안 % 좌표로 겹친다. 캔버스가 있으면 밑의 PNG 는 숨긴다. */
+/* Vector rendering (docs/design.md §Vector rendering): the page canvas (.vb) fills the page box completely, and when zoom
+   exceeds the pixel ceiling, a detail canvas (.dt) rendered at native resolution for just the visible portion is overlaid at % coordinates within the page. The underlying PNG is hidden whenever a canvas is present. */
 .pg>canvas{position:absolute;display:block;pointer-events:none}
 .pg>canvas.vb{left:0;top:0;width:100%;height:100%}
 .pg.drawn>img{visibility:hidden}
@@ -4944,14 +5044,14 @@ input.n{width:58px;text-align:center}
   align-items:center;font-size:var(--text-base)}
 #build-err{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);font-size:var(--text-base)}
 #composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border);background:var(--card)}
-#list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* 위 여백은 구획 머리(.list-head)가 가진다 — sticky 가 여백만큼 내려앉지 않게 */
+#list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* the top padding belongs to the section header (.list-head) - so a sticky element doesn't sit that far down */
 .busy{opacity:.45}
 pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--space-2);overflow:auto;font-size:var(--text-sm);
   line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
 pre.wrap{white-space:pre-wrap;word-break:break-word}
 pre.nowrap{white-space:pre}
-/* ---------------- 작성 패널(docs/design.md §패널 정리): 8px 격자, 같은 높이, 강조 색(--acc)은 [핀 저장] 하나.
-   위치 한 줄(파일·줄 + 쪽 + 일치 배지 + 복사) → 범위 분절 컨트롤 → 한 줄씩 스테퍼 → 원문 4줄 → 메모 → 아래 고정 동작 줄. */
+/* ---------------- Composer panel (docs/design.md §Panel cleanup and width adjustment): an 8px grid, uniform heights, only [핀 저장] gets the accent color (--acc).
+   The location line (file/line + page + match badge + copy) -> range-segment control -> line-by-line stepper -> 4 lines of source -> note -> a fixed action row at the bottom. */
 .c-loc-row{display:flex;align-items:center;gap:var(--space-2)}
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .c-loc-main .loc{font-weight:600}
@@ -4965,30 +5065,30 @@ pre.nowrap{white-space:pre}
 button.tg[aria-pressed=false]{color:var(--muted-foreground)}
 button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 #c-snip,.e-snip{margin:0}
-#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}   /* 접힌 원문은 4줄 — 넘치면 흐리게 끊고 [펼치기] */
+#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}   /* the collapsed source is 4 lines - overflow fades out with a [펼치기] */
 #c-snip.clip:not(.open){-webkit-mask-image:linear-gradient(var(--foreground) 60%,transparent);mask-image:linear-gradient(var(--foreground) 60%,transparent)}
 #c-snip.open{max-height:44vh}
 .e-snip{max-height:calc(9em + 16px)}
-/* 원문 바로 밑 한 줄: 왼쪽 [줄바꿈], 오른쪽 [원문 펼치기]. [줄바꿈]은 예전에 스테퍼 줄 끝에 있어 폴드(330px 패널)에서
-   혼자 다음 줄로 떨어졌다(QA 2026-09-25) — 둘 다 원문을 어떻게 보이느냐를 바꾸므로 원문 밑에 모은다. */
+/* One line right below the source: [줄바꿈] on the left, [원문 펼치기] on the right. [줄바꿈] used to sit at the end of the
+   stepper row and dropped alone to the next line in the folded (330px panel) layout (QA 2026-09-25) - since both change how the source is displayed, they're grouped below the source instead. */
 .snip-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
 .snip-foot button{color:var(--muted-foreground);white-space:nowrap}
-.snip-foot button.tg[aria-pressed=true]{color:var(--foreground);background:var(--accent);border-color:transparent}   /* 켜짐 = 변경사항 [줄바꿈]과 같은 채운 면 */
+.snip-foot button.tg[aria-pressed=true]{color:var(--foreground);background:var(--accent);border-color:transparent}   /* on = the same filled state as the diff's [줄바꿈] */
 #note{margin-top:8px}
-#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* 상자 없이 글 + 버튼 두 개 */
+#c-overlap{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:8px 0;font-size:var(--text-base)}   /* no box, just text + two buttons */
 #c-overlap>span{flex-basis:100%}
 #c-overlap button{flex:1 1 0;min-width:0}
-/* 동작 줄은 패널 바닥에 고정한다(목록을 스크롤해도, 가상 키보드가 올라와도 보인다). 작성 패널이 닫히면 함께 숨는다. */
+/* The action row is fixed to the bottom of the panel (visible while scrolling the list, or with the virtual keyboard up). It hides along with the composer panel closing. */
 #c-actions{flex:none;display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--border);background:var(--sidebar);z-index:3}
 #composer[hidden]~#c-actions{display:none}
 #c-actions button{min-height:var(--control-h-lg);font-size:var(--text-base)}
-#composer:not([hidden])~#list #empty{display:none}   /* 고르는 중에는 첫 화면 안내 문단을 숨긴다 */
+#composer:not([hidden])~#list #empty{display:none}   /* the first-screen guidance paragraph is hidden while selecting */
 .loc{font-family:var(--font-mono);color:var(--primary);font-size:var(--text-base);cursor:copy;overflow-wrap:anywhere}
 .dim{color:var(--muted-foreground);font-size:var(--text-sm)}
 .row{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
-/* 분절 컨트롤(범위 사다리·패널 폭): 한 줄, 넘치면 가로 스크롤. 고른 칸은 강조 색이 아니라 한 단계 밝은 면으로 보인다. */
+/* Segment control (range ladder / panel width): a single row, horizontal scroll on overflow. The selected segment shows not as the accent color but as a step-brighter surface. */
 .seg{position:relative;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:2px;margin:8px 0;padding:var(--space-1);border:0;
-  border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: 채운 틀 하나, 고른 칸은 떠 있는 면 */
+  border-radius:var(--radius-lg);background:var(--muted);scrollbar-width:none;overscroll-behavior-x:contain}   /* shadcn Tabs: one filled frame, the selected segment is a raised surface */
 .seg::-webkit-scrollbar{display:none}
 .seg.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
 .seg.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
@@ -5001,10 +5101,10 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .wn{color:var(--warning)}
 .warnline{color:var(--warning);font-size:var(--text-sm);margin-top:var(--space-2)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
-.pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* 모양은 .card */
-/* 상태(docs/design.md §상태 표현): 왼쪽 색 띠는 없앴다(저자 지적 2026-09-24 — 촌스럽다). 카드 머리 맨 앞의 작은 점 색 +
-   같은 뜻의 배지(글자·아이콘)로 가른다 — 색만으로 가르지 않는다. 열림 초록 · 처리 중 호박 · 검토 대기 보라 · 위치 잃음 경고색.
-   닫힘·삭제는 카드가 아니라 흐린 보관함 행이고 앞머리 아이콘(check·trash-2)이 상태다. */
+.pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:8px}   /* shape follows .card */
+/* Status (docs/design.md §Status representation): the left-edge color stripe was removed (author feedback 2026-09-24 - looked dated). Distinguished by the small
+   dot color at the front of the card header plus a matching badge (text/icon) - never by color alone. Open is green, in-progress is amber, awaiting review is purple, location lost is the warning color.
+   Closed/dropped aren't a card at all but a faded archive row, where a leading icon (check/trash-2) is the status. */
 .st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
 .st-dot.claimed{background:var(--status-claimed)}
 .st-dot.review{background:var(--status-review)}
@@ -5025,19 +5125,21 @@ button.badge-review{font-weight:600}
 @keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
 .pin .n{color:var(--card-foreground);font-weight:700}
 .pin .n.go{cursor:pointer;color:var(--primary);border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
-/* 링크 한 벌(QA 2026-09-24): 카드 머리의 #번호·줄 범위·N쪽과 글 속 #12 는 모두 '누르면 그 자리로 가거나 복사하는 참조'다 — 예전에는
-   굵은 점선 밑줄 · 파랑 · 회색 점선 밑줄 세 모양이었다. 이제 한 모양: 주 색 글자, 쉴 때 밑줄 없음, 가리키거나 포커스하면 실선 밑줄.
-   회색 글자는 누를 수 없는 정보(작성자·시각)다. 흐린 보관함 행 안에서도 같다 — 행의 글은 흐리고 누르는 말만 주 색이다. */
+/* One unified link style (QA 2026-09-24): the card header's #number/line-range/N페이지 and a #12 inside a post are all "a reference
+   that navigates or copies on click" - there used to be three distinct looks: bold dotted underline, blue, gray dotted underline. Now one:
+   primary-color text, no underline at rest, solid underline on hover/focus. Gray text is non-clickable information (author/timestamp).
+   Same inside a faded archive row - the row's text is faded and only the clickable words are in the primary color. */
 :is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
 :is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}
 .pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
-/* 카드 머리: 왼쪽에 번호·범위·쪽, 오른쪽에 작성자·접기. 배지는 머리 아래 한 줄. 동작은 같은 폭 격자, 완료만 강조·삭제는 위험 색. */
+/* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
 .pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:28px}
 .pin .head .loc{white-space:nowrap}
 .pin .head .pg-link{white-space:nowrap;flex:none}
-/* 머리 오른쪽 묶음(.h-meta = 담당 칩 · 답글 수 · 작성자): 자리가 모자라면 묶음째 다음 줄 오른쪽으로 내려간다. 예전에는 한 줄에
-   우겨 넣어 담당 칩이 있으면 작성자 이름이 'W' 한 글자로 잘렸다(QA 2026-09-24). 묶음 안에서는 담당 칩 이름이 먼저 말줄임되고
-   작성자 이름은 그다음이다. compact(접은 카드)는 한 줄을 유지하고(작성자는 아바타만) 같은 순서로 줄어든다. */
+/* Header right-side group (.h-meta = assignee chip - reply count - author): when space runs out, the whole
+   group drops to the next line, right-aligned. It used to be crammed onto one line, so an assignee chip could truncate the author's name down to a single
+   letter 'W' (QA 2026-09-24). Within the group, the assignee chip's name truncates first, then the author's name. compact (a collapsed card) keeps a single
+   line (author shown as just an avatar) and shrinks in the same order. */
 .pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
 .h-meta .au{flex:0 1 auto;min-width:0;max-width:14em}
 .h-meta .badge-assign{flex:0 100 auto;min-width:4.5em}
@@ -5046,14 +5148,14 @@ button.badge-review{font-weight:600}
 .pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
 .pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
 button.b-close{font-weight:600}
-/* 카드 안 버튼은 테두리 없이 채운다(secondary) — 테두리 있는 카드 안에 테두리 있는 버튼 여섯 개가 늘어서지 않게. [완료]만 soft 강조,
-   [삭제]는 바탕 없는 위험 색 글자라 가장 눈에 띄는 버튼이 되지 않는다. 입력 칸 옆 [취소]도 같은 채움이다. */
+/* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.
+   Only [완료] gets the soft emphasis; [삭제] is plain destructive-colored text with no fill, so it never becomes the most eye-catching button. [취소] next to an input field uses the same fill. */
 .pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
 .pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}
 .pin .acts button.btn-destructive{background:transparent}
-.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive — 변형은 마크업의 클래스가 정한다 */
+.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
 .e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
-/* 핀 종류(수정 요청 / 질문)와 스레드(docs/design.md §스레드와 검토). 질문 배지는 주 색 테두리, 스레드는 메모 아래 점선으로 가른다. */
+/* Pin kind (fix request / question) and thread (docs/design.md §Threads and review). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
 .kind-seg{margin:8px 0 0}
 .kind-seg button{flex:1 1 0}
 .edit .kind-seg{margin:0 0 var(--space-2)}
@@ -5061,8 +5163,8 @@ button.b-close{font-weight:600}
 .badge-mention{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground)}
 .badge-mention .ic{color:var(--primary)}
 .mention{color:var(--primary);font-weight:600;background:color-mix(in srgb,var(--primary) 12%,transparent);border-radius:var(--radius-sm);padding:0 var(--space-1);
-  white-space:nowrap}   /* 이름이 줄 끝에서 '@Bob' / 'Lee' 두 알약으로 갈라지지 않게 */
-/* 풀린 @태그 = 주 색 글자 + 옅은 틴트 알약(Slack·GitHub 처럼). 나를 부른 태그는 한 단계 진하다. 풀리지 않은 '@말'은 평문이다. */
+  white-space:nowrap}   /* so a name never splits across a line break into two pills, '@Bob' / 'Lee' */
+/* A resolved @-tag = primary-color text + a light-tint pill (like Slack/GitHub). A tag that mentions me is one shade darker. An unresolved '@word' is plain text. */
 .mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
 .badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:12em;overflow:hidden;justify-content:flex-start}
 .badge-assign .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -5077,23 +5179,23 @@ body.lay-narrow #c-assign{order:1;margin:0 0 8px}
 .m-preview .m-lab .ic{width:12px;height:12px}
 .m-preview .m-note{color:var(--muted-foreground)}
 body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
-/* 질문 권유 한 줄(.q-hint): 흐린 글 + 링크 한 벌 버튼. 상자 없음(한 겹 담기). 메모 칸 밑이라 쓰는 동안 칸이 밀리지 않는다. */
+/* Question-suggestion line (.q-hint): faded text + a link-style button. No box (single nesting level). Sits below the note field, so the field never shifts while typing. */
 .q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
 .q-hint svg{width:14px;height:14px;flex:none}
 .q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
 .q-hint button:is(:hover,:focus-visible){background:transparent;color:var(--primary);text-decoration:underline}
 body.lay-narrow #c-qhint{order:1;margin:-4px 0 8px}
-/* 글 속 '#12' = 그 핀으로 가는 링크(이동하는 글자는 점선 밑줄, hover 에 실선 — .pg-link·#번호와 같은 말) */
+/* A '#12' inside text = a link to that pin (a navigable string is dotted-underline, solid on hover - the same convention as .pg-link/#number) */
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
-/* @태그 자동 완성: 입력 칸 바로 아래(자리가 없으면 위)에 뜨는 목록. 입력 칸의 포커스를 뺏지 않는다(pointerdown 을 막는다). */
+/* @-tag autocomplete: a list that appears right below the input field (above it if there's no room). Never steals the input field's focus (blocks pointerdown). */
 #mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;overflow:hidden;background:var(--popover);
   color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
-#mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* 고른 줄 = 폭 전체 납작한 띠(shadcn Command) — 틀 안에 또 둥근 상자를 두지 않는다(한 겹 담기) */
+#mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* a selected row = a full-width flat band (shadcn Command) - never a rounded box within a box (single nesting level) */
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #mention-pop .dim{padding:var(--space-2) var(--space-3)}
-.thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* 구분선 하나 — 상자가 아니다 */
+.thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* a single divider - not a box */
 .thread:empty{display:none}
 .msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
 .msg .av{width:20px;height:20px;margin-top:1px}
@@ -5101,9 +5203,9 @@ body.lay-narrow #c-qhint{order:1;margin:-4px 0 8px}
 .msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg-h b{color:var(--foreground);font-weight:600}
 .msg-t{white-space:pre-wrap;word-break:break-word}
-.msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* 1,000자 답글 하나가 카드를 1,390px 로 늘렸다(QA) */
+.msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* a single 1,000-character reply stretched a card to 1,390px (QA) */
 button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foreground)}
-.thread :is(button.msg-more,button.th-more){justify-content:flex-start;padding-left:var(--space-1);padding-right:var(--space-1);margin-left:calc(-1 * var(--space-1))}   /* 글자가 스레드 글 왼쪽 선에 맞는다 */
+.thread :is(button.msg-more,button.th-more){justify-content:flex-start;padding-left:var(--space-1);padding-right:var(--space-1);margin-left:calc(-1 * var(--space-1))}   /* the text aligns with the thread posts' left edge */
 .msg.ev{display:block;padding-left:28px;color:var(--muted-foreground);font-size:var(--text-sm)}
 .msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
 button.th-more{align-self:flex-start;color:var(--muted-foreground)}
@@ -5113,11 +5215,11 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
 .reply-box textarea{min-height:3.2em}
 .r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
-.pin:has(.reply-box)>.acts{display:none}   /* 입력 칸이 열린 동안 그 칸의 [취소]·[보내기|다시 열기]가 이 카드의 동작 줄이다 — 두 줄이 겹쳐 [다시 열기]가 둘 보였다 */
-.arc-thread{margin:4px 0 0 var(--space-5)}   /* 들여쓰기만 — 상자 없음 */
+.pin:has(.reply-box)>.acts{display:none}   /* while the input field is open, its own [취소]/[보내기|다시 열기] act as this card's action row - otherwise the two rows overlapped and [다시 열기] appeared twice */
+.arc-thread{margin:4px 0 0 var(--space-5)}   /* indentation only - no box */
 .arc-thread .thread{margin:0;padding:0;border:0}
 .edit .c-tools{margin-top:0;flex-wrap:wrap}
-.edit .c-tools .e-range{white-space:nowrap}   /* 줄 범위가 글자마다 꺾이지 않게 — 자리가 모자라면 줄째 아래로 */
+.edit .c-tools .e-range{white-space:nowrap}   /* the line range never wraps character by character - the whole thing drops to the next line if there's no room */
 .pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}
 .au{display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
 .au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -5129,19 +5231,19 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
-/* ---------------- 목록 구획(docs/design.md §보관함): 열린 핀 · 완료 · 삭제. 구획 머리는 폭 전체를 쓰고 스크롤해도 위에
-   붙는다(sticky) — 지금 어느 구획을 보는지 늘 보인다. 구획마다 section 으로 감싸 다음 구획이 오면 앞 머리가 밀려난다.
-   --stick-top 은 compact 에서 위에 붙은 도구 줄(#bar1) 높이다(JS 가 잰다). 닫힌·삭제한 핀은 카드가 아니라 납작한 행이다. */
+/* ---------------- List sections (docs/design.md §Archive): open pins - done - dropped. A section header spans the full width and stays stuck to
+   the top while scrolling (sticky) - so it's always clear which section is in view. Each section is wrapped in <section>, so the previous header
+   gets pushed out once the next section arrives. --stick-top is the height of the tool bar (#bar1) stuck at the top in compact mode (measured by JS). A closed or dropped pin is a flat row, not a card. */
 .lsec{position:relative}
 .list-head{position:sticky;top:var(--stick-top,0px);z-index:2;background:var(--sidebar);margin:0 -12px 4px;padding:var(--space-2) var(--space-3)}
 .arc{margin-top:12px}
 button.arc-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;justify-content:flex-start;gap:var(--space-2);width:calc(100% + 24px);
   margin:0 -12px;padding:var(--space-2) var(--space-3);background:var(--sidebar);border:0;border-top:1px solid var(--border);border-radius:0;color:var(--muted-foreground);
   font-size:var(--text-sm);text-align:left;scroll-margin-top:var(--stick-top,0px)}
-/* scroll-margin-top 은 revealList() 의 scrollIntoView({block:'start'}) 와 짝이다 — 이게 없으면 브라우저는 이 머리의
-   '흐름상 정적 위치'를 뷰포트 맨 위(0)로 맞추는데, 그 위치는 스티키 계산상 다시 stick-top 만큼 아래로 밀려 그려진다.
-   그 사이 빈 틈(0~stick-top)에 다음 줄(예: 되살리기 버튼이 있는 첫 행)의 흐름 위치가 들어가 #bar1 에 완전히
-   가려졌다(elementFromPoint 가 #bar1 을 반환 — 터치 회귀). 여백을 stick-top 만큼 미리 줘 두 위치를 맞춘다. */
+/* scroll-margin-top pairs with revealList()'s scrollIntoView({block:'start'}) - without it, the browser aligns this header's
+   "static in-flow position" to the top of the viewport (0), but the sticky calculation then renders it pushed back down by stick-top.
+   The next row's (e.g. the first row with a restore button) in-flow position lands in that empty gap (0 to stick-top) and got
+   completely hidden under #bar1 (elementFromPoint returned #bar1 - a touch regression). Giving the margin stick-top in advance aligns the two positions. */
 button.arc-head:hover{background:var(--accent)}
 .arc-h{font-weight:700;color:var(--foreground)}
 .arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px}
@@ -5150,7 +5252,7 @@ button.arc-head:hover{background:var(--accent)}
 .arc-list{padding:var(--space-2) 0 var(--space-1)}
 .arc-list>.dim{padding:var(--space-1) 0}
 .arc-row{position:relative;padding:var(--space-2) 0;color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
-.arc-row+.arc-row{border-top:1px solid var(--border)}   /* 납작한 행 — 구분선 하나, 띠·상자 없음 */
+.arc-row+.arc-row{border-top:1px solid var(--border)}   /* a flat row - a single divider, no stripe or box */
 .arc-row.dropped{color:var(--subtle-foreground)}
 .arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
 .arc-row .ic{width:14px;height:14px}
@@ -5159,9 +5261,9 @@ button.arc-head:hover{background:var(--accent)}
 .arc-l1 .n{font-weight:700}
 .arc-l1 .loc{font-size:var(--text-sm)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
-.arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* 시각은 줄이지 않는다 — 짧은 상대 시각이라 늘 읽힌다(예전 '09-24 1…') */
+.arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */
 .arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.arc-l1 .loc{flex:none}   /* 줄 범위는 줄이지 않는다 — 좁은 패널에서 긴 참조 옆의 'L890-L897' 이 'L89' 로 잘렸다(폴드 QA 2026-09-25). 참조가 먼저 줄어든다 */
+.arc-l1 .loc{flex:none}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
@@ -5169,20 +5271,21 @@ button.arc-b:hover{color:var(--foreground)}
 .arc-reply.open{white-space:pre-wrap;overflow:visible;word-break:break-word}
 .arc-reply.none{font-style:italic;cursor:default}
 button.arc-orig-t{flex:none;background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
-button.arc-orig-t:hover,button.arc-orig-t:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}   /* 행 안의 글자 동작도 링크 한 벌(주 색, 가리키면 밑줄) */
+button.arc-orig-t:hover,button.arc-orig-t:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}   /* a text action inside a row also uses the unified link style (primary color, underline on hover) */
 .arc-orig{margin:4px 0 0 var(--space-5);white-space:pre-wrap;word-break:break-word;color:var(--card-foreground)}
 .arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
 h3{margin:0 0 var(--space-2);font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
 .hint{padding:var(--space-4) var(--space-3);color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
-kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px var(--space-1);font:inherit;font-size:var(--text-xs);white-space:nowrap}   /* 브라우저 기본 고정폭 글꼴은 한글 버튼 이름('길게 누르기')을 띄엄띄엄 그렸다 */
+kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px var(--space-1);font:inherit;font-size:var(--text-xs);white-space:nowrap}   /* the browser's default monospace font rendered a Korean button name ('길게 누르기') with awkward spacing */
 .spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
   animation:rot .8s linear infinite;display:inline-block}
 @keyframes rot{to{transform:rotate(360deg)}}
-/* 알림(토스트, docs/design.md §알림): 방금 누른 자리 가까이 뜬다 — 예전에는 왼쪽 아래(데스크톱)·본문 왼쪽 위(mid)에 떠서
-   오른쪽 패널에서 [핀 저장]을 누른 눈길과 1,100px 넘게 떨어졌다(2026-09-24 실측). 가로 자리(--toast-r·--toast-w)와 바닥
-   높이(--toast-b)는 placeToasts() 가 잰다: wide·mid 는 패널 열 안 오른쪽 아래, 동작 줄·저장 버튼 바로 위 · narrow 는 시트 위.
-   모양은 sonner 처럼 떠 있는 면 하나(가는 테두리 + 그림자, 떠 있는 면만 그림자를 쓴다). 상태는 색 띠 대신 앞머리 아이콘.
-   새 알림이 맨 위에 쌓이고 3개가 넘으면 나머지는 접힌다(마우스를 올리면 펼친다). */
+/* Notifications (toast, docs/design.md §Toasts): appear near where you just clicked - they used to show at the bottom-left (desktop) or
+   top-left of the body (mid), ending up more than 1,100px from where the eye was after clicking [핀 저장] in the right panel (observed 2026-09-24).
+   The horizontal position (--toast-r/--toast-w) and bottom height (--toast-b) are measured by placeToasts(): for wide/mid, bottom-right
+   inside the panel column, just above the action row/save button; for narrow, above the sheet.
+   The look is a single floating surface like sonner (thin border + shadow - only floating surfaces get a shadow). Status is a leading icon instead of a color stripe.
+   New notifications stack at the top, and once there are more than 3, the rest collapse (expand on hover). */
 #toasts{position:fixed;z-index:50;right:var(--toast-r,var(--space-3));bottom:var(--toast-b,var(--space-3));width:var(--toast-w,360px);
   max-width:calc(100vw - 2 * var(--space-2));display:flex;flex-direction:column;gap:var(--space-2);pointer-events:none}
 .toast{pointer-events:auto;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:var(--space-2);
@@ -5196,7 +5299,7 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
 .toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
 #toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
-/* 터치: 알림 몸통은 누름을 뒤로 흘려보낸다(버튼만 받는다) — 폰에서 시트 바로 위에 뜬 알림이 PDF 길게 누르기·도구 줄을 가로채지 않게. */
+/* Touch: the toast body passes taps through (only its buttons receive them) - so a toast floating right above a phone's sheet never intercepts a PDF long-press or the tool bar. */
 @media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
 #tip{position:fixed;z-index:100;max-width:300px;background:var(--tooltip);color:var(--tooltip-foreground);font-size:var(--text-sm);line-height:1.5;
@@ -5216,15 +5319,15 @@ dialog code{font-size:var(--text-sm);word-break:break-all}
 .sw.w{border-color:var(--warning)}
 .sw.a{border-color:var(--primary);border-style:dashed}
 dialog .help-legend .st-dot{display:inline-block;vertical-align:middle;margin:0 4px 0 2px}
-/* ---------------- 모바일·터치 (docs/design.md §모바일 레이아웃)
-   레이아웃은 JS 가 body 에 건다: lay-wide(1100px 이상) · lay-mid(700px 초과 1100px 미만: 좁은 사이드 패널) ·
-   lay-narrow(700px 이하: 하단 시트). compact = mid·narrow. side-open = 패널·시트가 펼쳐짐.
-   접힌 상태에는 도구 줄(#bar1)과 상태 칩(#bar2)·위치 다시 잡기 배너만 남는다. */
+/* ---------------- Mobile/touch (docs/design.md §Mobile layout)
+   The layout is set by JS on body: lay-wide (1100px and up) - lay-mid (over 700px, under 1100px: a narrow side panel) -
+   lay-narrow (700px and below: a bottom sheet). compact = mid|narrow. side-open = the panel/sheet is expanded.
+   In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the re-place-location banner remain. */
 .cmp,.tch{display:none}
 .pin .sum{display:none}
 .hint .t-touch{display:none}
 .pg{-webkit-touch-callout:none}
-#btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}   /* 켜짐 = btn-default 모양 */
+#btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}   /* on = looks like btn-default */
 body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-offset:3px}
 #coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--space-3) + env(safe-area-inset-top));z-index:60;background:var(--primary);
   color:var(--primary-foreground);border-radius:var(--radius-lg);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);display:flex;gap:var(--space-2);align-items:center;
@@ -5249,35 +5352,35 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .hint .t-mouse{display:none}
   button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
-  /* 누르는 배지(담당 칩·검토 대기·빌드 오류)는 배지 크기 그대로 두고 누르는 자리만 44px 로 넓힌다 — min-height:44px 로 키우면
-     카드 머리의 담당 칩이 44px 파란 판이 됐다(QA 폴드). */
+  /* A tappable badge (assignee chip/awaiting review/build error) keeps its visual size and only widens its hit area to 44px - growing it via
+     min-height:44px turned the card header's assignee chip into a 44px blue slab (folded-layout QA). */
   button.badge{min-height:0;min-width:0;padding:1px var(--space-2);position:relative}
   button.badge::after{content:'';position:absolute;left:-4px;right:-4px;top:50%;height:var(--control-h-touch);transform:translateY(-50%)}
   #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
   #bar1 button{padding:0 var(--space-2)}
   input,textarea,select{font-size:var(--text-xl)}
-  #bar1 input.n{width:84px;font-size:var(--text-xl)}   /* iOS 는 16px 보다 작은 입력 칸에 포커스하면 화면을 키운다 */
+  #bar1 input.n{width:84px;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
   .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
-  /* #N 은 글자 폭만큼만(26~35px) 그려 좁다 — 시각 크기는 그대로 두고 고정 44×44 히트 영역만 가운데 얹는다
-     (parent 폭에 비례하는 inset 대신 fixed size 를 써야 짧은 번호에서도 44 를 보장한다). position:relative 는
-     .n.go 에만 준다 — .loc·.pg-link 까지 주면 DOM 순서상 뒤에 오는 .loc 가 포지션드 스태킹에서 .n.go 의
-     ::before 위로 올라와 오른쪽 절반의 히트 테스트를 가로챘다(실측: cx+21 이 '#N' 대신 '.loc' 을 반환).  */
+  /* #N is drawn narrow, only as wide as its text (26-35px) - the visual size is kept and a fixed 44x44 hit area is centered on top of it
+     (a fixed size rather than an inset proportional to the parent's width is needed to guarantee 44 even for a short number). position:relative
+     is given only to .n.go - giving it to .loc/.pg-link too let .loc, which comes later in DOM order, rise above .n.go's ::before
+     in the positioned stacking order and intercept hit-testing for the right half (observed: cx+21 returned '.loc' instead of '#N').  */
   .pin .n.go{position:relative}
   .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
   .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
   .mark b::after{content:'';position:absolute;inset:-9px}
   #tip{max-width:min(300px,calc(100vw - 16px))}
   button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
-  /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (기본 규칙, 0-0-2-1) 이 위 button.btn-icon(0-0-1-1) 보다
-     구체적이라 터치에서도 24px 로 남았다(카드 접기 .b-fold·토스트 닫기 버튼 실측) — 같은 specificity 로 다시 못박는다. */
+  /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
+     button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
   button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
   #c-actions button{min-height:48px;font-size:var(--text-lg)}
   .pin .acts button{min-height:44px}
-  /* 보관함 행을 납작하게 두려고 [원래 요청]은 28px 로 그리고 누르는 자리만 ::after 로 44px 까지 넓힌다 */
-  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* 상자 자체가 44px(QA: 58×28 이었다) */
+  /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
+  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
   .arc-reply{min-height:44px;display:flex;align-items:center}
-  .q-hint,.q-hint button{font-size:var(--text-base)}   /* 권유 버튼도 44px(전역 button 규칙), 글은 한 단계 키운다 */
-  /* [변경 보기] 폰·폴드 QA(2026-09-25): 커밋 고르기가 18px, [빌드 경고 보기]가 16px 높이였다 */
+  .q-hint,.q-hint button{font-size:var(--text-base)}   /* the suggestion button is also 44px (the global button rule); the text is bumped up a step */
+  /* [변경 보기] phone/folded-layout QA (2026-09-25): commit selection was 18px, [빌드 경고 보기] was 16px tall */
   #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
   #revision-warning summary{line-height:var(--control-h-touch)}
   .arc-reply.open{display:block;padding:var(--space-2) 0}
@@ -5286,7 +5389,7 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   #grip::after{left:-9px;right:-9px}
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
-/* mid: 손잡이 가운데에 잡는 막대를 보인다(터치로 찾기 쉽게) */
+/* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
 body.lay-mid #grip{width:8px;background:var(--sidebar);border-left:1px solid var(--border)}
 body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:var(--radius-sm);
   background:var(--border-strong);transform:translate(-50%,-50%)}
@@ -5297,26 +5400,26 @@ body.compact #left{padding:var(--space-3) max(var(--space-2),env(safe-area-inset
 body.compact #main{min-width:0}
 body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
 body.compact #right>*{flex:none}
-/* compact 도구 줄: 같은 높이의 한 줄 그룹. 빈칸 없이 이어 붙이고 [⋯] 도 그 흐름에 둔다(폭이 모자라면 글자가 먼저 줄어든다). */
+/* Compact tool bar: a single row of same-height items. Packed edge to edge with no gaps, and [⋯] sits in that same flow (text shrinks first if there's no room). */
 body.compact #bar1{flex-wrap:nowrap;gap:var(--space-1);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
 body.compact #bar1 .sp{display:none}
 body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
-/* 폭이 모자라면 이름표가 먼저 줄어든다(전체 이름은 설명에) — 버튼 글자가 잘려 'DF 재빌드'처럼 보이던 것을 막는다 */
+/* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
 body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
-/* 위 min-width:0(body.compact #bar1 button) 은 @media(pointer:coarse) 의 button{min-width:44px}(3647) 보다
-   구체적(id 포함)이라 이겨서, 좁은 화면(lay-mid)에서 [선택] 이 40px 까지 줄던 결함(실측)의 원인이었다.
-   같은 selector 를 터치에서만 다시 못박는다 — 소스 순서가 위 규칙보다 뒤이므로 specificity 동률에서 이긴다. */
+/* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
+   button{min-width:44px} (line 3647), so it won for narrow screens (lay-mid), and that's why [선택] used to shrink all the way to 40px (observed).
+   The same selector is re-pinned here, touch-only - since it comes later in source order than the rule above, it wins the specificity tie. */
 @media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
-/* 접은 폴드(narrow): 이름표 글자는 도구 줄에서 빼고 [더보기] 첫 줄에 둔다 — 28px 로 줄어 'C…' 만 남아 읽을 수 없었다(2026-09-23).
-   맨 위 이름표 색 띠(#brand-stripe)가 인스턴스를 가른다. [문서] 버튼은 짧은 문서 이름(본문·답변서·커버레터)을 다 보이고 줄어들지 않는다.
-   편 폴드(mid, 884px)도 같은 flex-wrap:nowrap 압박을 받아 이름표가 'CE-iTra…'(71px)까지 줄었다(실측) — 같은 처방을
-   그대로 편다. #more-label(더보기 첫 줄)이 두 레이아웃 모두에 이미 있어(레이아웃 조건 없는 공용 마크업) 별도
-   시트 없이도 전체 이름을 볼 수 있다. */
+/* Folded (narrow): the label text is pulled out of the tool bar and placed on [더보기]'s first line - shrinking it to 28px left only 'C...', unreadable (2026-09-23).
+   The label-color stripe at the very top (#brand-stripe) distinguishes the instance instead. The [문서] button always shows the short document name in full
+   (body/response/cover letter) without shrinking. The spread-out folded layout (mid, 884px) is under the same flex-wrap:nowrap pressure and its label
+   also shrank to 'CE-iTra...' (71px) (observed) - the same fix is applied there too. #more-label ([더보기]'s first line) already exists in both layouts
+   (shared markup with no layout condition), so the full name is visible without a separate sheet. */
 body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
 body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
-/* 접은 폴드·폰 시트 도구 줄(QA 2026-09-24): 자주 쓰는 순서 — [핀 N] [선택] [문서] ··· [재빌드] [⋯]. 검토 대기 수는 [핀 N] 안의
-   알약이다(예전에는 버튼 모서리 테두리 위에 반쯤 걸쳐 떠 있었다). [PDF 재빌드]는 드물게 쓰므로 아이콘만 남겨 엄지 자리를 비운다
-   (이름은 aria-label·길게 누르기 설명). 그 자리를 받은 덕에 '핀 02' 처럼 잘리던 폭 문제도 없다. */
+/* Folded/phone-sheet tool bar (QA 2026-09-24): frequency order - [핀 N] [선택] [문서] ... [재빌드] [⋯]. The awaiting-review count is a pill
+   inside [핀 N] (it used to float half-overlapping the button's corner border). [PDF 재빌드] is rarely used, so only its icon remains to free up
+   thumb space (the name lives in aria-label/long-press description). Freeing that space also removed the width problem that used to clip it to '핀 02'. */
 body.lay-narrow #btn-side{order:1}
 body.lay-narrow #btn-select{order:2}
 body.lay-narrow #btn-doc{order:3}
@@ -5324,27 +5427,27 @@ body.lay-narrow #btn-rebuild{order:4}
 body.lay-narrow #btn-more{order:5}
 body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
 body.lay-narrow #btn-rebuild .lbl{display:none}
-@media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* 아주 좁은 폰: [선택]은 점선 상자 아이콘만(켜짐은 채운 색) */
+@media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
 body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
-body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* 유틸리티 = ghost(데스크톱 알림·테마·도움말과 같은 말) */
+body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
 body.compact #composer{max-height:none;overflow:visible}
-/* narrow 시트: 메모 칸을 원문보다 위로 올린다 — 시트 높이 안에서 메모 칸이 아래 동작 줄 밑에 숨었다(실측, 모바일 개선 때). */
+/* Narrow sheet: the note field is moved above the source text - within the sheet height, the note field used to hide below the bottom action row (observed during the mobile improvements). */
 body.lay-narrow #composer{display:flex;flex-direction:column}
 body.lay-narrow #c-body{display:contents}
 body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:2}
 body.lay-narrow #note{order:1;margin:0 0 8px}
 body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
-/* compact 에서는 #right 가 스크롤 상자다 — 동작 줄을 그 바닥에 붙인다. */
+/* In compact, #right is the scroll box - the action row is stuck to its bottom. */
 body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
 body.compact #meta-txt,body.compact #me{display:none}
 body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
 body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
 body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
-/* 알림 자리(placeToasts): narrow 는 시트 바로 위 화면 폭, mid 는 동작 줄 바로 위 패널 쪽(패널이 열려 있으면 그 열 안). */
+/* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
 body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
 body.lay-mid #toasts{max-width:calc(100vw - 2 * var(--space-3))}
-/* 접힌 카드(compact): 머리 한 줄(번호·위치·쪽 ··· 담당·답글 수·접기) + 그 아래 메모 미리보기 두 줄. 예전에는 미리보기가 머리 한 줄의
-   남은 폭만 받아 '[C…' 한 조각이었고 카드 높이의 대부분이 여백이었다(QA 2026-09-24). 머리의 44px 누르는 자리는 카드 여백과 겹친다. */
+/* Collapsed card (compact): one header line (number/location/page ... assignee/reply count/collapse) + two lines of note preview below it. The preview
+   used to be squeezed into the header line's leftover width, showing just a fragment like '[C...', with most of the card's height wasted as empty space (QA 2026-09-24). The header's 44px hit area overlaps the card's padding. */
 body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;
   margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5;cursor:pointer}
 body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
@@ -5357,7 +5460,7 @@ body.lay-narrow #left{height:100%}
 body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
   max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-/* 시트 높이: --sheet-f(화면 높이 비율, 기본 0.64)를 윗가장자리 손잡이(#sheet-grip)로 끌거나 눌러 바꾼다. 키보드가 올라오면 보이는 높이 안으로 줄인다. */
+/* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
 body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
 body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
   background:var(--sidebar);border-radius:var(--radius-lg) var(--radius-lg) 0 0;touch-action:none;cursor:row-resize}
@@ -5365,22 +5468,23 @@ body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radi
 body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
 body.lay-narrow #bar1{top:24px;padding-top:0}
-/* ---- 펼친 폴드·태블릿(mid): 위는 문서 탐색 줄, 아래는 동작 줄 — 둘 다 화면 전체 폭에 고정하고 패널은 그 사이에 편다
-   (docs/design.md §펼친 화면 레이아웃). 예전에는 도구 줄이 패널을 따라다녀 [핀] 이 펴면 오른쪽 위, 접으면 오른쪽
-   아래로 뛰었고(842×758 실측 y 56→693), 문서 옆 패널(901–1099px)은 탐색 줄을 패널 폭만큼 잘랐다(968px 에서 630px).
-   두 손으로 쥔 화면에서 엄지가 닿는 곳은 아래 양 끝이다 — 자주 쓰는 [선택] 은 왼쪽 아래, 패널 토글 [핀 N] 은 패널이
-   나오는 오른쪽 아래 끝에 두고, 패널 여닫기와 무관하게 같은 자리에 남긴다. 저장·취소(#c-actions)는 패널 바닥, 곧 동작 줄
-   바로 위라 오른손 엄지 거리다. 도구 줄(#bar1)은 DOM 으로는 #right 안에 그대로 두고 position:fixed 로 뺀다 — narrow
-   시트는 같은 마크업을 손잡이 아래 sticky 로 쓰기 때문이다. 그래서 #right 에 transform·filter·opacity 를 주지 않는다
-   (fixed 자식의 기준 상자가 바뀌어 동작 줄이 패널과 함께 움직인다). */
+/* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
+   width, with the panel spread between them (docs/design.md §Unfolded-screen layout). It used to have the tool bar follow the panel, so [핀]
+   jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
+   (901-1099px) clipped the nav bar by the panel's width (968px down to 630px). On a two-handed grip, the thumbs reach the two bottom
+   corners - the frequently used [선택] sits bottom-left, and the panel toggle [핀 N] sits bottom-right where the panel appears, staying in
+   the same spot regardless of whether the panel is open or closed. Save/cancel (#c-actions) is at the panel's bottom, right above the action
+   row, so it's within right-thumb reach. The tool bar (#bar1) stays in the DOM inside #right and is pulled out visually via position:fixed -
+   this is because the narrow sheet reuses the same markup as a sticky element below its handle. That's also why #right is never given a
+   transform/filter/opacity (that would change a fixed child's containing block, and the action row would move together with the panel). */
 body.lay-mid{--mbar-tb:var(--control-h);--mbar-h:calc(var(--mbar-tb) + 2 * var(--space-2) + 1px + env(safe-area-inset-bottom));
   --mid-top:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}
 @media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}
 body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
   gap:var(--space-2);padding:var(--space-2) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
   background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
-/* 버튼은 제 글자 폭 그대로(줄어들거나 늘어나지 않는다). 순서는 엄지 기준: [선택] ···· [PDF 재빌드] [⋯] [핀 N].
-   DOM 순서는 narrow 시트와 공유하므로 CSS order 로만 바꾼다. */
+/* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
+   DOM order is shared with the narrow sheet, so only CSS order changes it. */
 body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
 body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
 body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
@@ -5390,16 +5494,16 @@ body.lay-mid #btn-more{order:4}
 body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
 body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
 body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
-/* 접힌 패널: #right 는 보이지 않는 틀로 남아 상태 칩(#bar2)·위치 다시 잡기 배너(#banner)만 동작 줄 바로 위 오른쪽에 띄운다.
-   틀 자체는 입력을 받지 않아 그 뒤의 PDF 를 가리지 않는다. */
+/* Collapsed panel: #right remains an invisible frame, floating only the status chips (#bar2) and the re-place-location banner (#banner) at the bottom-right just above the action row.
+   The frame itself never receives input, so it never blocks the PDF behind it. */
 body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(var(--space-3),env(safe-area-inset-right));
   bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));width:auto!important;height:auto;max-width:calc(100vw - 2 * var(--space-3));
   display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);
   background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
 body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#banner{pointer-events:auto;background:var(--sidebar);
   border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
-/* 탐색 줄: 화면 전체 폭에 고정한다(패널이 자르지 않는다). 문서 링크가 넘치면 그 줄 안에서 가로로 밀고, 넘친 쪽 끝을 흐리게 한다
-   (fade-l·fade-r, docLinksFade). 지금 문서 링크는 늘 보이는 자리로 끌어온다. */
+/* Nav bar: fixed to the full screen width (the panel never clips it). Overflowing document links scroll horizontally within that row, with
+   the overflowing edge faded (fade-l/fade-r, docLinksFade). The current document's link is always scrolled into view. */
 body.lay-mid #paper-identity{display:none}
 body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
   padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
@@ -5410,10 +5514,10 @@ body.lay-mid #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foregrou
 body.lay-mid #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
 body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
 body.lay-mid #doc-nav button{white-space:nowrap}
-/* 중간 폭은 목차를 문서 위에 펼친다(#main 이 이미 탐색 줄 아래에서 시작한다). 좁은 태블릿은 핀도 겹쳐 본문 폭을 보존한다. */
+/* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
 body.lay-mid #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
 body.lay-mid #outline-grip{display:none}
-/* 첫 안내: 동작 줄 바로 위 왼쪽, 곧 안내가 가리키는 [선택] 위에 작은 칩으로 뜬다 — 탐색 줄·패널을 가리지 않는다. */
+/* First-time onboarding: shown as a small chip just above the action row, on the left, right above the [선택] it points at - it never covers the nav bar or panel. */
 body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
   max-width:calc(100vw - 2 * var(--space-3));padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);font-size:var(--text-base)}
 body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
@@ -5422,13 +5526,13 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 @media (min-width:701px) and (max-width:900px){
   body.lay-mid.side-open #right{position:fixed;right:0;top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
     animation:mid-panel-in .18s ease-out}
-  /* 핀 패널이 겹쳐 뜨는 폭(폴드)에서 변경사항 보기는 패널 폭만큼 비켜 준다 — 본문 PDF 와 달리 diff 는 옆으로 밀어 볼 수 없어
-     패널 밑 오른쪽 절반(줄바꿈한 글 끝, 안내 줄의 [원고로])이 가려졌다(QA 2026-09-25, 842px). */
+  /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
+     can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
   body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
   body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
     animation:mid-grip-in .18s ease-out}
 }
-/* 접은 폴드(narrow)는 기존 도구 줄의 [문서 ▾] 버튼과 시트 목록을 그대로 쓴다. */
+/* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}
 .dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
@@ -5441,9 +5545,9 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
 body.view-only #btn-rebuild{display:none}
 .dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
-.dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* 다른 문서 = 점선 테두리(뜻이 있는 테두리) */
-.list-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2)}   /* 여백은 위 sticky 규칙 하나 — 이 규칙이 margin 을 0 으로 덮어 머리 글자만 카드보다 12px 안쪽에 섰다(QA) */
-/* 구획 머리의 버튼(다시 읽기·나를 부른 핀·모든 문서)은 테두리 없는 ghost — 켜진 거르기는 채운 면으로 보인다 */
+.dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */
+.list-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2)}   /* the margin comes from a single sticky rule above - this rule overriding margin to 0 left only the header text sitting 12px inside the card (QA) */
+/* A section header's buttons (re-read/pins that call me/all documents) are borderless ghosts - an active filter shows as a filled surface */
 .list-head button{background:transparent;border-color:transparent;color:var(--muted-foreground)}
 .list-head button:hover{background:var(--accent);color:var(--foreground)}
 .list-head button[aria-pressed=true]{background:var(--accent);border-color:transparent;color:var(--foreground)}
@@ -5456,12 +5560,12 @@ body.view-only #btn-rebuild{display:none}
 .dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dm-item{border-color:transparent;background:transparent}
 .dm-item.on{background:var(--accent)}
-/* 보기 전용 PDF 문서의 선택: 범위 사다리·스테퍼·원문 펼치기가 없다(줄이 없다). 원문 칸에는 영역 글자를 보인다. */
+/* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
 #composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
 .edit.region .e-levels,.edit.region .c-tools .step{display:none}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-/* 이름표 칩·띠(§동시 인스턴스): 여러 논문 뷰어를 동시에 열었을 때 탭을 구분하는 용도라 강조색은
-   고정 배경(인라인 style)으로 박는다 — 테마가 바뀌어도 이름표 색은 그대로여야 한다. */
+/* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
+   open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */
 #brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none}
 .chip{flex:none;color:var(--brand-foreground);font-weight:700;font-size:var(--text-sm);line-height:1.4;padding:var(--space-1) var(--space-2);border-radius:var(--radius);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
@@ -5552,6 +5656,7 @@ body.view-only #btn-rebuild{display:none}
   <div class="more-grid">
     <button class="btn-secondary" data-act="reload" data-close="1">핀 다시 읽기</button>
     <button id="m-theme" class="btn-secondary" data-act="theme">테마: 시스템</button>
+    <button id="m-lang" class="btn-secondary" data-act="lang" data-tip="화면 언어를 바꿉니다 (한국어 / English)">English</button>
     <button id="m-notify" class="btn-secondary wide" data-act="notify-toggle">알림 켜기</button>
     <button class="btn-secondary" data-act="zoom-out">축소</button>
     <button class="btn-secondary" data-act="zoom-in">확대</button>
@@ -5616,7 +5721,7 @@ body.view-only #btn-rebuild{display:none}
 'use strict';
 const $=s=>document.querySelector(s);
 const $$=s=>Array.from(document.querySelectorAll(s));
-// Lucide 아이콘(vendor/lucide/README.md). 서버 icon_svg() 와 같은 모양 — 크기는 CSS(.ic)가 정한다.
+// Lucide icons (vendor/lucide/README.md). Same shape as the server's icon_svg() - size is set by CSS (.ic).
 const ICONS=__LUCIDE_JSON__;
 function ic(n){const b=ICONS[n]; return b?'<svg class="ic ic-'+n+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+b+'</svg>':'';}
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -5625,30 +5730,30 @@ const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smoo
 const MQ=matchMedia('(prefers-color-scheme: light)');
 let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null,PICKING=false,PEND_SAVE=false;
 let SHOW_DONE=false,SHOW_DROPPED=false,SNIP_OPEN=false,W=900,WRAP=true;
-// 모바일: LAYOUT 은 'wide'|'mid'|'narrow', SIDE_OPEN 은 패널·시트가 펼쳐졌는가, SELMODE 는 터치 선택 모드,
-// ZOOMED 는 compact 에서 사용자가 −/＋ 로 폭을 바꿨는가(그동안은 화면 폭에 자동으로 맞추지 않는다).
+// Mobile: LAYOUT is 'wide'|'mid'|'narrow', SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
+// ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');
-// 호버가 없는 기기(폰·태블릿): 호버·포커스 툴팁을 아예 띄우지 않는다 — 탭이 흉내 mouseover 를 보내 설명이 목록 위에 남았다(QA 폰). 길게 누르기만 쓴다.
+// A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
 const MQ_NOHOVER=matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
-const OPEN_CARDS=new Set();   // compact 에서 펼친 핀 카드 id
-// 핀 종류·스레드(docs/design.md §스레드와 검토): KIND_NEW = 작성 패널의 종류(fix|question), REPLY = 열린 답글·다시 열기
-// 입력 칸 {id,mode,el}(EDIT 처럼 DOM 을 들고 있다가 목록을 다시 그리면 제자리에 끼운다), THREAD_OPEN = 스레드를 다 펼친 카드,
-// REPLY_DRAFT = 닫은 입력 칸의 쓰던 글('reply:12').
+const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
+// Pin kind/thread (docs/design.md §Threads and review): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
+// input field {id,mode,el} (holds onto the DOM like EDIT does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
+// REPLY_DRAFT = a closed input field's draft text ('reply:12').
 let KIND_NEW='fix',REPLY=null;
-// @태그(docs/design.md §@태그): PEOPLE = /api/people(이 뷰어를 연 테일넷 사람 + 핀의 작성자·행위자), MENTION_ONLY = '나를 부른 핀'만 보기.
+// @-tags (docs/design.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE=[],MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
-// 여러 문서(§여러 문서, docs/design.md §여러 문서): DOCS = /api/docs 목록, DOC = 지금 문서 키, DEFAULT_DOC = doc 필드가
-// 없는 옛 핀이 속하는 첫 문서. OPEN_ALL = 모든 문서의 열린 핀(PINS 는 그중 지금 문서의 것 — 마크·겹침·편집은 PINS 만 본다).
-// META_BY = 문서별 meta 캐시(탭 전환을 즉시), VIEW_BY = 문서별 보던 자리·확대, BUILD_ERR_BY = 문서별 마지막 빌드 오류,
-// DOC_SEQ = 다른 문서의 끝난 빌드 수(배경에서 끝난 빌드를 알린다).
+// Multiple documents (§Multiple documents, docs/design.md §Multiple documents): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
+// document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
+// META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
+// DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
 let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
-// 검토 대기(에이전트가 닫고 사람의 [확인]을 기다리는 핀, state==='review'). DONE_ALL 에는 넣지 않는다 — 완료 보관함과 따로 그린다.
+// Awaiting review (a pin closed by an agent, waiting for a person's [확인], state==='review'). Never put into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL=[];
 const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
-window.__pinViewerBoot=Date.now();   // reload 여부를 밖에서 확인하는 마커
+window.__pinViewerBoot=Date.now();   // a marker for checking reload status from outside
 
 const T={
   stale:'핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
@@ -5676,7 +5781,33 @@ const T={
   reply:'이 핀에 답글을 답니다. 사람과 에이전트가 같은 스레드에서 주고받습니다 (⌘ Enter / Ctrl+Enter 보내기)'
 };
 
-// ------------------------------------------------ 설정(병합 저장)
+// ------------------------------------------------ Preferences (merged save)
+// UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English
+// mode tr()/trMsg() look them up in I18N_EN (src/limn/ui_en.json) and a MutationObserver translates text
+// nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
+const LANG=window.LIMN_LANG==='en'?'en':'ko', I18N_EN=__UI_EN_JSON__, I18N_ATTRS=['data-tip','aria-label','title','placeholder'];
+function tr(s){if(LANG!=='en'||typeof s!=='string')return s; const t=s.trim();
+  if(!t||!Object.prototype.hasOwnProperty.call(I18N_EN,t))return s; return s.replace(t,I18N_EN[t]);}
+function trMsg(s){if(LANG!=='en'||typeof s!=='string')return s; const e=tr(s); if(e!==s)return e;
+  for(const sep of [' — ',' · ']){if(s.indexOf(sep)>0)return s.split(sep).map(tr).join(sep);} return s;}
+function i18nEl(el){for(const a of I18N_ATTRS){const v=el.getAttribute(a); if(v){const e=trMsg(v); if(e!==v)el.setAttribute(a,e);}}}
+function i18nText(n){const p=n.parentNode; if(!p||/^(TEXTAREA|SCRIPT|STYLE)$/.test(p.nodeName))return;
+  const e=trMsg(n.nodeValue); if(e!==n.nodeValue)n.nodeValue=e;}
+function i18nTree(root){if(LANG!=='en'||!root)return;
+  if(root.nodeType===3)return i18nText(root);
+  if(root.nodeType!==1)return; i18nEl(root);
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT); let n;
+  while((n=w.nextNode())){if(n.nodeType===3)i18nText(n); else i18nEl(n);}}
+function i18nStart(){const b=document.getElementById('m-lang'); if(b)b.textContent=LANG==='en'?'한국어':'English';
+  if(LANG!=='en')return; i18nTree(document.body);
+  new MutationObserver(ms=>{for(const m of ms){
+    if(m.type==='childList')m.addedNodes.forEach(i18nTree);
+    else if(m.type==='characterData')i18nText(m.target);
+    else if(m.type==='attributes'&&m.target.nodeType===1){const v=m.target.getAttribute(m.attributeName);
+      if(v){const e=trMsg(v); if(e!==v)m.target.setAttribute(m.attributeName,e);}}}})
+    .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:I18N_ATTRS});}
+function switchLang(){try{localStorage.setItem('limnLang',LANG==='en'?'ko':'en');}catch(e){}
+  const u=new URL(location.href); u.searchParams.delete('lang'); location.replace(u.toString());}
 function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');return p&&typeof p==='object'?p:{};}catch(e){return {};}}
 function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
 (function(){const p=prefs(); if(p.side)$('#right').style.width=p.side+'px'; if(p.w)W=p.w; if(p.wrap!==undefined)WRAP=!!p.wrap;})();
@@ -5691,7 +5822,7 @@ function applyTheme(){let t=prefs().theme||'light'; if(!THEME_ICON[t])t='light';
 MQ.addEventListener('change',applyTheme);
 function cycleTheme(){const t=prefs().theme||'light';savePrefs({theme:THEMES[(THEMES.indexOf(t)+1)%3]});applyTheme();}
 
-// ------------------------------------------------ 서버 호출과 알림
+// ------------------------------------------------ Server calls and notifications
 async function api(url,o){o=o||{};
   const init={method:o.method||'GET',headers:{}};
   if(o.body!==undefined){init.body=JSON.stringify(o.body);init.headers['Content-Type']='application/json';}
@@ -5703,21 +5834,21 @@ async function api(url,o){o=o||{};
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
-// 알림(docs/design.md §알림): 제목 한 줄 + 흐린 설명 한 줄. 글은 첫 ' — '(없으면 첫 ' · ')에서 제목과 설명으로 가른다.
+// Toasts (docs/design.md §Toasts): one title line + one faded description line. Text is split into title/description at the first ' — ' (or the first ' · ' if none).
 const TOAST_IC={ok:()=>ic('circle-check'),warn:()=>ic('triangle-alert'),err:()=>ic('circle-x')};
-// ' — ' 가 있으면 그 앞이 제목('핀 #10 · 본문 — 서준님이 불렀습니다: …' 의 제목은 '핀 #10 · 본문'), 없으면 첫 ' · ' 앞.
+// If ' — ' is present, everything before it is the title (the title of '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'), otherwise everything before the first ' · '.
 function toastSplit(msg){msg=String(msg==null?'':msg); const m=/^(.+?) — (.+)$/.exec(msg)||/^(.+?) · (.+)$/.exec(msg); return m?[m[1],m[2]]:[msg,''];}
-// 같은 핀의 같은 전환을 두 번 알리지 않는다(QA: 포커스된 탭에 '핀 #37 · 본문 — 검토 대기: …' 와 '#37 이 검토 대기로 넘어왔습니다'
-// 가 함께 떴다). dd={keys:['review_requested:37'],rank}: 8초 안에 같은 열쇠의 알림이 떠 있으면, 새 것이 더 높은 rank 면 옛 것을 걷고,
-// 더 낮으면 띄우지 않는다. 같은 rank(같은 경로)는 다른 사건이라 둘 다 띄운다(다시 연 뒤 두 번째 검토 대기 등). 브라우저 알림 경로(notifyShow, rank 2)가 목록 비교 알림(rank 1)을 이긴다.
+// Never announces the same transition on the same pin twice (QA: a focused tab showed both '핀 #37 · 본문 — 검토 대기: …' and '#37 이 검토 대기로 넘어왔습니다'
+// at once). dd={keys:['review_requested:37'],rank}: if a toast with the same key is already showing within 8 seconds, a higher-rank new one replaces the old,
+// while a lower-rank one is suppressed. The same rank (the same path) is treated as a different event and both are shown (e.g. a second awaiting-review after a reopen). The browser-notification path (notifyShow, rank 2) beats the list-comparison toast (rank 1).
 const TOAST_KEYS=[];
 function toastDup(dd){if(!dd||!dd.keys||!dd.keys.length)return false; const now=Date.now(),rank=dd.rank||1;
   for(let i=TOAST_KEYS.length-1;i>=0;i--){const x=TOAST_KEYS[i]; if(now-x.t>8000||!x.el.isConnected){TOAST_KEYS.splice(i,1);continue;}
     if(!dd.keys.some(k=>x.keys.includes(k)))continue;
-    if(x.rank>rank&&dd.keys.every(k=>x.keys.includes(k)))return true;   // 같은 경로(같은 rank)의 새 알림은 다른 사건이다 — 막지 않는다
+    if(x.rank>rank&&dd.keys.every(k=>x.keys.includes(k)))return true;   // a new toast on the same path (same rank) is a different event - never suppressed
     if(rank>x.rank){x.el.remove(); TOAST_KEYS.splice(i,1);}}
   return false;}
-function toast(msg,kind,action,dd){
+function toast(msg,kind,action,dd){msg=trMsg(msg);
   if(toastDup(dd))return null;
   kind=TOAST_IC[kind]?kind:'ok';
   const box=$('#toasts'),t=document.createElement('div'); t.className='toast '+kind;
@@ -5737,17 +5868,19 @@ function toast(msg,kind,action,dd){
   watchToasts();
   return t;
 }
-// 알림 자리: 방금 누른 곳 가까이. wide·mid 는 패널 열의 오른쪽 아래 — 보이는 동작 줄(#c-actions: 저장·취소, mid 의 아래 도구 줄,
-// 접힌 mid 에 뜬 상태 칩)의 윗변 바로 위. narrow 는 시트 윗변 바로 위(시트가 거의 화면을 채우면 화면 위로). 떠 있는 동안
-// 패널이 열리고 닫히거나 작성 패널이 뜨면 자리를 다시 잰다(watchToasts) — 저장·취소 버튼과 아래 도구 줄을 가리지 않게.
+// Toast placement: near where you just clicked. wide/mid is bottom-right of the panel column - just above the top edge of whichever action row is
+// visible (#c-actions: save/cancel, mid's bottom tool bar, or the status chips floating in collapsed mid). narrow is just above the sheet's top edge
+// (or above the screen if the sheet nearly fills it). While showing, the position is re-measured (watchToasts) whenever the panel opens/closes or the
+// composer panel appears - so the save/cancel buttons and the bottom tool bar are never covered.
 function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right)return;
   const R=document.documentElement.style,gap=8,vh=innerHeight;
   const shown=el=>{if(!el||el.hidden)return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')return false;
     const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
   let top=vh,r=12,w=360;
   if(LAYOUT==='narrow'){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
-    // 시트가 화면 대부분을 덮으면(위 30% 안에서 시작) 시트 위에 자리가 없다 — 화면 위로 올리면 시트의 도구 줄([더보기] 등)을 가려
-    // 눌리지 않았다(터치 회귀). 그때는 시트 안 아래쪽, 저장·취소 줄이 보이면 그 위에 둔다.
+    // If the sheet covers most of the screen (starts within the top 30%), there's no room above it - raising it above the screen
+    // instead covered the sheet's own tool bar ([더보기] etc.), making it unpressable (a touch regression). In that case, it's placed inside the
+    // sheet near the bottom, above the save/cancel row if that's visible.
     if(top<vh*0.3){top=vh; const ca=$('#c-actions'); if(shown(ca))top=ca.getBoundingClientRect().top;}}
   else{const open=LAYOUT==='wide'||SIDE_OPEN,rr=right.getBoundingClientRect();
     if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);} else w=Math.min(360,innerWidth-24);
@@ -5763,7 +5896,7 @@ async function copyText(s){
   toast('복사함: '+s,'ok');
 }
 
-// ------------------------------------------------ 툴팁
+// ------------------------------------------------ Tooltip
 const TIP=$('#tip'); let tipT=null,tipEl=null,TIPXY=null;
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
 function hideTip(){clearTimeout(tipT);tipT=null;tipEl=null;TIP.hidden=true;}
@@ -5772,23 +5905,23 @@ function showTip(el){const txt=el.dataset.tip; if(!txt||!document.contains(el))r
   const r=el.getBoundingClientRect(),tw=TIP.offsetWidth,th=TIP.offsetHeight;
   let top=r.top-th-8, cx=r.left+r.width/2;
   if(top<4) top=r.bottom+8;
-  if(top>innerHeight-th-4 && TIPXY){top=TIPXY[1]+18; cx=TIPXY[0];}   // 창보다 긴 요소(#grip·긴 카드)는 포인터에 붙인다
+  if(top>innerHeight-th-4 && TIPXY){top=TIPXY[1]+18; cx=TIPXY[0];}   // an element taller than the window (#grip/a long card) anchors to the pointer instead
   top=Math.max(4,Math.min(top,innerHeight-th-4));
   const left=Math.min(Math.max(4,cx-tw/2),innerWidth-tw-4);
   TIP.style.left=left+'px'; TIP.style.top=top+'px';}
 function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; tipT=setTimeout(()=>showTip(el),300);}
-// 터치 직후에는 호버·포커스 툴팁을 띄우지 않는다 — 모바일 크롬은 탭마다 mouseover·focusin 을 흉내 내서, 버튼을
-// 누를 때마다 설명이 튀어나왔다. 터치에서는 길게 누르기(아래)로 본다.
+// Hover/focus tooltips are never shown right after a touch - mobile Chrome simulates mouseover/focusin on every tap, so a
+// description used to pop up every time a button was pressed. Touch relies on long-press instead (below).
 const touchRecent=()=>Date.now()-LAST_TOUCH_T<1500;
 document.addEventListener('pointerdown',e=>{LAST_PTR=e.pointerType||'mouse'; if(LAST_PTR!=='mouse')LAST_TOUCH_T=Date.now();},true);
 document.addEventListener('mouseover',e=>{if(touchRecent()||MQ_NOHOVER.matches)return; armTip(e.target.closest?e.target.closest('[data-tip]'):null);});
-// 입력 칸(textarea)에는 포커스 툴팁을 띄우지 않는다 — 타이핑 중 스니펫을 가리고, 첫 Esc 를 툴팁이 먹어
-// '취소하려고 Esc → Ctrl+Enter' 가 버리려던 핀을 저장했다(실측).
+// A focus tooltip is never shown on an input field (textarea) - it covered the snippet while typing, and the tooltip
+// swallowed the first Esc, so "Esc to cancel -> Ctrl+Enter" ended up saving a pin that was meant to be discarded (observed).
 document.addEventListener('focusin',e=>{const t=e.target;
   if((t&&t.tagName==='TEXTAREA')||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}
   armTip(t.closest?t.closest('[data-tip]'):null);});
-// 길게 누르기 툴팁(터치·펜): 500ms 누르고 있으면 설명을 띄우고, 손을 뗀 뒤의 click 한 번은 삼킨다(버튼이 눌리지 않게).
-// 쪽 이미지 위는 빠른 선택(길게 누르기 = 그 문단)이 쓰므로 배지(.mark b)만 해당한다. 입력 칸은 붙여넣기 메뉴를 살린다.
+// Long-press tooltip (touch/pen): holding for 500ms shows the description, and the one click after release is swallowed (so the button doesn't fire).
+// Over a page image, quick selection (long-press = that paragraph) takes priority, so only badges (.mark b) apply. Input fields keep their paste menu.
 let PRESS=null,SWALLOW_CLICK=0;
 function pressTarget(t){const el=t&&t.closest?t.closest('[data-tip]'):null; if(!el)return null;
   if(el.tagName==='TEXTAREA'||el.tagName==='INPUT')return null;
@@ -5807,19 +5940,19 @@ document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const 
 document.addEventListener('input',hideTip,true);
 document.addEventListener('focusout',hideTip);
 document.addEventListener('scroll',hideTip,true);
-// 길게 누르기로 띄운 직후 손을 떼면 크롬이 흉내 mousedown 을 보낸다 — 그것으로는 닫지 않는다.
+// Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
 document.addEventListener('mousedown',()=>{if(Date.now()>=SWALLOW_CLICK)hideTip();},true);
 
-// ------------------------------------------------ 여러 문서 — 목록·탭·전환(docs/design.md §여러 문서)
+// ------------------------------------------------ Multiple documents - list/tabs/switching (docs/design.md §Multiple documents)
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
 function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}
 function isRegion(p){return !!p&&(p.kind==='region'||(!p.file&&!!p.pdf));}
-// 문서가 걸리는 경로에 ?doc=<키> 를 붙인다(서버는 없으면 첫 문서로 본다).
+// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
 function dq(u,k){k=k||DOC; if(!k)return u; return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function hashDoc(){const m=/(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash||''); return m?m[1]:null;}
 function setHash(k){if(!multiDoc())return; const h='#doc='+k; if(location.hash!==h)history.replaceState(null,'',location.pathname+location.search+h);}
-// 처음 볼 문서: URL 해시(링크 공유·새로고침) > 이 기기에서 마지막으로 본 문서 > 첫 문서.
+// The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first document.
 function initialDoc(){const h=hashDoc(); if(h&&docInfo(h))return h; const l=prefs().lastDoc; if(l&&docInfo(l))return l;
   return DOCS.length?DOCS[0].key:null;}
 async function loadDocs(){try{const r=(await api('/api/docs',{what:'문서 목록',silent:true})).data;
@@ -5840,8 +5973,8 @@ function drawDocTabs(){
   $('#btn-doc-dot').hidden=!DOCS.some(d=>d.key!==DOC&&(d.stale_build||d.building));
   if(DOC!==DOC_LINK_SHOWN){DOC_LINK_SHOWN=DOC; docLinksReveal();} else docLinksFade();
   if($('#docs-menu').open)drawDocsMenu();}
-// 문서 링크 줄이 넘칠 때(mid 의 5개 문서 등): 넘친 쪽 끝을 흐리게(fade-l·fade-r) 해 더 있다는 것을 보이고, 문서가 바뀌면
-// 지금 문서 링크를 보이는 자리로 끌어온다. 폴링으로 다시 그릴 때는 사용자가 민 자리를 건드리지 않는다(문서가 바뀔 때만).
+// When the document-links row overflows (e.g. 5 documents in mid): the overflowing edge is faded (fade-l/fade-r) to show there's more,
+// and when the document changes, the current document's link is scrolled into view. A polling redraw never touches wherever the user has scrolled to (only a document change does).
 let DOC_LINK_SHOWN=null;
 function docLinksFade(){const d=$('#doc-links'); if(!d)return; const over=d.scrollWidth-d.clientWidth;
   d.classList.toggle('fade-l',over>1&&d.scrollLeft>1); d.classList.toggle('fade-r',over>1&&over-d.scrollLeft>1);}
@@ -5859,7 +5992,7 @@ function revisionFiles(patch){
   return starts.map((s,i)=>{const n=s.head.lastIndexOf(' b/');return {
     name:n>=0?s.head.slice(n+3):'파일 '+(i+1),text:patch.slice(s.at,i+1<starts.length?starts[i+1].at:undefined)};});
 }
-// 소스 diff 줄바꿈: 터치 기기는 기본 켬(문단 = 한 줄 원고라 폰에서 6,273px 폭이었다, QA). 켜고 끈 값은 pinPrefs.diffWrap.
+// Source diff wrapping: on by default for touch devices (a manuscript where a paragraph is one line was 6,273px wide on a phone, QA). The on/off value is stored in pinPrefs.diffWrap.
 let DIFF_WRAP=null;
 function setDiffWrap(on){DIFF_WRAP=!!on; savePrefs({diffWrap:DIFF_WRAP}); const d=$('#revision-diff'); if(d)d.className=DIFF_WRAP?'wrap':'nowrap';
   const b=$('#revision-wrap'); if(b)b.setAttribute('aria-pressed',String(DIFF_WRAP));}
@@ -5897,7 +6030,7 @@ function setRevisionFormat(format){REVISION_FORMAT=format==='source'?'source':'p
   $('#revision-pdf').hidden=REVISION_FORMAT!=='pdf';$('#revision-source').hidden=REVISION_FORMAT!=='source';
   if(REVISION_FORMAT==='source'&&REVISION_COMMIT&&REVISION_SOURCE_COMMIT!==REVISION_COMMIT)
     loadRevisionSource(REVISION_COMMIT,REVISION_SEQ,DOC);
-  // 비교 PDF 는 그 형식을 볼 때만 만든다 — [변경 보기]는 소스 diff 로 바로 가므로 latexdiff 빌드를 헛돌리지 않는다.
+  // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
   if(REVISION_FORMAT==='pdf'&&REVISION_COMMIT&&REVISION_PDF_COMMIT!==REVISION_COMMIT){REVISION_PDF_COMMIT=REVISION_COMMIT;
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REVISION_COMMIT,REVISION_SEQ,DOC);}
   if(REV_TARGET)revTargetNote();
@@ -5945,10 +6078,11 @@ async function loadRevisionSource(id,seq,k){
     renderRevisionFile(); if(tg)revHighlight(tg);
   }catch(e){if(revisionCurrent(seq,k,id))out.textContent='소스 변경 내용을 읽지 못했습니다.';}
 }
-// ------------------------------------------------ [변경 보기](docs/design.md §변경 보기): 검토 대기·완료 핀에서 변경사항 탭을 연다.
-// 커밋 고르기: 닫을 때 남긴 참조(ref)의 커밋 해시(7자 이상) > 참조의 PR 번호가 제목에 든 커밋('(#236)'·'pull request #236') >
-// 최근 12개 커밋 중 핀의 파일·줄(±5줄)을 바꾼 가장 최근 커밋 > 가장 최근 커밋. 줄 대응은 소스 diff 에만 있다 — 새 쪽 줄 번호가
-// 핀 범위에 드는 줄을 강조하고 그리로 스크롤한다. 비교 PDF(latexdiff)는 SyncTeX 대응이 없어 핀의 쪽 근처로만 옮긴다(대략).
+// ------------------------------------------------ [변경 보기] (docs/design.md §Viewing changes): opens the changes tab from an awaiting-review/done pin.
+// Commit selection: the commit hash (7+ characters) in the close-time reference (ref) > a commit whose subject contains the reference's PR number
+// ('(#236)'/'pull request #236') > among the last 12 commits, the most recent one that touched the pin's file/lines (+-5 lines) > the most recent commit.
+// Line matching exists only for the source diff - a line whose new-side line number falls within the pin's range is highlighted and scrolled to.
+// The comparison PDF (latexdiff) has no SyncTeX mapping, so it only moves to roughly the pin's page.
 let REV_TARGET=null,REVISION_PDF_COMMIT='';
 function matchRevision(ref,revs){ref=String(ref||'');
   for(const m of ref.matchAll(/\b[0-9a-f]{7,40}\b/g)){const r=revs.find(x=>x.id.startsWith(m[0])); if(r)return {id:r.id,via:'sha',tok:m[0]};}
@@ -5979,12 +6113,12 @@ function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){
 function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=null;
   rows.forEach(el=>{if(!(el.classList.contains('rd-add')||el.classList.contains('rd-context')))return; const n=+el.querySelector('.rd-no').textContent;
     if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});
-  tg.hit=!!first||touchesPin(REVISION_FILES,tg,5); tg.near=!first&&tg.hit;   // 곁만 바뀐 경우 '강조한 줄' 이라고 말하지 않는다(강조한 줄이 없다)
+  tg.hit=!!first||touchesPin(REVISION_FILES,tg,5); tg.near=!first&&tg.hit;   // when only a neighboring line changed, it's never described as "the highlighted line" (there is none)
   if(!first){const f=pinFileIndex(REVISION_FILES,tg.file); if(f<0)tg.hit=false;
     else{let best=null,dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
   revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
-let REV_BACK=null;   // [변경 보기]를 누를 때 보던 문서 — [원고로]가 그 문서로 돌아간다(QA: 커버레터 핀에서 열면 커버레터에 남았다)
+let REV_BACK=null;   // the document being viewed when [변경 보기] was pressed - [원고로] returns to that document (QA: opening it from a cover-letter pin used to leave you stuck on the cover letter)
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
   if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
@@ -6047,19 +6181,19 @@ function drawDocsMenu(){
       '<span class="tx"><span class="nm">'+esc(d.name)+(on?ic('check'):'')+'</span><span class="ph">'+esc(d.path)+'</span></span>'+docBadge(d)+'</button>';}).join('');}
 function openDocsMenu(){const d=$('#docs-menu'); if(d.open)return; hideTip(); drawDocsMenu(); d.showModal();
   const on=d.querySelector('.dm-item.on'); if(on)on.focus();}
-// 보던 자리: 위쪽 기준 쪽·비율, 쪽 폭, compact 에서 손으로 확대했는가, 가로 스크롤. 새로고침에도 남게 sessionStorage 에 둔다.
+// Viewed position: page/fraction anchored at the top, page width, whether zoomed manually in compact, horizontal scroll. Kept in sessionStorage so it survives a reload.
 function saveView(){if(!DOC||!META||!$('#doc .pg'))return; const a=topAnchor();
   VIEW_BY.set(DOC,{page:a?a.page:1,frac:a?a.frac:0,w:W,zoomed:ZOOMED,sl:$('#left').scrollLeft,lay:LAYOUT});
   if(multiDoc()){try{sessionStorage.setItem('pinDocView',JSON.stringify(Array.from(VIEW_BY.entries())));}catch(e){}}}
 function loadViews(){if(!multiDoc())return; try{const a=JSON.parse(sessionStorage.getItem('pinDocView')||'[]');
   if(Array.isArray(a))a.forEach(x=>{if(Array.isArray(x)&&docInfo(x[0])&&x[1]&&typeof x[1]==='object')VIEW_BY.set(x[0],x[1]);});}catch(e){}}
-// 쪽 폭을 먼저 정한다(buildDoc 이 W 로 쪽을 만든다). 같은 레이아웃에서 본 폭만 되살린다 — 접은 화면에서 맞춘 폭을 데스크톱에 쓰지 않게.
+// The page width is decided first (buildDoc builds pages using W). Only a width viewed in the same layout is restored - so a width fit for a folded screen is never applied on desktop.
 function applyViewWidth(v){if(v&&typeof v.w==='number'&&v.lay===LAYOUT&&(LAYOUT==='wide'||v.zoomed)){W=v.w; ZOOMED=LAYOUT!=='wide'&&!!v.zoomed; return true;}
   ZOOMED=false; return false;}
 function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
 addEventListener('pagehide',saveView);
-// 문서를 바꾼다. 지금 문서의 보던 자리를 기억하고, 쓰던 선택·위치 다시 잡기는 거둔다(메모 글은 남긴다).
-// meta 캐시가 있으면 기다리지 않고 바로 그 문서를 그리고, 뒤에서 최신 meta 를 받아 빌드가 바뀌었으면 쪽만 바꾼다.
+// Switches documents. Remembers the current document's viewed position, and cancels any in-progress selection/re-place-location (a note's draft text is kept).
+// If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
   if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
@@ -6073,7 +6207,7 @@ async function switchDoc(k){
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
       META_BY.set(k,f); if(changed)await refreshDoc(); else{META=f; drawMeta();}}}catch(e){}}
 }
-// 지금 META 로 화면을 새로 그린다(탭 전환). 빌드 칩·오류 패널·자동 폴링 기준값도 그 문서의 것으로 바꾼다.
+// Redraws the screen from the current META (tab switching). The build chip, error panel, and auto-polling baseline are all switched to that document's values too.
 function showDoc(v){
   drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
   if(!v&&$('#left'))$('#left').scrollTop=0;
@@ -6084,21 +6218,21 @@ function showDoc(v){
   if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;} $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
   if(LAST_BUILD_ERR)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
-  BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // 옛 문서의 조회가 떠 있으면 그 뒤에
+  BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // if a previous document's request is still in flight, queue after it
   document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
 }
 function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key===DOC);
   switchDoc(DOCS[(i+step+DOCS.length)%DOCS.length].key);}
 window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docInfo(k))switchDoc(k);});
-// 다른 문서 핀의 #번호·[보기]·[수정]: 그 문서로 바꾼 뒤 then 을 다시 부른다(jumpPin·openEdit 이 맨 앞에서 쓴다). 바꿨으면 true.
+// A #number/[보기]/[수정] on another document's pin: switches to that document, then calls then again (used by jumpPin/openEdit at the very top). Returns true if it switched.
 function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
   const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
 
-// ------------------------------------------------ 문서
-async function boot(){
+// ------------------------------------------------ Document
+async function boot(){i18nStart();
   applyTheme(); applyLayout(); initDiffWrap();
-  // 터치 기기에는 단축키가 없다 — '핀 저장 Ctrl+Enter' 는 휴대폰 폭에서 잘리기만 한다.
+  // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   $('#btn-save').innerHTML=saveBtnLabel();
   await loadDocs(); DOC=initialDoc();
   try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data;}catch(e){return;}
@@ -6108,15 +6242,15 @@ async function boot(){
   restoreView(v); drawDocTabs();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;
-  LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // 이 탭이 이미 '본' 빌드 수
+  LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling();
   drawNotify(); if(prefs().notify&&notifySupported()&&notifyPerm()==='granted')notifyRegister();
   const hp=hashPin(); if(hp)openPinFromLink(DOC,hp);
 }
 function builtAtEpoch(s){const t=Date.parse(String(s||'').replace(' ','T')); return isNaN(t)?null:t/1000;}
-// 원고 수정됨 배지 — 서버가 준 숫자(stale_build, src_age_s)로만 판정한다. 브라우저 시계·시간대와 무관하다.
-// stale_build 가 없는 옛 응답만 src_mtime/build_src_mtime(둘 다 서버 epoch) 비교로 폴백한다.
+// The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent of the browser's clock/timezone.
+// Only a legacy response with no stale_build falls back to comparing src_mtime/build_src_mtime (both server epochs).
 function updateStaleBadge(m){
   const badge=$('#meta-stale'), btn=$('#btn-rebuild');
   let stale;
@@ -6152,24 +6286,24 @@ function drawMeta(){
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';
-  // compact 에서는 #bar2 의 파일·커밋·시각·작성자 줄을 숨기고 [⋯] 안에 한 줄로 보인다(긴 파일 이름이 넘치지 않게).
+  // In compact, #bar2's file/commit/time/author line is hidden and shown as a single line inside [⋯] instead (so a long filename never overflows).
   $('#more-info').textContent=[META.main,META.pages.length+'쪽',META.head,String(META.built_at||'').slice(0,16).replace('T',' '),
     '나: '+(me.name||me.login||'')].filter(Boolean).join(' · ');
 }
 
-// ------------------------------------------------ 자동 동기화(P0b-02) — 가벼운 meta 폴링
+// ------------------------------------------------ Auto sync (P0b-02) - lightweight meta polling
 let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_INFLIGHT=null;
-// 단일 비행: pollBuild 와 같은 패턴 — visibilitychange·focus·5초 타이머가 겹쳐 불러도(예: 탭 전환과
-// 동시에 포커스가 돌아오면) /api/meta·loadPins 는 한 번만 나간다(결함 실측: 겹치면 loadPins 3회).
+// Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
+// call this together (e.g. focus returning at the same moment as a tab switch), /api/meta and loadPins only go out once (observed defect: overlapping calls fired loadPins 3 times).
 function pollLight(){
-  if(document.hidden)return Promise.resolve();   // 무거운 갱신(목록 다시 그리기 포함)은 탭이 숨으면 보내지 않는다
+  if(document.hidden)return Promise.resolve();   // a heavy refresh (including redrawing the list) is never sent while the tab is hidden
   if(LIGHT_INFLIGHT)return LIGHT_INFLIGHT;
   LIGHT_INFLIGHT=pollLightOnce().finally(()=>{LIGHT_INFLIGHT=null;});
   return LIGHT_INFLIGHT;
 }
-// 탭이 숨어 있는 동안에는 목록을 다시 그리지 않되(결함 실측: 숨은 탭이 알림을 전혀 못 받았다), 알림이 켜져
-// 있으면(notifyOn) /api/meta?light=1 을 가볍게(느리게, 브라우저가 어차피 죈다) 불러 이벤트만 알림으로 보인다.
-// pollLight 의 document.hidden 회피와 같은 자리에서 갈라지는 알림 전용 갈래 — 화면은 건드리지 않는다.
+// While the tab is hidden, the list is never redrawn (observed defect: a hidden tab received no notifications at all), but if notifications
+// are on (notifyOn), a light (slow - the browser throttles it anyway) /api/meta?light=1 call is still made just to surface events as notifications.
+// This is a notification-only branch splitting off at the same point as pollLight's document.hidden bailout - it never touches the screen.
 let NOTIFY_HIDDEN_TIMER=null,NOTIFY_HIDDEN_INFLIGHT=null;
 const NOTIFY_HIDDEN_INTERVAL_MS=20000;
 function pollHiddenNotify(){
@@ -6181,9 +6315,9 @@ function pollHiddenNotify(){
 async function pollHiddenNotifyOnce(){
   let d;
   try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'알림 확인',silent:true})).data;}catch(e){return;}
-  if(document.hidden)notifyHandle(d);   // 기다리는 사이 탭이 돌아왔으면 일반 폴링이 이미 처리한다
+  if(document.hidden)notifyHandle(d);   // if the tab came back while waiting, normal polling has already handled it
 }
-// 알림이 켜진 채 탭이 숨으면 느린 타이머를 켜고, 돌아오거나 알림을 끄면 끈다(중복 폴링 방지).
+// If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or notifications are turned off (avoids duplicate polling).
 function syncHiddenNotifyTimer(){
   clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=null;
   if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
@@ -6193,21 +6327,21 @@ async function pollLightOnce(){
   try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   $('#conn-lost').hidden=true;
-  notifyHandle(d);                      // 브라우저 알림 — 문서와 무관하다(문서를 바꾸는 중이어도 먼저 처리한다)
-  if(k!==DOC)return;                    // 기다리는 사이 문서를 바꿨다 — 옛 문서의 상태로 화면을 칠하지 않는다
+  notifyHandle(d);                      // browser notifications - independent of the document (handled first even mid document-switch)
+  if(k!==DOC)return;                    // the document changed while waiting - the screen is never painted with a stale document's state
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
-  // 여러 문서면 src_sig(문서마다의 src_mtime)가 바뀌어도 다시 읽는다 — 다른 문서의 원고가 바뀌어도 그 핀들의 줄이 밀린다.
+  // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
   if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME)) await loadPins();
   LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;
-  // 다른 세션·에이전트가 curl 로 시작한 빌드도 light meta 의 build.state 로 잡아낸다 — 1초 폴링은
-  // 그때만(또는 이 탭에서 직접 rebuild() 를 눌렀을 때만) 돈다.
+  // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
+  // runs during that (or when this tab itself pressed rebuild()).
   if(d.build&&d.build.state==='running'&&!BUILD_TIMER)pollBuild();
-  // build_seq(끝난 빌드 수)가 이 탭이 본 값과 다르면, 5초 틈새 안에 시작~종료까지 끝나 'running'을 한 번도
-  // 못 본 빌드가 있었다는 뜻이다 — 상세를 받아 화면·배너·칩을 맞춘다.
+  // If build_seq (number of finished builds) differs from what this tab has seen, it means a build started and finished entirely
+  // within a 5-second polling gap, never observed as "running" - the details are fetched to sync up the screen/banner/chip.
   else if(typeof d.build_seq==='number'&&d.build_seq!==LAST_BUILD_SEQ)pollBuild();
 }
-// 다른 문서의 낡음·빌드 중을 탭에 반영하고, 그 문서의 빌드가 뒤에서 끝났으면 알린 뒤 meta 캐시를 버린다(돌아가면 새 쪽).
+// Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the background, notifies and then drops the meta cache (a fresh page when you switch back).
 function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let redraw=false;
   list.forEach(n=>{const d=docInfo(n.key); if(!d)return;
     if(d.stale_build!==n.stale_build||d.building!==n.building){d.stale_build=n.stale_build; d.building=n.building; redraw=true;}
@@ -6221,21 +6355,21 @@ function startLightPolling(){
   clearInterval(LIGHT_TIMER); LIGHT_TIMER=setInterval(pollLight,5000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollLight(); syncHiddenNotifyTimer();});
   window.addEventListener('focus',()=>pollLight());
-  syncHiddenNotifyTimer();   // 부팅 시 이미 숨어 있고(드문 경우) 알림이 켜져 있으면 바로 잡는다
+  syncHiddenNotifyTimer();   // catches it right away if already hidden at boot (a rare case) and notifications are on
 }
-// 자기 탭이 방금 한 close/drop/reopen/restore 는 로컬 토스트를 이미 띄웠으니 다음 loadPins() 의
-// diffToast 에서 같은 전환을 또 알리지 않는다 — markMine(id) 직후 첫 diffToast 판정 한 번만 삼키고
-// (consumeMine 이 확인 즉시 지운다) 10초가 지나도록 그 판정이 안 왔으면(예: 응답 유실) 포기하고
-// 이후 값은 정상적으로 알린다. 다른 탭이 한 동작은 이 맵에 없으므로 그대로 뜬다.
+// This tab's own close/drop/reopen/restore already showed a local toast, so the next loadPins()'s
+// diffToast never announces the same transition again - only the first diffToast judgment right after markMine(id) is swallowed
+// (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (e.g. a lost response), it's
+// given up on and subsequent values are announced normally. An action from another tab isn't in this map, so it's shown as usual.
 const MY_ACTIONS=new Map();
 function markMine(id){MY_ACTIONS.set(id,Date.now()+10000);}
 function consumeMine(id){const until=MY_ACTIONS.get(id); if(until===undefined)return false;
   MY_ACTIONS.delete(id); return Date.now()<=until;}
 function diffToast(prev,d,dropped){
-  // prev 는 직전에 이 탭이 본 '열린 핀'만이다(PINS 는 done 을 담지 않는다). d 는 이번 GET 의 열린+닫힌
-  // 핀(all=1) 전부다 — prev 에 있던 id 가 d 에도 있는데 done=true 면 완료된 것이고, d 에 아예 없으면
-  // (열려도 닫혀도 없으면) 삭제된 것이다. 옛 구현은 이 둘을 가리지 않고 전부 '완료'로 알렸다 — 공저자가
-  // 핀을 지우면 작성자 화면에 '#N 이 완료되었습니다'가 떴다(실측).
+  // prev is only the "open pins" this tab saw last time (PINS never holds done ones). d is every open+closed
+  // pin (all=1) from this GET - if an id that was in prev is also in d with done=true, it was completed; if it's
+  // not in d at all (neither open nor closed), it was dropped. The old implementation never distinguished the
+  // two and announced everything as "completed" - if a co-author deleted a pin, the author's screen showed "#N 이 완료되었습니다" (observed).
   if(!prev||!prev.length)return;
   const byId=new Map(prev.map(p=>[p.id,p]));
   const known=new Map((d||[]).map(p=>[p.id,p]));
@@ -6254,19 +6388,20 @@ function diffToast(prev,d,dropped){
     if(m&&(!wm||wm[1]!==m[1]))toast('#'+p.id+' 줄 '+m[1]+' 이동','ok');});
 }
 
-// 검토 대기였던 핀이 다른 쪽에서 확인됐거나(완료) 다시 열렸으면 알린다. 이 탭이 한 동작(markMine)은 삼킨다.
+// Announces when a pin that was awaiting review gets confirmed (done) or reopened elsewhere. An action this tab performed (markMine) is swallowed.
 function pinState(p){return (p&&p.state)||(p&&p.done?(p.review?'review':'done'):'open');}
 function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map((d||[]).map(p=>[p.id,p]));
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st==='review')return; if(consumeMine(p.id))return;
     if(st==='done')toast('#'+p.id+' 확인됨'+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
     else toast('#'+p.id+' 다시 열림'+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:['reopened:'+p.id]});});}
 
-// ------------------------------------------------ 브라우저 알림(docs/design.md §브라우저 알림) — 탭이 살아 있는 동안만
-// 기기마다 켠다(pinPrefs.notify). 켜는 것은 [알림 켜기] 클릭에서만 Notification.requestPermission() 을 부른다. 서버가 5초 폴링
-// (/api/meta?light=1&ev=<커서>)에 '지금 신원에게 온' 이벤트를 싣고, 이 탭이 그것을 알림으로 보인다. 커서(pinNotifyCursor)는 이 브라우저의
-// localStorage 에 둬 새로고침·탭 두 개가 같은 이벤트를 두 번 알리지 않는다. 표시는 늘 서비스 워커의 showNotification()(안드로이드
-// 크롬은 new Notification() 을 막는다), tag 는 핀 번호라 같은 핀은 한 칸으로 겹친다. 탭이 보이고 포커스가 있으면 알림 대신 토스트.
-// 보안 컨텍스트(https 테일넷 주소, http://127.0.0.1·localhost)에서만 된다 — 다른 호스트의 plain http 는 브라우저가 막는다.
+// ------------------------------------------------ Browser notifications (docs/design.md §Browser notifications) - only while the tab is alive
+// Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기] click. The server
+// carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>), and this tab shows them as
+// notifications. The cursor (pinNotifyCursor) is kept in this browser's localStorage, so a reload or two tabs never announce the same
+// event twice. Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
+// the pin number, so the same pin collapses into one slot. If the tab is visible and focused, a toast is shown instead of a notification.
+// This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 const NOTIFY_RANK={assigned:5,mention:4,reopened:3,review_requested:2,replied:1};
 let SW_REG=null;
 function notifySupported(){return !!(window.isSecureContext&&'serviceWorker' in navigator&&'Notification' in window);}
@@ -6275,7 +6410,7 @@ function notifyOn(){return !!prefs().notify&&notifySupported()&&notifyPerm()==='
 function notifyCursor(){const v=parseInt(localStorage.getItem('pinNotifyCursor')||'',10); return isNaN(v)?null:v;}
 function setNotifyCursor(v){const c=notifyCursor(); if(c==null||v>c)try{localStorage.setItem('pinNotifyCursor',String(v));}catch(e){}}
 function notifyQuery(){if(!notifyOn())return ''; const c=notifyCursor(); return c==null?'':'&ev='+c;}
-// 알릴 것 고르기(순수 함수): 커서 뒤, 나에게 온(to), 내가 한 일이 아닌 것. 핀마다 하나 — 부름 > 다시 엶 > 검토 대기 > 답글, 같으면 나중 것.
+// Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin - mention > reopen > awaiting review > reply, ties go to the later one.
 function pickNotifications(evs,me,cursor){const login=me&&me.login; if(!login||login==='local')return [];
   const by=new Map();
   (evs||[]).forEach(e=>{if(!(e.seq>(cursor==null?-1:cursor)))return; if(!NOTIFY_RANK[e.type])return;
@@ -6293,15 +6428,15 @@ async function notifyShow(e){const t=notifyText(e);
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
   if(!notifyOn())return;
-  const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // 처음 켠 브라우저 — 지난 이벤트를 몰아서 알리지 않는다
+  const c=notifyCursor(); if(c==null){setNotifyCursor(d.ev_seq); return;}   // first time enabled in this browser - never floods with a backlog of past events
   if(!Array.isArray(d.events)){if(d.ev_seq<c)try{localStorage.setItem('pinNotifyCursor',String(d.ev_seq));}catch(e){}return;}
-  const list=pickNotifications(d.events,META&&META.me,notifyCursor());   // 다른 탭이 방금 커서를 올렸으면 그 뒤만
+  const list=pickNotifications(d.events,META&&META.me,notifyCursor());   // only what's after it, if another tab just advanced the cursor
   const top=d.events.reduce((m,e)=>Math.max(m,e.seq||0),c); setNotifyCursor(top);
   list.forEach(notifyShow);}
 async function notifyRegister(){if(!notifySupported())return null;
   try{SW_REG=await navigator.serviceWorker.register('/sw.js',{scope:'/'}); return SW_REG;}catch(e){return null;}}
-// 로컬 신원(테일넷 로그인 없음)은 서버가 events_since() 에서 아예 이벤트를 안 실어(§@태그·사람·이벤트) 알림이
-// 영영 오지 않는다 — 브라우저 권한을 얻어도 소용없으므로 켜는 것 자체를 막고 이유를 알린다.
+// A local identity (no tailnet login) never gets events from the server's events_since() at all (§@태그·사람·이벤트), so
+// notifications would never arrive - since getting browser permission wouldn't help, turning it on is blocked outright and the reason is shown.
 function isLocalIdentity(){const me=META&&META.me; return !me||!me.login||me.login==='local';}
 function notifyState(){if(isLocalIdentity())return 'local'; if(!notifySupported())return 'unsupported'; const pm=notifyPerm();
   if(pm==='denied')return 'blocked'; return prefs().notify&&pm==='granted'?'on':'off';}
@@ -6319,12 +6454,12 @@ async function notifyToggle(){const st=notifyState();
   if(st==='on'){savePrefs({notify:false}); drawNotify(); syncHiddenNotifyTimer(); toast('이 기기의 브라우저 알림을 껐습니다','ok'); return;}
   if(st==='unsupported'){toast('브라우저 알림은 https 테일넷 주소나 http://127.0.0.1 에서만 됩니다','warn'); return;}
   if(st==='blocked'){toast('브라우저가 알림을 막았습니다 — 주소창 자물쇠 → 알림 → 허용으로 바꾼 뒤 다시 누르세요','warn'); return;}
-  let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // 이 클릭 안에서만 묻는다
+  let pm=notifyPerm(); if(pm!=='granted'){try{pm=await Notification.requestPermission();}catch(e){pm='denied';}}   // only ever asked from within this click
   if(pm!=='granted'){drawNotify(); toast(pm==='denied'?'알림을 허용하지 않아 켜지 않았습니다':'알림 허용을 고르지 않았습니다','warn'); return;}
   await notifyRegister(); savePrefs({notify:true});
   try{const d=(await api(dq('/api/meta?light=1'),{silent:true})).data; if(notifyCursor()==null)setNotifyCursor(d.ev_seq);}catch(e){}
   drawNotify(); syncHiddenNotifyTimer(); toast('이 기기에서 브라우저 알림을 켰습니다 — 나를 부르거나 내 핀에 일이 생기면 알립니다','ok');}
-// 알림을 누르면(서비스 워커 → postMessage, 또는 새 탭의 #doc=<키>&pin=<번호>) 그 문서로 바꿔 그 핀을 연다.
+// Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
 function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash||''); return m?+m[1]:null;}
 async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
   await loadPins(); const p=findAnyPin(pin); if(!p)return; if(pinState(p)==='done'){SHOW_DONE=true;}
@@ -6333,31 +6468,32 @@ async function openPinFromLink(doc,pin){if(!pin)return; if(doc&&doc!==DOC&&docIn
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{}; if(d.type==='open-pin')openPinFromLink(d.doc,+d.pin);});
 window.addEventListener('hashchange',()=>{const n=hashPin(); if(n)openPinFromLink(hashDoc(),n);});
 
-// ------------------------------------------------ 비동기 빌드 진행 칩(P0b-01)
-// BUILD_TIMER 는 빌드가 실제로 도는 동안만 존재한다 — 할 일이 없을 때(idle/ok/fail 로 이미 안정된
-// 뒤)까지 매초 /api/build 를 때리지 않는다. 시작하는 곳은 셋뿐이다: 이 탭에서 rebuild() 를 눌렀을 때,
-// pollLight(5초 폴링)가 build.state==='running' 을 봤을 때, 그리고 부팅 시 이미 도는 빌드를 잡을 때.
-// 끝난 빌드는 build_seq(서버가 빌드마다 1씩 올림)로 센다. LAST_BUILD_SEQ 는 이 탭이 이미 처리한 값이다 —
-// 처리(화면 교체·토스트)는 seq 하나당 한 번이다. started_at 문자열이나 'running 을 봤는가'로 세면 5초 틈새에
-// 끝난 빌드를 놓치거나, 숨은 탭이 돌아올 때 두 경로가 같은 완료를 두 번 처리했다(실측: 토스트 ×2).
+// ------------------------------------------------ Async build-progress chip (P0b-01)
+// BUILD_TIMER only exists while a build is actually running - /api/build is never hit every second once there's
+// nothing to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
+// pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot.
+// A finished build is counted via build_seq (the server bumps it by 1 per build). LAST_BUILD_SEQ is the value this tab
+// has already processed - processing (swapping the screen, toasting) happens exactly once per seq. Counting via the
+// started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
+// double-processed the same completion when a hidden tab came back via two paths at once (observed: toast x2).
 let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
 function buildChipText(b){
   const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'재빌드 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' (지난번 '+Math.round(b.last_s)+'초)':'';
   return label+' · '+el+'초'+last;
 }
-// §P0c-E: 빌드 완료 토스트에 pull 결과를 한 줄 덧붙인다. ok 는 반영된 커밋 범위, skipped·error 는 사유만 —
-// up_to_date 는 알릴 변화가 없으므로 덧붙이지 않는다.
+// §P0c-E: appends one line about the pull result to the build-complete toast. ok gets the applied commit range,
+// skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
   if(p.state==='ok')return ' · 원격 반영 '+String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7);
   if(p.state==='skipped'||p.state==='error')return ' · git pull '+(p.state==='error'?'실패':'건너뜀')+'('+(p.reason||'?')+')';
   return '';
 }
-// 단일 비행: 이미 도는 조회가 있으면 새로 보내지 않고 그 약속을 돌려준다(1초 타이머·visibilitychange·
-// focus·pollLight 가 한꺼번에 불러도 /api/build 는 한 번, 완료 처리도 한 번).
+// Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if the
+// 1-second timer, visibilitychange, focus, and pollLight all call it together, /api/build only goes out once and completion is only processed once).
 function pollBuild(){
-  if(document.hidden)return Promise.resolve();   // 탭이 숨으면 요청 자체를 보내지 않는다
+  if(document.hidden)return Promise.resolve();   // the request is never even sent while the tab is hidden
   if(BUILD_INFLIGHT)return BUILD_INFLIGHT;
   BUILD_INFLIGHT=pollBuildOnce().finally(()=>{BUILD_INFLIGHT=null;});
   return BUILD_INFLIGHT;
@@ -6365,7 +6501,7 @@ function pollBuild(){
 async function pollBuildOnce(){
   let b; const k=DOC;
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
-  if(k!==DOC)return;                    // 문서를 바꿨다 — 새 문서는 showDoc 이 다시 묻는다
+  if(k!==DOC)return;                    // the document changed - showDoc will query the new one again
   const chip=$('#build-chip');
   if(b.state==='running'){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
@@ -6373,12 +6509,12 @@ async function pollBuildOnce(){
     BUILD_BOOTED=true; return;
   }
   chip.hidden=true; $('#btn-rebuild').disabled=false;
-  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // 더 볼 게 없으면 폴링을 멈춘다
+  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // polling stops once there's nothing left to watch
   const seq=(typeof b.seq==='number')?b.seq:0;
   const booted=BUILD_BOOTED; BUILD_BOOTED=true;
   if(LAST_BUILD_SEQ===null)LAST_BUILD_SEQ=seq;
   if(seq!==LAST_BUILD_SEQ){
-    LAST_BUILD_SEQ=seq;                 // await 전에 먼저 차지한다 — 같은 완료를 두 번 처리하지 않게
+    LAST_BUILD_SEQ=seq;                 // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
     if(k!==DOC)return;
@@ -6387,20 +6523,21 @@ async function pollBuildOnce(){
     else if(b.state==='ok_errors'){toast('PDF를 재빌드했지만 LaTeX 오류가 있습니다'+pullSuffix(b),'warn'); showBuildErr(b);}
     else if(b.state==='fail'){toast('빌드 실패 — 화면은 이전 PDF입니다'+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
-    showBuildErr(b);   // 새로 연 탭 — 이미 실패해 있던 빌드는 토스트 없이 패널·칩만 연다(다시 볼 길을 남긴다)
+    showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip with no toast (leaves a way to look at it again)
   }
 }
 function startBuildPolling(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollBuild();});
   window.addEventListener('focus',()=>pollBuild());
-  pollBuild();   // 부팅 시 한 번 — 이미 도는 빌드(다른 세션이 시작)가 있으면 여기서 1초 폴링이 켜진다
+  pollBuild();   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
 }
 
-// ------------------------------------------------ 패널 폭(P0b-06 + docs/design.md §패널 폭 조절)
-// wide·mid 는 오른쪽 패널의 폭을, narrow 는 하단 시트의 높이를 조절한다. 폭은 화면 종류별로 따로 기억한다
-// (pinPrefs.side = wide, pinPrefs.sideMid = mid) — 편 화면에서 맞춘 폭이 데스크톱 폭을 덮지 않게. 저장값이 지금 화면의
-// 한계를 넘으면(접기·펴기, 창 줄이기) 저장값은 두고 보이는 폭만 한계 안으로 맞춘다. 한계: 최소는 패널 도구 줄이
-// 한 줄에 들어가는 폭, 최대는 본문(PDF) 쪽 최소 폭을 남기는 폭.
+// ------------------------------------------------ Panel width (P0b-06 + docs/design.md §Panel cleanup and width adjustment)
+// wide/mid adjusts the right panel's width; narrow adjusts the bottom sheet's height. Width is remembered separately
+// per screen kind (pinPrefs.side = wide, pinPrefs.sideMid = mid) - so a width fit for a spread-out screen never covers the desktop width.
+// If the saved value exceeds the current screen's limit (collapsing/expanding, shrinking the window), the saved value is kept
+// and only the visible width is clamped within the limit. The limit: the minimum is the width where the panel's tool bar fits
+// on one line, the maximum is the width that leaves the body (PDF) side its minimum width.
 function outlineBounds(){if(LAYOUT==='mid')return {min:220,max:320};const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
 function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
   document.documentElement.style.setProperty('--outline-width',w+'px');
@@ -6422,7 +6559,7 @@ function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(
   const min=280,max=Math.max(min,Math.min(Math.round(iw*0.8),iw-486)),def=cl(348,min,max);
   return {min,max,def,presets:[cl(300,min,max),def,cl(iw*0.42,min,max)]};}
 function clampSide(w,b){return Math.round(Math.min(b.max,Math.max(b.min,w)));}
-// 단계 순환: 지금 폭보다 큰 다음 단계, 가장 넓으면 가장 좁은 단계로. presetIndex 는 ±4px 안에서 맞는 단계(없으면 -1).
+// Cycles through preset steps: the next step wider than the current width, wrapping to the narrowest if already at the widest. presetIndex is the step within +-4px (or -1 if none matches).
 function nextPreset(presets,w){const n=presets.find(p=>p>w+4); return n===undefined?presets[0]:n;}
 function presetIndex(presets,w){return presets.findIndex(p=>Math.abs(p-w)<=4);}
 function sideKey(){return LAYOUT==='mid'?'sideMid':'side';}
@@ -6434,17 +6571,17 @@ function applySideWidth(){
   const b=sideBounds(LAYOUT,innerWidth),p=prefs()[sideKey()];
   showSideW(clampSide(typeof p==='number'?p:b.def,b),b);
 }
-// 폭을 정하고 기억한 뒤 쪽 폭·마크를 다시 맞춘다(보던 자리 유지 — relayout 이 topAnchor/restoreAnchor 를 쓴다).
+// Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses topAnchor/restoreAnchor).
 function setSideWidth(w){if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth); w=clampSide(w,b);
   showSideW(w,b); savePrefs({[sideKey()]:w}); relayout(); renderSizeSeg();}
 function cycleSideWidth(){if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth); setSideWidth(nextPreset(b.presets,curSideW()));}
-// 시트 높이는 화면 높이 비율(--sheet-f)로 둔다 — 키보드가 올라오면 CSS 가 보이는 높이 안으로 줄인다.
+// Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height when the keyboard is up.
 const SHEET_F=[0.45,0.64,1],SHEET_MIN_F=0.3,SHEET_CLOSE_F=0.25;
 function sheetF(){const f=prefs().sheetF; return typeof f==='number'?Math.min(1,Math.max(SHEET_MIN_F,f)):0.64;}
 function applySheet(){document.documentElement.style.setProperty('--sheet-f',String(sheetF()));}
 function setSheetF(f){f=Math.min(1,Math.max(SHEET_MIN_F,f)); savePrefs({sheetF:Math.round(f*1000)/1000}); applySheet(); if(!SIDE_OPEN)setSide(true); renderSizeSeg();}
 function cycleSheet(){const f=sheetF(),i=SHEET_F.findIndex(x=>x>f+0.02); setSheetF(SHEET_F[i<0?0:i]);}
-// [⋯] 안의 '패널 폭'(wide·mid) / '시트 높이'(narrow) 분절 컨트롤.
+// The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯].
 function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LAYOUT==='narrow';
   $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');
   let names,cur;
@@ -6461,33 +6598,33 @@ function buildDoc(){
     doc.appendChild(d);});
   marks(); vecObserve();
 }
-// save=false 는 자동 맞춤 — 저장하지 않는다. 좁은 첫 창에서 맞춘 폭이 넓은 창에서도 남으면 쪽이 작게 보인다.
-// compact(mid·narrow)에서는 폭을 저장하지 않는다 — 접은 화면에서 맞춘 폭이 편 화면·데스크톱 설정을 덮지 않게.
-// 쪽 폭 한계는 폭 맞춤 폭의 ZOOM_MIN–ZOOM_MAX 배(최소 160px)다. 넘치면 PDF 영역(#left) 안에서만 가로로 스크롤된다.
+// save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
+// Width is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.
+// The page width limit is ZOOM_MIN-ZOOM_MAX times the fit-width (minimum 160px). Overflow scrolls horizontally only within the PDF area (#left).
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
 function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
   if(save!==false&&LAYOUT==='wide')savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
-// 폭 맞춤 폭: compact 는 본문 안쪽 폭, wide 는 #left.clientWidth 에서 48px(좌우 여백)을 뺀 값.
+// Fit-width: in compact, the body's inner width; in wide, #left.clientWidth minus 48px (left/right margins).
 function fitWidth(){return LAYOUT!=='wide'?innerW():$('#left').clientWidth-48;}
-// compact 는 늘 화면 폭에 맞춘다(사용자가 −/＋ 를 눌렀으면 그 레이아웃 동안은 그대로). wide 는 예전 그대로.
+// compact always fits the screen width (unless the user pressed -/+, in which case it stays fixed for that layout). wide behaves as before.
 function autoW(){if(LAYOUT!=='wide'){if(!ZOOMED)setW(innerW(),false);return;}
   if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
-// 확대 기준점: (cx,cy) 화면 좌표 아래의 쪽과 그 쪽 안 비율. 점이 쪽 사이 여백이면 세로로 가장 가까운 쪽을 쓴다.
-// 좌표가 없으면 PDF 영역 가운데를 쓴다(키보드·버튼).
+// Zoom anchor: the page under screen coordinates (cx,cy) and its fraction within that page. If the point falls in the gap between pages, the vertically nearest page is used.
+// Without coordinates, the center of the PDF area is used (keyboard/button).
 function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
   if(cx==null){cx=lr.left+L.clientWidth/2; cy=lr.top+L.clientHeight/2;}
   let best=null,bd=Infinity;
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(),d=cy<r.top?r.top-cy:(cy>r.bottom?cy-r.bottom:0);
     if(d<bd){bd=d; best={pg,r};} if(d===0)break;}
   return best?{pg:best.pg,cx,cy,fx:(cx-best.r.left)/best.r.width,fy:(cy-best.r.top)/best.r.height}:null;}
-// 기준점의 쪽 안 비율 자리를 화면 좌표 (cx,cy) 로 되돌린다 — 확대해도 포인터 밑의 글자가 그 자리에 남는다.
+// Restores the anchor's in-page fractional position back to screen coordinates (cx,cy) - so the text under the pointer stays put even after zooming.
 function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
 function zoomTo(w,cx,cy){const a=zoomAnchor(cx,cy); setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(a);}
 function zoom(k){zoomTo(W*Math.pow(ZOOM_STEP,k));}
-// 폭 맞춤: 보던 쪽·자리(위쪽 기준)를 지키고 가로 스크롤을 처음으로 되돌린다.
+// Fit width: keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
   if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false);} else setW(L.clientWidth-48);
   restoreAnchor(a); L.scrollLeft=0;}
@@ -6495,21 +6632,22 @@ function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});
 $('#m-jump').addEventListener('keydown',e=>{if(e.key==='Enter'){$('#more').close(); goPage($('#m-jump').value);}});
 
-// ------------------------------------------------ 벡터 렌더링(PDF.js) — docs/design.md §벡터 렌더링
-// 쪽마다 캔버스에 PDF 를 직접 그린다. 백킹 크기 = 쪽 CSS 크기 × devicePixelRatio(× 브라우저 핀치 배율)이고, 앱 확대는
-// 쪽 CSS 폭(W)에 이미 들어 있다. 쪽 상자·비율·% 좌표는 PNG 때 그대로라 드래그 frac·마크·pdf_build 가 바뀌지 않는다.
-// - 가시 영역 근처(VEC_KEEP)의 쪽만 그리고, 멀어진 쪽의 캔버스는 해제한다(IntersectionObserver).
-// - 캔버스 한 장은 VEC_PIX_CAP 픽셀을 넘지 않는다. 넘는 확대에서는 쪽 캔버스를 상한까지 낮추고, 화면에 보이는 부분만
-//   원래 해상도로 그린 상세 캔버스(.dt)를 겹친다.
-// - 확대가 바뀌면 기존 캔버스를 CSS 로 늘려 보인 채 디바운스해 다시 그린다(깜빡임 없음).
-// - pdf.js·PDF 를 못 불러오거나 그리다 실패하면 캔버스를 걷고 PNG <img> 로 돌아간 뒤 상태 칩(#vec-chip)에 알린다.
-// 글자 선택 레이어는 넣지 않는다 — 드래그가 영역 선택이라 글자 선택과 다툰다.
+// ------------------------------------------------ Vector rendering (PDF.js) - docs/design.md §Vector rendering
+// Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's pinch
+// scale), and app zoom is already baked into the page CSS width (W). The page box, aspect ratio, and % coordinates stay
+// exactly as they were for PNG, so drag frac/marks/pdf_build never change.
+// - Only pages near the visible area (VEC_KEEP) are drawn; canvases for pages that scroll away are released (IntersectionObserver).
+// - A single canvas never exceeds VEC_PIX_CAP pixels. At zoom beyond that, the page canvas is capped and a detail canvas (.dt)
+//   rendered at native resolution for just the visible portion is overlaid on top.
+// - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no flicker).
+// - If pdf.js/the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the status chip (#vec-chip) reports it.
+// No text-selection layer is added - since dragging means selecting a region, it would conflict with text selection.
 const PDFJS_V='__PDFJS_VERSION__';
 const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
 const VEC={lib:null,doc:null,build:null,gen:0,failed:null,io:null,near:new Set(),st:new Map(),cur:null,
   pumping:false,timer:0,stats:[],tFirst:null,tDoc:null,cache:new Map()};
-// 여러 문서: 연 PDF 문서 객체를 '문서|빌드' 로 최근 VEC_CACHE_MAX 개까지 들고 있다 — 탭을 되돌리면 다시 받지 않고 바로 그린다.
-// 넘치면 가장 오래 안 쓴 것부터 닫는다(워커 메모리). 같은 문서의 옛 빌드는 새 빌드를 열 때 닫는다.
+// Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
+// draws immediately without re-fetching. Beyond that, the least recently used is closed first (worker memory). An old build of the same document is closed when a new build opens.
 const VEC_CACHE_MAX=3;
 function vecCacheKey(k,b){return (k||'')+'|'+(b||'');}
 function vecCachePut(key,doc){const c=VEC.cache; c.delete(key); c.set(key,doc);
@@ -6518,7 +6656,7 @@ function vecCachePut(key,doc){const c=VEC.cache; c.delete(key); c.set(key,doc);
   while(c.size>VEC_CACHE_MAX){const x=c.keys().next().value,d=c.get(x); c.delete(x); if(d!==VEC.doc&&d!==doc)vecClose(d);}}
 function vecCached(doc){for(const d of VEC.cache.values())if(d===doc)return true; return false;}
 function vecForget(doc){VEC.cache.forEach((d,x)=>{if(d===doc)VEC.cache.delete(x);});}
-window.__pinVec=VEC;   // 실측(Playwright)용 — 캔버스 수·렌더 시간
+window.__pinVec=VEC;   // for measurement (Playwright) - canvas count, render time
 async function vecBoot(){
   if(!window.IntersectionObserver){vecFail('이 브라우저는 IntersectionObserver 가 없습니다');return;}
   try{VEC.lib=await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V);
@@ -6526,13 +6664,13 @@ async function vecBoot(){
   catch(e){VEC.lib=null; vecFail('pdf.js 를 불러오지 못했습니다',e); return;}
   await vecOpen();
 }
-// 지금 화면 빌드(META.pages_build)의 PDF 를 연다. 쪽 수가 화면과 다르면 쓰지 않는다(좌표가 어긋난다).
+// Opens the PDF for the currently displayed build (META.pages_build). Never used if the page count differs from what's on screen (coordinates would be off).
 async function vecOpen(){
   if(!VEC.lib||!META)return;
   const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
   vecCancel();
   if(!doc){
-    // 옛 문서(다른 문서·옛 빌드)는 새 쪽 DOM 에 쓰지 않는다 — 받는 동안은 PNG 가 보인다.
+    // The old document (a different document/old build) is never used for the new page DOM - PNG is shown while fetching.
     const prev=VEC.doc; VEC.doc=null; VEC.build=null; if(prev&&!vecCached(prev))vecClose(prev);
     try{const r=await fetch(dq('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||'')));
       if(!r.ok)throw new Error('PDF HTTP '+r.status);
@@ -6542,7 +6680,7 @@ async function vecOpen(){
     if(gen!==VEC.gen){vecClose(doc); return;}
     if(doc.numPages!==n){vecClose(doc); vecFail('PDF 쪽 수('+doc.numPages+')가 화면('+n+')과 다릅니다'); return;}
     vecCachePut(key,doc);
-  }else vecCachePut(key,doc);           // 최근에 쓴 것으로 올린다
+  }else vecCachePut(key,doc);           // promoted as most recently used
   if(gen!==VEC.gen)return;
   const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
   loadOutline(doc,gen);
@@ -6570,7 +6708,7 @@ async function loadOutline(doc,gen){
     try{const r=(await api(dq('/api/outline-labels',k),{what:'목차 번호 읽기',silent:true})).data;
       if(gen===VEC.gen&&doc===VEC.doc&&k===DOC&&build===META.pages_build&&r.build===build)
         entries=mergeOutlineLabels(entries,r.labels||[]);
-    }catch(e){} // PDF 자체 목차는 번호 서비스에 닿지 않아도 쓸 수 있다.
+    }catch(e){} // the PDF's own outline is still usable even if the numbering service can't be reached.
   }
   if(gen!==VEC.gen||doc!==VEC.doc)return;
   OUTLINE_ENTRIES=entries;OUTLINE_SELECTED=-1;OUTLINE_ACTIVE_PAGE=0;
@@ -6613,7 +6751,7 @@ function updateSectionStrip(){
 }
 $('#outline-search').addEventListener('input',renderOutline);
 $('#left').addEventListener('scroll',()=>{if(!document.body.classList.contains('revision-open'))requestAnimationFrame(updateSectionStrip);},{passive:true});
-// 문서 하나를 닫는다 — PDFDocumentProxy 에는 destroy 가 없고 loadingTask 가 워커 쪽 자원까지 푼다.
+// Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function vecClose(doc){if(!doc)return; try{doc.loadingTask.destroy();}catch(e){}}
 function vecFail(msg,err){
   VEC.failed=msg; VEC.gen++; vecCancel(); vecReleaseAll();
@@ -6622,7 +6760,7 @@ function vecFail(msg,err){
   c.dataset.tip='PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — '+msg+(err&&err.message?' ('+String(err.message).slice(0,100)+')':'')+'. 확대하면 흐릴 수 있습니다';
 }
 function vecState(n){let s=VEC.st.get(n); if(!s){s={base:null,bw:0,bh:0,dt:null,reg:null,dtCw:0,dtK:0,stale:false}; VEC.st.set(n,s);} return s;}
-function vecDrop(cv){if(!cv)return; cv.width=0; cv.height=0; cv.remove();}   // 0 으로 줄여야 사파리도 메모리를 바로 돌려준다
+function vecDrop(cv){if(!cv)return; cv.width=0; cv.height=0; cv.remove();}   // must shrink to 0 for Safari to release memory right away too
 function vecRelease(n){if(VEC.cur&&VEC.cur.n===n)vecCancel(); const s=VEC.st.get(n); if(!s)return;
   vecDrop(s.base); vecDrop(s.dt); VEC.st.delete(n);
   const pg=document.getElementById('p'+n); if(pg)pg.classList.remove('drawn');}
@@ -6634,15 +6772,15 @@ function vecObserve(){if(VEC.io)VEC.io.disconnect(); vecReleaseAll(); VEC.near.c
     {root:$('#left'),rootMargin:VEC_KEEP});
   $$('.pg').forEach(pg=>VEC.io.observe(pg));}
 function vecSchedule(ms){clearTimeout(VEC.timer); VEC.timer=setTimeout(vecPump,ms||0);}
-// 확대·창 크기·DPR 이 바뀌었다 — 그리던 것은 버리고(옛 크기) 잠시 뒤 다시 그린다. 그동안은 옛 캔버스가 늘어나 보인다.
+// Zoom, window size, or DPR changed - whatever was being drawn (the old size) is discarded and redrawn shortly after. Meanwhile, the old canvas is shown stretched.
 function vecInvalidate(){if(!VEC.doc)return; vecCancel(); vecSchedule(150);}
 function vecK(){const vv=window.visualViewport; return (window.devicePixelRatio||1)*Math.max(1,(vv&&vv.scale)||1);}
-// 쪽 캔버스의 백킹 크기. 상한을 넘으면 같은 비율로 줄이고 capped 로 표시한다(상세 캔버스가 보이는 부분을 채운다).
+// The page canvas's backing size. If it exceeds the cap, it's scaled down proportionally and marked capped (the detail canvas fills in the visible portion).
 function vecTarget(cw,ch,k,cap){let bw=Math.round(cw*k),bh=Math.round(ch*k),capped=false;
   if(bw*bh>cap){const f=Math.sqrt(cap/(bw*bh)); bw=Math.max(1,Math.floor(bw*f)); bh=Math.max(1,Math.floor(bh*f)); capped=true;}
   return {cw,ch,k,bw,bh,capped};}
 function vecTargetOf(pg){const cw=pg.clientWidth,ch=pg.clientHeight; return cw&&ch?vecTarget(cw,ch,vecK(),VEC_PIX_CAP):null;}
-// 쪽 안에서 화면에 보이는 부분(쪽 CSS px). margin 은 화면 크기 대비 덧붙일 여유(상세 캔버스를 조금 넓게 그린다).
+// The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the detail canvas is drawn a bit larger).
 function vecVisible(pg,margin){const L=$('#left'),lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect();
   const ox=r.left+pg.clientLeft,oy=r.top+pg.clientTop,cw=pg.clientWidth,ch=pg.clientHeight;
   const vx0=lr.left+L.clientLeft,vy0=lr.top+L.clientTop,vw=L.clientWidth,vh=L.clientHeight,mx=vw*margin,my=vh*margin;
@@ -6650,7 +6788,7 @@ function vecVisible(pg,margin){const L=$('#left'),lr=L.getBoundingClientRect(),r
   return x1>x0&&y1>y0?{x:x0,y:y0,w:x1-x0,h:y1-y0,cw,ch}:null;}
 function vecCovers(reg,v){return !!reg&&reg.x<=v.x/v.cw+1e-6&&reg.y<=v.y/v.ch+1e-6&&
   reg.x+reg.w>=(v.x+v.w)/v.cw-1e-6&&reg.y+reg.h>=(v.y+v.h)/v.ch-1e-6;}
-// 다음에 그릴 것 하나: 화면 안의 쪽 먼저(가운데에 가까운 순), 쪽 캔버스 → 상세 캔버스 순.
+// The one thing to draw next: pages within the viewport first (nearest to center), page canvas before detail canvas.
 function vecNextJob(){
   if(!VEC.doc)return null;
   const L=$('#left'),lr=L.getBoundingClientRect(),top=lr.top,bot=lr.top+L.clientHeight,cy=(top+bot)/2;
@@ -6672,13 +6810,14 @@ async function vecPump(){
 }
 async function vecRun(job){
   const n=job.n,pg=document.getElementById('p'+n),doc=VEC.doc,gen=VEC.gen; if(!pg||!doc)return;
-  if(n>doc.numPages)return;   // 방어용 — 다른 문서/빌드의 doc 이 새 나 위에서 실행되는 경우를 그냥 건너뛴다(위 vecOpen 정지가 본 수정)
+  if(n>doc.numPages)return;   // a defensive check - just skips a case where another document/build's doc ends up running on a new n (the vecOpen bailout above is the real fix)
   let page; try{page=await doc.getPage(n);}catch(e){if(gen===VEC.gen)vecFail('쪽을 읽지 못했습니다',e); return;}
   if(gen!==VEC.gen||!VEC.near.has(n)||!document.contains(pg))return;
   const t=vecTargetOf(pg); if(!t)return;
   const vp1=page.getViewport({scale:1}),cv=document.createElement('canvas'); let scale,tf,reg=null;
-  // 가로·세로를 따로 맞춘다(transform 의 세로 배율) — 쪽 상자 비율은 PNG 픽셀 수에서 왔고 PDF 쪽 비율과 0.1% 안쪽으로 다르다.
-  // PNG 도 쪽을 그 상자에 꽉 채워 그렸으므로, 이렇게 해야 캔버스의 글자가 PNG 때와 같은 % 자리에 온다.
+  // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
+  // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
+  // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
   if(job.kind==='base'){cv.width=t.bw; cv.height=t.bh; scale=t.bw/vp1.width; tf=[1,0,0,t.bh/(vp1.height*scale),0,0];}
   else{const v=vecVisible(pg,VEC_DT_MARGIN); if(!v)return; let k=t.k;
     if(v.w*v.h*k*k>VEC_PIX_CAP)k=Math.sqrt(VEC_PIX_CAP/(v.w*v.h));
@@ -6694,7 +6833,7 @@ async function vecRun(job){
     if(gen===VEC.gen)vecFail('쪽을 그리지 못했습니다',e); return;}
   if(VEC.cur&&VEC.cur.task===task)VEC.cur=null;
   const t2=gen===VEC.gen&&VEC.near.has(n)&&document.contains(pg)?vecTargetOf(pg):null;
-  if(!t2||t2.cw!==t.cw||t2.ch!==t.ch||t2.k!==t.k){vecDrop(cv); return;}   // 그리는 사이 확대·창 크기가 바뀌었다
+  if(!t2||t2.cw!==t.cw||t2.ch!==t.ch||t2.k!==t.k){vecDrop(cv); return;}   // zoom or window size changed while drawing
   VEC.stats.push({n,kind:job.kind,ms:Math.round(performance.now()-t0),w:cv.width,h:cv.height});
   if(VEC.stats.length>200)VEC.stats.splice(0,VEC.stats.length-200);
   const s=vecState(n);
@@ -6705,26 +6844,27 @@ async function vecRun(job){
     if(s.base)s.base.after(cv); else pg.prepend(cv);}
 }
 $('#left').addEventListener('scroll',()=>{if(VEC.doc)vecSchedule(120);},{passive:true});
-// 브라우저 확대(PDF 밖의 Ctrl+휠 등)·다른 화면으로 창을 옮기면 devicePixelRatio 가 바뀐다 — 그 배율로 다시 그린다.
+// devicePixelRatio changes with browser zoom (Ctrl+wheel outside the PDF, etc.) or moving the window to a different screen - redraws at that scale.
 (function watchDpr(){if(!window.matchMedia)return;
   matchMedia('(resolution: '+(window.devicePixelRatio||1)+'dppx)').addEventListener('change',()=>{vecInvalidate(); watchDpr();},{once:true});})();
 if(window.visualViewport)visualViewport.addEventListener('resize',()=>{if(VEC.doc)vecSchedule(300);});
 
-// ------------------------------------------------ PDF 영역 전용 확대 — docs/design.md §PDF 영역 전용 확대
-// 브라우저 확대는 사이드바·도구 줄까지 키운다. PDF 영역의 확대 입력을 가로채 쪽 폭(W)만 바꾼다.
-// - 데스크톱: #left 위의 Ctrl(⌘)+휠. 트랙패드 핀치도 크롬·파이어폭스에서는 ctrlKey 가 붙은 wheel 로 온다. 포인터 기준.
-// - 사파리 트랙패드 핀치: gesturestart/gesturechange(e.scale).
-// - 키보드 Ctrl(⌘) + = / + / − / 0 → 확대·축소·폭 맞춤(입력 칸에 포커스가 있으면 가로채지 않는다 — 키 처리기 참고).
-// - 터치: #left 는 touch-action:pan-x pan-y 라 브라우저 핀치가 없다. 두 손가락 거리 비율로 W 를 바꾸고, 두 손가락
-//   가운데 점 밑의 자리를 손가락을 따라 옮긴다(확대하며 끌기). 선택 모드의 쪽은 touch-action:none 이라 같은 길로 온다.
+// ------------------------------------------------ PDF-area-only zoom - docs/design.md §PDF 영역 전용 확대
+// Browser zoom would also enlarge the sidebar and tool bar. Zoom input over the PDF area is intercepted to change only the page width (W).
+// - Desktop: Ctrl(Cmd)+wheel over #left. Trackpad pinch also arrives as a wheel event with ctrlKey set, in Chrome/Firefox. Anchored to the pointer.
+// - Safari trackpad pinch: gesturestart/gesturechange (e.scale).
+// - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus - see the key handler).
+// - Touch: #left has touch-action:pan-x pan-y, so there's no browser pinch. W changes with the ratio of the two-finger distance, and the
+//   point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in selection mode has touch-action:none, so it goes through the same path.
 function zoomKey(e){const k=e.key,c=e.code;
   if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
   if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
   if(k==='0'||c==='Digit0'||c==='Numpad0')return 'fit';
   return null;}
-// 휠 한 번의 배율. 마우스 휠 한 칸(|dy|≥50 픽셀 또는 줄 단위)은 버튼 한 번과 같은 ZOOM_STEP, 트랙패드 핀치의 잘게 나뉜 dy 는
-// exp(-dy/100) 로 이어 붙인다 — 크롬이 핀치 배율을 휠로 바꿀 때 쓰는 식의 역이라 손가락 벌린 만큼 커진다.
-// 한 이벤트가 버튼 한 칸(ZOOM_STEP ≈ exp(0.18))을 넘지 않게 dy 를 ±18 로 자른다.
+// The factor for one wheel tick. One mouse-wheel notch (|dy|>=50 pixels or a line unit) gets the same ZOOM_STEP as one button
+// press; a trackpad pinch's finely divided dy is composed via exp(-dy/100) - the inverse of the formula Chrome uses to turn
+// pinch scale into wheel events, so it grows in proportion to how far the fingers spread. dy is clamped to +-18 so a single
+// event never exceeds one button press's worth (ZOOM_STEP ~ exp(0.18)).
 function wheelFactor(dy,mode){if(!dy)return 1;
   if(mode===1||mode===2||Math.abs(dy)>=50)return dy<0?ZOOM_STEP:1/ZOOM_STEP;
   return Math.exp(-Math.max(-18,Math.min(18,dy))/100);}
@@ -6750,31 +6890,31 @@ function wheelFactor(dy,mode){if(!dy)return 1;
   L.addEventListener('touchend',end); L.addEventListener('touchcancel',end);
 })();
 
-// ------------------------------------------------ 화면 폭별 레이아웃(모바일)
-// wide: 1100px 이상 오른쪽 사이드바(폭 조절 포함). mid: 700px 초과 1100px 미만 — 좁은 사이드
-// 패널, 접으면 오른쪽 아래 도구 줄만 남는다. narrow: 700px 이하(접은 폴더블·휴대폰) — 하단 시트, 기본은 접힘.
-// 접기·펴기로 폭이 도중에 바뀌면 레이아웃을 다시 고르고, 보던 자리(topAnchor)를 지킨 채 쪽 폭을 다시 맞춘다.
-// 마크·선택 상자는 쪽 안의 % 좌표라 쪽 폭만 맞으면 저절로 제자리다.
+// ------------------------------------------------ Layout by screen width (mobile)
+// wide: 1100px and up, a right sidebar (width-adjustable). mid: over 700px, under 1100px - a narrow side
+// panel; when collapsed, only the bottom-right tool bar remains. narrow: 700px and below (a folded foldable/phone) -
+// a bottom sheet, collapsed by default. If the width changes partway through a collapse/expand, the layout is re-chosen
+// and the page width is re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the page, so they fall back into place automatically once the page width is fit.
 function layoutFor(){const w=innerWidth; if(w<=700)return 'narrow'; if(w<1100)return 'mid'; return 'wide';}
 function applyLayout(){const L=layoutFor(),overlay=L==='mid'&&innerWidth<=900; if(L===LAYOUT&&overlay===MID_OVERLAY)return false;
   LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false;
   ['wide','mid','narrow'].forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!=='wide');
   SIDE_OPEN=L==='wide'?true:(L==='mid'?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
-  if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // 쓰던 메모·편집은 접힌 채로 숨기지 않는다
+  if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit is never left hidden collapsed
   applySide(); stickTop(); return true;}
 function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
   document.body.classList.toggle('side-open',open);
   const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
   $('#side-arrow').innerHTML=ic(LAYOUT==='narrow'?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
   btn.setAttribute('aria-label',(open?'패널 접기':'패널 펴기')+' · 열린 핀 '+PINS.length);}
-// remember: mid 에서 사용자가 직접 접고 편 것만 기억한다(narrow 는 늘 접힌 채 시작).
+// remember: only remembers a manual collapse/expand by the user in mid (narrow always starts collapsed).
 function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
   if(open&&LAYOUT==='mid'){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
   if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
 function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
-// 목록 구획 머리(sticky)가 붙을 높이. compact 에서는 #right 가 스크롤 상자이고 그 위에 도구 줄(#bar1, narrow 는 시트 손잡이 아래)이
-// 먼저 붙어 있으니 그 아래에 붙인다. wide 는 #list 자체가 스크롤 상자라 0 이다.
+// The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, below the
+// sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');
   if(LAYOUT!=='wide'&&b){const cs=getComputedStyle(b); if(cs.position==='sticky')t=Math.round((parseFloat(cs.top)||0)+b.offsetHeight);}
   document.documentElement.style.setProperty('--stick-top',t+'px');}
@@ -6783,14 +6923,15 @@ let RELAY=0;
 function scheduleRelayout(){if(RELAY)return; RELAY=requestAnimationFrame(()=>{RELAY=0; if(META)relayout(); else applyLayout();});}
 window.addEventListener('resize',scheduleRelayout);
 MQ_COARSE.addEventListener('change',scheduleRelayout);
-// 패널을 펴고 접어 #left 폭만 바뀌어도(compact) 쪽 폭을 다시 맞춘다. 콜백에서 바로 레이아웃을 바꾸지 않고
-// 다음 프레임으로 미룬다(ResizeObserver 루프 경고 방지). wide 는 예전처럼 창 크기 변화에만 반응한다.
-// 손잡이를 끄는 동안(body.resizing)은 다시 맞추지 않는다 — 손을 떼면 setSideWidth 가 한 번 맞춘다.
+// Even a mere #left width change from expanding/collapsing the panel (compact) re-fits the page width. The layout is never
+// changed directly in the callback - it's deferred to the next frame (avoids a ResizeObserver loop warning). wide still only reacts to window-size changes, as before.
+// Never re-fit while the handle is being dragged (body.resizing) - setSideWidth fits it once on release.
 if(window.ResizeObserver)new ResizeObserver(()=>{if(LAYOUT&&LAYOUT!=='wide'&&!document.body.classList.contains('resizing'))scheduleRelayout();}).observe($('#left'));
 
-// 가상 키보드: 크롬 안드로이드는 viewport meta 의 interactive-widget=resizes-content 로 레이아웃 자체가 줄어든다.
-// 그 값을 모르는 브라우저는 visualViewport 로 키보드 높이(--kb)를 재서 화면 전체를 그만큼 올린다. 핀치 확대로 줄어든
-// visualViewport 는 키보드가 아니다(scale 을 곱해 되돌린다). 입력 칸이 포커스돼 있으면 보이는 자리로 끌어온다.
+// Virtual keyboard: on Chrome Android, the layout itself shrinks via the viewport meta's interactive-widget=resizes-content.
+// A browser that doesn't understand that value instead measures the keyboard height (--kb) via visualViewport and raises the
+// whole screen by that amount. A visualViewport shrunk by pinch zoom is not the keyboard (undone by multiplying by scale).
+// If an input field has focus, it's scrolled into view.
 function onViewport(){const vv=window.visualViewport; if(!vv)return;
   const lh=document.documentElement.clientHeight;
   let kb=Math.round(lh-vv.height*vv.scale); if(!(kb>=80)||!MQ_COARSE.matches)kb=0;
@@ -6803,7 +6944,7 @@ if(window.visualViewport){visualViewport.addEventListener('resize',onViewport); 
 document.addEventListener('focusin',e=>{const t=e.target;
   if(LAYOUT!=='wide'&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>t.scrollIntoView({block:'center'}),350);});
 
-// 처음 한 번만 뜨는 안내(localStorage pinPrefs.coach 에 본 것을 기억한다).
+// Onboarding shown only the first time (remembers that it's been seen in localStorage pinPrefs.coach).
 let COACH_T=null;
 function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen[key])return; seen[key]=1; savePrefs({coach:seen});
   $('#coach-t').textContent=text; $('#coach').hidden=false; clearTimeout(COACH_T); COACH_T=setTimeout(()=>{$('#coach').hidden=true;},8000);}
@@ -6811,16 +6952,17 @@ function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',S
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); b.querySelector('.lbl').textContent=SELMODE?'선택 중':'선택';
   if(SELMODE)coach('sel','끌어서 고칠 곳을 고르세요 · 탭하면 그 문단 · 두 손가락으로 확대');}
 function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal();}
-// [⋯] 에서 닫힌 핀·삭제한 핀을 펼치면 패널을 펴고 그 목록으로 스크롤한다.
+// Expanding done/dropped pins from [⋯] opens the panel and scrolls to that list.
 function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
-// 대화상자 밖(배경)을 누르면 닫는다 — dialog 자신이 target 인 click 중 상자 사각형 밖인 것만.
+// Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its box rectangle.
 $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
 
-// 패널 폭 손잡이 — 마우스·터치·펜 모두 Pointer Events 한 경로(데스크톱의 옛 mousedown 구현을 대신한다). 손잡이는
-// touch-action:none 이라 끄는 동안 브라우저 스크롤과 다투지 않고, setPointerCapture 로 손잡이 밖까지 따라간다.
-// 끄는 동안은 폭만 바꾸고(본문 쪽 폭은 그대로), 손을 떼면 한 번 relayout 한다. 탭(마우스는 두 번 클릭)은 단계 순환,
-// ←/→ 는 16px, Home/End 는 한계, Enter/Space 는 단계 순환이다.
+// Panel width handle - mouse/touch/pen all share one Pointer Events path (replacing the old desktop-only mousedown
+// implementation). The handle has touch-action:none, so dragging it never fights browser scrolling, and
+// setPointerCapture keeps tracking it even outside the handle. While dragging, only the width changes (the body's
+// page width stays put); relayout runs once on release. A tap (double-click for mouse) cycles presets, Left/Right moves
+// 16px, Home/End go to the limits, and Enter/Space cycles presets.
 (function(){const g=$('#grip'); let D=null;
   g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault(); D={id:e.pointerId,x:e.clientX,w:curSideW(),moved:false,mouse:e.pointerType==='mouse'};
@@ -6837,7 +6979,7 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
     const k={ArrowLeft:w+16,ArrowRight:w-16,Home:b.max,End:b.min}[e.key];
     if(k!==undefined){e.preventDefault(); setSideWidth(k);} else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSideWidth();}});
 })();
-// 목차 폭은 오른쪽 작업창 손잡이와 독립이다. 끄는 중에는 폭만 바꾸고 끝날 때 PDF 위치를 복원한다.
+// Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
 (function(){const g=$('#outline-grip');let D=null;
   g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||document.body.classList.contains('outline-collapsed')||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault();D={id:e.pointerId,x:e.clientX,w:Math.round($('#outline').getBoundingClientRect().width)};
@@ -6850,7 +6992,7 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
     const next={ArrowLeft:w-16,ArrowRight:w+16,Home:b.min,End:b.max}[e.key];
     if(next!==undefined){e.preventDefault();setOutlineWidth(next);}});
 })();
-// 시트 높이 손잡이(narrow) — 위로 끌면 높아지고(접힌 시트는 펴진다), 화면 25% 아래로 내려놓으면 접힌다. 탭은 단계 순환.
+// Sheet height handle (narrow) - dragging up raises it (a collapsed sheet expands); dropping it below 25% of the screen collapses it. A tap cycles presets.
 (function(){const g=$('#sheet-grip'); let D=null;
   g.addEventListener('pointerdown',e=>{if(LAYOUT!=='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
     e.preventDefault(); D={id:e.pointerId,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false};
@@ -6873,11 +7015,13 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
     else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSheet();}});
 })();
 
-// ------------------------------------------------ 드래그 선택(마우스·터치·펜 — Pointer Events 한 경로)
-// 마우스: 예전 그대로 누르고 끌면 사각형. 터치·펜: 선택 모드(SELMODE)일 때만 끌면 사각형이고 탭하면 빠른 선택,
-// 선택 모드가 아니면 스크롤·핀치 확대가 그대로 되고 길게 누르면 빠른 선택이다. 선택 모드에서는 쪽에만
-// touch-action:none 을 건다(한 손가락 끌기는 이 코드가, 두 손가락은 앱 확대 — §PDF 영역 전용 확대 — 가 가진다).
-// 좌표는 clientX/Y 와 getBoundingClientRect 를 같은 기준(레이아웃 뷰포트)으로 나눈 쪽 안 비율이라 핀치 확대 중에도 맞다.
+// ------------------------------------------------ Drag selection (mouse/touch/pen - one Pointer Events path)
+// Mouse: press and drag draws a rectangle, as before. Touch/pen: a drag draws a rectangle only in selection mode
+// (SELMODE), and a tap does quick selection; outside selection mode, scroll/pinch zoom work as usual and a
+// long-press does quick selection. Only pages get touch-action:none in selection mode (a one-finger drag is
+// handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
+// Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
+// basis (the layout viewport), so they stay correct even during a pinch zoom.
 let DRAG=null,LP=null;
 const c01=v=>Math.min(1,Math.max(0,v));
 const LONGPRESS_MS=450,TAP_SLOP=8,QUICK_W=0.07,QUICK_H=0.006;
@@ -6887,11 +7031,11 @@ function drawBox(box,sx,sy,x,y){Object.assign(box.style,{left:Math.min(sx,x)*100
   width:Math.abs(x-sx)*100+'%',height:Math.abs(y-sy)*100+'%'});}
 function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
 function cancelLP(){if(LP){clearTimeout(LP.t); LP=null;}}
-// 예전 mousedown 처럼 쪽 위 마우스 누름의 기본 동작(포커스 이동·이미지 끌기)을 막는다 — 메모 칸 포커스가 유지된다.
+// Prevents the default behavior of a mouse press on a page (focus shift, image dragging), as the old mousedown did - the note field's focus is preserved.
 $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.pg'))e.preventDefault();});
 $('#doc').addEventListener('pointerdown',e=>{
   if(e.target.closest('.mark b'))return;
-  if(!e.isPrimary){cancelDrag(); cancelLP(); return;}   // 두 번째 손가락 = 핀치 — 그리던 상자를 버린다
+  if(!e.isPrimary){cancelDrag(); cancelLP(); return;}   // a second finger = a pinch - the box being drawn is discarded
   const pg=e.target.closest('.pg'); if(!pg)return;
   const mouse=e.pointerType==='mouse';
   if(mouse&&e.button!==0)return;
@@ -6911,11 +7055,12 @@ window.addEventListener('pointerup',e=>{
   if(LP&&e.pointerId===LP.id)cancelLP();
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
-  if(!D.box){quickPick(D.pg,e.clientX,e.clientY);return;}   // 선택 모드의 탭 = 빠른 선택
+  if(!D.box){quickPick(D.pg,e.clientX,e.clientY);return;}   // a tap in selection mode = quick selection
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY); finishRect(D.pg,D.box,D.sx,D.sy,x,y);});
 window.addEventListener('pointercancel',e=>{if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();});
-// 빠른 선택: 누른 점 둘레의 작은 상자(쪽 폭 ±7%, 높이 ±0.6% ≈ 한 줄)로 기존 /api/pick 을 부른다. 서버의 기본 단계가
-// 본문이면 '문단', 그림·표 안이면 '환경'이라 그대로 쓰면 되고, 범위 사다리로 넓히고 좁힌다.
+// Quick selection: calls the existing /api/pick with a small box around the pressed point (page width +-7%, height
+// +-0.6% ~ one line). The server's default level is used as-is - 'paragraph' in body text, 'environment' inside a
+// figure/table - and then widened or narrowed via the range ladder.
 function quickPick(pg,cx,cy){const [x,y]=fracAt(pg,cx,cy);
   finishRect(pg,newBox(pg),c01(x-QUICK_W),c01(y-QUICK_H),c01(x+QUICK_W),c01(y+QUICK_H));}
 function finishRect(pg,box,sx,sy,x,y){
@@ -6928,28 +7073,28 @@ function finishRect(pg,box,sx,sy,x,y){
   const page=+pg.dataset.page,p=META.pages[page-1];
   pick({page,x0:Math.min(sx,x)*p.pt_w,y0:Math.min(sy,y)*p.pt_h,x1:Math.max(sx,x)*p.pt_w,y1:Math.max(sy,y)*p.pt_h,
     frac:[Math.min(sx,x),Math.min(sy,y),w,h],pdf_build:META.pages_build||undefined,doc:DOC||undefined});}
-// 시트·패널이 선택 상자를 가리면 상자가 보이는 곳까지 본문을 올린다(compact 전용).
+// If the sheet/panel covers the selection box, the body scrolls up until the box is visible (compact only).
 function revealBox(box){if(!box||LAYOUT==='wide'||!document.contains(box))return;
   const L=$('#left'),lr=L.getBoundingClientRect(),br=box.getBoundingClientRect();
   let bottom=lr.bottom; if(LAYOUT==='narrow'&&SIDE_OPEN)bottom=Math.min(bottom,$('#right').getBoundingClientRect().top);
   const top=lr.top+28; if(br.top>=top&&br.bottom<=bottom-8)return;
   L.scrollTop+=br.top-top-Math.max(0,(bottom-top-br.height)/3);}
 
-// ------------------------------------------------ 범위 단계
+// ------------------------------------------------ Range levels
 function lvOf(obj,key){return (obj.levels||[]).find(l=>l.level===key||(l.merged||[]).includes(key));}
 function kindFor(scope,env){if(!scope)return null; if(scope.startsWith('env'))return 'env:'+(env||'?');
   return scope==='para'?'paragraph':'lines';}
 function scopeLabel(o){const lv=o.scope&&lvOf(o,o.scope); if(lv)return lv.label; if(o.scope==='lines')return '줄 직접 지정';
   return ({float:'그림/표',block:'환경 블록',paragraph:'문단',none:'생성 파일',lines:'줄'})[o.kind]||o.kind||'';}
-// 지금 범위와 맞는 단계를 눌린 상태로 보인다. scope 가 있으면 그 단계(범위도 같을 때), 없으면 lo/hi 가 같은 첫 단계
-// (편집 카드에서는 '지금 범위').
+// Shows the level matching the current range as pressed. If scope is set, that level (when the range also matches); otherwise the first level whose lo/hi match
+// (shown as '지금 범위' on an edit card).
 function curLevel(o){const ls=o.levels||[];
   const s=o.scope&&lvOf(o,o.scope); if(s&&s.lo===o.lo&&s.hi===o.hi)return s;
   return ls.find(l=>l.lo===o.lo&&l.hi===o.hi)||null;}
-// 줄 범위 표기: 한 줄이면 'L159', 여러 줄이면 'L155-L173'(복사·pins.md 형식 'L159-L159' 는 그대로 둔다).
+// Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left as-is).
 function rng(lo,hi){return 'L'+lo+(hi!==lo?'-L'+hi:'');}
-// 분절 컨트롤 칸 이름은 짧게 — '환경 abstract' → 'abstract'. 같은 환경 이름이 둘 이상이면 '(바깥)' 을 남겨 가른다.
-// 줄 범위는 칸에서 빼고 설명(data-tip)·aria-label 과 위치 한 줄에 둔다.
+// Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more than
+// once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the description (data-tip)/aria-label and the location line.
 function levelName(lv,all){if(!lv.env)return lv.label;
   const dup=(all||[]).filter(o=>o.env===lv.env).length>1; return dup?String(lv.label).replace(/^환경 /,''):lv.env;}
 function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.map(lv=>{const on=lv===cur;
@@ -6958,13 +7103,13 @@ function levelBtns(o,isEdit){const cur=curLevel(o),ls=o.levels||[]; return ls.ma
   return '<button class="'+(on?'on':'')+'" data-act="level" data-level="'+esc(lv.level)+'" aria-pressed="'+on+'" aria-label="'+
     esc(label+' '+rng(lv.lo,lv.hi)+' · '+lv.n+'줄')+'" data-tip="'+esc(rng(lv.lo,lv.hi)+' · '+tip)+'">'+
     esc(label)+' <span class="k'+(lv.n>50?' wn':'')+'">· '+lv.n+'줄</span></button>';}).join('');}
-// 가로로 넘친 분절 컨트롤에서 고른 칸이 보이게 한다(세로 스크롤은 건드리지 않는다).
+// Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left untouched).
 function segReveal(seg){const on=seg&&seg.querySelector('.on'); if(!on){segFade(seg);return;}
   const l=on.offsetLeft,r=l+on.offsetWidth;
   if(l<seg.scrollLeft)seg.scrollLeft=Math.max(0,l-4); else if(r>seg.scrollLeft+seg.clientWidth)seg.scrollLeft=r-seg.clientWidth+4;
   segFade(seg);}
-// 범위 사다리가 패널보다 길면 넘친 쪽 끝을 흐리게 한다 — 스크롤 막대를 숨겨 두어 오른쪽 칸('minipage · 43줄' 뒤)이 잘린 채 끝나 더 있다는
-// 표시가 없었다(QA 2026-09-24). 문서 링크 줄(docLinksFade)과 같은 말이다.
+// If the range ladder is longer than the panel, the overflowing edge is faded - since the scrollbar is hidden, the right-side
+// segment (after 'minipage - 43 lines') used to just get clipped with no indication there was more (QA 2026-09-24). The same idea as the document-links row (docLinksFade).
 function segFade(seg){if(!seg)return; const over=seg.scrollWidth-seg.clientWidth;
   seg.classList.toggle('fade-l',over>1&&seg.scrollLeft>1); seg.classList.toggle('fade-r',over>1&&over-seg.scrollLeft>1);}
 document.addEventListener('scroll',e=>{const t=e.target; if(t&&t.classList&&t.classList.contains('seg'))segFade(t);},true);
@@ -6979,8 +7124,8 @@ function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
     if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+(ls.length-8)+'줄 접힘';}
-// 위치 일치율 배지: 90% 이상이면 숨긴다(믿어도 되는 자리에 숫자를 달면 소음이다). 낮으면 '위치 불확실', 30% 미만은 경고 색.
-// 찾은 방법·일치율·무엇을 확인할지는 설명에 둔다('일치 100%' 만으로는 뜻을 알 수 없었다). 작성 패널·카드가 같이 쓴다.
+// Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
+// below 30%, the warning color. The method used, match rate, and what to check go in the description instead ('match 100%' alone was meaningless). Shared by the composer panel and cards.
 const VIA_HIDE=90,VIA_WARN=30;
 function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100);
   if(pct>=VIA_HIDE)return null; const low=pct<VIA_WARN;
@@ -6992,9 +7137,9 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
 function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('busy',on);}
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
-  // 새 선택(재짚기 아님)이 시작되면 이전 CUR 을 즉시 비운다 — 그래야 이 창(~1.1s) 사이의 [핀 저장]이
-  // 낡은 CUR 을 조용히 저장하지 않고 PEND_SAVE 큐로 가서(§P0c) 방금 고른 새 위치를 저장한다(회귀: 재선택 시
-  // 구 위치가 저장되던 결함).
+  // When a new selection (not a re-place) starts, the previous CUR is cleared right away - so that a [핀 저장] within
+  // this window (~1.1s) never silently saves the stale CUR, and instead goes through the PEND_SAVE queue (§P0c) to
+  // save the just-chosen new location (regression: the old location used to get saved on a re-select).
   if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
@@ -7006,27 +7151,28 @@ async function pick(r){
   if(d.error){
     if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
     if(rp){bannerRepick(d.error);return;}
-    // 저장 대기 중이었어도 pick 이 실패하면 저장하지 않는다 — 기존 오류 패널만 보인다(§조용한 저장 실패 방지 회귀).
+    // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
     CUR=null; clearPendingSave(); $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; if(!isRegion(d)){useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}}
-  OVERLAP_DISMISSED=null;   // 새로 고른 선택이다 — 이전 선택에서 [별도 핀으로 저장]을 눌렀어도 다시 알린다
+  OVERLAP_DISMISSED=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
   CUR.overlaps=overlapsFor(CUR,PINS);
-  // 서버가 본 겹친 핀이 이 탭의 PINS 에 없으면(다른 사람이 방금 저장) 목록을 다시 받는다 — loadPins 가 겹침도 다시 센다.
+  // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
   if((d.overlaps||[]).some(o=>!PINS.some(p=>p.id===o.id)))loadPins();
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
-  $('#composer').scrollTop=0;   // 두 번째 드래그에서 새 위치·사다리가 스크롤 위로 숨지 않게(메모는 그대로)
+  $('#composer').scrollTop=0;   // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
   if(LAYOUT!=='wide')$('#right').scrollTop=0;
-  // 드래그 → 바로 메모 입력. 터치에서는 포커스하지 않는다 — 가상 키보드가 곧바로 올라와 범위 사다리와 쪽을 가렸다.
+  // Drag -> straight into the note field. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and page.
   if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});
-  // pick 이 늦는 사이(~1.1s) [핀 저장]을 눌렀으면 여기서 큐에 쌓인 저장을 실행한다(CUR 이 막 채워졌다).
+  // If [핀 저장] was pressed while pick was still slow (~1.1s), the queued save runs here (CUR has just been filled in).
   if(PEND_SAVE){clearPendingSave(); savePin();}
 }
-// P0b-03: 저장 전 선택(CUR)이 열린 핀과 겹치면 대표 하나를 골라 '덧붙이기' 배너를 그린다. 자동 병합은 하지
-// 않는다 — 사용자가 [메모에 덧붙이기]/[별도 핀으로 저장] 중 고른다.
-// 겹침은 범위가 바뀔 때마다(드래그·단계 전환·▲▼) 이 탭의 PINS 로 다시 센다. pick 순간 한 번만 세면 단계를
-// 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장됐다(실측). 규칙은 서버 selection_rel 과
-// 같다(회귀 테스트가 대조한다): equal(같은 범위) · inside(선택이 핀 안) · contains(선택이 핀을 감쌈) · partial.
+// P0b-03: if the pre-save selection (CUR) overlaps an open pin, one representative is chosen and a "append" banner
+// is drawn. Never auto-merged - the user picks between [메모에 덧붙이기]/[별도 핀으로 저장].
+// Overlap is recomputed against this tab's PINS every time the range changes (drag/level switch/up-down). Computing
+// it only once at pick time meant switching levels to produce the exact same range as an existing pin never showed
+// the banner, and a duplicate pin got saved (observed). The rule matches the server's selection_rel (a regression
+// test compares them): equal (same range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
 function selRel(lo,hi,blo,bhi){
   if(hi<blo||bhi<lo)return null;
   if(lo===blo&&hi===bhi)return 'equal';
@@ -7034,11 +7180,11 @@ function selRel(lo,hi,blo,bhi){
   if(lo<=blo&&bhi<=hi)return 'contains';
   return 'partial';
 }
-function overlapsFor(o,pins){const out=[]; if(!o||!o.file)return out;   // 보기 전용 PDF 의 선택은 줄이 없다
+function overlapsFor(o,pins){const out=[]; if(!o||!o.file)return out;   // a selection on a view-only PDF has no line
   (pins||[]).forEach(p=>{if(p.done||p.file!==o.file)return; const rel=selRel(o.lo,o.hi,p.lo,p.hi);
     if(rel)out.push({id:p.id,lo:p.lo,hi:p.hi,rel:rel});});
   return out;}
-// 대표 하나: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id 가 가장 작은 것).
+// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap (the smallest id).
 function pickOverlap(ovs){
   if(!ovs||!ovs.length)return null;
   const eq=ovs.filter(o=>o.rel==='equal');
@@ -7051,11 +7197,11 @@ function pickOverlap(ovs){
   if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
   return null;
 }
-// 겹침 배너 문구: 선택이 그 핀과 어떤 관계인지 — '#4와 같은 범위' · '#4 범위 안' · '#4를 감쌈' · '#4와 일부 겹침'.
+// Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'.
 function overlapVerb(rel,id){const g=(c,v)=>josa(id,c,v);
   return ({equal:g('과','와')+' 같은 범위입니다',inside:' 범위 안입니다',contains:g('을','를')+' 감쌉니다',partial:g('과','와')+' 일부 겹칩니다'})[rel]||g('과','와')+' 겹칩니다';}
-// [별도 핀으로 저장]은 '그 핀과의 그 관계'를 끈다(id:rel). 범위를 바꿔 관계가 달라지면 다시 알리고, 새 드래그(pick)
-// 에서는 초기화한다 — 한 번 누르면 이후 선택까지 영구히 꺼지던 결함의 재발 방지.
+// [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes the
+// relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 let OVERLAP_DISMISSED=null;
 function recomputeOverlap(){if(CUR)CUR.overlaps=overlapsFor(CUR,PINS);}
 function renderOverlapBanner(){
@@ -7068,9 +7214,10 @@ function renderOverlapBanner(){
     ov.id+' 메모에 덧붙이기</button>'+
     '<button class="btn-sm" data-act="overlap-separate" data-key="'+ov.id+':'+ov.rel+'" data-tip="겹쳐도 별도 핀으로 저장합니다">별도 핀으로 저장</button>';
 }
-// 위치는 한 줄: '파일 L159' + 쪽 + 일치 배지 + [⧉]. 범위 종류·줄 수는 분절 컨트롤의 고른 칸이 이미 보이므로 되풀이하지
-// 않는다(▲▼ 로 직접 맞춰 어느 칸에도 안 맞으면 '줄 직접 지정'을 쪽 옆에 붙인다). 드래그한 줄은 설명에 둔다.
-// 보기 전용 PDF 의 선택: 위치는 '쪽 N · 영역', 원문 칸에는 영역 글자(pdftotext)를 보인다. 범위 사다리·스테퍼는 숨긴다.
+// Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated, since the
+// segment control's selected segment already shows them (if adjusted directly via up/down and it doesn't match any
+// segment, '줄 직접 지정' is appended next to the page). The dragged line goes into the description.
+// Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder/stepper are hidden.
 function renderRegionComposer(d){
   $('#composer').classList.add('region');
   $('#c-loc').textContent=d.name+' · 쪽 '+d.page+' 영역'; $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
@@ -7092,24 +7239,26 @@ function renderComposer(){const d=CUR; if(!d)return;
   $('#c-levels').innerHTML=levelBtns(d,false);
   segReveal($('#c-levels'));
   const pre=$('#c-snip'); pre.className=(WRAP?'wrap':'nowrap')+(SNIP_OPEN?' open':''); pre.textContent=snipText(d.snippet,SNIP_OPEN);
-  // 접힌 원문은 CSS 가 4줄로 자른다. 잘렸는지는 그린 뒤에 잰다(긴 한 줄이 여러 줄로 접히는 원고가 흔하다).
+  // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over=SNIP_OPEN||pre.scrollHeight>pre.clientHeight+2, nl=String(d.snippet||'').split('\n').length;
   pre.classList.toggle('clip',!SNIP_OPEN&&over);
   $('#c-expand').hidden=!over; $('#c-expand').textContent=SNIP_OPEN?'원문 접기':'원문 펼치기'+(nl>1?' · '+nl+'줄':'');
   $('#c-wrap').setAttribute('aria-pressed',String(WRAP));
 }
-// 저장·취소·덧붙이기로 선택이 끝나면 선택 모드를 끄고(다시 스크롤되게) narrow 시트를 접는다(다시 본문이 먼저).
-// 작성 패널의 핀 종류(수정 요청 / 질문). 저장하거나 버리면 수정 요청으로 돌아간다(다음 핀의 기본값).
+// When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
+// The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 function setKind(k){KIND_NEW=k==='question'?'question':'fix';
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
-// 질문처럼 읽히는 메모(docs/design.md §스레드와 검토 — 종류 권하기). 끝이 ?/？ 이거나 한국어 물음 어미(는가·나요·까요·인가·건가·니·냐·까)면
-// 참. 끝의 마침표·말줄임·닫는 괄호·따옴표와 끝에 붙은 @태그(예: '맞나요? @Bob Park')는 보지 않는다. 판정만 한다 — 종류를 바꾸지 않는다.
+// A note that reads like a question (docs/design.md §Threads and review - suggesting the kind). True if it ends in ?/? or a
+// Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
+// trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
 function looksQuestion(text){let t=String(text||'').trim();
   for(let i=0;i<3;i++)t=t.replace(/[\s.…~!。)\]"'”’]+$/,'').replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/,'');
   return /[?？]$/.test(t)||/(는가|나요|까요|인가|건가|니|냐|까)$/.test(t);}
-// 수정 요청인데 메모가 질문처럼 읽히면 종류 컨트롤 곁에 한 줄 권유를 띄운다. 스스로 바꾸지 않는다 — 누르면 바뀐다(저자 지적 2026-09-25:
-// '…표현한 의도가 있는건가?' 가 수정 요청으로 저장됐다). 질문이 되거나 글이 질문처럼 읽히지 않으면 사라진다.
+// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. Never
+// auto-changes it - only changes on click (author feedback 2026-09-25: "...표현한 의도가 있는건가?" got saved as a fix
+// request). Disappears once it becomes a question or the text no longer reads like one.
 function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestion(text);}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
@@ -7124,12 +7273,12 @@ async function appendToPin(id,text){
 async function undoAppend(id,note,rev){
   try{await api('/api/pins/'+id+'/edit',{method:'POST',body:{note:note,base_rev:rev},what:'되돌리기'});
     toast('#'+id+' 메모를 되돌렸습니다','ok');}catch(e){} await loadPins();}
-// 핀 저장 버튼의 평상시 라벨(boot 과 대기 해제가 함께 쓴다).
+// The normal label for the save-pin button (shared by boot and clearing the pending state).
 function saveBtnLabel(){return MQ_COARSE.matches?'핀 저장':'핀 저장 <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';}
-// P0c: 드래그 직후 SyncTeX pick 이 끝나기 전(~1.1s)에 [핀 저장]을 누르면 CUR 이 아직 없어 조용히 사라졌다(실측).
-// 이제는 그 순간의 저장 요청을 큐에 담아 pick 이 성공하면 자동 저장한다 — 메모는 그 저장 시점(pick 해소 시)에
-// #note 를 다시 읽는다(그 사이 사용자가 고친 글자까지 반영). pick 이 실패하거나 선택을 취소하면 큐도 함께 비운다.
-// 버튼을 다시 누르면 대기를 취소한다(토글) — 별도 취소 버튼 없이도 되돌릴 수 있게.
+// P0c: pressing [핀 저장] right after a drag but before SyncTeX pick finishes (~1.1s) used to just silently vanish, since
+// CUR didn't exist yet (observed). Now that save request is queued and auto-saved once pick succeeds - the note re-reads
+// #note at the moment of saving (when pick resolves), picking up even characters the user edited in the meantime. If pick
+// fails or the selection is canceled, the queue is cleared too. Pressing the button again cancels the pending save (a toggle) - so it can be undone without a separate cancel button.
 function togglePendingSave(){if(PEND_SAVE){clearPendingSave();return;}
   PEND_SAVE=true; const btn=$('#btn-save'); btn.dataset.pending='1';
   btn.innerHTML='위치 찾는 중… 저장 대기 <span class="spin" aria-hidden="true"></span>';}
@@ -7137,17 +7286,17 @@ function clearPendingSave(){if(!PEND_SAVE)return; PEND_SAVE=false;
   const btn=$('#btn-save'); delete btn.dataset.pending; btn.innerHTML=saveBtnLabel();}
 async function savePin(){
   if(SAVING)return;
-  if(!CUR){if(PICKING)togglePendingSave(); return;}   // pick 이 아직 안 끝났다 — 큐에 담거나(토글) 대기를 취소
+  if(!CUR){if(PICKING)togglePendingSave(); return;}   // pick hasn't finished yet - queue it (toggle) or cancel the pending save
   SAVING=true; const btn=$('#btn-save'); btn.disabled=true;
   const d=CUR,note=$('#note').value.trim();
   let body={file:d.file,name:d.name,page:d.page,lo:d.lo,hi:d.hi,raw_lo:d.raw_lo,raw_hi:d.raw_hi,via:d.via,score:d.score,
     frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};
   if(d.scope){body.scope=d.scope; body.kind=kindFor(d.scope,d.env);} else body.kind=d.kind;
-  if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // 보기 전용: 쪽·영역만
+  if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};   // view-only: page/region only
   body.doc=d.doc||DOC||undefined;
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
-  renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // 뷰어가 만든 핀은 늘 담당을 적는다(없으면 옛 핀의 추론 규칙)
+  renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
     toast((q?'질문 #':'핀 #')+id+' 저장됨 · pins.md 갱신','ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
@@ -7155,10 +7304,10 @@ async function savePin(){
   }catch(e){} finally{SAVING=false; btn.disabled=false;}
 }
 
-// ------------------------------------------------ 핀 목록
+// ------------------------------------------------ Pin list
 function who(a){return (a&&(a.name||a.login))||'';}
-const BADPIC=new Set();   // 한 번 실패한 아바타 주소는 다시 요청하지 않는다(재렌더마다 콘솔 오류가 쌓인다)
-// 사람 = 사진 또는 머리글자 원(주 색), 로컬/에이전트 = 로봇 아이콘의 흐린 원 — 사람과 에이전트를 한눈에 가른다.
+const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
+// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
 function isAgent(a){return !!a&&a.login==='local';}
 function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<span class="av i agent" aria-hidden="true">'+ic('bot')+'</span>';
   const ini=esc((who(a).trim()[0]||'?').toUpperCase());
@@ -7169,10 +7318,10 @@ document.addEventListener('error',e=>{const t=e.target;
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s='작성: '+(p.author?who(p.author):'기록 전')+' · '+(p.at||'?');
   if(p.edited_at)s+=' / 수정: '+(who(p.edited_by)||'기록 전')+' · '+p.edited_at; return s;}
-// P0b-03: rel 항목 중 대표 하나 — inside 가 있으면(범위가 가장 작은 바깥 핀), 없으면 partial 중 id 가
-// 가장 작은 것. 서버 rel_badge()(pins.md)와 같은 규칙이어야 카드 태그와 pins.md 행이 어긋나지 않는다 —
-// rel 항목은 {id,rel}뿐이라 범위는 PINS(현재 로드된 열린 핀 전체)에서 id 로 찾는다.
-// 배지 문구는 뜻이 드러나게: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. 같은 범위는 p(이 핀)의 lo/hi 로 가린다.
+// P0b-03: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
+// otherwise the smallest-id partial. Must follow the same rule as the server's rel_badge() (pins.md) so card tags and
+// pins.md rows never disagree - since a rel entry is only {id,rel}, the range is looked up by id from PINS (all currently loaded open pins).
+// The badge wording is phrased to be self-explanatory: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is distinguished using p's (this pin's) lo/hi.
 function josa(n,c,v){const d=String(n).slice(-1); return d==='0'||'13678'.includes(d)?c:v;}
 function relBadge(rel,p){
   if(!rel||!rel.length)return null;
@@ -7190,13 +7339,14 @@ function relBadge(rel,p){
   if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:'#'+n+josa(n,'과','와')+' 일부 겹침'};}
   return null;
 }
-// §P0c-C: 처리 중 표시. claim_until 은 epoch 초라 브라우저 시간대와 무관하게 비교한다(§위치 추정과 같은 이유로
-// 벽시계 문자열 대신 숫자를 쓴다). 뷰어는 claim 을 걸지 않는다(에이전트 전용) — [풀기]만 둔다.
+// §P0c-C: the in-progress marker. claim_until is epoch seconds, compared independent of the browser's timezone (numbers
+// instead of a wall-clock string, for the same reason as §Position estimation). The viewer never places a claim (agent-only) - it only offers [풀기].
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
-// 처리 예상 시간(docs/api.md §처리 중 표시): 에이전트가 claim 에 eta_min 을 주면 서버가 eta_ts(epoch)을 둔다.
-// 배지는 '처리 중 · 약 15분 · 20:40쯤' — 남은 분도 시각도 5분 단위로 올린다(견적은 대략이다). 넘기면 '예상보다 늦어짐 (+5분)'.
-// eta 가 없는 옛 claim 은 '처리 중 · 20:02부터 (23분째)'. 잠금 자동 해제(claim_until)는 예상 완료로 읽혀(실측: '~04:02')
-// 화면에 쓰지 않고 설명에만 둔다. 시각은 보는 기기의 현지 시각이다. now 는 테스트가 넣는다.
+// Estimated time to handle (docs/api.md §In-progress marker): if an agent gives eta_min on a claim, the server sets eta_ts
+// (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded up to
+// 5-minute steps (an estimate is approximate). Past it, '예상보다 늦어짐 (+5분)'. A legacy claim with no eta shows
+// '처리 중 · 20:02부터 (23분째)'. The lock's auto-expiry (claim_until) was misread as the estimated completion (observed:
+// '~04:02'), so it's never shown on screen - only in the description. The time is the viewing device's local time. now is injected by tests.
 function ceil5(m){return Math.max(5,Math.ceil(m/5-1e-9)*5);}
 function hhmm(ms){const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
 function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by)||'?',st=typeof p.claim_ts==='number'?p.claim_ts*1000:null;
@@ -7211,75 +7361,78 @@ function claimInfo(p,now){now=now==null?Date.now():now; const w=who(p.claimed_by
 function claimLabel(p,now){return claimInfo(p,now).t;}
 function claimTag(p){const c=claimInfo(p);
   return '<span class="badge badge-claimed'+(c.late?' late':'')+'" data-claim="'+p.id+'" data-tip="'+esc(c.tip)+'">'+ic('clock')+'<span class="ct">'+esc(c.t)+'</span></span>';}
-// 남은 분·경과 분은 시간이 가면 바뀐다 — 30초마다 배지 글만 고친다(카드를 다시 그리지 않는다). 잠금이 풀린 핀이 있으면 목록을 다시 그린다.
+// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't redrawn). The list is redrawn if any pin's lock has expired.
 function tickClaims(){if(document.hidden)return; let gone=false;
   $$('.badge-claimed[data-claim]').forEach(el=>{const p=OPEN_ALL.find(x=>x.id===+el.dataset.claim);
     if(!p||!claimActive(p)){gone=true; return;} const c=claimInfo(p); el.querySelector('.ct').textContent=c.t; el.dataset.tip=c.tip; el.classList.toggle('late',c.late);});
   if(gone)drawPins();}
 setInterval(tickClaims,30000);
-// 카드의 위치 글: LaTeX 핀은 'L12-L18', 보기 전용 PDF 의 핀은 '영역'(쪽은 옆 칸). 복사 형식은 '파일 L12-L18' / 'x.pdf 쪽 3'.
+// A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'.
 function locText(p){return isRegion(p)?'영역':rng(p.lo,p.hi);}
 function locCopy(p){const name=p.name||String(p.file||p.pdf||'').split('/').pop(); return isRegion(p)?name+' 쪽 '+p.page:name+' L'+p.lo+'-L'+p.hi;}
-// 모든 문서 보기에서 카드 머리에 붙는 문서 칩. 다른 문서의 것은 점선 테두리 — 누르면 그 문서로 바뀐다.
+// The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
 function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p)),other=pdoc(p)!==DOC;
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:pdoc(p)+' (설정에 없는 문서)')+(other?' — #번호·[보기]를 누르면 이 문서로 바꿉니다':''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
-// 스레드(docs/design.md §스레드와 검토): 답글과 상태 전환 기록(닫음·다시 엶·확인)이 한 줄의 이력이다. 글은 esc() 를 거친다.
-// wide 는 뒤 3건, compact 는 마지막 1건만 보이고 [이전 N건]으로 펼친다(THREAD_OPEN). 입력 칸(REPLY)은 EDIT 처럼 제자리에 끼운다.
+// Thread (docs/design.md §Threads and review): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
+// wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDIT.
 function isQuestion(p){return !!p&&p.kind_req==='question';}
-// 지금 담당 — 적힌 값(p.assignee), 없는 옛 핀은 서버가 추론한 사람(p.addressed 의 첫 사람), 그것도 없으면 에이전트.
+// The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
 function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
-// 카드 머리의 담당 칩: 담당이 사람일 때만(에이전트는 기본이라 표시하지 않는다). 작성자(또는 신원 없는 로컬 화면)는 눌러 [수정]에서 바꾼다.
-function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // 칩은 이름 첫 단어, 전체 이름은 설명에
+// The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
+function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?'나':'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
   const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip='담당: '+(mine?'나':peopleName(p.assignee))+' — 에이전트는 이 핀을 건너뜁니다'+(canEdit?'. 누르면 [수정]에서 담당을 바꿉니다':'');
   return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></button>'
     :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">담당 <span class="as-n">'+esc(nm)+'</span></span>';}
-// 상태 점(docs/design.md §상태 표현): 색 + 읽을 이름(aria-label·설명). 배지가 같은 뜻을 글자로 한 번 더 말한다.
+// Status dot (docs/design.md §Status representation): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
 function stDot(st){return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="상태: '+ST_NAME[st]+'" data-tip="상태: '+ST_NAME[st]+'"></span>';}
-// 지금 차례가 다시 열기로 시작했나(검토에서 되돌아온 핀) — 스레드의 마지막 닫기·다시 열기 기록이 다시 열기면 그렇다.
+// Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
 function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e==='close'||e==='reopen')return e==='reopen'?th[i]:null;} return null;}
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
-// 글 속 '@이름'(풀린 mentions 만)과 '#번호'(있는 핀)를 토큰으로 바꾼다(docs/design.md §@태그). 글은 먼저 esc() 를 거치고,
-// 이름·번호는 그 이스케이프된 글에서 찾아 감싼다 — 사람이 쓴 글이 HTML 로 새지 않는다. 이름은 서버 resolve_mentions() 와 같은 글자
-// (이름 전체·로그인·로그인의 @ 앞·이름 첫 단어)를 긴 것부터, 대소문자 없이 찾는다. '@' 앞이 글자·숫자면(메일 주소) 건너뛰고, 영문으로
-// 끝나는 이름 뒤에 영문이 이어지면(@Alicex) 다른 말이다. 풀리지 않은 '@말' 은 그대로 평문이다 — 부른 것처럼 보이면 안 된다.
+// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/design.md §@태그).
+// Text goes through esc() first, and names/numbers are found and wrapped within that already-escaped text - so text a
+// person wrote never leaks as HTML. Names are matched with the same candidates as the server's resolve_mentions() (full
+// name/login/the part of the login before @/the first word of the name), longest first, case-insensitive. Skipped if the
+// character before '@' is alphanumeric (an email address); a name ending in an ASCII letter followed by an ASCII letter
+// (@Alicex) is a different word. An unresolved '@word' stays plain text - it must never look like it called someone.
 function peopleName(login){const x=PEOPLE.find(p=>p.login===login); return x?x.name:login;}
 function mentionToks(logins){const out=[]; (logins||[]).forEach(lg=>{const x=PEOPLE.find(p=>p.login===lg),nm=String((x&&x.name)||'');
     const w=nm.split(/\s+/).filter(Boolean); [nm,lg,String(lg).split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach((t,k)=>{if(t&&t.length>=2)out.push({t:esc(t),lg,k});});});
-  return out.sort((a,b)=>b.t.length-a.t.length||a.k-b.k);}   // 같은 글자면 이름 전체 > 로그인 > 첫 단어
+  return out.sort((a,b)=>b.t.length-a.t.length||a.k-b.k);}   // for a tie in text length, full name > login > first word
 function reEsc(t){return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!=='local'?me.login:null;}
 function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hit=[],me=meLogin();
   if(toks.length){const re=new RegExp('@('+toks.map(x=>reEsc(x.t)).join('|')+')','gi');
-    // 자리표(\u0001번호\u0002)로 먼저 바꿔 둔다 — 긴 이름을 감싼 뒤 짧은 이름이 그 안을 다시 감싸지 않게.
+    // First swapped for placeholders (\u0001number\u0002) - so that after a long name is wrapped, a short name never re-wraps inside it.
     h=h.replace(re,(m,t,off,all)=>{const prev=off>0?all[off-1]:''; if(prev&&/[0-9A-Za-z가-힣._-]/.test(prev))return m;
       const nx=all.charAt(off+m.length); if(/[A-Za-z0-9]$/.test(t)&&/[A-Za-z0-9_]/.test(nx))return m;
       const tk=toks.find(x=>x.t.toLowerCase()===t.toLowerCase()); if(!tk)return m; hit.push({m,lg:tk.lg}); return '\u0001'+(hit.length-1)+'\u0002';});}
-  // '#12' — 있는 핀이면 그 핀으로 가는 링크. '&#39;' 같은 이스케이프(앞이 &)와 '#12;' 는 건드리지 않는다.
+  // '#12' - a link to that pin if it exists. An escape like '&#39;' (preceded by &) and '#12;' are left untouched.
   h=h.replace(/(^|[^&0-9A-Za-z#])#(\d{1,6})(?![\d;])/g,(m,pre,n)=>{const id=+n; if(!pinRefExists(id))return m;
     return pre+'<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="'+id+'" data-tip="핀 #'+id+' 로 갑니다">#'+id+'</span>';});
   return h.replace(/\u0001(\d+)\u0002/g,(_,k)=>{const x=hit[+k],mine=!!me&&x.lg===me;
     return '<span class="mention'+(mine?' me':'')+'" data-tip="'+esc(mine?'나를 부름 — 이 핀 알림이 나에게 옵니다':'@태그 — '+peopleName(x.lg)+'에게 알림이 갑니다')+'">'+x.m+'</span>';});}
 function pinRefExists(id){return typeof findAnyPin==='function'&&(!!findAnyPin(id)||(typeof DROPPED!=='undefined'&&Array.isArray(DROPPED)&&DROPPED.some(p=>p.id===id)));}
-// [나를 부른 핀] 필터(docs/design.md §@태그): 배지·pins.md 의 '→ @이름'과 같은 재료(p.addressed, 서버가
-// thread_round 로 지금 차례만 센다)를 쓴다 — 예전엔 스레드 전체를 훑어(threadOf(p).some(...)) 옛 차례의 @태그가
-// 다시 열려도 계속 '나를 부른 핀'으로 남는 결함이 있었다(실측). addressed_to() 는 질문 핀에서만 값이 있다.
+// The [나를 부른 핀] filter (docs/design.md §@태그): uses the same material as the badge/pins.md's '→ @name'
+// (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
+// entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
+// even after reopening (observed). addressed_to() only has a value on question pins.
 function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login==='local')return false;
   return (p.addressed||[]).includes(me.login);}
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
   const me=META&&META.me&&META.me.login,mine=to.includes(me),others=to.filter(x=>x!==me);
   return (mine?'<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">'+ic('at-sign')+'나를 부름</span>':'')+
     (others.length?'<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">'+ic('at-sign')+esc(others.map(peopleName).join(', '))+'</span>':'');}
-// 수정 요청 핀의 참고용 @태그(건너뛰지 않는다) — p.addressed(질문 핀 전용)와 갈라 p.fyi 에 따로 담아 보낸다.
+// A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
 function fyiTag(p){const to=(p.fyi||[]); if(!to.length)return '';
   return '<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">'+ic('at-sign')+'참고 '+esc(to.map(peopleName).join(', '))+'</span>';}
-// 참조(ref)가 뜻이 있는 값인가 — '-'는 QA 스크립트·옛 호출이 "참조 없음" 자리채움으로 넣는 값이라 그대로 보이면
-// '닫음 · -' 처럼 의미 없는 글자가 뜬다(결함 실측). 빈 문자열·공백뿐인 값도 같이 가린다.
+// Is the reference (ref) a meaningful value? '-' is a placeholder QA scripts/legacy callers use for "no reference" - shown as-is
+// it would produce meaningless text like '닫음 · -' (observed defect). An empty or whitespace-only value is filtered out the same way.
 function hasRef(v){return !!v&&String(v).trim()!==''&&String(v).trim()!=='-';}
 const EV_LABEL={close:'닫음',reopen:'다시 엶',confirm:'확인',assign:'담당 바꿈'};
-// 긴 글은 6줄에서 접고 [더 보기](MSG_OPEN 에 'id:번째'). 글쓴이가 나면 '(나)'.
+// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'.
 const MSG_OPEN=new Set();
 function msgBody(m,key){const long=String(m.text||'').length>280||String(m.text||'').split('\n').length>6,open=!key||MSG_OPEN.has(key);
   return '<div class="msg-t'+(long&&!open?' clamp':'')+'">'+msgText(m)+'</div>'+
@@ -7296,7 +7449,7 @@ function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.h
   if(REPLY&&REPLY.id===p.id)h+='<div class="reply-slot"></div>';
   return h?'<div class="thread">'+h+'</div>':'';}
 function card(p){
-  const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc 은 복사 형식 그대로
+  const loc='L'+p.lo+'-L'+p.hi,name=p.name||String(p.file||'').split('/').pop(),tags=[];   // loc stays in the copy format
   if(p.stale)tags.push('<span class="badge badge-warning" data-tip="'+esc(T.stale)+'">'+ic('triangle-alert')+'위치 잃음</span>');
   else{const m=/^moved ([+-]\d+)$/.exec(p.sync||''); if(m)tags.push('<span class="badge" data-tip="'+
     esc('원고가 고쳐져 '+m[1].replace('+','')+'줄 밀렸고, 핀을 찍을 때 떠 둔 첫·끝 문장으로 새 위치를 다시 찾았습니다')+'">'+ic('move-vertical')+'줄 '+esc(m[1])+' 이동</span>');}
@@ -7304,7 +7457,7 @@ function card(p){
   if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc('저장한 뒤 메모나 범위를 고쳤습니다('+p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')+')')+'">'+ic('pencil')+'수정됨</span>');
-  const closedCard=pinState(p)!=='open';   // 검토 대기·완료 카드에는 겹침·위치 확실도 배지가 뜻이 없다(줄 맞춤을 하지 않는다, QA)
+  const closedCard=pinState(p)!=='open';   // overlap/location-confidence badges are meaningless on an awaiting-review/done card (line matching doesn't run, QA)
   const rb=closedCard?null:relBadge(p.rel,p);
   if(rb)tags.push('<span class="badge" data-tip="'+esc(rb.rel==='partial'?'핀 #'+rb.id+josa(rb.id,'과','와')+' 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #'+rb.id+josa(rb.id,'과','와')+' 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다')+'">'+esc(rb.label)+'</span>');
@@ -7313,17 +7466,18 @@ function card(p){
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
   const editing=!!(EDIT&&EDIT.id===p.id),open=OPEN_CARDS.has(p.id);
-  // 머리 한 줄: 왼쪽에 번호·줄 범위·쪽, 오른쪽에 작성자·접기. 배지(.tags)는 머리 아래 한 줄로 내린다.
-  // compact 아코디언: 접힌 카드는 번호·위치·쪽·메모 첫 줄(.sum)만 보이고, 누르면 배지·메모·버튼이 펼쳐진다(CSS).
-  // wide 에서는 .sum·접기 버튼이 숨어 늘 펼친 카드다. 동작은 같은 폭 격자이고 [완료]만 강조, [삭제]는 위험 색이다.
+  // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
+  // compact accordion: a collapsed card shows only number/location/page/the note's first line (.sum); clicking expands badges/note/buttons (CSS).
+  // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
   const first=String(p.note||'').split('\n')[0].trim();
-  // 접힌 카드(compact)의 메모 미리보기: 머리 아래 제 줄에 두 줄까지. 예전에는 머리 한 줄 안에서 번호·위치 뒤 남은 폭만 받아
-  // '[C…' 처럼 잘렸고, 검토 대기 카드는 앞에 붙은 '내 확인 차례 · ' 가 그 폭마저 먹었다(QA 2026-09-24). 검토 상태는 점 색이 말한다.
+  // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
+  // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
+  // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
   const sum='<div class="sum" data-act="card-toggle">'+(first?fmtText(first,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>';
   if(isRegion(p))tags.unshift('<span class="badge" data-tip="보기 전용 PDF의 핀 — 줄 번호 없이 쪽·영역과 영역 글자로 가리킵니다">보기 전용</span>');
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
-  const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // 담당이 적힌 핀은 머리의 담당 칩이 같은 말을 한다
-  const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // 수정 요청의 참고 @태그 — 한때 위 주석 뒤에 붙어 실행되지 않았다(QA 2026-09-24)
+  const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
+  const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
   const rv=pinState(p)==='review';
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(T.review+' · 닫은 쪽: '+(who(p.closed_by)||'?')+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
@@ -7365,12 +7519,13 @@ function card(p){
     '<button class="btn-sm btn-soft b-close" data-act="close" data-tip="'+esc(T.close)+'">완료</button>'+
     '</div>')+'</div>';
 }
-// 보관함 행(docs/design.md §보관함): 닫힌·삭제한 핀은 카드가 아니라 테두리·바탕 없는 납작한 행이고 글자가 흐리다.
-// 첫 줄은 아이콘·#번호·위치·참조·시각·[다시 열기|되살리기], 둘째 줄은 에이전트 답(close_reply) 한 줄 — 넘치면 말줄임, 누르면
-// 펼친다. 원래 요청 메모는 [원래 요청]을 눌러야 보인다. 펼친 줄은 ARC_OPEN('r:'|'o:'|'d:' + id)에 두어 다시 그려도 남는다.
+// Archive row (docs/design.md §Archive): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
+// The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line is one line of the agent's
+// answer (close_reply) - truncated on overflow, expandable on click. The original request note is only shown by pressing
+// [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it survives a redraw.
 const ARC_OPEN=new Set();
-// 상대 시각(docs/design.md §시각): '방금'·'N분 전'·'N시간 전'·'N일 전', 일주일 넘으면 'M-D'. 절대 시각은 설명(hover)에.
-// data-at 에 원래 문자열을 두고 60초마다 다시 센다(tickRel).
+// Relative time (docs/design.md): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute time is in the description (hover).
+// The original string is kept in data-at and re-computed every 60 seconds (tickRel).
 function relTime(s,now){s=String(s||''); const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(s); if(!m)return s;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(),d=Math.max(0,((now==null?Date.now():now)-t)/60000);
   if(d<1)return '방금'; if(d<60)return Math.floor(d)+'분 전'; if(d<24*60)return Math.floor(d/60)+'시간 전'; if(d<7*24*60)return Math.floor(d/1440)+'일 전';
@@ -7390,10 +7545,11 @@ function doneCard(p){
   const ref=hasRef(p.close_ref)?'<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">'+esc(p.close_ref)+'</span>':'';
   const reply=p.close_reply?arcLine('r:'+p.id,p.close_reply,'닫으며 남긴 설명 — 누르면 펼치고 접습니다',allMentions(p)):'<span class="arc-reply none">설명 없이 닫힘</span>';
   const oo=ARC_OPEN.has('o:'+p.id);
-  // 스레드가 닫기 기록 한 건보다 길면(답글·다시 열기가 있었으면) [스레드 N]으로 펼친다 — 한 건뿐이면 위 답 한 줄과 같다.
-  // [다시 열기]는 review 카드와 같은 이유-입력 UI(openReply(id,'reopen'))를 쓴다(§스레드와 검토) — 이유 없이
-  // 곧장 다시 여는 옛 동작은 pins.md 에 '다시 열림'이 안 뜨고(서버는 reason 없어도 ev=reopen 은 남기지만)
-  // 에이전트가 무엇을 다시 봐야 하는지 스레드에 남지 않았다(결함 실측). 입력 칸을 보이려면 스레드를 펴 둔다.
+  // If the thread is longer than a single close record (there was a reply/reopen), it expands via [스레드 N] - with only
+  // one record, it's the same as the single answer line above. [다시 열기] uses the same reason-input UI
+  // (openReply(id,'reopen')) as the review card (§Threads and review) - the old behavior of reopening immediately with no
+  // reason never showed 'reopened' in pins.md (the server still records ev=reopen without a reason, but nothing told
+  // the agent what to re-check in the thread, an observed defect). The thread is kept expanded so the input field is visible.
   const reopening=REPLY&&REPLY.id===p.id&&REPLY.mode==='reopen';
   const th=threadOf(p),tn=th.length>1||(th.length>0&&!th[0].ev),to=(tn&&ARC_OPEN.has('t:'+p.id))||reopening;
   return '<div class="arc-row done" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'" data-tip="'+esc(authorTip(p))+'">'+
@@ -7412,7 +7568,7 @@ function droppedCard(p){
     relSpan(p.dropped_at,'arc-t','삭제한 사람 '+(who(p.dropped_by)||'기록 전')+' · 삭제한 시각')+'<span class="sp"></span>'+
     '<button class="btn-sm arc-b b-restore" data-act="restore" data-tip="'+esc(T.restore)+'">되살리기</button></div>'+
     '<div class="arc-l2">'+line+'</div></div>';}
-// 사람 목록이 바뀌면(새 사람·이름) 목록을 다시 그린다 — 첫 그리기는 이름 대신 로그인으로 보일 수 있다.
+// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
   if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}
 async function loadPins(){let d;
@@ -7420,7 +7576,7 @@ async function loadPins(){let d;
   loadPeople();
   let dropped=[];
   try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
-  // 여러 문서: 목록은 모든 문서의 것(diffToast 도 전부 본다). PINS·DONE 은 지금 문서의 것, SHOW_ALL 이면 목록만 전부 그린다.
+  // Multiple documents: the fetched list is for every document (diffToast also sees all of it too). PINS/DONE are only the current document's; if SHOW_ALL, only the rendered list shows everything.
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
   const nextOpen=d.filter(p=>!p.done); REVIEW_ALL=d.filter(p=>pinState(p)==='review'); DONE_ALL=d.filter(p=>pinState(p)==='done'); DROPPED=dropped;
   diffToast(prevOpen,d,dropped); reviewToast(prevReview,d);
@@ -7428,49 +7584,49 @@ async function loadPins(){let d;
   if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast('편집 중이던 핀 #'+EDIT.id+' 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)','warn'); EDIT=null;}
   if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   drawPins(); marks(); drawDocTabs();
-  if(CUR){recomputeOverlap(); renderOverlapBanner();}   // 목록이 바뀌면(다른 사람의 저장·완료) 겹침도 다시 센다
+  if(CUR){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   if(META)document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)+' · 열린 '+PINS.length;
   if(META&&REVIEW_ALL.length)document.title+=' · 검토 '+REVIEW_ALL.length;
 }
-// 사이드바에 그릴 목록: 기본은 지금 문서, '모든 문서'면 전부. 편집 중인 핀은 다른 문서여도 남긴다(쓰던 글이 사라지지 않게).
+// The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
-// 검토 대기 수: 문서를 가로질러 센다(사람이 확인할 일감 상자). [핀 N] 옆 보라 숫자(compact)·도구 줄 칩(wide).
+// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
 function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
   pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label','검토 대기 '+n);
   const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent='검토 대기 '+n+(multiDoc()&&here!==n?' (이 문서 '+here+')':'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc()){SHOW_ALL=true; drawPins();}
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
-// 검토 대기 카드의 검토자 표시: 작성자에게 권한다(누구나 확인할 수 있다 — 신뢰 모델). 내가 작성자면 '내 확인 차례'.
+// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
 function isMe(a){const me=META&&META.me; return !!(a&&me&&me.login&&me.login!=='local'&&a.login===me.login);}
 function reviewerLabel(p){if(!p.author||!(p.author.name||p.author.login))return '확인 필요'; return isMe(p.author)?'내 확인 차례':who(p.author)+'님 확인 필요';}
 function listDropped(){return SHOW_ALL&&multiDoc()?DROPPED:DROPPED.filter(p=>pdoc(p)===DOC||!DOC);}
 function drawPins(){
   const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();
-  // '나를 부른 핀' 거르기: 모든 문서의 열린·검토 대기 핀 중 나를 @태그한 것만(문서를 가로지른 알림함이다).
+  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
   if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
   mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); mf.innerHTML=ic('at-sign')+MINE.length; mf.setAttribute('aria-label','나를 부른 핀 '+MINE.length);
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
-  // 답글 입력 칸에 커서가 있었으면 다시 그린 뒤 그 자리로 돌려놓는다(자동 동기화가 목록을 다시 그려도 타이핑이 끊기지 않게).
+  // If the cursor was in the reply input field, it's restored to that position after redrawing (so auto-sync redrawing the list never interrupts typing).
   const rta=REPLY&&REPLY.el.querySelector('textarea'),rfocus=rta&&document.activeElement===rta?[rta.selectionStart,rta.selectionEnd]:null;
   $('#list-h').textContent=(MENTION_ONLY?'나를 부른 열린 핀 ':SHOW_ALL&&multiDoc()?'모든 문서의 열린 핀 ':'열린 핀 ')+SHOWN.length;
   const ab=$('#all-docs'); ab.setAttribute('aria-pressed',String(SHOW_ALL)); ab.innerHTML=(SHOW_ALL?ic('check'):'')+'모든 문서';
   $('#side-n').textContent=PINS.length; applySide();
-  // compact 에서는 닫힌 핀·삭제한 핀 토글을 [⋯] 로 옮긴다 — 펼쳐 둔 동안만 목록 아래 토글이 보인다(.sec).
+  // In compact, the done/dropped toggles move into [⋯] - the below-list toggle (.sec) is only shown while expanded.
   $('#m-done').textContent='닫힌 핀 '+LDONE.length+(SHOW_DONE?' 숨기기':' 보기');
   $('#m-dropped').textContent='삭제한 핀 '+LDROP.length+(SHOW_DROPPED?' 숨기기':' 보기');
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
-  // 빈 목록: 머리의 '열린 핀 0' 이 이미 말한다 — '아직 없습니다.' 한 줄을 또 두지 않는다(QA). 다른 문서에 핀이 있다는 안내만 남긴다.
+  // Empty list: the header's '열린 핀 0' already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">이 문서에는 없습니다 · 다른 문서에 '+OPEN_ALL.length+'건</div>':'');
   if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
-  // 검토 대기 구획: 열린 핀과 완료 사이. 비면 숨긴다. 카드 모양은 열린 핀과 같고(스레드·답글) 동작만 [확인]·[다시 열기]다.
+  // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[다시 열기].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length; $('#review-h').textContent='검토 대기 '+LREV.length;
   $('#review-pins').innerHTML=LREV.map(card).join('');
   updateReviewCount();
-  // 보관함 구획: 비어 있고 접혀 있으면 머리째 숨긴다. 머리는 폭 전체를 쓰는 한 줄('완료 18 ─── 펼치기')이고 스크롤해도 위에 붙는다.
+  // Archive section: hidden header and all if empty and collapsed. The header is a full-width single line ('완료 18 ─── 펼치기') and stays stuck to the top while scrolling.
   $('#sec-done').hidden=!LDONE.length&&!SHOW_DONE; $('#sec-dropped').hidden=!LDROP.length&&!SHOW_DROPPED;
   $('#done-toggle').innerHTML=arcHead('완료',LDONE.length,SHOW_DONE);
   $('#done-toggle').setAttribute('aria-expanded',String(SHOW_DONE));
@@ -7483,13 +7639,14 @@ function drawPins(){
   if(REPLY){const slot=document.querySelector('#list .reply-slot'); if(slot)slot.replaceWith(REPLY.el);
     if(rfocus&&document.contains(rta)){rta.focus(); try{rta.setSelectionRange(rfocus[0],rfocus[1]);}catch(e){}}}
 }
-// 위치 추정(.est, 점선)은 서버가 판정해 /api/pins 의 est 로 싣는다(pin_est — 핀을 찍은 빌드와 지금 빌드의
-// 원고 지문 비교). 뷰어가 벽시계로 판정하던 때는 브라우저 시간대, 메모만 고친 edited_at, 낡은 PDF 위에서 찍은
-// 핀에서 전부 틀렸다(독립 검증 실측). 뷰어는 받은 값을 그대로 그린다.
+// Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
+// manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
+// wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
+// PDF (confirmed by independent verification). The viewer just renders the value it's given.
 function isEstimated(p){return p.est===true;}
 function marks(){
   $$('.mark').forEach(m=>m.remove());
-  // 검토 대기 핀도 보라 마크로 그린다 — 검토자가 무엇이 고쳐졌는지 그 자리에서 본다(열린 핀의 겹침·편집과는 무관하다).
+  // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
   PINS.concat(REVIEW_ALL.filter(p=>pdoc(p)===DOC)).forEach(p=>{const el=document.getElementById('p'+p.page); if(!el||!Array.isArray(p.frac))return;
     const est=isEstimated(p);
     const m=document.createElement('div'); m.className='mark'+(p.stale?' st':'')+(est?' est':'')+(p.done?' rv':''); m.dataset.pin=p.id;
@@ -7498,14 +7655,14 @@ function marks(){
     const tip='#'+p.id+' · '+(n?(n.length>60?n.slice(0,60)+'…':n):'(메모 없음)')+(est?' (PDF가 새로 만들어져 위치는 추정입니다)':'');
     m.innerHTML='<b data-act="mark-jump" data-id="'+p.id+'" data-tip="'+esc(tip)+'">'+p.id+'</b>'; el.appendChild(m);});
 }
-// 배지 클릭은 카드로 스크롤·깜빡인다(pick 을 부르지 않는다). 마크 상자 자체는 pointer-events:none 이라
-// 그 위 드래그는 그대로 새 선택이 된다 — 배지(<b>)만 mousedown 을 막아야 한다.
+// Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
+// a drag over it still becomes a new selection - only the badge (<b>) needs to block mousedown.
 $('#doc').addEventListener('mousedown',e=>{
   if(e.target.closest('.mark b')){e.stopPropagation();e.preventDefault();}
 },true);
-// 배지 클릭 → 카드로 스크롤 + .cur 강조(스펙) + 1.2초 깜빡임. 강조는 그대로 남지 않고 풀린다 —
-// 정적 box-shadow 였을 때는 다음 클릭 전까지 카드에 계속 남아 있었다.
-// compact: 배지를 누르면 패널·시트를 펴고 그 카드를 펼친 뒤 jumpToCard 로 스크롤한다.
+// Clicking a badge -> scroll to the card + .cur highlight (spec) + a 1.2-second flash. The highlight is never left on -
+// it releases; when it was a static box-shadow, it stayed on the card until the next click.
+// compact: clicking a badge expands the panel/sheet and that card, then scrolls via jumpToCard.
 function revealCard(id){if(LAYOUT==='wide')return; setSide(true);
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){
@@ -7516,7 +7673,7 @@ function jumpToCard(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('cur','flash');
   el._curT=setTimeout(()=>el.classList.remove('cur','flash'),1200);
 }
-// 글 속 '#12' 링크: 그 핀의 카드·보관함 행을 펴고 스크롤해 반짝인다. 다른 문서의 핀이면 '모든 문서'를 켠다.
+// A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another document, '모든 문서' is turned on.
 function gotoPinRef(id){const p=findAnyPin(id)||DROPPED.find(x=>x.id===id); if(!p)return;
   const st=DROPPED.includes(p)?'dropped':pinState(p);
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
@@ -7528,7 +7685,7 @@ function gotoPinRef(id){const p=findAnyPin(id)||DROPPED.find(x=>x.id===id); if(!
 function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===id)||REVIEW_ALL.find(x=>x.id===id&&pdoc(x)===DOC);
   if(!p){const q=REVIEW_ALL.find(x=>x.id===id); if(q&&docInfo(pdoc(q)))switchDoc(pdoc(q)).then(()=>{if(DOC===pdoc(q))jumpPin(id);}); return;}
   if(document.body.classList.contains('revision-open'))setViewMode('manuscript');
-  if(LAYOUT==='narrow')setSide(false);   // 시트가 쪽을 가리지 않게 접고 나서 잰다
+  if(LAYOUT==='narrow')setSide(false);   // collapsed first so the sheet doesn't cover the page, then measured
   const m=document.querySelector('.mark[data-pin="'+id+'"]');
   if(m){
     const L=$('#left'),lr=L.getBoundingClientRect(),mr=m.getBoundingClientRect();
@@ -7538,7 +7695,7 @@ function jumpPin(id){if(viaDoc(id,jumpPin))return; const p=PINS.find(x=>x.id===i
     const el=document.getElementById('p'+p.page); if(el)el.scrollIntoView({behavior:SMOOTH});
   }
 }
-// 카드에 hover 하면 그 마크와, 겹친 상대 마크까지 함께 강조한다.
+// Hovering a card highlights its mark, along with any overlapping counterpart marks.
 function markIdsFor(p){return [p.id].concat((p.rel||[]).map(x=>x.id));}
 $('#pins').addEventListener('mouseover',e=>{const c=e.target.closest('.pin'); if(!c)return;
   const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;
@@ -7550,7 +7707,7 @@ async function closePin(id){try{const {data}=await api('/api/pins/'+id+'/close',
   if(!data.ok){toast('완료 실패 — 핀 #'+id+' 이 없습니다','err');}
   else {markMine(id); toast(data.state==='review'?'핀 #'+id+' 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다':'핀 #'+id+' 완료',
     'ok',{label:'되돌리기',fn:()=>reopenPin(id,true)});}}catch(e){} await loadPins();}
-// 검토 대기 → 완료. 확인한 사람(confirmed_by)이 남는다.
+// Awaiting review -> done. The person who confirmed (confirmed_by) is recorded.
 async function confirmPin(id){try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',expect:[409]});
   if(data&&data.error==='open')toast('핀 #'+id+' 은 이미 다시 열렸습니다','warn');
   else if(!data.ok)toast('확인 실패 — 핀 #'+id+' 이 없습니다','err');
@@ -7565,9 +7722,10 @@ async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
   markMine(id); toast('핀 #'+id+' 처리 중 표시를 풀었습니다','ok');}catch(e){} await loadPins();}
 
-// ------------------------------------------------ @태그 자동 완성(docs/design.md §@태그)
-// 메모·편집·답글 칸에서 '@' 를 치면 아는 사람(PEOPLE, 나는 뺀다)을 보인다. 고르면 '@이름 ' 을 넣고 그 로그인을 칸에 기억해(ta._mentions)
-// 보낼 때 힌트(mentions)로 싣는다 — 서버가 글에서 다시 풀어 확인한다(이름이 글에서 지워졌으면 빠진다). 바깥 알림은 없다.
+// ------------------------------------------------ @-tag autocomplete (docs/design.md §@태그)
+// Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
+// remembers that login on the field (ta._mentions), carried as a hint (mentions) when sending - the server re-resolves
+// it from the text (dropped if the name was deleted from the text). There is no external notification.
 const MENTION={ta:null,start:0,items:[],sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
   const m=/(^|[^0-9A-Za-z가-힣._@-])@([^\s@]{0,30})$/.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
@@ -7578,13 +7736,14 @@ function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
   return rows.filter(r=>r.rank<9).sort((a,b)=>a.rank-b.rank||String(a.p.name).localeCompare(String(b.p.name))).slice(0,6).map(r=>r.p);}
 function mentionHints(ta){if(!ta||!ta._mentions)return []; const v=ta.value;
   return Array.from(ta._mentions).filter(l=>v.includes('@'+peopleName(l)));}
-// 쓰는 중인 '@말'(커서가 그 끝에 있다)은 아직 '등록된 사람이 아님' 으로 알리지 않는다 — 고르는 중에 경고가 먼저 떴다(QA 2026-09-25).
-// 커서가 떠나거나 칸을 벗어나면 알린다. 같은 말이 앞에 또 있으면(이미 끝난 '@말') 그대로 알린다.
+// An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
+// used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
 function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=String(text||'').slice(0,q.start);
   return bad.filter(x=>x!==w||before.includes('@'+w));}
 function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
-// 입력 칸 아래 한 줄: 저장하면 알림이 갈 사람(풀린 @이름)과 풀리지 않을 '@말'(등록된 사람이 아님). textarea 안은 색을 칠할 수 없어
-// 여기서 미리 보인다 — 저장 전에 부른 것이 실제로 알림이 되는지 안다. 규칙은 서버 resolve_mentions() 와 같다(fmtText 주석).
+// The line below the input field: who will be notified on save (resolved @names) and any '@word' that won't resolve
+// ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
+// known before saving whether a tag will actually become a notification. The rule matches the server's resolve_mentions() (see the fmtText comment).
 function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(PEOPLE.map(p=>p.login)).map(x=>({t:x.t.toLowerCase(),lg:x.lg}));
   const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
   for(let i=0;i<text.length;i++){if(text[i]!=='@'||(i>0&&/[0-9A-Za-z가-힣._-]/.test(text[i-1])))continue;
@@ -7595,8 +7754,9 @@ function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(P
     if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
   return {hit,bad,first};}
-// 담당(docs/design.md §담당): 누가 이 핀을 처리하나. 기본값 — 메모가 풀린 @태그로 시작하면 그 사람, 아니면 질문 핀의 첫
-// @태그, 아니면 에이전트. 나는 고를 수 없다(서버가 나를 부른 태그를 빼듯이). @태그가 없으면 고를 것도 없다(에이전트).
+// Assignee (docs/design.md §Assignee): who handles this pin. Default - if the note starts with a resolved @-tag, that
+// person; otherwise a question pin's first @-tag; otherwise the agent. I can never be picked (just as the server
+// excludes a tag mentioning me). With no @-tags, there's nothing to pick (the agent).
 function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
   if(r.first&&r.first!==me)return r.first; if(kind==='question'&&hit.length)return hit[0]; return 'agent';}
 function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
@@ -7606,7 +7766,7 @@ function assignSeg(people,value,act){if(!people.length)return '';
     ' data-tip="'+esc(tip)+'">'+label+'</button>';
   return '<span class="as-lab">담당</span><div class="seg as-seg">'+opt('agent','에이전트','에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다')+
     people.map(l=>opt(l,'@'+esc(peopleName(l)),peopleName(l)+'에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다')).join('')+'</div>';}
-// 작성 패널의 담당: 사용자가 고르기 전(touched=false)에는 메모가 바뀔 때마다 기본값을 다시 고른다. 고른 사람이 메모에서 빠지면 기본값으로.
+// The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
 const ASSIGN_NEW={v:'agent',touched:false};
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,ta._mentions);
@@ -7634,11 +7794,12 @@ function mentionUpdate(ta){const q=mentionQuery(ta); if(!q){if(MENTION.ta===ta)m
   pop.hidden=false; const r=ta.getBoundingClientRect(),h=pop.offsetHeight,w=pop.offsetWidth,vv=window.visualViewport;
   const g=mentionGuard(ta); pop.style.top=mentionTop(r,g?g.getBoundingClientRect():null,h,vv?vv.offsetTop:0,vv?vv.offsetTop+vv.height:innerHeight)+'px';
   pop.style.left=Math.max(4,Math.min(r.left,innerWidth-w-4))+'px';}
-// @목록이 가리면 안 되는 그 입력 칸의 동작 줄: 답글·다시 열기 [취소][보내기], 편집 [저장], 작성 패널 [취소][핀 저장].
+// The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], composer panel [취소][핀 저장].
 function mentionGuard(ta){const box=ta.closest('.reply-box,.edit'); return box?box.querySelector('.r-acts,.e-acts'):ta.id==='note'?$('#c-actions'):null;}
-// @목록의 top(docs/design.md §@태그). 동작 줄(guard)을 가리지 않는 자리를 이 순서로 고른다 —
-// ① 입력 칸 바로 아래(동작 줄 위까지 들어가면) ② 입력 칸 위 ③ 동작 줄 아래 ④ 들어가는 곳이 없으면 입력 칸 아래(예전 자리).
-// 답글 칸은 [취소][보내기]가 입력 칸 바로 밑이라 ①이 안 되고 ②가 된다(예전에는 목록이 두 버튼을 덮었다, QA 2026-09-25).
+// The @-list's top (docs/design.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
+// (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
+// (4) if nothing fits, below the input field (the old spot). A reply field has [취소][보내기] right below it, so (1)
+// never fits and (2) is used instead (the list used to cover both buttons, QA 2026-09-25).
 function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(bot,g.top):bot;
   if(r.bottom+gap+h<=lim)return r.bottom+gap;
   if(r.top-gap-h>=top+gap)return r.top-gap-h;
@@ -7658,17 +7819,18 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
     MENTION.sel=(MENTION.sel+(e.key==='ArrowDown'?1:n-1))%n; mentionUpdate(MENTION.ta);}
   else if((e.key==='Enter'&&!e.metaKey&&!e.ctrlKey)||e.key==='Tab'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation(); mentionApply(MENTION.sel);}
   else if(e.key==='Escape'){e.preventDefault(); e.stopImmediatePropagation(); mentionClose();}},true);
-// 커서가 쓰는 중인 '@말'을 떠나면(방향키·누르기·칸 벗어남) 미리 보기를 다시 그려 그때 경고한다.
+// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at that point.
 ['keyup','click','focusout'].forEach(t=>document.addEventListener(t,e=>{if(isMentionField(e.target))setTimeout(()=>mentionPreview(e.target),0);}));
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 
-// ------------------------------------------------ 답글·다시 열기 입력 칸(docs/design.md §스레드와 검토)
-// 입력 칸은 하나만 연다. DOM 을 REPLY.el 에 들고 있다가 drawPins() 가 카드를 다시 그리면 .reply-slot 에 다시 끼운다 —
-// 5초 자동 동기화가 목록을 다시 그려도 쓰던 글·커서가 사라지지 않게(포커스도 되돌린다). mode 는 'reply' | 'reopen'(다시 여는 이유).
+// ------------------------------------------------ Reply/reopen input field (docs/design.md §Threads and review)
+// Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
+// into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
+// restored too). mode is 'reply' | 'reopen' (the reopen reason).
 function replyEl(mode,review){const ro=mode==='reopen',el=document.createElement('div'); el.className='reply-box'+(ro?' reopen':'');
-  // 검토 대기 카드의 답글은 에이전트가 다시 집지 않는다(§검토 대기 — 다시 처리하지 않는다) — 자리표시글로
-  // 그 사실과 대안([다시 열기])을 알린다(결함 실측: 검토 대기 카드에 답글을 남겨도 에이전트가 못 보고 지나갔다).
+  // A reply on an awaiting-review card is never picked back up by an agent (§Pending review - never reprocessed) - the
+  // placeholder text states that fact and the alternative ([다시 열기]) (observed defect: an agent never saw a reply left on an awaiting-review card and moved past it).
   el.innerHTML='<textarea class="r-text" rows="2" maxlength="1000" aria-label="'+(ro?'다시 여는 이유':'답글')+'" placeholder="'+
     (ro?'다시 여는 이유 한 줄 — 에이전트가 이 글을 읽고 다시 고칩니다':review?'에이전트에게 다시 맡기려면 [다시 열기]':'답글 (⌘/Ctrl+Enter 보내기)')+'"></textarea><div class="m-preview" aria-live="polite" hidden></div>'+
     '<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>'+
@@ -7695,7 +7857,7 @@ async function sendReply(){const R=REPLY; if(!R||R.busy)return; const ta=R.el.qu
   }catch(e){} finally{R.busy=false; $$('.reply-box button').forEach(b=>b.disabled=false);}
   await loadPins();}
 
-// ------------------------------------------------ 편집
+// ------------------------------------------------ Edit
 function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id===id); if(!p)return;
   if(document.body.classList.contains('revision-open'))jumpPin(id);
   if(EDIT&&EDIT.id===id)return;
@@ -7724,13 +7886,13 @@ function openEdit(id){if(viaDoc(id,openEdit))return; const p=PINS.find(x=>x.id==
   if(EDIT.region)el.classList.add('region');
   drawPins(); renderEdit(); ta.focus(); editSnip(true);
 }
-// 편집 칸에 저장 안 한 변경이 있는가(문서를 바꿀 때 편집을 닫아도 되는지).
+// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
 function editDirty(){const E=EDIT; if(!E)return false; const ta=E.el.querySelector('.e-note');
   return (ta&&ta.value!==E.orig.note)||E.lo!==E.orig.lo||E.hi!==E.orig.hi||E.kind_req!==E.orig.kind_req||E.assignee!==E.orig.assignee;}
 function autoGrow(ta){ta.style.height='auto'; const lh=20; ta.style.height=Math.min(12*lh,Math.max(3*lh,ta.scrollHeight+2))+'px';}
 document.addEventListener('input',e=>{if(e.target.classList&&(e.target.classList.contains('e-note')||e.target.classList.contains('r-text')||e.target.id==='note'))autoGrow(e.target);});
 async function editSnip(withLevels){const E=EDIT; if(!E)return;
-  if(E.region){E.snippet=E.quote?'영역 글자: '+E.quote:'(영역 글자 없음)'; renderEdit(); return;}   // 보기 전용: 원문 줄이 없다
+  if(E.region){E.snippet=E.quote?'영역 글자: '+E.quote:'(영역 글자 없음)'; renderEdit(); return;}   // view-only: there is no source line
   try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
       {what:'원문 읽기',expect:[400]});
     if(EDIT!==E)return;
@@ -7767,7 +7929,7 @@ async function saveEdit(){const E=EDIT; if(!E||ESAVING)return;
   }catch(e){} finally{ESAVING=false;}
 }
 
-// ------------------------------------------------ 위치 다시 잡기
+// ------------------------------------------------ Re-place location
 function banner(html){const b=$('#banner'); b.innerHTML=html; b.hidden=false;}
 function bannerRepick(err){banner('<span>핀 #'+REPICK.id+' 의 새 위치를 PDF에서 드래그하세요 · Esc 취소</span>'+
   (err?'<span class="errline" style="margin:0">'+esc(err)+'</span>':'')+'<span class="sp"></span>'+
@@ -7777,9 +7939,9 @@ function bannerCompare(){const c=REPICK.cand,lv=lvOf(c,c.default_level)||c,rg=is
     '<span class="dim">('+esc(rg?(c.quote?String(c.quote).slice(0,40):'글자 없는 영역'):(lv.label||scopeLabel(c)))+')</span><span class="sp"></span>'+
     '<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button>'+
     '<button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>');}
-// 터치에서는 위치 다시 잡기 동안 선택 모드를 켜고, narrow 는 시트를 접어 쪽을 드러낸다(배너는 접힌 시트에도 남는다).
+// On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
 async function startRepick(){if(!EDIT)return;
-  if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT; await switchDoc(E.doc); if(DOC!==E.doc||EDIT!==E)return;}   // 그 핀의 문서 위에서 고른다
+  if(EDIT.doc&&EDIT.doc!==DOC){const E=EDIT; await switchDoc(E.doc); if(DOC!==E.doc||EDIT!==E)return;}   // selection happens on that pin's document
   REPICK={id:EDIT.id,from:{lo:EDIT.lo,hi:EDIT.hi,page:EDIT.page},box:null,cand:null}; bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT==='narrow')setSide(false);}
 function cancelRepick(){const was=!!REPICK; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true;
@@ -7788,7 +7950,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
   let loc={file:c.file,page:c.page,lo:lv.lo,hi:lv.hi,raw_lo:c.raw_lo,raw_hi:c.raw_hi,via:c.via,score:c.score,frac:c.frac,pdf_build:c.pdf_build||undefined,
     scope:lv.level||null,kind:lv.level?kindFor(lv.level,lv.env):c.kind};
   if(!loc.scope)delete loc.scope;
-  if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // 보기 전용: 영역만 다시 잡는다
+  if(isRegion(c))loc={page:c.page,frac:c.frac,quote:c.quote,pdf_build:c.pdf_build||undefined};   // view-only: only the region is re-placed
   const base=EDIT&&EDIT.id===R.id?EDIT.base_rev:0;
   try{const {status,data}=await api('/api/pins/'+R.id+'/edit',{method:'POST',body:{loc,base_rev:base},what:'위치 바꾸기',expect:[409]});
     if(status===409){toast(data&&data.error==='done'?'닫힌 핀은 위치를 바꿀 수 없습니다':'다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다','warn');
@@ -7799,7 +7961,7 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
     toast('핀 #'+p.id+' 위치를 '+(isRegion(p)?'쪽 '+p.page+' 영역':'L'+p.lo+'-L'+p.hi)+' 로 바꿨습니다','ok'); await loadPins();
   }catch(e){}}
 
-// ------------------------------------------------ PDF 재빌드
+// ------------------------------------------------ PDF rebuild
 function topAnchor(){const L=$('#left'),top=L.getBoundingClientRect().top;
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+1)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height)};}
   return null;}
@@ -7807,14 +7969,14 @@ function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.p
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
 async function refreshDoc(){const a=topAnchor(),k=DOC;
   const m=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data; META_BY.set(k,m);
-  if(k!==DOC)return;                    // 기다리는 사이 다른 문서로 바꿨다 — 캐시만 새로 둔다
+  if(k!==DOC)return;                    // switched to another document while waiting - only the cache is refreshed
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
-  // 캔버스는 옛 PDF 로 그린 것이다 — 걷어 내 새 PNG 를 먼저 보이고, 새 빌드의 PDF 를 열면 다시 그린다.
+  // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
   else buildDoc();
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
-// ok_errors|fail 이면 토스트만이 아니라 패널 자체를 바로 연다 — 토스트는 6초 뒤 사라지고 나면
-// 다시 볼 길이 없었다. 닫아도 #build-err-chip 이 남아 다시 열 수 있다(LAST_BUILD_ERR 이 있는 동안).
+// On ok_errors|fail, the panel itself is opened right away, not just a toast - once the toast disappeared after 6
+// seconds there used to be no way to see it again. Even after closing it, #build-err-chip remains to reopen it (as long as LAST_BUILD_ERR exists).
 function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
   const title=r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다';
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
@@ -7823,24 +7985,24 @@ function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const
     '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>';
   b.hidden=false; $('#build-err-chip').hidden=true;}
 function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden=!LAST_BUILD_ERR;}
-// P0b-01: 재빌드는 비동기다 — POST 는 바로 돌아오고, #build-chip 폴러(startBuildPolling)가 진행 상황을
-// 보여 준 뒤 끝나면 제자리 교체와 알림을 한다. 다른 사람이 시작한 빌드도 같은 폴러가 잡아낸다.
+// P0b-01: rebuild is async - the POST returns immediately, and the #build-chip poller (startBuildPolling) shows
+// progress, then does the in-place swap and notification once it finishes. A build started by someone else is caught by the same poller.
 async function rebuild(){
   try{const {status}=await api(dq('/api/rebuild?async=1'),{method:'POST',what:'PDF 재빌드',expect:[409]});
     if(status===409){toast('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요','warn');return;}
     $('#build-err').hidden=true;
-    // POST 전에 떠난 조회가 있으면 끝나길 기다린 뒤 새로 묻는다 — 그 조회는 옛 상태(ok)를 들고 와 1초 폴링을
-    // 걸지 않는다. 완료는 build_seq 로 가리므로 이 탭이 따로 기억할 것은 없다.
+    // If a request already went out before this POST, its completion is awaited before asking again - that request
+    // carries a stale state (ok) and would never turn on 1-second polling. Completion is distinguished by build_seq, so this tab has nothing separate to remember.
     if(BUILD_INFLIGHT){try{await BUILD_INFLIGHT;}catch(e){}}
     await pollBuild();
   }catch(e){}}
 
-// ------------------------------------------------ 도움말
+// ------------------------------------------------ Help
 let HELP_BACK=null;
 function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=document.activeElement; hideTip(); d.showModal();}
 $('#help').addEventListener('close',()=>{if(HELP_BACK&&HELP_BACK.focus)HELP_BACK.focus(); HELP_BACK=null;});
 
-// ------------------------------------------------ 이벤트 위임(인라인 핸들러 없음)
+// ------------------------------------------------ Event delegation (no inline handlers)
 document.addEventListener('click',e=>{
   const cp=e.target.closest('[data-copy]'); if(cp){copyText(cp.dataset.copy);return;}
   const a=e.target.closest('[data-act]'); if(!a)return;
@@ -7857,7 +8019,7 @@ document.addEventListener('click',e=>{
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
-    case 'theme':cycleTheme();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
+    case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
     case 'save':savePin();break; case 'cancel':cancelSelection(true);break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
@@ -7870,9 +8032,10 @@ document.addEventListener('click',e=>{
     case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
-    // ^ inMenu 는 switchDoc() 호출 전에 정한다 — 캐시된 문서는 switchDoc 이 동기로 drawDocTabs 까지 끝내고,
-    //   그 안에서 열린 #docs-menu 를 다시 그려(drawDocsMenu) a 를 DOM 에서 떼어낸다. switchDoc 이후에
-    //   a.closest() 를 부르면 null 이 나와 메뉴가 안 닫힌 채 다음 탭 조작을 막았다(터치 회귀).
+    // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
+    //   through drawDocTabs, and inside that it redraws the open #docs-menu (drawDocsMenu), detaching a from the DOM.
+    //   Calling a.closest() after switchDoc would return null, leaving the menu open and blocking the next tab
+    //   interaction (a touch regression).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
     case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
@@ -7915,11 +8078,11 @@ $('#revision-file').addEventListener('change',renderRevisionFile);
 document.addEventListener('keydown',e=>{
   if(e.isComposing||e.keyCode===229)return;
   const t=e.target,inField=t&&(t.tagName==='TEXTAREA'||t.tagName==='INPUT'||t.tagName==='SELECT'||t.isContentEditable);
-  // Ctrl(⌘) + = / − / 0 은 브라우저 확대 대신 PDF 쪽만 확대·축소·폭 맞춤한다. 입력 칸에서는 브라우저에 맡긴다.
+  // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
   if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);
     if(z){e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1); return;}}
-  // 문서 전환(여러 문서): Ctrl+PgUp/PgDn 은 이전·다음, Alt+1…9 는 그 번째(e.code — 맥의 Option+숫자는 다른 글자를 낸다).
-  // 선택기는 기본 키보드 조작을 쓴다. 입력 칸에서는 전역 단축키를 쓰지 않는다.
+  // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
+  // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
   if(multiDoc()&&!inField){
     if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); cycleDoc(e.key==='PageDown'?1:-1); return;}
     if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
@@ -7930,7 +8093,7 @@ document.addEventListener('keydown',e=>{
     else if(t&&t.classList&&t.classList.contains('r-text')){e.preventDefault();sendReply();}
     return;}
   if(e.key==='Enter'&&t&&t.dataset&&t.dataset.copy!==undefined&&!inField){copyText(t.dataset.copy);return;}
-  // role=button 인 span(카드의 #번호)은 Enter·Space 로도 누른다 — 클릭과 같은 data-act 경로로 보낸다.
+  // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open)return;
@@ -7947,17 +8110,18 @@ boot();
 </script></body></html>"""
 HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
 HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
+HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort_keys=True).replace("</", "<\\/"))
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    request_queue_size = 128          # 동시 요청 수십 건이 SYN 재전송으로 1초씩 밀리지 않게
+    request_queue_size = 128          # so dozens of concurrent requests don't stall a second at a time on SYN retransmits
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    # 본문이 Content-Length 보다 짧게 오고 끊기지 않으면 읽기가 영원히 멈춘다. 유휴 keep-alive 도 이 시간에 닫힌다.
+    # If the body arrives shorter than Content-Length and the connection never closes, the read would hang forever. Idle keep-alive connections are also closed after this time.
     timeout = 30
 
     def log_message(self, *a):
@@ -7965,8 +8129,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body: bytes, ctype: str, cache: str = None):
         if code >= 400:
-            # 오류 뒤에는 연결을 끊는다. 요청을 끝까지 못 읽었을 수 있고, 남은 바이트가 다음 요청으로
-            # 읽히면 --allow 와 작성자 기록을 우회한다(요청 밀반입).
+            # The connection is closed after an error. The request may not have been read to completion, and
+            # if the leftover bytes get read as the next request, they'd bypass --allow and author attribution (request smuggling).
             self.close_connection = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -7984,10 +8148,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
     def _read_raw(self) -> bytes:
-        """어떤 응답보다 먼저 요청 본문을 끝까지 읽는다(GET·403·404 경로 포함).
+        """Reads the request body to completion before any response, on every path (including GET/403/404).
 
-        읽지 않고 응답하면 같은 연결의 남은 바이트가 '헤더 없는 로컬 요청'으로 해석된다 —
-        tailscale serve 는 백엔드 연결을 재사용하므로 테일넷 사용자가 그 틈에 닿을 수 있다."""
+        Responding without reading it first would let the same connection's leftover bytes be interpreted
+        as a "local request with no headers" - since tailscale serve reuses the backend connection, a tailnet user could slip through that gap."""
         self._raw = b""
         if self.headers.get("Transfer-Encoding") is not None:
             self.close_connection = True
@@ -7999,7 +8163,7 @@ class Handler(BaseHTTPRequestHandler):
         cl = cls[0].strip() if cls else ""
         if cl == "":
             return b""
-        if not re.fullmatch(r"[0-9]+", cl):          # isdigit() 는 '²' 같은 latin-1 숫자도 받는다
+        if not re.fullmatch(r"[0-9]+", cl):          # isdigit() would also accept latin-1 digits like '²'
             self.close_connection = True
             raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
         n = int(cl)
@@ -8007,25 +8171,25 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
         raw = self.rfile.read(n) if n else b""
-        if len(raw) != n:                                 # 잘린 요청 — 동작하지 않는다(/api/clear 포함)
+        if len(raw) != n:                                 # a truncated request - never acted on (including /api/clear)
             self.close_connection = True
             raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).")
         self._raw = raw
         return raw
 
     def _check_origin(self) -> None:
-        """교차 출처 요청(CSRF)과 DNS rebinding 을 막는다.
+        """Blocks cross-origin requests (CSRF) and DNS rebinding.
 
-        - Host: 모든 요청이 루프백 이름(:이 포트)이나 *.ts.net 이어야 한다.
-          DNS rebinding 은 브라우저가 evil.example 로 127.0.0.1 에 닿는 것이라 Host 가 드러난다.
-        - Origin: 있으면 Host 가 루프백일 때 루프백(포트 무관 — SSH -L), Host 가 *.ts.net 일 때 그 호스트와
-          같은 출처여야 한다(origin_ok).
-          브라우저는 교차 출처 POST 에 Origin 을 반드시 싣는다. curl·에이전트는 Origin 이 없어 영향이 없다."""
-        if not C.origin_check:                        # --no-origin-check: 실측 경로가 예상과 다를 때의 탈출구
+        - Host: every request must have a loopback name (':' then a port) or *.ts.net.
+          DNS rebinding is a browser reaching 127.0.0.1 via evil.example, which shows up in Host.
+        - Origin: if present, must be loopback when Host is loopback (port irrelevant - SSH -L), or the same
+          origin as that host when Host is *.ts.net (origin_ok).
+          A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
+        if not C.origin_check:                        # --no-origin-check: an escape hatch for when the observed path differs from expectations
             return
         host = self.headers.get("Host")
-        # Tailscale-User-* 헤더 여부와 무관하게 검사한다. 그 헤더는 rebinding 페이지도 같은 출처 GET 에
-        # preflight 없이 실을 수 있어, 헤더로 면제하면 방어가 통째로 우회된다(실측).
+        # Checked independent of whether the Tailscale-User-* header is present. That header can also be
+        # carried on a same-origin GET from a rebinding page with no preflight, so exempting it via that header would bypass the defense entirely (observed).
         if host is not None and not host_ok(host):
             raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100])
         origin = self.headers.get("Origin")
@@ -8039,7 +8203,7 @@ class Handler(BaseHTTPRequestHandler):
         if C.allow and via_header and actor["login"] not in C.allow:
             raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % actor["login"])
         if C.allow and not via_header:
-            # 신원 헤더 없이 *.ts.net 으로 온 요청 = 태그 장치(또는 funnel). --allow 가 있으면 로컬로 치지 않는다.
+            # A request to *.ts.net with no identity header = a tag device (or funnel). With --allow set, it's not treated as local.
             hname, _ = split_host(self.headers.get("Host") or "")
             if hname.endswith(".ts.net"):
                 raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.")
@@ -8052,7 +8216,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(e.body, e.code)
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             self.close_connection = True
-        except Exception as e:                            # noqa: BLE001 — 연결을 끊지 않고 JSON 으로 알린다
+        except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)
             try:
                 self._json({"error": "서버 내부 오류: %s" % e}, 500)
@@ -8069,29 +8233,29 @@ class Handler(BaseHTTPRequestHandler):
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
-        # 문서가 걸리는 경로는 ?doc=<키>(없으면 첫 문서)를 받아 그 문서로 처리한다(§여러 문서).
+        # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
         with using_doc(request_doc(q)):
             return self._get_doc(actor, path, q)
 
     def _get_doc(self, actor, path, q):
         if path == "/":
-            record_person(actor)                  # 이 뷰어를 연 테일넷 사람(@태그 후보) — 로컬/에이전트는 적지 않는다
+            record_person(actor)                  # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             return self._send(200, HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":                 # @태그 자동 완성 후보(쓰기 없음)
+        if path == "/api/people":                 # @-tag autocomplete candidates (no write)
             ppl = sorted(known_people(snapshot_pins()).values(), key=lambda x: (x.get("last_seen") is None, x["name"].lower()))
             return self._json({"people": ppl, "me": actor})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
-        if path == "/api/version":                # 설치된 Limn 판 — 쓰기 없음
+        if path == "/api/version":                # the installed Limn version - no write
             return self._json({"name": APP_NAME, "version": app_version()})
         if path == "/api/meta":
             light = (q.get("light") or ["0"])[0] == "1"
             if not light:
                 record_person(actor)
             out = meta(actor, light=light)
-            out.update(events_since(actor, (q.get("ev") or [None])[0]))   # 브라우저 알림 — 쓰기 없음
+            out.update(events_since(actor, (q.get("ev") or [None])[0]))   # browser notifications - no write
             return self._json(out)
-        if path == "/sw.js":                      # 브라우저 알림용 서비스 워커(앱 데이터를 캐시하지 않는다)
+        if path == "/sw.js":                      # the service worker for browser notifications (app data is never cached)
             return self._send(200, SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
         if path == "/api/revisions":
             return self._json(revision_history(cur_doc()))
@@ -8106,14 +8270,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(diet_log(build_state_snapshot(), full))
-        if path == "/pins.md":                    # §P0c-B: 원격 에이전트 진입점 — GET /api/pins 와 같은 sync 경로
+        if path == "/pins.md":                    # §P0c-B: entry point for a remote agent - the same sync path as GET /api/pins
             base = remote_base_for(self.headers.get("Host") or "")
             text = pins_md_text(snapshot_pins(), base=base)
             return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             allp = (q.get("all") or ["0"])[0] == "1"
             rows = pins_payload(snapshot_pins(), allp)
-            if q.get("doc"):                          # ?doc=<키> 면 그 문서의 핀만(겹침·추정은 전체 기준 그대로)
+            if q.get("doc"):                          # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
                 rows = [r for r in rows if r["doc"] == cur_doc().key]
             return self._json(rows)
         if path == "/api/docs":
@@ -8121,7 +8285,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pins/dropped":
             return self._json({"dropped": dropped_payload()})
         m = re.fullmatch(r"/api/pins/(\d+)", path)
-        if m:                                     # 핀 한 건(스레드 포함) — 에이전트가 긴 스레드를 다 읽을 때
+        if m:                                     # one pin (including its thread) - for when an agent needs to read a long thread in full
             pid = int(m.group(1))
             rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
             if rec is None:
@@ -8142,7 +8306,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data is not None:
                     return self._send(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
-            # 뷰어의 벡터 렌더러(PDF.js). 이름 한 칸만 받는다 — 하위 경로·'..'·인코딩된 문자는 404.
+            # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
             f = vendor_file(path[len("/vendor/pdfjs/"):])
             if f is not None:
                 try:
@@ -8150,12 +8314,12 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     data = None
                 if data is not None:
-                    # 파일 이름에 버전이 없으므로 뷰어가 ?v=<PDFJS_VERSION> 를 붙여 캐시를 가른다.
+                    # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
                     return self._send(200, data, VENDOR_MIME[f.suffix], cache="public, max-age=86400")
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100])
         if path == "/pdf":
-            # 쪽 이미지와 같은 빌드의 PDF(벡터 렌더링용). 빌드 이름이 틀렸거나 이미 지워졌으면 404 — 다른 빌드로
-            # 물러서지 않는다(뷰어가 PNG 로 돌아가고 /api/meta 를 다시 읽는다).
+            # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
+            # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
             name = (q.get("build") or [""])[0]
             f = build_pdf(name)
             data = None
@@ -8176,7 +8340,7 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
-            # 교차 출처 '단순 요청'(text/plain 폼)은 preflight 없이 온다 — JSON 만 받아 그 길을 닫는다.
+            # A cross-origin "simple request" (text/plain form) arrives with no preflight - accepting only JSON closes off that path.
             raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.")
         try:
             d = json.loads(raw)
@@ -8220,7 +8384,7 @@ class Handler(BaseHTTPRequestHandler):
                 pin = claim_pin(pid, actor, ttl, eta)
                 out = {"ok": pin is not None, "pin": pin, "ttl_min_applied": ttl}
                 if eta is not None:
-                    out["eta_min_applied"] = eta          # 상한(240)을 넘겨 보냈으면 깎인 값
+                    out["eta_min_applied"] = eta          # the clamped value, if sent above the ceiling (240)
                 return self._json(out)
             if act == "unclaim":
                 pin = unclaim_pin(pid, actor)
@@ -8229,7 +8393,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "close":
                 reply, ref = clean_close_body(d)
                 review = clean_review_flag(d)
-            else:                                 # reopen — 선택 본문 {"reason"}: 다시 여는 이유(스레드에 남는다)
+            else:                                 # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
                 reason = clean_thread_text(d.get("reason"), "reason", required=False)
             pin = set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
                            hints=clean_mention_hints(d.get("mentions")))
@@ -8259,17 +8423,19 @@ class Handler(BaseHTTPRequestHandler):
         raise HTTPError(404, "없는 경로입니다: %s" % path)
 
 
-# ---------------------------------------------------------------- 진입점
+# ---------------------------------------------------------------- Entry point
 
 def parse_doc_arg(spec: str, ms: Path) -> dict:
-    """--doc <키>=<표시 이름>:<경로> 하나를 푼다. 경로는 --manuscript 기준 상대(권장) 또는 절대.
+    """Parses one --doc <key>=<display name>:<path>. The path is relative to --manuscript (recommended) or absolute.
 
-    - `<키>=<이름>:a/b/main.tex` — LaTeX. 빌드 루트는 그 .tex 가 있는 폴더(a/b).
-    - `<키>=<이름>:a::b/main.tex` — LaTeX. 빌드 루트는 a(사본으로 복사하는 범위), 메인은 a/b/main.tex.
-      빌드는 메인이 있는 폴더(a/b)에서 돈다 — 메인이 ../ 로 빌드 루트 안의 다른 폴더를 읽을 때 쓴다.
-    - `<키>=<이름>:x/review.pdf` — 보기 전용 PDF(재빌드 없음, 쪽·영역 핀).
-    키는 [a-z0-9-]{1,24}, 이름은 ':' 없이 40자 이하. 경로는 --manuscript 안이어야 한다(핀이 가리킬 수 있는 파일은
-    원고 트리 안뿐이라는 보안 제약). 틀리면 ValueError(한국어 사유)."""
+    - `<key>=<name>:a/b/main.tex` - LaTeX. The build root is the folder holding that .tex (a/b).
+    - `<key>=<name>:a::b/main.tex` - LaTeX. The build root is a (the scope copied into the build copy), and
+      main is a/b/main.tex. The build runs in the folder holding main (a/b) - used when main reads another
+      folder inside the build root via ../.
+    - `<key>=<name>:x/review.pdf` - a view-only PDF (no rebuild, page/region pins).
+    key must be [a-z0-9-]{1,24}; name must be 40 characters or fewer with no ':'. The path must be inside
+    --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree).
+    Raises ValueError (with a Korean-language reason) if malformed."""
     if not isinstance(spec, str) or "=" not in spec:
         raise ValueError("--doc 는 <키>=<표시 이름>:<경로> 형식입니다: %r" % spec)
     key, rest = spec.split("=", 1)
@@ -8330,7 +8496,7 @@ def parse_doc_arg(spec: str, ms: Path) -> dict:
 
 
 def make_docs(specs: list, ms: Path) -> list:
-    """--doc 목록 → Doc 목록. 키 중복·개수 상한을 본다. 키가 main 인 LaTeX 문서는 상태 폴더 루트 배치(root)를 쓴다."""
+    """--doc list -> Doc list. Checks for duplicate keys and the count ceiling. A LaTeX document keyed main uses the state-folder-root layout (root)."""
     if len(specs) > DOCS_MAX:
         raise ValueError("--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, len(specs)))
     out, seen = [], set()
@@ -8345,7 +8511,7 @@ def make_docs(specs: list, ms: Path) -> list:
 
 
 def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
-    """기동 준비 한 문서: 옛 배치 이관·빌드 이력 되살리기·(필요하면) 빌드. wait=False 면 백그라운드로 빌드한다."""
+    """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
     with using_doc(D):
         D.dir.mkdir(parents=True, exist_ok=True)
         if D.root:
@@ -8360,57 +8526,58 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
 
 
 def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
-    """보기 전용 PDF 가 바뀌면(mtime·크기) 쪽을 다시 그린다. 재빌드 버튼 대신이다."""
+    """Re-renders pages when a view-only PDF changes (mtime/size). Stands in for a rebuild button."""
     while not stop.wait(every):
         for D in list(DOCS):
             if D.is_pdf:
                 try:
                     refresh_pdf_doc(D)
-                except Exception:                     # noqa: BLE001 — 감시 스레드는 죽지 않는다
+                except Exception:                     # noqa: BLE001 — the watch thread must never die
                     traceback.print_exc(file=sys.stderr)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="limn serve", description=__doc__.splitlines()[0])
     ap.add_argument("--version", action="version", version="%s %s" % (APP_NAME, app_version()))
-    ap.add_argument("--manuscript", required=True, help="LaTeX 소스 루트 디렉토리")
-    ap.add_argument("--main", help="최상위 .tex 파일명 (생략 시 자동 탐지). --doc 과 함께 쓰지 않는다")
+    ap.add_argument("--manuscript", required=True, help="LaTeX source root directory")
+    ap.add_argument("--main", help="Top-level .tex filename (auto-detected if omitted). Not used together with --doc")
     ap.add_argument("--doc", action="append", default=[], metavar="KEY=NAME:PATH",
-                    help="뷰어가 전환할 문서(여러 번). PATH 는 --manuscript 기준. .tex = LaTeX(빌드 루트는 그 폴더), "
-                         "<빌드 루트>::<메인.tex> = 빌드 루트를 따로 지정, .pdf = 보기 전용. 첫 문서가 기본이다. "
-                         "생략하면 --manuscript·--main 의 문서 하나(키 main)")
-    ap.add_argument("--port", type=int, help="생략 시 18300-18400 에서 빈 포트를 고른다")
-    ap.add_argument("--state-dir", help="핀·빌드 산출물 위치")
+                    help="A document the viewer can switch to (repeatable). PATH is relative to --manuscript. "
+                         ".tex = LaTeX (build root is that folder), "
+                         "<build root>::<main.tex> = build root given separately, .pdf = view-only. The first document is the default. "
+                         "If omitted, a single document (key main) built from --manuscript/--main")
+    ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")
+    ap.add_argument("--state-dir", help="Location of pins and build artifacts")
     ap.add_argument("--dpi", type=int, default=150)
     ap.add_argument("--float-envs", default=DEFAULT_ENVS)
     ap.add_argument("--build-timeout", type=int, default=900)
-    ap.add_argument("--no-build", action="store_true", help="기동 시 재빌드하지 않는다")
+    ap.add_argument("--no-build", action="store_true", help="Don't rebuild on startup")
     ap.add_argument("--allow", default="",
-                    help="허용할 tailscale 로그인(쉼표 구분). 비우면 전원 허용. 신원 헤더 없는 루프백 요청"
-                         "(curl·에이전트)은 항상 허용, 신원 헤더 없이 *.ts.net 으로 온 요청(태그 장치)은 거부")
+                    help="Allowed tailscale logins (comma-separated). Everyone is allowed if empty. A loopback "
+                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no identity header (a tag device) is denied")
     ap.add_argument("--no-origin-check", action="store_true",
-                    help="Host·Origin 검사(DNS rebinding·CSRF 방어)를 끈다. tailscale serve 가 예상 밖의 "
-                         "Host/Origin 을 넘겨 UI 가 403 을 받을 때만 쓴다")
+                    help="Turns off Host/Origin checking (DNS rebinding/CSRF defense). Use only when tailscale "
+                         "serve passes an unexpected Host/Origin and the UI gets a 403")
     ap.add_argument("--git-pull", action="store_true",
-                    help="기동 직후와 60초마다 원격 main 을 확인하고 새 커밋이면 PDF를 재빌드한다. "
-                         "수동 재빌드도 copy 전에 업스트림을 --ff-only pull 한다. 로컬 수정·분기가 있으면 건너뛰고 화면에 알린다")
+                    help="Checks remote main right after startup and every 60 seconds, rebuilding the PDF on a "
+                         "new commit. A manual rebuild also does an --ff-only pull of upstream before the copy. Skipped with a screen notice if there are local changes or a divergence")
     ap.add_argument("--pdfjs-dir",
-                    help="뷰어가 벡터로 그릴 때 쓰는 PDF.js 디렉토리(pdf.min.mjs·pdf.worker.min.mjs). 생략 시 "
-                         "패키지에 든 limn/vendor/pdfjs. 없으면 뷰어는 PNG 로 보인다")
+                    help="The PDF.js directory the viewer uses for vector rendering (pdf.min.mjs/pdf.worker.min.mjs). "
+                         "Defaults to the limn/vendor/pdfjs bundled with the package. Falls back to PNG in the viewer if absent")
     ap.add_argument("--label",
-                    help="여러 논문 뷰어를 동시에 열었을 때 탭·도구 줄을 구분할 이름표(%d자 이하). 생략 시 "
-                         "--manuscript 의 git origin 저장소 이름, git 이 아니면 폴더 이름" % LABEL_MAX)
+                    help="A label distinguishing tabs/the tool bar when multiple manuscript viewers are open at once "
+                         "(%d characters or fewer). Defaults to --manuscript's git origin repo name, or the folder name if not a git repo" % LABEL_MAX)
     ap.add_argument("--accent",
-                    help="이름표의 강조색(#rrggbb). 생략 시 이름표 문자열의 해시로 고정 팔레트에서 고른다"
-                         "(같은 이름표는 항상 같은 색)")
+                    help="The label's accent color (#rrggbb). If omitted, one is picked from a fixed palette by "
+                         "hashing the label string (the same label always gets the same color)")
     a = ap.parse_args()
 
     C.src = Path(a.manuscript).expanduser().resolve()
     if not C.src.is_dir():
-        sys.exit("원고 디렉토리가 없습니다: %s" % C.src)
+        sys.exit("Manuscript directory does not exist: %s" % C.src)
     if a.doc:
         if a.main:
-            sys.exit("--doc 과 --main 은 함께 쓰지 않습니다 — 메인 파일은 --doc 경로로 정합니다.")
+            sys.exit("--doc and --main are not used together - the main file is set via the --doc path.")
         try:
             docs = make_docs(a.doc, C.src)
         except ValueError as e:
@@ -8421,7 +8588,7 @@ def main() -> None:
         docs = None
         C.main = (C.src / a.main) if a.main else detect_main(C.src)
         if not C.main.exists():
-            sys.exit("최상위 .tex 가 없습니다: %s" % C.main)
+            sys.exit("Top-level .tex does not exist: %s" % C.main)
 
     default_state = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     C.state = Path(a.state_dir).expanduser().resolve() if a.state_dir \
@@ -8437,12 +8604,12 @@ def main() -> None:
     C.git_pull = a.git_pull
     C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
     C.repo = git_remote_url(C.src)
-    # 기본 이름표(저장소 이름)는 길면 자른다 — 긴 저장소 이름 때문에 기동이 멈추면 안 된다(실측: 62자 저장소).
-    # 직접 준 --label 만 길이 초과로 멈춘다(오타를 조용히 자르지 않게).
+    # The default label (repo name) is truncated if too long - startup must not halt just because of a long
+    # repo name (observed: a 62-character repo). Only an explicitly given --label halts on excess length (so a typo is never silently truncated).
     C.label = clean_label(a.label) if a.label else clean_label(truncate_quote(default_label(C.src, C.repo), LABEL_MAX))
     if a.accent:
         if not valid_accent(a.accent):
-            sys.exit("--accent 는 #rrggbb 형식이어야 합니다: %s" % a.accent)
+            sys.exit("--accent must be in #rrggbb form: %s" % a.accent)
         C.accent = a.accent.lower()
     else:
         C.accent = pick_accent(C.label)
@@ -8453,38 +8620,38 @@ def main() -> None:
     init_seq()
     if not docs:
         migrate_pages()
-        seed_builds()                # 옛 인스턴스가 만든 지금 빌드를 이력에 올리고 마지막 빌드 결과를 되살린다
+        seed_builds()                # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
         if not a.no_build or not cur_pdf().exists() or not page_list():
             r = build_all()
             if r.get("state") == "fail":
-                sys.exit("빌드 실패:\n" + r.get("log", ""))
+                sys.exit("Build failed:\n" + r.get("log", ""))
     else:
-        # 여러 문서: 빌드는 문서마다 백그라운드로 돌리고 서버는 바로 뜬다(문서 N개 × 수십 초를 기다리지 않는다).
-        # 실패해도 기동을 막지 않는다 — 그 문서 탭이 오류 패널을 연다.
+        # Multiple documents: each document's build runs in the background, and the server comes up right
+        # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
         for D in DOCS:
             r = init_doc(D, a.no_build, wait=False)
-            print("문서   %-10s %s %s%s" % (D.key, "보기 전용" if D.is_pdf else "LaTeX   ", D.rel_path(),
-                                           "" if r.get("state") == "skip" else "  (빌드 시작)"))
+            print("doc    %-10s %s %s%s" % (D.key, "view-only" if D.is_pdf else "LaTeX   ", D.rel_path(),
+                                           "" if r.get("state") == "skip" else "  (build started)"))
         threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
     if C.git_pull:
         threading.Thread(target=watch_main, args=(threading.Event(),), daemon=True).start()
 
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
-    print("원고   %s" % (C.src if docs else C.main))
-    print("이름표 %s (%s)%s" % (C.label, C.accent, "" if C.repo else " — git origin 없음, 폴더 이름 기본값"))
-    print("상태   %s" % C.state)
-    print("주소   http://127.0.0.1:%d/   (외부 노출은 tailscale serve 로만)" % C.port)
+    print("manuscript  %s" % (C.src if docs else C.main))
+    print("label       %s (%s)%s" % (C.label, C.accent, "" if C.repo else " - no git origin, using the folder name as default"))
+    print("state       %s" % C.state)
+    print("address     http://127.0.0.1:%d/   (external exposure only via tailscale serve)" % C.port)
     if C.allow:
-        print("허용   %s (헤더 없는 루프백 요청은 허용)" % ", ".join(sorted(C.allow)))
+        print("allow       %s (a loopback request with no header is still allowed)" % ", ".join(sorted(C.allow)))
     if not C.origin_check:
-        print("경고   --no-origin-check: Host·Origin 검사를 껐습니다(DNS rebinding 방어 없음)")
+        print("warning     --no-origin-check: Host/Origin checking is off (no DNS rebinding defense)")
     if C.git_pull:
-        print("git-pull  기동 직후와 60초마다 main 을 확인하고 새 커밋이면 PDF를 다시 만듭니다")
+        print("git-pull    checks main right after startup and every 60 seconds, rebuilding the PDF on a new commit")
     if vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"):
-        print("pdf.js %s (벡터 렌더링)" % C.pdfjs_dir)
+        print("pdf.js      %s (vector rendering)" % C.pdfjs_dir)
     else:
-        print("경고   pdf.js 가 없습니다(%s) — 뷰어는 PNG 로 보입니다" % C.pdfjs_dir)
+        print("warning     pdf.js is missing (%s) - the viewer falls back to PNG" % C.pdfjs_dir)
     sys.stdout.flush()
     Server(("127.0.0.1", C.port), Handler).serve_forever()
 
