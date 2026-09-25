@@ -1,38 +1,40 @@
-# limn:generated — `limn start`/`limn add` 가 패키지의 템플릿(limn/systemd/limn@.service)을 채워 쓴다.
-# 손으로 고치지 않는다(다음 start·update 가 덮는다). 템플릿을 고치려면 limn 저장소에서 고친다.
+# limn:generated — `limn start`/`limn add` render this file from the package template
+# (limn/systemd/limn@.service). Do not edit it by hand: the next start/update overwrites it.
 #
-# Limn 인스턴스 — 원고 하나당 인스턴스 하나. 인스턴스 이름(%i)은 논문 슬러그다.
+# One Limn instance per manuscript. The instance name (%i) is the paper's slug.
 #
-#   설정   @LIMN_CONFIG_DIR@/%i.env
-#   앱     설치된 limn 패키지(uv tool). 판 올리기·되돌리기는 `limn update [--ref <태그>]`
-#   상태   설정의 STATE_DIR — 핀·빌드·로그가 인스턴스마다 따로
-#   관리   `limn add|start|stop|update|list|status|url|snippet|doc|remove`
+#   config   @LIMN_CONFIG_DIR@/%i.env
+#   app      the installed limn package (uv tool). Upgrade/rollback: `limn update [--ref <tag>]`
+#   state    STATE_DIR from the config — pins, builds and logs are per instance
+#   manage   `limn add|start|stop|update|list|status|url|snippet|doc|remove`
 #
-# ExecStart 가 서버를 직접 부르지 않고 `limn run` 을 거치는 이유: 인자 일부가 조건부다(GIT_PULL=1
-# 일 때만 --git-pull, LABEL·ACCENT·DOCS 는 설정에 있을 때만). systemd 는 조건부 인자를 표현하지
-# 못한다. `limn run` 이 설정을 검사한 뒤 서버로 exec 한다.
+# ExecStart goes through `limn run` instead of calling the server directly because some arguments
+# are conditional (--git-pull only when GIT_PULL=1; LABEL, ACCENT and DOCS only when set), which
+# systemd cannot express. `limn run` validates the config and then execs the server.
 #
-# 바인딩은 127.0.0.1 뿐이다(서버에 박혀 있다). 테일넷 노출은 `tailscale serve` 가 맡고
-# `limn add|start` 가 건다. funnel 은 쓰지 않는다 — 미공개 원고다.
+# The server binds 127.0.0.1 only (hard-coded). Tailnet exposure is done by `tailscale serve`,
+# set up by `limn add|start`. Never use funnel — manuscripts are unpublished.
 [Unit]
 Description=Limn manuscript instance %i (PDF drag -> SyncTeX .tex line)
 After=network-online.target
-# 설정이 없는 이름으로 시작하면 조용히 실패 루프를 도는 대신 여기서 멈춘다.
+# Starting a name without a config stops here instead of looping through failures.
 ConditionPathExists=@LIMN_CONFIG_DIR@/%i.env
 
 [Service]
 Type=simple
 Environment=LIMN_CONFIG_DIR=@LIMN_CONFIG_DIR@
-# 재빌드가 쓰는 TeX 를 PATH 맨 앞에 둔다. systemd 유닛은 셸 rc 를 거치지 않아 대화형 셸의 PATH 를
-# 물려받지 못한다 — 없으면 배포판 기본 pdflatex 를 잡아 저널 클래스(.cls)를 못 찾고 실패한다.
-# `limn` 이 유닛을 쓸 때 그 셸에서 찾은 pdflatex 폴더로 채운다(LIMN_UNIT_PATH 로 덮을 수 있다).
+# Put the TeX used for rebuilds first on PATH. systemd units do not read shell rc files, so they do
+# not inherit the interactive PATH; without this, rebuilds pick the distribution's pdflatex and fail
+# to find journal classes (.cls). `limn` fills this with the directory of the pdflatex found in the
+# shell that renders the unit (override with LIMN_UNIT_PATH).
 Environment=PATH=@LIMN_PATH@
-# GIT_PULL=1 이면 재빌드마다 원고 체크아웃을 업스트림으로 fast-forward 한다(깨끗하고 앞으로만 갈 때만).
-# 유닛 안에서는 SSH 에이전트도 tty 도 없으므로, 묻는 창이 뜨면 기다리지 말고 곧바로 실패하게 한다.
+# With GIT_PULL=1 every rebuild fast-forwards the manuscript checkout to upstream (only when clean
+# and fast-forwardable). There is no SSH agent or tty inside the unit, so fail fast instead of
+# waiting on a prompt.
 Environment=GIT_TERMINAL_PROMPT=0
 Environment="GIT_SSH_COMMAND=ssh -o BatchMode=yes"
-# 기동 로그(원고·상태·주소)가 journal 에 바로 찍히게 한다 — 인스턴스별 로그는
-# `journalctl --user -u limn@%i` 와 STATE_DIR/build.log 두 곳이다.
+# Startup logs (manuscript, state, address) go straight to the journal. Per-instance logs live in
+# `journalctl --user -u limn@%i` and STATE_DIR/build.log.
 Environment=PYTHONUNBUFFERED=1
 ExecStart=@LIMN_BIN@ run %i
 Restart=on-failure

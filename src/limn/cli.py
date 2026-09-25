@@ -1,7 +1,9 @@
-"""`limn` 명령 — 서버 실행(serve)·판 번호(version)·인스턴스 관리(add·start·…)를 한 곳에서 받는다.
+"""The `limn` command: run a server (serve), print the version, migrate old installs, and manage
+long-running instances (add, start, ...).
 
-인스턴스 관리는 같은 패키지의 instances.sh 가 한다. 여기서는 그 스크립트가 쓸 경로(파이썬·서버·유닛
-템플릿·실행 파일)와 판 번호를 환경 변수로 넘겨 bash 로 넘긴다.
+Instance management lives in the bash script instances.sh next to this file. This module hands it
+the paths it needs (interpreter, server, unit template, the limn executable) and the version via
+environment variables, then execs bash.
 """
 from __future__ import annotations
 
@@ -15,21 +17,21 @@ from limn import __version__
 HERE = Path(__file__).resolve().parent
 
 HELP = """\
-limn {version} — 원고 PDF에 핀을 찍으면 그 자리의 소스 줄로 이어 주는 퇴고 도구
+limn {version} — pin a spot in a manuscript PDF and get back the source lines
 
-  limn serve --manuscript <폴더> [서버 인자…]   서버 하나를 바로 띄운다(limn serve --help)
-  limn version                                  설치된 판
-  limn migrate [--dry-run] [--move-state] …     이전 이름의 설정·상태를 Limn 으로 옮긴다(limn migrate --help)
+  limn serve --manuscript <dir> [server options]  run one server now (limn serve --help)
+  limn version                                    print the installed version
+  limn migrate [--dry-run] [--move-state] ...     move instances from the old install (limn migrate --help)
 
-인스턴스(원고마다 systemd 유닛 limn@<이름> 하나):
+Instances (one systemd user unit limn@<name> per manuscript):
 """
 
 
 def limn_bin() -> str:
-    """systemd 유닛의 ExecStart 에 적을 limn 실행 파일 — 지금 부른 그 파일을 우선한다."""
+    """The limn executable to put into the systemd unit's ExecStart — prefer the one running now."""
     argv0 = Path(sys.argv[0])
     if argv0.name == "limn" and argv0.exists():
-        # 심링크를 풀지 않는다 — uv 의 bin 폴더(~/.local/bin/limn)가 판을 바꿔도 그대로인 경로다.
+        # Do not resolve symlinks: uv's bin dir (~/.local/bin/limn) is the path that survives upgrades.
         return os.path.abspath(argv0)
     return shutil.which("limn") or str(Path.home() / ".local" / "bin" / "limn")
 
@@ -47,11 +49,10 @@ def instances_env() -> dict:
 def run_instances(args: list) -> int:
     bash = shutil.which("bash")
     if not bash:
-        print("limn: bash 가 필요합니다", file=sys.stderr)
+        print("limn: bash is required", file=sys.stderr)
         return 1
-    argv = [bash, str(HERE / "instances.sh"), *args]
-    os.execve(bash, argv, instances_env())
-    return 1  # 닿지 않는다
+    os.execve(bash, [bash, str(HERE / "instances.sh"), *args], instances_env())
+    return 1  # not reached
 
 
 def main(argv: list | None = None) -> int:
