@@ -16,13 +16,13 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 별도 프런트엔드 프로젝트가 아니다. HTML·CSS·JS 전부가 [`src/limn/server.py`](../../src/limn/server.py) 안의 `HTML = r"""..."""` 문자열 하나에 들어 있고, 빌드 단계·번들러·CDN 없이 서버가 그대로 내보낸다. 그래서 화면 규칙을 바꾸는 일은 곧 이 문자열을 고치는 일이다.
+뷰어는 별도 프런트엔드 프로젝트가 아니다. [`src/limn/viewer/`](../../src/limn/viewer/index.html)의 세 파일 — 마크업 `index.html`, 스타일 `app.css`, 스크립트 `app.js` — 이 전부이고, 빌드 단계·번들러·CDN이 없다. 서버는 시작할 때 `app.css`와 `app.js`를 `index.html`의 `__APP_CSS__`·`__APP_JS__` 자리에 그대로 끼워 한 장의 HTML(`server.py`의 `HTML`)을 만들고, 그 뒤 버전·아이콘·영어 표·라벨 자리 표시자를 채워 내보낸다. 그래서 화면 규칙을 바꾸는 일은 곧 이 세 파일을 고치는 일이다. 표식은 `index.html`에 한 번씩만 있어야 하고, 어기면 서버가 시작하지 않는다 (`tests/test_viewer_files.py`).
 
 > **핵심**
 >
-> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `server.py`의 템플릿, `tests/test_server.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
+> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_server.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
-**CSS는 인라인 `<style>` 하나다.** `HTML` 문자열 안에 `<style>` 블록이 딱 하나 있고, 그 맨 앞에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
+**CSS는 `app.css` 하나이고, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
 **UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/ui_en.json`](../../src/limn/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 

@@ -13,7 +13,8 @@ uv run ruff check                         # lint (bug-candidate rules, see pypro
 uv run shellcheck src/limn/instances.sh tests/test_instances.sh
 ```
 
-The server is a single stdlib-only module (`src/limn/server.py`, Python 3.10+). Please keep it
+The server is stdlib-only Python 3.10+ (`src/limn/server.py`, being split into modules — see the coding roadmap);
+the viewer is three build-free files in `src/limn/viewer/`. Please keep it
 dependency-free. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdflatex`) and Poppler
 (`pdftoppm`) at runtime, but the tests do not.
 
