@@ -1,0 +1,69 @@
+version = 1
+
+[[repo]]
+name = "architecting"
+remote = "git@github.com:dartworklabs/skills-architecting.git"
+
+[[repo]]
+name = "coding"
+remote = "git@github.com:dartworklabs/skills-coding.git"
+
+[[skill]]
+name = "arch-adr"
+repo = "architecting"
+
+[[skill]]
+name = "arch-archetypes"
+repo = "architecting"
+
+[[skill]]
+name = "arch-design-axes"
+repo = "architecting"
+
+[[skill]]
+name = "arch-handbook-format"
+repo = "architecting"
+
+[[skill]]
+name = "arch-handbook-guard"
+repo = "architecting"
+
+[[skill]]
+name = "arch-handbook-init"
+repo = "architecting"
+
+[[skill]]
+name = "arch-handbook-read"
+repo = "architecting"
+
+[[skill]]
+name = "arch-handbook-sync"
+repo = "architecting"
+
+[[skill]]
+name = "arch-meta-harness"
+repo = "architecting"
+
+[[skill]]
+name = "arch-plan"
+repo = "architecting"
+
+[[skill]]
+name = "arch-review"
+repo = "architecting"
+
+[[skill]]
+name = "arch-spec"
+repo = "architecting"
+
+[[skill]]
+name = "code-implement"
+repo = "coding"
+
+[[skill]]
+name = "code-security"
+repo = "coding"
+
+[[skill]]
+name = "code-testing"
+repo = "coding"
