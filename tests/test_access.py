@@ -866,6 +866,7 @@ class Migration(AccessBase):
         self.assertFalse(ps.C.tokens_file.exists())
 
     def test_pins_md_matches_the_v01_rendering(self):
+        """A v0.1 state renders the v0.1 pins.md byte for byte, apart from the added lines and the one v0.3 close line."""
         code, md = get(ps, "/pins.md")
         self.assertEqual(code, 200)
         lines = md.split("\n")
