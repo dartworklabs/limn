@@ -5077,12 +5077,12 @@ body.lay-narrow #c-qhint{order:1;margin:-4px 0 8px}
 .pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
 .arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
 /* @태그 자동 완성: 입력 칸 바로 아래(자리가 없으면 위)에 뜨는 목록. 입력 칸의 포커스를 뺏지 않는다(pointerdown 을 막는다). */
-#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1);background:var(--popover);
+#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;overflow:hidden;background:var(--popover);
   color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
-#mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;background:transparent;text-align:left;padding:var(--space-2)}
+#mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* 고른 줄 = 폭 전체 납작한 띠(shadcn Command) — 틀 안에 또 둥근 상자를 두지 않는다(한 겹 담기) */
 #mention-pop button[aria-selected=true]{background:var(--accent)}
 #mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#mention-pop .dim{padding:var(--space-2)}
+#mention-pop .dim{padding:var(--space-2) var(--space-3)}
 .thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* 구분선 하나 — 상자가 아니다 */
 .thread:empty{display:none}
 .msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
@@ -7568,6 +7568,10 @@ function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
   return rows.filter(r=>r.rank<9).sort((a,b)=>a.rank-b.rank||String(a.p.name).localeCompare(String(b.p.name))).slice(0,6).map(r=>r.p);}
 function mentionHints(ta){if(!ta||!ta._mentions)return []; const v=ta.value;
   return Array.from(ta._mentions).filter(l=>v.includes('@'+peopleName(l)));}
+// 쓰는 중인 '@말'(커서가 그 끝에 있다)은 아직 '등록된 사람이 아님' 으로 알리지 않는다 — 고르는 중에 경고가 먼저 떴다(QA 2026-09-25).
+// 커서가 떠나거나 칸을 벗어나면 알린다. 같은 말이 앞에 또 있으면(이미 끝난 '@말') 그대로 알린다.
+function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=String(text||'').slice(0,q.start);
+  return bad.filter(x=>x!==w||before.includes('@'+w));}
 function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // 입력 칸 아래 한 줄: 저장하면 알림이 갈 사람(풀린 @이름)과 풀리지 않을 '@말'(등록된 사람이 아님). textarea 안은 색을 칠할 수 없어
 // 여기서 미리 보인다 — 저장 전에 부른 것이 실제로 알림이 되는지 안다. 규칙은 서버 resolve_mentions() 와 같다(fmtText 주석).
@@ -7604,7 +7608,7 @@ function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelec
   if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
-  const r=mentionScan(ta.value,ta._mentions),me=meLogin();
+  const r=mentionScan(ta.value,ta._mentions),me=meLogin(); r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' (나 — 알림 없음)':'')+'</span>').join(''):'')+
     r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+
@@ -7644,6 +7648,8 @@ window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('
     MENTION.sel=(MENTION.sel+(e.key==='ArrowDown'?1:n-1))%n; mentionUpdate(MENTION.ta);}
   else if((e.key==='Enter'&&!e.metaKey&&!e.ctrlKey)||e.key==='Tab'){if(!n)return; e.preventDefault(); e.stopImmediatePropagation(); mentionApply(MENTION.sel);}
   else if(e.key==='Escape'){e.preventDefault(); e.stopImmediatePropagation(); mentionClose();}},true);
+// 커서가 쓰는 중인 '@말'을 떠나면(방향키·누르기·칸 벗어남) 미리 보기를 다시 그려 그때 경고한다.
+['keyup','click','focusout'].forEach(t=>document.addEventListener(t,e=>{if(isMentionField(e.target))setTimeout(()=>mentionPreview(e.target),0);}));
 document.addEventListener('focusout',e=>{if(e.target===MENTION.ta)setTimeout(()=>{if(document.activeElement!==MENTION.ta)mentionClose();},150);});
 $('#mention-pop').addEventListener('pointerdown',e=>e.preventDefault());
 

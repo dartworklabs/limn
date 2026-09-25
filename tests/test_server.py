@@ -6357,6 +6357,27 @@ class FrontendMentionPopPlacement(unittest.TestCase):
             self.assertIn(sel, fn)
 
 
+class FrontendMentionTypingNotFlagged(unittest.TestCase):
+    """쓰는 중인 '@말'은 '등록된 사람이 아님' 으로 먼저 알리지 않는다(QA 2026-09-25 — @Sa 를 치는 동안 경고가 떴다)."""
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node 없음")
+
+    def test_token_under_caret_is_not_flagged_until_caret_leaves(self):
+        js = extract_js_fn("mentionBadSettled") + r"""
+            console.log(JSON.stringify([
+              mentionBadSettled(['Sa'],'@Sa',{start:0,q:'Sa'}),            // 쓰는 중 — 알리지 않는다
+              mentionBadSettled(['Sa'],'@Sa',null),                       // 커서가 떠남 — 알린다
+              mentionBadSettled(['홍길동','Sa'],'@홍길동 @Sa',{start:5,q:'Sa'}),  // 끝난 말은 그대로 알린다
+              mentionBadSettled(['Sa'],'@Sa 또 @Sa',{start:7,q:'Sa'})]));   // 같은 말이 앞에 이미 있으면 알린다"""
+        self.assertEqual(json.loads(run_node(js)), [[], ["Sa"], ["홍길동"], ["Sa"]])
+
+    def test_list_highlight_is_a_flat_full_width_row(self):
+        css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
+        self.assertIn("#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;", css)
+        self.assertIn("border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}", css)
+
+
 class FrontendQuestionHint(unittest.TestCase):
     """질문처럼 읽히는 메모에 [질문으로 보내기] 권유(looksQuestion). 공저자가 '…표현한 의도가 있는건가?' 를
     수정 요청으로 저장했다(2026-09-25). 판정만 하고 종류는 사용자가 눌러야 바뀐다."""
