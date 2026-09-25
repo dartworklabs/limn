@@ -128,6 +128,17 @@ class Attribution(unittest.TestCase):
         # and a pin that was re-synced to the new side (line 12) lands on the same hunk
         self.assertEqual(self.blocks_for(anchored(12, 12, text=NEW)), ("inferred", [B_BLK]))
 
+    def test_a_generic_anchor_is_placed_on_the_side_nearer_the_recorded_line(self):
+        # "\begin{equation}" is found on both sides. The pin kept old-side lines (closed before the server's checkout
+        # reached the commit); on the new side the nearest equation to line 8 is a different, unchanged one (line 7).
+        old = "a\n\\begin{equation}\nx=1\n\\end{equation}\nb\nc\nd\n\\begin{equation}\ny=2\n\\end{equation}\ne\n"
+        new = "".join("n%d\n" % i for i in range(1, 6)) + old.replace("y=2", "y=3")
+        self.files = [fc(old, new, b"@@ -0,0 +1,5 @@\n+n1\n+n2\n+n3\n+n4\n+n5\n@@ -9 +14 @@\n-y=2\n+y=3\n")]
+        pin = anchored(8, 10, text=old)
+        self.assertEqual(self.blocks_for(pin), ("inferred", [(8, 1, 13, 1)]))
+        # recorded on the new side instead (line 13), the same anchor lands on the new side
+        self.assertEqual(self.blocks_for(dict(pin, lo=13, hi=15)), ("inferred", [(8, 1, 13, 1)]))
+
     def test_raw_range_without_an_anchor(self):
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 12, "hi": 12}), ("inferred", [B_BLK]))
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 11, "hi": 11, "stale": True}), ("inferred", [B_BLK]))

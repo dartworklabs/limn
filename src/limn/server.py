@@ -1185,19 +1185,22 @@ def _hits(rng: tuple, lo: int, hi: int) -> bool:
     return rng[0] <= hi and rng[1] >= lo
 
 
-def locate_pin_range(f: FileChange, pin: dict) -> tuple:
-    """Where the pin's range sits in this commit: ("new"|"old", lo, hi), 1-based.
+def pin_range_candidates(f: FileChange, pin: dict) -> list:
+    """Where the pin's range may sit in this commit: [("new"|"old", lo, hi), ...], 1-based, best first.
 
-    A closed pin keeps the lines of its last sync. That is the commit's new side when its anchor survived the fix,
-    but the old side when the fix rewrote the anchored text (sync lost it and kept the pre-edit lines). The anchor is
-    therefore looked up on the new side first, then on the old side, near the recorded range - the same rule as
-    sync_all(). A pin without a usable anchor falls back to its raw range: old side if it went stale, else new."""
+    A closed pin keeps the lines of its last sync, and nothing records which version that was: the commit's new side
+    when the anchor survived the fix, the old side when the fix rewrote the anchored text (sync lost it and kept the
+    pre-edit lines) or when the pin was closed before the server's checkout reached the commit. So the anchor is
+    looked up on both sides near the recorded range, with the same rule as sync_all(), and the side where it sits
+    closer to the recorded line comes first (the recorded number is in that side's coordinates; ties prefer the new
+    side). A generic anchor such as \\begin{equation} is found on both sides - the distance is what tells them apart.
+    The raw range comes last: old side if the pin went stale, else new."""
     lo, hi = pin["lo"], pin["hi"]
     anc = pin.get("anchor") if isinstance(pin.get("anchor"), dict) else {}
-    head_text = anc.get("head")
+    head_text, found = anc.get("head"), []
     if isinstance(head_text, str) and head_text:
         ho, to = _off(anc.get("head_off")), _off(anc.get("tail_off"))
-        for side, lines in (("new", f.new), ("old", f.old)):
+        for rank, (side, lines) in enumerate((("new", f.new), ("old", f.old))):
             if not lines:
                 continue
             nl = [norm(ln.decode("utf-8", "replace")) for ln in lines]
@@ -1207,8 +1210,8 @@ def locate_pin_range(f: FileChange, pin: dict) -> tuple:
             a = max(1, head - ho)
             tail = find_line(nl, anc.get("tail", ""), hi - to + (a - lo))
             b = tail + to if tail is not None and tail >= head else a + (hi - lo)
-            return side, a, max(a, min(len(lines), b))
-    return ("old" if pin.get("stale") else "new"), lo, hi
+            found.append((abs(a - lo), rank, (side, a, max(a, min(len(lines), b)))))
+    return [c for _, _, c in sorted(found)] + [("old" if pin.get("stale") else "new", lo, hi)]
 
 
 def attribute_blocks(files, pin: dict, pin_rel, changes) -> tuple:
@@ -1230,11 +1233,12 @@ def attribute_blocks(files, pin: dict, pin_rel, changes) -> tuple:
         for fi, f in enumerate(files):
             if pin_rel not in (f.old_path, f.new_path):
                 continue
-            side, lo, hi = locate_pin_range(f, pin)
-            for bi, b in enumerate(f.blocks):
-                rng = touch_range(b.new_lo, b.new_n) if side == "new" else touch_range(b.old_lo, b.old_n)
-                if _hits(rng, lo, hi):
-                    chosen.add((fi, bi))
+            for side, lo, hi in pin_range_candidates(f, pin):     # the first placement that meets a change wins
+                hit = {(fi, bi) for bi, b in enumerate(f.blocks)
+                       if _hits(touch_range(b.new_lo, b.new_n) if side == "new" else touch_range(b.old_lo, b.old_n), lo, hi)}
+                if hit:
+                    chosen |= hit
+                    break
     return ("inferred" if chosen else "none"), chosen
 
 
