@@ -36,8 +36,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,203 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
-| [`src/limn/pins/`](../../src/limn/pins/model.py) | 175 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`, 지금은 확인). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
+| [`src/limn/server.py`](../../src/limn/server.py) | 7,211 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/pins/`](../../src/limn/pins/model.py) | 293 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 362 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,381 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
@@ -56,7 +56,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 빌드·페이지 함수가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 46곳이다.
 3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등.
 
-핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 옮겨진 전이(지금은 확인)는 그 타입을 받아 결과를 반환값으로 돌려준다.
+핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 옮겨진 전이(확인, 닫기·다시 열기)는 그 타입을 받아 결과를 반환값으로 돌려준다.
 
 > **참고**
 >
