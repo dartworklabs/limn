@@ -30,6 +30,7 @@ from limn.pins.model import PinNotFound
 from limn.pins import position
 from limn.pins import render as md_render
 from limn.store import PinStore
+from limn.viewer import assemble as viewer_assemble
 from limn.events import NOTIFY_TYPES
 from limn import revisions
 from limn import scope as scoping
@@ -521,7 +522,7 @@ class VendorPdfjs(Base):
 
     def test_serves_both_modules_as_javascript(self):
         for name in ("pdf.min.mjs", "pdf.worker.min.mjs"):
-            code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, ps.PDFJS_VERSION))
+            code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, viewer_assemble.PDFJS_VERSION))
             self.assertEqual(code, 200, name)
             self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # a module script only runs with the JS MIME type
             self.assertEqual(h["x-content-type-options"], "nosniff")
@@ -567,11 +568,11 @@ class VendorPdfjs(Base):
 
     def test_version_pinned_in_vendor_html_and_readme(self):
         head = (VENDOR / "pdf.min.mjs").read_bytes()[:2000].decode("utf-8")
-        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, head)
+        self.assertIn("pdfjsVersion = %s" % viewer_assemble.PDFJS_VERSION, head)
         whead = (VENDOR / "pdf.worker.min.mjs").read_bytes()[:2000].decode("utf-8")
-        self.assertIn("pdfjsVersion = %s" % ps.PDFJS_VERSION, whead)
+        self.assertIn("pdfjsVersion = %s" % viewer_assemble.PDFJS_VERSION, whead)
         readme = (VENDOR / "README.md").read_text(encoding="utf-8")
-        self.assertIn("pdfjs-dist@%s" % ps.PDFJS_VERSION, readme)
+        self.assertIn("pdfjs-dist@%s" % viewer_assemble.PDFJS_VERSION, readme)
         self.assertIn("Apache License", (VENDOR / "LICENSE").read_text(encoding="utf-8"))
 
     def test_readme_sha256_matches_files(self):
@@ -3111,7 +3112,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_loads_vendored_pdfjs_same_origin_with_version(self):
         self.assertNotIn("__PDFJS_VERSION__", ps.HTML)
-        self.assertIn("const PDFJS_V='%s'" % ps.PDFJS_VERSION, ps.HTML)
+        self.assertIn("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION, ps.HTML)
         self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", ps.HTML)
         self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", ps.HTML)
         for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
@@ -4766,20 +4767,20 @@ class FrontendIcons(unittest.TestCase):
         self.assertIn("ISC License", lic)
         self.assertIn("Lucide Icons and Contributors", lic)
         readme = (self.VENDOR / "README.md").read_text(encoding="utf-8")
-        self.assertIn("lucide-static@%s" % ps.LUCIDE_VERSION, readme)
+        self.assertIn("lucide-static@%s" % viewer_assemble.LUCIDE_VERSION, readme)
         table = readme[readme.index("## Icons in use"):readme.index("## Updating")]
         names = set()
         for row in re.findall(r"^\| (`[^|]+) \|", table, flags=re.M):
             names |= set(re.findall(r"`([a-z0-9-]+)`", row))
-        self.assertEqual(names, set(ps.LUCIDE))
+        self.assertEqual(names, set(viewer_assemble.LUCIDE))
 
     def test_icon_markup_is_plain_svg_elements(self):
-        for name, body in ps.LUCIDE.items():
+        for name, body in viewer_assemble.LUCIDE.items():
             els = re.findall(r"<[^>]+>", body)
             self.assertTrue(els, name)
             for el in els:
                 self.assertRegex(el, r'^<(path|circle|rect|line|polyline|polygon|ellipse)( [a-z-]+="[^"<>]*")+/>$', name)
-        svg = ps.icon_svg("check")
+        svg = viewer_assemble.icon_svg("check")
         for attr in ('viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'stroke-width="2"', 'aria-hidden="true"'):
             self.assertIn(attr, svg)
 
@@ -4790,8 +4791,8 @@ class FrontendIcons(unittest.TestCase):
         used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
         used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
         used |= set(re.findall(r"THEME_ICON=\{system:'([a-z-]+)',light:'([a-z-]+)',dark:'([a-z-]+)'\}", h)[0])
-        self.assertEqual(used - set(ps.LUCIDE), set())
-        self.assertEqual(set(ps.LUCIDE) - used, set())
+        self.assertEqual(used - set(viewer_assemble.LUCIDE), set())
+        self.assertEqual(set(viewer_assemble.LUCIDE) - used, set())
 
     def test_no_emoji_or_symbol_glyph_icons_in_viewer(self):
         found = sorted(set(ICON_GLYPHS.findall(html_without_comments(ps.HTML))))
@@ -4801,7 +4802,7 @@ class FrontendIcons(unittest.TestCase):
         if not shutil.which("node"):
             self.skipTest("node not available")
         js = js_icons() + "\nconsole.log(JSON.stringify(['check','clock','x'].map(ic).concat([ic('nope')])));"
-        self.assertEqual(json.loads(run_node(js)), [ps.icon_svg("check"), ps.icon_svg("clock"), ps.icon_svg("x"), ""])
+        self.assertEqual(json.loads(run_node(js)), [viewer_assemble.icon_svg("check"), viewer_assemble.icon_svg("clock"), viewer_assemble.icon_svg("x"), ""])
 
     def test_toolbar_icon_buttons_keep_accessible_names(self):
         for bid, label in (("btn-zoom-out", "축소"), ("btn-zoom-in", "확대"), ("btn-help", "도움말"), ("btn-more", "더보기"),

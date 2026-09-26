@@ -1,6 +1,6 @@
 # Lucide icons (vendored)
 
-The viewer's icons come from [Lucide](https://github.com/lucide-icons/lucide). Only the SVG elements of the icons in use are inlined as strings in the `LUCIDE` dict of `src/limn/server.py`. The server does not serve icon files and uses no external CDN — the viewer runs inside a private network. This directory holds only the license and provenance record.
+The viewer's icons come from [Lucide](https://github.com/lucide-icons/lucide). Only the SVG elements of the icons in use are inlined as strings in the `LUCIDE` dict of `src/limn/viewer/assemble.py`. The server does not serve icon files and uses no external CDN — the viewer runs inside a private network. This directory holds only the license and provenance record.
 
 | Item | Value |
 | --- | --- |
