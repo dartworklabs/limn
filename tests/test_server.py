@@ -3785,7 +3785,7 @@ class FrontendToasts(unittest.TestCase):
         body = extract_js_fn("toast")
         self.assertIn("box.insertBefore(t,box.firstChild)", body)
         self.assertIn("setTimeout(kill,6000)", body)
-        self.assertIn("#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}", self.css)
+        self.assertIn("#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}", self.css)   # + the '+N' button on touch
         self.assertIn("@keyframes toast-in", self.css)
         self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
 
@@ -5324,6 +5324,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
+            function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}

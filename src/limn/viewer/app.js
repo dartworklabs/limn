@@ -177,7 +177,8 @@ function toast(msg,kind,action,dd){msg=trMsg(msg);
   const c=document.createElement('button');c.className='btn-icon btn-sm btn-ghost';c.innerHTML=ic('x');
   c.setAttribute('aria-label','알림 닫기');c.addEventListener('click',kill);acts.appendChild(c);
   t.addEventListener('mouseenter',()=>clearTimeout(timer)); t.addEventListener('mouseleave',arm);
-  placeToasts(); box.insertBefore(t,box.firstChild); arm(); while(box.children.length>6){const l=box.lastChild; l.remove(); toastGone(l);}
+  placeToasts(); box.insertBefore(t,box.firstChild); arm();
+  for(let ts=box.querySelectorAll('.toast');ts.length>6;ts=box.querySelectorAll('.toast')){const l=ts[ts.length-1]; l.remove(); toastGone(l);}
   if(dd&&dd.keys&&dd.keys.length)TOAST_KEYS.push({keys:dd.keys.slice(),rank:dd.rank||1,el:t,t:Date.now()});
   watchToasts();
   return t;
@@ -227,7 +228,15 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
       if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
   R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
 let TOAST_WATCH=0;
-function watchToasts(){if(TOAST_WATCH)return; TOAST_WATCH=setInterval(()=>{if(!$('#toasts').children.length){clearInterval(TOAST_WATCH);TOAST_WATCH=0;return;} placeToasts();},250);}
+function watchToasts(){if(TOAST_WATCH)return; TOAST_WATCH=setInterval(()=>{if(!$('#toasts .toast')){clearInterval(TOAST_WATCH);TOAST_WATCH=0;return;} placeToasts();},250);}
+// More than three toasts fold into a stack (docs/handbook/viewer.md §알림(토스트)). A mouse opens it by hovering or focusing it; on
+// touch - where a toast's body lets taps through to the PDF - the '+N' button under the stack opens it. Three or fewer: unfolded again.
+function syncToastStack(){const box=$('#toasts'),n=box.querySelectorAll('.toast').length; let m=$('#toasts-more');
+  if(n<=3)box.classList.remove('expanded');
+  if(!m){if(n<=3)return; m=document.createElement('button'); m.id='toasts-more'; m.type='button'; m.className='btn-sm t-more'; m.dataset.act='toasts-expand';}
+  if(box.lastElementChild!==m)box.appendChild(m);   // after the toasts, so the newest-first order and nth-child stay as they are
+  m.hidden=n<=3||box.classList.contains('expanded'); if(!m.hidden)m.textContent=tl('알림 {n}건 더 보기',{n:n-3});}
+new MutationObserver(syncToastStack).observe($('#toasts'),{childList:true});
 async function copyText(s){
   try{await navigator.clipboard.writeText(s);}catch(e){
     const ta=document.createElement('textarea');ta.value=s;document.body.appendChild(ta);ta.select();
@@ -489,6 +498,8 @@ function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=nu
   revTargetNote(); if(first)requestAnimationFrame(()=>first.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
 let REV_BACK=null;   // the document being viewed when [변경 보기] was pressed - [원고로] returns to that document (QA: opening it from a cover-letter pin used to leave you stuck on the cover letter)
+// [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
+function revBack(){const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b);}
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
   if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
@@ -625,6 +636,7 @@ async function boot(){i18nStart();
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); await loadPins();
   restoreView(v); drawDocTabs();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;
   LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
@@ -1768,6 +1780,7 @@ async function pick(r){
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
   if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
+    if(MID_OVERLAY)relayout();    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
     if(LAYOUT!=='wide'){$('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
@@ -1892,6 +1905,28 @@ function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestio
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false); applySide();}
+// What a discarded or saved selection needs to come back (restoreSelection): the pick (CUR), its box on the page, the note with its
+// @-tag hints, the kind and the assignee choice, and the document/build the box belongs to. null when there is no selection.
+function selectionSnapshot(){if(!CUR&&!PICKING&&$('#composer').hidden)return null; const n=$('#note');
+  return {cur:CUR,box:PENDING,page:PENDING&&PENDING.parentNode,note:n.value,mentions:n._mentions||null,kind:KIND_NEW,
+    assign:{v:ASSIGN_NEW.v,touched:ASSIGN_NEW.touched},doc:DOC,build:META&&META.pages_build};}
+// Brings a snapshot back - the undo of a discard or of a save: the note, kind and assignee always; the selection, its box and the
+// composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
+// a newer selection - that one wins.
+// Returns whether anything came back.
+function restoreSelection(snap){if(!snap||CUR||PICKING||REPICK||!$('#composer').hidden)return false;
+  const n=$('#note'); n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign);
+  renderAssignNew(); mentionPreview(n); autoGrow(n);
+  if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build))return true;
+  if(PENDING)PENDING.remove(); PENDING=null;
+  if(snap.box&&snap.page&&document.contains(snap.page)){PENDING=snap.box; snap.page.appendChild(snap.box);}
+  CUR=snap.cur; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+  renderComposer(); setSide(true); applySide(); if(LAYOUT!=='wide')revealBox(PENDING); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
+  return true;}
+// Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the toast offers
+// [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation.
+function discardSelection(){const snap=selectionSnapshot(); cancelSelection(true);
+  if(snap&&snap.note.trim())toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -1926,10 +1961,11 @@ async function savePin(){
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
   renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
+  const snap=selectionSnapshot();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
     const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
-    toast(tl(q?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',{label:'되돌리기',fn:()=>dropPin(id,true)});
+    toast(tl(q?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',{label:'되돌리기',fn:()=>{dropPin(id,true); restoreSelection(snap);}});
     await loadPins();
   }catch(e){} finally{SAVING=false; btn.disabled=false;}
 }
@@ -2745,11 +2781,12 @@ document.addEventListener('click',e=>{
     case 'size-preset':sizePreset(+a.dataset.i);break;
     case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
     case 'coach-close':$('#coach').hidden=true;break;
+    case 'toasts-expand':$('#toasts').classList.add('expanded'); syncToastStack(); break;
     case 'card-toggle':if(id==null)break; if(OPEN_CARDS.has(id))OPEN_CARDS.delete(id); else OPEN_CARDS.add(id); drawPins();break;
     case 'rebuild':rebuild();break; case 'reload':loadPins();break;
     case 'zoom-in':zoom(1);break; case 'zoom-out':zoom(-1);break; case 'fit':fitW();break;
     case 'theme':cycleTheme();break; case 'lang':switchLang();break; case 'notify-toggle':notifyToggle();break; case 'help':openHelp();break; case 'help-close':$('#help').close();break;
-    case 'save':if(!viewerBlocked())savePin();break; case 'cancel':cancelSelection(true);break;
+    case 'save':if(!viewerBlocked())savePin();break; case 'cancel':discardSelection();break;
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
@@ -2767,7 +2804,7 @@ document.addEventListener('click',e=>{
     //   interaction (a touch regression).
     case 'doc-menu':openDocsMenu();break; case 'docs-menu-close':$('#docs-menu').close();break;
     case 'view-mode':setViewMode(a.dataset.mode);break;
-    case 'rev-back':{const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b); break;}
+    case 'rev-back':revBack();break;
     case 'outline':toggleOutline();break;
     case 'outline-page':if(LAYOUT==='mid'&&OUTLINE_MID_OPEN)toggleOutline();OUTLINE_SELECTED=Number(a.dataset.index);OUTLINE_ACTIVE_PAGE=Number(a.dataset.page);OUTLINE_PINNED={index:OUTLINE_SELECTED,page:OUTLINE_ACTIVE_PAGE};renderOutline();updateSectionStrip();setViewMode('manuscript');goPage(a.dataset.page);break;
     case 'revision':showRevision(a.dataset.commit);break;
@@ -2840,9 +2877,10 @@ document.addEventListener('keydown',e=>{
     if(REPICK){e.preventDefault();cancelRepick();return;}
     if(REPLY){e.preventDefault();closeReply();return;}
     if(EDIT){e.preventDefault();cancelEdit();return;}
-    if(CUR||!$('#composer').hidden){e.preventDefault();cancelSelection(true);return;}
+    if(CUR||!$('#composer').hidden){e.preventDefault();discardSelection();return;}
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
     if(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN){e.preventDefault();setSide(false,true,true);focusSideToggle();return;}
+    if(document.body.classList.contains('revision-open')){e.preventDefault();revBack();return;}   // Esc in [변경 보기] = [원고로]
     return;}
   if(e.key==='?'&&!inField&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();openHelp();}
 });

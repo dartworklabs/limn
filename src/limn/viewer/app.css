@@ -292,7 +292,7 @@ input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
 textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
 .sp{flex:1}
-.pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none}
+.pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none;cursor:crosshair}   /* a mouse drags a box here */
 :root[data-theme=light] .pg{border:1px solid var(--border)}
 .pg img{width:100%;height:100%;display:block}
 /* Vector rendering (docs/handbook/viewer.md §벡터 렌더링): the page canvas (.vb) fills the page box completely, and when zoom
@@ -577,7 +577,7 @@ button.sec-tg:hover{background:var(--accent)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */
 .arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.arc-l1 .loc{flex:none}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
+.arc-l1 .loc{flex:none;overflow:visible}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
@@ -612,7 +612,10 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .toast .t-title{font-weight:600}
 .toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
 .toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
-#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
+#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}
+/* The '+N' under a folded stack (syncToastStack): the way to open it on touch, where hover does not exist. */
+#toasts .t-more{pointer-events:auto;align-self:flex-end;background:var(--popover);box-shadow:var(--shadow-sm)}
+#toasts:is(:hover,:focus-within) .t-more{display:none}
 /* Touch: the toast body passes taps through (only its buttons receive them) - so a toast floating right above a phone's sheet never intercepts a PDF long-press or the tool bar. */
 @media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
@@ -702,6 +705,15 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
   #grip::after{left:-9px;right:-9px}
   body.lay-wide:not(.side-open) #grip::after{left:-18px}   /* the collapsed rail: a 24px touch target reaching into the PDF side (touch scrollbars overlay) */
+}
+/* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
+   from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
+@media (pointer:fine){
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go){position:relative}
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
+    width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
+  .mark b::after{content:'';position:absolute;inset:-1px}
+  button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
@@ -846,6 +858,9 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
   /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
      can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
   body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
+  /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
+     to the space left of it (or scrolls there when zoomed). */
+  body.lay-mid.side-open.composing #left{padding-right:var(--side-w,330px)}
   body.lay-mid.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
     animation:mid-grip-in .18s ease-out}
   /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */

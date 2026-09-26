@@ -262,8 +262,15 @@ class ViewerBase(BrowserBase):
         page.wait_for_timeout(300)
 
     def mouse_pick(self, page):
-        """A mouse selection through the real pick path (the in-process server answers /api/pick)."""
-        self.open_composer(page)
+        """A mouse drag on page 1 (clear of the marks) through the real pick path; the in-process server answers /api/pick."""
+        page.evaluate("document.querySelector('#left').scrollTop=0")
+        x0, y0 = self.on_page(page, 0.3, 0.07)
+        x1, y1 = self.on_page(page, 0.7, 0.12)
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move(x1, y1, steps=5)
+        page.mouse.up()
+        page.wait_for_function("CUR&&CUR.lo&&!document.querySelector('#composer').hidden", timeout=8000)
         page.wait_for_timeout(100)
 
 
