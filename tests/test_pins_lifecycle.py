@@ -11,8 +11,9 @@ from pathlib import Path
 
 import limn.pins
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinClosed, PinReopened, PinStillOpen, confirm, confirmer,
-    decide_close, decide_reopen, evolve_close, evolve_reopen, reopen_request, thread_message,
+    AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinClosed, PinReopened, PinStillOpen, Replied, ThreadFull,
+    confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
+    reopen_request, reopens_on_reply, thread_message,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, parse_pin
 
@@ -210,6 +211,49 @@ class Reopen(unittest.TestCase):
         self.assertFalse(event.was_closed)
         self.assertEqual(len(evolve_reopen(pin, event).record["thread"]), 1)
         self.assertEqual(reopen_request(pin, event).record["rev"], 6)
+
+
+class Reply(unittest.TestCase):
+    """reopens_on_reply/decide_reply/evolve_reply: when a reply reopens, when the thread is full, what a reply writes."""
+
+    def test_open_pin_never_reopens(self):
+        """Nothing a reply says reopens an open pin, not even an explicit reopen."""
+        self.assertFalse(reopens_on_reply(OpenPin(open_record()), True, [], True))
+
+    def test_explicit_flag_decides_on_a_closed_pin(self):
+        """reopen true/false from the request wins over the default rule."""
+        pin = ReviewPin(review_record())
+        self.assertTrue(reopens_on_reply(pin, False, ["b"], True))
+        self.assertFalse(reopens_on_reply(pin, True, [], False))
+
+    def test_default_rule_person_without_tags_on_a_non_question(self):
+        """A person's untagged reply reopens; an agent's, a tagged one, or an answer to a question does not."""
+        pin = ReviewPin(review_record())
+        self.assertTrue(reopens_on_reply(pin, True, [], None))
+        self.assertFalse(reopens_on_reply(pin, False, [], None))
+        self.assertFalse(reopens_on_reply(pin, True, ["bob@example.com"], None))
+        self.assertFalse(reopens_on_reply(ReviewPin(review_record(kind_req="question")), True, [], None))
+
+    def test_decide_reply_reopens_or_refuses_or_replies(self):
+        """A reopening reply is a PinReopened with the text as reason; a full thread refuses only a plain reply."""
+        pin = ReviewPin(review_record())
+        self.assertEqual(decide_reply(pin, ALICE, AT, "redo", ("b",), True, 0),
+                         PinReopened(ALICE, AT, "redo", ("b",), was_closed=True))
+        self.assertEqual(decide_reply(pin, ALICE, AT, "hi", (), False, 0), ThreadFull(0))
+        self.assertEqual(decide_reply(pin, ALICE, AT, "hi", (), False, 5), Replied(ALICE, AT, "hi", ()))
+
+    def test_transition_entries_do_not_count_toward_the_limit(self):
+        """The close entry in the thread is not a reply, so a limit of 1 still allows the first reply."""
+        self.assertIsInstance(decide_reply(ReviewPin(review_record()), ALICE, AT, "hi", (), False, 1), Replied)
+
+    def test_evolve_reply_keeps_the_state_and_bumps_rev(self):
+        """A plain reply adds one entry with its mentions and bumps rev; the pin stays in its state type."""
+        pin = ReviewPin(review_record())
+        replied = evolve_reply(pin, Replied(ALICE, AT, "looks good @Bob", ("bob@example.com",)))
+        self.assertIsInstance(replied, ReviewPin)
+        self.assertEqual(replied.record["thread"][-1]["mentions"], ["bob@example.com"])
+        self.assertNotIn("ev", replied.record["thread"][-1])
+        self.assertEqual(replied.record["rev"], 3)
 
 
 class ThreadMessage(unittest.TestCase):

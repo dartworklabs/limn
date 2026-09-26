@@ -19,6 +19,7 @@ import time
 import unittest
 from pathlib import Path
 
+from limn.pins.model import OpenPin, ReviewPin
 from test_access import ALICE, BOB, CAROL, AccessBase
 from test_qa_021 import BrowserBase, actor
 from test_server import Base, extract_js_fn, js_i18n, js_icons, ps, run_node
@@ -236,14 +237,16 @@ class ReplyApi(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/reopen" % pid, {"reason": "옛 경로"}, BOB)
         self.assertEqual((code, d["state"]), (200, "open"))
 
-    def test_python_api_keeps_its_two_value_return(self):
+    def test_python_api_returns_the_pin_with_its_new_entry_last(self):
+        """reply_pin() returns the pin as it now stands (its state type); the reply's entry is the thread's last."""
         pid = self.review_pin()
-        pin, msg = ps.reply_pin(pid, "사람 답글", B)
-        self.assertEqual((pin["done"], msg["ev"]), (False, "reopen"))
+        pin = ps.reply_pin(pid, "사람 답글", B)
+        self.assertIsInstance(pin, OpenPin)                               # a person's reply reopened it
+        self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
-        pin, msg = ps.reply_pin(pid, "에이전트 답글", dict(ps.LOCAL_ACTOR))
-        self.assertTrue(pin["done"])
-        self.assertNotIn("ev", msg)
+        pin = ps.reply_pin(pid, "에이전트 답글", dict(ps.LOCAL_ACTOR))
+        self.assertIsInstance(pin, ReviewPin)                             # an agent's reply leaves it for review
+        self.assertNotIn("ev", pin.record["thread"][-1])
 
 
 # ---------------------------------------------------------------- 2. Trash

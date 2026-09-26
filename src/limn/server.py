@@ -63,8 +63,9 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinStillOpen, confirm, confirmer,
-    decide_close, decide_reopen, evolve_close, evolve_reopen, next_rev, reopen_request, thread_message,
+    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinReopened, PinStillOpen, Replied,
+    ThreadFull, confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
+    next_rev, reopen_request, reopens_on_reply, thread_message,
 )
 from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, parse_pin  # noqa: E402
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
@@ -4762,20 +4763,9 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 
 
 def reply_reopens(r: dict, human: bool, mentioned, reopen=None) -> bool:
-    """Does a reply reopen this pin? The one rule behind the viewer's single [Reply] (docs/handbook/api.md §스레드 (답글)).
-
-    An open pin never changes. Otherwise an explicit `reopen` (true/false, from the request) decides; without one, a
-    human's reply on a pin awaiting review or done reopens it - the reply becomes the rework instruction - unless it
-    tags a person (then it is a conversation with that person) or the pin is a question (then the reply is an answer).
-    An agent's reply never reopens by the rule. `mentioned` is the post's resolved @-tags without the poster.
-    The viewer's preview (replyReopens) mirrors this function."""
-    if pin_state(r) == "open":
-        return False
-    if reopen is not None:
-        return bool(reopen)
-    if r.get("kind_req") == "question" or not human:
-        return False
-    return not mentioned
+    """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
+    preview (replyReopens) mirrors that rule."""
+    return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
 
 
 def clean_reopen_flag(d: dict):
@@ -4786,47 +4776,56 @@ def clean_reopen_flag(d: dict):
     return v
 
 
-def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None, human=None):
-    """One reply (from a person or an agent). Returns (pin, msg); an unknown id returns (None, None).
+def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None,
+              human=None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
+    """One reply (from a person or an agent); the pin as it stands after it is returned, its new entry last in the thread.
 
-    Whether it also reopens the pin is decided here by reply_reopens() - the viewer only previews it. `human` is
-    whether the poster is a person (the handler also counts a person with the agent role as an agent); None means
-    "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
-    (ev=reopen, the same events), so the pin returns to the open table of pins.md with that reason. Otherwise it is
-    a plain reply: 409 if the thread is full; every @-tag in it is a mention event (whether or not tagged before),
-    and the author plus everyone previously tagged on this pin who is not tagged here gets a replied event. The
-    poster themself gets neither."""
+    Whether it also reopens the pin is decided by limn.pins.lifecycle.reopens_on_reply() - the viewer only previews it.
+    `human` is whether the poster is a person (the handler also counts a person with the agent role as an agent); None
+    means "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
+    (ev=reopen, the same notices), so the pin returns to the open table of pins.md with that reason. Otherwise it is a
+    plain reply, refused as ThreadFull when the thread is full; every @-tag in it is a mention (whether or not tagged
+    before), and the author plus everyone previously tagged on this pin who is not tagged here gets a replied notice.
+    The poster themself gets neither.
+    """
     evs = []
     human = (not is_agent(actor)) if human is None else human
 
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
-            return (None, None), False
+            return PinNotFound(pid), False
         ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
         persons = [lg for lg in ment if role_of(lg) != "agent"]     # tagging an agent-role account is not asking a person
-        if reply_reopens(r, human, persons, reopen):
-            before = pin_mentions_all(r)
-            _reopen(r, rows, actor, text, hints, evs)
-            msg = r["thread"][-1]                  # reply_reopens() is false for an open pin, so a reopen entry was added
-            # _reopen told the author (reopened) and everyone this reply tags (mention). Everyone else tagged on the pin
-            # earlier would have heard of a plain reply (replied) - reopening must not silence them.
-            author = (r.get("author") or {}).get("login")
-            evs.append(make_event("replied", r, actor, [lg for lg in sorted(before) if lg != author and lg not in (msg.get("mentions") or [])],
-                                  msg=msg))
-            r["rev"] = next_rev(r)
-            return (public(r), msg), True
-        if len(thread_replies(r)) >= THREAD_MAX:
-            raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
+        pin = parse_pin(r)
+        event = decide_reply(pin, typed_actor(actor), now_str(), text, tuple(ment),
+                             reopens_on_reply(pin, human, persons, reopen), THREAD_MAX)
+        author = (r.get("author") or {}).get("login")
         before = pin_mentions_all(r)
-        msg = _thread_append(r, actor, text, mentions=ment)
-        r["rev"] = next_rev(r)
-        # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
-        # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
-        evs.append(make_event("mention", r, actor, ment, msg=msg))
-        evs.append(make_event("replied", r, actor, [lg for lg in [(r.get("author") or {}).get("login")] + sorted(before)
-                                                    if lg not in ment], msg=msg))
-        return (public(r), msg), True
+        match event:
+            case ThreadFull():
+                return event, False
+            case PinReopened():
+                replied = reopen_request(pin, event)
+                r.clear()
+                r.update(replied.record)
+                msg = r["thread"][-1]
+                _reopen_notices(r, actor, ment, msg, evs)
+                # Everyone else tagged on the pin earlier would have heard of a plain reply (replied) - reopening must
+                # not silence them.
+                evs.append(make_event("replied", r, actor, [lg for lg in sorted(before) if lg != author and lg not in ment],
+                                      msg=msg))
+            case Replied():
+                replied = evolve_reply(pin, event)
+                r.clear()
+                r.update(replied.record)
+                msg = r["thread"][-1]
+                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
+                # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
+                evs.append(make_event("mention", r, actor, ment, msg=msg))
+                evs.append(make_event("replied", r, actor, [lg for lg in [author] + sorted(before) if lg not in ment],
+                                      msg=msg))
+        return replied, True
     with PIN_LOCK:
         out = transact(fn)[1]
         emit_events(evs)
@@ -4921,11 +4920,15 @@ def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list, request:
     r.clear()
     r.update(opened.record)
     if event.was_closed:
-        msg = r["thread"][-1]
-        evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
-        evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
-                                                     if lg not in ment], msg=msg))
+        _reopen_notices(r, actor, ment, r["thread"][-1], evs)
     return opened
+
+
+def _reopen_notices(r: dict, actor: dict, ment: list, msg: dict, evs: list) -> None:
+    """Queue the notices of a reopen: a mention for everyone the reason @-tags, reopened for the author otherwise."""
+    evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
+    evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
+                                                 if lg not in ment], msg=msg))
 
 
 def typed_actor(actor: dict) -> Actor:
@@ -6441,6 +6444,18 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _reply_answer(self, result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound) -> None:
+        """Answer POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
+        match result:
+            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
+                msg = record["thread"][-1]
+                return self._json({"ok": True, "pin": public(record), "msg": msg, "state": pin_state(record),
+                                   "reopened": msg.get("ev") == "reopen"})
+            case ThreadFull(limit=limit):
+                raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit)
+            case PinNotFound():
+                return self._json({"ok": False, "pin": None, "msg": None, "state": None, "reopened": False})
+
     def _state_reply(self, result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound) -> None:
         """Answer POST /api/pins/{id}/close and /reopen: the pin as it stands now and its state, or ok:false."""
         match result:
@@ -6722,9 +6737,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "reply":
                 text, hints, reopen = clean_thread_text(d.get("text")), clean_mention_hints(d.get("mentions")), clean_reopen_flag(d)
                 human = not is_agent(actor) and self.principal.role != "agent"
-                pin, msg = reply_pin(pid, text, actor, hints, reopen=reopen, human=human)
-                return self._json({"ok": pin is not None, "pin": pin, "msg": msg, "state": pin_state(pin) if pin else None,
-                                   "reopened": bool(msg and msg.get("ev") == "reopen")})
+                return self._reply_answer(reply_pin(pid, text, actor, hints, reopen=reopen, human=human))
             if act == "confirm":
                 return self._confirm_reply(confirm_pin(pid, actor))
             if act == "drop":
