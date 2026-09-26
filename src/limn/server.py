@@ -40,7 +40,6 @@ import re
 import secrets
 import shutil
 import socket
-import struct
 import subprocess
 import sys
 import threading
@@ -72,15 +71,18 @@ from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
 )
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write, file_in_tree  # noqa: E402 - after the path bootstrap above
+from limn.files import atomic_write, file_in_tree, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
+from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound,
+    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts, to_source,
 )
+from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
+from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
 # The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
 # document (web/app.py); they are limn.build's own functions, bound here without a shell.
-from limn.build import build_pdf, cur_pages, state_snapshot as build_state_snapshot  # noqa: E402,F401
+from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as build_state_snapshot  # noqa: E402,F401
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
@@ -140,7 +142,6 @@ DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
-VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
 VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 
 # Viewer icons - Lucide (ISC, vendor/lucide/README.md). Only the <svg> inner elements of the icons in use are
@@ -466,29 +467,18 @@ def build_html(label: str, accent: str) -> str:
 # The build - page directories, build state, the LaTeX build, history, fingerprint - lives in limn/build.py and
 # takes the document and the settings it needs as arguments (docs/handbook/build-sync.md). Callers here pass the
 # document they act on and the run settings; only the tracked build (build_all/build_async) is wired here, because
-# it binds the instance's BuildConfig, --git-pull and the view-only render.
+# it binds the instance's BuildConfig, --git-pull and the view-only render. The PDF.js directory the viewer's vector
+# renderer is served from is bound here too; the name check of a file in it is limn.files.vendor_file.
 
 def default_pdfjs_dir() -> Path:
     """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
     return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
-def vendor_file(name: str):
-    """The file GET /vendor/pdfjs/<name> serves. Accepts only a single (.mjs) name component and never points outside the directory.
-
-    The name pattern already filters out '/', '..', and '%', but resolve() adds a second check against
-    escaping via symlinks and the like."""
-    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
-        return None
-    base = C.pdfjs_dir or default_pdfjs_dir()
-    try:
-        base = base.resolve()
-        f = (base / name).resolve()
-    except (OSError, RuntimeError):
-        return None
-    if f.parent != base or not f.is_file():
-        return None
-    return f
+def vendor_file(name: str) -> Path | None:
+    """The file GET /vendor/pdfjs/<name> serves from this instance's PDF.js directory (--pdfjs-dir, else the bundled
+    one), or None (limn.files.vendor_file: a single .mjs name that stays inside the directory)."""
+    return find_vendor_file(C.pdfjs_dir or default_pdfjs_dir(), name)
 
 
 # ---------------------------------------------------------------- Build
@@ -532,9 +522,9 @@ def build_async(D: Doc) -> dict:
 
 
 def _build_tracked(D: Doc) -> dict:
-    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (_render_pdf_doc)
+    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
     (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
-    step = (lambda: _render_pdf_doc(D)) if D.is_pdf else (lambda: _build(D))
+    step = (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
     return build.run_tracked(D, C.state, step, now_str())
 
 
@@ -594,125 +584,7 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None):
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
 
-# ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
-
-def _tex_group(text: str, pos: int):
-    while pos < len(text) and text[pos].isspace():
-        pos += 1
-    if pos >= len(text) or text[pos] != "{":
-        return None
-    start, depth = pos + 1, 1
-    pos += 1
-    while pos < len(text):
-        if text[pos] == "\\":
-            pos += 2
-            continue
-        if text[pos] == "{":
-            depth += 1
-        elif text[pos] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:pos], pos + 1
-        pos += 1
-    return None
-
-
-def _tex_plain(text: str, depth: int = 0) -> str:
-    """Conservative display conversion, never a TeX evaluator; unsupported macros omit a label."""
-    if depth > 12 or len(text) > 4000:
-        raise ValueError("complex title")
-    out, i = [], 0
-    wrappers = {"textbf", "textit", "texttt", "textrm", "textsf", "textsc", "emph", "mbox", "ensuremath", "mathrm", "mathbf"}
-    while i < len(text):
-        c = text[i]
-        if c == "{":
-            group = _tex_group(text, i)
-            if not group:
-                raise ValueError("unbalanced title")
-            value, i = group
-            out.append(_tex_plain(value, depth + 1))
-        elif c == "\\":
-            match = re.match(r"\\([A-Za-z@]+|.)", text[i:])
-            if not match:
-                raise ValueError("bad macro")
-            macro = match[1]
-            i += len(match[0])
-            if macro in ("protect", "relax", "ignorespaces"):
-                continue
-            if macro in ("&", "%", "#", "_", "$", "{", "}"):
-                out.append(macro)
-            elif macro in (" ", ",", ";", "quad", "qquad", "enspace"):
-                out.append(" ")
-            elif macro in wrappers or macro == "texorpdfstring":
-                first = _tex_group(text, i)
-                if not first:
-                    raise ValueError("missing macro group")
-                value, i = first
-                if macro == "texorpdfstring":
-                    second = _tex_group(text, i)
-                    if not second:
-                        raise ValueError("missing PDF title")
-                    value, i = second
-                out.append(_tex_plain(value, depth + 1))
-            else:
-                raise ValueError("unsupported title macro")
-        elif c in "$^_}":
-            raise ValueError("unsupported math title")
-        else:
-            out.append(" " if c == "~" else c)
-            i += 1
-    return " ".join("".join(out).replace("---", "—").replace("--", "–").split())
-
-
-def outline_labels(D: Doc) -> dict:
-    pages = build.cur_pages(D)
-    result = {"build": pages.name, "labels": []}
-    if D.is_pdf:
-        return result
-    aux = pages / (D.main.stem + ".aux")
-    try:
-        if aux.is_symlink() or aux.stat().st_size > 4 * 1024 * 1024:
-            return result
-        source = aux.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return result
-    for match in re.finditer(r"\\@writefile\s*\{toc\}", source):
-        outer = _tex_group(source, match.end())
-        if not outer:
-            continue
-        line = outer[0]
-        marker = re.match(r"\s*\\contentsline\s*", line)
-        if not marker:
-            continue
-        groups, pos = [], marker.end()
-        for _ in range(4):
-            group = _tex_group(line, pos)
-            if not group:
-                break
-            value, pos = group
-            groups.append(value)
-        if len(groups) < 3 or groups[0] not in ("part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"):
-            continue
-        level, title, page = groups[:3]
-        number, anchor = "", groups[3] if len(groups) > 3 else ""
-        numberline = re.match(r"\s*(?:\\protect\s*)?\\numberline\s*", title)
-        if numberline:
-            group = _tex_group(title, numberline.end())
-            if not group:
-                continue
-            number, pos = group
-            title = title[pos:]
-        try:
-            row = {"number": _tex_plain(number), "title": _tex_plain(title), "page": _tex_plain(page),
-                   "level": level, "anchor": anchor[:200]}
-        except ValueError:
-            # Keep a placeholder so consumers cannot shift all subsequent numbers by index.
-            row = {"number": "", "title": "", "page": page[:40], "level": level, "anchor": anchor[:200]}
-        result["labels"].append(row)
-        if len(result["labels"]) >= 200:
-            break
-    return result
-
+# ---------------------------------------------------------------- --git-pull: the pull itself and the remote-main watch
 
 def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
@@ -891,60 +763,8 @@ def _build(D: Doc) -> dict:
 
 # ---------------------------------------------------------------- View-only PDF documents
 #
-# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
-# (mtime/size), the page images are re-rendered - since it goes through the same build path
-# (_build_tracked -> history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
-
-def pdf_signature(D: Doc):
-    try:
-        st = D.main.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
-
-
-def _render_pdf_doc(D: Doc) -> dict:
-    """The 'build' for view-only document D - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
-    t0 = time.time()
-    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
-    sig = pdf_signature(D)
-    if sig is None:
-        res["log"] = "PDF 가 없습니다: %s" % D.main
-        return res
-    try:
-        res["src_hash"] = build.doc_fingerprint(D, C.state)
-    except OSError:
-        res["src_hash"] = None
-    newdir, err = build.render_pages(D, D.main, [], C.dpi)
-    if newdir is None:
-        res["log"] = err
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
-            atomic_write(D.dir / "pdf_sig.txt", sig)
-        except OSError:
-            pass
-        return res
-    res["head"] = build.commit_pages(D, newdir)
-    try:
-        atomic_write(D.dir / "pdf_sig.txt", sig)
-    except OSError:
-        pass
-    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
-               elapsed_s=round(time.time() - t0, 1))
-    return res
-
-
-def pdf_changed(D: Doc) -> bool:
-    """Has the view-only PDF changed since the page images were last rendered (or have they never been rendered)?"""
-    sig = pdf_signature(D)
-    if sig is None:
-        return False
-    try:
-        done = (D.dir / "pdf_sig.txt").read_text().strip()
-    except OSError:
-        done = ""
-    return sig != done
-
+# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild; when that PDF file changes, its page images are
+# re-rendered through the same tracked build as a LaTeX rebuild (limn.build.render_pdf_doc, pdf_changed).
 
 def refresh_pdf_doc(D: Doc) -> bool:
     """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
@@ -954,26 +774,11 @@ def refresh_pdf_doc(D: Doc) -> bool:
     return not r.get("busy")
 
 
-# ---------------------------------------------------------------- Meta
-
-def png_size(path: Path) -> tuple:
-    with path.open("rb") as fh:
-        return struct.unpack(">II", fh.read(24)[16:24])
-
-
-def page_list(pdir: Path, dpi: int | None = None) -> list:
-    """The page images of page directory pdir as {name, pt_w, pt_h}: sizes in points at the dpi they were rendered at
-    (default: this instance's). An unreadable image is left out."""
-    dpi = C.dpi if dpi is None else dpi
-    pages = []
-    for p in sorted(pdir.glob("page-*.png")):
-        try:
-            w, h = png_size(p)
-        except (OSError, struct.error):
-            continue
-        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
-    return pages
-
+# ---------------------------------------------------------------- Documents and meta
+#
+# The document list (DOCS, the first is the default) is this composition root's. The lookups over it are
+# limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
+# list and the run settings as arguments, bound here.
 
 _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
@@ -992,140 +797,38 @@ def multi_doc() -> bool:
     return len(DOCS) > 1
 
 
-def doc_by_key(key):
-    return next((d for d in DOCS if d.key == key), None)
+def doc_by_key(key) -> Doc | None:
+    """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
+    return documents.doc_by_key(DOCS, key)
 
 
 def pin_doc_key(r: dict) -> str:
-    """The document key a pin belongs to. Legacy records without a doc field are read as the first document (no migration write)."""
-    k = r.get("doc")
-    return k if isinstance(k, str) and k else DOCS[0].key
+    """The document key a pin belongs to; a legacy record without a doc field is the first document's
+    (limn.documents.pin_doc_key)."""
+    return documents.pin_doc_key(r, DOCS)
 
 
-def doc_for_file(path) -> Doc:
-    """Which LaTeX document a request that only gave file (agent curl) belongs to. The document whose build root most deeply contains it, or the first document if none."""
-    try:
-        p = Path(path) if os.path.isabs(str(path)) else C.src / str(path)
-        p = p.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return DOCS[0]
-    best, depth = None, -1
-    for d in DOCS:
-        if d.is_pdf:
-            continue
-        try:
-            p.relative_to(d.src.resolve())
-        except (ValueError, OSError, RuntimeError):
-            continue
-        n = len(d.src.resolve().parts)
-        if n > depth:
-            best, depth = d, n
-    return best or DOCS[0]
-
-
-def pins_rev() -> str:
-    try:
-        st = C.pins_jsonl.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return "0"
-
-
-def doc_brief(D: Doc) -> dict:
-    """A summary of one document - used by /api/docs and (with multiple documents) /api/meta's docs. Never writes (called from polling)."""
-    b = build.state_snapshot(D)
-    stale = (not D.is_pdf) and build.source_newer(D, C.state) > 2
-    pdir = build.cur_pages(D)
-    n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
-    return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
-            "main": D.main.name, "stale_build": stale, "src_mtime": build.src_mtime(D, C.state),
-            "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
-            "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
-            "pages_build": pdir.name, "n_pages": n_pages}
+def meta_settings() -> MetaSettings:
+    """The run settings GET /api/meta reads, made per request like pin_store(), so a test (or main()) that changes C is
+    seen at once."""
+    return MetaSettings(state=C.state, pins_md=C.pins_md, pins_jsonl=C.pins_jsonl, label=C.label, accent=C.accent,
+                        repo=C.repo, dpi=C.dpi)
 
 
 def docs_payload() -> dict:
     """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
     rows, _ = read_pins()
-    counts: dict = {}
-    for r in rows:
-        if not r.get("done"):
-            k = pin_doc_key(r)
-            counts[k] = counts.get(k, 0) + 1
-    known = {d.key for d in DOCS}
-    return {"docs": [dict(doc_brief(d), n_open=counts.get(d.key, 0)) for d in DOCS],
-            "default": DOCS[0].key, "multi": multi_doc(),
-            "other_open": sum(v for k, v in counts.items() if k not in known)}
+    return meta_reads.docs_payload(DOCS, rows, pin_doc_key, C.state)
 
 
 def meta(D: Doc, actor: dict, light: bool = False) -> dict:
-    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer; with light (polling)
-    the pin counts are left out, and with them the sync write of snapshot_pins()."""
-
-    def read(f):
-        try:
-            return (D.dir / f).read_text().strip()
-        except OSError:
-            return "?"
-    bstate = build.state_snapshot(D)
-    sm = build.src_mtime(D, C.state)
-    newer = 0.0 if D.is_pdf else build.source_newer(D, C.state)     # view-only: the server re-renders on its own when the PDF changes
-    out = {"pages": page_list(build.cur_pages(D)), "built_at": read("built_at.txt"), "head": read("head.txt"),
-           "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-           "label": C.label, "accent": C.accent, "repo": C.repo,
-           "building": D.lock.locked(), "sync": sync_status(),
-           "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
-           # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
-           "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
-           "src_mtime": sm, "build_src_mtime": build.read_built_src_mtime(D),
-           "pages_build": build.cur_pages(D).name,
-           "pins_rev": pins_rev(),
-           # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
-           "build_seq": bstate.get("seq", 0),
-           "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
-           "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
-    if multi_doc():                       # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
-        out["docs"] = [doc_brief(d) for d in DOCS]
-        out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"])
+    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
+    light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
+    out = meta_reads.meta(D, actor, meta_settings(), DOCS, sync_status(), time.time())
     if light:                             # polling only - skips the sync write in snapshot_pins()
         return out
-    rows = snapshot_pins()
-    states = [pin_state(r) for r in rows]
-    out["n_open"] = states.count("open")
-    out["n_done"] = states.count("done")          # done only - awaiting review (done=true, review=true) is n_review
-    out["n_review"] = states.count("review")
+    out.update(meta_reads.pin_counts([pin_state(r) for r in snapshot_pins()]))
     return out
-
-
-# ---------------------------------------------------------------- Source-text access
-
-def tex_lines(path: Path) -> list:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
-
-
-def to_source(D: Doc, path: str) -> Path:
-    """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path."""
-    p = Path(path)
-    for base in (D.build, D.build.resolve()):
-        try:
-            return D.src / p.relative_to(base)
-        except ValueError:
-            pass
-    try:
-        return D.src / p.resolve().relative_to(D.build.resolve())
-    except (ValueError, OSError):
-        pass
-    # If the state directory was moved or cloned, synctex points at the old build path. If the path's tail
-    # matches a real file inside the manuscript tree, fall back to that (longest tail wins; never reads outside the tree).
-    parts = p.parts
-    for k in range(1, len(parts)):
-        cand = D.src.joinpath(*parts[k:])
-        if cand.is_file():
-            return cand
-    return p
 
 
 # ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
@@ -1806,72 +1509,14 @@ def _person_name(login: str) -> str:
 
 
 def request_doc(key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
-    """The document key names (limn.web.parse.parse_doc_key checked it). With no key, the document holding file_hint
-    (agent curl names only a file), else the first document. An unknown key is DocNotFound with the keys this instance
-    serves (answered 404) - silently falling back to the first document would attach the pin to the wrong document."""
-    if not key:
-        if file_hint and multi_doc():
-            return doc_for_file(file_hint)
-        return DOCS[0]
-    D = doc_by_key(key)
-    if D is None:
-        return DocNotFound(key, tuple(d.key for d in DOCS))
-    return D
-
-
-class DocumentFacts:
-    """limn.web.parse.DocumentFacts for document D: what the location parsers read from this machine's disk - the
-    manuscript tree root, a file's lines, the pages of a build of D (sized at dpi). Made per request by
-    document_facts(); every method reads at call time."""
-
-    def __init__(self, D: Doc, root: Path, dpi: int) -> None:
-        """Bind the document, the manuscript root and the dpi the page images were rendered at."""
-        self._doc, self._root, self._dpi = D, root, dpi
-
-    @property
-    def key(self) -> str:
-        """The document key."""
-        return self._doc.key
-
-    @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document."""
-        return self._doc.is_pdf
-
-    @property
-    def pdf(self) -> Path:
-        """The document's main file (a view-only document's PDF)."""
-        return self._doc.main
-
-    @property
-    def root(self) -> Path:
-        """The manuscript tree."""
-        return self._root
-
-    def lines(self, path: Path) -> list:
-        """The file's lines (tex_lines: [] when unreadable)."""
-        return tex_lines(path)
-
-    def page_count(self, name: str | None) -> int:
-        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.build.pages_dir_for)."""
-        return len(page_list(build.pages_dir_for(self._doc, name), self._dpi))
-
-    def current_build(self) -> str:
-        """The name of D's page directory on screen."""
-        return build.cur_pages(self._doc).name
-
-    def pick_pages(self, name: str | None) -> tuple | None:
-        """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
-        when name is a page directory of D that is gone."""
-        if name is not None and not (self._doc.dir / name).is_dir():
-            return None
-        pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
-        return pdir, [(p["pt_w"], p["pt_h"]) for p in page_list(pdir, self._dpi)]
+    """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
+    key it does not serve (limn.documents.request_doc)."""
+    return documents.request_doc(DOCS, C.src, key, file_hint)
 
 
 def document_facts(D: Doc) -> DocumentFacts:
-    """The parsing facts of document D with this instance's manuscript root and dpi - made per request like
-    pin_store(), so a test (or main()) that changes C is seen at once."""
+    """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root and dpi -
+    made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
     return DocumentFacts(D, C.src, C.dpi)
 
 
@@ -3829,9 +3474,9 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
     if D.root:
         build.migrate_pages(D)
     build.seed_builds(D, C.state)
-    need = D.is_pdf and (pdf_changed(D) or not page_list(build.cur_pages(D)))
+    need = D.is_pdf and (pdf_changed(D) or not build.page_list(build.cur_pages(D), C.dpi))
     if not D.is_pdf:
-        need = not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D))
+        need = not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi)
     if not need:
         return {"state": "skip"}
     return build_all(D) if wait else build_async(D)
@@ -4130,7 +3775,7 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
         D = DOCS[0]
         build.migrate_pages(D)
         build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
-        if not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
+        if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
             r = build_all(D)
             if r.get("state") == "fail":
                 return StartupRefused("Build failed:\n" + r.get("log", ""))

@@ -4,7 +4,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작은 [operations.md](operations.md) §뷰어 사용법에 있다.
 
-구현은 두 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`; 2026-09-26부터 셸 없이 문서를 인자로 받는다), `--git-pull`(`git_pull_phase`, 저장소 단위로 나눠 쓰는 `repo_pull`), 원격 main 감시(`sync_main_once`), 보기 전용 PDF 다시 그리기(`_render_pdf_doc`)를 맡는다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
+구현은 세 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`; 2026-09-26부터 셸 없이 문서를 인자로 받는다), `--git-pull`(`git_pull_phase`, 저장소 단위로 나눠 쓰는 `repo_pull`), 원격 main 감시(`sync_main_once`), 보기 전용 PDF가 바뀌었을 때 추적 빌드를 거는 일(`refresh_pdf_doc`)을 맡는다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
 
 > **한눈에**
 >
@@ -146,7 +146,7 @@ pull이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한�
 
 폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다.
 
-- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`.
+- `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`(`limn.meta.pins_rev`).
 - `src_mtime`: 아래에서 설명한다.
 
 그래서 변화는 몇 초 안에 화면에 들어오고, 아무 변화가 없는 동안은 `pins.jsonl` 을 건드리지 않는다.
@@ -218,7 +218,7 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 
 `--doc` 으로 연 `.pdf` 문서는 LaTeX 빌드가 없다. 대신 감시 스레드가 3초마다 그 PDF의 `mtime:크기` 를 본다. 쪽을 그린 때의 값(`docs/<키>/pdf_sig.txt`)과 다르면 백그라운드로 쪽을 다시 그린다.
 
-- 다시 그리기는 LaTeX 문서와 같은 빌드 경로(`limn/build.py` 의 `run_tracked`)를 탄다. 그래서 `GET /api/build?doc=<키>` 의 `state`, `phase:"render"`, `build_seq`, 빌드 이력이 LaTeX 문서와 똑같이 움직인다. 뷰어도 재빌드가 끝난 것처럼 화면을 바꾼다.
+- 다시 그리기(`limn/build.py` 의 `render_pdf_doc`)는 LaTeX 문서와 같은 빌드 경로(`run_tracked`)를 탄다. 그래서 `GET /api/build?doc=<키>` 의 `state`, `phase:"render"`, `build_seq`, 빌드 이력이 LaTeX 문서와 똑같이 움직인다. 뷰어도 재빌드가 끝난 것처럼 화면을 바꾼다.
 - 지문은 PDF 내용의 해시다. 그래서 바뀐 PDF 위의 옛 핀은 점선(추정)이 된다(§위치 추정 (`est`)).
 - 그리기가 실패해도 같은 파일로 되풀이하지 않는다. 파일이 바뀌면 다시 시도한다.
 - `stale_build` 는 늘 `false` 다.

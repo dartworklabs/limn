@@ -6,11 +6,15 @@ half-written file. What gets written is the caller's business.
 
 file_in_tree is the one rule for a path a request or SyncTeX names inside the manuscript tree: the request parsers
 (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own message.
+
+tex_lines is how every line number is counted when a manuscript file is read; vendor_file is the name guard of the
+bundled PDF.js files the viewer loads.
 """
 from __future__ import annotations
 
 import contextlib
 import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,3 +77,32 @@ def file_in_tree(p: object, root: Path) -> Path | TreePathRefusal:
     if not out.is_file():
         return NotAFile()
     return out
+
+
+def tex_lines(path: Path) -> list[str]:
+    """The lines of a manuscript file (str.splitlines, so line N is index N-1), or [] when it cannot be read or is
+    not UTF-8. Every line number a pin records counts lines this way."""
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
+VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
+
+
+def vendor_file(base: Path, name: object) -> Path | None:
+    """The file of the bundled-library directory `base` that GET /vendor/pdfjs/<name> serves, or None. Accepts only a
+    single (.mjs) name component and never points outside the directory: the name pattern already filters out '/',
+    '..' and '%', and resolve() adds a second check against escaping via symlinks and the like. A missing directory
+    or file is None."""
+    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
+        return None
+    try:
+        base = base.resolve()
+        f = (base / name).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if f.parent != base or not f.is_file():
+        return None
+    return f
