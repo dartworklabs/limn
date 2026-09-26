@@ -188,7 +188,7 @@ class ViewerBase(BrowserBase):
             ps.add_pin({"file": str(self.main), "lo": lo, "hi": lo + 1, "page": 1, "note": "메모 %d" % lo,
                         "frac": [0.15, y, 0.5, 0.04]}, actor(ALICE))
         rid = ps.add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
-                         actor(ALICE))
+                         actor(ALICE)).record["id"]   # add_pin returns the new OpenPin (limn.pins.edit)
         ps.set_done(rid, True, dict(ps.LOCAL_ACTOR), reply="고침")
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
