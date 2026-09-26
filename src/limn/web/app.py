@@ -49,7 +49,7 @@ Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payloa
 Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query string
 
 
-# The run settings the handler reads (C: origin_check, src, accent), a document a request acts on (key, is_pdf) and
+# The run settings the handler reads (C: origin_check, src, state, accent), a document a request acts on (key, is_pdf) and
 # who a request is (actor, role, via) - server.py's own types, so its members type-check against App.
 Config: TypeAlias = Cfg
 Document: TypeAlias = Doc

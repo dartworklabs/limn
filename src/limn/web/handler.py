@@ -512,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
         changes = None
         if act == "close":
             reply, ref = accepted(parse.parse_close_body(d))
-            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src))
+            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src, app.C.state))
             review = accepted(parse.parse_review_flag(d))
             if review is None and self.principal.role == "agent":
                 review = True  # a person with the agent role closes into review like any agent

@@ -9,7 +9,7 @@ StartupRefused instead of ending the process - server.main() is the one place th
   trusted-proxy or an explicit --i-know-this-is-insecure; the deprecated headerless loopback agent only under tailscale
   on a loopback bind. access_log_lines() is the startup log about the result.
 - Documents and files: the --doc specs (parse_doc_arg, make_docs), the main .tex without --doc (detect_main,
-  pick_documents), the state folder (state_dir), and people.json's permissions (tighten_state_perms).
+  pick_documents), the state folder (state_dir, state_placement), and people.json's permissions (tighten_state_perms).
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
@@ -23,6 +23,7 @@ tighten_state_perms) touch only what their arguments name.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import hashlib
 import os
@@ -427,6 +428,48 @@ def state_dir(state_dir_arg: str | None, src: Path, data_home: Path) -> Path:
     return (
         Path(state_dir_arg).expanduser().resolve() if state_dir_arg else data_home / "limn" / "serve" / state_slug(src)
     )
+
+
+@dataclass(frozen=True)
+class StateInManuscript:
+    """The state folder lies inside the manuscript folder and holds none of the served documents: the run starts, the
+    manuscript tree (limn.files.tree_part) and the build copy leave the folder out, and main() prints warning() on
+    stderr - the folder holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl, which git or a file
+    sync of the manuscript would otherwise carry along."""
+
+    state: Path
+    manuscript: Path
+
+    def warning(self) -> str:
+        """The one stderr line about it."""
+        return (
+            "warning: the state folder %s is inside the manuscript %s - Limn leaves it out of the manuscript tree "
+            "(snippets, pins, the build copy), but it holds people.json, tokens.json (hashes), audit.jsonl and "
+            "events.jsonl: keep it out of git (.gitignore) and file sync, or give a --state-dir outside the manuscript"
+            % (self.state, self.manuscript)
+        )
+
+
+def state_placement(state: Path, src: Path, served: Sequence[Path]) -> StateInManuscript | StartupRefused | None:
+    """Where the state folder lies against the manuscript folder src, both with symlinks resolved: None outside it
+    (the default place, or a folder that holds the manuscript), StateInManuscript inside it, and a refusal when it
+    also holds a file of `served` (the documents' main files) - the tree rule never reads a file of the state
+    folder, so such a document could take no pin (a state folder that is the manuscript folder itself is one)."""
+    try:
+        held, base = state.resolve(), src.resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not held.is_relative_to(base):
+        return None
+    for f in served:
+        with contextlib.suppress(OSError, RuntimeError):
+            if f.resolve().is_relative_to(held):
+                return StartupRefused(
+                    "The state folder %s holds %s, a document this run serves: Limn never reads a file of its state "
+                    "folder as manuscript, so that document could take no pin. Give a --state-dir outside the "
+                    "manuscript (the default) or a folder of its own." % (held, f)
+                )
+    return StateInManuscript(held, base)
 
 
 def tighten_state_perms(people_file: Path) -> None:

@@ -129,8 +129,8 @@ Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that ha
 class BuildConfig:
     """The instance settings a LaTeX build reads. The composition root (server.py) makes one from its run arguments.
 
-    state is the instance state folder: a state folder placed inside the manuscript is skipped when the
-    manuscript is scanned. dpi is the page-image resolution, timeout the latexmk limit in seconds."""
+    state is the instance state folder: a state folder placed inside the manuscript is skipped when the build
+    copies or scans the manuscript. dpi is the page-image resolution, timeout the latexmk limit in seconds."""
 
     state: Path
     dpi: int
@@ -521,20 +521,45 @@ def run_logged(cmd: list[str], cwd: Path, timeout: int) -> tuple[int | None, str
         return None, (out or "") + "\n[시간 초과 %d초 — 빌드를 중단했습니다]" % timeout, True
 
 
-def copy_manuscript(src: Path, dest: Path) -> None:
-    """Mirror the manuscript folder into the build folder, skipping BUILD_EXCLUDE_DIRS and *.synctex.gz.
+def state_in_source(src: Path, state: Path) -> tuple[str, ...] | None:
+    """The parts of the state folder below the folder src, both with symlinks resolved, when --state-dir puts it
+    strictly inside src; None when it lies elsewhere or a path cannot be resolved (then it is not in src's walk)."""
+    try:
+        parts = state.resolve().relative_to(src.resolve()).parts
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return parts or None
 
+
+def _rsync_literal(name: str) -> str:
+    """name as an rsync pattern that matches only itself: rsync reads a backslash as an escape only in a pattern that
+    holds a wildcard (*, ?, [), so a name with one gets every wildcard and backslash escaped, and any other name is
+    already literal."""
+    if not any(c in name for c in "*?["):
+        return name
+    return re.sub(r"([*?\[\\])", r"\\\1", name)
+
+
+def copy_manuscript(src: Path, dest: Path, state: Path) -> None:
+    """Mirror the manuscript folder into the build folder, skipping BUILD_EXCLUDE_DIRS, *.synctex.gz and the state
+    folder `state` when --state-dir puts it inside src (state_in_source).
+
+    The state folder holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl - not manuscript - and
+    usually the build folder itself, which a copy would nest one level deeper on every build.
     Uses rsync -a --delete when it is installed, otherwise replaces dest with a fresh tree copy.
     Raises ManuscriptCopyError when the copy cannot be trusted: rsync exits non-zero (a partial
     transfer exits 23 and skips --delete, leaving removed files behind), times out, or the copy hits
     an OS error. The caller must not compile dest after that.
     """
     rs = shutil.which("rsync")
+    held = state_in_source(src, state)
     try:
         if rs:
             excl = []
             for d in BUILD_EXCLUDE_DIRS:
                 excl += ["--exclude", d + "/"]
+            if held is not None:  # anchored at the transfer root: only that folder, never a same-named one elsewhere
+                excl += ["--exclude", "/" + "/".join(_rsync_literal(part) for part in held) + "/"]
             r = subprocess.run(
                 [rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
                 capture_output=True,
@@ -548,9 +573,31 @@ def copy_manuscript(src: Path, dest: Path) -> None:
                 raise ManuscriptCopyError("rsync exit %d: %s" % (r.returncode, last))
         else:  # must still work without rsync
             shutil.rmtree(dest, ignore_errors=True)
-            shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
+            shutil.copytree(src, dest, ignore=_copy_ignore(src, held))
     except (subprocess.TimeoutExpired, OSError) as e:
         raise ManuscriptCopyError(str(e)) from e
+
+
+def _copy_ignore(src: Path, held: tuple[str, ...] | None) -> Callable[[str, list[str]], set[str]]:
+    """shutil.copytree's ignore for copy_manuscript without rsync: BUILD_EXCLUDE_DIRS and *.synctex.gz by name, and the
+    state folder `held` (its parts below src, state_in_source) at that one place. Folders are compared with symlinks
+    resolved, as held is: copytree follows a linked folder, so a link into the state folder copies nothing of it."""
+    by_name = shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz")
+    base = os.path.realpath(src)
+
+    def ignore(folder: str, names: list[str]) -> set[str]:
+        """The names of folder to skip."""
+        out = set(by_name(folder, names))
+        if held is not None:
+            rel = Path(os.path.relpath(os.path.realpath(folder), base)).parts
+            here = () if rel == (".",) else rel
+            if here[: len(held)] == held:
+                return set(names)
+            if here == held[:-1] and held[-1] in names:
+                out.add(held[-1])
+        return out
+
+    return ignore
 
 
 def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]] | None) -> BuildResult:
@@ -578,7 +625,7 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     res["src_mtime"] = src_mtime(D, cfg.state, force=True)
 
     try:
-        copy_manuscript(D.src, D.build)
+        copy_manuscript(D.src, D.build, cfg.state)
     except ManuscriptCopyError as e:
         res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
         res["elapsed_s"] = round(time.time() - t0, 1)
@@ -937,9 +984,7 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
     main_pdf = D.pdf_name
     # the PDF next to the main .tex (a build artifact / committed copy) is not part of the manuscript
     main_at = tuple(D.main_rel.parent.parts)
-    state_in_root = None
-    with contextlib.suppress(ValueError, OSError, RuntimeError):
-        state_in_root = tuple(state_dir.resolve().relative_to(root.resolve()).parts)
+    state_in_root = state_in_source(root, state_dir)
 
     def walk(d: Path, rel_parts: tuple[str, ...]) -> Iterator[tuple[str, os.DirEntry[str]]]:
         """Depth-first, name-sorted walk of d (rel_parts is d relative to root), yielding the manuscript files."""
