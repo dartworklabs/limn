@@ -130,8 +130,8 @@ class App(Protocol):
         """The installed Limn version."""
         ...
 
-    def people_roles(self) -> dict[str, str]:
-        """{login: role} from people.json."""
+    def people_roles(self) -> access.PeopleRoles:
+        """{login: role} from people.json, or PeopleUnreadable while it cannot be used."""
         ...
 
     def known_people(self, rows: list[Json] | None = None) -> dict[str, Json]:

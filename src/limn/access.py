@@ -12,11 +12,13 @@ would pass (docs/handbook/code-style-roadmap.md §R10). Status, reason code and 
 Nothing here reads the run settings or imports server.py. The composition root (server.py) passes:
 - AccessSettings: the run options identify/admit read, built from its C per call;
 - AccessLookups: the file-backed facts read at request time (tokens.json entries, people.json roles) and the one-time
-  loopback-agent warning. server.py owns the process's FileCache for each file and the WarnOnce.
+  loopback-agent warning. server.py owns the process's FileCache for each file and the WarnOnce. An unusable
+  people.json reaches here as PeopleUnreadable and grants nothing (person_role, is_member), as an unusable tokens.json
+  accepts no token.
 The state helpers behind `limn token` / `limn member` (token_create, member_add, ...) take the state folder and an
 audit sink (AuditSink), which the CLI gets from the composition root. people.json's entry check and stored text are
-the people store's own (limn.people.valid_people, people_text), imported from there - one format for the running
-server's writes and `limn member`'s.
+the people store's own (limn.people.load_people, people_text), imported from there - one format and one
+judgement of an unusable file for the running server and `limn member`.
 """
 
 from __future__ import annotations
@@ -42,13 +44,15 @@ from urllib.parse import urlparse
 
 from limn.files import atomic_write, store_lock
 from limn.guidance import UNAUTHENTICATED, loopback_refused_text
-from limn.people import people_text, valid_people
+from limn.people import PEOPLE_FILE, PeopleUnreadable, load_people, people_text
 from limn.pins.edit import LOCAL_LOGIN
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
 IPNetwork: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
+# people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
+PeopleRoles: TypeAlias = Mapping[str, str] | PeopleUnreadable
 HostEntry: TypeAlias = tuple[str, int | None]  # one --public-host: (lowercase name, port or None)
 T = TypeVar("T")
 
@@ -118,12 +122,12 @@ class AccessLookups:
     state, so `limn token revoke` and `limn member role` take effect on the next request without a restart."""
 
     tokens: Callable[[], Sequence[Json]]  # the valid entries of tokens.json now
-    roles: Callable[[], Mapping[str, str]]  # {login: role} of everyone in people.json now
+    roles: Callable[[], PeopleRoles]  # {login: role} of everyone in people.json now, or PeopleUnreadable
     warn_loopback_agent: Callable[[], None]  # the loopback-agent deprecation warning (printed once per process)
 
 
 class FileCache(Generic[T]):
-    """One value derived from a file, derived again only when the file's (inode, mtime_ns, size) changes.
+    """One value derived from a file, derived again only when the file's stat key (_stat_key) changes.
 
     The key is the path together with that stat, so one cache follows a state folder that changes (tests, a
     restart). A missing file gives `empty` without calling load. A file that cannot be stat'ed still calls load, and
@@ -146,15 +150,17 @@ class FileCache(Generic[T]):
 
 
 def _stat_key(p: Path) -> object:
-    """What identifies this version of file p: (inode, mtime_ns, size); None if it does not exist, "unreadable" if
-    it cannot be stat'ed."""
+    """What identifies this version of file p: (inode, mtime_ns, size, mode, ctime_ns); None if it does not exist,
+    "unreadable" if it cannot be stat'ed. The mode and ctime make a chmod or chown - which change neither the content
+    nor mtime but decide whether the file can be read - a new version, so a people.json or tokens.json made readable
+    again is read again without a restart."""
     try:
         st = p.stat()
     except FileNotFoundError:
         return None
     except OSError:
         return "unreadable"
-    return (st.st_ino, st.st_mtime_ns, st.st_size)
+    return (st.st_ino, st.st_mtime_ns, st.st_size, st.st_mode, st.st_ctime_ns)
 
 
 class WarnOnce:
@@ -467,13 +473,13 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
         a = proxy_actor(headers, settings) if peer_is_trusted_proxy(peer, settings.trusted_proxies) else None
         if a is None or not valid_login(a["login"]):
             raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-        return Principal(a, lookups.roles().get(a["login"], DEFAULT_ROLE), "header")
+        return Principal(a, person_role(lookups.roles(), a["login"]), "header")
     if loop:
         a, via = actor_of(headers)
         if via:
             if not valid_login(a["login"]):
                 raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-            return Principal(a, lookups.roles().get(a["login"], DEFAULT_ROLE), "header")
+            return Principal(a, person_role(lookups.roles(), a["login"]), "header")
         if settings.agent_loopback:
             if came_through_proxy(headers) and not settings.tailnet_agent:
                 # tailscale serve connects from loopback too. Without identity headers such a request is a tagged
@@ -493,19 +499,20 @@ def admit(
     host: str | None,
     headers: Message | None,
     settings: AccessSettings,
-    roles: Callable[[], Mapping[str, str]],
+    roles: Callable[[], PeopleRoles],
 ) -> None:
     """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
     admits logins in people.json (roles(), read only then) or --allow; otherwise --allow (if set) admits only its
     logins. Without either, everyone the provider identifies is admitted (and recorded in people.json as an editor on
-    first visit). Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged
+    first visit). While people.json cannot be used, it lists no one (is_member): --members-only then admits only
+    --allow's logins. Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged
     device) never gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a
     list is configured, as in v0.1. A refusal raises HTTPError 403 (not_member / not_allowed / headerless) with its
     browser page."""
     login = p.actor.get("login")
     if p.via == "header":
         if settings.members_only:
-            if login not in settings.allow and login not in roles():
+            if login not in settings.allow and not is_member(roles(), login):
                 raise HTTPError(
                     403,
                     "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
@@ -696,19 +703,35 @@ def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     return {x["login"]: role_value(x.get("role")) for x in rows}
 
 
+def people_roles_of(read: list[Json] | PeopleUnreadable) -> PeopleRoles:
+    """What a role lookup holds for one read of people.json (limn.people.load_people): roles_of its rows, or the
+    PeopleUnreadable itself - never an empty mapping, which would make everyone the DEFAULT_ROLE (an escalation)."""
+    return read if isinstance(read, PeopleUnreadable) else roles_of(read)
+
+
+def person_role(roles: PeopleRoles, login: str) -> str:
+    """The role of a person a header vouches for: their people.json role, DEFAULT_ROLE when people.json does not list
+    them - and viewer for everyone while people.json cannot be used (least privilege). Keeping the roles of an earlier
+    good read was considered and rejected: the answer would then depend on the process's history (a restart would
+    change it), and tokens.json fails the same way - an unusable file grants nothing."""
+    if isinstance(roles, PeopleUnreadable):
+        return "viewer"
+    return roles.get(login, DEFAULT_ROLE)
+
+
+def is_member(roles: PeopleRoles, login: object) -> bool:
+    """Whether people.json lists login (what --members-only admits besides --allow); never while it cannot be used."""
+    return not isinstance(roles, PeopleUnreadable) and login in roles
+
+
 def load_people_file(state: Path) -> list[Json]:
-    """people.json for the CLI: its valid entries (limn.people.valid_people), [] if absent, ValueError if it exists but
-    cannot be read (never overwrite what we could not read)."""
-    p = Path(state) / "people.json"
-    try:
-        d = json.loads(p.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    except (OSError, ValueError) as e:
-        raise ValueError("cannot read %s: %s" % (p, e)) from e
-    if not isinstance(d, dict) or not isinstance(d.get("people"), list):
-        raise ValueError("%s is not a Limn people file" % p)
-    return valid_people(d)
+    """people.json for the CLI: its valid entries, [] if absent, ValueError with the reason if it exists but cannot be
+    used - the same judgement the server makes (limn.people.load_people), so `limn member` never overwrites a file the
+    server would not read either."""
+    rows = load_people(Path(state) / PEOPLE_FILE)
+    if isinstance(rows, PeopleUnreadable):
+        raise ValueError(rows.reason)
+    return rows
 
 
 # One _people_update step: edits rows in place -> (result, audit), audit being (action, details) or None.

@@ -86,6 +86,38 @@ class FileInTree(Tree):
         self.assertEqual(file_in_tree("nope.tex", self.root), NotAFile())
         self.assertEqual(file_in_tree(".", self.root), NotAFile())
 
+    def test_a_dot_named_part_is_outside_the_tree(self):
+        """A path whose part below the root starts with '.' (.git, .env, .ssh, .latexmkrc, ...) is OutsideTree even
+        though the file exists: such files are repository or machine secrets, never manuscript text a pin may quote.
+        The rule is applied after symlinks are resolved, so a normal name that leads into .git is refused too, and a
+        link leading out of the tree stays refused."""
+        (self.root / ".git").mkdir()
+        (self.root / ".git" / "config").write_text("[remote]\n", encoding="utf-8")
+        (self.root / "sub" / ".git").mkdir(parents=True)
+        (self.root / "sub" / ".git" / "config").write_text("[core]\n", encoding="utf-8")
+        (self.root / ".env").write_text("TOKEN=x\n", encoding="utf-8")
+        (self.root / "notes.tex").symlink_to(self.root / ".git" / "config")
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (Path(outside.name) / "secret.txt").write_text("s\n", encoding="utf-8")
+        (self.root / "away.tex").symlink_to(Path(outside.name) / "secret.txt")
+        for name in (".git/config", "sub/.git/config", ".env", "notes.tex", "away.tex", str(self.root / ".env")):
+            self.assertEqual(file_in_tree(name, self.root), OutsideTree(), name)
+        self.assertEqual(
+            parse.source_file(".git/config", self.root),
+            InputRejected("원고 디렉토리 밖의 파일입니다: .git/config", "file_outside_manuscript"),
+        )
+
+    def test_dots_elsewhere_in_a_name_or_above_the_root_are_allowed(self):
+        """Only a part below the root is judged: a dotted file name (a.b.tex) and a root that itself lies under a
+        dot folder (~/.local/paper) still name files in the tree."""
+        (self.root / "a.b.tex").write_text("x\n", encoding="utf-8")
+        self.assertEqual(file_in_tree("a.b.tex", self.root), self.root / "a.b.tex")
+        hidden_root = self.root / ".local" / "paper"
+        hidden_root.mkdir(parents=True)
+        (hidden_root / "main.tex").write_text("x\n", encoding="utf-8")
+        self.assertEqual(file_in_tree("main.tex", hidden_root), hidden_root / "main.tex")
+
     def test_source_file_answers_each_refusal_with_its_message(self):
         """The 400 texts name the path as sent."""
         self.assertEqual(parse.source_file(3, self.root), InputRejected("file 이 올바르지 않습니다.", "bad_file"))
@@ -155,6 +187,21 @@ class Fields(unittest.TestCase):
                     "changes[1].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.", "change_outside_manuscript"
                 ),
             )
+
+    def test_close_changes_refuse_a_dot_named_path(self):
+        """A recorded change under a dot-named part (.git, .env) is refused like one outside the folder: the paths a
+        close records feed the comparison diff every viewer may read, so they follow the tree rule of file_in_tree."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            for name in (".env", "sub/.git/config", str(root / ".git" / "HEAD")):
+                self.assertEqual(
+                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root),
+                    InputRejected(
+                        "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
+                        "change_outside_manuscript",
+                    ),
+                    name,
+                )
 
     def test_claim_body_checks_eta_first_and_clamps(self):
         """eta_min is refused before ttl_min; values above the ceiling are clamped; ttl follows eta when absent."""

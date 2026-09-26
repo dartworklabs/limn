@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import ParseResult, parse_qs, urlparse
 
+from limn.access import person_role
 from limn.documents import DocNotFound
 from limn.mark import png as mark_png
 from limn.pins.lifecycle import NotInTrash
@@ -75,7 +76,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code: int, body: bytes, ctype: str, cache: str | None = None) -> None:
         """Send one complete response: status, Content-Type/Length, Cache-Control (no-store unless given; page images
-        cache for 10 minutes), nosniff, WWW-Authenticate on 401, and Connection: close on every error."""
+        cache privately for 10 minutes - they are manuscript pages, like the PDFs), nosniff, WWW-Authenticate on 401,
+        Connection: close on every error, and the anti-framing pair end_headers adds."""
         if code >= 400:
             # The connection is closed after an error. The request may not have been read to completion, and
             # if the leftover bytes get read as the next request, they'd bypass --allow and author attribution (request smuggling).
@@ -84,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         if cache is None or code >= 400:
-            cache = "public, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
+            cache = "private, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
         self.send_header("Cache-Control", cache)
         self.send_header("X-Content-Type-Options", "nosniff")
         if code == 401:
@@ -93,6 +95,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+
+    def end_headers(self) -> None:
+        """Close the header block of every response - _send's and the base class's own error pages (a malformed
+        request line, an unsupported method) - with X-Frame-Options: DENY and Content-Security-Policy:
+        frame-ancestors 'none', so no other site can frame the viewer and trick a click (clickjacking). The policy
+        has no other directive: the viewer's inline scripts and styles are not restricted."""
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        super().end_headers()
 
     def _json(self, obj: object, code: int = 200) -> None:
         """Send obj as a UTF-8 JSON response (non-ASCII kept as is)."""
@@ -265,13 +276,13 @@ class Handler(BaseHTTPRequestHandler):
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
             return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":  # @-tag autocomplete candidates (no write). role: people.json role, editor if absent
+        if path == "/api/people":  # @-tag autocomplete candidates (no write). role: people.json role (person_role)
             roles = app.people_roles()
             ppl = sorted(
                 app.known_people(app.snapshot_pins()).values(),
                 key=lambda x: (x.get("last_seen") is None, x["name"].lower()),
             )
-            ppl = [dict(x, role=roles.get(x["login"], app.DEFAULT_ROLE)) for x in ppl]
+            ppl = [dict(x, role=person_role(roles, x["login"])) for x in ppl]
             return self._json({"people": ppl, "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")

@@ -10,6 +10,17 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 >
 > 재빌드는 동기(`POST /api/rebuild`)와 비동기(`?async=1` + `GET /api/build`) 두 경로가 같은 빌드 함수를 쓴다. `--git-pull` 을 켜면 빌드 전에 원격 main을 fast-forward로 당긴다. 에이전트용 응답은 로그를 줄여 보낸다. 뷰어는 쓰기가 없는 라이트 meta를 5초마다 폴링해 변화가 있을 때만 핀을 다시 읽는다. 핀 마크를 실선으로 그릴지 점선으로 그릴지는 서버가 빌드 지문으로 판정한다. 보기 전용 PDF는 빌드 대신 파일 변화를 감시한다.
 
+## 신뢰 가정 — 원고 저장소는 믿는 코드다
+
+본 빌드는 원고를 믿는 코드로 다룬다. 서버는 원고 사본에서 `latexmk -pdf -synctex=1 -interaction=nonstopmode <main>` 을 서버 계정의 권한으로 돌린다. `-norc` 를 주지 않고 격리(bwrap)도 없으므로, 원고 저장소에 든 `latexmkrc`·`.latexmkrc`(Perl)가 그 계정으로 그대로 실행되고, TeX은 배포판 기본값의 shell escape 설정으로 돈다. 원고 사본은 점 폴더도 함께 복사한다(§재빌드 (동기)). 그래서 **원고 저장소에 푸시할 수 있는 사람은 서버에서 코드를 돌릴 수 있다.** `--git-pull` 을 켜면 원격 `main` 에 푸시만 해도 1분 안에 자동 재빌드가 그것을 실행한다(§자동 확인). 끄더라도 editor·agent 의 재빌드 요청이나 다음 빌드에서 실행된다.
+
+- Limn은 푸시하는 사람을 모두 믿는 원고 저장소만 가리키게 한다. 자동 확인은 `main` 만 fast-forward 하므로 남의 PR 브랜치가 저절로 빌드되지는 않지만, `main` 에 머지되면 빌드된다.
+- 서버 계정에는 원고 빌드에 필요한 것만 둔다. 같은 계정의 다른 저장소 자격 증명이나 토큰 파일은 원고 쪽 코드가 읽을 수 있다.
+- 비교 PDF 빌드(`/api/revision-build`)는 다르다. 과거 커밋의 스냅샷을 `bwrap` 격리 안에서 `latexmk -norc -no-shell-escape` 로 돌려 원고의 `latexmkrc` 를 읽지 않고, 홈 디렉토리·원본 저장소·네트워크도 보이지 않는다([api.md](api.md) §실행 환경과 격리).
+- 본 빌드도 같은 방식(`-norc`, 격리)으로 돌리는 선택 인자는 나중의 후보다. 약속이 아니고 지금 동작은 그대로다. `latexmkrc` 에 기대는 원고가 있어서 기본값으로 켜면 그런 빌드가 깨진다.
+
+이 가정은 [SECURITY.md](../../SECURITY.md) §The manuscript repository is trusted code 와 [operations.md](operations.md) §보안 제약에도 적었다.
+
 ## 재빌드 (동기)
 
 `POST /api/rebuild` 는 원고를 다시 빌드하고 끝날 때까지 기다린다. 잠금 하나로 한 번에 하나만 돈다. 이미 빌드 중이면 기다리지 않고 `409 {"ok": false, "busy": true}` 를 준다.

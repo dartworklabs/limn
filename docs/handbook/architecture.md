@@ -29,7 +29,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 빌드를 원본 체크아웃이 아니라 rsync 사본에서 하는 이유는 동시에 편집 중인 원고를 빌드가 중간 상태로 붙잡지 않게 하려는 것이다. 빌드 사본 경로를 원본 경로로 되돌리는 일(`build_dir → manuscript_dir`)은 서버가 안에서 처리한다. 그래서 에이전트는 언제나 원본 경로만 받는다.
 
-상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치, [ADR-0006](../adr/0006-relative-pin-paths.md)). 원고 트리 밖의 파일은 절대 읽지 않는다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
+상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치, [ADR-0006](../adr/0006-relative-pin-paths.md)). 원고 트리 밖의 파일은 절대 읽지 않는다. 원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름(`.git`·`.env` 등) 아래를 뺀 곳이고, 규칙은 `limn/files.py`의 `tree_part` 하나다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
 
 ## 현재 구조
 
@@ -98,7 +98,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 기본 바인드 주소는 `127.0.0.1`이다. `--bind`로 다른 주소를 줄 수 있지만, loopback이 아닌 주소는 신원을 프록시가 보증하는 `--auth trusted-proxy`일 때만 받는다. 그 밖에는 서버가 시작을 거부한다. `--i-know-this-is-insecure`로 넘길 수는 있지만 크게 경고한다. 테일넷 노출은 `tailscale serve`, 그 밖의 노출은 인증 리버스 프록시가 맡고, `tailscale funnel`은 쓰지 않는다. 이 규칙이 깨지면 포트에 닿는 누구나 원고를 읽고 핀을 바꿀 수 있다. 근거와 위협 모델은 [SECURITY.md](../../SECURITY.md), 운영 상세는 [operations.md](operations.md) §보안 제약, 설계와 이후 단계는 [ADR-0002](../adr/0002-access-control.md)에 있다.
 
-신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다([ADR-0007](../adr/0007-agent-token-file.md)). 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/access.py`](../../src/limn/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 프로세스에 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md)). 상세는 [api.md](api.md) §인증이다.
+신원은 인스턴스마다 방식 하나(`tailscale`·`local`·`trusted-proxy`)로 정하고, 에이전트는 API 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 원문을 설정 폴더의 토큰 파일(`<이름>.token`, `0600`, 저장소 밖)에서 읽고, 서버는 그 파일을 읽지 않는다([ADR-0007](../adr/0007-agent-token-file.md)). 권한은 `people.json`의 역할(owner·editor·viewer·agent)이 정하고, 처리기 한 곳에서 집행한다. 신원·입장·역할 판단과 Host/Origin 규칙의 코드는 [`limn/access.py`](../../src/limn/access.py) 한 곳에 있다. 이 모듈은 실행 설정(`C`)을 읽지 않는다. 조립 지점(`server.py`)이 요청마다 실행 설정 값(`AccessSettings`)과 파일 사실(`AccessLookups`: `tokens.json`·`people.json`을 파일이 바뀔 때만 다시 읽는 캐시, 프로세스에 하나씩)을 넘긴다. 이 경계의 거절은 값으로 돌려주지 않고 `HTTPError`를 던진다(§의존 방향). 파일 사실도 같은 쪽으로 닫는다. 쓸 수 없는 `tokens.json`은 토큰을 하나도 받지 않고, 쓸 수 없는 `people.json`은 헤더로 들어온 모든 사람을 `viewer`로 두고 멤버 자격을 주지 않으며 다시 쓰이지 않는다. 헤더 없는 요청을 에이전트로 보는 것은 이 기기를 부른 요청(루프백 `Host`)뿐이고, 모든 핀을 지우는 일은 소유자만 한다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md)). 상세는 [api.md](api.md) §인증이다.
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 

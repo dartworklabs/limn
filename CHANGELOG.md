@@ -2,7 +2,35 @@
 
 ## Unreleased
 
-Server and viewer fixes and an internal restructuring; the HTTP API and `pins.md` are unchanged.
+Three security fixes, one documented trust assumption, server and viewer fixes and an internal restructuring. The HTTP
+API's paths, fields and reason codes and `pins.md` are unchanged; the responses gain two headers and page images change
+their `Cache-Control`.
+
+### Security
+
+- **Dot-named files are not manuscript.** `GET /api/snippet`, `GET /api/overlaps`, `POST /api/pin`, an edit's `loc` and
+  a close's `changes` accepted any regular file under `--manuscript`, so any admitted principal, a `viewer` too, could
+  read `.git/config` or `.env` (`/api/snippet?file=.git/config&lo=1&hi=80`). A path whose part below the manuscript,
+  symlinks resolved, has a component starting with `.` is now outside the tree, refused with the existing
+  `400 file_outside_manuscript` / `change_outside_manuscript` and the same message. A stored pin or change pointing
+  there is no longer located (it becomes a pin outside the tree), so its lines are never read again. A manuscript file
+  that itself lives under a dot folder can no longer be pinned; `a.b.tex` and a `--manuscript` under `~/.local` are fine.
+- **An unusable `people.json` fails closed.** A `people.json` that existed but could not be read or parsed was read as
+  empty: everyone got the default role (`editor`, so a `viewer` gained edits), and the next visit rewrote the file with
+  only the visitor, erasing every role including the owner's. Now every header-identified person is a `viewer` while it
+  is unusable, `--members-only` admits only `--allow` logins, the server never rewrites the file and warns once on
+  stderr, and fixing the file (content or permissions) restores the roles on the next request. A document that is not
+  `{"people": [...]}` counts as unusable for the server too (before, only `limn member` refused it). Tokens and the
+  `--auth local` owner are unaffected.
+- **No framing.** Every response carries `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
+  (that directive only; scripts are not restricted). Page images (`/pages/page-N.png`) are now
+  `Cache-Control: private, max-age=600` instead of `public`, like the PDFs.
+- **Trust assumption documented.** The main LaTeX build runs `latexmk` without `-norc` or a sandbox, so a repository's
+  `latexmkrc` runs with the server's rights, and with `--git-pull` a push to `main` is built within a minute. SECURITY.md
+  and build-sync.md now say so: the manuscript repository is trusted code; comparison builds are sandboxed, the main
+  build is not. No behaviour change.
+
+### Fixes
 
 - **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
   and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
@@ -19,6 +47,9 @@ Server and viewer fixes and an internal restructuring; the HTTP API and `pins.md
   server skips. The assignee row resolved the note with every login ever picked in the field instead of the hints the
   save sends, so a pick edited down to a shared first word saved a pin handed to someone its note did not tag. A shared
   corpus (tests/test_mentions_parity.py) now runs through both resolvers.
+
+### Internal
+
 - **Internal: the server is split into modules.** No change to the HTTP API, `pins.md`, the state directory or the
   command line; each move was checked by a differential run against the code before it, in a separate process.
   - `src/limn/server.py` is only the composition root: the run settings, the document list, the per-process locks and
