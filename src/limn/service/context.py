@@ -78,6 +78,12 @@ def is_agent(actor: Mapping[str, Any] | None) -> bool:
     return bool(login == LOCAL_ACTOR["login"] or str(login).startswith(AGENT_LOGIN_PREFIX))
 
 
+def who(actor: Mapping[str, Any]) -> Json:
+    """An actor as notices (events.jsonl `by`) and audit.jsonl record it: its login (default "local", the headerless
+    loopback agent) and its name (default "") - never its picture or role. Always a new dict."""
+    return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
+
+
 def typed_actor(actor: Mapping[str, Any]) -> Actor:
     """The typed actor of a request's actor dict: an Agent when is_agent() says so, otherwise a Person (with its
     picture only when it is a non-empty string)."""

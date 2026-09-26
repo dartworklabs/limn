@@ -21,6 +21,8 @@ from limn.store import dump_jsonl
 from test_access import AccessBase
 from helpers import add_pin, ps
 from test_v03 import ScopedRepo
+from limn.access import LOCAL_ACTOR
+from limn.locate import locate_file
 
 MS_MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n" + "".join(
     "Body sentence %d.\n" % i for i in range(4, 30)) + "\\end{document}\n"
@@ -80,9 +82,9 @@ class MultiDocMoved(AccessBase):
         self.serve(self.old, "response/main.tex")
         ms, rr = ps.DOCS
         self.p_ms = add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
-                             "note": "ms appendix", "doc": "ms"}, dict(ps.LOCAL_ACTOR), doc=ms).record["id"]
+                             "note": "ms appendix", "doc": "ms"}, dict(LOCAL_ACTOR), doc=ms).record["id"]
         self.p_rr = add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
-                             "note": "reply", "doc": "rr"}, dict(ps.LOCAL_ACTOR), doc=rr).record["id"]
+                             "note": "reply", "doc": "rr"}, dict(LOCAL_ACTOR), doc=rr).record["id"]
         rows = ps.read_pins()[0]
         for r in rows:
             r.pop("file_rel", None)                  # as 0.3.1 wrote them: absolute file only
@@ -184,8 +186,8 @@ class ChangesAfterAClone(ScopedRepo):
         clone = self.clone()
         (clone / "ms" / "linked").symlink_to(outside, target_is_directory=True)
         self.assertTrue((ps.C.src / "linked" / "only.tex").is_file())
-        self.assertIsNone(ps.locate_file("/old/place/linked/only.tex", None, ps.C.src, None))
-        self.assertEqual(ps.locate_file("/old/place/linked/main.tex", None, ps.C.src, None).rel, "main.tex")
+        self.assertIsNone(locate_file("/old/place/linked/only.tex", None, ps.C.src, None))
+        self.assertEqual(locate_file("/old/place/linked/main.tex", None, ps.C.src, None).rel, "main.tex")
 
 
 if __name__ == "__main__":

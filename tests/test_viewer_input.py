@@ -19,6 +19,7 @@ import unittest
 from test_qa_021 import BrowserBase, actor
 from test_access import ALICE
 from helpers import add_pin, extract_js_fn, ps, run_node
+from limn.access import LOCAL_ACTOR
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}
@@ -212,7 +213,7 @@ class ViewerBase(BrowserBase):
                         "frac": [0.15, y, 0.5, 0.04]}, actor(ALICE))
         rid = add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
                          actor(ALICE)).record["id"]   # add_pin returns the new OpenPin (limn.pins.edit)
-        ps.set_done(rid, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
         """Open the viewer on a device preset. prefs = pinPrefs before boot (coach marks are pre-seen unless given)."""

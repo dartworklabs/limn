@@ -13,6 +13,7 @@ StartupRefused instead of ending the process - server.main() is the one place th
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
+- The package version --version and GET /api/version report (app_version).
 
 Pure decisions and the few startup probes live together because they change together - one command-line option at a
 time. The probes (free_port, probe_port, detect_main, parse_doc_arg's file checks, git_remote_url,
@@ -47,6 +48,18 @@ APP_NAME = "limn"
 # The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
 LABEL_MAX = 40
 ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def app_version() -> str:
+    """The package version (__version__ in src/limn/__init__.py), or "0+unknown" when that file cannot be read or has
+    none. Reads the neighbouring file rather than importing the package, so it gives the same value whether the server
+    is imported as a module (python -m limn.server) or run directly by file path (python .../limn/server.py)."""
+    try:
+        m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']',
+                      Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"), re.M)
+    except OSError:
+        m = None
+    return m.group(1) if m else "0+unknown"
 
 
 class StartupRefused(NamedTuple):

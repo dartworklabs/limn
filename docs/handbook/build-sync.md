@@ -138,7 +138,7 @@ pull이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한�
 | `ok_errors`·`fail` | 마지막 40줄 |
 | `?log=1` 을 붙인 요청(두 경로 모두) | 다이어트 없이 전체 꼬리(4000자) |
 
-뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(`BUILD_STATE`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다.
+뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(`BUILD_STATE`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다. 다이어트는 응답을 보내기 직전의 HTTP 층 일이라 [`limn/web/answers.py`](../../src/limn/web/answers.py)의 `diet_log`(줄 수 `LOG_TAIL_LINES`)에 있다.
 
 ## 자동 동기화 (가벼운 meta 폴링)
 

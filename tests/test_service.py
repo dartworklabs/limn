@@ -28,7 +28,7 @@ from limn.pins.lifecycle import (
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
 from limn.service import add_edit, claim, trash, transitions
-from limn.service.context import PinContext, is_agent, typed_actor
+from limn.service.context import PinContext, is_agent, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected
@@ -609,6 +609,18 @@ class Claim(Base):
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertFalse(body["ok"])
 
+
+
+class Who(unittest.TestCase):
+    """who: an actor as notices and audit.jsonl record it."""
+
+    def test_login_and_name_only_with_the_local_defaults(self):
+        """A person keeps login and name (never pic or role); an empty actor is the headerless loopback agent."""
+        self.assertEqual(who({"login": "alice@example.com", "name": "Alice", "pic": "https://x", "role": "owner"}),
+                         {"login": "alice@example.com", "name": "Alice"})
+        self.assertEqual(who({}), {"login": "local", "name": ""})
+        actor = {"login": "agent:ci", "name": "ci"}
+        self.assertIsNot(who(actor), actor)
 
 
 if __name__ == "__main__":

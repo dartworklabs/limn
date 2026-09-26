@@ -14,14 +14,17 @@ from limn.pins.lifecycle import (
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest, CloseRequest, NotClaimed,
     PinClosed, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds, confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
     reopen_request, reopens_on_reply, thread_message, unclaim, drop, find_trashed, restore, NotInTrash,
+    pin_reopened_in_round,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
 PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "datetime", "math", "typing", "limn.pins.model",
-                "limn.pins.lifecycle", "limn.pins.position",
+                "limn.pins.lifecycle", "limn.pins.position", "limn.pins.edit",
                 "limn.mentions",                  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
+                "limn.scope",                     # the stored `changes` shape record.py checks; pure (tests/test_scope.py)
+                "posixpath",                      # record.py's isabs: string work only (os.path is posixpath on POSIX)
                 "limn.guidance", "limn.mapping"}  # the last two: pure text modules render.py uses (checked below)
 # What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
 # pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
@@ -384,6 +387,31 @@ class ThreadMessage(unittest.TestCase):
         msg = thread_message(None, {"login": "a", "name": "A"}, AT, text="", ref="PR #1 (abc)", mentions=["b"])
         self.assertEqual(msg, {"id": 1, "by": {"login": "a", "name": "A"}, "at": AT, "text": "", "ref": "PR #1 (abc)",
                                "mentions": ["b"]})
+
+
+
+class ReopenedInRound(unittest.TestCase):
+    """pin_reopened_in_round: pins.md's "reopened" marker - a reopen after the last close, whatever else follows."""
+
+    def entry(self, i, ev=None):
+        """Thread entry i, a state-transition mark when ev is given."""
+        return thread_message([], {"login": "a", "name": "A"}, AT, "t%d" % i, ev=ev) | {"id": i}
+
+    def test_a_reopen_after_the_last_close_counts_even_past_a_confirm(self):
+        """close, confirm, reopen and a reply: reopened. The old rule (the round's first post is a reopen) missed it."""
+        th = [self.entry(1, "close"), self.entry(2, "confirm"), self.entry(3, "reopen"), self.entry(4)]
+        self.assertTrue(pin_reopened_in_round({"thread": th}))
+
+    def test_closed_again_after_the_reopen_or_never_reopened_does_not(self):
+        """reopen then close, a close alone, only replies, no thread and a malformed thread: not reopened."""
+        for th in ([self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close")], [self.entry(1, "close")],
+                   [self.entry(1), self.entry(2)], None, "x", ["x", 3]):
+            self.assertFalse(pin_reopened_in_round({"thread": th}), th)
+        self.assertFalse(pin_reopened_in_round({}))
+
+    def test_a_reopen_without_any_close_counts(self):
+        """A legacy thread that lost its close still shows the reopen."""
+        self.assertTrue(pin_reopened_in_round({"thread": [self.entry(1, "reopen")]}))
 
 
 if __name__ == "__main__":

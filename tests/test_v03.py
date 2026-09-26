@@ -31,6 +31,10 @@ from limn import scope as scoping
 from limn.web import parse
 from test_qa_021 import BrowserBase, actor
 from helpers import add_pin, extract_js_fn, ps, req, revision_spec, run_node, split_resp
+from limn.access import LOCAL_ACTOR
+from limn.mapping import anchor_of
+from limn.revisions import revision_history
+from limn.store import find_pin
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)
@@ -74,7 +78,7 @@ def fc(old=OLD, new=NEW, patch=U0, old_path="ms/main.tex", new_path="ms/main.tex
 def anchored(lo, hi, text=OLD, **extra):
     """A pin record whose anchor was captured from `text` (what add_pin stores)."""
     lines = text.split("\n")
-    return dict({"id": 1, "file": "/x/ms/main.tex", "lo": lo, "hi": hi, "anchor": ps.anchor_of(lines, lo, hi)}, **extra)
+    return dict({"id": 1, "file": "/x/ms/main.tex", "lo": lo, "hi": hi, "anchor": anchor_of(lines, lo, hi)}, **extra)
 
 
 def minimal_pdf(label: str = "") -> bytes:
@@ -662,20 +666,20 @@ class ScopedSourceDiff(ScopedRepo):
         self.commit("add a part")
         old_pin = self.add(lo=12, hi=12, note="part twelve")
         rows = ps.snapshot_pins()
-        ps.find_pin(rows, old_pin)["file"] = str(part)
-        ps.find_pin(rows, old_pin)["anchor"] = ps.anchor_of(part.read_text().split("\n"), 12, 12)
+        find_pin(rows, old_pin)["file"] = str(part)
+        find_pin(rows, old_pin)["anchor"] = anchor_of(part.read_text().split("\n"), 12, 12)
         ps.write_pins(rows)
         self.git("mv", "ms/part.tex", "ms/chapter.tex")
         chapter = self.src / "chapter.tex"
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
         self.write(self.main.read_text().replace("\\input{part}", "\\input{chapter}"))
         mv = self.commit("rename the part")
-        ps.set_done(old_pin, True, dict(ps.LOCAL_ACTOR), ref=mv[:8])
+        ps.set_done(old_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
         rows = ps.snapshot_pins()
-        ps.find_pin(rows, new_pin)["file"] = str(chapter)
+        find_pin(rows, new_pin)["file"] = str(chapter)
         ps.write_pins(rows)
-        ps.set_done(new_pin, True, dict(ps.LOCAL_ACTOR), ref=mv[:8])
+        ps.set_done(new_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
         for pid in (old_pin, new_pin):              # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
@@ -749,7 +753,7 @@ class SquashMergedPins(AccessBase):
         """Why agents always send changes: inference (overlap only) cannot find a fix placed next to the pin."""
         # the reason `changes` is what agents should send: beta's own range does not touch its fix
         rows = ps.snapshot_pins()
-        r = ps.find_pin(rows, self.pins[1])
+        r = find_pin(rows, self.pins[1])
         r.pop("changes")
         ps.write_pins(rows)
         _, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, self.pins[1]))
@@ -759,7 +763,7 @@ class SquashMergedPins(AccessBase):
         """The viewer's matchRevision picks the merged commit from ref = PR #N (hash)."""
         if not shutil.which("node"):
             self.skipTest("node not available")
-        revs = ps.revision_history(ps.DOCS[0])["revisions"]
+        revs = revision_history(ps.DOCS[0])["revisions"]
         out = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(matchRevision(%s,%s)));"
                        % (json.dumps(self.ref), json.dumps(revs)))
         self.assertEqual(json.loads(out)["id"], self.squash)
@@ -863,7 +867,7 @@ class ScopedPdf(ScopedRepo):
         self.assertEqual(revision_spec(self.solo, self.p4).key, revision_spec(self.solo).key)
         # the recorded change set is part of the identity: a different set is a different comparison
         rows = ps.snapshot_pins()
-        ps.find_pin(rows, self.p1)["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]
+        find_pin(rows, self.p1)["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]
         ps.write_pins(rows)
         self.assertNotEqual(revision_spec(self.fix, self.p1).key, s1.key)
 
@@ -872,7 +876,7 @@ class ScopedPdf(ScopedRepo):
         # 0.2.2 (after a rollback) neither clears changes on reopen nor writes them on close: a set whose changes_at is
         # not this close's done_at belongs to an older close, so inference decides (alpha's own hunk), not those lines.
         rows = ps.snapshot_pins()
-        r = ps.find_pin(rows, self.p1)
+        r = find_pin(rows, self.p1)
         self.assertEqual(r["changes_at"], r["done_at"])
         r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]     # beta's line
         r["done_at"] = "2026-09-26 09:00:00"
@@ -972,7 +976,7 @@ class ScopedPdf(ScopedRepo):
         self.write(base.replace("Filler one.", "\\begin{itemize}\\item Filler one.").replace("Filler eight.", "Filler eight.\\end{itemize}"))
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
-        ps.set_done(opener, True, dict(ps.LOCAL_ACTOR), ref=both[:8],
+        ps.set_done(opener, True, dict(LOCAL_ACTOR), ref=both[:8],
                     changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),))
         spec = revision_spec(both, opener)
         self.assertEqual(len(spec.scope), 1)
@@ -1095,7 +1099,7 @@ class ReviewRegressions(AccessBase):
                 now[0] -= 1
             return real(*a, **k)
         repo, paths = revisions.revision_scope(ps.DOCS[0])
-        revs = ps.revision_history(ps.DOCS[0])["revisions"]
+        revs = revision_history(ps.DOCS[0])["revisions"]
         rows = ps.read_pins()[0]
         with mock.patch.object(revisions, "revision_changes", side_effect=slow):
             ts = [threading.Thread(target=revisions.revision_pin_scope,
@@ -1203,7 +1207,7 @@ class ScopedViewer(BrowserBase):
         self.p3 = add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "gamma"}, A).record["id"]
         self.write(NEW)
         self.fix = self.commit("fix three pins")
-        loc = dict(ps.LOCAL_ACTOR)
+        loc = dict(LOCAL_ACTOR)
         ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5),))
         ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
         ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])

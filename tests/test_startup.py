@@ -543,5 +543,15 @@ class DocArgs(unittest.TestCase):
 
 
 
+
+class Version(unittest.TestCase):
+    """app_version: the package version read from limn/__init__.py beside this module."""
+
+    def test_matches_the_package_version(self):
+        """The same string the package declares, never the unknown placeholder in a normal install."""
+        import limn
+        self.assertEqual(startup.app_version(), limn.__version__)
+
+
 if __name__ == "__main__":
     unittest.main()

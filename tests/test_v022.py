@@ -29,6 +29,10 @@ from limn.events import EVENT_TYPES, NOTIFY_TYPES
 from test_access import ALICE, BOB, CAROL, AccessBase, token_create
 from test_qa_021 import BrowserBase, actor
 from helpers import add_pin, Base, extract_js_fn, js_i18n, js_icons, ps, run_node
+from limn.access import LOCAL_ACTOR
+from limn.files import atomic_write
+from limn.pins.view import pin_state
+from limn.store import find_pin
 
 ROOT = Path(__file__).resolve().parent.parent
 HANGUL = re.compile(r"[가-힣]")
@@ -86,14 +90,14 @@ class ReplyApi(AccessBase):
 
     def review_pin(self, kind="fix", author=A):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author).record["id"]
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
-        self.assertEqual(ps.pin_state(self.pin(pid)), "review")
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
+        self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
         ps.set_done(pid, True, A, reply="고침")
-        self.assertEqual(ps.pin_state(self.pin(pid)), "done")
+        self.assertEqual(pin_state(self.pin(pid)), "done")
         return pid
 
     def reply(self, pid, body, headers=None, token=None):
@@ -136,12 +140,12 @@ class ReplyApi(AccessBase):
     def test_reopening_reply_still_tells_everyone_involved(self):
         # A reply on a closed pin used to reach everyone tagged on the pin (replied); reopening must not silence them.
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A).record["id"]
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침")
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
         self.assertEqual(d["reopened"], True)
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="다시 고침")
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="다시 고침")
         n = len(self.events())
         self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)                 # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
@@ -209,7 +213,7 @@ class ReplyApi(AccessBase):
         pid = self.review_pin()
         code, _ = self.reply(pid, {"text": "x"}, CAROL)
         self.assertEqual(code, 403)
-        self.assertEqual(ps.pin_state(self.pin(pid)), "review")
+        self.assertEqual(pin_state(self.pin(pid)), "review")
 
     def test_unknown_pin(self):
         code, d = self.reply(999, {"text": "x"}, BOB)
@@ -229,7 +233,7 @@ class ReplyApi(AccessBase):
     def test_full_thread_still_reopens(self):
         pid = self.review_pin()
         rows = ps.read_pins()[0]
-        r = ps.find_pin(rows, pid)
+        r = find_pin(rows, pid)
         r["thread"] = r["thread"] + [{"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"}
                                      for i in range(ps.THREAD_MAX)]
         ps.write_pins(rows)
@@ -250,7 +254,7 @@ class ReplyApi(AccessBase):
         self.assertIsInstance(pin, OpenPin)                               # a person's reply reopened it
         self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
-        pin = ps.reply_pin(pid, "에이전트 답글", dict(ps.LOCAL_ACTOR))
+        pin = ps.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
         self.assertIsInstance(pin, ReviewPin)                             # an agent's reply leaves it for review
         self.assertNotIn("ev", pin.record["thread"][-1])
 
@@ -272,7 +276,7 @@ class Trash(AccessBase):
                "author": A, "dropped_by": B, **extra}
         if days_ago is not None:
             rec["dropped_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days_ago * 86400))
-        ps.atomic_write(ps.C.dropped, dump_jsonl(self.dropped_file() + [rec]))
+        atomic_write(ps.C.dropped, dump_jsonl(self.dropped_file() + [rec]))
 
     def test_retention_is_thirty_days(self):
         self.assertEqual(ps.TRASH_DAYS, 30)
@@ -288,7 +292,7 @@ class Trash(AccessBase):
         self.assertEqual(ps.purge_trash(), 1)
 
     def test_unreadable_trash_lines_are_kept_in_a_backup(self):
-        ps.atomic_write(ps.C.dropped, "{not json\n")
+        atomic_write(ps.C.dropped, "{not json\n")
         pid = self.pin_id(ALICE)
         self.call("POST", "/api/pins/%d/drop" % pid, None, ALICE)
         baks = list(ps.C.state.glob("pins.dropped.jsonl.corrupt-*.bak"))
@@ -522,12 +526,12 @@ class ViewerFlows(BrowserBase):
             ps.record_person(actor(h))
         self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record["id"]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
-        ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
+        ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
         ps.set_done(self.dn, True, A, reply="고침")
 
     def state(self, pid):
-        return ps.pin_state(ps.find_pin(ps.snapshot_pins(), pid))
+        return pin_state(find_pin(ps.snapshot_pins(), pid))
 
     def pump(self):
         """Wait a little while letting Playwright run - the in-process server answers routed requests on this thread, so a
@@ -599,7 +603,7 @@ class ViewerFlows(BrowserBase):
             tst.wait_for(state="visible")
             tst.locator("button.btn-icon").click()                             # dismissing the toast sends at once
             self.wait_state(self.rv, "open")
-            last = ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
         self.run_matrix(flow)
@@ -616,9 +620,9 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
             end = time.time() + 8
-            while time.time() < end and "내일" not in ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
+            while time.time() < end and "내일" not in find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]["text"]:
                 self.pump()
-            last = ps.find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
         self.run_matrix(flow)
 
@@ -681,7 +685,7 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))                       # open pin: a reply never changes it
-        ps.set_done(self.open_id, True, dict(ps.LOCAL_ACTOR), reply="줄였습니다")   # the agent closes it meanwhile
+        ps.set_done(self.open_id, True, dict(LOCAL_ACTOR), reply="줄였습니다")   # the agent closes it meanwhile
         page.evaluate("loadPins()")
         page.wait_for_selector("#review-pins .pin[data-id=\"%d\"] .r-outcome:not([hidden])" % self.open_id)
         self.assertEqual(page.inner_text(".r-outcome .r-out-t"), TXT["ko"]["reopen"])
@@ -702,7 +706,7 @@ class ViewerFlows(BrowserBase):
         page.click("#pins .pin[data-id=\"%d\"] [data-act=drop]" % self.open_id)
         self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-        self.assertIsNotNone(ps.find_pin(ps.snapshot_pins(), self.open_id))
+        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
         self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
 
     # -- 2. Trash
@@ -722,9 +726,9 @@ class ViewerFlows(BrowserBase):
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
             end = time.time() + 5
-            while time.time() < end and ps.find_pin(ps.snapshot_pins(), self.open_id) is not None:
+            while time.time() < end and find_pin(ps.snapshot_pins(), self.open_id) is not None:
                 self.pump()
-            self.assertIsNone(ps.find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNone(find_pin(ps.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
             self.assertFalse(page.locator("#sec-dropped").count())
             if device == "desktop":
@@ -738,7 +742,7 @@ class ViewerFlows(BrowserBase):
                     self.english_only(page, sel)
             page.click(row + " [data-act=restore]")
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-            self.assertIsNotNone(ps.find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
         self.run_matrix(flow)
 
     def test_owner_deletes_forever_with_undo(self):
@@ -822,7 +826,7 @@ class LazyTrashExpiry(AccessBase):
     def put_dropped(self, pid, dropped_epoch):
         rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old",
                "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch))}
-        ps.atomic_write(ps.C.dropped, dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
+        atomic_write(ps.C.dropped, dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
 
     def ids(self):
         return sorted(r["id"] for r in ps.read_jsonl(ps.C.dropped)[0])
@@ -923,7 +927,7 @@ class ColdDeepLink(BrowserBase):
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.gone, timeout=8000)
-        self.assertIsNotNone(ps.find_pin(ps.snapshot_pins(), self.gone))
+        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.gone))
         self.assert_card_shown(page, self.gone, "desktop")
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
 
@@ -942,7 +946,7 @@ class AgentAsPerson(AccessBase):
         ps.C.auth = "local"
         ps.C.agent_loopback = False
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침")
         self.pid = pid
 
     def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):
@@ -1040,7 +1044,7 @@ class PreviewEqualsServer(BrowserBase):
         self.pins = []
         for i in range(5):
             pid = add_pin({"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A).record["id"]
-            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침 %d" % i)
+            ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침 %d" % i)
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -1059,9 +1063,9 @@ class PreviewEqualsServer(BrowserBase):
         page.click(card + " [data-act=reply-send]")
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         end = time.time() + 8
-        while time.time() < end and ps.find_pin(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
+        while time.time() < end and find_pin(ps.snapshot_pins(), pid)["thread"][-1].get("text") != text:
             page.wait_for_timeout(100)
-        r = ps.find_pin(ps.snapshot_pins(), pid)
+        r = find_pin(ps.snapshot_pins(), pid)
         last = r["thread"][-1]
         return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
 
@@ -1090,7 +1094,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         super().setUp()
         ps.record_person(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="고침")
 
     def box(self, page):
         card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
@@ -1109,7 +1113,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
         page.wait_for_timeout(300)
-        self.assertEqual(ps.pin_state(ps.find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
         page = self.open(0)
@@ -1120,7 +1124,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
         self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
-        self.assertEqual(ps.pin_state(ps.find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
 
     def test_override_is_a_switch(self):
         page = self.open(0)
@@ -1152,7 +1156,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.reload()
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)&&META" % keep, timeout=20000)
         page.wait_for_timeout(800)
-        self.assertIsNone(ps.find_pin(ps.snapshot_pins(), pid))
+        self.assertIsNone(find_pin(ps.snapshot_pins(), pid))
 
 
 class TrashOfAnotherDocument(ColdDeepLink):

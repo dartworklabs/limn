@@ -225,5 +225,13 @@ class ViewerScriptParses(unittest.TestCase):
             self.assertIn("SyntaxError", errors[0])
             self.assertIn(" at %s:1:" % victim, errors[0])
 
+    def test_the_served_service_worker_parses(self):
+        """GET /sw.js serves viewer/sw.js as it is (ps.SW_JS), and node parses it as a classic script."""
+        self.assertEqual(ps.SW_JS, (VIEWER / "sw.js").read_text(encoding="utf-8"))
+        r = subprocess.run([shutil.which("node"), "--check", str(VIEWER / "sw.js")], capture_output=True, text=True,
+                           timeout=30, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

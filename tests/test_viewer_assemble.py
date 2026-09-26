@@ -130,5 +130,25 @@ class Independence(unittest.TestCase):
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
 
 
+
+class ServiceWorker(unittest.TestCase):
+    """service_worker: the script GET /sw.js serves, read from the viewer folder as it is."""
+
+    def test_reads_sw_js_unchanged_and_a_missing_file_raises(self):
+        """The folder's sw.js comes back byte for byte (placeholders untouched); without one it is a packaging defect."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            with self.assertRaises(OSError):
+                assemble.service_worker(root)
+            (root / "sw.js").write_text("'use strict';\nconst L='__LABEL__';\n", encoding="utf-8")
+            self.assertEqual(assemble.service_worker(root), "'use strict';\nconst L='__LABEL__';\n")
+
+    def test_the_packaged_worker_has_no_fetch_handler(self):
+        """The shipped worker handles notifications only - app data and page images are never cached."""
+        sw = assemble.service_worker(assemble.VIEWER_DIR)
+        self.assertIn("notificationclick", sw)
+        self.assertNotIn("'fetch'", sw)
+
+
 if __name__ == "__main__":
     unittest.main()

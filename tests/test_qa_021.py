@@ -27,6 +27,11 @@ from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
 from test_access import ALICE, BOB, CAROL, AccessBase, member_add, reset_access, talk_to, token_create
 from helpers import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
+from limn.access import LOCAL_ACTOR
+from limn.build import cur_pages
+from limn.files import tex_lines
+from limn.startup import StartupRefused
+from limn.store import find_pin
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -104,11 +109,11 @@ class MentionRules(Base):
 
     def test_reopen_reason_re_mention_notifies(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
         n = self.n()
         ps.set_done(pid, False, self.C, reason="@Bob Park 다시 봐 주세요")
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
         n = self.n()
         ps.set_done(pid, False, self.C, reason="@Alice Kim 확인 부탁")      # the author tagged: mention only, not also reopened
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
@@ -129,7 +134,7 @@ class MentionRules(Base):
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
-            edit_pin(pid, {"note": ps.find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
+            edit_pin(pid, {"note": find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
             self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
 
 
@@ -206,7 +211,7 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
         before = len(ps.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]
@@ -362,7 +367,7 @@ class TailnetAgentStartup(AccessBase):
         for args in (("--tailnet-agent", "--no-agent-loopback"), ("--tailnet-agent", "--auth", "local"),
                      ("--tailnet-agent", "--auth", "trusted-proxy")):
             refused = ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
-            self.assertIsInstance(refused, ps.StartupRefused)
+            self.assertIsInstance(refused, StartupRefused)
             self.assertIn("--tailnet-agent", refused.message)
 
     def test_instances_config_key(self):
@@ -600,13 +605,13 @@ class BrowserBase(unittest.TestCase):
         if u.netloc != "viewer.test":
             return route.abort()
         if u.path == "/api/pick":
-            lines = ps.tex_lines(self.main)
+            lines = tex_lines(self.main)
             lad = mapping.compute_levels(lines, 5, 5, ps.C.envs)
             d = {"file": str(self.main), "name": "main.tex", "page": 1, "lo": lad["lo"], "hi": lad["hi"], "raw_lo": 5,
                  "raw_hi": 5, "kind": lad["kind"], "via": "synctex", "score": 1.0, "warn": "", "n_lines": len(lines),
                  "snippet": mapping.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",
                  "levels": lad["levels"], "default_level": lad["default_level"], "overlaps": [],
-                 "pdf_build": ps.cur_pages(ps.DOCS[0]).name}
+                 "pdf_build": cur_pages(ps.DOCS[0]).name}
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
         body = rq.post_data_buffer or b""
         h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": self.WHO["Tailscale-User-Login"],
@@ -666,7 +671,7 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="fixed")
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="fixed")
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -709,7 +714,7 @@ class ViewerRoleUi(BrowserBase):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)).record["id"]
         ps.reply_pin(pid, "답글", actor(ALICE))
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record["id"]
-        ps.set_done(rid, True, dict(ps.LOCAL_ACTOR), reply="고침")
+        ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
 
     def visible_acts(self, page):
         return page.evaluate("[...document.querySelectorAll('[data-act]')].filter(e=>e.getClientRects().length&&!e.disabled)"

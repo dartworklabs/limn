@@ -27,6 +27,11 @@ from limn import access, config
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.pins import render as md_render
 from helpers import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
+from limn.access import LOCAL_ACTOR, load_tokens
+from limn.config import Cfg
+from limn.pins.view import pin_state
+from limn.service.context import is_agent
+from limn.startup import StartupRefused
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -36,7 +41,7 @@ BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Pa
 CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 
 ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
-                       trusted_proxies=ps.Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
+                       trusted_proxies=Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
                        proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
                        members_only=False, local_user=None, insecure=False, agent_token_file=None)
 
@@ -178,7 +183,7 @@ class TailscaleProvider(AccessBase):
             self.call("GET", "/api/pins")
             self.call("GET", "/pins.md")
         self.assertEqual(code, 200)
-        self.assertEqual({k: d["me"][k] for k in ("login", "name")}, ps.LOCAL_ACTOR)
+        self.assertEqual({k: d["me"][k] for k in ("login", "name")}, LOCAL_ACTOR)
         self.assertEqual(d["me"]["role"], "agent")
         self.assertEqual(err.getvalue().count("deprecated"), 1, err.getvalue())
         self.assertIn("limn token create", err.getvalue())
@@ -211,7 +216,7 @@ class LocalProvider(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.set_done(rid, True, dict(ps.LOCAL_ACTOR))                   # an agent's close -> review
+        ps.set_done(rid, True, dict(LOCAL_ACTOR))                   # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -293,7 +298,7 @@ class StartupRules(AccessBase):
         """The message a refused command line gets; main() prints it and exits with status 1."""
         a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
         refused = ps.configure_access(a)
-        self.assertIsInstance(refused, ps.StartupRefused)
+        self.assertIsInstance(refused, StartupRefused)
         self.assertIsInstance(refused.message, str)                   # a message, not a bare exit code
         return refused.message
 
@@ -369,7 +374,7 @@ class Tokens(AccessBase):
         self.assertEqual([t["hash"] for t in d["tokens"]], [access.token_hash(t1), access.token_hash(t2)])
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{8}", t["id"]) and re.fullmatch(r"sha256:[0-9a-f]{64}", t["hash"])
                             and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", t["created"]) for t in d["tokens"]))
-        self.assertEqual([t["name"] for t in ps.load_tokens(ps.C.state)], ["agent", "agent-2"])
+        self.assertEqual([t["name"] for t in load_tokens(ps.C.state)], ["agent", "agent-2"])
         with self.assertRaises(ValueError):
             token_create(ps.C.state, "agent")                      # names are unique
         with self.assertRaises(ValueError):
@@ -377,7 +382,7 @@ class Tokens(AccessBase):
         self.assertEqual(token_revoke(ps.C.state, e1["id"])["name"], "agent")   # by id
         self.assertEqual(token_revoke(ps.C.state, "agent-2")["id"], e2["id"])   # by name
         self.assertIsNone(token_revoke(ps.C.state, "agent-2"))
-        self.assertEqual(ps.load_tokens(ps.C.state), [])
+        self.assertEqual(load_tokens(ps.C.state), [])
         self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
 
     def test_token_principal_is_an_agent(self):
@@ -390,13 +395,13 @@ class Tokens(AccessBase):
         self.assertEqual((code, d["state"]), (200, "review"))
         code, d = self.call("POST", "/api/pins/%d/confirm" % pid, token=tok)
         self.assertEqual(code, 403)
-        self.assertEqual(ps.pin_state(self.pin(pid)), "review")
+        self.assertEqual(pin_state(self.pin(pid)), "review")
         self.call("GET", "/", token=tok)
         self.assertEqual(self.people_file(), [])                        # never recorded in people.json
         code, d = self.call("GET", "/api/people", token=tok)
         self.assertNotIn("agent:ci", [p["login"] for p in d["people"]])
-        self.assertTrue(ps.is_agent({"login": "agent:ci"}) and ps.is_agent(dict(ps.LOCAL_ACTOR)))
-        self.assertFalse(ps.is_agent({"login": "alice@example.com"}))
+        self.assertTrue(is_agent({"login": "agent:ci"}) and is_agent(dict(LOCAL_ACTOR)))
+        self.assertFalse(is_agent({"login": "alice@example.com"}))
 
     def test_revoked_token_is_401_without_restart(self):
         e, tok = token_create(ps.C.state, "ci")
@@ -524,13 +529,13 @@ class Roles(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, None, h)[1]["state"], "done")
             rid = self.add(8, 9)
-            ps.set_done(rid, True, dict(ps.LOCAL_ACTOR))
+            ps.set_done(rid, True, dict(LOCAL_ACTOR))
             self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, h)[1]["state"], "done")
 
     def test_owner_person_can_confirm(self):
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         rid = self.add()
-        ps.set_done(rid, True, dict(ps.LOCAL_ACTOR))
+        ps.set_done(rid, True, dict(LOCAL_ACTOR))
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, ALICE)[1]["state"], "done")
 
     def test_agent_role_person_closes_into_review_and_cannot_confirm(self):
@@ -547,7 +552,7 @@ class Roles(AccessBase):
 
     def test_loopback_agent_confirm_is_403(self):
         rid = self.add()
-        ps.set_done(rid, True, dict(ps.LOCAL_ACTOR))
+        ps.set_done(rid, True, dict(LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)
@@ -887,10 +892,10 @@ class Migration(AccessBase):
 
     def test_handler_semantics_unchanged(self):
         code, d = self.call("GET", "/api/meta?light=1")                  # headerless loopback = the agent
-        self.assertEqual({k: d["me"][k] for k in ("login", "name")}, ps.LOCAL_ACTOR)
+        self.assertEqual({k: d["me"][k] for k in ("login", "name")}, LOCAL_ACTOR)
         code, d = self.call("POST", "/api/pins/1/close", {"reply": "고침"})
         self.assertEqual((code, d["state"]), (200, "review"))
-        self.assertEqual(self.pin(1)["closed_by"], ps.LOCAL_ACTOR)
+        self.assertEqual(self.pin(1)["closed_by"], LOCAL_ACTOR)
         self.assertEqual(self.call("POST", "/api/pins/4/confirm")[0], 403)
         pid = self.pin_id(ALICE)                                          # a tailnet person pins, closes, confirms
         self.assertEqual(self.pin(pid)["author"], {"login": "alice@example.com", "name": "Alice Kim"})

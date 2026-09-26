@@ -19,6 +19,8 @@ from limn.guidance import UNAUTHENTICATED
 from limn.web.errors import REVISION_FAILURES, SCOPE_REJECTIONS, InputRejected, scope_http_error
 from test_access import BOB, AccessBase
 from helpers import extract_js_fn, ps, run_node
+from limn.pins.edit import NOTE_MAX
+from limn.web.errors import HTTPError
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
@@ -163,8 +165,8 @@ class EveryErrorHasAReason(unittest.TestCase):
     def test_http_error_requires_a_reason(self):
         """A refusal cannot be constructed without a reason (keyword-only, no default)."""
         with self.assertRaises(TypeError):
-            ps.HTTPError(400, "x")          # noqa - the missing reason is the point
-        self.assertEqual(ps.HTTPError(400, "x", reason="bad").body, {"error": "x", "reason": "bad"})
+            HTTPError(400, "x")          # noqa - the missing reason is the point
+        self.assertEqual(HTTPError(400, "x", reason="bad").body, {"error": "x", "reason": "bad"})
 
 
 class EnglishTable(unittest.TestCase):
@@ -206,8 +208,8 @@ class RefusalBodies(AccessBase):
     def test_validation_refusal(self):
         """400 for an over-long note: same text, reason note_too_long."""
         code, d = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1,
-                                                 "note": "x" * (ps.NOTE_MAX + 1)})
-        self.assertEqual((code, d), (400, {"error": "메모가 너무 깁니다(%d자 이하)." % ps.NOTE_MAX, "reason": "note_too_long"}))
+                                                 "note": "x" * (NOTE_MAX + 1)})
+        self.assertEqual((code, d), (400, {"error": "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, "reason": "note_too_long"}))
 
     def test_missing_pin_refusal(self):
         """404 for an unknown pin: same text, reason pin_not_found."""
