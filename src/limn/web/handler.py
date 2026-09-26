@@ -1,10 +1,11 @@
 """The HTTP request handler and server classes: transport, the per-request guard, body reading and route dispatch.
 
 Every request reads its body to completion, passes the Host/Origin check, is identified and admitted (and, for a
-POST, role-checked) before any route runs; a refusal anywhere becomes one response in _run. The routes call the
-application through `app` (limn.web.app.App), which the composition root binds (server.Handler); the answers for pin
-outcomes are in limn.web.answers and the errors in limn.web.errors. Statuses, headers and bodies are the agent
-contract (docs/handbook/api.md).
+POST, role-checked) before any route runs; a refusal anywhere becomes one response in _run. The routes parse what
+they take from the body or query string (limn.web.parse) and answer a refused field at once, then call the application
+through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; the
+answers for pin outcomes are in limn.web.answers and the errors in limn.web.errors. Statuses, headers and bodies are
+the agent contract (docs/handbook/api.md).
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import socket
 import sys
 import traceback
 from collections.abc import Callable
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
@@ -22,16 +24,12 @@ from urllib.parse import ParseResult, parse_qs, urlparse
 from limn.mark import png as mark_png
 from limn.pins.lifecycle import NotInTrash
 from limn.pins.model import TrashedPin
-from limn.web import answers
+from limn.web import answers, parse
+from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, ScopeRefusal, error_page_html, page_lang, scope_http_error
 
 MAX_BODY = 1 << 20
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a JSON integer arrives from json.loads."""
-    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def _first(q: Query, key: str) -> str | None:
@@ -204,15 +202,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        with self.app.using_doc(self.app.request_doc(q)):
+        with self.app.using_doc(self._request_doc(q)):
             return self._get_doc(actor, path, q)
+
+    def _request_doc(self, q: Query, body: Json | None = None, file_hint: object = None) -> Document:
+        """The document a request names: ?doc= or the body's doc, parsed here (400 bad_doc or doc_mismatch), then found
+        by the server (the first document, or the one holding file_hint, when neither names one; 404 unknown_doc)."""
+        return self.app.request_doc(accepted(parse.parse_doc_key(q, body)), file_hint)
 
     def _get_revision(self, path: str, D: Document, q: Query) -> None:
         """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
         optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
         and refusals (HTTPError, ScopeRejected) propagate to _run."""
         app = self.app
-        commit, pin = (q.get("commit") or [""])[0], app.clean_pin_param(_first(q, "pin"))
+        commit, pin = accepted(parse.parse_revision_query(q))
         if path == "/api/revision-diff":
             return self._json(app.revision_diff(D, commit, pin))
         if path == "/api/revision-build":
@@ -246,7 +249,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._record(actor)
             out = app.meta(actor, light=light)
             out["me"] = self._me(actor)           # + role (additive)
-            out.update(app.events_since(actor, _first(q, "ev")))   # browser notifications - no write
+            # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
+            out.update(app.events_since(actor, accepted(parse.parse_event_cursor(_first(q, "ev")))))
             return self._json(out)
         if path == "/sw.js":                      # the service worker for browser notifications (app data is never cached)
             return self._send(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
@@ -283,9 +287,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
             return self._json({"pin": rec})
         if path == "/api/snippet":
-            return self._json(app.snippet_api(q))
+            rng = accepted(parse.parse_snippet(q, app.document_facts(app.cur_doc())))
+            return self._json(app.snippet_api(rng, (q.get("levels") or ["0"])[0] == "1"))
         if path == "/api/overlaps":
-            return self._json(app.overlaps_api(q))
+            return self._json(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(app.cur_doc())))))
         if path.startswith("/pages/"):
             name = os.path.basename(path)
             if app.PAGE_FILE_RE.fullmatch(name):
@@ -355,72 +360,40 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body()
         if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
             q = parse_qs(u.query)
-            D = self.app.request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
+            D = self._request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
             with self.app.using_doc(D):
                 return self._post_doc(actor, path, u, d)
         return self._post_doc(actor, path, u, d)
 
     def _post_doc(self, actor: Json, path: str, u: ParseResult, d: Json) -> None:
-        """POST routes that act on the request's document: pin changes (close takes the optional v0.3 `changes`,
-        parsed against the manuscript folder), pick, new pins, clear, the revision build and rebuilds. d is the parsed
-        JSON body; refusals propagate to _run."""
+        """POST routes that act on the request's document: pin changes (_pin_action), pick, new pins, clear, the
+        revision build and rebuilds. d is the parsed JSON body; each route parses its fields in the order the server has
+        always checked them; refusals propagate to _run."""
         app = self.app
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
-            pid, act = int(m.group(1)), m.group(2)
-            if act == "reply":
-                text, hints, reopen = (app.clean_thread_text(d.get("text")), app.clean_mention_hints(d.get("mentions")),
-                                       app.clean_reopen_flag(d))
-                human = not app.is_agent(actor) and self.principal.role != "agent"
-                return self._json(answers.reply_answer(app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human),
-                                                       app.public, app.pin_state))
-            if act == "confirm":
-                return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
-            if act == "drop":
-                return self._json({"ok": isinstance(app.drop_pin(pid, actor), TrashedPin)})
-            if act == "restore":
-                return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
-            if act == "purge":                    # owner only (check_role)
-                if isinstance(app.purge_pin(pid, actor), NotInTrash):
-                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
-                return self._json({"ok": True, "purged": pid})
-            if act == "edit":
-                return self._json(answers.edit_answer(app.edit_pin(pid, d, actor), app.public))
-            if act == "claim":
-                ttl, eta = app.clean_claim_body(d)
-                return self._json(answers.claim_answer(app.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public))
-            if act == "unclaim":
-                return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
-            reply = ref = reason = None
-            review = None
-            changes = None
-            if act == "close":
-                reply, ref = app.clean_close_body(d)
-                changes = app.clean_close_changes(d.get("changes"), app.C.src)
-                review = app.clean_review_flag(d)
-                if review is None and self.principal.role == "agent":
-                    review = True                 # a person with the agent role closes into review like any agent
-            else:                                 # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
-                reason = app.clean_thread_text(d.get("reason"), "reason", required=False)
-            return self._json(answers.state_answer(
-                app.set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
-                             hints=app.clean_mention_hints(d.get("mentions")), changes=changes),
-                app.public, app.pin_state))
+            return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/pick":
-            return self._json(app.pick(d))
+            D = app.cur_doc()
+            selection = parse.parse_pick(d, app.document_facts(D))
+            if isinstance(selection, parse.PickBuildGone):
+                return self._json(answers.pick_build_gone())
+            return self._json(app.pick(D, accepted(selection)))
         if path == "/api/pin":
-            return self._json(answers.add_answer(app.add_pin(d, actor)))
+            D = app.cur_doc()
+            want = d.get("doc")
+            if isinstance(want, str) and want != D.key:
+                D = app.request_doc(want)         # the body's doc wins, as it always has: "" names the first document
+            request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
+            return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
             if d.get("confirm") != app.CLEAR_CONFIRM:
                 raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
                                 % app.CLEAR_CONFIRM, reason="confirm_required")
             return self._json(dict(app.clear_pins(actor), ok=True))
         if path == "/api/revision-build":
-            if set(d) - {"commit", "doc", "pin"}:
-                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.", reason="unknown_fields")
-            if "pin" in d and not _is_int(d["pin"]):
-                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.", reason="bad_pin")
-            result = app.revision_start(app.cur_doc(), d.get("commit"), app.clean_pin_param(d.get("pin")))
+            commit, pin = accepted(parse.parse_revision_build(d))
+            result = app.revision_start(app.cur_doc(), commit, pin)
             return self._json(result, 202 if result["state"] == "running" else 200)
         if path == "/api/rebuild":
             if app.cur_doc().is_pdf:
@@ -433,3 +406,52 @@ class Handler(BaseHTTPRequestHandler):
             r = app.build_all()
             return self._json(app.diet_log(r, full), 409 if r.get("busy") else 200)
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+
+    def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
+        """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
+        its service with the parsed values and answer its outcome. Refusals propagate to _run."""
+        app = self.app
+        if act == "reply":
+            text = accepted(parse.parse_reply_text(d.get("text")))
+            hints = accepted(parse.parse_mention_hints(d.get("mentions")))
+            reopen = accepted(parse.parse_reopen_flag(d))
+            human = not app.is_agent(actor) and self.principal.role != "agent"
+            return self._json(answers.reply_answer(app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human),
+                                                   app.public, app.pin_state))
+        if act == "confirm":
+            return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
+        if act == "drop":
+            return self._json({"ok": isinstance(app.drop_pin(pid, actor), TrashedPin)})
+        if act == "restore":
+            return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
+        if act == "purge":                        # owner only (check_role)
+            if isinstance(app.purge_pin(pid, actor), NotInTrash):
+                raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
+            return self._json({"ok": True, "purged": pid})
+        if act == "edit":
+            # loc is checked against the pin's own document, found before the edit is decided (as always)
+            body = accepted(parse.parse_edit(d, app.assignee_people(d)))
+            region, pdoc = app.edit_scope(pid)
+            place = accepted(parse.parse_edit_place(body, region, app.document_facts(pdoc)))
+            return self._json(answers.edit_answer(app.edit_pin(pid, replace(body.request, place=place), actor, region),
+                                                  app.public))
+        if act == "claim":
+            ttl, eta = accepted(parse.parse_claim_body(d))
+            return self._json(answers.claim_answer(app.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public))
+        if act == "unclaim":
+            return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
+        reply = ref = reason = None
+        review = None
+        changes = None
+        if act == "close":
+            reply, ref = accepted(parse.parse_close_body(d))
+            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src))
+            review = accepted(parse.parse_review_flag(d))
+            if review is None and self.principal.role == "agent":
+                review = True                     # a person with the agent role closes into review like any agent
+        else:                                     # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
+            reason = accepted(parse.parse_thread_text(d.get("reason"), "reason", required=False))
+        return self._json(answers.state_answer(
+            app.set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
+                         hints=accepted(parse.parse_mention_hints(d.get("mentions"))), changes=changes),
+            app.public, app.pin_state))

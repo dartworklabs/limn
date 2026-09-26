@@ -2,6 +2,7 @@
 
 Run: uv run pytest tests/test_server.py
 """
+import dataclasses
 import importlib.util
 import errno
 import json
@@ -23,6 +24,8 @@ from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 from limn.store import PinStore
+from limn.web import answers, parse
+from limn.web.errors import InputRejected
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -121,6 +124,45 @@ def shut_wr(sock: socket.socket) -> None:
             raise
 
 
+def add_pin(d: dict, actor: dict, mod=None):
+    """What POST /api/pin does below its HTTP answer (limn.web.handler): the body's doc wins over the current document,
+    the body is parsed against that document (limn.web.parse.parse_add), and the service saves it. Returns the new
+    open pin, or the InputRejected of the first refused field. mod is the server copy to use (default ps)."""
+    mod = mod or ps
+    D = mod.cur_doc()
+    want = d.get("doc")
+    if isinstance(want, str) and want != D.key:
+        D = mod.request_doc(want)
+    request = parse.parse_add(d, mod.assignee_people(d), mod.document_facts(D))
+    return request if isinstance(request, InputRejected) else mod.add_pin(D, request, actor)
+
+
+def edit_pin(pid: int, d: dict, actor: dict, mod=None):
+    """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
+    document (edit_scope), then edit. Returns the edit's outcome, or the InputRejected of the first refused field."""
+    mod = mod or ps
+    body = parse.parse_edit(d, mod.assignee_people(d))
+    if isinstance(body, InputRejected):
+        return body
+    region, pdoc = mod.edit_scope(pid)
+    place = parse.parse_edit_place(body, region, mod.document_facts(pdoc))
+    if isinstance(place, InputRejected):
+        return place
+    return mod.edit_pin(pid, dataclasses.replace(body.request, place=place), actor, region)
+
+
+def pick(d: dict, mod=None):
+    """What POST /api/pick does below its HTTP answer for the current document: the selection parsed
+    (limn.web.parse.parse_pick), then resolved. A gone build gives the 200 body the handler sends; a refused field
+    raises the HTTPError the handler would answer with."""
+    mod = mod or ps
+    D = mod.cur_doc()
+    selection = parse.parse_pick(d, mod.document_facts(D))
+    if isinstance(selection, parse.PickBuildGone):
+        return answers.pick_build_gone()
+    return mod.pick(D, answers.accepted(selection))
+
+
 def record_of(outcome) -> dict:
     """The pin as the API returns it, from a close/reopen outcome (a state type, or AlreadyClosed carrying one)."""
     pin = getattr(outcome, "pin", outcome)
@@ -183,7 +225,7 @@ class Base(unittest.TestCase):
         self.tmp.cleanup()
 
     def add(self, lo=4, hi=5, note="n", actor=None):
-        return ps.add_pin({"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": note},
+        return add_pin({"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": note},
                           actor or dict(ps.LOCAL_ACTOR)).record["id"]
 
     def pin(self, pid):
@@ -645,13 +687,13 @@ class Store(Base):
         outside.write_text("line one outsidesecret\nline two\n", encoding="utf-8")
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 970, "file": str(outside), "lo": 1, "hi": 1, "anchor": {}}) + "\n")
-        self.assertEqual(ps.edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(ps.LOCAL_ACTOR)), PinOutsideTree())
+        self.assertEqual(edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(ps.LOCAL_ACTOR)), PinOutsideTree())
         self.assertNotIn("outsidesecret", json.dumps(ps.snapshot_pins()))
 
     def test_lines_edit_drops_via_score(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "via": "synctex", "score": 0.74},
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "via": "synctex", "score": 0.74},
                          dict(ps.LOCAL_ACTOR)).record["id"]
-        p = record_of(ps.edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
+        p = record_of(edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertNotIn("via", p)
         self.assertNotIn("score", p)
 
@@ -697,9 +739,9 @@ class Store(Base):
         self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 3, "frac": [0.1, 0.2, 0.3, 0.4]},
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 3, "frac": [0.1, 0.2, 0.3, 0.4]},
                          dict(ps.LOCAL_ACTOR)).record["id"]
-        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0},
+        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0},
                                   dict(ps.LOCAL_ACTOR)))
         self.assertEqual((p["lo"], p["hi"], p["page"], p["kind"]), (8, 9, 3, "lines"))
         self.assertEqual(p["frac"], [0.1, 0.2, 0.3, 0.4])
@@ -715,11 +757,11 @@ class Store(Base):
         # a drag made right after a rebuild, before the screen updates, must stay tagged with the old build.
         (ps.C.state / "pages-20260101000000").mkdir()
         ps.C.pages_ptr.write_text("pages-20260101000000")
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
                          dict(ps.LOCAL_ACTOR)).record["id"]
         self.assertEqual(self.pin(pid)["pdf_build"], "pages")
-        self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(ps.LOCAL_ACTOR)),
-                         ps.InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build"))
+        self.assertEqual(add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(ps.LOCAL_ACTOR)),
+                         InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build"))
 
     def _new_build(self, name="pages-20260101000000"):
         (ps.C.state / name).mkdir(exist_ok=True)
@@ -727,11 +769,11 @@ class Store(Base):
         return name
 
     def test_edit_loc_with_new_frac_restamps_pdf_build(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]},
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]},
                          dict(ps.LOCAL_ACTOR)).record["id"]
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
+        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
                                                  "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertNotEqual(p["pdf_build"], old_build)
         self.assertEqual(p["pdf_build"], nb)
@@ -740,7 +782,7 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb},
+        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb},
                                         "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
@@ -751,7 +793,7 @@ class Store(Base):
         rows[0]["frac_build"] = "pages"
         ps.write_pins(rows)
         nb = self._new_build()
-        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]},
+        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]},
                                         "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], nb)
         self.assertNotIn("frac_build", p)
@@ -761,14 +803,14 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = record_of(ps.edit_pin(pid, {"note": "고친 메모", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
+        p = record_of(edit_pin(pid, {"note": "고친 메모", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_note_append_does_not_touch_pdf_build(self):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = record_of(ps.edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR)))
+        p = record_of(edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_lo_hi_only_edit_does_not_touch_pdf_build(self):
@@ -776,7 +818,7 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = record_of(ps.edit_pin(pid, {"lo": 4, "hi": 6, "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
+        p = record_of(edit_pin(pid, {"lo": 4, "hi": 6, "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
@@ -1024,9 +1066,9 @@ class Estimate(Base):
         pid = self.add()
         self._fake_build("pages-20260101000100", "h2")
         self.assertIs(self.est_of(pid), True)
-        ps.edit_pin(pid, {"note": "메모만", "base_rev": 0}, dict(ps.LOCAL_ACTOR))        # must-2(a)
+        edit_pin(pid, {"note": "메모만", "base_rev": 0}, dict(ps.LOCAL_ACTOR))        # must-2(a)
         self.assertIs(self.est_of(pid), True)
-        ps.edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR))
+        edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
 
     def test_relocating_on_current_build_clears_estimate(self):
@@ -1034,7 +1076,7 @@ class Estimate(Base):
         pid = self.add()
         self._fake_build("pages-20260101000100", "h2")
         p = self.pin(pid)
-        ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 0.5, 0.5]},
+        edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 0.5, 0.5]},
                           "base_rev": p["rev"]}, dict(ps.LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), False)
 
@@ -1048,7 +1090,7 @@ class Estimate(Base):
 
     def test_unknown_pin_build_is_estimated(self):
         self._fake_build("pages-20260101000000", "h1")
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
                          dict(ps.LOCAL_ACTOR)).record["id"]            # a build not in history — treat unknown as estimated (conservative)
         self.assertIs(self.est_of(pid), True)
 
@@ -1180,7 +1222,7 @@ class Estimate(Base):
         time.sleep(1.1)
         self.assertEqual(ps.build_all()["state"], "ok")
         self.assertIs(self.est_of(pid), True)
-        ps.edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(ps.LOCAL_ACTOR))
+        edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(ps.LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
 
 
@@ -1318,7 +1360,7 @@ class Overlaps(Base):
         pages = ps.page_list()
         self.assertTrue(pages)
         p = pages[0]
-        d = ps.pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
+        d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
         self.assertNotIn("error", d)
         self.assertIn("quote", d)
         self.assertIn("overlaps", d)
@@ -1328,39 +1370,39 @@ class Overlaps(Base):
         time.sleep(1.1)
         self.assertEqual(ps.build_all()["state"], "ok")
         self.assertNotEqual(ps.cur_pages().name, b1)
-        d2 = ps.pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
+        d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
-        gone = ps.pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "pages-19990101000000"})
+        gone = pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "pages-19990101000000"})
         self.assertTrue(gone.get("pdf_build_gone"))
         with self.assertRaises(ps.HTTPError):
-            ps.pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "../x"})
+            pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "../x"})
 
     def test_note_append_then_undo(self):
         pid = self.add(note="원본")
         p0 = self.pin(pid)
-        p1 = record_of(ps.edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR)))
+        p1 = record_of(edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR)))
         self.assertIn("추가 텍스트", p1["note"])
         self.assertIn("(추가 ", p1["note"])
         self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)   # line count unchanged
-        undone = record_of(ps.edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR)))
+        undone = record_of(edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(undone["note"], p0["note"])
 
     def test_note_append_does_not_need_base_rev(self):
         pid = self.add()
-        p = record_of(ps.edit_pin(pid, {"note_append": "x"}, dict(ps.LOCAL_ACTOR)))
+        p = record_of(edit_pin(pid, {"note_append": "x"}, dict(ps.LOCAL_ACTOR)))
         self.assertIn("x", p["note"])
 
     def test_note_append_empty_string_rejected(self):
         """An empty note_append is refused (note_append_empty) and changes nothing."""
         pid = self.add(note="원본")
-        empty = ps.InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
-        self.assertEqual(ps.edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR)), empty)
-        self.assertEqual(ps.edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR)), empty)   # whitespace only too
+        empty = InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
+        self.assertEqual(edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR)), empty)
+        self.assertEqual(edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR)), empty)   # whitespace only too
         self.assertEqual(self.pin(pid)["note"], "원본")        # unchanged since it was rejected
 
     def test_note_append_over_note_max_combined_is_rejected(self):
         pid = self.add(note="x" * (ps.NOTE_MAX - 20))          # only 20 chars of headroom
-        refused = ps.edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # under the per-field cap (2000), over it once combined
+        refused = edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # under the per-field cap (2000), over it once combined
         self.assertIsInstance(refused, NoteTooLong)
         self.assertEqual(refused.limit, ps.NOTE_MAX)
         self.assertEqual(len(self.pin(pid)["note"]), ps.NOTE_MAX - 20)          # unchanged length since it was rejected
@@ -1397,7 +1439,7 @@ class PinsMdV2(Base):
         sub.mkdir()
         f = sub / "intro.tex"
         f.write_text("line one\nline two\n", encoding="utf-8")
-        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("`sections/intro.tex L1-L1`", md)
         self.assertEqual(self.pin(pid)["lo"], 1)
@@ -1449,7 +1491,7 @@ class PinsMdV2(Base):
         long_line = "x" * 650
         f = self.src / "long.tex"
         f.write_text(long_line + "\n", encoding="utf-8")
-        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
                           "quote": "짧은 인용"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("«짧은 인용»", md)
@@ -1478,7 +1520,7 @@ class PinsMdV2(Base):
         long_line = "y" * 650
         f = self.src / "long2.tex"
         f.write_text(long_line + "\n", encoding="utf-8")
-        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
                           "quote": "가" * 90}, dict(ps.LOCAL_ACTOR)).record["id"]
         stored = self.pin(pid)["quote"]
         self.assertEqual(stored, "가" * 59 + "…")
@@ -1491,7 +1533,7 @@ class PinsMdV2(Base):
         sub.mkdir()
         f = sub / "c.tex"
         f.write_text("line one\n", encoding="utf-8")
-        ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("a\\|b/c.tex L1-L1", md)
         for line in md.splitlines():
@@ -1504,7 +1546,7 @@ class PinsMdV2(Base):
         # bug (should, P0b fix): the location column (loc_label) and quote (render_quote) escaped pipes,
         # but the range column (range_label) returned the env name as-is — so storing kind='env:x|y'
         # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
                           "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR)).record["id"]
         self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -1517,9 +1559,9 @@ class PinsMdV2(Base):
     def test_every_cell_escapes_pipe_and_newline(self):
         # design 5: exhaustively cover every column — kind (range column, both env and non-env branches),
         # filename, note, quote. Any column breaks the row if a raw '|' or newline gets through.
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "a|b\nc",
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "a|b\nc",
                     "scope": "env", "kind": "env:x|y\nz"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "n", "kind": "k|1\r\nk2"},
+        add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "n", "kind": "k|1\r\nk2"},
                    dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         rows = [ln for ln in md.splitlines() if ln.startswith("| ") and "main.tex" in ln]
@@ -1553,7 +1595,7 @@ class CloseReplyRef(Base):
     def test_close_with_reply_and_ref_is_stored(self):
         pid = self.add()
         p = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR),
-                        *ps.clean_close_body({"reply": "제목을 고침", "ref": "PR #227"})))
+                        *parse.parse_close_body({"reply": "제목을 고침", "ref": "PR #227"})))
         self.assertEqual(p["close_reply"], "제목을 고침")
         self.assertEqual(p["close_ref"], "PR #227")
         self.assertTrue(p["done"])
@@ -1565,25 +1607,21 @@ class CloseReplyRef(Base):
         self.assertNotIn("close_ref", p)
 
     def test_clean_close_body_empty_or_whitespace_is_none(self):
-        self.assertEqual(ps.clean_close_body({}), (None, None))
-        self.assertEqual(ps.clean_close_body({"reply": "", "ref": "  "}), (None, None))
-        self.assertEqual(ps.clean_close_body({"reply": None, "ref": None}), (None, None))
+        self.assertEqual(parse.parse_close_body({}), (None, None))
+        self.assertEqual(parse.parse_close_body({"reply": "", "ref": "  "}), (None, None))
+        self.assertEqual(parse.parse_close_body({"reply": None, "ref": None}), (None, None))
 
     def test_clean_close_body_rejects_wrong_type(self):
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_close_body({"reply": 123})
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_close_body({"ref": ["PR #227"]})
+        self.assertIsInstance(parse.parse_close_body({"reply": 123}), InputRejected)
+        self.assertIsInstance(parse.parse_close_body({"ref": ["PR #227"]}), InputRejected)
 
     def test_clean_close_body_enforces_length_caps(self):
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_close_body({"reply": "x" * (ps.CLOSE_REPLY_MAX + 1)})
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_close_body({"ref": "x" * (ps.CLOSE_REF_MAX + 1)})
+        self.assertIsInstance(parse.parse_close_body({"reply": "x" * (parse.CLOSE_REPLY_MAX + 1)}), InputRejected)
+        self.assertIsInstance(parse.parse_close_body({"ref": "x" * (parse.CLOSE_REF_MAX + 1)}), InputRejected)
         # the cap itself is allowed through.
-        reply, ref = ps.clean_close_body({"reply": "x" * ps.CLOSE_REPLY_MAX, "ref": "x" * ps.CLOSE_REF_MAX})
-        self.assertEqual(len(reply), ps.CLOSE_REPLY_MAX)
-        self.assertEqual(len(ref), ps.CLOSE_REF_MAX)
+        reply, ref = parse.parse_close_body({"reply": "x" * parse.CLOSE_REPLY_MAX, "ref": "x" * parse.CLOSE_REF_MAX})
+        self.assertEqual(len(reply), parse.CLOSE_REPLY_MAX)
+        self.assertEqual(len(ref), parse.CLOSE_REF_MAX)
 
     def test_close_endpoint_http_stores_reply_and_escapes_in_card(self):
         pid = self.add()
@@ -1596,7 +1634,7 @@ class CloseReplyRef(Base):
 
     def test_close_endpoint_http_rejects_oversized_reply(self):
         pid = self.add()
-        body = json.dumps({"reply": "x" * (ps.CLOSE_REPLY_MAX + 1)}).encode()
+        body = json.dumps({"reply": "x" * (parse.CLOSE_REPLY_MAX + 1)}).encode()
         out = self.talk(req("POST", "/api/pins/%d/close" % pid, body, {"Content-Type": "application/json"}))
         self.assertIn(b" 400 ", out)
         self.assertFalse(self.pin(pid).get("done"))
@@ -1616,18 +1654,18 @@ class CloseIdempotent(Base):
 
     def test_second_close_with_reply_does_not_apply(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "first"}))
-        again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"})))
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *parse.parse_close_body({"reply": "first"}))
+        again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"})))
         self.assertEqual(again["close_reply"], "first")
 
     def test_reopen_then_close_allows_new_reply(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "first", "ref": "PR #1"}))
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *parse.parse_close_body({"reply": "first", "ref": "PR #1"}))
         ps.set_done(pid, False, dict(ps.LOCAL_ACTOR))
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
-        closed_again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"})))
+        closed_again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"})))
         self.assertEqual(closed_again["close_reply"], "second")
         self.assertNotIn("close_ref", closed_again)
 
@@ -2188,8 +2226,8 @@ class Claim(Base):
     def test_default_ttl_used_when_body_omits_it(self):
         pid = self.add()
         before = time.time()
-        p = record_of(ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), ps.clean_claim_ttl({})))
-        self.assertAlmostEqual(p["claim_until"], before + ps.CLAIM_TTL_DEFAULT * 60, delta=5)
+        p = record_of(ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
+        self.assertAlmostEqual(p["claim_until"], before + parse.CLAIM_TTL_DEFAULT * 60, delta=5)
 
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
@@ -2216,14 +2254,13 @@ class Claim(Base):
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
         for bad in (0, -1, "120", 12.5, True, None):                  # 400 for a wrong type or a value below 1
-            with self.assertRaises(ps.HTTPError):
-                ps.clean_claim_ttl({"ttl_min": bad})
-        self.assertEqual(ps.clean_claim_ttl({}), ps.CLAIM_TTL_DEFAULT)
-        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 1}), 1)
-        self.assertEqual(ps.clean_claim_ttl({"ttl_min": 120}), 120)
-        self.assertEqual(ps.CLAIM_TTL_MAX, 120)
+            self.assertIsInstance(parse.parse_claim_body({"ttl_min": bad}), InputRejected)
+        self.assertEqual(parse.parse_claim_body({}).ttl, parse.CLAIM_TTL_DEFAULT)
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 1}).ttl, 1)
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 120}).ttl, 120)
+        self.assertEqual(parse.CLAIM_TTL_MAX, 120)
         for over in (121, 480, 10_000):                                # above the cap (120, formerly 480) it gets clamped down (backward compat)
-            self.assertEqual(ps.clean_claim_ttl({"ttl_min": over}), 120)
+            self.assertEqual(parse.parse_claim_body({"ttl_min": over}).ttl, 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
@@ -3013,7 +3050,7 @@ class AuthorPrefixInPinsMd(Base):
         self.assertNotIn("[Wendy]", md)
 
     def test_legacy_pin_without_author_counts_as_one_group(self):
-        pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
+        pid1 = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
                           dict(ps.LOCAL_ACTOR)).record["id"]
         rows = ps.snapshot_pins()
         for r in rows:
@@ -4361,9 +4398,9 @@ class MultiDoc(Base):
         self.assertEqual(ps.docs_payload()["docs"][0]["n_open"], 1)
 
     def test_api_docs_lists_kind_and_counts(self):
-        ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
         with ps.using_doc(self.rrd):
-            ps.add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR)).record["id"]
+            add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR)).record["id"]
         code, _, body = split_resp(self.talk(req("GET", "/api/docs")))
         self.assertEqual(code, 200)
         d = json.loads(body)
@@ -4430,7 +4467,7 @@ class MultiDoc(Base):
         # validation for LaTeX documents is unchanged — a pin without lo/hi is 400
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
         self.assertEqual(code, 400)
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.pins_md_text(ps.snapshot_pins())
         self.assertIn("## 본문 · `ms` · `main.tex`", md)
         self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
@@ -4446,13 +4483,13 @@ class MultiDoc(Base):
         """A view-only document's pin takes a note and a region only; lines are refused (no_source_lines)."""
         self.fake_pages(self.rv)
         with ps.using_doc(self.rv):
-            pid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR)).record["id"]
+            pid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR)).record["id"]
         rev = self.pin(pid)["rev"]
-        self.assertEqual(ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR)),
-                         ps.InputRejected(ps.REGION_EDIT_REFUSAL, "no_source_lines"))
-        p = record_of(ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR)))   # even without doc in the request, it resolves via the pin's own document
+        self.assertEqual(edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR)),
+                         InputRejected(parse.REGION_EDIT_REFUSAL, "no_source_lines"))
+        p = record_of(edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR)))   # even without doc in the request, it resolves via the pin's own document
         self.assertEqual(p["note"], "b")
-        p = record_of(ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"},
+        p = record_of(edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"},
                                         "base_rev": p["rev"]}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(ps.valid_rec(self.pin(pid)))
@@ -4474,7 +4511,7 @@ class MultiDoc(Base):
     def test_sync_and_overlaps_skip_region_pins(self):
         self.fake_pages(self.rv)
         with ps.using_doc(self.rv):
-            rid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR)).record["id"]
+            rid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR)).record["id"]
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")                     # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
@@ -4942,25 +4979,22 @@ class ClaimEta(Base):
     B = {"login": "bob@x.com", "name": "Bob"}
 
     def test_body_validation_and_derived_ttl(self):
-        self.assertEqual(ps.clean_claim_body({}), (ps.CLAIM_TTL_DEFAULT, None))
+        self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
         for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
-            self.assertEqual(ps.clean_claim_body({"eta_min": eta}), (ttl, eta), eta)
-        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # supplying ttl passes it through unchanged
-        for bad in (0, "15", 1.5, True, None, -5):
-            with self.assertRaises(ps.HTTPError) as cm:
-                ps.clean_claim_body({"eta_min": bad})
-            self.assertEqual(cm.exception.code, 400)
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_claim_body({"eta_min": 15, "ttl_min": 0})
+            self.assertEqual(parse.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
+        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # supplying ttl passes it through unchanged
+        for bad in (0, "15", 1.5, True, None, -5):              # refused: answered 400 by the handler
+            self.assertIsInstance(parse.parse_claim_body({"eta_min": bad}), InputRejected, bad)
+        self.assertIsInstance(parse.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
         # exceeding the cap clamps instead of 400ing — so an agent that claimed via the old procedure (ttl_min 480) doesn't break when extending
-        self.assertEqual(ps.clean_claim_body({"eta_min": 241}), (120, 240))
-        self.assertEqual(ps.clean_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
-        self.assertEqual(ps.clean_claim_body({"ttl_min": 480}), (120, None))
+        self.assertEqual(parse.parse_claim_body({"eta_min": 241}), (120, 240))
+        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 480}), (120, None))
 
     def test_claim_stores_eta_and_start(self):
         pid = self.add()
         t0 = time.time()
-        p = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15})))
+        p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
         self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
         self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
         self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
@@ -4970,40 +5004,40 @@ class ClaimEta(Base):
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
         pid = self.add()
-        first = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5})))
+        first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
         with ps.PIN_LOCK:                                              # move it back to having been claimed 10 minutes ago
             rows, _ = ps.read_pins()
             r = ps.find_pin(rows, pid)
             for k in ("claim_ts", "eta_ts", "claim_until"):
                 r[k] -= 600
             ps.write_pins(rows)
-        second = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20})))
+        second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
         self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # the start time stays put
         self.assertEqual(second["claimed_at"], first["claimed_at"])
         self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # the new estimate starts from now
         self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        third = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({})))                    # extending with no new estimate keeps the previous one
+        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))                    # extending with no new estimate keeps the previous one
         self.assertEqual(third["eta_ts"], second["eta_ts"])
         self.assertEqual(third["rev"], second["rev"] + 1)
 
     def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
         pid = self.add()
-        ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
-        refused = ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))          # answered 409 "claimed"
+        ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15}))
+        refused = ps.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))          # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertIsNotNone(refused.eta_ts)
         with ps.PIN_LOCK:                                              # A's claim has expired
             rows, _ = ps.read_pins()
             ps.find_pin(rows, pid)["claim_until"] = time.time() - 1
             ps.write_pins(rows)
-        p = record_of(ps.claim_pin(pid, self.B, *ps.clean_claim_body({})))
+        p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
         self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
         self.assertNotIn("eta_ts", p)                                   # doesn't inherit someone else's old estimate
 
     def test_close_drop_unclaim_clear_all_claim_fields(self):
         for how in ("close", "drop", "unclaim"):
             pid = self.add()
-            ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 10}))
+            ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
             if how == "close":
                 rec = record_of(ps.set_done(pid, True, self.A))
             elif how == "unclaim":
@@ -5067,7 +5101,7 @@ class ClaimEta(Base):
             self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
         self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
-        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *ps.clean_claim_body({"eta_min": 15}))
+        ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(에이전트 A, 약 15분)", md)
 
@@ -5211,8 +5245,8 @@ class BadgeWording(Base):
         a = self.add(4, 9)
         b = self.add(4, 9)
         c = self.add(5, 6)
-        ps.edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(ps.LOCAL_ACTOR))
-        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *ps.clean_claim_body({"eta_min": 10}))
+        edit_pin(c, {"note": "고침", "base_rev": self.pin(c)["rev"]}, dict(ps.LOCAL_ACTOR))
+        ps.claim_pin(c, {"login": "k", "name": "Kim"}, *parse.parse_claim_body({"eta_min": 10}))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("| %d · #%d와 같은 범위 |" % (a, b), md)
         self.assertIn("| %d · #%d과 같은 범위 |" % (b, a), md)
@@ -5660,20 +5694,20 @@ class KindAndThread(Base):
 
     def test_kind_req_stored_only_when_given_and_validated(self):
         """kind_req is stored only when given, and an unknown value is refused (bad_kind_req)."""
-        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+        q = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
                        dict(self.S)).record["id"]
         f = self.add()
         self.assertEqual(self.pin(q)["kind_req"], "question")
         self.assertNotIn("kind_req", self.pin(f))                 # an old-style call (agent curl) has no field = fix request
-        self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
-                         ps.InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"))
+        self.assertEqual(add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
+                         InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"))
 
     def test_edit_switches_kind_even_on_closed_pin(self):
         pid = self.add()
-        p = record_of(ps.edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
+        p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
         self.assertEqual(p["kind_req"], "question")
         ps.set_done(pid, True, dict(self.S))
-        p = record_of(ps.edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
+        p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
         self.assertEqual(p["kind_req"], "fix")
 
     def test_reply_endpoint_appends_message_with_header_identity(self):
@@ -5695,17 +5729,17 @@ class KindAndThread(Base):
 
     def test_reply_validation(self):
         pid = self.add()
-        for body in ({}, {"text": ""}, {"text": "   "}, {"text": 5}, {"text": "x" * (ps.THREAD_TEXT_MAX + 1)}):
+        for body in ({}, {"text": ""}, {"text": "   "}, {"text": 5}, {"text": "x" * (parse.THREAD_TEXT_MAX + 1)}):
             code, d = self.post("/api/pins/%d/reply" % pid, body)
             self.assertEqual(code, 400, body)
         self.assertNotIn("thread", self.pin(pid))
-        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * ps.THREAD_TEXT_MAX})
+        code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * parse.THREAD_TEXT_MAX})
         self.assertEqual(code, 200)
         code, d = self.post("/api/pins/999/reply", {"text": "없음"})
         self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # a nonexistent id follows the same convention as other routes
 
     def test_control_characters_are_stripped_but_newlines_kept(self):
-        self.assertEqual(ps.clean_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
+        self.assertEqual(parse.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
 
     def test_thread_is_capped(self):
         pid = self.add()
@@ -5772,7 +5806,7 @@ class KindAndThread(Base):
         self.assertNotIn("thread", rows[0])
 
     def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
-        q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
+        q = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
                        dict(self.S)).record["id"]
         for i in range(5):
             ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
@@ -5944,7 +5978,7 @@ class ReviewState(Base):
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
-        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (ps.THREAD_TEXT_MAX + 1)})
+        code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (parse.THREAD_TEXT_MAX + 1)})
         self.assertEqual(code, 400)
         code, d = self.post("/api/pins/%d/reopen" % pid)              # a body-less legacy reopen still works too (already open — thread unchanged)
         self.assertEqual(code, 200)
@@ -5967,7 +6001,7 @@ class ReviewState(Base):
         self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
     def test_pins_md_review_section_and_header(self):
-        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)).record["id"]
+        a = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)).record["id"]
         b = self.add(8, 9)
         ps.set_done(a, True, dict(ps.LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -6182,7 +6216,7 @@ class MentionsPeopleEvents(Base):
         self.talk(req("GET", "/", headers=self.HW))
         self.talk(req("GET", "/api/meta?light=1", headers=self.HS))     # polling doesn't count
         self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
         code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
         d = json.loads(raw)
         self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
@@ -6230,16 +6264,16 @@ class MentionsPeopleEvents(Base):
     def test_edit_adds_mention_event_only_for_new_names(self):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        ps.edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
         self.assertEqual([(e["type"], e["to"]) for e in self.events()],
                          [("mention", [self.W["login"]]), ("mention", [self.S["login"]])])
-        ps.edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(ps.LOCAL_ACTOR))
+        edit_pin(pid, {"note": "그냥 메모", "base_rev": 1}, dict(ps.LOCAL_ACTOR))
         self.assertNotIn("mentions", self.pin(pid))
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
         ps.record_person(dict(self.W))
-        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
+        a = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
                        dict(self.S)).record["id"]
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -6255,9 +6289,9 @@ class MentionsPeopleEvents(Base):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
-        legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
-        person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W)).record["id"]
-        agent = ps.add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
+        legacy = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
+        person = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W)).record["id"]
+        agent = add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
                             "assignee": "agent"}, dict(self.W)).record["id"]
         rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
         self.assertNotIn("assignee", rows[legacy])                        # legacy pin: no field -> inferred per #87 (fix request = fyi)
@@ -6307,7 +6341,7 @@ class MentionsPeopleEvents(Base):
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record["id"]
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record["id"]
         f = ps.C.pins_jsonl
         before = f.read_bytes()
         for _ in range(2):
@@ -6345,7 +6379,7 @@ class MentionsPeopleEvents(Base):
     def test_self_mention_never_becomes_addressed(self):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
                           "kind_req": "question"}, dict(self.W)).record["id"]
         p = self.pin(pid)
         self.assertNotIn("mentions", p)                    # a self-@mention isn't stored
@@ -6354,11 +6388,9 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
     def test_mention_hints_validated(self):
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_mention_hints("x")
-        with self.assertRaises(ps.HTTPError):
-            ps.clean_mention_hints(["a"] * (ps.MENTION_MAX + 1))
-        self.assertEqual(ps.clean_mention_hints(None), [])
+        self.assertIsInstance(parse.parse_mention_hints("x"), InputRejected)
+        self.assertIsInstance(parse.parse_mention_hints(["a"] * (parse.MENTION_MAX + 1)), InputRejected)
+        self.assertEqual(parse.parse_mention_hints(None), [])
 
     def test_events_are_capped_but_seq_keeps_rising(self):
         with mock.patch.object(ps, "EVENTS_KEEP", 3):
@@ -6739,33 +6771,33 @@ class EditAddParsing(Base):
 
     def test_parse_edit_returns_the_request_or_the_first_refusal(self):
         """A valid body becomes an EditRequest (place still unset); the first bad field wins, before base_rev and emptiness."""
-        body = ps.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
+        body = parse.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
         self.assertIsNone(body.loc)
         self.assertEqual((body.request.note, body.request.lo, body.request.scope, body.request.base_rev,
                           body.request.hints, body.request.place), ("n", 3, "para", 2, ("a",), None))
-        self.assertEqual(ps.parse_edit({"note": 3}, ()), ps.InputRejected("note 는 문자열이어야 합니다.", "bad_note"))
-        self.assertEqual(ps.parse_edit({"note": "n"}, ()), ps.InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required"))
-        self.assertEqual(ps.parse_edit({"base_rev": 0}, ()),
-                         ps.InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
+        self.assertEqual(parse.parse_edit({"note": 3}, ()), InputRejected("note 는 문자열이어야 합니다.", "bad_note"))
+        self.assertEqual(parse.parse_edit({"note": "n"}, ()), InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required"))
+        self.assertEqual(parse.parse_edit({"base_rev": 0}, ()),
+                         InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
                                           "nothing_to_change"))
-        unknown = ps.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
+        unknown = parse.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
         self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
-        self.assertIsNone(ps.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
+        self.assertIsNone(parse.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
 
     def test_parse_assignee_checks_known_people_only_for_a_person(self):
         """"agent" needs no lookup; a person must be among the known logins; local is never an assignee."""
-        self.assertEqual(ps.parse_assignee("agent", ()), "agent")
-        self.assertEqual(ps.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
-        self.assertIsInstance(ps.parse_assignee("bob@example.com", ()), ps.InputRejected)
-        self.assertEqual(ps.parse_assignee("local", {"local"}),
-                         ps.InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee"))
-        self.assertIsNone(ps.parse_assignee(None, ()))
+        self.assertEqual(parse.parse_assignee("agent", ()), "agent")
+        self.assertEqual(parse.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
+        self.assertIsInstance(parse.parse_assignee("bob@example.com", ()), InputRejected)
+        self.assertEqual(parse.parse_assignee("local", {"local"}),
+                         InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee"))
+        self.assertIsNone(parse.parse_assignee(None, ()))
 
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
-        self.assertEqual(ps.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, False, ()),
-                         ps.InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"))
-        request = ps.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, False, ())
+        self.assertEqual(parse.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.document_facts(ps.cur_doc())),
+                         InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"))
+        request = parse.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.document_facts(ps.cur_doc()))
         self.assertEqual((request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
                          (str(self.main), 1, "n", ()))
         self.assertEqual(request.place.named, frozenset({"file", "lo", "hi", "note"}))

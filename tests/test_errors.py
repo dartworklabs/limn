@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.web.errors import SCOPE_REJECTIONS
+from limn.web.errors import SCOPE_REJECTIONS, InputRejected
 from test_access import BOB, AccessBase
 from test_server import extract_js_fn, ps, run_node
 
@@ -125,7 +125,7 @@ class EveryErrorHasAReason(unittest.TestCase):
                 if not _codes(reason) or not all(CODE.fullmatch(c) for c in _codes(reason)):
                     missing.append("%s:%d" % (name, line))
         self.assertEqual(missing, [])
-        self.assertIn("reason", ps.InputRejected._fields)
+        self.assertIn("reason", InputRejected._fields)
 
     def test_every_error_dict_names_a_reason_code(self):
         """Error bodies built as dicts (the pick refusals, the 500, the comparison worker's status) carry a reason."""

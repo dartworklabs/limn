@@ -16,6 +16,15 @@ from limn.pins.model import Actor, DonePin, OpenPin, Pin, Record, ReviewPin
 
 # The assignee value that hands a pin to the agent rather than to a person (docs/handbook/api.md §담당).
 ASSIGNEE_AGENT = "agent"
+# The headerless loopback agent's login (server.LOCAL_ACTOR). It is never a person, so never an assignee.
+LOCAL_LOGIN = "local"
+# A pin's note, in characters: the limit a new or replaced note must fit, and a note_append merged into it.
+NOTE_MAX = 4000
+# kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
+KIND_REQS = ("fix", "question")
+# The region text a view-only PDF pin keeps as its quote - longer than a line pin's 60 characters, since the text is
+# all an agent has to find the place by.
+PDF_QUOTE_MAX = 160
 # The location fields a line pin's re-placement (loc) replaces as a whole; fields it does not name are dropped.
 LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
               "frac", "scope", "quote")

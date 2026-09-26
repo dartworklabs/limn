@@ -7,26 +7,27 @@ subclass to itself (server.Handler.app), and the handler calls through that at r
 rebind on their server copy (mock.patch.object(ps, "build_async")) is the one the handler calls.
 
 The members are server.py's current shells, most still reading the global C and the thread's current document;
-stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments. Values the handler only
-passes back (a document, parsed close changes) are typed by what the handler reads of them, or `object`.
-tests/test_web.py checks that server.py provides every member.
+stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments. The handler parses what
+a route takes from the request (limn.web.parse) and passes the parsed values. Values the handler only passes back (a
+document) are typed by what the handler reads of them. tests/test_web.py checks that server.py provides every member.
 """
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import AbstractContextManager
 from email.message import Message
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypeAlias, overload
+from typing import Any, Protocol, TypeAlias
 
-from limn.pins.edit import EditRefusal
+from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed,
     NotInTrash, PinStillOpen, ThreadFull,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
-from limn.web.errors import InputRejected, Messages
+from limn.web.errors import Messages
+from limn.web.parse import CloseChange, DocumentFacts, PickRequest, SourceRange
 
 Json: TypeAlias = dict[str, Any]          # a JSON object: request body, response payload, actor, stored pin record
 Query: TypeAlias = dict[str, list[str]]   # parse_qs() of the request's query string
@@ -134,8 +135,22 @@ class App(Protocol):
 
     # ---- the request's document
 
-    def request_doc(self, q: Query, body: Json | None = None, file_hint: object = None) -> Document:
-        """The document a request names (?doc=, body doc, or guessed from file); raises HTTPError 400/404."""
+    def request_doc(self, key: str | None, file_hint: object = None) -> Document:
+        """The document key names (parsed by limn.web.parse.parse_doc_key), or - with none - the one holding
+        file_hint, else the first; raises HTTPError 404 for an unknown key."""
+        ...
+
+    def document_facts(self, D: Document) -> DocumentFacts:
+        """What the location parsers read about document D and the manuscript (limn.web.parse.DocumentFacts)."""
+        ...
+
+    def edit_scope(self, pid: int) -> tuple[bool, Document]:
+        """Whether pin pid is a view-only (region) pin, and the document its edit's loc is checked against: the pin's
+        own, else the current one. Read without the lock, before the edit."""
+        ...
+
+    def assignee_people(self, d: Json) -> Collection[str]:
+        """The logins an assignee in body d is checked against: the known people when d names one, else none."""
         ...
 
     def using_doc(self, d: Document) -> AbstractContextManager[object]:
@@ -172,7 +187,7 @@ class App(Protocol):
         """GET /api/meta for the current document."""
         ...
 
-    def events_since(self, actor: Json, cursor: str | None) -> Json:
+    def events_since(self, actor: Json, cursor: int | None) -> Json:
         """Browser notification material after cursor."""
         ...
 
@@ -228,12 +243,12 @@ class App(Protocol):
         """GET /api/pins/dropped: the Trash."""
         ...
 
-    def snippet_api(self, q: Query) -> Json:
-        """GET /api/snippet."""
+    def snippet_api(self, rng: SourceRange, levels: bool) -> Json:
+        """GET /api/snippet for a parsed range (with the range ladder when levels)."""
         ...
 
-    def overlaps_api(self, q: Query) -> Json:
-        """GET /api/overlaps."""
+    def overlaps_api(self, rng: SourceRange) -> Json:
+        """GET /api/overlaps for a parsed range."""
         ...
 
     def vendor_file(self, name: str) -> Path | None:
@@ -250,44 +265,6 @@ class App(Protocol):
 
     def pin_state(self, r: Record) -> str:
         """'open' | 'review' | 'done'."""
-        ...
-
-    # ---- request-body parsers that still raise HTTPError(400)
-
-    def clean_pin_param(self, v: object) -> int | None:
-        """The optional pin of a revision request."""
-        ...
-
-    @overload
-    def clean_thread_text(self, v: object, what: str = ..., required: Literal[True] = ...) -> str:
-        ...
-
-    @overload
-    def clean_thread_text(self, v: object, what: str, required: Literal[False]) -> str | None:
-        ...
-
-    def clean_mention_hints(self, v: object) -> list[str]:
-        """@-tag hints of a reply, close or reopen."""
-        ...
-
-    def clean_reopen_flag(self, d: Json) -> bool | None:
-        """A reply's optional reopen."""
-        ...
-
-    def clean_review_flag(self, d: Json) -> bool | None:
-        """A close's optional review."""
-        ...
-
-    def clean_claim_body(self, d: Json) -> tuple[int, int | None]:
-        """A claim's (ttl_min, eta_min or None), clamped."""
-        ...
-
-    def clean_close_body(self, d: Json) -> tuple[str | None, str | None]:
-        """A close's (reply, ref)."""
-        ...
-
-    def clean_close_changes(self, v: object, root: Path) -> object:
-        """A close's optional changes, parsed against root; passed on to set_done."""
         ...
 
     # ---- changes
@@ -313,8 +290,8 @@ class App(Protocol):
         """POST /api/pins/{id}/purge."""
         ...
 
-    def edit_pin(self, pid: int, d: Json,
-                 actor: Json) -> OpenPin | ReviewPin | DonePin | EditRefusal | InputRejected | PinNotFound:
+    def edit_pin(self, pid: int, request: EditRequest, actor: Json,
+                 region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
         """POST /api/pins/{id}/edit."""
         ...
 
@@ -329,11 +306,11 @@ class App(Protocol):
 
     def set_done(self, pid: int, done: bool, actor: Json, reply: str | None = None, ref: str | None = None,
                  review: bool | None = None, reason: str | None = None, hints: list[str] | None = None,
-                 changes: object = None) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+                 changes: Sequence[CloseChange] | None = None) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
         """POST /api/pins/{id}/close (done) and /reopen."""
         ...
 
-    def add_pin(self, d: Json, actor: Json) -> OpenPin | InputRejected:
+    def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:
         """POST /api/pin."""
         ...
 
@@ -341,7 +318,7 @@ class App(Protocol):
         """POST /api/clear."""
         ...
 
-    def pick(self, d: Json) -> Json:
+    def pick(self, D: Document, request: PickRequest) -> Json:
         """POST /api/pick: a dragged region -> source lines."""
         ...
 

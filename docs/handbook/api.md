@@ -51,7 +51,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 | 비교 PDF(0.2.2부터 있던 코드) | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
 | 예상 밖 예외 | `500` | `internal` |
 
-코드와 문장의 짝은 `src/limn/server.py` 와 HTTP 층 `src/limn/web/`(처리기·핀 조작 결과의 응답·`SCOPE_REJECTIONS`)이 정본이다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
+코드와 문장의 짝은 `src/limn/server.py` 와 HTTP 층 `src/limn/web/`(처리기·요청 파서·핀 조작 결과의 응답·`SCOPE_REJECTIONS`)이 정본이다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
