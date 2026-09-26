@@ -17,6 +17,7 @@ import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 
+from limn.viewer import assemble
 from test_server import PKG, ps
 
 VIEWER = PKG / "viewer"
@@ -25,7 +26,7 @@ EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
 
 def viewer_text(marker: str, directory: Path = VIEWER) -> str:
     """The text the server puts at marker: the manifest's parts for it, joined in order (what test_brand reads)."""
-    return "".join((directory / n).read_text(encoding="utf-8") for n in ps.viewer_manifest(directory)[marker])
+    return "".join((directory / n).read_text(encoding="utf-8") for n in assemble.viewer_manifest(directory)[marker])
 
 
 class _InlineScripts(HTMLParser):
@@ -65,7 +66,7 @@ def inline_scripts(page: str) -> list[str]:
 def part_line(line: int, directory: Path = VIEWER) -> str:
     """Which JS part line `line` (1-based) of the main script comes from, as 'js/name.js:N'. The main script is the
     joined parts with single-line placeholders filled, so its line numbers are the parts' lines laid end to end."""
-    for name in ps.viewer_manifest(directory)["__APP_JS__"]:
+    for name in assemble.viewer_manifest(directory)["__APP_JS__"]:
         n = (directory / name).read_text(encoding="utf-8").count("\n")
         if line <= n:
             return "%s:%d" % (name, line)
@@ -103,10 +104,10 @@ class ViewerFiles(unittest.TestCase):
     def test_the_page_and_every_listed_part_sit_next_to_the_server(self):
         """The server reads the viewer from its own package folder, never from the working directory, and every
         part the manifest names is a file there with the extension of its marker's language."""
-        self.assertEqual(ps.VIEWER_DIR, VIEWER)
+        self.assertEqual(assemble.VIEWER_DIR, VIEWER)
         self.assertTrue((VIEWER / "index.html").is_file())
-        manifest = ps.viewer_manifest(VIEWER)
-        self.assertEqual(tuple(manifest), ps.VIEWER_MARKERS)
+        manifest = assemble.viewer_manifest(VIEWER)
+        self.assertEqual(tuple(manifest), assemble.VIEWER_MARKERS)
         for marker, names in manifest.items():
             for name in names:
                 self.assertTrue((VIEWER / name).is_file(), name)
@@ -116,34 +117,34 @@ class ViewerFiles(unittest.TestCase):
         """A file under css/ or js/ that the manifest forgets would silently never reach the page."""
         on_disk = sorted(p.relative_to(VIEWER).as_posix() for d in ("css", "js") for p in (VIEWER / d).rglob("*")
                          if p.is_file())
-        listed = sorted(n for names in ps.viewer_manifest(VIEWER).values() for n in names)
+        listed = sorted(n for names in assemble.viewer_manifest(VIEWER).values() for n in names)
         self.assertEqual(listed, on_disk)
 
     def test_every_part_is_whole_lines(self):
         """Each part ends with a newline, so joining never glues one file's last line to the next file's first (a
         glued line could change what the script means, e.g. a `//` comment swallowing the next file's first line)."""
-        for names in ps.viewer_manifest(VIEWER).values():
+        for names in assemble.viewer_manifest(VIEWER).values():
             for name in names:
                 self.assertTrue((VIEWER / name).read_text(encoding="utf-8").endswith("\n"), name)
 
     def test_each_marker_appears_once_in_the_page_and_never_in_the_parts(self):
         """A marker inside CSS or JS would be replaced twice or leak into the page."""
         page = (VIEWER / "index.html").read_text(encoding="utf-8")
-        for marker in ps.VIEWER_MARKERS:
+        for marker in assemble.VIEWER_MARKERS:
             self.assertEqual(page.count(marker), 1, marker)
-        for names in ps.viewer_manifest(VIEWER).values():
+        for names in assemble.viewer_manifest(VIEWER).values():
             for name in names:
                 text = (VIEWER / name).read_text(encoding="utf-8")
-                for marker in ps.VIEWER_MARKERS:
+                for marker in assemble.VIEWER_MARKERS:
                     self.assertNotIn(marker, text, (marker, name))
 
     def test_assembled_page_is_the_parts_joined_in_manifest_order(self):
         """load_viewer_html() is index.html with each marker replaced by its parts joined in the listed order -
         nothing added between or around them - and the served template keeps no marker."""
         expected = (VIEWER / "index.html").read_text(encoding="utf-8")
-        for marker in ps.VIEWER_MARKERS:
+        for marker in assemble.VIEWER_MARKERS:
             expected = expected.replace(marker, viewer_text(marker))
-        self.assertEqual(ps.load_viewer_html(VIEWER), expected)
+        self.assertEqual(assemble.load_viewer_html(VIEWER), expected)
         self.assertNotIn("__APP_", ps.HTML)
 
     def test_a_missing_marker_is_a_packaging_error_at_load(self):
@@ -156,7 +157,7 @@ class ViewerFiles(unittest.TestCase):
                 (broken / name).parent.mkdir(exist_ok=True)
                 (broken / name).write_text(text, encoding="utf-8")
             with self.assertRaises(ValueError):
-                ps.load_viewer_html(broken)
+                assemble.load_viewer_html(broken)
 
     def test_a_malformed_manifest_is_a_packaging_error_at_load(self):
         """The manifest decides what the page contains, so any line it cannot place fails at import: a part before
@@ -176,7 +177,7 @@ class ViewerFiles(unittest.TestCase):
             with self.subTest(why), tempfile.TemporaryDirectory() as d:
                 (Path(d) / "parts.txt").write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError):
-                    ps.viewer_manifest(Path(d))
+                    assemble.viewer_manifest(Path(d))
 
     def test_manifest_comments_and_blank_lines_are_not_parts(self):
         """A '#' comment (whole line or after a path) and blank lines carry no part, so the manifest can say what
@@ -184,7 +185,7 @@ class ViewerFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "parts.txt").write_text("# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n"
                                                "__APP_JS__\njs/a.js\njs/b.js # last\n", encoding="utf-8")
-            self.assertEqual(ps.viewer_manifest(Path(d)),
+            self.assertEqual(assemble.viewer_manifest(Path(d)),
                              {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.js", "js/b.js")})
 
 
@@ -215,11 +216,11 @@ class ViewerScriptParses(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy = Path(d) / "viewer"
             shutil.copytree(VIEWER, copy)
-            self.assertEqual(script_errors(ps.load_viewer_html(copy), copy), [])
-            names = ps.viewer_manifest(copy)["__APP_JS__"]
+            self.assertEqual(script_errors(assemble.load_viewer_html(copy), copy), [])
+            names = assemble.viewer_manifest(copy)["__APP_JS__"]
             victim = names[len(names) // 2]
             (copy / victim).write_text("const = 1;\n" + (copy / victim).read_text(encoding="utf-8"), encoding="utf-8")
-            errors = script_errors(ps.load_viewer_html(copy), copy)
+            errors = script_errors(assemble.load_viewer_html(copy), copy)
             self.assertEqual(len(errors), 1, errors)
             self.assertIn("SyntaxError", errors[0])
             self.assertIn(" at %s:1:" % victim, errors[0])
