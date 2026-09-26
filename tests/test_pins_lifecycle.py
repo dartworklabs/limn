@@ -20,7 +20,9 @@ from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedP
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
 PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "datetime", "math", "typing", "limn.pins.model",
-                "limn.pins.lifecycle", "limn.guidance", "limn.mapping"}   # the last two: pure text modules render.py uses (checked below)
+                "limn.pins.lifecycle", "limn.pins.position",
+                "limn.mentions",                  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
+                "limn.guidance", "limn.mapping"}  # the last two: pure text modules render.py uses (checked below)
 # What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
 # pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
 PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib"}

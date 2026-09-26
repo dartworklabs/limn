@@ -20,13 +20,14 @@ from email.message import Message
 from pathlib import Path, PurePath
 from unittest import mock
 
-from limn import access, guidance
+from limn import access, files, guidance, people
 from limn.access import AccessLookups, AccessSettings, Principal
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError
 
 ACCESS_PY = Path(access.__file__)
 GUIDANCE_PY = Path(guidance.__file__)
+PEOPLE_PY = Path(people.__file__)
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
 TOKEN = "limn_" + "t" * 43
 TOKEN_ROW = {"id": "0badc0de", "name": "ci", "hash": access.token_hash(TOKEN), "created": "2026-09-26 10:00:00"}
@@ -110,7 +111,29 @@ class ModuleBoundary(unittest.TestCase):
         source = ACCESS_PY.read_text(encoding="utf-8")
         self.assertNotIn("C.", source)
         self.assertFalse({n for n in self.imported(ACCESS_PY) if n and "server" in n})
-        self.assertFalse({n for n in self.imported(ACCESS_PY) if n in ("limn.people", "limn.audit")})
+        self.assertNotIn("limn.audit", self.imported(ACCESS_PY))    # the CLI's audit sink arrives as an argument
+
+    def test_the_people_format_access_imports_brings_no_server_store_or_notices(self):
+        """access.py takes people.json's entry check and text from limn.people; that module imports only the standard
+        library and limn.files (which access.py imports itself) - never the server, the pin store, notices or HTTP."""
+        self.assertIn("limn.people", self.imported(ACCESS_PY))
+        self.assertEqual({n for n in self.imported(PEOPLE_PY) if n.startswith("limn")}, {"limn.files"})
+        self.assertIn("limn.files", self.imported(ACCESS_PY))
+        self.assertEqual({n for n in self.imported(Path(files.__file__)) if n.startswith("limn")}, set())
+
+    def test_limn_member_writes_people_json_in_the_people_stores_format(self):
+        """`limn member` and the running server write one format: what member_add writes is people_text of its rows,
+        and an entry people.valid_people drops is dropped by the CLI's read too."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            (state / "people.json").write_text(json.dumps({"version": 1, "people": [
+                {"login": "zed@example.com", "name": "Zed"}, {"login": ""}, {"login": "x@example.com", "name": 3}]}),
+                encoding="utf-8")
+            self.assertEqual(access.load_people_file(state), [{"login": "zed@example.com", "name": "Zed"}])
+            access.member_add(state, "amy@example.com", "viewer", None, lambda action, details: None)
+            rows = [{"login": "amy@example.com", "name": "amy", "role": "viewer"},
+                    {"login": "zed@example.com", "name": "Zed"}]
+            self.assertEqual((state / "people.json").read_text(encoding="utf-8"), people.people_text(rows))
 
     def test_guidance_imports_nothing_effectful(self):
         """The token-file wording is strings in, strings out: only re, shlex and PurePath."""
@@ -435,17 +458,14 @@ class Caches(unittest.TestCase):
 
 
 class StateHelpers(unittest.TestCase):
-    """The helpers behind `limn token` / `limn member`, with a recording audit sink and a minimal people format."""
+    """The helpers behind `limn token` / `limn member`, with a recording audit sink."""
 
     def setUp(self):
-        """A temp state folder, a list the audit sink records into, and a people format that keeps rows sorted."""
+        """A temp state folder and a list the audit sink records into."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.state = Path(tmp.name)
         self.audits = []
-        self.people = access.PeopleFormat(
-            valid_rows=lambda d: [x for x in d["people"] if isinstance(x, dict) and isinstance(x.get("login"), str)],
-            text=lambda rows: json.dumps({"version": 1, "people": sorted(rows, key=lambda x: x["login"])}) + "\n")
 
     def audit(self, action, details):
         """The recording audit sink."""
@@ -472,18 +492,18 @@ class StateHelpers(unittest.TestCase):
         self.assertIsNone(access.token_revoke(self.state, "nope", self.audit))
         for login, role in (("local", "editor"), ("agent:ci", "editor"), ("a b", "editor"), ("c@example.com", "admin")):
             with self.assertRaises(ValueError):
-                access.member_add(self.state, login, role, None, self.people, self.audit)
+                access.member_add(self.state, login, role, None, self.audit)
         self.assertEqual((self.state / "tokens.json").read_bytes(), before)
         self.assertFalse((self.state / "people.json").exists())
         self.assertEqual(self.audits, [])
 
     def test_member_changes_are_audited_in_order(self):
         """add, a role change, a no-op role set (no audit) and a removal, each after its write."""
-        access.member_add(self.state, "bob@example.com", "editor", None, self.people, self.audit)
-        access.member_set_role(self.state, "bob@example.com", "viewer", self.people, self.audit)
-        access.member_set_role(self.state, "bob@example.com", "viewer", self.people, self.audit)
-        self.assertEqual(access.roles_of(access.load_people_file(self.state, self.people)), {"bob@example.com": "viewer"})
-        access.member_remove(self.state, "bob@example.com", self.people, self.audit)
+        access.member_add(self.state, "bob@example.com", "editor", None, self.audit)
+        access.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
+        access.member_set_role(self.state, "bob@example.com", "viewer", self.audit)
+        self.assertEqual(access.roles_of(access.load_people_file(self.state)), {"bob@example.com": "viewer"})
+        access.member_remove(self.state, "bob@example.com", self.audit)
         self.assertEqual([a for a, _ in self.audits], ["member_added", "member_role", "member_removed"])
         self.assertEqual(stat.S_IMODE((self.state / "people.json").stat().st_mode), 0o600)
 
@@ -491,7 +511,7 @@ class StateHelpers(unittest.TestCase):
         """The CLI refuses to rewrite a people.json it could not read."""
         (self.state / "people.json").write_text("{broken", encoding="utf-8")
         with self.assertRaises(ValueError):
-            access.member_add(self.state, "bob@example.com", "editor", None, self.people, self.audit)
+            access.member_add(self.state, "bob@example.com", "editor", None, self.audit)
         self.assertEqual((self.state / "people.json").read_text(encoding="utf-8"), "{broken")
 
 

@@ -13,8 +13,10 @@ Nothing here reads the run settings or imports server.py. The composition root (
 - AccessSettings: the run options identify/admit read, built from its C per call;
 - AccessLookups: the file-backed facts read at request time (tokens.json entries, people.json roles) and the one-time
   loopback-agent warning. server.py owns the process's FileCache for each file and the WarnOnce.
-The state helpers behind `limn token` / `limn member` (token_create, member_add, ...) take the state folder, the
-people.json format (PeopleFormat) and an audit sink (AuditSink). The CLI gets those from the composition root.
+The state helpers behind `limn token` / `limn member` (token_create, member_add, ...) take the state folder and an
+audit sink (AuditSink), which the CLI gets from the composition root. people.json's entry check and stored text are
+the people store's own (limn.people.valid_people, people_text), imported from there - one format for the running
+server's writes and `limn member`'s.
 """
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ from urllib.parse import urlparse
 
 from limn.files import atomic_write, store_lock
 from limn.guidance import UNAUTHENTICATED, loopback_refused_text
+from limn.people import people_text, valid_people
 from limn.pins.edit import LOCAL_LOGIN
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.web.errors import HTTPError
@@ -618,14 +621,6 @@ def bearer_of(headers: Message) -> str | None:
 
 # ---------------------------------------------------------------- people.json roles and members
 
-@dataclass(frozen=True)
-class PeopleFormat:
-    """How people.json's rows are read and written. The format belongs to the people store, which this module does
-    not import; the composition root passes its functions (server.PEOPLE_FORMAT)."""
-    valid_rows: Callable[[object], list[Json]]   # the valid person rows of a parsed people.json document
-    text: Callable[[list[Json]], str]            # the file text for rows (may sort rows in place)
-
-
 def role_value(v: object) -> str:
     """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
     if v is None:
@@ -638,8 +633,9 @@ def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     return {x["login"]: role_value(x.get("role")) for x in rows}
 
 
-def load_people_file(state: Path, people: PeopleFormat) -> list[Json]:
-    """people.json for the CLI: [] if absent, ValueError if it exists but cannot be read (never overwrite what we could not read)."""
+def load_people_file(state: Path) -> list[Json]:
+    """people.json for the CLI: its valid entries (limn.people.valid_people), [] if absent, ValueError if it exists but
+    cannot be read (never overwrite what we could not read)."""
     p = Path(state) / "people.json"
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
@@ -649,31 +645,31 @@ def load_people_file(state: Path, people: PeopleFormat) -> list[Json]:
         raise ValueError("cannot read %s: %s" % (p, e)) from e
     if not isinstance(d, dict) or not isinstance(d.get("people"), list):
         raise ValueError("%s is not a Limn people file" % p)
-    return people.valid_rows(d)
+    return valid_people(d)
 
 
 # One _people_update step: edits rows in place -> (result, audit), audit being (action, details) or None.
 PeopleStep: TypeAlias = Callable[[list[Json]], tuple[Json | None, tuple[str, Json] | None]]
 
 
-def _people_update(state: Path, fn: PeopleStep, people: PeopleFormat, audit: AuditSink) -> Json | None:
+def _people_update(state: Path, fn: PeopleStep, audit: AuditSink) -> Json | None:
     """Read-modify-write of <state>/people.json under the same cross-process lock the server uses.
 
     fn(rows) edits rows in place and returns (result, audit) where audit is (action, details) for a membership change
-    or None. After people.json is written, the change goes to the audit sink while the lock is still held, so audit
-    lines follow the order of the changes. Returns result; ValueError from fn propagates before anything is written."""
+    or None. people.json is written in the people store's format (limn.people.people_text); after that, the change
+    goes to the audit sink while the lock is still held, so audit lines follow the order of the changes. Returns result; ValueError from fn propagates before anything is written."""
     state = Path(state)
     state.mkdir(parents=True, exist_ok=True)
     with store_lock(state, "people"):
-        rows = load_people_file(state, people)
+        rows = load_people_file(state)
         out, change = fn(rows)
-        atomic_write(state / "people.json", people.text(rows), mode=0o600)
+        atomic_write(state / "people.json", people_text(rows), mode=0o600)
         if change is not None:
             audit(change[0], change[1])
     return out
 
 
-def member_add(state: Path, login: str, role: str, name: str | None, people: PeopleFormat, audit: AuditSink) -> Json:
+def member_add(state: Path, login: str, role: str, name: str | None, audit: AuditSink) -> Json:
     """Adds login to people.json with role (name defaults to the part of the login before @) -> the new entry, and
     audits `member_added` {login, role}. Raises ValueError for an invalid login or role, or an existing member."""
     if not valid_login(login):
@@ -690,12 +686,12 @@ def member_add(state: Path, login: str, role: str, name: str | None, people: Peo
         entry = {"login": login, "name": shown, "role": role}
         rows.append(entry)
         return entry, ("member_added", {"login": login, "role": role})
-    added = _people_update(state, fn, people, audit)
+    added = _people_update(state, fn, audit)
     assert added is not None                      # fn always returns the new entry or raises
     return added
 
 
-def member_remove(state: Path, login: str, people: PeopleFormat, audit: AuditSink) -> Json | None:
+def member_remove(state: Path, login: str, audit: AuditSink) -> Json | None:
     """Removes login from people.json -> the removed entry, or None if it was not a member (or there is no file).
     A removal audits `member_removed` {login, previous_role}."""
     if not (Path(state) / "people.json").exists():
@@ -708,10 +704,10 @@ def member_remove(state: Path, login: str, people: PeopleFormat, audit: AuditSin
             return None, None
         rows.remove(hit)
         return hit, ("member_removed", {"login": login, "previous_role": role_value(hit.get("role"))})
-    return _people_update(state, fn, people, audit)
+    return _people_update(state, fn, audit)
 
 
-def member_set_role(state: Path, login: str, role: str, people: PeopleFormat, audit: AuditSink) -> Json | None:
+def member_set_role(state: Path, login: str, role: str, audit: AuditSink) -> Json | None:
     """Sets login's role in people.json -> the updated entry, or None if it is not a member (or there is no file).
     A change of the effective role audits `member_role` {login, role, previous_role}; setting the role it already has
     writes the field but no audit line. Raises ValueError for an unknown role."""
@@ -731,4 +727,4 @@ def member_set_role(state: Path, login: str, role: str, people: PeopleFormat, au
         if before == role:
             return hit, None
         return hit, ("member_role", {"login": login, "role": role, "previous_role": before})
-    return _people_update(state, fn, people, audit)
+    return _people_update(state, fn, audit)

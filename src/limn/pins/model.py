@@ -1,11 +1,12 @@
 """What a pin and an actor can be: state types parsed from stored records, and the typed miss of a load.
 
 A stored pin is a JSON record (docs/handbook/api.md §핀 레코드). Its state is not a stored field; it follows
-from done/review exactly as pin_state() in server.py computes it. Each state type lifts the fields only that state
-has into typed attributes - an open pin's claim, a closed pin's close, a done pin's confirmation, a Trash copy's
-drop - so a claim on a closed pin or a confirmation on an open one has no attribute to live in. Every other field,
-including ones an older or newer version wrote, is kept as stored (`fields`), and `record` writes the pin back in
-the stored field order: a record parsed and written back unchanged gives the same JSON line, byte for byte.
+from done/review (state_of), and the name the API shows for it is the state type's `state` (limn.pins.view.pin_state).
+Each state type lifts the fields only that state has into typed attributes - an open pin's claim, a closed pin's
+close, a done pin's confirmation, a Trash copy's drop - so a claim on a closed pin or a confirmation on an open one
+has no attribute to live in. Every other field, including ones an older or newer version wrote, is kept as stored
+(`fields`), and `record` writes the pin back in the stored field order: a record parsed and written back unchanged
+gives the same JSON line, byte for byte.
 
 Parsing is lenient, as the store has always been: a legacy record may lack any of these fields, and a lifted field
 whose stored value is not of the expected kind is not lifted - it stays among `fields` exactly as stored, and the
@@ -16,9 +17,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, ClassVar, Literal, TypeAlias, TypeVar
 
 Record: TypeAlias = Mapping[str, Any]
+# The name of a pin's state as the API and pins.md show it (GET /api/pins `state`, docs/handbook/api.md §검토 대기).
+StateName: TypeAlias = Literal["open", "review", "done"]
 # An actor as a pin records it (claimed_by, closed_by, confirmed_by, dropped_by): {login, name} as
 # lifecycle.signature() writes it, kept as stored so a field this version does not know survives.
 Signature: TypeAlias = Mapping[str, Any]
@@ -148,7 +151,7 @@ def _render(fields: Record, order: Sequence[str], lifted: Record) -> dict[str, A
 def _check(state: object, fields: Record, lifted: Record) -> None:
     """Guard a state built from trusted data: its stored done/review must name this very state, and a lifted field
     must not also sit among the kept ones (writing the record back would have to pick one). A violation is a defect."""
-    if _state_of(fields) is not type(state):
+    if state_of(fields) is not type(state):
         raise ValueError("%s cannot hold done=%r, review=%r" % (type(state).__name__, fields.get("done"),
                                                                  fields.get("review")))
     if lifted.keys() & fields.keys():
@@ -162,6 +165,7 @@ class OpenPin:
     A pin reopened after a close keeps that close's done_at/closed_by among its fields - the history of an earlier
     close, not a close of this pin; claim fields without a claimed_by object are kept there too and are no claim.
     """
+    state: ClassVar[StateName] = "open"
     claim: Claim | None
     fields: Record
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
@@ -186,6 +190,7 @@ class OpenPin:
 class ReviewPin:
     """Closed by an agent and waiting for a person to confirm it: done and review are both true. It has a close and
     no claim; a confirmation comes only with the move to done."""
+    state: ClassVar[StateName] = "review"
     close: Close
     fields: Record
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
@@ -210,6 +215,7 @@ class ReviewPin:
 class DonePin:
     """Closed for good: done without review. It has a close, a confirmation when a person confirmed it out of review,
     and no claim. A legacy done record with no review field is done too."""
+    state: ClassVar[StateName] = "done"
     close: Close
     confirmation: Confirmation | None
     fields: Record
@@ -239,8 +245,10 @@ class DonePin:
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin
 
 
-def _state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]:
-    """The state a stored record is in, by the rule of pin_state(): not done is open; done with review true is review."""
+def state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]:
+    """The state type a stored record is in - the one rule of a pin's state, never stored: not done is open; done
+    with review true is awaiting review; any other done (a legacy done:true without review too) is done. Reads only
+    done and review, so it is cheap enough for every pin of every read (limn.pins.view.pin_state)."""
     if not record.get("done"):
         return OpenPin
     if record.get("review") is True:
@@ -249,9 +257,9 @@ def _state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]
 
 
 def parse_pin(record: Record) -> Pin:
-    """The state type of a stored record, by the rule of pin_state(), with that state's fields lifted. Never fails:
+    """The state type of a stored record, by the rule of state_of(), with that state's fields lifted. Never fails:
     any JSON object is some state, and whatever does not fit is kept as stored."""
-    return _state_of(record).from_record(record)
+    return state_of(record).from_record(record)
 
 
 @dataclass(frozen=True)

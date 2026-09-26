@@ -6,7 +6,8 @@ build history, SyncTeX and pdftotext for a dragged region. The rules themselves 
 and anchors in limn.mapping, estimation, overlap and anchor re-sync in limn.pins.position - and are called from here.
 
 Everything the instance decides comes in as an argument: the document (limn.documents.Doc), the manuscript root, the
-float environments, the state folder, the token-weight cache and the store's pins (PickContext). Nothing here reads
+float environments, the state folder, the token-weight cache and the store's pins (PickContext), and the Locator that
+says where each pin's file is now (the overlaps count each pin in that file). Nothing here reads
 the server's run settings or imports the server (coding rule R5); the composition root (server.py) binds these.
 """
 from __future__ import annotations
@@ -17,7 +18,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias, cast
 
 from limn import build
 from limn.documents import Doc, to_source
@@ -25,6 +26,7 @@ from limn.files import file_in_tree, tex_lines
 from limn.mapping import (
     TokenWeights, by_text, compute_levels, densest, norm, pin_rel_path, score_range, snippet, truncate_quote,
 )
+from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
 from limn.pins.position import EstContext, epoch, est_basis, resync
 
@@ -221,6 +223,24 @@ def located_file(r: Row, locate: Locator) -> str:
     pins made before and after a move of the checkout are one file."""
     loc = locate(r)
     return str(loc.path) if loc else str(r.get("file"))
+
+
+# ---------------------------------------------------------------- Overlap - a computed field, never stored
+#
+# The rule is limn.pins.position's (overlaps_by_id, selection_rel, overlaps_for_range); here each pin is counted in
+# the file locate finds for it now (located_file), so a moved checkout's old and new pins overlap as one file.
+
+def overlaps_by_id(rows: Sequence[Row], locate: Locator) -> dict[int, list[dict[str, Any]]]:
+    """The relationship of every pair of open line pins of rows on the same file, as locate places each pin's file now
+    (limn.pins.position.overlaps_by_id): {id: [{"id", "rel"}, ...]} with an entry for every open pin. Never stored."""
+    return position.overlaps_by_id(rows, lambda r: located_file(cast(Row, r), locate))   # r is one of rows
+
+
+def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row], locate: Locator) -> list[dict[str, Any]]:
+    """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins of rows that
+    locate places in that file now (limn.pins.position.overlaps_for_range): [{"id", "lo", "hi", "rel"}] in row order.
+    Nothing is saved."""
+    return position.overlaps_for_range(file, lo, hi, rows, lambda r: located_file(cast(Row, r), locate))   # one of rows
 
 
 # ---------------------------------------------------------------- Anchors and re-syncing
@@ -430,6 +450,18 @@ def _pick_region(D: Doc, pdir: Path, page: int, box: tuple[float, float, float, 
     return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
             "pdf": D.rel_path(), "name": D.main.name, "quote": truncate_quote(text, PDF_QUOTE_MAX),
             "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
+
+
+def overlaps_api(rng: SourceLines, ctx: PickContext) -> dict[str, Any]:
+    """GET /api/overlaps - asks about a not-yet-saved selection's overlap using only file/range (kept for
+    agent/legacy-viewer compatibility): {"overlaps": [...]}, the stored open pins' relationships as ctx.overlaps finds
+    them.
+
+    The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
+    range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
+    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer. rng is the range
+    parsed by limn.web.parse.parse_source_range."""
+    return {"overlaps": ctx.overlaps(str(rng.file), rng.lo, rng.hi)}
 
 
 def snippet_api(rng: SourceLines, levels: bool, envs: Sequence[str]) -> dict[str, Any]:

@@ -72,7 +72,7 @@ from limn.mentions import (  # noqa: E402 - after the path bootstrap above
     NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
     resolve_mentions, tag_note, thread_round,
 )
-from limn.people import is_actor as _is_actor, people_text, valid_people as _valid_people  # noqa: E402
+from limn.people import is_actor as _is_actor  # noqa: E402
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
@@ -91,8 +91,9 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
 )
 from limn import locate  # noqa: E402 - after the path bootstrap above
 from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
-from limn.pins import position  # noqa: E402 - after the path bootstrap above
-from limn.pins.position import epoch as _epoch, pin_est  # noqa: E402 - after the path bootstrap above
+from limn.pins import view  # noqa: E402 - after the path bootstrap above
+from limn.pins.view import pin_state  # noqa: E402,F401 - an App member (web/app.py)
+from limn.pins.position import EstContext, epoch as _epoch  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn import access  # noqa: E402 - after the path bootstrap above
 from limn.access import (  # noqa: E402 - after the path bootstrap above
@@ -105,7 +106,7 @@ from limn.access import hdr_text  # noqa: E402,F401 - after the path bootstrap a
 from limn.guidance import shell_path  # noqa: E402 - after the path bootstrap above
 # pins.md's renderer; server.py builds its input (pins_md_input).
 from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
-    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text,
+    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text, rel_badge,
 )
 from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
@@ -1019,127 +1020,50 @@ def public(r: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- Computed fields of GET /api/pins
+# ---------------------------------------------------------------- Computed fields of GET /api/pins, and overlap
 #
-# Location estimation (est) is limn.pins.position.pin_est over the document's builds as limn.locate.est_context reads
-# them; overlap (rel) is overlaps_by_id below. Neither is stored.
-
-
-def pin_state(r: dict) -> str:
-    """'open' | 'review' | 'done' - a computed field, never stored (docs/handbook/api.md §검토 대기).
-
-    Awaiting review is the shape done=true plus review=true. Because done is still true, the legacy contract
-    keeps working as-is - GET /api/pins (open pins only), the pins.md open table, claim (409 on done), line
-    matching, and overlap computation all treat an awaiting-review pin as "the agent's part is finished".
-    An old server or old viewer just sees it as done, and nothing breaks. A legacy done:true record with no
-    review field stays plain done - reading it never triggers a migration write."""
-    if not r.get("done"):
-        return "open"
-    return "review" if r.get("review") is True else "done"
-
+# What GET /api/pins and GET /api/pins/dropped add to the stored records is limn.pins.view's (pure; pin_state, an App
+# member, is imported as it is). Overlap is limn.locate's, counting each pin in the file this instance finds for it
+# now. Here both are bound to this instance: how a record is shown (public), a pin's document, each document's build
+# history (limn.locate.est_context), the pin locator, the stored pins and the clock.
 
 def pins_payload(rows: list, allp: bool) -> list:
-    """GET /api/pins response: stored records + the computed fields rel (overlap), est (location estimated), state. None of these are stored."""
-    rel = overlaps_by_id(rows)
-    ctxs: dict = {}
-    out = []
-    for r in rows:
-        if not (allp or not r.get("done")):
-            continue
-        k = pin_doc_key(r)
-        if k not in ctxs:                              # judgment material is per document (build history is separate per document)
-            D = doc_by_key(k)
-            if D is None:
-                ctxs[k] = None
-            else:
-                ctxs[k] = est_context(D)
-        ctx = ctxs[k]
-        rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k, state=pin_state(r),
-                   addressed=addressed_to(r), fyi=fyi_mentions_to(r))
-        if claim_active(r) and not _is_num(r.get("claim_ts")):
-            ts = _epoch(r.get("claimed_at"))          # a pre-eta claim - the start epoch (computed field) the viewer's "since 20:02 (23 min in)" uses
-            if ts is not None:
-                rec["claim_ts"] = ts
-        out.append(rec)
-    return out
+    """GET /api/pins response (limn.pins.view.pins_payload): stored records + the computed fields rel (overlap), est
+    (location estimated), doc, state, addressed, fyi. None of these are stored."""
+    return view.pins_payload(rows, allp, overlaps_by_id(rows), public, pin_doc_key, _doc_est_context, time.time())
+
+
+def _doc_est_context(key: str) -> EstContext | None:
+    """What estimation reads of the builds of the document key names (limn.locate.est_context), or None when this
+    instance no longer serves that document."""
+    D = doc_by_key(key)
+    return None if D is None else est_context(D)
 
 
 def dropped_payload(now: float = None) -> list:
-    """GET /api/pins/dropped response - the Trash: pins.dropped.jsonl emitted as-is, ordered by dropped_at (no computed
-    fields but `expires_ts`), without entries older than TRASH_DAYS (hidden here, removed from the file by the next purge_trash()).
+    """GET /api/pins/dropped response - the Trash (limn.pins.view.dropped_payload): pins.dropped.jsonl ordered by
+    dropped_at, each entry with `expires_ts`, without entries older than TRASH_DAYS (hidden here, removed from the file
+    by the next purge_trash()).
 
     Read-only and outside the lock - dropping/restoring already hold PIN_LOCK while writing this file
     (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
     read here, no separate lock is needed to avoid seeing a half-written file."""
-    rows = _unexpired(read_jsonl(C.dropped)[0], now)
-    rows.sort(key=lambda r: str(r.get("dropped_at") or ""))
-    out = []
-    for r in rows:
-        rec, exp = public(r), trash_expires_ts(r)
-        if exp is not None:
-            rec["expires_ts"] = round(exp, 3)       # computed (v0.2.2): the viewer's "gone in N days", free of the browser's time zone
-        out.append(rec)
-    return out
-
-
-# ---------------------------------------------------------------- Overlap - a computed field, never stored
-#
-# The rule is limn.pins.position (overlaps_by_id, selection_rel, overlaps_for_range); here it is bound to where this
-# instance finds each pin's file now.
-
-def pin_file(r: dict) -> str:
-    """The file an open line pin's overlaps are counted in: where pin_location() places it now, else its stored file
-    (pins made before and after a move of the checkout are one file)."""
-    return locate.located_file(r, pin_locator())
+    return view.dropped_payload(_unexpired(read_jsonl(C.dropped)[0], now), public, trash_expires_ts)
 
 
 def overlaps_by_id(rows: list) -> dict:
-    """The relationship of every pair of open line pins on the same file (position.overlaps_by_id), never stored."""
-    return position.overlaps_by_id(rows, pin_file)
+    """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
+    now (limn.locate.overlaps_by_id), never stored."""
+    return locate.overlaps_by_id(rows, pin_locator())
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
     """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
-    (position.overlaps_for_range). Nothing is saved."""
-    return position.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_file)
+    (limn.locate.overlaps_for_range). Nothing is saved."""
+    return locate.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_locator())
 
 
-def josa(n, cons: str, vowel: str) -> str:
-    """Korean particle after a number - '#20과'/'#2와', '#20을'/'#2를'. Decided by the final sound of the Sino-Korean reading:
-    ending in 0 (ship/baek/cheon/man/yeong) takes the consonant-final particle, and so do the digits 1/3/6/7/8
-    (il/sam/yuk/chil/pal). Same rule as the viewer's josa()."""
-    d = str(n)[-1:]
-    return cons if d == "0" or d in "13678" else vowel
-
-
-def rel_badge(rel: list, by_id: dict, me: dict = None) -> str:
-    """Picks one representative relationship for pins.md / card tags - phrased as a short, meaningful label (the old ⊂#N/∩#N marks were unreadable).
-
-    1. If there's a pin with the exact same range (the same spot marked twice), the one with the smallest id: '#N과 같은 범위'
-    2. If there's an inside relationship, the smallest enclosing outer pin: '#N 범위 안'
-    3. The smallest-id partial: '#N과 일부 겹침'
-    contains (wraps) is never shown. Since the rel entries from GET /api/pins are only {id,rel} (the
-    contract), ranges are looked up from by_id (the full rows). Without me (this pin), same-range pins
-    can't be singled out, so it falls back to only inside/overlap, as before."""
-    if me is not None:
-        same = [x for x in rel if (by_id.get(x["id"]) or {}).get("lo") == me.get("lo")
-                and (by_id.get(x["id"]) or {}).get("hi") == me.get("hi")]
-        if same:
-            n = min(x["id"] for x in same)
-            return "#%d%s 같은 범위" % (n, josa(n, "과", "와"))
-    insides = [x for x in rel if x["rel"] == "inside"]
-    if insides:
-        def span(x):
-            o = by_id.get(x["id"])
-            return ((o["hi"] - o["lo"]) if o else 1 << 30, x["id"])
-        best = min(insides, key=span)
-        return "#%d 범위 안" % best["id"]
-    partials = [x for x in rel if x["rel"] == "partial"]
-    if partials:
-        n = min(partials, key=lambda x: x["id"])["id"]
-        return "#%d%s 일부 겹침" % (n, josa(n, "과", "와"))
-    return ""
-
+# ---------------------------------------------------------------- Pin ids and the actor as a record signs it
 
 def init_seq() -> None:
     """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
@@ -1890,8 +1814,8 @@ def existing_token_file_shown(f: Path | None) -> str | None:
 # ---------------------------------------------------------------- Selection resolution
 #
 # Resolving a drag to source lines, the snippet and the overlaps of a range are limn/locate.py's; they take the
-# document and the instance's settings as arguments. These are the App members the handler calls (web/app.py),
-# bound to this instance's run settings, token-weight cache and pins.
+# document and a PickContext as arguments. These are the App members the handler calls (web/app.py), bound to this
+# instance's run settings, token-weight cache and pins (overlaps_for_range above).
 
 TOKEN_CACHE = locate.TokenCache()             # the process's word-frequency cache for the last file weighed
 
@@ -1913,13 +1837,8 @@ def snippet_api(rng: locate.SourceLines, levels: bool) -> dict:
 
 
 def overlaps_api(rng: locate.SourceLines) -> dict:
-    """GET /api/overlaps — asks about a not-yet-saved selection's overlap using only file/range (kept for agent/legacy-viewer compatibility).
-
-    The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
-    range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
-    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer. rng is the range
-    parsed by limn.web.parse.parse_source_range."""
-    return {"overlaps": overlaps_for_range(str(rng.file), rng.lo, rng.hi)}
+    """GET /api/overlaps: a parsed range's overlaps with the stored open pins (limn.locate.overlaps_api)."""
+    return locate.overlaps_api(rng, pick_context())
 
 
 # ---------------------------------------------------------------- Access control wiring (limn/access.py, docs/adr/0002-access-control.md)
@@ -1934,8 +1853,6 @@ def overlaps_api(rng: locate.SourceLines) -> dict:
 TOKENS_CACHE: access.FileCache[list] = access.FileCache()   # tokens.json's valid entries as this process last read them
 ROLES_CACHE: access.FileCache[dict] = access.FileCache()    # {login: role} of people.json as this process last read it
 LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
-# How `limn member` reads and writes people.json: the people store's own format (load_people, record_person).
-PEOPLE_FORMAT = access.PeopleFormat(valid_rows=_valid_people, text=people_text)
 
 
 def access_settings() -> access.AccessSettings:

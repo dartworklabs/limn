@@ -1132,12 +1132,12 @@ class Estimate(Base):
         limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, ps._epoch("2026-09-22T09:30:00+09:00"))
         ctx = ps.est_context(ps.DOCS[0])
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
-        self.assertTrue(ps.pin_est(old, ctx))
+        self.assertTrue(position.pin_est(old, ctx))
         # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
-        self.assertTrue(ps.pin_est(dict(old, edited_at="2026-09-22T11:00:00+09:00"), ctx))
-        self.assertFalse(ps.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))   # the manuscript hasn't changed since
-        self.assertFalse(ps.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # placed after the build
-        self.assertTrue(ps.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))  # the legacy field name also takes the identity path
+        self.assertTrue(position.pin_est(dict(old, edited_at="2026-09-22T11:00:00+09:00"), ctx))
+        self.assertFalse(position.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))   # the manuscript hasn't changed since
+        self.assertFalse(position.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # placed after the build
+        self.assertTrue(position.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))  # the legacy field name also takes the identity path
 
     def test_legacy_epoch_ignores_process_timezone_for_offset_strings(self):
         with mock.patch.dict(os.environ, {"TZ": "America/New_York"}):
@@ -1899,7 +1899,7 @@ class FrontendLogic(unittest.TestCase):
         # compare the same rule with the same by_id on the Python side (rel_badge, pins.md).
         by_id = {1: {"lo": 1, "hi": 100}, 2: {"lo": 10, "hi": 20}, 3: {"lo": 5, "hi": 50}}
         rel = [{"id": 1, "rel": "inside"}, {"id": 3, "rel": "inside"}, {"id": 2, "rel": "inside"}]
-        self.assertEqual(ps.rel_badge(rel, by_id), "#2 범위 안")
+        self.assertEqual(md_render.rel_badge(rel, by_id), "#2 범위 안")
 
     def test_jump_to_card_sets_cur_and_clears_highlight_after_timeout(self):
         # bug: clicking the badge only added .flash (no .cur), and since the box-shadow was static, the highlight never went away.
@@ -5279,7 +5279,7 @@ class BadgeWording(Base):
     NUMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 20, 100, 1000, 21, 32]
 
     def test_josa_follows_korean_reading(self):
-        got = [ps.josa(n, "과", "와") for n in self.NUMS]
+        got = [md_render.josa(n, "과", "와") for n in self.NUMS]
         self.assertEqual(got, ["과", "와", "과", "와", "와", "과", "과", "과", "와", "과", "과", "와", "와", "와", "과", "과", "과",
                                "과", "와"])
         if shutil.which("node"):
@@ -5288,13 +5288,13 @@ class BadgeWording(Base):
 
     def test_rel_badge_prefers_same_range_then_inside_then_partial(self):
         by_id = {1: {"lo": 4, "hi": 9}, 2: {"lo": 4, "hi": 9}, 3: {"lo": 5, "hi": 6}, 20: {"lo": 8, "hi": 12}}
-        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위")
-        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위")
-        self.assertEqual(ps.rel_badge([{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id,
+        self.assertEqual(md_render.rel_badge([{"id": 1, "rel": "contains"}], by_id, {"id": 2, "lo": 4, "hi": 9}), "#1과 같은 범위")
+        self.assertEqual(md_render.rel_badge([{"id": 2, "rel": "inside"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "#2와 같은 범위")
+        self.assertEqual(md_render.rel_badge([{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}], by_id,
                                       {"id": 3, "lo": 5, "hi": 6}), "#1 범위 안")
-        self.assertEqual(ps.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침")
-        self.assertEqual(ps.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침")
-        self.assertEqual(ps.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
+        self.assertEqual(md_render.rel_badge([{"id": 20, "rel": "partial"}], by_id, {"id": 3, "lo": 5, "hi": 9}), "#20과 일부 겹침")
+        self.assertEqual(md_render.rel_badge([{"id": 2, "rel": "partial"}], by_id, {"id": 9, "lo": 8, "hi": 12}), "#2와 일부 겹침")
+        self.assertEqual(md_render.rel_badge([{"id": 3, "rel": "contains"}], by_id, {"id": 1, "lo": 4, "hi": 9}), "")
 
     def test_js_rel_badge_matches_server(self):
         if not shutil.which("node"):
