@@ -47,7 +47,7 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 ## 핀의 상태와 전이
 
-핀은 세 상태 중 하나에 있다. **열림**, **검토 대기**, **완료**다. 서버는 이 상태를 따로 저장하지 않고 레코드에서 계산해 응답의 `state` 필드(`open`|`review`|`done`)로 돌려준다. 계산 규칙은 `pin_state`에 있다.
+핀은 세 상태 중 하나에 있다. **열림**, **검토 대기**, **완료**다. 서버는 이 상태를 따로 저장하지 않고 레코드에서 계산해 응답의 `state` 필드(`open`|`review`|`done`)로 돌려준다. 계산 규칙은 [`limn/pins/model.py`](../../src/limn/pins/model.py)의 `state_of` 하나다. 전이가 레코드를 상태 타입으로 파싱할 때(`parse_pin`)도, API가 `state`를 낼 때도 이 규칙을 쓰고, `state` 값은 그 타입의 이름이다([`limn/pins/view.py`](../../src/limn/pins/view.py)의 `pin_state`). `GET /api/pins`의 다른 계산 필드(`rel`·`est`·`doc`·`addressed`·`fyi`, 옛 claim의 `claim_ts`)를 붙이는 것도 `view.py`의 순수 함수 `pins_payload`이고, 레코드를 이 머신의 경로로 보이는 법·핀의 문서·문서의 빌드 이력·겹침·시계는 조립 지점이 인자로 넘긴다.
 
 | 상태 | 레코드 모양 | 어디에 보이나 |
 | --- | --- | --- |

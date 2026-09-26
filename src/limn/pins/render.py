@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TypeGuard
+from typing import Any, TypeGuard
 
 from limn.guidance import token_file_curl
 from limn.mapping import truncate_quote
@@ -164,6 +164,44 @@ def render_quote(r: Record, facts: PinFacts) -> str:
     return "«%s» " % md_cell(q)
 
 
+def josa(n: object, cons: str, vowel: str) -> str:
+    """Korean particle after a number - '#20과'/'#2와', '#20을'/'#2를'. Decided by the final sound of the Sino-Korean reading:
+    ending in 0 (ship/baek/cheon/man/yeong) takes the consonant-final particle, and so do the digits 1/3/6/7/8
+    (il/sam/yuk/chil/pal). Same rule as the viewer's josa()."""
+    d = str(n)[-1:]
+    return cons if d == "0" or d in "13678" else vowel
+
+
+def rel_badge(rel: Sequence[Mapping[str, Any]], by_id: Mapping[int, Record], me: Record | None = None) -> str:
+    """Picks one representative relationship for pins.md / card tags - phrased as a short, meaningful label (the old ⊂#N/∩#N marks were unreadable).
+
+    1. If there's a pin with the exact same range (the same spot marked twice), the one with the smallest id: '#N과 같은 범위'
+    2. If there's an inside relationship, the smallest enclosing outer pin: '#N 범위 안'
+    3. The smallest-id partial: '#N과 일부 겹침'
+    contains (wraps) is never shown. Since the rel entries from GET /api/pins are only {id,rel} (the
+    contract), ranges are looked up from by_id (the full rows). Without me (this pin), same-range pins
+    can't be singled out, so it falls back to only inside/overlap, as before. The viewer's relBadge() is the same rule."""
+    if me is not None:
+        same = [x for x in rel if (by_id.get(x["id"]) or {}).get("lo") == me.get("lo")
+                and (by_id.get(x["id"]) or {}).get("hi") == me.get("hi")]
+        if same:
+            n = min(x["id"] for x in same)
+            return "#%d%s 같은 범위" % (n, josa(n, "과", "와"))
+    insides = [x for x in rel if x["rel"] == "inside"]
+    if insides:
+        def span(x: Mapping[str, Any]) -> tuple[int, int]:
+            """The enclosing pin's line span (unknown pins last), then its id - the smallest enclosing pin wins."""
+            o = by_id.get(x["id"])
+            return ((o["hi"] - o["lo"]) if o else 1 << 30, x["id"])
+        best = min(insides, key=span)
+        return "#%d 범위 안" % best["id"]
+    partials = [x for x in rel if x["rel"] == "partial"]
+    if partials:
+        n = min(partials, key=lambda x: x["id"])["id"]
+        return "#%d%s 일부 겹침" % (n, josa(n, "과", "와"))
+    return ""
+
+
 LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다 · '#N과 일부 겹침' = 참고만, 각자 처리해도 된다 · "
           "'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다 · '수정됨' = 저장 뒤 메모·범위가 바뀜 · "
           "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
@@ -207,7 +245,8 @@ THREAD_MD_CHARS = 200              # character count for one of those posts - th
 
 def flat(s: object, n: int) -> str:
     """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut).
-    None and "" both give ""."""
+    None and "" both give "". The one rule for a text shown on one line: pins.md's thread posts and close replies
+    here, and the excerpt of an events.jsonl notice (limn.events.make_event)."""
     return truncate_quote(" ".join(str(s or "").split()), n)
 
 

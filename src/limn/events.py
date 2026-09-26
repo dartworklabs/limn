@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 from limn.files import atomic_write
-from limn.mapping import truncate_quote
+from limn.pins.render import flat
 
 # One notice or events.jsonl record, a pin record, an actor or a thread post as read from JSON.
 Row: TypeAlias = dict[str, Any]
@@ -41,15 +41,10 @@ EVENTS_KEEP = 5000                 # number of recent events kept in events.json
 EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 EVENTS_SINCE_MAX = 20
-EXCERPT_CHARS = 140
+EXCERPT_CHARS = 140                # a notice's excerpt, on one line (limn.pins.render.flat)
 
 
 # ---------------------------------------------------------------- Pure: building and picking notices
-
-def excerpt(s: object, n: int = EXCERPT_CHARS) -> str:
-    """s with whitespace/newlines collapsed to single spaces, truncated at n characters (with an ellipsis if cut)."""
-    return truncate_quote(" ".join(str(s or "").split()), n)
-
 
 def make_event(typ: str, r: Mapping[str, Any], actor: Mapping[str, Any], to: Iterable[str | None] | None,
                who: Callable[[Mapping[str, Any]], Row], doc_of: Callable[[Mapping[str, Any]], str], local_login: str,
@@ -59,7 +54,8 @@ def make_event(typ: str, r: Mapping[str, Any], actor: Mapping[str, Any], to: Ite
     to is deduplicated in order and loses empty logins, the actor themselves and local_login (the headerless agent);
     None (not recorded) if that leaves it empty. who gives the actor as recorded ({login, name}) and doc_of the pin's
     document; both are only asked when a notice is made. The record carries kind_req when the pin has one, msg (the
-    thread post's id) when a post is given, and an excerpt of text - or of the post's text - when not empty."""
+    thread post's id) when a post is given, and an excerpt of text - or of the post's text - when not empty: on one
+    line, at most EXCERPT_CHARS characters (limn.pins.render.flat, the rule pins.md shows thread posts by)."""
     me = (actor or {}).get("login")
     rcpt = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != local_login]
     if not rcpt:
@@ -69,7 +65,7 @@ def make_event(typ: str, r: Mapping[str, Any], actor: Mapping[str, Any], to: Ite
         ev["kind_req"] = r["kind_req"]
     if msg is not None:
         ev["msg"] = msg.get("id")
-    ex = excerpt(text if text is not None else (msg or {}).get("text", ""))
+    ex = flat(text if text is not None else (msg or {}).get("text", ""), EXCERPT_CHARS)
     if ex:
         ev["excerpt"] = ex
     return ev

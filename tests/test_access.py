@@ -62,23 +62,23 @@ def token_revoke(state, ref, mod=ps):
 
 
 def member_add(state, login, role=access.DEFAULT_ROLE, name=None, mod=ps):
-    """`limn member add` on state as the CLI runs it: mod's people.json format and audit sink -> the new entry."""
-    return access.member_add(state, login, role, name, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+    """`limn member add` on state as the CLI runs it, with mod's audit sink -> the new entry."""
+    return access.member_add(state, login, role, name, mod.cli_audit(state))
 
 
 def member_remove(state, login, mod=ps):
     """`limn member remove` on state as the CLI runs it -> the removed entry, or None."""
-    return access.member_remove(state, login, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+    return access.member_remove(state, login, mod.cli_audit(state))
 
 
 def member_set_role(state, login, role, mod=ps):
     """`limn member role` on state as the CLI runs it -> the updated entry, or None."""
-    return access.member_set_role(state, login, role, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+    return access.member_set_role(state, login, role, mod.cli_audit(state))
 
 
 def load_people_file(state, mod=ps):
     """people.json as `limn member list` reads it (strict: ValueError for an unreadable file)."""
-    return access.load_people_file(state, mod.PEOPLE_FORMAT)
+    return access.load_people_file(state)
 
 
 def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:

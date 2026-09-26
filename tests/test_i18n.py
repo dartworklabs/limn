@@ -463,7 +463,7 @@ class EnglishChrome(unittest.TestCase):
         agent = dict(ps.LOCAL_ACTOR)
         for who in (ALICE, BOB, SEOJUN):
             ps.record_person(who)
-        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.PEOPLE_FORMAT, ps.cli_audit(C.state))
+        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.cli_audit(C.state))
         ms, rr = ps.DOCS
 
         def add(lo, hi, note, actor, **kw):
