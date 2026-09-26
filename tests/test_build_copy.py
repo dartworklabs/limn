@@ -13,6 +13,8 @@ from unittest import mock
 
 from test_server import Base, ps
 
+from limn import build
+
 # run_logged's result if latexmk ran and produced nothing - keeps a regressed build on the assertion path.
 NO_PDF = (1, "", False)
 
@@ -24,7 +26,7 @@ exit 23
 
 
 class ManuscriptCopy(Base):
-    """What _build() does when copying the manuscript into the build folder goes wrong."""
+    """What _build() (limn.build.compile_tex) does when copying the manuscript into the build folder goes wrong."""
 
     def setUp(self):
         """Put an rsync on PATH that fails the way a partial transfer does (exit 23)."""
@@ -45,7 +47,7 @@ class ManuscriptCopy(Base):
 
     def test_build_stops_before_latexmk_when_rsync_fails(self):
         """A non-zero rsync exit fails the build with the copy error and never compiles the partial copy."""
-        with mock.patch.object(ps, "run_logged", return_value=NO_PDF) as compile_step:
+        with mock.patch.object(build, "run_logged", return_value=NO_PDF) as compile_step:
             res = ps._build()
         compile_step.assert_not_called()
         self.assertEqual(res["state"], "fail")
@@ -54,7 +56,7 @@ class ManuscriptCopy(Base):
 
     def test_copy_error_names_the_rsync_exit_and_its_last_message(self):
         """The build log shows why the copy failed so the owner can fix permissions or disk space."""
-        with mock.patch.object(ps, "run_logged", return_value=NO_PDF):
+        with mock.patch.object(build, "run_logged", return_value=NO_PDF):
             res = ps._build()
         self.assertIn("23", res["log"])
         self.assertIn("some files/attrs were not transferred", res["log"])
