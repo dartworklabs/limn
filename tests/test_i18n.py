@@ -104,9 +104,10 @@ def composed_keys(html):
 
 class MessageTable(unittest.TestCase):
     def test_table_loads_and_values_are_english(self):
+        """Keys are Korean UI strings, or reason:<code> for an API error reason (tests/test_errors.py); values are English."""
         self.assertGreater(len(ps.UI_EN), 300)
         for k, v in ps.UI_EN.items():
-            self.assertTrue(HANGUL.search(k), k)
+            self.assertTrue(HANGUL.search(k) or re.fullmatch(r"reason:[a-z][a-z0-9_]*", k), k)
             for form in (v.values() if isinstance(v, dict) else [v]):
                 self.assertFalse(HANGUL.search(form), (k, v))
                 self.assertTrue(form.strip(), k)
@@ -290,6 +291,66 @@ class ComposedMessages(unittest.TestCase):
                                "Same range as #4", "Done", "없는 키 1"])
 
 
+def pick_warning_sentences():
+    """The Korean sentences pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
+    import ast
+    tree = ast.parse(Path(ps.__file__).read_text(encoding="utf-8"))
+    out = set()
+    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("pick", "_pick_region")):
+        for asg in (n for n in ast.walk(fn) if isinstance(n, ast.Assign)):
+            if not any(isinstance(t, ast.Name) and t.id in ("warn", "stale_note") for t in asg.targets):
+                continue
+            for n in ast.walk(asg.value):
+                if isinstance(n, ast.Constant) and isinstance(n.value, str) and HANGUL.search(n.value):
+                    out.add(re.sub(r"%(?:\.0f|d)", "{x}", n.value).replace("%%", "%"))
+    return out
+
+
+class PickWarnings(unittest.TestCase):
+    """The pick's `warn` is a Korean UI hint (not an error body) that the server composes from up to three sentences.
+    warnText() shows it in English by matching each sentence to its template in PICK_WARNS and filling it via tl()."""
+
+    def run_js(self, lang, body):
+        """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available")
+        table = re.search(r"const PICK_WARNS=\[.*?\];", ps.HTML, re.S)
+        self.assertIsNotNone(table)
+        js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                        table.group(0), extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("warnText"),
+                        "console.log(JSON.stringify(%s));" % body])
+        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_every_server_sentence_has_a_template_with_english(self):
+        """Each warning sentence in pick()/_pick_region() is in PICK_WARNS (placeholders aside) and in the table."""
+        table = re.search(r"const PICK_WARNS=\[(.*?)\];", ps.HTML, re.S)
+        self.assertIsNotNone(table)
+        templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))
+        self.assertEqual(sorted(re.sub(r"\{\w+\}", "{x}", t) for t in templates), sorted(pick_warning_sentences()))
+        self.assertEqual([t for t in templates if not isinstance(ps.UI_EN.get(t), str)], [])
+
+    def test_english_translates_each_joined_sentence(self):
+        """A warning of three joined sentences, with its numbers, comes out as three English sentences, no Hangul."""
+        warn = ("화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요. "
+                "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다.")
+        out = self.run_js("en", "[warnText(%s),warnText('두 경로가 다른 곳을 가리킵니다(L12 / L480). 확인이 필요합니다.'),"
+                                "warnText(''),warnText('모르는 문장입니다.')]" % json.dumps(warn, ensure_ascii=False))
+        self.assertFalse(HANGUL.search(out[0]), out[0])
+        self.assertIn("23%", out[0])
+        self.assertIn("L12", out[1])
+        self.assertIn("L480", out[1])
+        self.assertFalse(HANGUL.search(out[1]), out[1])
+        self.assertEqual(out[2:], ["", "모르는 문장입니다."])
+
+    def test_korean_shows_the_server_warning_unchanged(self):
+        """ko: exactly the server's text."""
+        warn = "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다."
+        self.assertEqual(self.run_js("ko", "warnText(%s)" % json.dumps(warn, ensure_ascii=False)), warn)
+
+
 def _png(w, h):
     """A white 8-bit grayscale PNG (the viewer only needs real page images and their size)."""
     def chunk(tag, data):
@@ -303,6 +364,7 @@ TEX = "\\documentclass{article}\n\\begin{document}\n" + "".join("Line %d of the 
 ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
 BOB = {"login": "bob@example.com", "name": "Bob Lee"}
 SEOJUN = {"login": "seojun@example.com", "name": "김서준"}
+VERA = {"login": "vera@example.com", "name": "Vera Park"}       # a view-only member: her changes are refused (403)
 # User content in the fixture: document tab names, a note, a reply and a person's name in Korean. Everything
 # else on screen is chrome and must be English in English mode. '한국어' is the switch back to Korean.
 USER_TEXT = ("본문", "답변서", "이 문장을 다듬어 주세요", "표 설명을 줄였습니다", "김서준")
@@ -396,6 +458,7 @@ class EnglishChrome(unittest.TestCase):
         agent = dict(ps.LOCAL_ACTOR)
         for who in (ALICE, BOB, SEOJUN):
             ps.record_person(who)
+        ps.member_add(C.state, VERA["login"], "viewer", VERA["name"])
         ms, rr = ps.DOCS
 
         def add(lo, hi, note, actor, **kw):
@@ -449,12 +512,18 @@ class EnglishChrome(unittest.TestCase):
         return int(lines[0].split()[1]), hdrs, body
 
     def route(self, route):
+        """Serve one browser request from the in-process handler as the test's person (self.who, Alice by default), or
+        with a canned (status, body) from self.canned for a path that needs state this fixture does not build."""
         req = route.request
         u = urlparse(req.url)
         if u.netloc != "viewer.test":
             return route.abort()
+        canned = getattr(self, "canned", {}).get(u.path)
+        if canned:
+            return route.fulfill(status=canned[0], content_type="application/json", body=json.dumps(canned[1]))
+        who = getattr(self, "who", ALICE)
         body = req.post_data_buffer or b""
-        h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": ALICE["login"], "Tailscale-User-Name": ALICE["name"]}
+        h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": who["login"], "Tailscale-User-Name": who["name"]}
         if req.headers.get("content-type"):
             h["Content-Type"] = req.headers["content-type"]
         if body:
@@ -512,6 +581,61 @@ class EnglishChrome(unittest.TestCase):
                 self.assert_english(page, name + " panel open")
                 page.click("#btn-more")
                 self.assert_english(page, name + " more menu")
+
+    def error_toasts(self, lang):
+        """Drive the common refusals through the viewer's own functions and collect each error toast as
+        (reason, the server's Korean error text, the toast's title, the toast's description). The requests are
+        refused, so the shared fixture state never changes."""
+        page = self.open(lang, viewport={"width": 1400, "height": 850})
+        pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
+        scope = ps.scope_http_error(ps.ScopeRejected("scope_unreadable"))      # built by the worker; no git in this fixture
+        self.canned = {"/api/revision-build": (scope.code, scope.body)}
+        self.addCleanup(lambda: (setattr(self, "canned", {}), setattr(self, "who", ALICE)))
+        cases = (
+            ("viewer_only", "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", VERA,
+             "closePin(%d)" % pid),                                            # 403: a view-only member presses [완료]
+            ("conflict", "conflict", ALICE, "undoAppend(%d,'x',999)" % pid),     # 409: undo with a stale base_rev
+            ("note_append_too_long", "덧붙일 메모가 너무 깁니다(2000자 이하).", ALICE,
+             "appendToPin(%d,'x'.repeat(2001))" % pid),                       # 400: validation
+            ("pin_not_found", "핀 #999999 이 없습니다.", ALICE, "undoAppend(999999,'x',0)"),   # 404: the pin is gone
+            ("scope_failed", scope.body["error"], ALICE,                        # 422: pin-scoped comparison
+             "api('/api/revision-build',{method:'POST',body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
+             ".catch(()=>{})" % pid),
+        )
+        out = []
+        for reason, server_text, who, call in cases:
+            self.who = who
+            page.evaluate("document.querySelector('#toasts').replaceChildren()")
+            page.evaluate("async()=>{await %s;}" % call)
+            page.wait_for_selector("#toasts .toast.err")
+            title, desc = page.evaluate("(()=>{const t=document.querySelector('#toasts .toast.err');"
+                                        "return [t.querySelector('.t-title').textContent,(t.querySelector('.t-desc')||{}).textContent||''];})()")
+            out.append((reason, server_text, title, desc))
+        return page, out
+
+    def test_error_toasts_are_english(self):
+        """en: each refusal's toast shows the English message for its reason code, with no Hangul left in it."""
+        page, toasts = self.error_toasts("en")
+        for reason, _, title, desc in toasts:
+            with self.subTest(reason=reason):
+                self.assertEqual(desc, ps.UI_EN["reason:" + reason])
+                self.assertFalse(HANGUL.search(title + desc), (title, desc))
+        self.assert_english(page, "after the error toasts")
+
+    def test_error_toasts_keep_the_server_text_in_korean(self):
+        """ko: each refusal's toast shows the server's Korean error text exactly, as before."""
+        _, toasts = self.error_toasts("ko")
+        for reason, server_text, _, desc in toasts:
+            with self.subTest(reason=reason):
+                self.assertEqual(desc, server_text)
+
+    def test_the_limn_mark_survives_boot_and_pin_marks(self):
+        """After boot has drawn the pins' boxes on the PDF (.mark, removed and redrawn by marks()), the three Limn marks
+        (top bar, [더보기] label, help header) are still in the page - a first cut shared the .mark class and lost them."""
+        page = self.open("en", viewport={"width": 1400, "height": 850})
+        page.evaluate("marks()")
+        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 3)
+        self.assertEqual(page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16)
 
     def test_korean_default_is_unchanged(self):
         page = self.open("ko", viewport={"width": 1400, "height": 850})

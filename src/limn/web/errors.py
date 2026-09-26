@@ -1,7 +1,8 @@
 """What the HTTP layer refuses with, and how a refusal reads: the error type, the refusal tables and the browser page.
 
-HTTPError is the one exception the handler turns into an error response ({"error": <Korean message>, ...extra}); the
-messages are part of the agent contract (docs/handbook/api.md) and are never translated. InputRejected is the value a
+HTTPError is the one exception the handler turns into an error response ({"error": <Korean message>, "reason":
+<code>, ...extra}); the messages and reason codes are part of the agent contract (docs/handbook/api.md §오류 응답) and
+the messages are never reworded - the viewer shows English by the reason (ui_en.json `reason:<code>`). InputRejected is the value a
 boundary parser returns instead of raising. server.py still raises HTTPError from many service functions - the debt
 that stage 6 of docs/handbook/code-style-roadmap.md removes - so it imports both from here.
 
@@ -22,26 +23,33 @@ Messages: TypeAlias = Mapping[str, str | dict[str, str]]
 
 
 class HTTPError(Exception):
-    """The handler turns this directly into a JSON error response: status `code`, body {"error": msg, **extra}.
+    """The handler turns this directly into a JSON error response: status `code`, body
+    {"error": msg, "reason": reason, **extra}.
 
-    page names the readable HTML page a browser gets instead when it opens the viewer (error_page_html); without
-    it the browser gets the generic page with msg as its detail line.
+    msg is the Korean text agents already read (api.md §오류 응답 - never reworded); reason is the stable snake_case
+    code for the same refusal, required so that no refusal goes out without one. The viewer shows English by the
+    reason (ui_en.json `reason:<code>`), agents may branch on it. page names the readable HTML page a browser gets
+    instead when it opens the viewer (error_page_html); without it the browser gets the generic page with msg as its
+    detail line.
     """
 
-    def __init__(self, code: int, msg: str, page: PageRef | None = None, **extra: object) -> None:
-        """Keep the status, the JSON body (error first, then extra in order) and the optional page reference."""
+    def __init__(self, code: int, msg: str, *, reason: str, page: PageRef | None = None, **extra: object) -> None:
+        """Keep the status, the JSON body (error, reason, then extra in order) and the optional page reference."""
         super().__init__(msg)
         self.code = code
-        self.body: dict[str, object] = dict({"error": msg}, **extra)
-        self.page = page            # (kind, params) for the readable HTML page a browser gets on GET / (error_page_html)
+        self.body: dict[str, object] = dict({"error": msg, "reason": reason}, **extra)
+        self.page = page
 
 
 class InputRejected(NamedTuple):
-    """A request field the server refuses with 400; message is the response's error text, word for word.
+    """A request field the server refuses with 400; message is the response's error text, word for word, and reason
+    its stable code (api.md §오류 응답), which the HTTP answer puts next to it.
 
     Boundary parsers (server.py's parse_* functions) return it instead of raising; the handler answers it with
-    HTTPError(400, message). A NamedTuple, as it was when it lived in server.py, so values compare exactly as before."""
+    HTTPError(400, message, reason=reason). A NamedTuple, as it was when it lived in server.py, so values compare
+    exactly as before."""
     message: str
+    reason: str
 
 
 class ScopeRefusal(Protocol):
@@ -53,11 +61,11 @@ class ScopeRefusal(Protocol):
         ...
 
 
-# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason or None). The one place they
+# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason). The one place they
 # become responses - the handler's _run for requests, the revision worker in server.py for the build status it stores.
 # The messages and reasons are part of the agent contract (api.md §핀 단위 변경 보기); tests pin every body.
-SCOPE_REJECTIONS: dict[str, tuple[int, str, str | None]] = {
-    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", None),
+SCOPE_REJECTIONS: dict[str, tuple[int, str, str]] = {
+    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", "pin_not_in_doc"),
     "scope_unreadable": (422, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
     "scope_mismatch": (422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
     "unsafe_path": (422, "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
@@ -68,7 +76,7 @@ SCOPE_REJECTIONS: dict[str, tuple[int, str, str | None]] = {
 def scope_http_error(e: ScopeRefusal) -> HTTPError:
     """The HTTP form of a pin-scoping refusal, from SCOPE_REJECTIONS. An unknown reason is a bug: KeyError, a 500."""
     code, msg, reason = SCOPE_REJECTIONS[e.reason]
-    return HTTPError(code, msg, reason=reason) if reason else HTTPError(code, msg)
+    return HTTPError(code, msg, reason=reason)
 
 
 # The page kinds identity refusals name (HTTPError page=(kind, params)) -> (heading, hint). The Korean text is the key

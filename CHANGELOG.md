@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.3.5 — unreleased
+
+Mouse and touch usability from the 2026-09-26 input review ([viewer.md](docs/handbook/viewer.md) §패널 폭과 시트 높이,
+§펼친 화면 레이아웃, §모바일 레이아웃). Viewer only: the HTTP API, `pins.md` and the state directory are unchanged; the
+browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse` hints in `pinPrefs.coach`) and a
+per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`).
+
+- **Collapse the panel by its handle, in every layout.** Drag it right: the width follows down to the minimum, stops
+  there between half the minimum and the minimum (the bar turns primary), and below half the minimum the panel's
+  contents fade to 40% as a preview; a release collapses it with a 0.18s slide, keeping the drag-start width as the
+  saved width. A draft (composing, editing, replying, relocating) stops the drag at the minimum instead. The wide panel,
+  which could not be closed before, leaves a 6px rail at the right edge (drag it back or double-click it), shows
+  `[핀 N ‹]` at the right end of the nav bar, floats the status chips and toasts at the PDF area's bottom-right, and
+  opens again for a pick, a mark, a pin link, the review list or an in-text `#N`. Remembered per device
+  (`pinPrefs.sideClosed`).
+- **Keys.** The handle follows the WAI-ARIA window splitter: Enter collapses and expands, Space cycles the presets,
+  Home = minimum, End = maximum (they were reversed); collapsed = `aria-valuenow` 0. `Ctrl/⌘+\` toggles the panel (or
+  the phone sheet) at every width outside text fields. Esc closes the 701-900px overlay after a selection, and returns
+  from [변경 보기] to the manuscript.
+- **Touch.** Swipe the 701-900px overlay right to dismiss it (35% of its width or a fling; a draft only rubber-bands).
+  Drag the phone sheet by its whole tool bar, or pull its content down at the top; a downward fling collapses it, an
+  upward fling goes to the next height, and a draft stops it at 30% instead of hiding the note. The system back
+  gesture closes the sheet, the overlay or the mid outline first (CloseWatcher, else one history entry), and a right
+  swipe no longer navigates back out of Limn. A double tap on the PDF toggles fit width and 2x. The click that used to
+  follow a handle tap or a quick pick and land on the panel under the finger is swallowed. The documents sheet and help
+  close on an outside tap; the documents sheet also follows a pull-down.
+- **Undo instead of loss.** Esc or [취소] on a selection with a written note offers `선택 취소됨 · [되돌리기]`, which
+  brings back the selection, the note and the box; [되돌리기] after saving a pin also reopens the composer with them.
+  The composer draft is also kept per tab in `sessionStorage` (per instance and document, written on every edit): a
+  reload, or leaving Limn with a second back gesture and coming back, restores it with `작성 중이던 메모를 되살렸습니다 ·
+  [버리기]` (only the note when the PDF was rebuilt meanwhile). Saving clears it; a discard clears it after its undo window.
+- **Smaller things.** Mouse hit targets reach 24x24 (WCAG 2.5.8) without changing what is drawn; the PDF shows a
+  crosshair and a first-time mouse user gets one hint; a pick in the overlay's right column is no longer hidden
+  under the panel; the handle's tooltip hides when the drag starts; more than three toasts get a button that opens
+  the stack on touch.
+- Rolling back to 0.3.4 is safe: it ignores `pinPrefs.sideClosed` (a wide panel just opens).
+
+## 0.3.4 — unreleased
+
+English error messages, a Limn mark, and the two ADR-0006 follow-ups of
+[issue #24](https://github.com/dartworklabs/limn/issues/24). The `pins.md` format and the stored pin record are
+unchanged. The HTTP API adds one field to every error body and two icon routes.
+
+- **Every error body names a stable reason code (API, additive).** Error responses are now
+  `{"error": "<Korean text>", "reason": "<code>"}`; the Korean text is unchanged byte for byte. The 409 bodies whose
+  `error` is already a code (`done`, `conflict`, `open`, `full`, `claimed`) repeat it in `reason`; the comparison PDF
+  status and the `200` refusals of `POST /api/pick` use the same codes. `HTTPError` cannot be built without one. The
+  codes are listed in `docs/handbook/api.md` §오류 응답; agents should branch on `reason`, not on the text.
+- **The English viewer shows API errors in English.** One function, `errText()`, shows every API error: Korean shows
+  the server text as before; English looks up `reason:<code>` in `ui_en.json` (one message per code, tested) and falls
+  back to the server text. It covers the error toasts, the pick error in the composer and the re-place banner, the
+  edit card's source box and the comparison PDF status line. The composer's pick warning (a UI hint the server composes
+  from up to three Korean sentences, not an error body) is shown in English too, sentence by sentence. The English chrome test now drives the common refusals
+  (403 view-only, 409 `base_rev` conflict, 400 validation, 404 pin, 422 pin scope) and checks the toasts carry no
+  Hangul; the Korean run checks they show the server text unchanged.
+- **The Limn mark.** One stroke that starts at a small dot (the pin) and runs into a line (the source line). It replaces
+  the label's first letter in the favicon, sits before the instance label in the top bar and the [More] label chip (in
+  the instance colour) and in the help dialog header (monochrome, follows the theme). Inline SVG coloured by CSS
+  tokens; the geometry lives once in the new pure module `limn.mark`, which also draws the PNG fallbacks at runtime with
+  the standard library (`GET /favicon-32.png`, `GET /apple-touch-icon.png`, keyed by `?c=<accent>`). Browser
+  notifications use the 180px PNG (Android draws no SVG icons).
+- **[View changes] keeps the recorded lines after a move (issue #24 §1).** The absolute paths in a closed pin's `changes`
+  are located on read by the ADR-0006 rule, so a moved or cloned checkout still reports `source: "changes"` instead of
+  inferring the hunks. The stored `changes` and the API's `changes[].file` are unchanged; a path that cannot be placed
+  is dropped as before.
+- **Tails stay in the pin's own document (issue #24 §2).** For a moved record without `file_rel`, the longest existing
+  tail is searched in the pin's document folder (its build root) instead of the whole manuscript folder, so a
+  same-named file of another document is never picked, and a document folder renamed with its `--doc` spec is followed.
+  Instances started without `--doc` behave as before (a single `--doc` pointing at a sub-folder searches only it). No
+  write migration.
+- Rolling back to 0.3.3 is safe: nothing new is stored, so 0.3.3 reads the same state directory. Its error bodies
+  simply have no `reason`, and it serves its own page and favicon.
+
 ## 0.3.3 — unreleased
 
 Agents on the machine that serves an instance get a standard place for their token, so the instance can turn off

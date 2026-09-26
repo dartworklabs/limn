@@ -93,7 +93,7 @@ class Answers(unittest.TestCase):
     """Each outcome becomes one body or one HTTPError with the contract's status and message."""
 
     def assert_refused(self, call, code, body):
-        """call() raises HTTPError with exactly this status and JSON body."""
+        """call() raises HTTPError with exactly this status and JSON body (error, reason, then the extra fields)."""
         with self.assertRaises(HTTPError) as e:
             call()
         self.assertEqual((e.exception.code, e.exception.body), (code, body))
@@ -104,9 +104,9 @@ class Answers(unittest.TestCase):
         self.assertEqual(answers.confirm_answer(DonePin.from_record(done), show), {"ok": True, "pin": done, "state": "done"})
         self.assertEqual(answers.confirm_answer(PinNotFound(3), show), {"ok": False, "pin": None, "state": None})
         self.assert_refused(lambda: answers.confirm_answer(AgentCannotConfirm(), show), 403,
-                            {"error": answers.CONFIRM_BY_HUMAN})
+                            {"error": answers.CONFIRM_BY_HUMAN, "reason": "confirm_by_human"})
         self.assert_refused(lambda: answers.confirm_answer(PinStillOpen(OpenPin.from_record({"id": 3})), show), 409,
-                            {"error": "open", "pin": {"id": 3}, "detail": answers.CONFIRM_OPEN_DETAIL})
+                            {"error": "open", "reason": "open", "pin": {"id": 3}, "detail": answers.CONFIRM_OPEN_DETAIL})
 
     def test_claim_reports_the_applied_eta_only_when_sent(self):
         """The applied (clamped) eta is added only for a claim that sent one; a held claim is 409 claimed."""
@@ -114,7 +114,8 @@ class Answers(unittest.TestCase):
         self.assertEqual(answers.claim_answer(pin, 30, None, show), {"ok": True, "pin": {"id": 5}, "ttl_min_applied": 30})
         self.assertEqual(answers.claim_answer(pin, 30, 240, show)["eta_min_applied"], 240)
         self.assert_refused(lambda: answers.claim_answer(ClaimedByOther("bob", 1.0, None), 30, None, show), 409,
-                            {"error": "claimed", "claimed_by": "bob", "claim_until": 1.0, "eta_ts": None})
+                            {"error": "claimed", "reason": "claimed", "claimed_by": "bob", "claim_until": 1.0,
+                             "eta_ts": None})
 
     def test_reply_says_whether_it_reopened_and_refuses_a_full_thread(self):
         """reopened follows the new thread entry's ev; a full thread is 409 full with the limit in the detail."""
@@ -122,16 +123,17 @@ class Answers(unittest.TestCase):
         body = answers.reply_answer(OpenPin.from_record(record), show, lambda r: "open")
         self.assertEqual((body["msg"], body["state"], body["reopened"]), (record["thread"][-1], "open", True))
         self.assert_refused(lambda: answers.reply_answer(ThreadFull(200), show, lambda r: "open"), 409,
-                            {"error": "full", "detail": "스레드가 가득 찼습니다(답글 200건). 새 핀으로 이어 가세요."})
+                            {"error": "full", "reason": "full", "detail": "스레드가 가득 찼습니다(답글 200건). 새 핀으로 이어 가세요."})
 
     def test_add_and_edit_answer_a_rejected_field_with_its_message(self):
-        """A parser's InputRejected is a 400 whose error is the message, word for word; a stale edit is 409 conflict."""
+        """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale
+        edit is 409 conflict."""
         self.assertEqual(answers.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
-        self.assert_refused(lambda: answers.add_answer(InputRejected("lo 는 정수여야 합니다.")), 400,
-                            {"error": "lo 는 정수여야 합니다."})
-        self.assert_refused(lambda: answers.edit_answer(PinNotFound(4), show), 404, {"error": "핀 #4 이 없습니다."})
+        self.assert_refused(lambda: answers.add_answer(InputRejected("lo 는 정수여야 합니다.", "not_integer")), 400,
+                            {"error": "lo 는 정수여야 합니다.", "reason": "not_integer"})
+        self.assert_refused(lambda: answers.edit_answer(PinNotFound(4), show), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"})
         self.assert_refused(lambda: answers.edit_answer(StaleEdit(ReviewPin.from_record({"id": 4, "done": True, "review": True})), show), 409,
-                            {"error": "conflict", "pin": {"id": 4, "done": True, "review": True}})
+                            {"error": "conflict", "reason": "conflict", "pin": {"id": 4, "done": True, "review": True}})
 
 
 class ErrorPages(unittest.TestCase):
@@ -159,7 +161,7 @@ class ErrorPages(unittest.TestCase):
 
     def test_page_escapes_the_login_and_links_the_other_language(self):
         """A named page kind fills its heading with the escaped login and links to /?lang=<other>."""
-        page = error_page_html(HTTPError(403, "x", page=("not-member", {"login": "<b>eve</b>"})), "ko", {})
+        page = error_page_html(HTTPError(403, "x", reason="not_member", page=("not-member", {"login": "<b>eve</b>"})), "ko", {})
         self.assertIn("이 뷰어의 멤버가 아닙니다: &lt;b&gt;eve&lt;/b&gt;", page)
         self.assertIn('<a href="/?lang=en">English</a>', page)
         self.assertNotIn("<b>eve</b>", page)

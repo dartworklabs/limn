@@ -45,6 +45,11 @@ class Config(Protocol):
         """The manuscript folder (--manuscript), the root close `changes` must stay under."""
         ...
 
+    @property
+    def accent(self) -> str:
+        """The instance accent (#rrggbb) the PNG favicons are drawn in."""
+        ...
+
 
 class Document(Protocol):
     """A document a request acts on (server.py's Doc), as far as the handler reads it."""

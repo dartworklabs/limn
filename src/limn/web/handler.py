@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
 
+from limn.mark import png as mark_png
 from limn.pins.lifecycle import NotInTrash
 from limn.pins.model import TrashedPin
 from limn.web import answers
@@ -96,25 +97,25 @@ class Handler(BaseHTTPRequestHandler):
         self._raw = b""
         if self.headers.get("Transfer-Encoding") is not None:
             self.close_connection = True
-            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.")
+            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.", reason="transfer_encoding")
         cls = self.headers.get_all("Content-Length") or []
         if len(set(v.strip() for v in cls)) > 1:
             self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 여러 개입니다.")
+            raise HTTPError(400, "Content-Length 가 여러 개입니다.", reason="bad_content_length")
         cl = cls[0].strip() if cls else ""
         if cl == "":
             return b""
         if not re.fullmatch(r"[0-9]+", cl):          # isdigit() would also accept latin-1 digits like '²'
             self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
+            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.", reason="bad_content_length")
         n = int(cl)
         if n > MAX_BODY:
             self.close_connection = True
-            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
+            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).", reason="body_too_large")
         raw = self.rfile.read(n) if n else b""
         if len(raw) != n:                                 # a truncated request - never acted on (including /api/clear)
             self.close_connection = True
-            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).")
+            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).", reason="body_truncated")
         self._raw = raw
         return raw
 
@@ -132,10 +133,11 @@ class Handler(BaseHTTPRequestHandler):
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
         # carried on a same-origin GET from a rebinding page with no preflight, so exempting it via that header would bypass the defense entirely (observed).
         if host is not None and not self.app.host_ok(host):
-            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % self.app.hdr_text(host)[:100])
+            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % self.app.hdr_text(host)[:100], reason="bad_host")
         origin = self.headers.get("Origin")
         if origin is not None and not self.app.origin_ok(origin, host):
-            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.hdr_text(origin)[:100])
+            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.hdr_text(origin)[:100],
+                            reason="bad_origin")
 
     def _guard(self) -> Json:
         """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the principal on
@@ -184,7 +186,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)
             try:
-                self._json({"error": "서버 내부 오류: %s" % e}, 500)
+                self._json({"error": "서버 내부 오류: %s" % e, "reason": "internal"}, 500)
             except OSError:
                 self.close_connection = True
 
@@ -233,6 +235,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"people": ppl, "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
+        if path in ("/favicon-32.png", "/apple-touch-icon.png"):   # PNG fallbacks of the SVG favicon, drawn by limn.mark
+            size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
+            return self._send(200, mark_png(size, app.C.accent, rounded), "image/png", cache="public, max-age=86400")
         if path == "/api/version":                # the installed Limn version - no write
             return self._json({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
@@ -275,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = int(m.group(1))
             rec = next((r for r in app.pins_payload(app.snapshot_pins(), True) if r["id"] == pid), None)
             if rec is None:
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+                raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
             return self._json({"pin": rec})
         if path == "/api/snippet":
             return self._json(app.snippet_api(q))
@@ -302,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data is not None:
                     # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
                     return self._send(200, data, app.VENDOR_MIME[vf.suffix], cache="public, max-age=86400")
-            raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100])
+            raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
         if path == "/pdf":
             # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
             # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
@@ -316,25 +321,27 @@ class Handler(BaseHTTPRequestHandler):
                     data = None
             if data is None:
                 raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % app.hdr_text(name)[:60],
-                                pdf_build_gone=bool(name), pages_build=app.cur_pages().name)
+                                pdf_build_gone=bool(name), pages_build=app.cur_pages().name,
+                                reason="pdf_build_gone" if name else "pdf_missing")    # no ?build=: nothing is gone
             return self._send(200, data, "application/pdf", cache="private, max-age=600")
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
+        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
     def _body(self) -> Json:
-        """The request body as a JSON object ({} when blank); 415 unless it is application/json, 400 when not an object."""
+        """The request body (already read in full) as a JSON object; {} when empty. 415 bad_content_type unless it is
+        application/json (a cross-origin form post needs no preflight), 400 bad_json unless it is a JSON object."""
         raw = self._raw
         if not raw.strip():
             return {}
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             # A cross-origin "simple request" (text/plain form) arrives with no preflight - accepting only JSON closes off that path.
-            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.")
+            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.", reason="bad_content_type")
         try:
             d = json.loads(raw)
         except (ValueError, RecursionError):
-            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.") from None
+            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.", reason="bad_json") from None
         if not isinstance(d, dict):
-            raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
+            raise HTTPError(400, "본문은 JSON 객체여야 합니다.", reason="bad_json")
         return d
 
     def _post(self) -> None:
@@ -375,7 +382,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
             if act == "purge":                    # owner only (check_role)
                 if isinstance(app.purge_pin(pid, actor), NotInTrash):
-                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
+                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
                 return self._json({"ok": True, "purged": pid})
             if act == "edit":
                 return self._json(answers.edit_answer(app.edit_pin(pid, d, actor), app.public))
@@ -406,23 +413,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
             if d.get("confirm") != app.CLEAR_CONFIRM:
                 raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
-                                % app.CLEAR_CONFIRM)
+                                % app.CLEAR_CONFIRM, reason="confirm_required")
             return self._json(dict(app.clear_pins(actor), ok=True))
         if path == "/api/revision-build":
             if set(d) - {"commit", "doc", "pin"}:
-                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
+                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.", reason="unknown_fields")
             if "pin" in d and not _is_int(d["pin"]):
-                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
+                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.", reason="bad_pin")
             result = app.revision_start(app.cur_doc(), d.get("commit"), app.clean_pin_param(d.get("pin")))
             return self._json(result, 202 if result["state"] == "running" else 200)
         if path == "/api/rebuild":
             if app.cur_doc().is_pdf:
                 raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."
-                                % app.cur_doc().key)
+                                % app.cur_doc().key, reason="view_only_no_rebuild")
             full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
             if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
                 r = app.build_async()
                 return self._json(r, 409 if r.get("busy") else 202)
             r = app.build_all()
             return self._json(app.diet_log(r, full), 409 if r.get("busy") else 200)
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
+        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")

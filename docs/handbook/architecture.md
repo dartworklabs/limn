@@ -36,13 +36,14 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 6,307 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 검증, 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
-| [`src/limn/web/`](../../src/limn/web/handler.py) | 1,054 | HTTP 층(2026-09-26 옮김): 처리기와 서버 클래스·본문 읽기와 한도·GET/POST 경로 분기(`handler.py`), 핀 조작 결과마다의 응답(`answers.py`), `HTTPError`·`InputRejected`·핀 단위 변경 거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`의 `App` 프로토콜). `server.py`를 가져오지 않는다 (`tests/test_web.py`가 검사) |
+| [`src/limn/server.py`](../../src/limn/server.py) | 6,341 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 검증, 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
+| [`src/limn/web/`](../../src/limn/web/handler.py) | 1,076 | HTTP 층(2026-09-26 옮김): 처리기와 서버 클래스·본문 읽기와 한도·GET/POST 경로 분기(`handler.py`), 핀 조작 결과마다의 응답(`answers.py`), `HTTPError`·`InputRejected`·핀 단위 변경 거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`의 `App` 프로토콜). `server.py`를 가져오지 않는다 (`tests/test_web.py`가 검사) |
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 30 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다 |
 | [`src/limn/store.py`](../../src/limn/store.py) | 236 | 핀 저장소 `PinStore`: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통(`pins.dropped.jsonl`) 쓰기, 손상 줄의 원본 보존, 핀 번호(`pins.seq`), clear 보관. 서버를 가져오지 않는다. 파일 위치(`PinFiles`)·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외를 `server.pin_store()`가 호출마다 인자로 넘긴다 (`tests/test_store.py`가 import를 검사) |
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 1,061 | 핀 도메인의 순수 코드: 상태 타입과 그 상태에만 있는 필드(`Claim`·`Close`·`Confirmation`·`Dropped`), 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
+| [`src/limn/mark.py`](../../src/limn/mark.py) | 125 | Limn 마크(점에서 시작해 줄로 이어지는 한 획)의 기하 하나와 세 모양: 뷰어 인라인 SVG, 파비콘 SVG, 표준 라이브러리만으로 그리는 PNG. 순수하다 (`tests/test_brand.py`) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,628 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
@@ -56,7 +57,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
-1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 218곳쯤이다. HTTP 처리기(`limn/web/handler.py`)는 `app.C`로 두 곳을 읽는다.
+1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 220곳쯤이다. HTTP 처리기(`limn/web/handler.py`)는 `app.C`로 세 곳을 읽는다.
 2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 요청 처리 코드가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 `server.py`에 35곳, HTTP 처리기에 `app.cur_doc()`으로 7곳이다. 빌드(`limn/build.py`)는 2026-09-26부터 이 값을 읽지 않고 문서를 인자로 받는다. `server.py`의 옛 이름 셸이 `cur_doc()`과 `C`를 한 번 읽어 넘긴다.
 3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등. `PIN_LOCK`은 2026-09-26부터 `server.py`가 프로세스에 하나 만들어 `pin_store()`로 저장소(`limn/store.py`)에 넘긴다. 저장소 자신은 잠금을 만들지 않는다.
 
@@ -95,6 +96,7 @@ src/limn/
 │   ├── edit.py          편집 판단(거절은 값), 새 핀 레코드
 │   └── render.py        pins.md 렌더링 (입력 → 문자열)
 ├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
+├── mark.py              Limn 마크의 SVG·PNG — 순수 (0.3.4)
 ├── store.py             핀 저장소: 잠금 아래 쓰기 순서·원자적 쓰기·손상 레코드 보존 (부수효과, 2026-09-26 옮김)
 ├── build.py             원고 복사·latexmk·pdftoppm·쪽 디렉토리·빌드 이력·원고 지문 (부수효과, 2026-09-26 옮김)
 ├── files.py             원자적 파일 교체 (모든 저장 쓰기가 공유, 2026-09-26 옮김)
@@ -150,7 +152,7 @@ src/limn/
 
 ### 8. 사람에게 보이는 문자열과 계약 문자열을 구분한다
 
-뷰어 UI 문자열의 원본은 템플릿 안 한국어이고, 영어 모드는 [`ui_en.json`](../../src/limn/ui_en.json) 대응표로 바꾼다. `pins.md`와 API 오류 문자열(`{"error": "<한국어>"}`)은 계약이라 번역하지 않는다. 코드·주석·docstring·테스트 이름·커밋 메시지·CLI 도움말은 영어로 쓴다.
+뷰어 UI 문자열의 원본은 템플릿 안 한국어이고, 영어 모드는 [`ui_en.json`](../../src/limn/ui_en.json) 대응표로 바꾼다. `pins.md`와 API 오류 문자열(`{"error": "<한국어>", "reason": "<코드>"}`)은 계약이라 번역하지 않는다. 뷰어의 영어 화면은 오류 문장을 옮기지 않고 안정 코드 `reason`으로 표의 영어 문장을 찾는다([api.md](api.md) §오류 응답). 코드·주석·docstring·테스트 이름·커밋 메시지·CLI 도움말은 영어로 쓴다.
 
 ## 멈춤 신호
 

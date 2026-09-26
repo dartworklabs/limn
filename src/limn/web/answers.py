@@ -34,9 +34,9 @@ def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyL
         case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
             return {"ok": True, "pin": show(record)}
         case NotInTrash(pid=pid):
-            raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
+            raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
         case AlreadyLive(pid=pid):
-            raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
+            raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
 
 
 def claim_answer(result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int, eta: int | None,
@@ -48,9 +48,9 @@ def claim_answer(result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound
         case PinNotFound():
             out = {"ok": False, "pin": None, "ttl_min_applied": ttl}
         case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "done", pin=show(record))
+            raise HTTPError(409, "done", pin=show(record), reason="done")
         case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
-            raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts)
+            raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts, reason="claimed")
     if eta is not None:
         out["eta_min_applied"] = eta              # the clamped value, if sent above the ceiling (240)
     return out
@@ -76,7 +76,8 @@ def reply_answer(result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFoun
             return {"ok": True, "pin": show(record), "msg": msg, "state": state_of(record),
                     "reopened": msg.get("ev") == "reopen"}
         case ThreadFull(limit=limit):
-            raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit)
+            raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit,
+                            reason="full")
         case PinNotFound():
             return {"ok": False, "pin": None, "msg": None, "state": None, "reopened": False}
 
@@ -101,9 +102,9 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
         case PinNotFound():
             return {"ok": False, "pin": None, "state": None}
         case AgentCannotConfirm():
-            raise HTTPError(403, CONFIRM_BY_HUMAN)
+            raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
         case PinStillOpen(pin=OpenPin(record=record)):
-            raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL)
+            raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
 
 
 def add_answer(result: OpenPin | InputRejected) -> Body:
@@ -111,8 +112,8 @@ def add_answer(result: OpenPin | InputRejected) -> Body:
     match result:
         case OpenPin(record=record):
             return {"id": record["id"]}
-        case InputRejected(message=message):
-            raise HTTPError(400, message)
+        case InputRejected(message=message, reason=reason):
+            raise HTTPError(400, message, reason=reason)
 
 
 def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | InputRejected | PinNotFound, show: Show) -> Body:
@@ -121,16 +122,17 @@ def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | InputRejec
         case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
             return {"ok": True, "pin": show(record)}
         case PinNotFound(pid=pid):
-            raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+            raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
         case ClosedPinReshaped(pin=ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "done", pin=show(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
+            raise HTTPError(409, "done", pin=show(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.", reason="done")
         case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "conflict", pin=show(record))
+            raise HTTPError(409, "conflict", pin=show(record), reason="conflict")
         case NoteTooLong(length=length, limit=limit):
-            raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit))
+            raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit), reason="note_too_long")
         case PinOutsideTree():
-            raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
+            raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.",
+                            reason="pin_outside_manuscript")
         case RangeOutsideFile(lines=lines, lo=lo, hi=hi):
-            raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi))
-        case InputRejected(message=message):
-            raise HTTPError(400, message)
+            raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi), reason="range_outside_file")
+        case InputRejected(message=message, reason=reason):
+            raise HTTPError(400, message, reason=reason)

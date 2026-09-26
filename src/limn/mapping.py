@@ -348,7 +348,8 @@ def file_tails(file: str) -> list[str]:
     return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
 
 
-def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
+def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool],
+                 scope: str = "") -> str | None:
     """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
 
     1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
@@ -357,9 +358,13 @@ def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Ca
        ends with it. The server writes the two together; 0.3.1 or 0.3.0 relocating a pin changes only `file`, and the
        mismatch drops the stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ ->
        the repository); otherwise file_rel itself, even if that file is gone - no shorter guess.
-    3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
+    3. For older records, the longest tail of `file` (file_tails) that exists under scope - the pin's document folder
+       relative to the root ('' = the whole root, the only case before issue #24). Each tail is joined to scope, so a
+       same-named file of another document is never picked and a document folder renamed with its --doc spec is still
+       found. A scope with a '..' part finds nothing. Rules 1 and 2 are recorded facts and are not scoped.
     None when nothing matches: the pin is outside the tree. `exists` answers for paths relative to the root and is
-    expected to accept only files that resolve inside it; the caller supplies it (this module reads no files)."""
+    expected to accept only files that resolve inside it; the caller supplies it (this module reads no files). The
+    same rule places the paths recorded in a closed pin's `changes` (ADR-0005), which have no file_rel."""
     if under_root is not None:
         return under_root
     tails = file_tails(file)
@@ -369,4 +374,7 @@ def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Ca
         if n and ".." not in rel and len(parts) > n and parts[-n:] == rel:
             longer = [t for t in tails if len(_posix_parts(t)) > n]
             return next((t for t in longer if exists(t)), "/".join(rel))
-    return next((t for t in tails if exists(t)), None)
+    base = _posix_parts(scope)
+    if ".." in base:
+        return None
+    return next((c for c in ("/".join(base + [t]) for t in tails) if exists(c)), None)
