@@ -8,6 +8,7 @@
 > - 사람이 확인하는 게이트: §4 에이전트 계약 호환, §5 화면 실측
 > - 아직 없는 게이트: §6 정량 게이트가 없는 영역
 > - 문서 출판: §7 Handbook 출판
+> - 정적 검사: §8 Ruff·ShellCheck, §9 타입 검사
 > - 결과 보고 규칙: §결과를 보고하는 법
 
 ## 합격의 뜻
@@ -101,7 +102,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 영역 | 현재 상태 | 계획 |
 | --- | --- | --- |
 | 포매터·스타일 규칙 | 정량 게이트 없음. Ruff는 버그 후보 규칙만 켰다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) R4: 전체 포매팅 커밋과 함께 넓힌다 |
-| 타입 검사 | 정량 게이트 없음 | 로드맵 R8: 새 모듈부터 켜고, 7단계에서 CI 게이트로 만든다 |
+| 타입 검사 (옮기지 않은 모듈) | `server.py`·`cli.py`·`migrate.py`는 검사하지 않는다. 옮긴 모듈만 §9가 검사한다 | [code-style-roadmap.md](code-style-roadmap.md) R8·7단계: 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다 |
 | 실제 LaTeX 빌드 | CI에 TeX가 없어 로컬에서만 돈다 | 필요해지면 TeX 설치 작업을 CI에 더하는 것을 검토 |
 | Handbook 링크·형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다 | 폰트를 CI에 준비할 방법을 정한 뒤 CI에 추가 검토 |
 | 에이전트 계약 전체 비교 | 정량 게이트 없음 (§4는 사람 확인) | 계약 스냅숏 테스트 검토 |
@@ -124,7 +125,24 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run shellcheck src/limn/instances.sh tests/test_instances.sh`. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 두 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄) |
-| 보장 범위 | 켠 규칙만이다. 규칙 목록은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이다. 포매팅·스타일·docstring·타입은 아직 검사하지 않는다 (§6). `src/limn/vendor/`와 플러그인에서 복사한 `tools/handbook-publish/`는 검사에서 뺀다 |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이다. 포매팅·스타일·docstring은 아직 검사하지 않는다 (§6). 타입은 §9가 본다. `src/limn/vendor/`와 플러그인에서 복사한 `tools/handbook-publish/`는 검사에서 뺀다 |
+
+## 9. 타입 검사
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
+| 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
+| 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |
+| 보장 범위 | 목록에 든 파일의 정적 타입뿐이다. 이 모듈을 부르는 `server.py`는 검사하지 않으므로, 호출하는 쪽이 잘못된 값을 넘기는 것은 잡지 못한다. 저장된 JSON 레코드는 `Mapping[str, Any]`라 필드 값의 타입도 보지 않는다 |
+
+**mypy를 고른 이유.** 순수 파이썬 휠이라 `uv run`만으로 돌고, CI에 Node 같은 다른 런타임을 준비할 필요가 없다. pyright의 PyPI 배포판은 Node 런타임이 필요해서, 없으면 처음 돌 때 내려받거나 Node 바이너리 패키지를 따로 설치해야 한다. mypy도 `match`의 빠진 경우를 잡는다 (`exhaustive-match`, 반환값이 있는 함수는 `Missing return statement`까지). 2026-09-26 `limn/pins/lifecycle.py`의 `confirm()`에서 `case DonePin():`을 지워 보았을 때 `uv run mypy`가 두 오류로 실패했다.
+
+```text
+src/limn/pins/lifecycle.py:49: error: Missing return statement  [return]
+src/limn/pins/lifecycle.py:51: error: Match statement has unhandled case for values of type "DonePin"  [exhaustive-match]
+```
 
 ## 결과를 보고하는 법
 

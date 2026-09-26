@@ -38,6 +38,7 @@ uv run pytest -q -rs
 bash tests/test_instances.sh
 uv run ruff check
 uv run shellcheck src/limn/instances.sh tests/test_instances.sh
+uv run mypy
 ```
 
 현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다.

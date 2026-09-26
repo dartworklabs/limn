@@ -11,13 +11,19 @@ server.py and calls into this module. The rules themselves are described in docs
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeAlias
 
 
 FLOAT_KINDS = ("figure", "table", "algorithm")
 
 
 ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
+
+# A word token of the selected text and its rarity weight (server.py token_weights()).
+TokenWeights: TypeAlias = Sequence[tuple[str, float]]
+# One rung of the range ladder: level, lo, hi, label, n, snippet, and env/merged when present (compute_levels()).
+Level: TypeAlias = dict[str, Any]
 
 
 # ---------------------------------------------------------------- Line text
@@ -27,15 +33,15 @@ def norm(line: str) -> str:
     return " ".join(line.split())
 
 
-def truncate_quote(s, n: int = 60) -> str:
+def truncate_quote(s: object, n: int = 60) -> str:
     """Truncates a quote to at most n characters (ellipsis included, matching the «...» convention).
 
     If a truncated quote looked like a complete sentence, it would be confusing when trying to relocate the
     source - the truncation mark is what tells the user/agent to read this as a "search hint", not the
     "whole thing". When truncating, the ellipsis is appended after n-1 characters of body text, so the
     result is always n characters or fewer (never n+1 from n characters plus the ellipsis)."""
-    s = str(s)
-    return s[:n - 1] + "…" if len(s) > n else s
+    text = str(s)
+    return text[:n - 1] + "…" if len(text) > n else text
 
 
 def is_comment(line: str) -> bool:
@@ -50,7 +56,7 @@ def strip_comment(line: str) -> str:
 
 # ---------------------------------------------------------------- Reverse mapping: picking lines
 
-def densest(values: list, gap: int = 30) -> list:
+def densest(values: list[int], gap: int = 30) -> list[int]:
     """Breaks at large gaps and keeps only the densest cluster.
 
     synctex returns the node *closest* to the query coordinate, so even a point inside the selection
@@ -67,7 +73,7 @@ def densest(values: list, gap: int = 30) -> list:
     return max(groups, key=len)
 
 
-def score_range(tw: list, lines: list, lo: int, hi: int) -> float:
+def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> float:
     """Scores 0-1 how much of the region's characters a candidate line range contains."""
     if not tw:
         return 0.0
@@ -75,7 +81,7 @@ def score_range(tw: list, lines: list, lo: int, hi: int) -> float:
     return sum(w for t, w in tw if t in blob) / sum(w for _, w in tw)
 
 
-def by_text(tw: list, lines: list, near=None):
+def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> tuple[int, int, float] | None:
     """Recovers source lines from the rendered text's word tokens.
 
     This is the path used when SyncTeX stays silent or points somewhere wrong on a table/equation region.
@@ -100,7 +106,7 @@ def by_text(tw: list, lines: list, near=None):
 SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
 
 
-def expand_block(lines: list, lo: int, hi: int, envs: Sequence[str]):
+def expand_block(lines: Sequence[str], lo: int, hi: int, envs: Sequence[str]) -> tuple[int, int, str]:
     """Expands the selected lines to the enclosing environment named in envs (--float-envs) or paragraph boundary. Used to determine the default level.
 
     An environment must be closed by a \\end of the same name - without matching the name, the selection
@@ -137,7 +143,7 @@ def expand_block(lines: list, lo: int, hi: int, envs: Sequence[str]):
     return a, b, "paragraph"
 
 
-def para_bounds(lines: list, lo: int, hi: int) -> tuple:
+def para_bounds(lines: Sequence[str], lo: int, hi: int) -> tuple[int, int]:
     """Expands to the nearest blank line. A section-heading line (\\section/\\subsection/...) is never crossed in either direction."""
     n = len(lines)
     a, b = lo, hi
@@ -148,7 +154,7 @@ def para_bounds(lines: list, lo: int, hi: int) -> tuple:
     return a, b
 
 
-def trim_comments(lines: list, a: int, b: int) -> tuple:
+def trim_comments(lines: Sequence[str], a: int, b: int) -> tuple[int, int]:
     """Trims leading/trailing pure-comment lines (starting with %). Does nothing if every line is a comment.
 
     In a manuscript where one paragraph is one line, this stops a trailing TODO comment from becoming the tail of the pin range and its anchor."""
@@ -160,9 +166,10 @@ def trim_comments(lines: list, a: int, b: int) -> tuple:
     return (a, b) if x > y else (x, y)
 
 
-def env_spans(lines: list) -> list:
+def env_spans(lines: Sequence[str]) -> list[tuple[int, int, str]]:
     """(start line, end line, name) - every environment paired up by matching name and depth. A \\begin inside a comment is ignored."""
-    stack, spans = [], []
+    stack: list[tuple[str, int]] = []
+    spans: list[tuple[int, int, str]] = []
     for i, ln in enumerate(lines):
         for m in ENV_TOK_RE.finditer(strip_comment(ln)):
             name = m.group(2).strip()
@@ -177,7 +184,7 @@ def env_spans(lines: list) -> list:
     return spans
 
 
-def snippet(lines: list, lo: int, hi: int, cap: int = 80) -> str:
+def snippet(lines: Sequence[str], lo: int, hi: int, cap: int = 80) -> str:
     """Lines lo..hi (1-based, inclusive) numbered in a 5-wide column; beyond cap lines, a Korean "(N줄 더)" tail."""
     chunk = lines[lo - 1:hi]
     extra = len(chunk) - cap
@@ -187,7 +194,7 @@ def snippet(lines: list, lo: int, hi: int, cap: int = 80) -> str:
     return out + ("\n      ... (%d줄 더)" % extra if extra > 0 else "")
 
 
-def find_level(levels: list, key: str) -> dict | None:
+def find_level(levels: Sequence[Level], key: str) -> Level | None:
     """The ladder level named key, or the level that absorbed it (its "merged" list); None when neither exists."""
     for lv in levels:
         if lv["level"] == key or key in lv.get("merged", ()):
@@ -195,7 +202,7 @@ def find_level(levels: list, key: str) -> dict | None:
     return None
 
 
-def compute_levels(lines: list, raw_lo: int, raw_hi: int, envs: Sequence[str]) -> dict:
+def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> dict[str, Any]:
     """The range ladder: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels. envs are the float
     environments (--float-envs) a selection expands to.
 
@@ -204,10 +211,11 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int, envs: Sequence[str]) -
     n = len(lines)
     raw_lo = max(1, min(raw_lo, n))
     raw_hi = max(raw_lo, min(raw_hi, n))
-    levels: list = []
+    levels: list[Level] = []
 
-    def add(level, lo, hi, label, env=None):
-        item = {"level": level, "lo": lo, "hi": hi, "label": label, "n": hi - lo + 1,
+    def add(level: str, lo: int, hi: int, label: str, env: str | None = None) -> None:
+        """Append a rung, or replace the rung with the same range and list the replaced name under merged."""
+        item: Level = {"level": level, "lo": lo, "hi": hi, "label": label, "n": hi - lo + 1,
                 "snippet": snippet(lines, lo, hi)}
         if env:
             item["env"] = env
@@ -257,7 +265,7 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int, envs: Sequence[str]) -
         add(key, a, b, "환경 %s%s" % (name, suffix), env=name)
 
     ea, eb, kind = expand_block(lines, raw_lo, raw_hi, envs)
-    default = None
+    default: Level | None = None
     if kind in ("float", "block"):
         for lv in levels:
             if lv["level"].startswith("env") and (lv["lo"], lv["hi"]) == (ea, eb):
@@ -268,6 +276,8 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int, envs: Sequence[str]) -
     if default is None:
         default = find_level(levels, "para")
         kind = "paragraph"
+    # "para" was added above; a later rung with the same range keeps it in its merged list, so find_level() finds it.
+    assert default is not None
     if not default["level"].startswith("env") and kind != "paragraph":
         kind = "paragraph"
     return {"levels": levels, "default_level": default["level"], "lo": default["lo"],
@@ -276,7 +286,7 @@ def compute_levels(lines: list, raw_lo: int, raw_hi: int, envs: Sequence[str]) -
 
 # ---------------------------------------------------------------- Anchors
 
-def anchor_of(lines: list, lo: int, hi: int) -> dict:
+def anchor_of(lines: Sequence[str], lo: int, hi: int) -> dict[str, str | int]:
     """Captures the head/tail text of the block a pin points at (pure-comment lines are skipped).
 
     Storing only line numbers means every pin drifts the moment the manuscript is edited once. The whole
@@ -295,7 +305,7 @@ def anchor_of(lines: list, lo: int, hi: int) -> dict:
             "head_off": body[0] - (lo - 1), "tail_off": (hi - 1) - body[-1]}
 
 
-def find_line(nlines: list, needle: str, near: int) -> int | None:
+def find_line(nlines: Sequence[str], needle: object, near: int) -> int | None:
     """The 1-based line in nlines (already norm()-ed) that holds needle, nearest to line near.
 
     An exact match wins; a needle of 12+ characters falls back to its first 40 characters as a substring.
@@ -312,7 +322,7 @@ def find_line(nlines: list, needle: str, near: int) -> int | None:
     return min(cands, key=lambda i: abs(i + 1 - near)) + 1
 
 
-def anchor_holds(anchor: dict, lo: int, nlines: Sequence[str]) -> bool:
+def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> bool:
     """Is the anchor's head line still where the pin's lo says (line lo + head_off, 1-based), by find_line()'s matching
     (the whole norm()-ed line, or its first 40 characters for a head of 12 or more)? head_off that is not an integer in
     0..9999 counts as 0, like a legacy anchor. False for a missing head or a line outside nlines."""

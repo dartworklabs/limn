@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, TypeGuard, TypeVar, cast
 
 from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, Pin, Record, ReviewPin, TrashedPin, parse_pin
 
@@ -352,7 +352,8 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
     live says whether the id is already among the live pins; then nothing is restored.
     """
     if live:
-        return AlreadyLive(trashed.record.get("id"))
+        # A Trash copy carries the id find_trashed() matched; the cast informs the checker, the value is as stored.
+        return AlreadyLive(cast(int, trashed.record.get("id")))
     record = {key: value for key, value in trashed.record.items() if key not in ("dropped_at", "dropped_by")}
     record["restored_at"] = at
     record["restored_by"] = signature(by)
@@ -402,7 +403,7 @@ def thread_message(thread: Sequence[Any] | None, by: dict[str, str], at: str, te
     return msg
 
 
-def _is_num(value: object) -> bool:
+def _is_num(value: object) -> TypeGuard[int | float]:
     """An int or float that is not a bool - how stored epoch times are recognised."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
