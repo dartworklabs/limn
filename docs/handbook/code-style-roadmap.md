@@ -96,7 +96,7 @@ Limn은 짧은 기간에 기능을 빠르게 쌓으며 자랐다. 실제 논문 
 
 **업계에서 부르는 이름.** Functional Core, Imperative Shell (Gary Bernhardt, "Boundaries" 발표, 2012). Mark Seemann은 같은 모양을 "impureim sandwich"라고 부른다.
 
-**지금 코드의 모습.** 검토 대기 핀을 확인하는 `confirm_pin()`을 보자.
+**옮기기 전 모습.** 검토 대기 핀을 확인하던 `confirm_pin()`을 보자.
 
 ```python
 def confirm_pin(pid: int, actor: dict):
@@ -121,63 +121,73 @@ def confirm_pin(pid: int, actor: dict):
     return transact(fn)[1]
 ```
 
-한 함수 안에 네 종류의 일이 섞여 있다.
+한 함수 안에 네 종류의 일이 섞여 있었다.
 
 1. 규칙: 에이전트는 확인할 수 없다. 열린 핀은 확인할 것이 없다. 이미 완료면 그대로 돌려준다.
 2. 시계 읽기: `now_str()`.
 3. HTTP 표현: `403`, `409`와 한국어 메시지.
 4. 저장: `transact()` 안에서 사전을 직접 고친다.
 
-그래서 "에이전트는 확인할 수 없다"라는 규칙 하나를 테스트하려 해도 임시 상태 디렉터리와 파일 저장소를 거쳐야 한다. 규칙이 늘수록 테스트가 느려지고, 규칙이 어디 있는지 찾기도 어려워진다.
+그래서 "에이전트는 확인할 수 없다"라는 규칙 하나를 테스트하려 해도 임시 상태 디렉터리와 파일 저장소를 거쳐야 했다. 규칙이 늘수록 테스트가 느려지고, 규칙이 어디 있는지 찾기도 어려워진다.
 
-**바꾼 모습.** 규칙은 순수 함수로, 나머지는 처리기로 뺀다. 동작과 응답은 그대로다. 거절은 **예외로 던지지 않고 값으로 돌려준다.** 그러면 함수 서명만 보고도 무엇이 나올 수 있는지 안다 — 확인된 핀이거나, 이유가 붙은 거절이다.
+**바꾼 모습.** 2026-09-26 확인 전이를 처음으로 옮겼다. 규칙은 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)의 순수 함수, 불러오기·저장은 `server.py`의 `confirm_pin()`, 응답은 HTTP 처리기가 맡는다. 동작과 응답은 그대로다.
 
 ```python
-# pins/lifecycle.py — 파일·시계·HTTP를 모른다
-@dataclass(frozen=True)
-class ConfirmRejected:
-    """Why a confirmation was refused. reason is a closed set the HTTP layer maps exhaustively."""
-    reason: Literal["agent", "open"]
+# limn/pins/lifecycle.py — 파일·시계·HTTP를 모른다. 서명만 보고 결과를 안다
+def confirmer(actor: Actor) -> Person | AgentCannotConfirm:
+    """The person who may confirm, or the refusal for an agent - decided before any pin is loaded."""
 
-
-def confirm(pin: Pin, actor: Actor, at: datetime) -> Pin | ConfirmRejected:
-    """Turn a pin awaiting review into a confirmed one.
-
-    Only a person may confirm; an open pin has nothing to confirm. Confirming a done pin
-    returns it unchanged (the same object), so the caller can skip the write.
-    """
-    if actor.is_agent:
-        return ConfirmRejected("agent")
-    match pin.state:
-        case AwaitingReview() as state:
-            return pin.with_state(state.confirmed(by=actor, at=at))
-        case Done():
-            return pin
-        case Open():
-            return ConfirmRejected("open")
+def confirm(pin: Pin, by: Person, at: str) -> DonePin | AlreadyDone | PinStillOpen:
+    match pin:
+        case ReviewPin():
+            return confirm_review(pin, by, at)      # ReviewPin만 받는 전이: 다른 상태로는 부를 수 없다
+        case DonePin():
+            return AlreadyDone(pin)                 # 거절이 아니라 "바뀐 것 없음"이라는 결과
+        case OpenPin():
+            return PinStillOpen(pin)                # 409 본문에 쓸 핀을 함께 돌려준다
 ```
 
 ```python
-# http/pins.py — 가장자리: 읽고, 판단을 부르고, 저장하고, 상태 코드로 바꾼다
-def handle_confirm(store: PinStore, pid: int, actor: Actor, now: datetime) -> Response:
-    """Serve POST /api/pins/{id}/confirm with the existing status codes and body shape."""
-    with store.transaction() as tx:
-        pin = tx.get(pid)
-        if pin is None:
-            return ok_json({"ok": False, "pin": None})
-        match confirm(pin, actor, now):
-            case ConfirmRejected() as rejected:
-                return reject_json(rejected, pin)   # 403 / 409 — 이유별 상태 코드·한국어 문구 표는 http 층이 소유
-            case updated if updated is pin:
-                return ok_json({"ok": False, "pin": public(pin)})
-            case updated:
-                tx.put(updated)
-    return ok_json({"ok": True, "pin": public(updated), "state": updated.state.name})
+# server.py — 가장자리: 에이전트면 저장소를 건드리기 전에 끝내고, 불러오고, 판단을 부르고, 새 DonePin만 쓴다
+def confirm_pin(pid, actor) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
+    by = confirmer(typed_actor(actor))
+    if isinstance(by, AgentCannotConfirm):
+        return by
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return PinNotFound(pid), False
+        result = confirm(parse_pin(r), by, now_str())
+        if isinstance(result, DonePin):             # 처리할 타입 하나만 보고, 나머지는 그대로 넘긴다
+            r.clear()
+            r.update(result.record)
+            return result, True
+        return result, False
+    return transact(fn)[1]
+
+# HTTP 처리기 — 모든 결과에 응답 하나. 상태 코드와 본문은 에이전트 계약 그대로
+match result:
+    case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
+        return self._json({"ok": True, "pin": public(record), "state": "done"})
+    case PinNotFound():
+        return self._json({"ok": False, "pin": None, "state": None})
+    case AgentCannotConfirm():
+        raise HTTPError(403, CONFIRM_BY_HUMAN)
+    case PinStillOpen(pin=OpenPin(record=record)):
+        raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
 ```
 
-이제 규칙 테스트는 파일 없이 `confirm(pin, agent, at) == ConfirmRejected("agent")` 한 줄로 끝난다. 처리기 테스트는 상태 코드와 저장만 확인하면 된다.
+이제 규칙 테스트는 파일 없이 `confirmer(Agent(...)) == AgentCannotConfirm()` 한 줄로 끝난다 (`tests/test_pins_lifecycle.py`). 처리기 테스트는 상태 코드와 저장만 확인한다.
 
-**거절을 값으로 돌려주는 이유.** `raise ConfirmRejected(...)`를 쓰면 서명은 `-> Pin`이라서, 호출하는 쪽은 docstring을 읽어야 거절이 있다는 걸 안다. 잊고 `try`를 빠뜨리면 거절이 처리기 밖까지 새어 500이 된다. 반환 타입이 `Pin | ConfirmRejected`이면 타입 검사기와 `match`가 처리하지 않은 경우를 드러낸다. 예외는 결함(호출자가 전제를 어김)과 인프라 장애(파일·시간 초과)에만 쓴다. 일반 Result 라이브러리는 들이지 않는다 — 작은 frozen dataclass와 `|`면 충분하다.
+**거절을 값으로 돌려주는 이유.** `raise`를 쓰면 서명은 `-> Pin`이라서, 호출하는 쪽은 docstring을 읽어야 거절이 있다는 걸 안다. 잊고 `try`를 빠뜨리면 거절이 처리기 밖까지 새어 500이 된다. 반환 타입에 결과가 모두 드러나면 타입 검사기와 `match`가 처리하지 않은 경우를 드러낸다. 예외는 결함(호출자가 전제를 어김)과 인프라 장애(파일·시간 초과)에만 쓴다. 일반 Result 라이브러리는 들이지 않는다.
+
+**결과 타입을 고르는 법.** 팀 스킬 `code-implement`의 규칙을 따른다.
+
+- 경우마다 데이터나 응답이 다르면 경우별 타입으로 나눈다(`PinStillOpen(pin)`과 `AgentCannotConfirm()`). 데이터와 응답이 모두 같을 때만 `Literal` 이유 하나로 묶는다. 앱 전체 공용 오류 타입은 만들지 않는다.
+- 한 동작의 거절이 여럿이면 이름을 한 번 붙인다(`XRefusal: TypeAlias = A | B`). 서명은 `성공 | 그 이름`으로 읽힌다.
+- 처리기는 처리할 타입 하나만 보고 나머지는 그대로 돌려준다. 파이썬 `match`는 합 타입 이름을 패턴으로 쓸 수 없으니 구성원을 다시 나열하지 않는다.
+- 식별자로 불러온 결과가 없으면 이름 있는 타입(`PinNotFound`)으로 돌려주고, 그 값이 가장자리까지 그대로 간다. 계산의 빈 결과만 `X | None`이다.
+- 상태와 이벤트를 한 값에 묶지 않는다. 사실을 기록해야 하는 전이는 `decide → 이벤트 | 거절`, `evolve(상태, 이벤트) → 새 상태`로 나눈다.
 
 **확인하는 법.** 옮기기 전에 기존 처리기 테스트가 녹색인지 확인하고, 옮긴 뒤 같은 테스트가 그대로 녹색이어야 한다. 새 순수 함수에는 허용 전이와 거부 조합마다 직접 테스트를 둔다.
 
@@ -204,34 +214,32 @@ def pin_state(r: dict) -> str:
 
 `done`, `review`, `confirmed_by`, `close_reply`, `claim_until` 같은 필드는 서로 독립적이다. 예를 들어 `done`이 거짓인데 `review`가 참이거나, 열린 핀에 `confirmed_by`가 남는 조합도 사전에는 담길 수 있다. 지금은 이런 조합을 만드는 코드 경로가 없도록 사람이 조심해서 막고 있다. 핀 코드를 처음 보는 사람은 이 약속을 모른다.
 
-**바꾼 모습.** 내부 모델만 상태별 타입으로 바꾼다. **저장 형식(`pins.jsonl`)과 API 모양은 바꾸지 않는다** ([architecture.md](architecture.md) §불변식 3, 6). 저장소 모듈이 읽을 때 옛 필드 조합을 새 타입으로 파싱하고, 쓸 때 다시 같은 필드로 펼친다.
+**바꾼 모습.** 상태를 필드로 들고 다니는 한 타입이 아니라, **상태마다 타입을 두고 핀을 그 합으로** 둔다 (2026-09-26, [`limn/pins/model.py`](../../src/limn/pins/model.py)). **저장 형식(`pins.jsonl`)과 API 모양은 바꾸지 않는다** ([architecture.md](architecture.md) §불변식 3, 6). 각 상태 타입은 저장된 레코드를 그대로 들고 다녀서, 이 버전이 모르는 필드도 왕복에서 살아남는다.
 
 ```python
 @dataclass(frozen=True)
-class Open:
-    """A pin nobody has closed; it may carry an in-progress claim."""
-    claim: Claim | None = None
+class OpenPin:
+    """A pin nobody has closed: its stored done is false or missing."""
+    record: Record
 
 @dataclass(frozen=True)
-class AwaitingReview:
-    """Closed by an agent; a person must confirm it before it counts as done."""
-    closed: Closure
-
-    def confirmed(self, by: Actor, at: datetime) -> "Done":
-        """Record who confirmed the agent's work and when."""
-        return Done(closed=self.closed, confirmed_by=by, confirmed_at=at)
+class ReviewPin:
+    """Closed by an agent and waiting for a person to confirm it: done and review are both true."""
+    record: Record
 
 @dataclass(frozen=True)
-class Done:
-    """Closed for good. Legacy records carry no confirmation."""
-    closed: Closure
-    confirmed_by: Actor | None = None
-    confirmed_at: datetime | None = None
+class DonePin:
+    """Closed for good. A legacy done record with no review field is done too."""
+    record: Record
 
-PinState = Open | AwaitingReview | Done
+Pin: TypeAlias = OpenPin | ReviewPin | DonePin
+
+def parse_pin(record: Record) -> Pin: ...        # pin_state()와 같은 규칙
 ```
 
-`match`로 상태를 나누면 새 상태를 더했을 때 처리하지 않은 곳을 타입 검사기가 알려 준다.
+한 상태에만 쓰는 전이는 그 상태 타입만 받는다(`confirm_review(pin: ReviewPin, ...)`). 요청처럼 어떤 상태든 올 수 있는 입구는 `match pin:`으로 타입을 나눈다. 상태 문자열을 비교하지 않는다.
+
+**다음 단계.** 전이를 하나씩 옮길 때, 그 상태에만 있는 필드(검토 대기의 닫은 기록, 완료의 `confirmed_by`, 열림의 claim)를 레코드에서 꺼내 해당 상태 타입의 속성으로 올린다. 그래야 "열린 핀에 `confirmed_by`가 남는" 조합이 타입으로 막힌다. 지금은 상태만 타입이고 필드는 레코드 안에 있다.
 
 **확인하는 법.** 옛 레코드 모양(검토 필드 없는 완료, `doc` 없는 레코드 등)을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. 이 왕복 테스트를 먼저 만들고 옮긴다.
 
@@ -264,7 +272,7 @@ def clean_note(v) -> str:
 
 **바꾼 모습.** 요청 파싱은 `http/` 층이 맡는다. `parse_note(v) -> NoteText | InputRejected`처럼 검증된 값이나 이유가 붙은 거절 값을 돌려준다. 도메인은 `ConfirmRejected("open")`처럼 이유를 담은 값을 **돌려준다**. HTTP 층은 `match`로 받아 이유별 상태 코드와 한국어 문구를 **한 표**에서 고른다. `sys.exit()`는 `main()` 한 곳에서만 부르고, 안쪽 함수는 시작 실패 이유를 값으로 돌려준다.
 
-0.3의 핀 단위 변경 코드는 이미 거절을 이유(`ScopeRejected(reason)`)와 표 하나(`SCOPE_REJECTIONS`)로 모았다. 다만 예외로 던지므로, 모듈로 옮길 때 반환값으로 바꾼다. 표는 그대로 쓴다.
+0.3의 핀 단위 변경 코드는 이미 거절을 이유(`ScopeRejected(reason)`)와 표 하나(`SCOPE_REJECTIONS`)로 모았다. 다만 예외로 던지므로, 모듈로 옮길 때 반환값으로 바꾼다. 이유마다 데이터나 응답이 다르면 그때 경우별 타입으로 나눈다 (R1 §결과 타입을 고르는 법).
 
 **확인하는 법.** 오류 응답 본문(`{"error": ...}`)과 상태 코드가 옮기기 전후에 같아야 한다. API 오류 문자열은 에이전트 계약의 일부다. 도메인 함수의 반환 타입에 거절 값이 드러나고, 그 함수 안에 업무상 거절을 위한 `raise`가 남지 않는다.
 
@@ -463,7 +471,7 @@ def now_str() -> str:
 | 1 안전망 | 완료 (포매팅·스타일 규칙은 남음) | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침 |
 | 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용. 0.3.0~0.3.2 PR이 새 함수·테스트에 R1·R3·R7~R9를 적용함 |
 | 3 뷰어 분리 | 완료 | 2026-09-26. `server.py` 10,973 → 7,378행. 출력 바이트 동일 |
-| 4 핀 수명 주기 | 시작 전 | 착수 조건 충족 |
+| 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 옛 코드와 응답·저장 바이트가 같음을 차등 비교로 확인. 닫기·다시 열기·답글·claim·휴지통이 남음 |
 | 5 역변환과 빌드 | 진행 중 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). `build/`는 남음 |
 | 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
 | 7 타입 검사 확대 | 시작 전 | — |
