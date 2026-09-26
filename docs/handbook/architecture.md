@@ -36,7 +36,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 5,817 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 5,816 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
 | [`src/limn/web/`](../../src/limn/web/handler.py) | 1,819 | HTTP 층(2026-09-26 옮김): 처리기와 서버 클래스·본문 읽기와 한도·GET/POST 경로 분기(`handler.py`), 요청 본문·쿼리의 파서(`parse.py`: 값이나 `InputRejected`를 돌려주고 처리기가 400으로 답한다), 핀 조작 결과마다의 응답(`answers.py`), `HTTPError`·`InputRejected`·핀 단위 변경 거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`의 `App` 프로토콜). `server.py`를 가져오지 않는다 (`tests/test_web.py`가 검사) |
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 75 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다. 요청이나 SyncTeX가 가리키는 경로가 원고 트리 안의 파일인지 보는 규칙 하나(`file_in_tree`, 거절은 이유별 값)도 여기 있다 |
