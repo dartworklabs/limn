@@ -19,6 +19,7 @@ from urllib.parse import unquote
 from test_access import AccessBase
 from test_server import ps, req, split_resp
 from test_access import talk_to
+from test_viewer_files import viewer_text
 
 from limn import mark
 
@@ -136,10 +137,9 @@ class MarkMarkup(unittest.TestCase):
         marks() removes and redraws (a first cut used .mark, and every mark vanished once the pins were drawn)."""
         classes = re.findall(r'class="([^"]+)"', mark.inline_svg())
         self.assertTrue(classes and all(c.startswith("limn-mark") for c in classes), classes)
-        viewer = ps.VIEWER_DIR
-        js = (viewer / "app.js").read_text(encoding="utf-8")
+        js = viewer_text("__APP_JS__")
         self.assertNotIn("limn-mark", js)
-        css = re.sub(r"/\*.*?\*/", "", (viewer / "app.css").read_text(encoding="utf-8"), flags=re.S)
+        css = re.sub(r"/\*.*?\*/", "", viewer_text("__APP_CSS__"), flags=re.S)
         rules = [r for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if "limn-mark" in r]
         self.assertEqual(len(rules), 9, rules)
         self.assertFalse([r for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if re.search(r"\.mark(?![\w-])", r)

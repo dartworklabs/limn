@@ -48,7 +48,7 @@ catalog_schema: 1
 | `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 경로가 원고 트리 안의 파일인지 보는 규칙(`file_in_tree`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
 | `src/limn/server.py` | 핀 단위 변경 구역(0.3): hunk 블록 귀속, 핀 hunk diff, 합성 판 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
-| `src/limn/viewer/*` | 뷰어 화면: `index.html`·`app.css`·`app.js` (서버가 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
+| `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt` (서버가 순서대로 이어 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다) | viewer.md, verification.md |
 | `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기(`handler.py`), 요청 본문·쿼리 파서(`parse.py`), 핀 조작 결과마다의 응답(`answers.py`), 오류 형식·거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
 | `src/limn/server.py` | main과 처리기 연결: 실행 인자, `Handler`를 이 모듈의 서비스에 묶음(`web/app.py`의 `App`이 그 목록) | 인자 추가나 변경, `App`에 든 서비스의 이름·인자 변경 | operations.md, architecture.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |

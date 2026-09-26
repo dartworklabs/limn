@@ -1,0 +1,53 @@
+#revision-view{display:none;flex:1;min-width:0;min-height:0;overflow:hidden;background:var(--background)}
+body.revision-open #revision-view{display:block}
+body.revision-open #left{display:none}
+/* The pin [변경 보기] points at (docs/handbook/viewer.md §변경 보기): a one-line notice below the header plus highlighting of the pin's range lines. The narrow (folded)
+   layout has no nav bar, so this notice's [원고로] is the way back. */
+#revision-pin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-4);background:var(--card);
+  border-bottom:1px solid var(--border);font-size:var(--text-sm)}
+#revision-pin .rp-msg{color:var(--muted-foreground);min-width:0;flex:1 1 12em;overflow-wrap:anywhere}
+#revision-pin>span:first-child{min-width:0;overflow-wrap:anywhere}
+#revision-pin button{flex:none;margin-left:auto}   /* if the text is long it wraps - the button is never clipped (QA: at 842px, [원고로] was going off-screen) */
+#revision-diff .rd-pin{background:color-mix(in srgb,var(--status-review) 12%,var(--sidebar))}
+body.lay-narrow #revision-head{padding:var(--space-2) var(--space-3)}
+body.lay-narrow #revision-head h2{display:none}
+body.lay-narrow #revision-view{height:100%}
+body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84px}   /* the folded sheet's tool bar covers the bottom */
+#revision-inner{height:100%;display:flex;flex-direction:column;min-height:0}
+#revision-head{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-head h2{font-size:var(--text-sm);margin:0;white-space:nowrap}
+#revision-list{min-width:0;flex:1}
+#revision-list select{width:100%;max-width:470px;min-width:0;background:var(--sidebar);font-size:var(--text-sm)}
+#revision-note{color:var(--muted-foreground);font-size:var(--text-xs);padding:4px var(--space-4);background:var(--sidebar)}
+#revision-file-row{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);font-size:var(--text-sm)}
+#revision-file-row select{max-width:min(100%,500px);background:var(--sidebar)}
+#revision-other,#revision-diff{white-space:pre;max-height:none;overflow:auto;margin:0;padding:0;background:var(--sidebar);font-size:var(--text-sm);line-height:1.7}
+#revision-other .rd-line,#revision-diff .rd-line{display:block;width:max-content;min-width:100%;min-height:1.7em}
+#revision-other .rd-no,#revision-diff .rd-no{display:inline-block;width:54px;padding:0 var(--space-2);margin-right:var(--space-2);
+  text-align:right;color:var(--subtle-foreground);border-right:1px solid var(--border);user-select:none}
+#revision-other .rd-code,#revision-diff .rd-code{white-space:pre;padding-right:var(--space-3)}
+#revision-other.wrap .rd-line,#revision-diff.wrap .rd-line{display:flex;width:auto}
+#revision-other.wrap .rd-no,#revision-diff.wrap .rd-no{flex:none}
+#revision-other.wrap .rd-code,#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#revision-other .rd-file,#revision-diff .rd-file{background:var(--muted);font-weight:600}
+#revision-other .rd-meta,#revision-diff .rd-meta{color:var(--muted-foreground)}
+#revision-other .rd-hunk,#revision-diff .rd-hunk{background:color-mix(in srgb,var(--primary) 8%,var(--sidebar));color:var(--primary)}
+#revision-other .rd-add,#revision-diff .rd-add{background:color-mix(in srgb,var(--success) 9%,var(--sidebar));
+  color:color-mix(in srgb,var(--success) 75%,var(--foreground))}
+#revision-other .rd-del,#revision-diff .rd-del{background:color-mix(in srgb,var(--destructive) 8%,var(--sidebar));
+  color:color-mix(in srgb,var(--destructive) 75%,var(--foreground))}
+#revision-controls{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding:var(--space-1) var(--space-4);background:var(--sidebar);border-bottom:1px solid var(--border)}
+#revision-controls button[aria-pressed=true]{background:var(--accent);color:var(--foreground)}
+#revision-status{font-size:var(--text-xs);color:var(--muted-foreground);padding:4px var(--space-4);background:var(--sidebar)}
+#revision-warning{font-size:var(--text-xs);color:var(--warning);padding:0 var(--space-4);background:var(--sidebar)}
+#revision-warning summary{cursor:pointer}
+#revision-warning pre{white-space:pre-wrap;max-height:8em;overflow:auto;margin:4px 0}
+#revision-pdf{flex:1;min-height:0;overflow:auto;background:var(--background);padding:var(--space-3);text-align:center}
+#revision-source{flex:1;min-height:0;overflow:auto}
+/* v0.3: the pin's own hunks come first; the rest of the commit folds under one control and expands inline below them */
+#revision-other-toggle{display:flex;align-items:center;gap:var(--space-1);width:100%;justify-content:flex-start;border-radius:0;
+  border-top:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-sm)}
+#revision-other-toggle[aria-expanded=true] .ic{transform:rotate(90deg)}
+#revision-other{border-top:1px solid var(--border)}
+.revision-page{width:min(100%,780px);min-height:500px;margin:0 auto var(--space-4);background:var(--sidebar);box-shadow:var(--shadow-page)}
+.revision-page canvas{display:block;max-width:100%;margin:auto}

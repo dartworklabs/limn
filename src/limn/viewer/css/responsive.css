@@ -1,0 +1,264 @@
+/* ---------------- Mobile/touch (docs/handbook/viewer.md §모바일 레이아웃)
+   The layout is set by JS on body: lay-wide (1100px and up) - lay-mid (over 700px, under 1100px: a narrow side panel) -
+   lay-narrow (700px and below: a bottom sheet). compact = mid|narrow. side-open = the panel/sheet is expanded.
+   In the collapsed state, only the tool bar (#bar1), status chips (#bar2), and the re-place-location banner remain. */
+.cmp,.tch{display:none}
+.pin .sum{display:none}
+.hint .t-touch{display:none}
+.pg{-webkit-touch-callout:none}
+#btn-select[aria-pressed=true]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}   /* on = looks like btn-default */
+body.selmode .pg{touch-action:none;outline:2px dashed var(--primary);outline-offset:3px}
+#coach{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--space-3) + env(safe-area-inset-top));z-index:60;background:var(--primary);
+  color:var(--primary-foreground);border-radius:var(--radius-lg);padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);display:flex;gap:var(--space-2);align-items:center;
+  width:max-content;max-width:calc(100vw - 16px);font-size:var(--text-lg);box-shadow:var(--shadow-lg)}
+#coach button{background:transparent;color:inherit;border-color:transparent}
+body:not(.lay-narrow) #coach{top:94px;pointer-events:none}
+body:not(.lay-narrow) #coach button{pointer-events:auto}
+#more{max-width:440px}
+#more .more-head{flex-wrap:nowrap;gap:var(--space-2);margin-bottom:var(--space-2)}
+#more .more-head .chip{background:var(--brand);max-width:min(60%,240px)}
+#more .more-info{font-size:var(--text-base);color:var(--muted-foreground);overflow-wrap:anywhere;margin:0 0 var(--space-2)}
+#more .more-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
+#more .more-grid .wide{grid-column:1/-1}
+#more .jump-row{display:flex;gap:var(--space-2)}
+#more .jump-row input{flex:1;min-width:0}
+#more .size-row{display:flex;align-items:center;gap:var(--space-2)}
+#more .size-row .seg{flex:1;margin:0}
+@media (pointer:coarse){
+  :root{--doc-nav-h:48px}
+  button.tch{display:inline-flex}
+  .hint .t-touch{display:inline}
+  .hint .t-mouse{display:none}
+  button{min-height:44px;min-width:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-lg);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  button.btn-sm,.seg button{min-height:44px;padding:var(--space-2) var(--space-3);font-size:var(--text-base)}
+  /* A tappable badge (assignee chip/awaiting review/build error) keeps its visual size and only widens its hit area to 44px - growing it via
+     min-height:44px turned the card header's assignee chip into a 44px blue slab (folded-layout QA). */
+  button.badge{min-height:0;min-width:0;padding:1px var(--space-2);position:relative}
+  button.badge::after{content:'';position:absolute;left:-4px;right:-4px;top:50%;height:var(--control-h-touch);transform:translateY(-50%)}
+  #bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}
+  #bar1 button{padding:0 var(--space-2)}
+  input,textarea,select{font-size:var(--text-xl)}
+  #bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}   /* iOS zooms the screen when focusing an input field smaller than 16px */
+  .loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}
+  /* #N is drawn narrow, only as wide as its text (26-35px) - the visual size is kept and a fixed 44x44 hit area is centered on top of it
+     (a fixed size rather than an inset proportional to the parent's width is needed to guarantee 44 even for a short number). position:relative
+     is given only to .n.go - giving it to .loc/.pg-link too let .loc, which comes later in DOM order, rise above .n.go's ::before
+     in the positioned stacking order and intercept hit-testing for the right half (observed: cx+21 returned '.loc' instead of '#N').  */
+  .pin .n.go{position:relative}
+  .pin .n.go::before{content:'';position:absolute;left:50%;top:50%;width:var(--control-h-touch);height:var(--control-h-touch);transform:translate(-50%,-50%)}
+  .mark b{width:26px;height:26px;left:-28px;font-size:var(--text-base)}
+  .mark b::after{content:'';position:absolute;inset:-9px}
+  #tip{max-width:min(300px,calc(100vw - 16px))}
+  button.btn-icon,.step button{width:var(--control-h-touch);min-width:var(--control-h-touch)}
+  /* button.btn-icon.btn-sm{width:var(--control-h-sm)} (the base rule, 0-0-2-1) is more specific than the
+     button.btn-icon above (0-0-1-1), so it stayed at 24px even for touch (observed on the card-collapse .b-fold/toast-close buttons) - re-pinned here at the same specificity. */
+  button.btn-icon.btn-sm{width:var(--control-h-touch);min-width:var(--control-h-touch);height:var(--control-h-touch)}
+  #c-actions button{min-height:48px;font-size:var(--text-lg)}
+  .pin .acts button{min-height:44px}
+  /* To keep an archive row flat, [원래 요청] is drawn at 28px and only its hit area is widened to 44px via ::after */
+  button.arc-orig-t{min-height:44px;min-width:44px;padding:0 var(--space-1);font-size:var(--text-base)}   /* the box itself is 44px (QA: used to be 58x28) */
+  .arc-reply{min-height:44px;display:flex;align-items:center}
+  .q-hint,.q-hint button{font-size:var(--text-base)}   /* the suggestion button is also 44px (the global button rule); the text is bumped up a step */
+  /* [변경 보기] phone/folded-layout QA (2026-09-25): commit selection was 18px, [빌드 경고 보기] was 16px tall */
+  #revision-list select,#revision-file-row select{min-height:var(--control-h-touch)}
+  #revision-warning summary{line-height:var(--control-h-touch)}
+  .arc-reply.open{display:block;padding:var(--space-2) 0}
+  .th-n{min-height:44px;min-width:44px;justify-content:center}
+  .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
+  #grip::after{left:-9px;right:-9px}
+  body.lay-wide:not(.side-open) #grip::after{left:-18px}   /* the collapsed rail: a 24px touch target reaching into the PDF side (touch scrollbars overlay) */
+}
+/* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
+   from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
+@media (pointer:fine){
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go){position:relative}
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
+    width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
+  .mark b::after{content:'';position:absolute;inset:-1px}
+  button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
+}
+body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
+/* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
+body.lay-mid #grip{width:8px;background:var(--sidebar);border-left:1px solid var(--border)}
+body.lay-mid #grip::before{content:'';position:absolute;left:50%;top:50%;width:4px;height:44px;border-radius:var(--radius-sm);
+  background:var(--border-strong);transform:translate(-50%,-50%)}
+body.lay-mid #grip.on::before{background:var(--primary)}
+body.compact button.cmp{display:inline-flex}
+body.compact .sec{display:none}
+body.compact #left{padding:var(--space-3) max(var(--space-2),env(safe-area-inset-right)) 60vh max(32px,env(safe-area-inset-left));min-width:0}
+body.compact #main{min-width:0}
+body.compact #right{overflow-y:auto;overscroll-behavior:contain;min-width:0;max-width:none}
+body.compact #right>*{flex:none}
+/* Compact tool bar: a single row of same-height items. Packed edge to edge with no gaps, and [⋯] sits in that same flow (text shrinks first if there's no room). */
+body.compact #bar1{flex-wrap:nowrap;gap:var(--space-1);padding:var(--space-2) var(--space-3);position:sticky;top:0;z-index:3;background:var(--sidebar)}
+body.compact #bar1 .sp{display:none}
+body.compact #bar1 button{flex:1 1 auto;min-width:0;padding:0 var(--space-2);overflow:hidden;text-overflow:ellipsis;font-size:var(--text-base)}
+/* If there's no room, the label chip shrinks first (the full name is in the description) - this prevents a button's text from getting clipped to something like 'DF 재빌드' */
+body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}
+/* min-width:0 above (body.compact #bar1 button) is more specific (includes an id) than @media(pointer:coarse)'s
+   button{min-width:44px} (line 3647), so it won for narrow screens (lay-mid), and that's why [선택] used to shrink all the way to 40px (observed).
+   The same selector is re-pinned here, touch-only - since it comes later in source order than the rule above, it wins the specificity tie. */
+@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}
+/* Folded (narrow): the label text is pulled out of the tool bar and placed on [더보기]'s first line - shrinking it to 28px left only 'C...', unreadable (2026-09-23).
+   The label-color stripe at the very top (#brand-stripe) distinguishes the instance instead. The [문서] button always shows the short document name in full
+   (body/response/cover letter) without shrinking. The spread-out folded layout (mid, 884px) is under the same flex-wrap:nowrap pressure and its label
+   also shrank to 'CE-iTra...' (71px) (observed) - the same fix is applied there too. #more-label ([더보기]'s first line) already exists in both layouts
+   (shared markup with no layout condition), so the full name is visible without a separate sheet. */
+body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}
+body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}
+/* Folded/phone-sheet tool bar (QA 2026-09-24): frequency order - [핀 N] [선택] [문서] ... [재빌드] [⋯]. The awaiting-review count is a pill
+   inside [핀 N] (it used to float half-overlapping the button's corner border). [PDF 재빌드] is rarely used, so only its icon remains to free up
+   thumb space (the name lives in aria-label/long-press description). Freeing that space also removed the width problem that used to clip it to '핀 02'. */
+body.lay-narrow #btn-side{order:1}
+body.lay-narrow #btn-select{order:2}
+body.lay-narrow #btn-doc{order:3}
+body.lay-narrow #btn-rebuild{order:4}
+body.lay-narrow #btn-more{order:5}
+body.lay-narrow #bar1 #btn-rebuild{flex:0 0 var(--tb-h);padding:0}
+body.lay-narrow #btn-rebuild .lbl{display:none}
+@media (max-width:360px){body.lay-narrow #btn-select .lbl{display:none}}   /* very narrow phone: [선택] is just the dashed-box icon (filled color when on) */
+body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip;max-width:6em}
+body.compact #bar1 #btn-more{flex:0 0 44px;padding:0;background:transparent;border-color:transparent}   /* utility = ghost (the same convention as notification/theme/help on desktop) */
+body.compact #composer{max-height:none;overflow:visible}
+/* Narrow sheet: the note field is moved above the source text - within the sheet height, the note field used to hide below the bottom action row (observed during the mobile improvements). */
+body.lay-narrow #composer{display:flex;flex-direction:column}
+body.lay-narrow #c-body{display:contents}
+body.lay-narrow #c-snip,body.lay-narrow .snip-foot{order:2}
+body.lay-narrow #note{order:1;margin:0 0 8px}
+body.compact #list{overflow:visible;padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+/* In compact, #right is the scroll box - the action row is stuck to its bottom. */
+body.compact #c-actions{position:sticky;bottom:0;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+body.compact #meta-txt,body.compact #me{display:none}
+body.compact #bar2:not(:has(.badge:not([hidden]))){display:none}
+body.compact:not(.side-open) #right>:not(#bar1):not(#bar2):not(#banner):not(#sheet-grip){display:none}
+body.compact:not(.side-open) #bar1{order:3;border-bottom:0}
+/* Toast placement (placeToasts): narrow is the full screen width right above the sheet; mid is the panel side just above the action row (inside its column if the panel is open). */
+body.lay-narrow #toasts{left:var(--space-2);right:var(--space-2);width:auto;max-width:none}
+body.lay-mid #toasts{max-width:calc(100vw - 2 * var(--space-3))}
+/* Collapsed card (compact): one header line (number/location/page ... assignee/reply count/collapse) + two lines of note preview below it. The preview
+   used to be squeezed into the header line's leftover width, showing just a fragment like '[C...', with most of the card's height wasted as empty space (QA 2026-09-24). The header's 44px hit area overlaps the card's padding. */
+body.compact .pin .sum{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;
+  margin:0 0 var(--space-1);color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5;cursor:pointer}
+body.compact .pin .head{flex-wrap:nowrap;margin:-6px 0}
+body.compact .pin.open .sum,body.compact .pin.editing .sum{display:none}
+body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}
+body.compact .pin .au .au-n{display:none}
+body.lay-narrow{display:block}
+body.lay-narrow #main{height:100%}
+body.lay-narrow #left{height:100%}
+body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:auto!important;height:auto;
+  max-height:calc(var(--vvh,100dvh) - 48px);border-left:0;border-top:1px solid var(--border-strong);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow:0 -6px 24px var(--shadow-color);z-index:20;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+/* Sheet height: --sheet-f (fraction of screen height, default 0.64) is changed by dragging or pressing the top-edge handle (#sheet-grip). It shrinks to fit within the visible height when the keyboard is up. */
+body.lay-narrow.side-open #right{height:min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - 48px))}
+body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:center;height:24px;flex:none;position:sticky;top:0;z-index:4;
+  background:var(--sidebar);border-radius:var(--radius-lg) var(--radius-lg) 0 0;touch-action:none;cursor:row-resize}
+body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
+body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
+body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
+body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
+/* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
+   width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
+   jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
+   (901-1099px) clipped the nav bar by the panel's width (968px down to 630px). On a two-handed grip, the thumbs reach the two bottom
+   corners - the frequently used [선택] sits bottom-left, and the panel toggle [핀 N] sits bottom-right where the panel appears, staying in
+   the same spot regardless of whether the panel is open or closed. Save/cancel (#c-actions) is at the panel's bottom, right above the action
+   row, so it's within right-thumb reach. The tool bar (#bar1) stays in the DOM inside #right and is pulled out visually via position:fixed -
+   this is because the narrow sheet reuses the same markup as a sticky element below its handle. That's also why #right is never given a
+   transform/filter/opacity (that would change a fixed child's containing block, and the action row would move together with the panel). */
+body.lay-mid{--mbar-tb:var(--control-h);--mbar-h:calc(var(--mbar-tb) + 2 * var(--space-2) + 1px + env(safe-area-inset-bottom));
+  --mid-top:calc(var(--doc-nav-h) + env(safe-area-inset-top));padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}
+@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}
+body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);z-index:30;height:var(--mbar-h);--tb-h:var(--mbar-tb);
+  gap:var(--space-2);padding:var(--space-2) max(var(--space-3),env(safe-area-inset-right)) calc(var(--space-2) + env(safe-area-inset-bottom)) max(var(--space-3),env(safe-area-inset-left));
+  background:var(--sidebar);border-top:1px solid var(--border);border-bottom:0;pointer-events:auto;visibility:visible}
+/* Buttons keep their natural text width (never shrink or grow). Order follows thumb reach: [선택] .... [PDF 재빌드] [⋯] [핀 N].
+   DOM order is shared with the narrow sheet, so only CSS order changes it. */
+body.lay-mid #bar1 button{flex:none;min-width:var(--tb-h);padding:0 var(--space-3);overflow:visible}
+body.lay-mid #bar1 #btn-more{flex:0 0 var(--tb-h);width:var(--tb-h);padding:0}
+body.lay-mid #bar1 .sp{display:block;flex:1 1 0;order:2;align-self:stretch}
+body.lay-mid #btn-select{order:1}
+body.lay-mid #btn-rebuild{order:3}
+body.lay-mid #btn-more{order:4}
+body.lay-mid #bar1 #btn-side{order:5;min-width:calc(2 * var(--control-h-touch));justify-content:center;gap:var(--space-1)}
+body.lay-mid #bar1 #btn-side[aria-expanded=true]{background:var(--accent);border-color:var(--border-strong)}
+body.lay-mid.side-open #right{width:var(--side-w,clamp(300px,38vw,360px))!important}
+/* Collapsed panel: #right remains an invisible frame, floating only the status chips (#bar2) and the re-place-location banner (#banner) at the bottom-right just above the action row.
+   The frame itself never receives input, so it never blocks the PDF behind it. */
+body.lay-mid:not(.side-open) #right{position:fixed;left:auto;top:auto;right:max(var(--space-3),env(safe-area-inset-right));
+  bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));width:auto!important;height:auto;max-width:calc(100vw - 2 * var(--space-3));
+  display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);
+  background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
+body.lay-mid:not(.side-open) #right>#bar2,body.lay-mid:not(.side-open) #right>#banner{pointer-events:auto;background:var(--sidebar);
+  border:1px solid var(--border-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+/* Nav bar: fixed to the full screen width (the panel never clips it). Overflowing document links scroll horizontally within that row, with
+   the overflowing edge faded (fade-l/fade-r, docLinksFade). The current document's link is always scrolled into view. */
+body.lay-mid #paper-identity{display:none}
+body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;z-index:22;height:var(--mid-top);gap:var(--space-2);
+  padding:env(safe-area-inset-top) max(var(--space-3),env(safe-area-inset-right)) 0 max(var(--space-3),env(safe-area-inset-left))}
+body.lay-mid #doc-links{gap:var(--space-3);margin-right:0;flex:0 1 auto;scrollbar-width:none}
+body.lay-mid #doc-links::-webkit-scrollbar{display:none}
+body.lay-mid #doc-links.fade-r{mask-image:linear-gradient(to right,var(--foreground) calc(100% - 32px),transparent)}
+body.lay-mid #doc-links.fade-l{mask-image:linear-gradient(to left,var(--foreground) calc(100% - 32px),transparent)}
+body.lay-mid #doc-links.fade-l.fade-r{mask-image:linear-gradient(to right,transparent,var(--foreground) 32px,var(--foreground) calc(100% - 32px),transparent)}
+body.lay-mid #view-switch{gap:var(--space-2);padding-left:var(--space-2)}
+body.lay-mid #doc-nav button{white-space:nowrap}
+/* At mid width, the outline overlays on top of the document (#main already starts below the nav bar). On a narrow tablet, pins overlay too, preserving the body's width. */
+body.lay-mid #outline{position:absolute;left:0;top:0;bottom:0;z-index:18;border-right:1px solid var(--border);box-shadow:var(--shadow)}
+body.lay-mid #outline-grip{display:none}
+/* First-time onboarding: shown as a small chip just above the action row, on the left, right above the [선택] it points at - it never covers the nav bar or panel. */
+body.lay-mid #coach{top:auto;bottom:calc(var(--mbar-h) + var(--kb,0px) + var(--space-2));left:max(var(--space-3),env(safe-area-inset-left));transform:none;
+  max-width:calc(100vw - 2 * var(--space-3));padding:var(--space-1) var(--space-1) var(--space-1) var(--space-3);font-size:var(--text-base)}
+body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * var(--space-3))}
+@keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
+@keyframes mid-grip-in{from{opacity:0}}
+@media (min-width:701px) and (max-width:900px){
+  body.lay-mid.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
+    animation:mid-panel-in .18s ease-out}
+  /* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
+  body.lay-mid.side-settling #right,body.lay-mid.side-settling #grip{transition:right .18s ease-out}
+  /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
+     can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
+  body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
+  /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
+     to the space left of it (or scrolls there when zoomed). */
+  body.lay-mid.side-open.composing #left{padding-right:var(--side-w,330px)}
+  body.lay-mid.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
+    animation:mid-grip-in .18s ease-out}
+  /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
+  body.lay-mid.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
+  body.lay-mid.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
+}
+@keyframes mid-panel-out{to{right:calc(-1 * var(--side-w,330px))}}
+@keyframes mid-grip-out{to{opacity:0}}
+/* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
+.dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dcnt{font-weight:600}
+.dcnt.z{color:var(--muted-foreground);font-weight:400;background:transparent}
+.dm-item.on .dcnt:not(.z){background:var(--brand);color:var(--brand-foreground)}
+.dvo{flex:none;line-height:14px;padding:0 var(--space-1);letter-spacing:.02em}
+.ddot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--warning)}
+.dm-item .spin,#btn-doc .spin{width:10px;height:10px}
+#btn-doc{display:none;align-items:center;gap:var(--space-1)}
+#btn-doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.lay-narrow.docs-multi #btn-doc{display:inline-flex}
+body.view-only #btn-rebuild{display:none}
+.dchip{flex:none;line-height:16px;max-width:110px;overflow:hidden;text-overflow:ellipsis}
+.dchip.other{background:transparent;border-color:var(--border-strong);border-style:dashed}   /* another document = a dashed border (a meaningful border) */
+#docs-menu{margin:auto auto 0;width:100%;max-width:560px;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom))}
+#docs-menu .dm-list{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2)}
+.dm-item{display:flex;align-items:center;gap:var(--space-3);width:100%;text-align:left;padding:var(--space-3)}
+.dm-item .tx{flex:1;min-width:0;display:flex;flex-direction:column}
+.dm-item .ph{font-size:var(--text-sm);color:var(--muted-foreground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-item{border-color:transparent;background:transparent}
+.dm-item.on{background:var(--accent)}
+/* Selection on a view-only PDF document: no range ladder, stepper, or source expansion (there is no line). The region's text is shown in the source field instead. */
+#composer.region #c-levels,#composer.region .c-tools,#composer.region .snip-foot,#composer.region #c-copy{display:none}
+.edit.region .e-levels,.edit.region .c-tools .step{display:none}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* Label chip/stripe (§Running multiple manuscript instances at once): since its purpose is distinguishing tabs when multiple manuscript viewers are
+   open at once, the accent color is pinned as a fixed background (inline style) - the label color must stay the same across theme changes. */
+#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px;z-index:50;pointer-events:none}
+.chip{flex:none;color:var(--brand-foreground);font-weight:700;font-size:var(--text-sm);line-height:1.4;padding:var(--space-1) var(--space-2);border-radius:var(--radius);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+@media (max-width:480px){.chip{max-width:64px;font-size:var(--text-xs);padding:2px var(--space-1)}}

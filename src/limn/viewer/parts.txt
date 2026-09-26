@@ -1,0 +1,61 @@
+# The viewer's stylesheet and script parts, in page order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
+#
+# At import, load_viewer_html() in server.py joins the files listed under each marker, in this order and byte for
+# byte, and puts the result where index.html has that marker: the CSS parts become its one <style>, the JS parts its
+# one <script>. There is no build step, bundler or module loader. All JS parts share one classic-script scope, as the
+# single app.js did: a function declared in any part is visible to every part, but top-level code (a let or const, a
+# listener, an immediately run function) runs in this order, so it can only use the let/const names of the parts
+# above it (and its own). Keep this order. New code goes into the part for its responsibility; a new part needs a
+# line here.
+# tests/test_viewer_files.py checks that every file under css/ and js/ is listed exactly once.
+#
+# Format: a marker line starts its list; each following line is a path relative to this folder. "#" starts a comment.
+
+__APP_CSS__
+css/tokens.css          # design tokens: the only colour literals (dark, light) and the theme-independent scales
+css/frame.css           # base rules, viewer role, page frame, document nav bar, Limn mark, outline, section strip
+css/revisions.css       # the changes view ([변경 보기]): pin notice, source diff, comparison PDF
+css/side-panel.css      # the pin panel's handle, collapse and slide, and the tool bar
+css/components.css      # buttons, icons, badges, fields; pages, marks and the selection box; the panel's boxes
+css/composer.css        # the composer: location line, range ladder, source, note, action row
+css/cards.css           # pin cards: status, links, thread, @-tags, question hint, Trash, @-list, reply outcome
+css/list.css            # list sections and the archive rows
+css/overlays.css        # toasts, tooltip, dialogs
+css/responsive.css      # mobile/touch, the mid and narrow layouts, reduced motion, the label chip
+
+__APP_JS__
+js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
+js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
+js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
+js/api-toasts.js        # api() and toasts: stacking, placement, deferred commit with undo, copy
+js/tooltip.js           # hover/focus tooltips and the touch long-press tooltip
+js/doc-tabs.js          # several documents: the list, tabs and links
+js/revisions.js         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
+js/doc-switch.js        # the documents sheet, remembered view positions, switching documents
+js/boot.js              # boot() and the header: meta, stale and sync badges, viewer role
+js/polling.js           # meta polling, other documents' builds, toasts for pins changed elsewhere
+js/notify.js            # browser notifications and pin links (#doc=&pin=)
+js/build-chip.js        # build progress polling and its chip
+js/panel-size.js        # outline width, panel width and sheet height, their presets
+js/pages.js             # the page elements, page width and zoom steps, page jump
+js/pdf-open.js          # PDF.js: loading, the document cache, opening the current build
+js/outline.js           # the PDF outline and the section strip
+js/pdf-draw.js          # PDF.js: canvases, what to draw next, rendering pages
+js/zoom.js              # PDF-area zoom input: Ctrl+wheel, pinch, keys
+js/layout.js            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
+js/gestures.js          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
+js/selection.js         # drag and quick selection on the PDF, double-tap zoom
+js/levels.js            # the range ladder, line nudges, source snippets, the location-confidence badge
+js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
+js/draft.js             # the composer draft kept per tab (sessionStorage)
+js/save.js              # saving a pin, appending to one, the queued save
+js/card-parts.js        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
+js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
+js/list.js              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
+js/actions.js           # close, confirm, reopen, drop, purge, restore, unclaim
+js/mentions.js          # @-tag autocomplete, preview and the assignee choice
+js/reply.js             # the reply box and its outcome line
+js/edit.js              # the edit card
+js/repick.js            # re-placing a pin's location
+js/rebuild.js           # view anchors, refreshing the document, the build error panel, rebuild
+js/events.js            # help dialog, the click and key dispatch, and the call to boot()

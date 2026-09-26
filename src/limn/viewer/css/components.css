@@ -1,0 +1,86 @@
+/* ---------------- Components (docs/handbook/viewer.md §컴포넌트). Classes borrowing shadcn/ui's variant names - every button/badge uses this one set.
+   Button variants: (no class) = outline - .btn-default (primary action, one per panel) - .btn-secondary - .btn-soft ([완료]) - .btn-ghost - .btn-destructive
+   Button sizes: (no class) = default (28px) - .btn-sm (around 24px) - .btn-icon (square, a smaller square when combined with .btn-sm)
+   Badges: .badge (= outline) - .badge-default - .badge-secondary - .badge-destructive - status .badge-claimed - .badge-warning */
+button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1);
+  background:var(--outline-bg);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);
+  padding:var(--space-1) var(--space-3);cursor:pointer;font:inherit;font-size:var(--text-base);line-height:1.4;
+  transition:background-color .12s,border-color .12s,color .12s}
+/* Icons (Lucide, vendor/lucide/README.md): outline icons that follow the text color. Inside a button they sit next to the text with a 4px gap. */
+.ic{width:16px;height:16px;flex:none;display:inline-block;vertical-align:-3px;pointer-events:none}
+.kh{font-weight:400;opacity:.8;font-size:var(--text-sm)}
+button:hover{background:var(--accent);color:var(--accent-foreground)}
+button:disabled{opacity:.65;cursor:not-allowed}
+button[data-pending]{cursor:progress;background:color-mix(in srgb,var(--primary) 70%,var(--background));border-color:transparent}   /* [핀 저장]'s "saving" - looks pressed-and-waiting */
+button.btn-default{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary);font-weight:600}
+button.btn-default:hover{background:color-mix(in srgb,var(--primary) 88%,var(--background));color:var(--primary-foreground)}
+button.btn-secondary{background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+button.btn-secondary:hover{background:color-mix(in srgb,var(--secondary) 88%,var(--foreground))}
+button.btn-ghost{background:transparent;border-color:transparent}
+button.btn-ghost:hover{background:var(--accent)}
+/* soft: a light accent (a tint of the primary color). Only for the card's [완료] - set by the author 2026-09-23 (light blue). The secondary token is used by count badges, so it's left untouched */
+button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:transparent}
+button.btn-soft:hover{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,transparent)}   /* darkening the background further drops light-mode text contrast below 4.5 - shown via a border instead */
+button.btn-destructive{background:color-mix(in srgb,var(--destructive) 10%,transparent);color:var(--destructive);border-color:transparent}
+button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 18%,transparent);color:var(--destructive)}
+button.btn-sm{padding:2px var(--space-2);font-size:var(--text-sm)}
+button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
+button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
+:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border:1px solid transparent;border-radius:var(--radius-sm);
+  background:var(--muted);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:500;line-height:1.45;white-space:nowrap}
+/* A badge is a borderless light fill (the shadcn secondary badge) - a bordered badge is never drawn inside a bordered card
+   (author feedback 2026-09-24: an outline inside an outline). A meaningful badge is that color's light tint background + text in that color. */
+.badge .ic{width:12px;height:12px}
+.badge-default{background:var(--primary);color:var(--primary-foreground)}
+.badge-secondary{background:var(--secondary);border-color:transparent;color:var(--secondary-foreground)}
+.badge-destructive{background:color-mix(in srgb,var(--destructive) 14%,transparent);color:var(--destructive)}
+.badge-warning{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-claimed{background:color-mix(in srgb,var(--status-claimed) 16%,transparent);color:var(--foreground)}
+.badge-claimed .ic{color:var(--status-claimed)}
+.badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-claimed.late .ic{color:var(--status-warning)}
+button.badge{cursor:pointer;padding:1px var(--space-2);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:1.45}
+button.badge:hover{background:var(--accent);border-color:var(--border-strong)}
+.card{background:var(--card);color:var(--card-foreground);border:1px solid var(--border);border-radius:var(--radius-lg)}
+input,textarea{background:var(--field);color:var(--foreground);border:1px solid var(--input);border-radius:var(--radius);padding:var(--space-2);
+  font:inherit;width:100%}
+input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
+textarea{resize:vertical;min-height:4.8em}
+input.n{width:58px;text-align:center}
+.sp{flex:1}
+.pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none;cursor:crosshair}   /* a mouse drags a box here */
+:root[data-theme=light] .pg{border:1px solid var(--border)}
+.pg img{width:100%;height:100%;display:block}
+/* Vector rendering (docs/handbook/viewer.md §벡터 렌더링): the page canvas (.vb) fills the page box completely, and when zoom
+   exceeds the pixel ceiling, a detail canvas (.dt) rendered at native resolution for just the visible portion is overlaid at % coordinates within the page. The underlying PNG is hidden whenever a canvas is present. */
+.pg>canvas{position:absolute;display:block;pointer-events:none}
+.pg>canvas.vb{left:0;top:0;width:100%;height:100%}
+.pg.drawn>img{visibility:hidden}
+.pg .no{position:absolute;top:var(--space-2);left:var(--space-2);color:var(--muted-foreground);font-size:var(--text-xs);background:var(--card);
+  padding:1px var(--space-2);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm);line-height:1.5}
+.sel{position:absolute;border:2px solid var(--primary);background:color-mix(in srgb,var(--primary) 13%,transparent);pointer-events:none}
+.sel.pending{border-style:dashed}
+.sel i{position:absolute;top:-21px;left:-2px;background:var(--primary);color:var(--primary-foreground);font-size:var(--text-xs);font-style:normal;
+  padding:1px var(--space-2);border-radius:var(--radius-sm);white-space:nowrap}
+.mark{position:absolute;border:2px solid var(--status-open);background:color-mix(in srgb,var(--status-open) 8%,transparent);pointer-events:none}
+.mark.st{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
+.mark.est{border-style:dashed}
+.mark.hi{border-width:3px}
+.mark b{position:absolute;top:-2px;left:-24px;background:var(--status-open);color:var(--status-open-foreground);border-radius:50%;
+  width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:var(--text-sm);pointer-events:auto;cursor:pointer}
+.mark.st b{background:var(--warning);color:var(--warning-foreground)}
+.mark.rv{border-color:var(--status-review);background:color-mix(in srgb,var(--status-review) 8%,transparent)}
+.mark.rv b{background:var(--status-review);color:var(--status-review-foreground)}
+.mark.flash{animation:flash .6s ease-in-out 3}
+@keyframes flash{50%{box-shadow:0 0 0 5px var(--primary)}}
+#banner{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);display:flex;gap:var(--space-2);flex-wrap:wrap;
+  align-items:center;font-size:var(--text-base)}
+#build-err{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);background:var(--card);font-size:var(--text-base)}
+#composer{flex:none;max-height:62vh;overflow:auto;padding:var(--space-3);border-bottom:1px solid var(--border);background:var(--card)}
+#list{flex:1;overflow:auto;padding:0 var(--space-3) 32px;min-height:0}   /* the top padding belongs to the section header (.sec-head) - so a sticky element doesn't sit that far down */
+.busy{opacity:.45}
+pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--space-2);overflow:auto;font-size:var(--text-sm);
+  line-height:1.5;max-height:44vh;font-family:var(--font-mono);tab-size:2;margin:var(--space-2) 0}
+pre.wrap{white-space:pre-wrap;word-break:break-word}
+pre.nowrap{white-space:pre}
