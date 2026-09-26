@@ -9,6 +9,7 @@ Old records are never rewritten just to add file_rel, and nothing outside the tr
 
 Run: uv run pytest -q tests/test_v032.py
 """
+
 import importlib.util
 import json
 import os
@@ -19,22 +20,24 @@ import unittest
 from pathlib import Path
 
 from limn import mapping
-from limn.store import dump_jsonl
-from test_access import AccessBase, configure, mask
-from helpers import add_pin, ps
-from test_v03 import ScopedRepo
 from limn.access import LOCAL_ACTOR
+from limn.store import dump_jsonl
+
+from helpers import add_pin, ps
+from test_access import AccessBase, configure, mask
+from test_v03 import ScopedRepo
 
 ROOT = Path(__file__).resolve().parent.parent
 
 MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{sections/x}\n\\input{sections/long}\n\\end{document}\n"
 X_LINES = ["%% line %d" % i if i in (1, 2) else "Sentence number %d about topic%d." % (i, i) for i in range(1, 21)]
 X = "\n".join(X_LINES) + "\n"
-LONG = "Long line " + "word " * 150 + "\n"                  # one line over 600 characters (the «…» quote rule)
+LONG = "Long line " + "word " * 150 + "\n"  # one line over 600 characters (the «…» quote rule)
 SECRET = "TOPSECRET outside-the-tree line " + "x" * 700 + "\n"
 
 
 # ---------------------------------------------------------------- the decision (pure)
+
 
 class PinRelPathRule(unittest.TestCase):
     """mapping.pin_rel_path() picks where a stored line pin's file lives relative to the current root, from facts passed in."""
@@ -44,8 +47,10 @@ class PinRelPathRule(unittest.TestCase):
 
     def test_file_under_the_current_root_wins_even_if_missing(self):
         """The stored absolute path is the surest fact on this machine; a deleted file is not re-guessed elsewhere."""
-        self.assertEqual(self.pick("/r/sections/x.tex", "sections/y.tex", under="sections/x.tex", existing={"x.tex"}),
-                         "sections/x.tex")
+        self.assertEqual(
+            self.pick("/r/sections/x.tex", "sections/y.tex", under="sections/x.tex", existing={"x.tex"}),
+            "sections/x.tex",
+        )
 
     def test_a_file_rel_matching_the_file_tail_locates_a_moved_record(self):
         """file_rel is trusted without an existence check when the stored file ends with it (the server writes both)."""
@@ -60,8 +65,10 @@ class PinRelPathRule(unittest.TestCase):
 
     def test_a_file_rel_that_no_longer_matches_the_file_is_ignored(self):
         """A 0.3.0 relocation changes file but leaves file_rel: the stale file_rel must not win (ADR-0006 §2.2)."""
-        self.assertEqual(self.pick("/old/paper/sections/y.tex", "sections/x.tex", existing={"sections/x.tex", "sections/y.tex"}),
-                         "sections/y.tex")
+        self.assertEqual(
+            self.pick("/old/paper/sections/y.tex", "sections/x.tex", existing={"sections/x.tex", "sections/y.tex"}),
+            "sections/y.tex",
+        )
         self.assertIsNone(self.pick("/old/paper/sections/y.tex", "sections/x.tex"))
 
     def test_unsafe_or_malformed_file_rels_are_ignored(self):
@@ -93,14 +100,20 @@ class PinRelPathRule(unittest.TestCase):
         anchor = {"head": "Sentence number 5 about topic5.", "head_off": 1}
         self.assertTrue(mapping.anchor_holds(anchor, 1, nlines))
         self.assertFalse(mapping.anchor_holds(anchor, 2, nlines))
-        self.assertTrue(mapping.anchor_holds(dict(anchor, head_off=True), 2, nlines))      # not an int: 0
-        self.assertTrue(mapping.anchor_holds({"head": "Sentence number 5 about topic5. (longer)"}, 2,
-                                             ["x", "Sentence number 5 about topic5. (longer) and more"]))
+        self.assertTrue(mapping.anchor_holds(dict(anchor, head_off=True), 2, nlines))  # not an int: 0
+        self.assertTrue(
+            mapping.anchor_holds(
+                {"head": "Sentence number 5 about topic5. (longer)"},
+                2,
+                ["x", "Sentence number 5 about topic5. (longer) and more"],
+            )
+        )
         self.assertFalse(mapping.anchor_holds({"head": ""}, 1, nlines))
         self.assertFalse(mapping.anchor_holds(anchor, 5, nlines))
 
 
 # ---------------------------------------------------------------- moving the manuscript between two server runs
+
 
 class MovedManuscriptBase(AccessBase):
     """A manuscript with \\input'ed sections at <tmp>/paper-a, pins placed there, then the folder renamed to paper-b."""
@@ -116,9 +129,18 @@ class MovedManuscriptBase(AccessBase):
         self.use_root(self.a)
         self.p_new = self.pin_at("sections/x.tex", 5, 6)
         self.p_old = self.pin_at("sections/x.tex", 10, 11)
-        self.p_quote = add_pin({"file": str(self.a / "sections" / "long.tex"), "lo": 1, "hi": 1, "scope": "raw",
-                                   "quote": "Long line word word", "note": "q"}, dict(LOCAL_ACTOR)).record["id"]
-        self.make_legacy(self.p_old, self.p_quote)            # as 0.3.0 wrote them: no file_rel
+        self.p_quote = add_pin(
+            {
+                "file": str(self.a / "sections" / "long.tex"),
+                "lo": 1,
+                "hi": 1,
+                "scope": "raw",
+                "quote": "Long line word word",
+                "note": "q",
+            },
+            dict(LOCAL_ACTOR),
+        ).record["id"]
+        self.make_legacy(self.p_old, self.p_quote)  # as 0.3.0 wrote them: no file_rel
 
     def use_root(self, root: Path):
         """Point the server at a manuscript root, as `limn serve --manuscript <root>` would."""
@@ -202,7 +224,9 @@ class MovedManuscript(MovedManuscriptBase):
         rev = self.api_pins()[self.p_old]["rev"]
         code, d = self.call("POST", "/api/pins/%d/edit" % self.p_old, {"lo": 14, "hi": 15, "base_rev": rev})
         self.assertEqual(code, 200, d)
-        self.assertEqual((d["pin"]["lo"], d["pin"]["hi"], d["pin"]["file"]), (14, 15, str(self.b / "sections" / "x.tex")))
+        self.assertEqual(
+            (d["pin"]["lo"], d["pin"]["hi"], d["pin"]["file"]), (14, 15, str(self.b / "sections" / "x.tex"))
+        )
         r = self.stored()[self.p_old]
         self.assertEqual((r["file"], r["file_rel"]), (str(self.b / "sections" / "x.tex"), "sections/x.tex"))
         self.assertEqual(r["anchor"]["head"], "Sentence number 14 about topic14.")
@@ -252,7 +276,9 @@ class MovedManuscript(MovedManuscriptBase):
     def test_a_moved_legacy_record_resolves_by_its_tail(self):
         """A 0.3.0 record whose sub-folder is gone falls to the longest existing tail (here the root file)."""
         self.move()
-        self.rewrite(lambda rows: [r.update(file="/nowhere/paper/old-dir/main.tex") for r in rows if r["id"] == self.p_old])
+        self.rewrite(
+            lambda rows: [r.update(file="/nowhere/paper/old-dir/main.tex") for r in rows if r["id"] == self.p_old]
+        )
         self.assertEqual(self.api_pins()[self.p_old]["rel_path"], "main.tex")
 
     def copy_to_b(self, prefix="new line a\nnew line b\n", mtime_delta=-100.0):
@@ -270,8 +296,8 @@ class MovedManuscript(MovedManuscriptBase):
         pins = self.api_pins()
         self.assertEqual((pins[self.p_new]["lo"], pins[self.p_old]["lo"]), (7, 12))
         stored = self.stored()
-        self.assertEqual(stored[self.p_old]["file"], str(self.b / "sections" / "x.tex"))   # lines and file describe B
-        self.assertNotIn("file_rel", stored[self.p_old])                                  # still no backfill
+        self.assertEqual(stored[self.p_old]["file"], str(self.b / "sections" / "x.tex"))  # lines and file describe B
+        self.assertNotIn("file_rel", stored[self.p_old])  # still no backfill
 
     def test_switching_back_to_the_old_checkout_follows_its_lines_again(self):
         """A -> B (newer, two lines added) -> A: back on A the pins are at A's lines, not B's (review of #19)."""
@@ -296,19 +322,27 @@ class MovedManuscript(MovedManuscriptBase):
     def test_an_over_long_note_append_leaves_the_pin_unchanged(self):
         """The 400 for a note_append over NOTE_MAX comes before any change, even when the same write re-syncs lines."""
         rev = self.api_pins()[self.p_old]["rev"]
-        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % self.p_old, {"note": "n" * 3000, "base_rev": rev})[0], 200)
+        self.assertEqual(
+            self.call("POST", "/api/pins/%d/edit" % self.p_old, {"note": "n" * 3000, "base_rev": rev})[0], 200
+        )
         f = self.a / "sections" / "x.tex"
-        os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))                          # the next transact re-syncs
+        os.utime(f, (f.stat().st_atime, f.stat().st_mtime + 5))  # the next transact re-syncs
         before = self.stored()[self.p_old]
-        code, d = self.call("POST", "/api/pins/%d/edit" % self.p_old,
-                            {"lo": 14, "hi": 15, "note_append": "x" * 1500, "base_rev": rev + 1})
+        code, d = self.call(
+            "POST",
+            "/api/pins/%d/edit" % self.p_old,
+            {"lo": 14, "hi": 15, "note_append": "x" * 1500, "base_rev": rev + 1},
+        )
         self.assertEqual(code, 400, d)
         after = self.stored()[self.p_old]
-        self.assertEqual((after["lo"], after["hi"], after["note"], after.get("file_rel")),
-                         (before["lo"], before["hi"], before["note"], before.get("file_rel")))
+        self.assertEqual(
+            (after["lo"], after["hi"], after["note"], after.get("file_rel")),
+            (before["lo"], before["hi"], before["note"], before.get("file_rel")),
+        )
 
 
 # ---------------------------------------------------------------- what must stay outside (R10)
+
 
 class OutsideTheTree(MovedManuscriptBase):
     """Records that cannot be located under the current root stay out of tree and nothing outside is read."""
@@ -322,11 +356,13 @@ class OutsideTheTree(MovedManuscriptBase):
 
     def put(self, **fields):
         """Replace the legacy pin with a record carrying `fields`, without an anchor (so a read would backfill one)."""
+
         def fn(rows):
             r = next(r for r in rows if r["id"] == self.p_old)
             for k in ("anchor", "file_rel", "synced_at", "scope"):
                 r.pop(k, None)
             r.update(lo=1, hi=1, quote="TOPSECRET", **fields)
+
         self.rewrite(fn)
 
     def assert_out_of_tree(self, stored_file):
@@ -341,7 +377,9 @@ class OutsideTheTree(MovedManuscriptBase):
         self.assertIn("`%s L1-L1`" % Path(stored_file).name, md)
         self.assertNotIn("anchor", self.stored()[self.p_old])
         code, d = self.call("POST", "/api/pins/%d/edit" % self.p_old, {"lo": 1, "hi": 1, "base_rev": p["rev"]})
-        self.assertEqual((code, d["error"]), (400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요."))
+        self.assertEqual(
+            (code, d["error"]), (400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
+        )
 
     def test_a_record_whose_tail_matches_nothing_stays_outside(self):
         """Issue #7: an outside file with no matching tail under the root is never read (no anchor, quote or lines)."""
@@ -367,7 +405,7 @@ class OutsideTheTree(MovedManuscriptBase):
         f = "/nowhere/paper-a/linked/secret.tex"
         self.put(file=f, file_rel="linked/secret.tex")
         self.assert_out_of_tree(f)
-        self.put(file=f)                                            # legacy: the tail linked/secret.tex exists via the link
+        self.put(file=f)  # legacy: the tail linked/secret.tex exists via the link
         self.assert_out_of_tree(f)
 
     def test_a_file_rel_of_the_wrong_type_is_a_broken_line(self):
@@ -379,6 +417,7 @@ class OutsideTheTree(MovedManuscriptBase):
 
 
 # ---------------------------------------------------------------- [View changes] after the checkout moved
+
 
 class ScopedChangesAfterAClone(ScopedRepo):
     """Pin-scoped [View changes] (revision_diff with pin=) finds a moved pin's hunks: it reads the located rows."""
@@ -397,9 +436,12 @@ class ScopedChangesAfterAClone(ScopedRepo):
 
 # ---------------------------------------------------------------- rollback to 0.3.x
 
+
 def load_release(tag):
     """The server module exactly as released in `tag` (from git, with its sibling modules), or None in a shallow clone."""
-    r = subprocess.run(["git", "show", "%s:src/limn/server.py" % tag], cwd=ROOT, capture_output=True, timeout=30, check=False)
+    r = subprocess.run(
+        ["git", "show", "%s:src/limn/server.py" % tag], cwd=ROOT, capture_output=True, timeout=30, check=False
+    )
     if r.returncode != 0 or b"def revision_pin_scope" not in r.stdout:
         return None
     d = Path(tempfile.mkdtemp(prefix="limn-%s-" % tag))
@@ -433,8 +475,9 @@ class RollbackToV030(MovedManuscriptBase):
         return self.v030_call(method, path, body)
 
     def v030_call(self, method, path, body):
-        from test_access import talk_to
         from helpers import req, split_resp
+        from test_access import talk_to
+
         raw = json.dumps(body).encode() if body is not None else b""
         h = {"Content-Type": "application/json"} if body is not None else {}
         code, _, out = split_resp(talk_to(self.v030, req(method, path, raw, h)))
@@ -461,7 +504,9 @@ class RollbackToV030(MovedManuscriptBase):
         """After an edit on the branch, 0.3.0 sees the legacy pin under the new root and can edit its range."""
         self.move()
         rev = self.api_pins()[self.p_old]["rev"]
-        self.assertEqual(self.call("POST", "/api/pins/%d/edit" % self.p_old, {"note": "moved", "base_rev": rev})[0], 200)
+        self.assertEqual(
+            self.call("POST", "/api/pins/%d/edit" % self.p_old, {"note": "moved", "base_rev": rev})[0], 200
+        )
         code, d = self.old("/api/pins/%d/edit" % self.p_old, "POST", {"lo": 3, "hi": 4, "base_rev": rev + 1})
         self.assertEqual(code, 200, d)
         self.assertIn("`sections/x.tex L3-L4`", self.old("/pins.md")[1])
@@ -474,12 +519,11 @@ class RollbackToV030(MovedManuscriptBase):
         loc = {"file": str(self.a / "sections" / "y.tex"), "lo": 2, "hi": 3}
         code, d = self.old("/api/pins/%d/edit" % self.p_new, "POST", {"loc": loc, "base_rev": rev})
         self.assertEqual(code, 200, d)
-        self.assertEqual(self.stored()[self.p_new]["file_rel"], "sections/x.tex")   # 0.3.0 left it as it was
+        self.assertEqual(self.stored()[self.p_new]["file_rel"], "sections/x.tex")  # 0.3.0 left it as it was
         self.assertNotIn("rel_path", self.old("/api/pins/%d" % self.p_new)[1]["pin"])
-        self.move()                                                                   # and then the checkout moves
+        self.move()  # and then the checkout moves
         p = self.api_pins()[self.p_new]
         self.assertEqual((p["file"], p["rel_path"]), (str(self.b / "sections" / "y.tex"), "sections/y.tex"))
-
 
 
 class RollbackToV031(RollbackToV030):

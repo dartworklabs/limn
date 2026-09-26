@@ -11,6 +11,7 @@ file_in_tree is the one rule for a path a request or SyncTeX names inside the ma
 tex_lines is how every line number is counted when a manuscript file is read; vendor_file is the name guard of the
 bundled PDF.js files the viewer loads.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -23,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-PATH_MAX_CHARS = 4096              # a longer name is refused before it reaches the file system
+PATH_MAX_CHARS = 4096  # a longer name is refused before it reaches the file system
 
 
 def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
@@ -31,13 +32,13 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
     With mode (e.g. 0o600 for tokens.json) the temp file is created with that mode, so the content is never readable by others, even briefly."""
     tmp = path.with_name(".%s.tmp%d.%d" % (path.name, os.getpid(), threading.get_ident()))
     if mode is None:
-        fh = open(tmp, "w", encoding="utf-8")
+        fh = open(tmp, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
     else:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-        os.fchmod(fd, mode)                               # the umask may have narrowed or (never) widened it
-        fh = open(fd, "w", encoding="utf-8")
+        os.fchmod(fd, mode)  # the umask may have narrowed or (never) widened it
+        fh = open(fd, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
     with fh:
         fh.write(text)
         fh.flush()
@@ -55,7 +56,7 @@ def store_lock(state: Path, name: str) -> Iterator[None]:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
-        os.close(fd)                                     # closing the descriptor releases the lock
+        os.close(fd)  # closing the descriptor releases the lock
 
 
 @dataclass(frozen=True)

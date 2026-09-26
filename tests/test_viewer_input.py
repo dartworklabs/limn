@@ -11,15 +11,17 @@ The owner-approved findings of the 2026-09-26 input review (docs/handbook/viewer
 
 Run: uv run pytest -q tests/test_viewer_input.py
 """
+
 import json
 import re
 import time
 import unittest
 
-from test_qa_021 import BrowserBase, actor
-from test_access import ALICE
-from helpers import add_pin, extract_js_fn, ps, run_node
 from limn.access import LOCAL_ACTOR
+
+from helpers import add_pin, extract_js_fn, ps, run_node
+from test_access import ALICE
+from test_qa_021 import BrowserBase, actor
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}
@@ -56,6 +58,7 @@ def node_or_skip(test, js):
 
 # ---------------------------------------------------------------- pure decisions (node)
 
+
 class PanelSnapLogic(unittest.TestCase):
     """snapSide(wRaw, bounds, composing): where a panel-handle drag lands. T = floor(min/2)."""
 
@@ -64,14 +67,25 @@ class PanelSnapLogic(unittest.TestCase):
 
     def snap(self, cases):
         """[(wRaw, bounds, composing)] -> [snapSide(...)] from the shipped source."""
-        js = extract_js_fn("snapSide") + "\nconsole.log(JSON.stringify(%s.map(c=>snapSide(c[0],c[1],c[2]))));" % json.dumps(cases)
+        js = extract_js_fn(
+            "snapSide"
+        ) + "\nconsole.log(JSON.stringify(%s.map(c=>snapSide(c[0],c[1],c[2]))));" % json.dumps(cases)
         return node_or_skip(self, js)
 
     def test_width_follows_the_pointer_when_at_or_above_the_minimum(self):
         """At or above the minimum the width follows the pointer, up to the maximum."""
-        got = self.snap([(500, self.WIDE, False), (280, self.WIDE, False), (1200, self.WIDE, False), (500.4, self.WIDE, True)])
-        self.assertEqual(got, [{"w": 500, "zone": "follow"}, {"w": 280, "zone": "follow"}, {"w": 954, "zone": "follow"},
-                               {"w": 500, "zone": "follow"}])
+        got = self.snap(
+            [(500, self.WIDE, False), (280, self.WIDE, False), (1200, self.WIDE, False), (500.4, self.WIDE, True)]
+        )
+        self.assertEqual(
+            got,
+            [
+                {"w": 500, "zone": "follow"},
+                {"w": 280, "zone": "follow"},
+                {"w": 954, "zone": "follow"},
+                {"w": 500, "zone": "follow"},
+            ],
+        )
 
     def test_width_stops_at_the_minimum_between_half_and_minimum(self):
         """Between T (inclusive) and the minimum the width stays at the minimum: the handle turns primary."""
@@ -80,17 +94,22 @@ class PanelSnapLogic(unittest.TestCase):
 
     def test_release_collapses_when_the_pointer_asks_for_less_than_half_the_minimum(self):
         """Below T a release collapses the panel; the width shown stays at the minimum meanwhile."""
-        self.assertEqual(self.snap([(139, self.WIDE, False), (-80, self.WIDE, False)]),
-                         [{"w": 280, "zone": "collapse"}] * 2)
+        self.assertEqual(
+            self.snap([(139, self.WIDE, False), (-80, self.WIDE, False)]), [{"w": 280, "zone": "collapse"}] * 2
+        )
 
     def test_collapse_zone_is_blocked_while_a_draft_is_open(self):
         """Composing, editing, replying or relocating: the drag stops at the minimum instead of collapsing."""
-        self.assertEqual(self.snap([(139, self.WIDE, True), (0, self.MID, True)]),
-                         [{"w": 280, "zone": "blocked"}, {"w": 300, "zone": "blocked"}])
+        self.assertEqual(
+            self.snap([(139, self.WIDE, True), (0, self.MID, True)]),
+            [{"w": 280, "zone": "blocked"}, {"w": 300, "zone": "blocked"}],
+        )
 
     def test_mid_threshold_is_half_of_its_300px_minimum(self):
         """The unfolded layout's minimum is 300px, so its threshold is 150px."""
-        self.assertEqual([s["zone"] for s in self.snap([(150, self.MID, False), (149, self.MID, False)])], ["min", "collapse"])
+        self.assertEqual(
+            [s["zone"] for s in self.snap([(150, self.MID, False), (149, self.MID, False)])], ["min", "collapse"]
+        )
 
 
 class GripKeyLogic(unittest.TestCase):
@@ -100,14 +119,22 @@ class GripKeyLogic(unittest.TestCase):
 
     def keys(self, cases):
         """[(key, w, collapsed)] -> [gripKey(...)] from the shipped source."""
-        js = "\n".join([extract_js_fn("clampSide"), extract_js_fn("gripKey"),
-                        "const B=%s;console.log(JSON.stringify(%s.map(c=>gripKey(c[0],c[1],B,c[2]))));" % (json.dumps(self.B), json.dumps(cases))])
+        js = "\n".join(
+            [
+                extract_js_fn("clampSide"),
+                extract_js_fn("gripKey"),
+                "const B=%s;console.log(JSON.stringify(%s.map(c=>gripKey(c[0],c[1],B,c[2]))));"
+                % (json.dumps(self.B), json.dumps(cases)),
+            ]
+        )
         return node_or_skip(self, js)
 
     def test_home_goes_to_the_minimum_and_end_to_the_maximum(self):
         """Home = the panel's smallest size, End = its largest (they were reversed)."""
-        self.assertEqual(self.keys([("Home", 348, False), ("End", 348, False)]),
-                         [{"act": "width", "w": 280}, {"act": "width", "w": 954}])
+        self.assertEqual(
+            self.keys([("Home", 348, False), ("End", 348, False)]),
+            [{"act": "width", "w": 280}, {"act": "width", "w": 954}],
+        )
 
     def test_enter_collapses_and_space_cycles_the_presets(self):
         """Enter collapses an open panel (it used to cycle); Space cycles narrow/normal/wide."""
@@ -115,17 +142,47 @@ class GripKeyLogic(unittest.TestCase):
 
     def test_arrows_step_16px_and_never_collapse(self):
         """Left widens and Right narrows by 16px, clamped to the bounds; collapsing stays Enter's job."""
-        self.assertEqual(self.keys([("ArrowLeft", 348, False), ("ArrowRight", 348, False), ("ArrowRight", 284, False),
-                                    ("ArrowLeft", 950, False), ("x", 348, False)]),
-                         [{"act": "width", "w": 364}, {"act": "width", "w": 332}, {"act": "width", "w": 280},
-                          {"act": "width", "w": 954}, None])
+        self.assertEqual(
+            self.keys(
+                [
+                    ("ArrowLeft", 348, False),
+                    ("ArrowRight", 348, False),
+                    ("ArrowRight", 284, False),
+                    ("ArrowLeft", 950, False),
+                    ("x", 348, False),
+                ]
+            ),
+            [
+                {"act": "width", "w": 364},
+                {"act": "width", "w": 332},
+                {"act": "width", "w": 280},
+                {"act": "width", "w": 954},
+                None,
+            ],
+        )
 
     def test_every_key_but_arrow_right_opens_a_collapsed_panel(self):
         """Collapsed: Enter/Space open to the saved width, Home/Left to the minimum, End to the maximum."""
-        self.assertEqual(self.keys([("Enter", 0, True), (" ", 0, True), ("Home", 0, True), ("ArrowLeft", 0, True),
-                                    ("End", 0, True), ("ArrowRight", 0, True)]),
-                         [{"act": "open"}, {"act": "open"}, {"act": "width", "w": 280}, {"act": "width", "w": 280},
-                          {"act": "width", "w": 954}, None])
+        self.assertEqual(
+            self.keys(
+                [
+                    ("Enter", 0, True),
+                    (" ", 0, True),
+                    ("Home", 0, True),
+                    ("ArrowLeft", 0, True),
+                    ("End", 0, True),
+                    ("ArrowRight", 0, True),
+                ]
+            ),
+            [
+                {"act": "open"},
+                {"act": "open"},
+                {"act": "width", "w": 280},
+                {"act": "width", "w": 280},
+                {"act": "width", "w": 954},
+                None,
+            ],
+        )
 
 
 class GestureLogic(unittest.TestCase):
@@ -143,37 +200,53 @@ class GestureLogic(unittest.TestCase):
 
     def test_panel_follows_the_finger_but_rubber_bands_while_composing(self):
         """Composing: a quarter of the drag, at most 24px - the panel never closes on a draft."""
-        got = self.run_js(["swipeFollow"], "[swipeFollow(120,false),swipeFollow(-5,false),swipeFollow(40,true),swipeFollow(400,true)]")
+        got = self.run_js(
+            ["swipeFollow"], "[swipeFollow(120,false),swipeFollow(-5,false),swipeFollow(40,true),swipeFollow(400,true)]"
+        )
         self.assertEqual(got, [120, 0, 10, 24])
 
     def test_dismiss_closes_past_35_percent_or_on_a_fling(self):
         """Past 35% of the size, or more than 24px at 0.5px/ms or faster, closes; otherwise it springs back."""
-        got = self.run_js(["dismissOutcome"], "[dismissOutcome(116,330,0),dismissOutcome(115,330,0.49),dismissOutcome(25,330,0.5),"
-                                              "dismissOutcome(24,330,3),dismissOutcome(60,330,0.2)]")
+        got = self.run_js(
+            ["dismissOutcome"],
+            "[dismissOutcome(116,330,0),dismissOutcome(115,330,0.49),dismissOutcome(25,330,0.5),"
+            "dismissOutcome(24,330,3),dismissOutcome(60,330,0.2)]",
+        )
         self.assertEqual(got, ["close", "back", "close", "back", "back"])
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
         pre = re.search(r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+;", ps.HTML).group(0)
-        got = self.run_js(["sheetRelease"], "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
-                          "sheetRelease(0.5,40,0.8,false),sheetRelease(0.5,40,0.8,true),sheetRelease(0.5,-40,-0.8,false),"
-                          "sheetRelease(0.9,-40,-0.8,false),sheetRelease(0.5,-40,-0.2,false),sheetRelease(0.27,80,0.1,false)]", pre)
-        self.assertEqual(got, [{"close": True}, {"f": 0.3}, {"close": True}, {"f": 0.3}, {"f": 0.64}, {"f": 1}, {"f": 0.5},
-                               {"f": 0.3}])
+        got = self.run_js(
+            ["sheetRelease"],
+            "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
+            "sheetRelease(0.5,40,0.8,false),sheetRelease(0.5,40,0.8,true),sheetRelease(0.5,-40,-0.8,false),"
+            "sheetRelease(0.9,-40,-0.8,false),sheetRelease(0.5,-40,-0.2,false),sheetRelease(0.27,80,0.1,false)]",
+            pre,
+        )
+        self.assertEqual(
+            got,
+            [{"close": True}, {"f": 0.3}, {"close": True}, {"f": 0.3}, {"f": 0.64}, {"f": 1}, {"f": 0.5}, {"f": 0.3}],
+        )
 
     def test_double_tap_is_two_taps_within_300ms_and_24px_and_toggles_fit_and_2x(self):
         """A second tap near the first zooms: fit width -> 2x, any other width -> fit width."""
-        got = self.run_js(["isDoubleTap", "doubleTapWidth"],
-                          "[isDoubleTap({t:0,x:10,y:10},{t:250,x:20,y:25}),isDoubleTap({t:0,x:10,y:10},{t:350,x:10,y:10}),"
-                          "isDoubleTap({t:0,x:10,y:10},{t:100,x:40,y:10}),isDoubleTap(null,{t:0,x:0,y:0}),"
-                          "doubleTapWidth(800,800),doubleTapWidth(830,800),doubleTapWidth(1600,800),doubleTapWidth(500,800)]")
+        got = self.run_js(
+            ["isDoubleTap", "doubleTapWidth"],
+            "[isDoubleTap({t:0,x:10,y:10},{t:250,x:20,y:25}),isDoubleTap({t:0,x:10,y:10},{t:350,x:10,y:10}),"
+            "isDoubleTap({t:0,x:10,y:10},{t:100,x:40,y:10}),isDoubleTap(null,{t:0,x:0,y:0}),"
+            "doubleTapWidth(800,800),doubleTapWidth(830,800),doubleTapWidth(1600,800),doubleTapWidth(500,800)]",
+        )
         self.assertEqual(got, [True, False, False, False, 1600, 1600, 800, 800])
 
     def test_back_layer_is_the_sheet_the_overlay_panel_or_the_mid_outline(self):
         """Only a layer that covers the document: narrow sheet, 701-900px overlay panel, mid outline overlay."""
-        got = self.run_js(["backLayer"], "[backLayer('narrow',false,true,false),backLayer('narrow',false,false,false),"
-                          "backLayer('mid',true,true,false),backLayer('mid',false,true,false),backLayer('mid',false,false,true),"
-                          "backLayer('wide',false,true,true)]")
+        got = self.run_js(
+            ["backLayer"],
+            "[backLayer('narrow',false,true,false),backLayer('narrow',false,false,false),"
+            "backLayer('mid',true,true,false),backLayer('mid',false,true,false),backLayer('mid',false,false,true),"
+            "backLayer('wide',false,true,true)]",
+        )
         self.assertEqual(got, ["side", None, "side", None, "outline", None])
 
 
@@ -182,25 +255,33 @@ class DraftLogic(unittest.TestCase):
 
     def run_js(self, expr):
         """Evaluate expr (JSON) with draftKey and draftRestore from the shipped source."""
-        js = "\n".join([extract_js_fn("draftKey"), extract_js_fn("draftRestore"), "console.log(JSON.stringify(%s));" % expr])
+        js = "\n".join(
+            [extract_js_fn("draftKey"), extract_js_fn("draftRestore"), "console.log(JSON.stringify(%s));" % expr]
+        )
         return node_or_skip(self, js)
 
     def test_key_is_per_instance_label_and_document(self):
         """Two instances (labels) and two documents never share a draft."""
-        self.assertEqual(self.run_js("[draftKey('A-DEMO','ms'),draftKey('A:B','hl'),draftKey('','ms')]"),
-                         ["limnDraft:A-DEMO:ms", "limnDraft:A%3AB:hl", "limnDraft::ms"])
+        self.assertEqual(
+            self.run_js("[draftKey('A-DEMO','ms'),draftKey('A:B','hl'),draftKey('','ms')]"),
+            ["limnDraft:A-DEMO:ms", "limnDraft:A%3AB:hl", "limnDraft::ms"],
+        )
 
     def test_restore_is_full_on_the_same_build_note_only_on_another_and_nothing_for_another_doc(self):
         """The box's coordinates only mean something on the build it was drawn on; a note is worth keeping anyway."""
         rec = "{v:1,doc:'ms',build:'p1',cur:{lo:3},note:'메모'}"
-        got = self.run_js("[draftRestore(%s,'ms','p1'),draftRestore(%s,'ms','p2'),draftRestore(%s,'hl','p1'),"
-                          "draftRestore({v:1,doc:'ms',build:'p1',cur:null,note:'메모'},'ms','p1'),"
-                          "draftRestore({v:1,doc:'ms',build:'p2',cur:{lo:3},note:'  '},'ms','p1'),"
-                          "draftRestore(null,'ms','p1'),draftRestore({v:2,doc:'ms',build:'p1',cur:{},note:'x'},'ms','p1')]" % (rec, rec, rec))
+        got = self.run_js(
+            "[draftRestore(%s,'ms','p1'),draftRestore(%s,'ms','p2'),draftRestore(%s,'hl','p1'),"
+            "draftRestore({v:1,doc:'ms',build:'p1',cur:null,note:'메모'},'ms','p1'),"
+            "draftRestore({v:1,doc:'ms',build:'p2',cur:{lo:3},note:'  '},'ms','p1'),"
+            "draftRestore(null,'ms','p1'),draftRestore({v:2,doc:'ms',build:'p1',cur:{},note:'x'},'ms','p1')]"
+            % (rec, rec, rec)
+        )
         self.assertEqual(got, ["full", "note", None, "note", None, None, None])
 
 
 # ---------------------------------------------------------------- browser harness
+
 
 class ViewerBase(BrowserBase):
     """BrowserBase with device presets, saved preferences, reduced motion and touch helpers. Three open pins with marks on
@@ -209,10 +290,21 @@ class ViewerBase(BrowserBase):
     def setUp(self):
         super().setUp()
         for lo, y in ((4, 0.2), (8, 0.35), (12, 0.5)):
-            add_pin({"file": str(self.main), "lo": lo, "hi": lo + 1, "page": 1, "note": "메모 %d" % lo,
-                        "frac": [0.15, y, 0.5, 0.04]}, actor(ALICE))
-        rid = add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
-                         actor(ALICE)).record["id"]   # add_pin returns the new OpenPin (limn.pins.edit)
+            add_pin(
+                {
+                    "file": str(self.main),
+                    "lo": lo,
+                    "hi": lo + 1,
+                    "page": 1,
+                    "note": "메모 %d" % lo,
+                    "frac": [0.15, y, 0.5, 0.04],
+                },
+                actor(ALICE),
+            )
+        rid = add_pin(
+            {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
+            actor(ALICE),
+        ).record["id"]  # add_pin returns the new OpenPin (limn.pins.edit)
         ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
@@ -223,8 +315,10 @@ class ViewerBase(BrowserBase):
             p["theme"] = "dark"
         context = self.browser.new_context(**device, reduced_motion="reduce" if reduced else "no-preference")
         self.addCleanup(context.close)
-        context.add_init_script("try{if(!sessionStorage.getItem('__t')){sessionStorage.setItem('__t','1');"
-                                "localStorage.setItem('pinPrefs',%s);}}catch(e){}" % json.dumps(json.dumps(p)))
+        context.add_init_script(
+            "try{if(!sessionStorage.getItem('__t')){sessionStorage.setItem('__t','1');"
+            "localStorage.setItem('pinPrefs',%s);}}catch(e){}" % json.dumps(json.dumps(p))
+        )
         if init:
             context.add_init_script(init)
         page = context.new_page()
@@ -245,7 +339,10 @@ class ViewerBase(BrowserBase):
     @staticmethod
     def touch(cdp, kind, pts):
         """One CDP touch event (touchStart/touchMove/touchEnd) at the given points."""
-        cdp.send("Input.dispatchTouchEvent", {"type": kind, "touchPoints": [{"x": x, "y": y, "id": i} for i, (x, y) in enumerate(pts)]})
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": kind, "touchPoints": [{"x": x, "y": y, "id": i} for i, (x, y) in enumerate(pts)]},
+        )
 
     def swipe(self, cdp, x0, y0, x1, y1, steps=12, dt=0.016, hold=0.0):
         """A one-finger drag from (x0,y0) to (x1,y1) in steps, dt seconds apart (hold = still time before moving)."""
@@ -272,7 +369,7 @@ class ViewerBase(BrowserBase):
     @staticmethod
     def on_page(page, fx, fy, n=1):
         """A point on page n at fractions (fx, fy) of its box - the test pins' marks sit at y 0.2/0.35/0.5, x 0.15-0.65."""
-        b = page.locator('#p%d' % n).bounding_box()
+        b = page.locator("#p%d" % n).bounding_box()
         return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
 
     def long_press_pick(self, cdp, page, x=None, y=None):
@@ -300,13 +397,14 @@ class ViewerBase(BrowserBase):
 
 # ---------------------------------------------------------------- A. collapsing the panel with a mouse (wide)
 
+
 class DesktopPanelCollapse(ViewerBase):
     """Wide (1100px and up): the panel collapses by dragging its handle past half its minimum and comes back from the rail,
     the nav bar's [핀 N], Ctrl+\\, the handle's keys, or anything that needs the panel (a pick, a mark, a link)."""
 
     def drag_grip(self, page, dx_list, release=True):
         """Mouse-drag the handle right by each dx in turn (from its start), probing after each step."""
-        g = page.locator('#grip').bounding_box()
+        g = page.locator("#grip").bounding_box()
         gx, gy = g["x"] + g["width"] / 2, min(300, g["height"] / 2)
         page.mouse.move(gx, gy)
         page.mouse.down()
@@ -331,22 +429,25 @@ class DesktopPanelCollapse(ViewerBase):
                 # wRaw 200 (min zone), 100 (collapse preview), 200 (back above T), 100 again and release
                 mid, pre, back, _ = self.drag_grip(page, [200, 300, 200, 300])
                 self.assertEqual((mid["w"], mid["gripMin"], mid["preview"]), (280, True, False))
-                self.assertEqual((pre["w"], pre["preview"], pre["listOpacity"], pre["gripCursor"]), (280, True, "0.4", "w-resize"))
-                self.assertFalse(back["preview"])                                   # back above T restores at once
+                self.assertEqual(
+                    (pre["w"], pre["preview"], pre["listOpacity"], pre["gripCursor"]), (280, True, "0.4", "w-resize")
+                )
+                self.assertFalse(back["preview"])  # back above T restores at once
                 page.wait_for_function("!SIDE_OPEN&&!document.body.classList.contains('side-closing')")
                 s = page.evaluate(PROBE)
                 self.assertIsNone(s["list"])
-                self.assertIsNone(s["bar1"])                                         # the tools hide with the panel
-                self.assertAlmostEqual(s["grip"]["r"], s["vw"], delta=1)             # the rail sits at the right edge
+                self.assertIsNone(s["bar1"])  # the tools hide with the panel
+                self.assertAlmostEqual(s["grip"]["r"], s["vw"], delta=1)  # the rail sits at the right edge
                 self.assertEqual(s["grip"]["w"], 6)
                 self.assertIsNotNone(s["nav"])
-                self.assertEqual((s["prefs"].get("sideClosed"), s["prefs"].get("side")), (True, 400))   # saved width untouched
+                # saved width untouched
+                self.assertEqual((s["prefs"].get("sideClosed"), s["prefs"].get("side")), (True, 400))
                 self.assertEqual((s["valuenow"], s["label"]), ("0", "패널 폭 · 접힘"))
-                nav = page.locator('#nav-side')
+                nav = page.locator("#nav-side")
                 self.assertEqual(nav.get_attribute("aria-expanded"), "false")
-                self.assertEqual(nav.locator('.side-n').inner_text(), "3")
-                self.assertTrue(nav.locator('.rv-n').is_visible())                  # the purple review pill
-                self.assertGreater(s["nav"]["x"], s["vw"] - 200)                    # right end of the nav bar
+                self.assertEqual(nav.locator(".side-n").inner_text(), "3")
+                self.assertTrue(nav.locator(".rv-n").is_visible())  # the purple review pill
+                self.assertGreater(s["nav"]["x"], s["vw"] - 200)  # right end of the nav bar
                 self.assertLess(s["nav"]["y"], 50)
                 page.mouse.dblclick(s["grip"]["x"] + 3, 400)
                 page.wait_for_function("SIDE_OPEN")
@@ -358,7 +459,7 @@ class DesktopPanelCollapse(ViewerBase):
         """From the rail: below T nothing opens, from T the panel shows at its minimum, above it the width follows."""
         page = self.view(DESK, prefs={"sideClosed": True, "side": 420})
         self.assertFalse(page.evaluate("SIDE_OPEN"))
-        g = page.locator('#grip').bounding_box()
+        g = page.locator("#grip").bounding_box()
         gx = g["x"] + 3
         page.mouse.move(gx, 400)
         page.mouse.down()
@@ -386,14 +487,16 @@ class DesktopPanelCollapse(ViewerBase):
         page.wait_for_timeout(400)
         s = page.evaluate(PROBE)
         self.assertEqual((s["open"], s["w"]), (True, 280))
-        self.assertEqual(page.locator('#toasts .toast').count(), 0)
+        self.assertEqual(page.locator("#toasts .toast").count(), 0)
 
     def test_pointercancel_restores_the_width_and_state_from_before_the_drag(self):
         """A cancelled drag (the browser took the pointer) leaves the panel as it was."""
         page = self.view(DESK, prefs={"side": 380})
         page.evaluate("document.querySelector('#grip').addEventListener('pointerdown',e=>{window.__pid=e.pointerId;})")
         self.drag_grip(page, [300], release=False)
-        page.evaluate("document.querySelector('#grip').dispatchEvent(new PointerEvent('pointercancel',{pointerId:window.__pid,bubbles:true}))")
+        page.evaluate(
+            "document.querySelector('#grip').dispatchEvent(new PointerEvent('pointercancel',{pointerId:window.__pid,bubbles:true}))"
+        )
         page.mouse.up()
         page.wait_for_timeout(300)
         s = page.evaluate(PROBE)
@@ -402,39 +505,39 @@ class DesktopPanelCollapse(ViewerBase):
     def test_handle_keys_follow_the_window_splitter_pattern(self):
         """Home = minimum, End = maximum, Enter collapses and reopens to the saved width, Space cycles the presets."""
         page = self.view(DESK, prefs={"side": 400})
-        grip = page.locator('#grip')
+        grip = page.locator("#grip")
         grip.focus()
         page.keyboard.press("Home")
         self.assertEqual(page.evaluate(PROBE)["w"], 280)
         page.keyboard.press("End")
-        self.assertEqual(page.evaluate(PROBE)["w"], 914)                         # min(80%, 1400 - 486)
+        self.assertEqual(page.evaluate(PROBE)["w"], 914)  # min(80%, 1400 - 486)
         page.keyboard.press("ArrowRight")
         self.assertEqual(page.evaluate(PROBE)["w"], 898)
         page.keyboard.press("Enter")
         page.wait_for_function("!SIDE_OPEN&&!document.body.classList.contains('side-closing')")
         s = page.evaluate(PROBE)
         self.assertEqual((s["valuenow"], s["label"], s["prefs"].get("side")), ("0", "패널 폭 · 접힘", 898))
-        self.assertEqual(page.evaluate("document.activeElement.id"), "grip")    # the rail stays in the tab order
+        self.assertEqual(page.evaluate("document.activeElement.id"), "grip")  # the rail stays in the tab order
         page.keyboard.press("Enter")
         page.wait_for_function("SIDE_OPEN")
         self.assertEqual(page.evaluate(PROBE)["w"], 898)
         page.keyboard.press(" ")
-        self.assertEqual(page.evaluate(PROBE)["w"], 300)                         # the next preset wraps to the narrowest
+        self.assertEqual(page.evaluate(PROBE)["w"], 300)  # the next preset wraps to the narrowest
 
     def test_ctrl_backslash_toggles_the_panel_and_moves_focus_to_the_pin_toggle(self):
         """Ctrl+\\ outside text fields; a focus inside the collapsing panel lands on [핀 N]."""
         page = self.view(DESK)
-        page.locator('#btn-reload').focus()
+        page.locator("#btn-reload").focus()
         page.keyboard.press("Control+Backslash")
         page.wait_for_function("!SIDE_OPEN")
         self.assertEqual(page.evaluate("document.activeElement.id"), "nav-side")
         page.keyboard.press("Control+Backslash")
         page.wait_for_function("SIDE_OPEN")
         self.mouse_pick(page)
-        page.locator('#note').focus()
+        page.locator("#note").focus()
         page.keyboard.press("Control+Backslash")
         page.wait_for_timeout(200)
-        self.assertTrue(page.evaluate("SIDE_OPEN"))                               # ignored inside a text field
+        self.assertTrue(page.evaluate("SIDE_OPEN"))  # ignored inside a text field
 
     def test_ctrl_backslash_works_at_every_width(self):
         """The same shortcut toggles the unfolded panel and the phone sheet."""
@@ -453,22 +556,26 @@ class DesktopPanelCollapse(ViewerBase):
         self.assertIsNotNone(s["bar2"])
         self.assertLessEqual(s["bar2"]["r"], s["grip"]["x"])
         self.assertGreater(s["bar2"]["b"], s["vh"] - 40)
-        self.assertFalse(page.locator('#meta-txt').is_visible())
+        self.assertFalse(page.locator("#meta-txt").is_visible())
         page.evaluate("toast('핀 #1 저장됨 · pins.md 갱신','ok')")
-        t = page.locator('#toasts .toast').bounding_box()
-        left = page.evaluate("(()=>{const L=document.querySelector('#left'),r=L.getBoundingClientRect();return r.left+L.clientLeft+L.clientWidth;})()")
+        t = page.locator("#toasts .toast").bounding_box()
+        left = page.evaluate(
+            "(()=>{const L=document.querySelector('#left'),r=L.getBoundingClientRect();return r.left+L.clientLeft+L.clientWidth;})()"
+        )
         self.assertLessEqual(t["x"] + t["width"], left)
         self.assertLessEqual(t["y"] + t["height"], s["bar2"]["y"])
-        self.assertFalse(page.locator('#rv-chip').is_visible())                  # the review count rides on [핀 N]
+        self.assertFalse(page.locator("#rv-chip").is_visible())  # the review count rides on [핀 N]
 
     def test_whatever_needs_the_panel_opens_a_collapsed_one_without_remembering(self):
         """A new pick, a mark badge, a pin link, the review list and an in-text #N all open it; the saved choice stays."""
         page = self.view(DESK, prefs={"sideClosed": True})
-        steps = [("pick", lambda: self.mouse_pick(page)),
-                 ("mark", lambda: page.locator('.mark b').first.click()),
-                 ("link", lambda: page.evaluate("openPinFromLink(DOC,1)")),
-                 ("review", lambda: page.evaluate("gotoReview()")),
-                 ("ref", lambda: page.evaluate("gotoPinRef(2)"))]
+        steps = [
+            ("pick", lambda: self.mouse_pick(page)),
+            ("mark", lambda: page.locator(".mark b").first.click()),
+            ("link", lambda: page.evaluate("openPinFromLink(DOC,1)")),
+            ("review", lambda: page.evaluate("gotoReview()")),
+            ("ref", lambda: page.evaluate("gotoPinRef(2)")),
+        ]
         for name, act in steps:
             with self.subTest(trigger=name):
                 page.evaluate("cancelSelection(true); setSide(false)")
@@ -488,17 +595,17 @@ class DesktopPanelCollapse(ViewerBase):
             with self.subTest(lang=lang):
                 page = self.view(DESK, lang=lang)
                 self.collapse(page)
-                text = page.locator('#coach-t').inner_text()
+                text = page.locator("#coach-t").inner_text()
                 self.assertIn(needle, text)
                 self.assertEqual(bool(HANGUL.search(text)), lang == "ko")
                 page.evaluate("document.querySelector('#coach').hidden=true; setSide(true,true)")
                 self.collapse(page)
-                self.assertTrue(page.locator('#coach').is_hidden())
+                self.assertTrue(page.locator("#coach").is_hidden())
 
     def test_tooltip_hides_as_soon_as_the_handle_is_pressed(self):
         """The handle's description no longer stays over the PDF while dragging."""
         page = self.view(DESK)
-        g = page.locator('#grip').bounding_box()
+        g = page.locator("#grip").bounding_box()
         page.mouse.move(g["x"] + 3, 400)
         page.wait_for_function("!document.querySelector('#tip').hidden")
         page.mouse.down()
@@ -522,11 +629,13 @@ class DesktopPanelCollapse(ViewerBase):
                 self.mouse_pick(page)
                 page.evaluate("setSide(false,true)")
                 page.wait_for_function("!SIDE_OPEN")
-                nav = page.locator('#nav-side')
-                self.assertTrue(nav.locator('.c-dot').is_visible())
+                nav = page.locator("#nav-side")
+                self.assertTrue(nav.locator(".c-dot").is_visible())
                 label = nav.get_attribute("aria-label")
                 self.assertIn("작성 중" if lang == "ko" else "draft", label)
-                self.assertEqual(bool(HANGUL.search(label + page.locator('#grip').get_attribute("aria-label"))), lang == "ko")
+                self.assertEqual(
+                    bool(HANGUL.search(label + page.locator("#grip").get_attribute("aria-label"))), lang == "ko"
+                )
 
 
 class ReviewRegressions(ViewerBase):
@@ -541,12 +650,12 @@ class ReviewRegressions(ViewerBase):
           toggleSide(); g.dispatchEvent(new PointerEvent('pointerdown', o)); g.dispatchEvent(new PointerEvent('pointerup', o));}""")
         page.wait_for_timeout(400)
         self.assertEqual(page.evaluate("[SIDE_OPEN, document.body.classList.contains('side-open')]"), [False, False])
-        self.assertTrue(page.locator('#nav-side').is_visible())
+        self.assertTrue(page.locator("#nav-side").is_visible())
 
     def test_reopening_right_after_a_drag_collapse_shows_the_saved_width(self):
         """A drag-collapse leaves the panel at the minimum while it slides out; reopening within the slide used to keep it."""
         page = self.view(DESK, prefs={"side": 400})
-        g = page.locator('#grip').bounding_box()
+        g = page.locator("#grip").bounding_box()
         page.mouse.move(g["x"] + 3, 300)
         page.mouse.down()
         page.mouse.move(g["x"] + 350, 300, steps=4)
@@ -558,7 +667,7 @@ class ReviewRegressions(ViewerBase):
     def test_opening_from_the_nav_toggle_moves_focus_to_the_handle(self):
         """[핀 N] in the nav bar hides as the panel opens; the keyboard focus used to fall to <body>."""
         page = self.view(DESK, prefs={"sideClosed": True})
-        page.locator('#nav-side').focus()
+        page.locator("#nav-side").focus()
         page.keyboard.press("Enter")
         page.wait_for_function("SIDE_OPEN")
         self.assertEqual(page.evaluate("document.activeElement.id"), "grip")
@@ -567,7 +676,7 @@ class ReviewRegressions(ViewerBase):
         """setHash() used replaceState(null): after a document switch the pushed entry was no longer recognized as ours."""
         page = self.view(PHONE, init=NO_CLOSE_WATCHER)
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN&&BACK&&BACK.kind==='history'")
         page.evaluate("DOCS=[{key:'main',name:'A',path:'a.tex'},{key:'other',name:'B',path:'b.tex'}]; setHash('other')")
         self.assertTrue(page.evaluate("!!(history.state&&history.state.limnLayer)"))
@@ -576,10 +685,10 @@ class ReviewRegressions(ViewerBase):
         """A second finger mid-gesture used to leave body.resizing on (a dead PDF) or the overlay offset by --swipe-x."""
         page = self.view(PHONE)
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         page.wait_for_timeout(300)
-        y = page.locator('#list').bounding_box()["y"] + 40
+        y = page.locator("#list").bounding_box()["y"] + 40
         self.touch(cdp, "touchStart", [(190, y)])
         for i in range(1, 6):
             self.touch(cdp, "touchMove", [(190, y + 20 * i)])
@@ -590,10 +699,10 @@ class ReviewRegressions(ViewerBase):
         self.assertFalse(page.evaluate("document.body.classList.contains('resizing')"))
         page = self.view(FOLD)
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN&&MID_OVERLAY")
         page.wait_for_timeout(300)
-        r = page.locator('#right').bounding_box()
+        r = page.locator("#right").bounding_box()
         x, y = r["x"] + 40, r["y"] + 150
         self.touch(cdp, "touchStart", [(x, y)])
         for i in range(1, 8):
@@ -602,9 +711,14 @@ class ReviewRegressions(ViewerBase):
         self.touch(cdp, "touchStart", [(x + 84, y), (x + 20, y + 200)])
         self.touch(cdp, "touchEnd", [])
         page.wait_for_timeout(400)
-        self.assertEqual(page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--swipe-x').trim()||'0px'"), "0px")
+        self.assertEqual(
+            page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--swipe-x').trim()||'0px'"),
+            "0px",
+        )
         if page.evaluate("SIDE_OPEN"):
-            self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842)
+            self.assertEqual(
+                page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842
+            )
 
 
 DRAFT_KEYS = "Object.keys(sessionStorage).filter(k=>k.startsWith('limnDraft:'))"
@@ -625,7 +739,7 @@ class DraftPersistence(ViewerBase):
     def draft(self, page, note, question=False):
         """Pick with the mouse, write a note (and switch to a question), then give the debounced save time."""
         self.mouse_pick(page)
-        page.locator('#note').fill(note)
+        page.locator("#note").fill(note)
         if question:
             page.locator('#c-kind [data-kind="question"]').click()
         page.wait_for_timeout(600)
@@ -659,7 +773,7 @@ class DraftPersistence(ViewerBase):
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
         lo = page.evaluate("CUR.lo")
-        page.locator('#note').fill("폰에서 쓰던 메모")
+        page.locator("#note").fill("폰에서 쓰던 메모")
         page.wait_for_timeout(600)
         page.go_back()
         page.wait_for_function("!SIDE_OPEN")
@@ -671,7 +785,7 @@ class DraftPersistence(ViewerBase):
         page.wait_for_timeout(400)
         got = self.restored(page)
         self.assertEqual(got[:3], [True, lo, "폰에서 쓰던 메모"])
-        self.assertTrue(page.evaluate("SIDE_OPEN"))                              # a restored draft opens the collapsed sheet
+        self.assertTrue(page.evaluate("SIDE_OPEN"))  # a restored draft opens the collapsed sheet
 
     def test_discard_on_the_restore_toast_clears_the_draft_after_its_undo_window(self):
         """[버리기] goes through the usual discard (with its own undo); once that toast is gone nothing is kept."""
@@ -679,11 +793,14 @@ class DraftPersistence(ViewerBase):
         self.draft(page, "버릴 메모")
         self.reload(page)
         page.locator("#toasts button", has_text="버리기").click()
-        self.assertEqual(page.evaluate("[document.querySelector('#composer').hidden, document.querySelector('#note').value]"), [True, ""])
+        self.assertEqual(
+            page.evaluate("[document.querySelector('#composer').hidden, document.querySelector('#note').value]"),
+            [True, ""],
+        )
         undo = page.locator("#toasts .toast", has_text="선택 취소됨")
         self.assertTrue(undo.is_visible())
-        self.assertEqual(len(page.evaluate(DRAFT_KEYS)), 1)                      # still restorable during the undo window
-        undo.locator("button[aria-label]").click()                              # [x] ends the window
+        self.assertEqual(len(page.evaluate(DRAFT_KEYS)), 1)  # still restorable during the undo window
+        undo.locator("button[aria-label]").click()  # [x] ends the window
         page.wait_for_timeout(400)
         self.assertEqual(page.evaluate(DRAFT_KEYS), [])
         self.reload(page)
@@ -696,7 +813,7 @@ class DraftPersistence(ViewerBase):
         page.keyboard.press("Escape")
         self.reload(page)
         self.assertEqual(self.restored(page)[:3], [True, lo, "되돌릴 수 있던 메모"])
-        page.locator('#note').focus()
+        page.locator("#note").focus()
         page.keyboard.press("Escape")
         page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
         page.wait_for_timeout(400)
@@ -717,7 +834,7 @@ class DraftPersistence(ViewerBase):
         """After a rebuild the box would point at the wrong spot: the note returns for the next pick, and the toast says so."""
         page = self.view(DESK)
         self.draft(page, "빌드가 바뀐 메모")
-        page.evaluate("CUR.pdf_build='pages-old'; syncDraft()")                  # a draft drawn on a build that has since been replaced
+        page.evaluate("CUR.pdf_build='pages-old'; syncDraft()")  # a draft drawn on a build that has since been replaced
         self.assertIn('"build":"pages-old"', page.evaluate("sessionStorage.getItem(%s[0])" % DRAFT_KEYS))
         self.reload(page)
         got = self.restored(page)
@@ -746,14 +863,14 @@ class DesktopPersistence(ViewerBase):
         page.reload()
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=3&&META")
         self.assertFalse(page.evaluate("SIDE_OPEN"))
-        page.locator('#nav-side').click()
+        page.locator("#nav-side").click()
         page.wait_for_function("SIDE_OPEN")
         self.assertEqual(page.evaluate(PROBE)["w"], 410)
 
     def test_mid_drag_collapse_is_remembered_like_the_toggle(self):
         """Unfolded side-by-side (901-1099px) with a mouse: a drag-collapse stores midClosed, sideMid stays."""
         page = self.view({"viewport": {"width": 1000, "height": 800}}, prefs={"sideMid": 360})
-        g = page.locator('#grip').bounding_box()
+        g = page.locator("#grip").bounding_box()
         page.mouse.move(g["x"] + 4, 300)
         page.mouse.down()
         page.mouse.move(g["x"] + 300, 300, steps=4)
@@ -765,18 +882,19 @@ class DesktopPersistence(ViewerBase):
 
 # ---------------------------------------------------------------- A. the unfolded overlay (701-900px, touch)
 
+
 class FoldOverlay(ViewerBase):
     """842x758 touch: the overlay panel dismisses with a right swipe, Esc, or the back gesture; drafts are protected."""
 
     def open_panel(self, page, cdp):
         """Tap [핀 N] and wait for the overlay."""
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN&&MID_OVERLAY")
         page.wait_for_timeout(250)
 
     def panel_point(self, page):
         """A point on the list inside the panel, clear of buttons."""
-        r = page.locator('#right').bounding_box()
+        r = page.locator("#right").bounding_box()
         return r["x"] + 40, r["y"] + 120
 
     def test_right_swipe_past_35_percent_closes_and_is_remembered(self):
@@ -790,7 +908,7 @@ class FoldOverlay(ViewerBase):
             self.touch(cdp, "touchMove", [(x + 10 * i, y + 1)])
             time.sleep(0.03)
         followed = page.evaluate("document.querySelector('#right').getBoundingClientRect().right")
-        self.assertGreater(followed, 842 + 40)                                    # right: -dx, not a transform
+        self.assertGreater(followed, 842 + 40)  # right: -dx, not a transform
         for i in range(7, 16):
             self.touch(cdp, "touchMove", [(x + 10 * i, y + 1)])
             time.sleep(0.03)
@@ -807,8 +925,10 @@ class FoldOverlay(ViewerBase):
         self.swipe(cdp, x, y, x + 60, y, steps=12, dt=0.06)
         page.wait_for_timeout(400)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
-        self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842)
-        self.swipe(cdp, x, y, x + 60, y, steps=2, dt=0)                            # CDP moves land ~30ms apart: ~0.9px/ms
+        self.assertEqual(
+            page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842
+        )
+        self.swipe(cdp, x, y, x + 60, y, steps=2, dt=0)  # CDP moves land ~30ms apart: ~0.9px/ms
         page.wait_for_function("!SIDE_OPEN")
 
     def test_a_draft_rubber_bands_the_swipe_and_never_closes(self):
@@ -816,7 +936,7 @@ class FoldOverlay(ViewerBase):
         page = self.view(FOLD)
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
-        x, y = self.center(page, '#c-page')
+        x, y = self.center(page, "#c-page")
         self.touch(cdp, "touchStart", [(x, y)])
         for i in range(1, 16):
             self.touch(cdp, "touchMove", [(x + 15 * i, y)])
@@ -847,12 +967,12 @@ class FoldOverlay(ViewerBase):
         page = self.view(FOLD)
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
-        for sel in ('#c-levels', '#note'):
+        for sel in ("#c-levels", "#note"):
             with self.subTest(start=sel):
                 x, y = self.center(page, sel)
                 self.assertEqual(self.follow_during(page, cdp, x - 60, y, 150), 0)
                 self.assertTrue(page.evaluate("SIDE_OPEN"))
-        page.keyboard.press("Escape")                                              # no draft from here on
+        page.keyboard.press("Escape")  # no draft from here on
         x, y = self.panel_point(page)
         self.assertEqual(self.follow_during(page, cdp, x, y, 150, hold=0.55), 0)
         self.assertEqual(self.follow_during(page, cdp, x, y + 200, 40, -300), 0)
@@ -873,11 +993,11 @@ class FoldOverlay(ViewerBase):
         page = self.view(FOLD)
         cdp = self.cdp(page)
         page.evaluate("document.querySelector('#left').scrollTop=0")
-        p1 = page.locator('#p1').bounding_box()
+        p1 = page.locator("#p1").bounding_box()
         self.long_press_pick(cdp, page, p1["x"] + p1["width"] * 0.78, p1["y"] + 300)
         page.wait_for_timeout(400)
-        box = page.locator('.sel.pending').bounding_box()
-        panel = page.locator('#right').bounding_box()
+        box = page.locator(".sel.pending").bounding_box()
+        panel = page.locator("#right").bounding_box()
         self.assertLessEqual(box["x"] + box["width"], panel["x"])
 
     def test_tapping_the_handle_never_clicks_what_lands_under_the_finger(self):
@@ -888,7 +1008,7 @@ class FoldOverlay(ViewerBase):
         page.evaluate(CLICKS)
         widths = []
         for _ in range(4):
-            g = page.locator('#grip').bounding_box()
+            g = page.locator("#grip").bounding_box()
             self.tap(cdp, g["x"] + g["width"] / 2, 240)
             page.wait_for_timeout(500)
             widths.append(page.evaluate(PROBE)["w"])
@@ -902,7 +1022,7 @@ class FoldOverlay(ViewerBase):
             with self.subTest(width=dev["viewport"]["width"], at=(x, y)):
                 page = self.view(dev)
                 cdp = self.cdp(page)
-                self.tap(cdp, *self.center(page, '#btn-select'))
+                self.tap(cdp, *self.center(page, "#btn-select"))
                 page.wait_for_timeout(300)
                 page.evaluate(CLICKS)
                 self.tap(cdp, x, y)
@@ -917,10 +1037,10 @@ class FoldOverlay(ViewerBase):
         page = self.view(FOLD)
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("!SIDE_OPEN")
-        self.assertTrue(page.locator('#btn-side .c-dot').is_visible())
-        self.assertIn("작성 중", page.locator('#btn-side').get_attribute("aria-label"))
+        self.assertTrue(page.locator("#btn-side .c-dot").is_visible())
+        self.assertIn("작성 중", page.locator("#btn-side").get_attribute("aria-label"))
 
     def test_right_swipe_never_navigates_back(self):
         """s05e: a right swipe on the PDF or the panel used to go back in history and leave Limn."""
@@ -935,8 +1055,10 @@ class FoldOverlay(ViewerBase):
         self.swipe(cdp, 200, 300, 450, 310)
         page.wait_for_timeout(500)
         self.assertEqual(navs, [])
-        css = page.evaluate("[getComputedStyle(document.documentElement).overscrollBehaviorX,getComputedStyle(document.body).overscrollBehaviorX,"
-                            "getComputedStyle(document.querySelector('#right')).touchAction]")
+        css = page.evaluate(
+            "[getComputedStyle(document.documentElement).overscrollBehaviorX,getComputedStyle(document.body).overscrollBehaviorX,"
+            "getComputedStyle(document.querySelector('#right')).touchAction]"
+        )
         self.assertEqual(css[:2], ["none", "none"])
         self.assertIn("pan-y", css[2])
 
@@ -954,7 +1076,7 @@ class FoldOverlay(ViewerBase):
         at = "(()=>{const a=zoomAnchor(300,400);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];})()"
         before = page.evaluate(at)
         page.clock.install()
-        page.clock.pause_at(time.time() * 1000 + 1000)   # performance.now() and the long-press timer stand still
+        page.clock.pause_at(time.time() * 1000 + 1000)  # performance.now() and the long-press timer stand still
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
         page.wait_for_function("w=>Math.abs(W-w)<=2", arg=w0 * 2, timeout=10000)
@@ -981,13 +1103,14 @@ class FoldOverlay(ViewerBase):
         page = self.view(SIDE_BY_SIDE)
         self.assertTrue(page.evaluate("SIDE_OPEN&&!MID_OVERLAY"))
         cdp = self.cdp(page)
-        r = page.locator('#right').bounding_box()
+        r = page.locator("#right").bounding_box()
         self.swipe(cdp, r["x"] + 30, r["y"] + 150, r["x"] + 330, r["y"] + 150, steps=6, dt=0.01)
         page.wait_for_timeout(400)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
 
 
 # ---------------------------------------------------------------- A. the phone sheet (384x832, touch)
+
 
 class PhoneSheet(ViewerBase):
     """The bottom sheet moves by its whole tool bar and by pulling down content that is scrolled to the top."""
@@ -999,7 +1122,7 @@ class PhoneSheet(ViewerBase):
         page = self.view(PHONE)
         cdp = self.cdp(page)
         page.evaluate(CLICKS)
-        x, y = self.center(page, '#btn-select')
+        x, y = self.center(page, "#btn-select")
         self.swipe(cdp, x, y, x, y - 350, steps=10)
         page.wait_for_timeout(400)
         s = page.evaluate(self.SH)
@@ -1007,7 +1130,7 @@ class PhoneSheet(ViewerBase):
         self.assertLess(s["top"], 500)
         self.assertFalse(page.evaluate("SELMODE"))
         self.assertEqual(page.evaluate("window.__clicks"), [])
-        x, y = self.center(page, '#btn-select')
+        x, y = self.center(page, "#btn-select")
         self.swipe(cdp, x, y, x, 820, steps=10)
         page.wait_for_function("!SIDE_OPEN")
 
@@ -1015,17 +1138,17 @@ class PhoneSheet(ViewerBase):
         """Nested scroll hand-off: at scrollTop 0 a downward drag in the list moves the sheet, not the list."""
         page = self.view(PHONE)
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         page.wait_for_timeout(300)
         top0 = page.evaluate(self.SH)["top"]
-        y = page.locator('#list').bounding_box()["y"] + 60
+        y = page.locator("#list").bounding_box()["y"] + 60
         self.swipe(cdp, 190, y, 190, y + 120, steps=12, dt=0.03)
         page.wait_for_timeout(300)
         s = page.evaluate(self.SH)
         self.assertTrue(s["open"])
         self.assertGreater(s["top"], top0 + 80)
-        y = page.locator('#list').bounding_box()["y"] + 40
+        y = page.locator("#list").bounding_box()["y"] + 40
         self.swipe(cdp, 190, y, 190, 830, steps=12, dt=0.02)
         page.wait_for_function("!SIDE_OPEN")
 
@@ -1033,14 +1156,14 @@ class PhoneSheet(ViewerBase):
         """Velocity counts: a short fast pull-down collapses (it used to only lower the sheet), a flick up goes to the next stop."""
         page = self.view(PHONE, prefs={"sheetF": 0.45})
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         page.wait_for_timeout(300)
-        x, y = self.center(page, '#sheet-grip')
+        x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, y - 60, steps=2, dt=0)
         page.wait_for_timeout(300)
         self.assertAlmostEqual(page.evaluate("prefs().sheetF"), 0.64, delta=0.01)
-        x, y = self.center(page, '#sheet-grip')
+        x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, y + 70, steps=3, dt=0.01)
         page.wait_for_function("!SIDE_OPEN")
 
@@ -1049,7 +1172,7 @@ class PhoneSheet(ViewerBase):
         page = self.view(PHONE)
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
-        x, y = self.center(page, '#sheet-grip')
+        x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, 825, steps=14)
         page.wait_for_timeout(400)
         s = page.evaluate(self.SH)
@@ -1063,7 +1186,7 @@ class PhoneSheet(ViewerBase):
         cdp = self.cdp(page)
         page.evaluate(CLICKS)
         for _ in range(5):
-            x, y = self.center(page, '#sheet-grip')
+            x, y = self.center(page, "#sheet-grip")
             self.tap(cdp, x, y)
             page.wait_for_timeout(500)
         self.assertEqual([c for c in page.evaluate("window.__clicks") if c != "sheet-grip"], [])
@@ -1083,14 +1206,14 @@ class PhoneSheet(ViewerBase):
         cdp = self.cdp(page)
         n0 = page.evaluate("history.length")
         for _ in range(3):
-            self.tap(cdp, *self.center(page, '#btn-side'))
+            self.tap(cdp, *self.center(page, "#btn-side"))
             page.wait_for_function("SIDE_OPEN")
-            self.tap(cdp, *self.center(page, '#btn-side'))
+            self.tap(cdp, *self.center(page, "#btn-side"))
             page.wait_for_function("!SIDE_OPEN")
             page.wait_for_timeout(200)
         self.assertLessEqual(page.evaluate("history.length"), n0 + 1)
         boot = page.evaluate("window.__pinViewerBoot")
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         page.go_back()
         page.wait_for_function("!SIDE_OPEN")
@@ -1102,7 +1225,7 @@ class PhoneSheet(ViewerBase):
         if not page.evaluate("'CloseWatcher' in window"):
             self.skipTest("no CloseWatcher in this Chromium")
         cdp = self.cdp(page)
-        self.tap(cdp, *self.center(page, '#btn-side'))
+        self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         self.assertEqual(page.evaluate("BACK&&BACK.kind"), "watcher")
         page.keyboard.press("Escape")
@@ -1116,7 +1239,7 @@ class PhoneSheet(ViewerBase):
         self.tap(cdp, 190, 100)
         page.wait_for_function("!document.querySelector('#docs-menu').open")
         page.evaluate("openDocsMenu()")
-        r = page.locator('#docs-menu').bounding_box()
+        r = page.locator("#docs-menu").bounding_box()
         self.swipe(cdp, 190, r["y"] + 20, 190, r["y"] + 20 + r["height"] * 0.6, steps=10, dt=0.02)
         page.wait_for_function("!document.querySelector('#docs-menu').open")
 
@@ -1126,13 +1249,14 @@ class PhoneSheet(ViewerBase):
         page.evaluate("for(let i=1;i<=5;i++)toast('알림 '+i,'ok')")
         visible = "[...document.querySelectorAll('#toasts .toast')].filter(t=>t.getClientRects().length).length"
         self.assertEqual(page.evaluate(visible), 3)
-        more = page.locator('#toasts-more')
+        more = page.locator("#toasts-more")
         self.assertTrue(more.is_visible())
-        self.tap(self.cdp(page), *self.center(page, '#toasts-more'))
+        self.tap(self.cdp(page), *self.center(page, "#toasts-more"))
         page.wait_for_function(visible + "===5")
 
 
 # ---------------------------------------------------------------- B. the rest of the approved findings
+
 
 class DesktopMisc(ViewerBase):
     """Undo for a discarded selection and after saving, Esc in the change view, dialogs, hit targets, the first hint."""
@@ -1144,35 +1268,41 @@ class DesktopMisc(ViewerBase):
                 page = self.view(DESK)
                 self.mouse_pick(page)
                 lo = page.evaluate("CUR.lo")
-                page.locator('#note').fill("길게 쓴 메모")
+                page.locator("#note").fill("길게 쓴 메모")
                 if how == "escape":
                     page.keyboard.press("Escape")
                 else:
-                    page.locator('#btn-cancel').click()
+                    page.locator("#btn-cancel").click()
                 self.assertTrue(page.evaluate("document.querySelector('#composer').hidden&&!CUR"))
                 page.locator("#toasts .toast", has_text="선택 취소됨").locator("button", has_text="되돌리기").click()
-                self.assertEqual(page.evaluate("[!document.querySelector('#composer').hidden, CUR&&CUR.lo, "
-                                               "document.querySelector('#note').value, !!document.querySelector('.sel.pending')]"),
-                                 [True, lo, "길게 쓴 메모", True])
+                self.assertEqual(
+                    page.evaluate(
+                        "[!document.querySelector('#composer').hidden, CUR&&CUR.lo, "
+                        "document.querySelector('#note').value, !!document.querySelector('.sel.pending')]"
+                    ),
+                    [True, lo, "길게 쓴 메모", True],
+                )
 
     def test_escape_with_an_empty_note_needs_no_undo(self):
         """Nothing written, nothing to lose: no toast."""
         page = self.view(DESK)
         self.mouse_pick(page)
         page.keyboard.press("Escape")
-        self.assertEqual(page.locator('#toasts .toast').count(), 0)
+        self.assertEqual(page.locator("#toasts .toast").count(), 0)
 
     def test_undo_right_after_saving_reopens_the_composer_with_the_same_selection_and_note(self):
         """[되돌리기] on '핀 #N 저장됨' takes the pin back and hands the selection and note back for another try."""
         page = self.view(DESK)
         self.mouse_pick(page)
         lo = page.evaluate("CUR.lo")
-        page.locator('#note').fill("저장 뒤 되돌리기")
+        page.locator("#note").fill("저장 뒤 되돌리기")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===4")
         page.locator("#toasts button", has_text="되돌리기").first.click()
         page.wait_for_function("OPEN_ALL.length===3&&!document.querySelector('#composer').hidden")
-        self.assertEqual(page.evaluate("[CUR&&CUR.lo, document.querySelector('#note').value]"), [lo, "저장 뒤 되돌리기"])
+        self.assertEqual(
+            page.evaluate("[CUR&&CUR.lo, document.querySelector('#note').value]"), [lo, "저장 뒤 되돌리기"]
+        )
 
     def test_escape_in_the_change_view_returns_to_the_manuscript(self):
         """Esc = [원고로]."""
@@ -1216,7 +1346,7 @@ class DesktopMisc(ViewerBase):
             with self.subTest(lang=lang):
                 page = self.view(DESK, lang=lang, prefs={"coach": {}})
                 self.assertEqual(page.evaluate("getComputedStyle(document.querySelector('.pg')).cursor"), "crosshair")
-                text = page.locator('#coach-t').inner_text()
+                text = page.locator("#coach-t").inner_text()
                 self.assertTrue(text)
                 self.assertEqual(bool(HANGUL.search(text)), lang == "ko")
                 self.assertEqual(page.evaluate("prefs().coach.mouse"), 1)

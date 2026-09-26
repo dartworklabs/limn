@@ -5,27 +5,68 @@ test_server.py; here the pure decisions are checked on their own (coding rule R1
 
 Run: uv run pytest -q tests/test_pins_lifecycle.py
 """
+
 import ast
 import unittest
 from pathlib import Path
 
 import limn.pins
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest, CloseRequest, NotClaimed,
-    PinClosed, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds, confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
-    reopen_request, reopens_on_reply, thread_message, unclaim, drop, find_trashed, restore, NotInTrash,
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    AlreadyLive,
+    ClaimClosedPin,
+    ClaimedByOther,
+    ClaimRequest,
+    CloseRequest,
+    NotClaimed,
+    NotInTrash,
+    PinClosed,
+    PinReopened,
+    PinStillOpen,
+    Replied,
+    ThreadFull,
+    claim,
+    claim_holds,
+    confirm,
+    confirmer,
+    decide_close,
+    decide_reopen,
+    decide_reply,
+    drop,
+    evolve_close,
+    evolve_reopen,
+    evolve_reply,
+    find_trashed,
     pin_reopened_in_round,
+    reopen_request,
+    reopens_on_reply,
+    restore,
+    thread_message,
+    unclaim,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
-PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "datetime", "math", "typing", "limn.pins.model",
-                "limn.pins.lifecycle", "limn.pins.position", "limn.pins.edit",
-                "limn.mentions",                  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
-                "limn.scope",                     # the stored `changes` shape record.py checks; pure (tests/test_scope.py)
-                "posixpath",                      # record.py's isabs: string work only (os.path is posixpath on POSIX)
-                "limn.guidance", "limn.mapping"}  # the last two: pure text modules render.py uses (checked below)
+PURE_IMPORTS = {
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "datetime",
+    "math",
+    "typing",
+    "limn.pins.model",
+    "limn.pins.lifecycle",
+    "limn.pins.position",
+    "limn.pins.edit",
+    "limn.mentions",  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
+    "limn.scope",  # the stored `changes` shape record.py checks; pure (tests/test_scope.py)
+    "posixpath",  # record.py's isabs: string work only (os.path is posixpath on POSIX)
+    "limn.guidance",
+    "limn.mapping",
+}  # the last two: pure text modules render.py uses (checked below)
 # What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
 # pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
 PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib"}
@@ -35,9 +76,17 @@ AT = "2026-09-26 10:00:00"
 
 def review_record(**extra):
     """A pin an agent closed: done and review are true, with one earlier thread entry."""
-    record = {"id": 7, "file": "main.tex", "lo": 3, "hi": 4, "note": "fix", "done": True, "review": True,
-              "thread": [{"id": 1, "by": {"login": "local", "name": "agent"}, "at": "t0", "text": "done", "ev": "close"}],
-              "rev": 2}
+    record = {
+        "id": 7,
+        "file": "main.tex",
+        "lo": 3,
+        "hi": 4,
+        "note": "fix",
+        "done": True,
+        "review": True,
+        "thread": [{"id": 1, "by": {"login": "local", "name": "agent"}, "at": "t0", "text": "done", "ev": "close"}],
+        "rev": 2,
+    }
     record.update(extra)
     return record
 
@@ -130,9 +179,16 @@ class Confirm(unittest.TestCase):
     def test_confirm_appends_one_confirm_entry_with_the_next_id(self):
         """The thread gains an ev=confirm entry by the confirmer (with avatar), numbered after the last entry."""
         done = confirm(ReviewPin.from_record(review_record()), ALICE, AT)
-        self.assertEqual(done.record["thread"][-1], {"id": 2, "by": {"login": "alice@example.com", "name": "Alice Kim",
-                                                                     "pic": "https://example.com/a.png"},
-                                                     "at": AT, "text": "", "ev": "confirm"})
+        self.assertEqual(
+            done.record["thread"][-1],
+            {
+                "id": 2,
+                "by": {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"},
+                "at": AT,
+                "text": "",
+                "ev": "confirm",
+            },
+        )
         self.assertEqual(len(done.record["thread"]), 2)
 
     def test_confirm_keeps_field_order_and_unknown_fields(self):
@@ -140,8 +196,8 @@ class Confirm(unittest.TestCase):
         record = review_record(future_field={"x": 1})
         done = confirm(ReviewPin.from_record(record), ALICE, AT)
         kept = [k for k in record if k != "review"]
-        self.assertEqual(list(done.record)[:len(kept)], kept)
-        self.assertEqual(list(done.record)[len(kept):], ["confirmed_by", "confirmed_at"])
+        self.assertEqual(list(done.record)[: len(kept)], kept)
+        self.assertEqual(list(done.record)[len(kept) :], ["confirmed_by", "confirmed_at"])
         self.assertEqual(done.record["future_field"], {"x": 1})
 
     def test_confirm_does_not_touch_the_input_record(self):
@@ -163,9 +219,18 @@ AGENT = Agent("local", "agent")
 
 def open_record(**extra):
     """An open pin with a claim in progress and one earlier reply."""
-    record = {"id": 9, "file": "main.tex", "lo": 1, "hi": 2, "note": "n", "done": False,
-              "claimed_by": {"login": "local"}, "claim_until": 1.0,
-              "thread": [{"id": 4, "by": {"login": "x", "name": "X"}, "at": "t0", "text": "hi"}], "rev": 5}
+    record = {
+        "id": 9,
+        "file": "main.tex",
+        "lo": 1,
+        "hi": 2,
+        "note": "n",
+        "done": False,
+        "claimed_by": {"login": "local"},
+        "claim_until": 1.0,
+        "thread": [{"id": 4, "by": {"login": "x", "name": "X"}, "at": "t0", "text": "hi"}],
+        "rev": 5,
+    }
     record.update(extra)
     return record
 
@@ -197,13 +262,17 @@ class Close(unittest.TestCase):
         closed = evolve_close(pin, event)
         self.assertIsInstance(closed, DonePin)
         r = closed.record
-        self.assertEqual((r["done"], r["done_at"], r["closed_by"]), (True, AT, {"login": "alice@example.com", "name": "Alice Kim"}))
+        self.assertEqual(
+            (r["done"], r["done_at"], r["closed_by"]), (True, AT, {"login": "alice@example.com", "name": "Alice Kim"})
+        )
         self.assertEqual((r["close_reply"], r["close_ref"], r["changes_at"]), ("fixed", "PR #3 (abc)", AT))
         self.assertEqual(r["changes"], [{"file": "/m/main.tex", "lo": 1, "hi": 1}])
         self.assertNotIn("claimed_by", r)
         self.assertNotIn("claim_until", r)
         self.assertEqual(r["thread"][-1]["id"], 5)
-        self.assertEqual((r["thread"][-1]["ev"], r["thread"][-1]["text"], r["thread"][-1]["ref"]), ("close", "fixed", "PR #3 (abc)"))
+        self.assertEqual(
+            (r["thread"][-1]["ev"], r["thread"][-1]["text"], r["thread"][-1]["ref"]), ("close", "fixed", "PR #3 (abc)")
+        )
         self.assertEqual(r["rev"], 6)
 
     def test_evolve_close_into_review(self):
@@ -219,8 +288,18 @@ class Reopen(unittest.TestCase):
 
     def test_reopening_a_closed_pin_records_reason_and_mentions(self):
         """Close fields, review and confirmation go; an ev=reopen entry carries the reason and its mentions."""
-        pin = DonePin.from_record({**review_record(), "review": False, "close_reply": "x", "close_ref": "y",
-                       "changes": [], "changes_at": "t", "confirmed_by": {"login": "b"}, "confirmed_at": "t"})
+        pin = DonePin.from_record(
+            {
+                **review_record(),
+                "review": False,
+                "close_reply": "x",
+                "close_ref": "y",
+                "changes": [],
+                "changes_at": "t",
+                "confirmed_by": {"login": "b"},
+                "confirmed_at": "t",
+            }
+        )
         event = decide_reopen(pin, ALICE, AT, "still wrong @Bob", ("bob@example.com",))
         self.assertEqual(event, PinReopened(ALICE, AT, "still wrong @Bob", ("bob@example.com",), was_closed=True))
         r = evolve_reopen(pin, event).record
@@ -228,7 +307,7 @@ class Reopen(unittest.TestCase):
             self.assertNotIn(key, r)
         self.assertEqual((r["done"], r["reopened_at"], r["reopened_by"]["login"]), (False, AT, "alice@example.com"))
         self.assertEqual((r["thread"][-1]["ev"], r["thread"][-1]["mentions"]), ("reopen", ["bob@example.com"]))
-        self.assertEqual(r["rev"], 2)                     # evolve_reopen leaves rev to the caller
+        self.assertEqual(r["rev"], 2)  # evolve_reopen leaves rev to the caller
 
     def test_reopening_an_open_pin_adds_no_entry_but_the_request_bumps_rev(self):
         """An open pin gets who/when but no thread entry; POST /reopen still bumps rev, as before."""
@@ -263,14 +342,18 @@ class Reply(unittest.TestCase):
     def test_decide_reply_reopens_or_refuses_or_replies(self):
         """A reopening reply is a PinReopened with the text as reason; a full thread refuses only a plain reply."""
         pin = ReviewPin.from_record(review_record())
-        self.assertEqual(decide_reply(pin, ALICE, AT, "redo", ("b",), True, 0),
-                         PinReopened(ALICE, AT, "redo", ("b",), was_closed=True))
+        self.assertEqual(
+            decide_reply(pin, ALICE, AT, "redo", ("b",), True, 0),
+            PinReopened(ALICE, AT, "redo", ("b",), was_closed=True),
+        )
         self.assertEqual(decide_reply(pin, ALICE, AT, "hi", (), False, 0), ThreadFull(0))
         self.assertEqual(decide_reply(pin, ALICE, AT, "hi", (), False, 5), Replied(ALICE, AT, "hi", ()))
 
     def test_transition_entries_do_not_count_toward_the_limit(self):
         """The close entry in the thread is not a reply, so a limit of 1 still allows the first reply."""
-        self.assertIsInstance(decide_reply(ReviewPin.from_record(review_record()), ALICE, AT, "hi", (), False, 1), Replied)
+        self.assertIsInstance(
+            decide_reply(ReviewPin.from_record(review_record()), ALICE, AT, "hi", (), False, 1), Replied
+        )
 
     def test_evolve_reply_keeps_the_state_and_bumps_rev(self):
         """A plain reply adds one entry with its mentions and bumps rev; the pin stays in its state type."""
@@ -295,7 +378,9 @@ class Claim(unittest.TestCase):
 
     def test_new_claim_replaces_every_earlier_claim_field(self):
         """An expired claim by someone else is dropped whole - its estimate must not survive into the new claim."""
-        record = open_record(claimed_by={"login": "x"}, claim_until=NOW - 1, eta_ts=NOW - 100, claimed_at="old", claim_ts=1.0)
+        record = open_record(
+            claimed_by={"login": "x"}, claim_until=NOW - 1, eta_ts=NOW - 100, claimed_at="old", claim_ts=1.0
+        )
         r = claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(30), None).record
         self.assertEqual((r["claimed_at"], r["claim_ts"], r["claim_until"]), (AT, NOW, NOW + 1800))
         self.assertEqual(r["claimed_by"], {"login": "alice@example.com", "name": "Alice Kim"})
@@ -305,15 +390,24 @@ class Claim(unittest.TestCase):
     def test_live_claim_by_someone_else_is_refused_with_its_details(self):
         """The refusal says who holds it, until when, and their estimate."""
         record = open_record(claimed_by={"login": "bob@example.com"}, claim_until=NOW + 60, eta_ts=NOW + 30)
-        self.assertEqual(claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(30), None),
-                         ClaimedByOther({"login": "bob@example.com"}, NOW + 60, NOW + 30))
+        self.assertEqual(
+            claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(30), None),
+            ClaimedByOther({"login": "bob@example.com"}, NOW + 60, NOW + 30),
+        )
 
     def test_same_identity_extends_and_keeps_the_start(self):
         """Extending keeps claimed_at/claim_ts, re-measures claim_until, and keeps the estimate unless a new one is given."""
-        record = open_record(claimed_by={"login": "alice@example.com"}, claim_until=NOW + 60, claimed_at="start",
-                             claim_ts=NOW - 600, eta_ts=NOW + 10)
+        record = open_record(
+            claimed_by={"login": "alice@example.com"},
+            claim_until=NOW + 60,
+            claimed_at="start",
+            claim_ts=NOW - 600,
+            eta_ts=NOW + 10,
+        )
         r = claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20), None).record
-        self.assertEqual((r["claimed_at"], r["claim_ts"], r["claim_until"], r["eta_ts"]), ("start", NOW - 600, NOW + 1200, NOW + 10))
+        self.assertEqual(
+            (r["claimed_at"], r["claim_ts"], r["claim_until"], r["eta_ts"]), ("start", NOW - 600, NOW + 1200, NOW + 10)
+        )
         r = claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20, eta_min=5), None).record
         self.assertEqual(r["eta_ts"], NOW + 300)
 
@@ -322,8 +416,12 @@ class Claim(unittest.TestCase):
         record = open_record(claimed_by={"login": "alice@example.com"}, claim_until=NOW + 60, claimed_at="x")
         del record["claim_until"]
         record["claim_until"] = NOW + 60
-        self.assertEqual(claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20), NOW - 99).record["claim_ts"], NOW - 99)
-        self.assertEqual(claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20), None).record["claim_ts"], NOW)
+        self.assertEqual(
+            claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20), NOW - 99).record["claim_ts"], NOW - 99
+        )
+        self.assertEqual(
+            claim(OpenPin.from_record(record), ALICE, NOW, AT, ClaimRequest(20), None).record["claim_ts"], NOW
+        )
 
     def test_claim_holds_only_until_claim_until(self):
         """A claim holds while claim_until is a number in the future."""
@@ -335,14 +433,17 @@ class Claim(unittest.TestCase):
         """Unclaiming a claimed pin writes; an unclaimed pin comes back as NotClaimed with any stray field cleared."""
         cleared = unclaim(OpenPin.from_record({"id": 1, "claimed_by": {"login": "a"}, "claim_until": 1.0, "rev": 2}))
         self.assertEqual(cleared, OpenPin.from_record({"id": 1, "rev": 3}))
-        self.assertEqual(unclaim(OpenPin.from_record({"id": 1, "claim_until": 1.0})), NotClaimed(OpenPin.from_record({"id": 1})))
+        self.assertEqual(
+            unclaim(OpenPin.from_record({"id": 1, "claim_until": 1.0})), NotClaimed(OpenPin.from_record({"id": 1}))
+        )
 
     def test_a_closed_pin_has_no_claim_to_clear(self):
         """Every close clears the claim, so claim fields on a closed pin (a hand-edited line) are not a claim: unclaim
         answers NotClaimed with them cleared from the shown pin, and nothing is written, rev included."""
         stray = {"id": 1, "done": True, "claimed_by": {"login": "a"}, "claim_until": 1.0, "rev": 2}
-        self.assertEqual(unclaim(DonePin.from_record(stray)),
-                         NotClaimed(DonePin.from_record({"id": 1, "done": True, "rev": 2})))
+        self.assertEqual(
+            unclaim(DonePin.from_record(stray)), NotClaimed(DonePin.from_record({"id": 1, "done": True, "rev": 2}))
+        )
 
 
 class Trash(unittest.TestCase):
@@ -385,9 +486,10 @@ class ThreadMessage(unittest.TestCase):
     def test_optional_fields_only_when_given(self):
         """ref and mentions appear only when passed; an empty text is stored as ''."""
         msg = thread_message(None, {"login": "a", "name": "A"}, AT, text="", ref="PR #1 (abc)", mentions=["b"])
-        self.assertEqual(msg, {"id": 1, "by": {"login": "a", "name": "A"}, "at": AT, "text": "", "ref": "PR #1 (abc)",
-                               "mentions": ["b"]})
-
+        self.assertEqual(
+            msg,
+            {"id": 1, "by": {"login": "a", "name": "A"}, "at": AT, "text": "", "ref": "PR #1 (abc)", "mentions": ["b"]},
+        )
 
 
 class ReopenedInRound(unittest.TestCase):
@@ -404,8 +506,14 @@ class ReopenedInRound(unittest.TestCase):
 
     def test_closed_again_after_the_reopen_or_never_reopened_does_not(self):
         """reopen then close, a close alone, only replies, no thread and a malformed thread: not reopened."""
-        for th in ([self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close")], [self.entry(1, "close")],
-                   [self.entry(1), self.entry(2)], None, "x", ["x", 3]):
+        for th in (
+            [self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close")],
+            [self.entry(1, "close")],
+            [self.entry(1), self.entry(2)],
+            None,
+            "x",
+            ["x", 3],
+        ):
             self.assertFalse(pin_reopened_in_round({"thread": th}), th)
         self.assertFalse(pin_reopened_in_round({}))
 

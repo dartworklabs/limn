@@ -5,6 +5,7 @@ clock know - where the pin's file is now, its lines and mtime, the next id, who 
 values. It also builds the notices (events.jsonl) from the record that comes back. An edit that must be refused is
 a returned value in the annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -26,8 +27,7 @@ KIND_REQS = ("fix", "question")
 # all an agent has to find the place by.
 PDF_QUOTE_MAX = 160
 # The location fields a line pin's re-placement (loc) replaces as a whole; fields it does not name are dropped.
-LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
-              "frac", "scope", "quote")
+LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "frac", "scope", "quote")
 # The fields a view-only PDF pin's new region may set; a region without a quote drops the old one.
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build")
 
@@ -39,6 +39,7 @@ class LinePlace:
     named is the set of fields the request itself sent. An edit keeps the pin's page and frac when the request did
     not name them, and forgets the legacy frac_build only when it re-placed frac.
     """
+
     fields: Record
     named: frozenset[str]
 
@@ -46,6 +47,7 @@ class LinePlace:
 @dataclass(frozen=True)
 class RegionPlace:
     """A view-only PDF pin's region, validated against the document's pages: page, frac, optional quote and pdf_build."""
+
     fields: Record
 
 
@@ -60,6 +62,7 @@ class EditRequest:
     pin; lo/hi move a line pin's range without re-placing it. kind_req and assignee are note-level and may change on
     a closed pin. base_rev is the rev the editor loaded; only a note_append may leave it out.
     """
+
     base_rev: int | None = None
     note: str | None = None
     note_append: str | None = None
@@ -74,8 +77,13 @@ class EditRequest:
 
     def reshapes(self) -> bool:
         """Does the edit change where the pin points or what it spans (place, lines, scope, kind)? A closed pin refuses that."""
-        return (self.place is not None or self.lo is not None or self.hi is not None or self.scope is not None
-                or self.kind is not None)
+        return (
+            self.place is not None
+            or self.lo is not None
+            or self.hi is not None
+            or self.scope is not None
+            or self.kind is not None
+        )
 
     def sets_lines(self) -> bool:
         """Does the edit move the range by lo/hi alone? Then the new lines must fit the pin's file, which the shell counts."""
@@ -85,18 +93,21 @@ class EditRequest:
 @dataclass(frozen=True)
 class ClosedPinReshaped:
     """A closed pin keeps where it points: only its note and note-level fields may change. The pin goes into the 409 body."""
+
     pin: ReviewPin | DonePin
 
 
 @dataclass(frozen=True)
 class StaleEdit:
     """base_rev is not the pin's rev: an agent closed it or line matching moved it after the editor loaded it."""
+
     pin: Pin
 
 
 @dataclass(frozen=True)
 class NoteTooLong:
     """Appending would make the note longer than the limit; length is the merged note's."""
+
     length: int
     limit: int
 
@@ -109,6 +120,7 @@ class PinOutsideTree:
 @dataclass(frozen=True)
 class RangeOutsideFile:
     """The new lo..hi does not fit in the pin's file, which has `lines` lines."""
+
     lines: int
     lo: int
     hi: int
@@ -125,6 +137,7 @@ class PinEdited:
     without place writes; range_changed says whether the pin's lines moved (always for a line re-placement), which is
     when the shell re-reads the file for a new anchor.
     """
+
     by: Actor
     at: str
     note: str | None
@@ -148,6 +161,7 @@ class PinEdited:
 @dataclass(frozen=True)
 class Located:
     """Where a line pin's file is on this machine: its absolute path and its path relative to the manuscript root."""
+
     path: str
     rel: str
 
@@ -155,6 +169,7 @@ class Located:
 @dataclass(frozen=True)
 class Anchoring:
     """A range's anchor captured from the file's current lines, and the file's mtime at that moment (synced_at)."""
+
     anchor: Record
     synced_at: float
 
@@ -169,8 +184,9 @@ def file_after(record: Record, request: EditRequest) -> Record:
     return {"file": file, "file_rel": record.get("file_rel")}
 
 
-def decide_edit(pin: Pin, request: EditRequest, by: Actor, at: str, clock: str, line_count: int | None,
-                note_max: int) -> PinEdited | EditRefusal:
+def decide_edit(
+    pin: Pin, request: EditRequest, by: Actor, at: str, clock: str, line_count: int | None, note_max: int
+) -> PinEdited | EditRefusal:
     """What an edit does to this pin, or why it is refused - checked in this order, before anything changes.
 
     A closed pin refuses a reshaping edit; a base_rev other than the pin's rev is stale; a note_append is merged
@@ -199,12 +215,19 @@ def decide_edit(pin: Pin, request: EditRequest, by: Actor, at: str, clock: str, 
             return RangeOutsideFile(line_count, lo, hi)
         changed = (lo, hi) != (pin.record["lo"], pin.record["hi"]) or bool(pin.record.get("stale"))
         lines = (lo, hi)
-    return PinEdited(by, at, note, request.place, lines, changed, request.scope, request.kind, request.kind_req,
-                     request.assignee)
+    return PinEdited(
+        by, at, note, request.place, lines, changed, request.scope, request.kind, request.kind_req, request.assignee
+    )
 
 
-def evolve_edit(pin: PinT, event: PinEdited, where: Located | None, anchoring: Anchoring | None,
-                mentions: Sequence[str] | None, assignee_name: str | None) -> PinT:
+def evolve_edit(
+    pin: PinT,
+    event: PinEdited,
+    where: Located | None,
+    anchoring: Anchoring | None,
+    mentions: Sequence[str] | None,
+    assignee_name: str | None,
+) -> PinT:
     """Apply an edit; the pin keeps its state. Fields keep their order in the record (new ones go to the end).
 
     A region re-placement sets page, frac, quote (dropped if not sent) and pdf_build. A line re-placement replaces
@@ -234,8 +257,8 @@ def evolve_edit(pin: PinT, event: PinEdited, where: Located | None, anchoring: A
             record["kind"] = event.kind if event.kind is not None else "lines"
         if event.scope is not None and "scope" not in place.fields:
             record["scope"] = event.scope
-        if "frac" in place.named:                    # build identity changes only when frac was re-placed
-            record.pop("frac_build", None)           # legacy field name, superseded by pdf_build
+        if "frac" in place.named:  # build identity changes only when frac was re-placed
+            record.pop("frac_build", None)  # legacy field name, superseded by pdf_build
     elif event.lines is not None:
         record["lo"], record["hi"] = event.lines
         if event.range_changed:
@@ -261,9 +284,16 @@ def evolve_edit(pin: PinT, event: PinEdited, where: Located | None, anchoring: A
         _set_mentions(record, mentions)
     if event.assignee is not None and record.get("assignee") != event.assignee:
         record["assignee"] = event.assignee
-        record["thread"] = [*thread_of(pin.record),
-                            thread_message(pin.record.get("thread"), author(event.by), event.at,
-                                           assignment_text(event.assignee, assignee_name), ev="assign")]
+        record["thread"] = [
+            *thread_of(pin.record),
+            thread_message(
+                pin.record.get("thread"),
+                author(event.by),
+                event.at,
+                assignment_text(event.assignee, assignee_name),
+                ev="assign",
+            ),
+        ]
     record["edited_at"] = event.at
     record["edited_by"] = signature(event.by)
     record["rev"] = next_rev(pin.record)
@@ -278,6 +308,7 @@ def assignment_text(assignee: str, name: str | None) -> str:
 @dataclass(frozen=True)
 class AddRequest:
     """A validated new pin: where it is, its note, and the optional kind_req, assignee and @-tag hints."""
+
     place: Place
     note: str
     kind_req: str | None = None
@@ -285,9 +316,18 @@ class AddRequest:
     hints: tuple[str, ...] = ()
 
 
-def new_line_pin(place: LinePlace, request: AddRequest, pid: int, at: str, author_record: Record,
-                 mentions: Sequence[str], anchoring: Anchoring, pdf_build: str, doc: str,
-                 where: Located | None) -> OpenPin:
+def new_line_pin(
+    place: LinePlace,
+    request: AddRequest,
+    pid: int,
+    at: str,
+    author_record: Record,
+    mentions: Sequence[str],
+    anchoring: Anchoring,
+    pdf_build: str,
+    doc: str,
+    where: Located | None,
+) -> OpenPin:
     """A new line pin's record, fields in the order the store has always written them.
 
     The location comes first (kind defaults to "lines"), then note, at, id (pid, allocated by the shell), author (the
@@ -312,8 +352,16 @@ def new_line_pin(place: LinePlace, request: AddRequest, pid: int, at: str, autho
     return OpenPin.from_record(record)
 
 
-def new_region_pin(place: RegionPlace, request: AddRequest, pid: int, at: str, author_record: Record,
-                   mentions: Sequence[str], pdf_build: str, doc: str) -> OpenPin:
+def new_region_pin(
+    place: RegionPlace,
+    request: AddRequest,
+    pid: int,
+    at: str,
+    author_record: Record,
+    mentions: Sequence[str],
+    pdf_build: str,
+    doc: str,
+) -> OpenPin:
     """A new view-only PDF pin's record: the region, note, at, id, author, kind_req, pdf_build, doc, rev 0, then the
     note's @-tags and the assignee - the order this kind of pin has always been written in. No lines, no anchor."""
     record = dict(place.fields)

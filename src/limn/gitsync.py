@@ -11,6 +11,7 @@ Nothing here reads server.py's settings or document list: the composition root p
 documents, whether --git-pull is on, the git runner (limn.revisions.git: no shell, a timeout per call), the clock and
 the build starter on every call, and owns the one PullShare and SyncWatch of the process.
 """
+
 from __future__ import annotations
 
 import sys
@@ -22,16 +23,34 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeVar
 
 from limn.pull import (
-    Building, Built, DocProgress, Json, PullFailed, PullOutcome, PullSkipped, after_pull, deferred, disabled,
-    fetch_failure, head_of, initial_status, is_dirty, merged, needs_rebuild, pull_record, repo_top, settled,
-    tracks_main, unexpected,
+    Building,
+    Built,
+    DocProgress,
+    Json,
+    PullFailed,
+    PullOutcome,
+    PullSkipped,
+    after_pull,
+    deferred,
+    disabled,
+    fetch_failure,
+    head_of,
+    initial_status,
+    is_dirty,
+    merged,
+    needs_rebuild,
+    pull_record,
+    repo_top,
+    settled,
+    tracks_main,
+    unexpected,
 )
 
-PULL_SHARE_S = 20                  # seconds - if another document already pulled within this window, reuse its result
-SYNC_EVERY_S = 60                  # interval for checking remote main. Checked even when no browser is open.
-DEFERRED_RETRY_S = 3.0             # a round deferred by a running build retries this soon (or at `every`, if sooner)
+PULL_SHARE_S = 20  # seconds - if another document already pulled within this window, reuse its result
+SYNC_EVERY_S = 60  # interval for checking remote main. Checked even when no browser is open.
+DEFERRED_RETRY_S = 3.0  # a round deferred by a running build retries this soon (or at `every`, if sooner)
 
-Git: TypeAlias = Callable[[Sequence[str], Path | str], tuple[int | None, str, str]]   # limn.revisions.git
+Git: TypeAlias = Callable[[Sequence[str], Path | str], tuple[int | None, str, str]]  # limn.revisions.git
 Clock: TypeAlias = Callable[[], float]
 Stamp: TypeAlias = Callable[[], str]
 
@@ -74,6 +93,7 @@ def local_stamp() -> str:
 
 
 # ---------------------------------------------------------------- the pull
+
 
 def pull(manuscript: Path, main_only: bool, git: Git) -> PullOutcome:
     """Fast-forward the repository that holds `manuscript` to its upstream, or say why not.
@@ -127,8 +147,9 @@ class PullShare:
         self.at, self.last = at, outcome
 
 
-def repo_pull(share: PullShare, several: bool, run: Callable[[], PullOutcome], clock: Clock,
-              window: float = PULL_SHARE_S) -> Json:
+def repo_pull(
+    share: PullShare, several: bool, run: Callable[[], PullOutcome], clock: Clock, window: float = PULL_SHARE_S
+) -> Json:
     """A build's pull, as its `pull` record. One document (several False) pulls on every build, unshared. With several
     documents the pulls are serialized, and a pull another document's build made within `window` seconds is reused
     with shared=True instead of pulling again - so two documents rebuilding at once never collide on git fetch/merge
@@ -145,6 +166,7 @@ def repo_pull(share: PullShare, several: bool, run: Callable[[], PullOutcome], c
 
 
 # ---------------------------------------------------------------- the remote-main watch
+
 
 def _built_head(D: SyncDoc) -> str:
     """The commit document D's PDF was built from (head.txt, stripped), or "" when there is none to read."""
@@ -192,8 +214,16 @@ class SyncWatch:
                 self.record.update(done)
             return dict(self.record)
 
-    def once(self, docs: Iterable[Doc], enabled: bool, run: Callable[[], PullOutcome], share: PullShare,
-             start_build: Callable[[Doc], object], stamp: Stamp, clock: Clock) -> Json:
+    def once(
+        self,
+        docs: Iterable[Doc],
+        enabled: bool,
+        run: Callable[[], PullOutcome],
+        share: PullShare,
+        start_build: Callable[[Doc], object],
+        stamp: Stamp,
+        clock: Clock,
+    ) -> Json:
         """One round: pull remote main and start the build of each LaTeX document the pull left behind. Also run on a
         --no-build startup.
 
@@ -226,7 +256,7 @@ class SyncWatch:
             self.record.update(out)
         if out["state"] in ("updated", "current"):
             head = out.get("head_after") or ""
-            for D in [D for D in list(docs) if not D.is_pdf]:       # the list as it is now, like the round's start
+            for D in [D for D in list(docs) if not D.is_pdf]:  # the list as it is now, like the round's start
                 if needs_rebuild(outcome, head, _built_head(D)):
                     start_build(D)
                     out["state"] = "updating"
@@ -242,7 +272,7 @@ class SyncWatch:
         while not stop.is_set():
             try:
                 result = once()
-            except Exception:                         # noqa: BLE001 — the next round will retry
+            except Exception:  # noqa: BLE001 — the next round will retry
                 traceback.print_exc(file=sys.stderr)
                 with self.lock:
                     self.record.update(unexpected(stamp()))

@@ -11,6 +11,7 @@ from people.json rows and the pins (known_people, pure).
 The module knows no run arguments, no HTTP and no server. The composition root (server.people_book()) passes where the
 file is, the process's lock and its last-written memo, the clock, and the rule that tells an agent from a person.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,8 @@ Row: TypeAlias = dict[str, Any]
 SeenMemo: TypeAlias = dict[tuple[str, str], tuple[str, Any, float]]
 
 PEOPLE_FILE = "people.json"
-PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+# don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+PEOPLE_TOUCH_S = 600
 
 
 def is_actor(v: object) -> bool:
@@ -43,8 +45,11 @@ def valid_people(d: object) -> list[Row]:
     login/name/pic are strings or absent (is_actor). Anything else - a document of another shape, a bad entry - is
     dropped, never raised."""
     rows = d.get("people") if isinstance(d, dict) else None
-    return [x for x in (rows or []) if isinstance(x, dict) and isinstance(x.get("login"), str) and x["login"]
-            and is_actor(x)]
+    return [
+        x
+        for x in (rows or [])
+        if isinstance(x, dict) and isinstance(x.get("login"), str) and x["login"] and is_actor(x)
+    ]
 
 
 def load_people(path: Path) -> list[Row]:
@@ -67,6 +72,7 @@ def people_text(rows: list[Row]) -> str:
 class PeopleBook:
     """The running server's people.json: the state directory it lives in, the process's thread lock and its memo of
     what it last wrote. The composition root makes both the lock and the memo once; a book value is cheap per call."""
+
     state: Path
     lock: threading.Lock
     seen: SeenMemo
@@ -77,8 +83,7 @@ class PeopleBook:
         return self.state / PEOPLE_FILE
 
 
-def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: str | None,
-                  default_role: str) -> bool:
+def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: str | None, default_role: str) -> bool:
     """Records a person into people.json (only written for a new person, a name/picture change, or when last_seen is
     stale past PEOPLE_TOUCH_S). The caller has already left out local/agent actors and actors without a login. The
     request continues even if the write fails (only a warning). Returns True if it wrote.
@@ -96,7 +101,7 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
     with book.lock:
         try:
             with store_lock(book.state, "people"):
-                rows = load_people(book.path)          # re-read under the lock - `limn member` may have just changed it
+                rows = load_people(book.path)  # re-read under the lock - `limn member` may have just changed it
                 stamp = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S")
                 cur = next((x for x in rows if x["login"] == login), None)
                 if cur is None:
@@ -132,6 +137,7 @@ def known_people(people: Iterable[Row], pins: Iterable[Row], is_agent: Callable[
             cur["pic"] = a["pic"]
         if seen:
             cur["last_seen"] = seen
+
     for x in people:
         add(x, x.get("last_seen"))
     for r in pins:

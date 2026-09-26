@@ -6,6 +6,7 @@ once. Pure: strings and paths in, strings out - whether the file exists and wher
 (limn.access.file_present, home_or_none) and passed in (docs/handbook/api.md §인증). Nothing here touches the file
 system; tests/test_access_module.py checks the imports.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,8 +14,11 @@ import shlex
 from pathlib import PurePath
 
 # The 401 text for a request whose identity cannot be told (docs/handbook/api.md §인증). Part of the agent contract.
-UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
-TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"   # the convention, shown when this server does not know its own file
+UNAUTHENTICATED = (
+    "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
+)
+# the convention, shown when this server does not know its own file
+TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"
 
 
 def shell_path(path: PurePath, home: PurePath | None) -> str:
@@ -33,7 +37,7 @@ def shell_path(path: PurePath, home: PurePath | None) -> str:
 def token_file_curl(shown: str) -> str:
     """The curl form an agent on this machine uses with the instance's token file (ADR-0007): the shell reads the
     file at call time, so the text names the file and never carries the token."""
-    return "`curl -H \"Authorization: Bearer $(cat %s)\" …`" % shown
+    return '`curl -H "Authorization: Bearer $(cat %s)" …`' % shown
 
 
 def loopback_refused_text(token_file: PurePath | None, exists: bool, home: PurePath | None) -> str:
@@ -42,8 +46,10 @@ def loopback_refused_text(token_file: PurePath | None, exists: bool, home: PureP
     instance's token file when the server knows it (token_file, and whether it exists), else the convention.
     Pure: the caller stats the file and passes the home folder."""
     shown = shell_path(token_file, home) if token_file is not None else TOKEN_FILE_EXAMPLE
-    text = ("%s 이 인스턴스는 헤더 없는 로컬 요청을 받지 않습니다(AGENT_LOOPBACK=0). 이 기기의 에이전트는 토큰 파일을 "
-            "붙이세요: %s" % (UNAUTHENTICATED, token_file_curl(shown)))
+    text = (
+        "%s 이 인스턴스는 헤더 없는 로컬 요청을 받지 않습니다(AGENT_LOOPBACK=0). 이 기기의 에이전트는 토큰 파일을 "
+        "붙이세요: %s" % (UNAUTHENTICATED, token_file_curl(shown))
+    )
     if not exists:
         name = token_file.stem if token_file is not None and token_file.suffix == ".token" else "<인스턴스>"
         text += " 파일이 없으면 소유자가 `limn token create %s --save` 로 만듭니다." % name

@@ -10,6 +10,7 @@ composition root hands revision_failure_text() to the comparison worker, which r
 A browser that opens the viewer (GET / asking for HTML) and is refused gets a short readable page instead of raw
 JSON (v0.2.1), in the viewer's language (ko/en) from the same message table the viewer uses (ui_en.json).
 """
+
 from __future__ import annotations
 
 import html
@@ -52,6 +53,7 @@ class InputRejected(NamedTuple):
     Boundary parsers (server.py's parse_* functions) return it instead of raising; the handler answers it with
     HTTPError(400, message, reason=reason). A NamedTuple, as it was when it lived in server.py, so values compare
     exactly as before."""
+
     message: str
     reason: str
 
@@ -90,8 +92,14 @@ REVISION_FAILURES: dict[FailureKind, tuple[str, str]] = {
     "missing_main": ("해당 커밋에 현재 메인 원고 경로가 없습니다. 소스 변경사항을 확인하세요.", "missing_main"),
     "sandbox_tools": ("비교 PDF에는 bwrap, latexdiff, latexmk가 필요합니다.", "tool_unavailable"),
     "sandbox_system": ("비교 PDF 도구는 /usr 아래의 시스템 설치를 사용해야 합니다.", "tool_unavailable"),
-    "diff_failed": ("latexdiff가 원고를 비교하지 못했습니다. 누락된 포함 파일 또는 실행 격리 설정을 확인하세요.", "diff_failed"),
-    "compile_failed": ("비교 PDF 컴파일에 실패했습니다. 이 뷰어는 pdfLaTeX를 사용합니다. 소스 변경사항을 확인하세요.", "compile_failed"),
+    "diff_failed": (
+        "latexdiff가 원고를 비교하지 못했습니다. 누락된 포함 파일 또는 실행 격리 설정을 확인하세요.",
+        "diff_failed",
+    ),
+    "compile_failed": (
+        "비교 PDF 컴파일에 실패했습니다. 이 뷰어는 pdfLaTeX를 사용합니다. 소스 변경사항을 확인하세요.",
+        "compile_failed",
+    ),
     "invalid_pdf": ("비교 PDF 결과가 올바르지 않습니다.", "invalid_pdf"),
 }
 
@@ -108,10 +116,18 @@ def revision_failure_text(failure: BuildFailure) -> tuple[str, str]:
 # The page kinds identity refusals name (HTTPError page=(kind, params)) -> (heading, hint). The Korean text is the key
 # into the viewer's message table (ui_en.json), so the page follows the same ko/en table as the viewer.
 ERROR_PAGE_TEXT = {
-    "not-member": ("이 뷰어의 멤버가 아닙니다: {login}", "이 뷰어의 소유자에게 멤버로 추가해 달라고 요청하세요: limn member add <인스턴스> {login}"),
-    "not-allowed": ("이 뷰어에 허용되지 않은 계정입니다: {login}", "이 뷰어의 소유자에게 --allow 목록에 넣어 달라고 요청하세요"),
-    "no-identity": ("신원을 확인할 수 없는 요청입니다",
-                    "사람 계정으로 로그인한 장치에서 여세요. 에이전트는 토큰(Authorization: Bearer)을 씁니다: limn token create <인스턴스>"),
+    "not-member": (
+        "이 뷰어의 멤버가 아닙니다: {login}",
+        "이 뷰어의 소유자에게 멤버로 추가해 달라고 요청하세요: limn member add <인스턴스> {login}",
+    ),
+    "not-allowed": (
+        "이 뷰어에 허용되지 않은 계정입니다: {login}",
+        "이 뷰어의 소유자에게 --allow 목록에 넣어 달라고 요청하세요",
+    ),
+    "no-identity": (
+        "신원을 확인할 수 없는 요청입니다",
+        "사람 계정으로 로그인한 장치에서 여세요. 에이전트는 토큰(Authorization: Bearer)을 씁니다: limn token create <인스턴스>",
+    ),
 }
 
 
@@ -151,12 +167,21 @@ def error_page_html(e: HTTPError, lang: str, messages: Messages) -> str:
         detail = str(e.body.get("error") or "")
     other = "en" if lang == "ko" else "ko"
     esc = html.escape
-    return ("<!doctype html><html lang=\"%s\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Limn · %s</title>"
-            "<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,\"Pretendard\",\"Noto Sans KR\",sans-serif;max-width:36rem;"
-            "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
-            "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
-            "a{color:#1860cf}@media(prefers-color-scheme:dark){body{color:#fafafa;background:#09090b}p{color:#a1a1aa}a{color:#6ea8fe}}"
-            "</style></head><body><h1>%s</h1>%s%s<p><a href=\"/?lang=%s\">%s</a></p></body></html>"
-            % (lang, esc(str(e.code)), esc(head), "<p>%s</p>" % esc(hint) if hint else "",
-               "<p class=\"d\">%s</p>" % esc(detail) if detail else "", other, "English" if other == "en" else "한국어"))
+    return (
+        '<!doctype html><html lang="%s"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Limn · %s</title>'
+        '<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;max-width:36rem;'
+        "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
+        "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
+        "a{color:#1860cf}@media(prefers-color-scheme:dark){body{color:#fafafa;background:#09090b}p{color:#a1a1aa}a{color:#6ea8fe}}"
+        '</style></head><body><h1>%s</h1>%s%s<p><a href="/?lang=%s">%s</a></p></body></html>'
+        % (
+            lang,
+            esc(str(e.code)),
+            esc(head),
+            "<p>%s</p>" % esc(hint) if hint else "",
+            '<p class="d">%s</p>' % esc(detail) if detail else "",
+            other,
+            "English" if other == "en" else "한국어",
+        )
+    )

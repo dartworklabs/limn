@@ -10,6 +10,7 @@ The remote-main watch keeps one status object for GET /api/meta's `sync`. What t
 documents it rebuilds and when an "updating" status settles are decided here too; the git calls, locks, clock and
 threads are limn.gitsync's.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -25,9 +26,11 @@ SyncState: TypeAlias = Literal["updated", "current", "blocked", "error"]
 
 # ---------------------------------------------------------------- pull outcomes
 
+
 @dataclass(frozen=True)
 class Pulled:
     """The fast-forward moved HEAD. before is None when HEAD could not be read before the pull."""
+
     before: str | None
     after: str
 
@@ -35,6 +38,7 @@ class Pulled:
 @dataclass(frozen=True)
 class UpToDate:
     """The pull went through and HEAD did not move (no new commit upstream, or HEAD unreadable after the merge)."""
+
     head: str | None
 
 
@@ -43,6 +47,7 @@ class PullSkipped:
     """The pull stopped before changing anything, for a reason of the checkout: not a repository, no upstream, not
     main (the watch only), a dirty tree, or a history that cannot fast-forward. head is HEAD as it stays (None for
     not_git, or when HEAD is unreadable)."""
+
     reason: SkipReason
     head: str | None
 
@@ -50,6 +55,7 @@ class PullSkipped:
 @dataclass(frozen=True)
 class PullFailed:
     """A git call the pull depends on failed or ran out of time (fetch, status); nothing was merged."""
+
     reason: FailReason
     head: str | None
 
@@ -73,6 +79,7 @@ def pull_record(outcome: PullOutcome) -> Json:
 
 
 # ---------------------------------------------------------------- reading git's answers
+
 
 def repo_top(rc: int | None, out: str) -> str | None:
     """The repository root from `git rev-parse --show-toplevel`, or None when the folder is not in a repository (or git
@@ -115,6 +122,7 @@ def merged(before: str | None, rc: int | None, out: str) -> Pulled | UpToDate:
 
 
 # ---------------------------------------------------------------- the remote-main watch
+
 
 def initial_status() -> Json:
     """The status before the first round has checked: "checking", nothing known yet. A new object each call."""
@@ -184,6 +192,7 @@ class Building:
 class Built:
     """A LaTeX document at rest: the commit its PDF was built from (head.txt, "" when unreadable) and whether its last
     build failed."""
+
     head: str
     failed: bool
 

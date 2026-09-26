@@ -13,6 +13,7 @@ Three rules, each a computation over values the caller has already read:
 Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). Reading the .tex files, the build history
 and where a pin's file is now is limn.locate's job; it passes the facts in and applies what comes back.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -43,6 +44,7 @@ def _is_num(v: object) -> TypeGuard[int | float]:
 # is never used - browser timezone, a note-only edited_at, and a pin placed on a stale PDF were all wrong across the
 # board.
 
+
 def epoch(s: object) -> float | None:
     """A stored time -> epoch seconds, or None when s is not a readable time.
 
@@ -55,7 +57,7 @@ def epoch(s: object) -> float | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.astimezone()          # this value was written in server local time - read back on the same machine
+        dt = dt.astimezone()  # this value was written in server local time - read back on the same machine
     return dt.timestamp()
 
 
@@ -76,14 +78,16 @@ class EstContext:
     cur is the build on screen; by maps a build name to its history entry (builds.json, with an entry for cur even
     before the history has one); built_at is when the current build finished and built_src_mtime the manuscript's
     mtime when it started (both epoch seconds, None when unknown)."""
+
     cur: str
     by: Mapping[str, Mapping[str, Any]]
     built_at: float | None
     built_src_mtime: float | None
 
 
-def est_basis(cur: str, history: Mapping[str, Mapping[str, Any]], built_src_mtime: float | None,
-              built_at: float | None) -> EstContext:
+def est_basis(
+    cur: str, history: Mapping[str, Mapping[str, Any]], built_src_mtime: float | None, built_at: float | None
+) -> EstContext:
     """The EstContext of a document from what was read of it: the current build's name, the build history by name,
     the current build's recorded manuscript mtime (None if not recorded) and its finish time.
 
@@ -130,7 +134,7 @@ def pin_est(r: Row, ctx: EstContext) -> bool:
     that recorded no build."""
     sync = r.get("sync")
     if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
-        return True                                   # moved +-N / lost - the anchor shifted or was lost
+        return True  # moved +-N / lost - the anchor shifted or was lost
     b = pin_build(r)
     if b is None:
         return legacy_est(r, ctx)
@@ -140,6 +144,7 @@ def pin_est(r: Row, ctx: EstContext) -> bool:
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored
+
 
 def range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int) -> RangeRel | None:
     """a's relationship to b (inclusive line ranges). None if they don't overlap; two equal ranges are "contains"."""
@@ -166,18 +171,18 @@ def overlaps_by_id(rows: Sequence[Row], file_of: Callable[[Row], str]) -> dict[i
         if r.get("done"):
             continue
         out.setdefault(r["id"], [])
-        if not r.get("file"):                          # a view-only PDF's pin - no line-range overlap
+        if not r.get("file"):  # a view-only PDF's pin - no line-range overlap
             continue
         by_file.setdefault(file_of(r), []).append(r)
     for group in by_file.values():
         for i, a in enumerate(group):
-            for b in group[i + 1:]:
+            for b in group[i + 1 :]:
                 if (a["lo"], a["hi"]) == (b["lo"], b["hi"]):
                     outer, inner = (a, b) if a["id"] < b["id"] else (b, a)
                     out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
                     out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
                     continue
-                rel_a = range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # does a fall inside b?
+                rel_a = range_rel(a["lo"], a["hi"], b["lo"], b["hi"])  # does a fall inside b?
                 if rel_a == "inside":
                     out[a["id"]].append({"id": b["id"], "rel": "inside"})
                     out[b["id"]].append({"id": a["id"], "rel": "contains"})
@@ -203,8 +208,9 @@ def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int) -> Literal["equal"] | 
     return range_rel(lo, hi, b_lo, b_hi)
 
 
-def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row],
-                       file_of: Callable[[Row], str]) -> list[dict[str, Any]]:
+def overlaps_for_range(
+    file: str, lo: int, hi: int, rows: Sequence[Row], file_of: Callable[[Row], str]
+) -> list[dict[str, Any]]:
     """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins of rows counted
     in that file (file_of, as in overlaps_by_id): [{"id", "lo", "hi", "rel"}] in row order. Nothing is saved.
 
@@ -225,9 +231,11 @@ def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row],
 
 # ---------------------------------------------------------------- Anchors and re-syncing
 
+
 @dataclass(frozen=True)
 class Followed:
     """The anchor was found: the pin's lines are now lo..hi, and sync says how far they moved ("ok" or "moved +N")."""
+
     lo: int
     hi: int
     sync: str
@@ -243,7 +251,7 @@ def follow_anchor(anchor: Mapping[str, Any], lo: int, hi: int, nlines: Sequence[
 
     The head line is looked up near where it was (lo plus its offset); the tail near where it would be after the same
     shift. A tail found before the head keeps the old span. The result is clamped to the file (1..len)."""
-    ho, to = anchor_offset(anchor.get("head_off")), anchor_offset(anchor.get("tail_off"))   # 0 for a legacy anchor
+    ho, to = anchor_offset(anchor.get("head_off")), anchor_offset(anchor.get("tail_off"))  # 0 for a legacy anchor
     span = hi - lo
     head = find_line(nlines, anchor.get("head", ""), lo + ho)
     if head is None:
@@ -269,15 +277,15 @@ def resync(r: Row, lines: Sequence[str], nlines: Sequence[str], mtime: float, pa
     - Otherwise its lines follow the anchor (follow_anchor): moved lines or a lost anchor bump rev; a re-match on a
       moved record writes path into `file`, so lines, synced_at and file describe one file again. `file_rel` is never
       added here."""
-    moved = path != r["file"]                    # measured on another file than the stored one (ADR-0006)
-    if "anchor" not in r:                        # backfill a legacy pin saved without an anchor, once
+    moved = path != r["file"]  # measured on another file than the stored one (ADR-0006)
+    if "anchor" not in r:  # backfill a legacy pin saved without an anchor, once
         if moved:
-            return None                          # never from a file the record does not name (it may be a guess)
+            return None  # never from a file the record does not name (it may be a guess)
         out = dict(r)
         out["anchor"] = anchor_of(lines, r["lo"], r["hi"])
         out["synced_at"] = mtime
         return out
-    if not r["anchor"]:                          # a pin that selected only blank lines has no anchor to follow
+    if not r["anchor"]:  # a pin that selected only blank lines has no anchor to follow
         return None
     if r.get("synced_at", 0) >= mtime and (not moved or anchor_holds(r["anchor"], r["lo"], nlines)):
         return None
@@ -293,6 +301,6 @@ def resync(r: Row, lines: Sequence[str], nlines: Sequence[str], mtime: float, pa
     if (out["lo"], out["hi"], bool(out.get("stale"))) != before:
         out["rev"] = next_rev(out)
     if moved:
-        out["file"] = path                       # the new numbers describe this file
+        out["file"] = path  # the new numbers describe this file
     out["synced_at"] = mtime
     return out

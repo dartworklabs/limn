@@ -14,10 +14,11 @@ limn.pins.lifecycle write.
 Pure. Two shapes it checks are owned by modules that are not: a document key (limn.documents.DOC_KEY_RE) and a
 recorded actor (limn.people.is_actor). The composition root passes both in (server.valid_rec).
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
-from posixpath import isabs            # os.path.isabs on POSIX, the only platform Limn runs on - string work only
+from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
 from limn.pins.edit import KIND_REQS
@@ -54,7 +55,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         lo, hi = r.get("lo"), r.get("hi")
         if not (is_int(lo) and is_int(hi) and 1 <= lo <= hi):
             return False
-        if not isabs(r["file"]):              # a relative path would point at a different file depending on the server's cwd
+        if not isabs(r["file"]):  # a relative path would point at a different file depending on the server's cwd
             return False
     if "page" in r and not is_int(r["page"]):
         return False
@@ -79,7 +80,8 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not is_int(r[k]):
             return False
-    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch seconds - named apart from '*_at' (string timestamps)
+    # epoch seconds - named apart from '*_at' (string timestamps)
+    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):
         if r.get(k) is not None and not _is_num(r[k]):
             return False
     for k in ("done", "stale", "review"):
@@ -92,13 +94,10 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         if k == "at" or k.endswith("_at") and k != "synced_at":
             if v is not None and not isinstance(v, str):
                 return False
-        elif k == "author" or k.endswith("_by"):
-            if v is not None and not is_actor(v):
-                return False
+        elif (k == "author" or k.endswith("_by")) and v is not None and not is_actor(v):
+            return False
     fr = r.get("frac")
-    if fr is not None and not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
-        return False
-    return True
+    return fr is None or (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr))
 
 
 def is_int(v: object) -> TypeGuard[int]:

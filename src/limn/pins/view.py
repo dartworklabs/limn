@@ -12,6 +12,7 @@ the estimation facts
 of a document's builds (read at most once per document, only for documents with a listed pin), the overlaps already
 computed over all rows, when a Trash entry expires, and the clock.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -80,9 +81,15 @@ def pin_view(r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: flo
     return rec
 
 
-def pins_payload(rows: Sequence[Row], allp: bool, rel: Mapping[int, list[Json]], show: Show,
-                 doc_of: Callable[[Row], str], est_context: Callable[[str], EstContext | None],
-                 now: float) -> list[Json]:
+def pins_payload(
+    rows: Sequence[Row],
+    allp: bool,
+    rel: Mapping[int, list[Json]],
+    show: Show,
+    doc_of: Callable[[Row], str],
+    est_context: Callable[[str], EstContext | None],
+    now: float,
+) -> list[Json]:
     """GET /api/pins: the open pins of rows in row order (every pin when allp), each as pin_view() gives it.
 
     rel is the overlaps of all rows (limn.pins.position.overlaps_by_id; a listed pin without an entry has []).

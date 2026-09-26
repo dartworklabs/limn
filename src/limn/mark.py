@@ -12,6 +12,7 @@ The geometry lives here once, on the 24-unit grid the viewer's Lucide icons use,
 Pure: no files, no clock and no state beyond the constants below - png() memoises its result per (size, accent,
 rounded), which changes nothing observable.
 """
+
 from __future__ import annotations
 
 import functools
@@ -21,12 +22,12 @@ import struct
 import zlib
 
 GRID = 24.0
-TILE_RADIUS = 5.5                     # the tile's corner radius (about the viewer's --radius-lg at 44px)
-DOT = (8.0, 8.0, 2.6)                 # the pin: centre x, centre y, radius
-STROKE = 2.4                          # the line's width (round caps); the dot is a little over twice as wide
-CORNER = (11.75, 13.5, 3.75)          # the quarter turn: centre x, centre y, radius
-LINE_Y = CORNER[1] + CORNER[2]        # the source line's height: 17.25
-LINE_END = 17.2                       # where the source line stops (the round cap reaches 1.2 further)
+TILE_RADIUS = 5.5  # the tile's corner radius (about the viewer's --radius-lg at 44px)
+DOT = (8.0, 8.0, 2.6)  # the pin: centre x, centre y, radius
+STROKE = 2.4  # the line's width (round caps); the dot is a little over twice as wide
+CORNER = (11.75, 13.5, 3.75)  # the quarter turn: centre x, centre y, radius
+LINE_Y = CORNER[1] + CORNER[2]  # the source line's height: 17.25
+LINE_END = 17.2  # where the source line stops (the round cap reaches 1.2 further)
 # The stroke from the dot's centre: down, a quarter turn to the right, then along the line.
 PATH = "M8 8V13.5a3.75 3.75 0 0 0 3.75 3.75H17.2"
 ACCENT_RE = re.compile(r"#[0-9a-fA-F]{6}")
@@ -36,22 +37,26 @@ def inline_svg() -> str:
     """The viewer's markup for the mark: a tile, the dot and the stroke, coloured only through the classes
     limn-mark-tile, limn-mark-dot and limn-mark-line - never plain .mark, which is the pin box on the PDF that marks()
     removes and redraws. Decorative (aria-hidden) - the label or heading next to it names the thing."""
-    return ('<svg class="limn-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-            '<rect class="limn-mark-tile" width="24" height="24" rx="%g"/>'
-            '<circle class="limn-mark-dot" cx="%g" cy="%g" r="%g"/>'
-            '<path class="limn-mark-line" d="%s" stroke-width="%g" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-            % (TILE_RADIUS, DOT[0], DOT[1], DOT[2], PATH, STROKE))
+    return (
+        '<svg class="limn-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        '<rect class="limn-mark-tile" width="24" height="24" rx="%g"/>'
+        '<circle class="limn-mark-dot" cx="%g" cy="%g" r="%g"/>'
+        '<path class="limn-mark-line" d="%s" stroke-width="%g" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        % (TILE_RADIUS, DOT[0], DOT[1], DOT[2], PATH, STROKE)
+    )
 
 
 def favicon_svg(accent: str) -> str:
     """The mark as a standalone SVG document: the tile in accent (#rrggbb), the dot and the stroke in white. ValueError
     for any other accent string - it is written into markup."""
     _rgb(accent)
-    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-            '<rect width="24" height="24" rx="%g" fill="%s"/>'
-            '<circle cx="%g" cy="%g" r="%g" fill="#ffffff"/>'
-            '<path d="%s" fill="none" stroke="#ffffff" stroke-width="%g" stroke-linecap="round" stroke-linejoin="round"/>'
-            '</svg>' % (TILE_RADIUS, accent, DOT[0], DOT[1], DOT[2], PATH, STROKE))
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        '<rect width="24" height="24" rx="%g" fill="%s"/>'
+        '<circle cx="%g" cy="%g" r="%g" fill="#ffffff"/>'
+        '<path d="%s" fill="none" stroke="#ffffff" stroke-width="%g" stroke-linecap="round" stroke-linejoin="round"/>'
+        "</svg>" % (TILE_RADIUS, accent, DOT[0], DOT[1], DOT[2], PATH, STROKE)
+    )
 
 
 def _rgb(accent: str) -> tuple[int, int, int]:
@@ -109,19 +114,30 @@ def png(size: int, accent: str, rounded: bool = True) -> bytes:
     pixel = GRID / size
     rows = []
     for y in range(size):
-        row = bytearray(b"\x00")                                      # filter type 0 (none) for every row
+        row = bytearray(b"\x00")  # filter type 0 (none) for every row
         py = (y + 0.5) * pixel
         for x in range(size):
             px = (x + 0.5) * pixel
             tile = _coverage(tile_distance(px, py, rounded), pixel)
             ink = _coverage(glyph_distance(px, py), pixel)
-            row += bytes((round(red + (255 - red) * ink), round(green + (255 - green) * ink),
-                          round(blue + (255 - blue) * ink), round(255 * tile)))
+            row += bytes(
+                (
+                    round(red + (255 - red) * ink),
+                    round(green + (255 - green) * ink),
+                    round(blue + (255 - blue) * ink),
+                    round(255 * tile),
+                )
+            )
         rows.append(bytes(row))
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         """One PNG chunk: length, tag, data, CRC of tag + data."""
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
-    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)       # 8-bit RGBA, no interlace
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
-            + chunk(b"IEND", b""))
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)  # 8-bit RGBA, no interlace
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b"".join(rows), 9))
+        + chunk(b"IEND", b"")
+    )

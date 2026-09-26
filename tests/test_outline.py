@@ -7,6 +7,7 @@ text: it stays pure
 
 Run: uv run pytest -q tests/test_outline.py
 """
+
 import ast
 import unittest
 from pathlib import Path
@@ -86,31 +87,40 @@ class TocLabels(unittest.TestCase):
     def test_numbered_and_unnumbered_entries(self):
         """\\numberline gives the number; without it the number is empty. The anchor is the fourth argument."""
         aux = toc("section", r"\numberline {2}Intro", "iv", "section.2") + toc("section", "Preface", "i", "section*.1")
-        self.assertEqual(toc_labels(aux), [
-            {"number": "2", "title": "Intro", "page": "iv", "level": "section", "anchor": "section.2"},
-            {"number": "", "title": "Preface", "page": "i", "level": "section", "anchor": "section*.1"},
-        ])
+        self.assertEqual(
+            toc_labels(aux),
+            [
+                {"number": "2", "title": "Intro", "page": "iv", "level": "section", "anchor": "section.2"},
+                {"number": "", "title": "Preface", "page": "i", "level": "section", "anchor": "section*.1"},
+            ],
+        )
 
     def test_protected_numberline_and_three_argument_form(self):
         """\\protect\\numberline counts as a number; without hyperref there is no anchor."""
-        self.assertEqual(toc_labels(toc("subsection", r"\protect \numberline {1.1}Next", "3", None)),
-                         [{"number": "1.1", "title": "Next", "page": "3", "level": "subsection", "anchor": ""}])
+        self.assertEqual(
+            toc_labels(toc("subsection", r"\protect \numberline {1.1}Next", "3", None)),
+            [{"number": "1.1", "title": "Next", "page": "3", "level": "subsection", "anchor": ""}],
+        )
 
     def test_other_lists_levels_and_malformed_lines_are_skipped(self):
         """A list of figures, a non-sectioning level, a line without \\contentsline, too few groups, and a
         \\numberline without its group give no row."""
-        aux = ("\\@writefile{lof}{\\contentsline {figure}{\\numberline {1}F}{2}{figure.1}}\n"
-               + toc("figure", r"\numberline {1}F")
-               + "\\@writefile{toc}{\\relax }\n"
-               + "\\@writefile{toc}{\\contentsline {section}{Only two}}\n"
-               + toc("section", r"\numberline Bad")
-               + "\\@writefile{toc}{unclosed\n")
+        aux = (
+            "\\@writefile{lof}{\\contentsline {figure}{\\numberline {1}F}{2}{figure.1}}\n"
+            + toc("figure", r"\numberline {1}F")
+            + "\\@writefile{toc}{\\relax }\n"
+            + "\\@writefile{toc}{\\contentsline {section}{Only two}}\n"
+            + toc("section", r"\numberline Bad")
+            + "\\@writefile{toc}{unclosed\n"
+        )
         self.assertEqual(toc_labels(aux), [])
 
     def test_unconvertible_title_keeps_a_placeholder_row(self):
         """The row stays (so later rows keep their positions) with no number or title and the raw page cut to 40."""
         page = "p" * 50
-        rows = toc_labels(toc("section", r"\numberline {3}$E=mc^2$", page, "s.3") + toc("section", r"\numberline {4}Next"))
+        rows = toc_labels(
+            toc("section", r"\numberline {3}$E=mc^2$", page, "s.3") + toc("section", r"\numberline {4}Next")
+        )
         self.assertEqual(rows[0], {"number": "", "title": "", "page": "p" * 40, "level": "section", "anchor": "s.3"})
         self.assertEqual(rows[1]["number"], "4")
 

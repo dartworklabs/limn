@@ -4,31 +4,32 @@ The Korean strings in the HTML template are the source. In English mode the view
 found in the table, and composed strings go through tl() with a parameterised key ('{n}쪽'). The agent
 contract (pins.md, API) is not translated.
 """
+
 import importlib.util
 import json
 import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
-import struct
 import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config, startup
-from limn import locate
+from limn import access, config, locate, startup
+from limn.access import LOCAL_ACTOR
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
+
 from helpers import add_pin, shut_wr
-from limn.access import LOCAL_ACTOR
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"
@@ -42,7 +43,7 @@ UI_ATTRS = ("data-tip", "aria-label", "title", "placeholder")
 
 def static_ui_strings(html):
     """Korean text nodes and UI attributes of the static markup (body up to the first <script>)."""
-    body = html[html.index("<body"):html.index("<script>", html.index("<body"))]
+    body = html[html.index("<body") : html.index("<script>", html.index("<body"))]
     found = set()
 
     class P(HTMLParser):
@@ -89,9 +90,9 @@ def first_arg(src, i):
         elif c in ")]}":
             depth -= 1
             if depth == 0:
-                return src[i + 1:j]
+                return src[i + 1 : j]
         elif c == "," and depth == 1:
-            return src[i + 1:j]
+            return src[i + 1 : j]
         j += 1
     return ""
 
@@ -114,7 +115,7 @@ class MessageTable(unittest.TestCase):
         self.assertGreater(len(ps.UI_EN), 300)
         for k, v in ps.UI_EN.items():
             self.assertTrue(HANGUL.search(k) or re.fullmatch(r"reason:[a-z][a-z0-9_]*", k), k)
-            for form in (v.values() if isinstance(v, dict) else [v]):
+            for form in v.values() if isinstance(v, dict) else [v]:
                 self.assertFalse(HANGUL.search(form), (k, v))
                 self.assertTrue(form.strip(), k)
 
@@ -137,8 +138,10 @@ class MessageTable(unittest.TestCase):
         good = assemble.load_ui_messages(path)
         self.assertEqual(good["{n}줄"], {"one": "{n} line", "other": "{n} lines"})
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ui_en.json").write_text(json.dumps({"가": "A", "{n}나": {"one": "x"}, "{n}다": {"other": "y", "few": "z"}},
-                                                           ensure_ascii=False), encoding="utf-8")
+            (Path(d) / "ui_en.json").write_text(
+                json.dumps({"가": "A", "{n}나": {"one": "x"}, "{n}다": {"other": "y", "few": "z"}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
             self.assertEqual(assemble.load_ui_messages(Path(d) / "ui_en.json"), {"가": "A"})
         self.assertTrue(path.exists())
 
@@ -149,18 +152,28 @@ class MessageTable(unittest.TestCase):
 
     def test_every_static_ui_string_has_a_translation(self):
         html = ps.build_html("A-DEMO", "#2563eb")
-        def covered(s):   # same lookup as trMsg(): the whole string, else each part around ' — ' or ' · '
+
+        def covered(s):  # same lookup as trMsg(): the whole string, else each part around ' — ' or ' · '
             if s in ps.UI_EN:
                 return True
             for sep in (" — ", " · "):
                 if s.find(sep) > 0:
                     return all(p in ps.UI_EN or not HANGUL.search(p) for p in s.split(sep))
             return False
+
         missing = sorted(s for s in static_ui_strings(html) if not covered(s))
         self.assertEqual(missing, [])
 
     def test_chrome_strings_are_covered(self):
-        for s in ("PDF 재빌드", "도움말", "더보기", "선택", "닫힌 핀", "Limn — 사용법", "화면 언어를 바꿉니다 (한국어 / English)"):
+        for s in (
+            "PDF 재빌드",
+            "도움말",
+            "더보기",
+            "선택",
+            "닫힌 핀",
+            "Limn — 사용법",
+            "화면 언어를 바꿉니다 (한국어 / English)",
+        ):
             self.assertIn(s, ps.UI_EN)
 
 
@@ -168,14 +181,15 @@ class Wiring(unittest.TestCase):
     def test_table_is_embedded_and_script_safe(self):
         html = ps.build_html("A-DEMO", "#2563eb")
         self.assertNotIn("__UI_EN_JSON__", html)
-        self.assertFalse([k for k in ps.UI_EN if "__" in k])   # build_html fills placeholders; keys must not contain them
+        # build_html fills placeholders; keys must not contain them
+        self.assertFalse([k for k in ps.UI_EN if "__" in k])
         m = re.search(r"I18N_EN=(\{.*?\}), I18N_ATTRS=", html, re.S)
         self.assertIsNotNone(m)
         self.assertEqual(json.loads(m.group(1).replace("<\\/", "</")), ps.UI_EN)
         self.assertNotIn("</script", m.group(1))
 
     def test_language_choice_order(self):
-        head = ps.HTML[:ps.HTML.index("<body")]
+        head = ps.HTML[: ps.HTML.index("<body")]
         i_q, i_saved, i_nav = (head.index(x) for x in ("get('lang')", "getItem('limnLang')", "navigator.language"))
         self.assertLess(i_q, i_saved)
         self.assertLess(i_saved, i_nav)
@@ -220,8 +234,14 @@ class BrowserLanguage(unittest.TestCase):
         context = self.browser.new_context(locale=locale)
         self.addCleanup(context.close)
         page = context.new_page()
-        page.route("**/*", lambda route: route.fulfill(content_type="text/html", body=self.html)
-                   if route.request.url.startswith("http://viewer.test/") else route.abort())
+        page.route(
+            "**/*",
+            lambda route: (
+                route.fulfill(content_type="text/html", body=self.html)
+                if route.request.url.startswith("http://viewer.test/")
+                else route.abort()
+            ),
+        )
         page.goto("http://viewer.test/" + query)
         page.evaluate("i18nStart()")
         return page
@@ -247,8 +267,14 @@ class BrowserLanguage(unittest.TestCase):
         page = self.open("?lang=ko", "en-US")
         self.assertEqual(page.evaluate("LANG"), "ko")
         page2 = page.context.new_page()
-        page2.route("**/*", lambda route: route.fulfill(content_type="text/html", body=self.html)
-                    if route.request.url.startswith("http://viewer.test/") else route.abort())
+        page2.route(
+            "**/*",
+            lambda route: (
+                route.fulfill(content_type="text/html", body=self.html)
+                if route.request.url.startswith("http://viewer.test/")
+                else route.abort()
+            ),
+        )
         page2.goto("http://viewer.test/")
         self.assertEqual(page2.evaluate("LANG"), "ko")
 
@@ -265,7 +291,7 @@ def extract_js_fn(name: str) -> str:
         elif src[k] == "}":
             depth -= 1
             if depth == 0:
-                return src[i:k + 1]
+                return src[i : k + 1]
         k += 1
 
 
@@ -276,28 +302,54 @@ class ComposedMessages(unittest.TestCase):
         node = shutil.which("node")
         if not node:
             self.skipTest("node not available")
-        js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
-                        extract_js_fn("tr"), extract_js_fn("tl"), "console.log(JSON.stringify(%s));" % body])
+        js = "\n".join(
+            [
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                extract_js_fn("tr"),
+                extract_js_fn("tl"),
+                "console.log(JSON.stringify(%s));" % body,
+            ]
+        )
         r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
 
     def test_korean_fills_the_key_itself(self):
-        out = self.run_js("ko", "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{name}님 확인 필요',{name:'Bob'}),tl('검토 대기 {n}',{n:6}),"
-                                "tl('#{id}{p} 같은 범위',{id:4,p:'와'}),tr('완료'),tl('없는 키 {x}',{x:1})]")
+        out = self.run_js(
+            "ko",
+            "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{name}님 확인 필요',{name:'Bob'}),tl('검토 대기 {n}',{n:6}),"
+            "tl('#{id}{p} 같은 범위',{id:4,p:'와'}),tr('완료'),tl('없는 키 {x}',{x:1})]",
+        )
         self.assertEqual(out, ["1쪽", "25쪽", "Bob님 확인 필요", "검토 대기 6", "#4와 같은 범위", "완료", "없는 키 1"])
 
     def test_english_uses_templates_and_plurals(self):
-        out = self.run_js("en", "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{page}쪽',{page:3}),tl('{name}님 확인 필요',{name:'Bob'}),"
-                                "tl('{n}시간 전',{n:22}),tl('{n}일 전',{n:1}),tl('이전 {n}건 보기',{n:2}),tl('#{id}{p} 같은 범위',{id:4,p:'와'}),"
-                                "tr('완료'),tl('없는 키 {x}',{x:1})]")
-        self.assertEqual(out, ["1 p.", "25 pp.", "p. 3", "Needs Bob's review", "22 hr ago", "1 day ago", "Show 2 earlier",
-                               "Same range as #4", "Done", "없는 키 1"])
+        out = self.run_js(
+            "en",
+            "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{page}쪽',{page:3}),tl('{name}님 확인 필요',{name:'Bob'}),"
+            "tl('{n}시간 전',{n:22}),tl('{n}일 전',{n:1}),tl('이전 {n}건 보기',{n:2}),tl('#{id}{p} 같은 범위',{id:4,p:'와'}),"
+            "tr('완료'),tl('없는 키 {x}',{x:1})]",
+        )
+        self.assertEqual(
+            out,
+            [
+                "1 p.",
+                "25 pp.",
+                "p. 3",
+                "Needs Bob's review",
+                "22 hr ago",
+                "1 day ago",
+                "Show 2 earlier",
+                "Same range as #4",
+                "Done",
+                "없는 키 1",
+            ],
+        )
 
 
 def pick_warning_sentences():
     """The Korean sentences limn.locate's pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
     import ast
+
     tree = ast.parse(Path(locate.__file__).read_text(encoding="utf-8"))
     out = set()
     for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("pick", "_pick_region")):
@@ -321,9 +373,16 @@ class PickWarnings(unittest.TestCase):
             self.skipTest("node not available")
         table = re.search(r"const PICK_WARNS=\[.*?\];", ps.HTML, re.S)
         self.assertIsNotNone(table)
-        js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
-                        table.group(0), extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("warnText"),
-                        "console.log(JSON.stringify(%s));" % body])
+        js = "\n".join(
+            [
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                table.group(0),
+                extract_js_fn("tr"),
+                extract_js_fn("tl"),
+                extract_js_fn("warnText"),
+                "console.log(JSON.stringify(%s));" % body,
+            ]
+        )
         r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
@@ -338,10 +397,15 @@ class PickWarnings(unittest.TestCase):
 
     def test_english_translates_each_joined_sentence(self):
         """A warning of three joined sentences, with its numbers, comes out as three English sentences, no Hangul."""
-        warn = ("화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요. "
-                "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다.")
-        out = self.run_js("en", "[warnText(%s),warnText('두 경로가 다른 곳을 가리킵니다(L12 / L480). 확인이 필요합니다.'),"
-                                "warnText(''),warnText('모르는 문장입니다.')]" % json.dumps(warn, ensure_ascii=False))
+        warn = (
+            "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요. "
+            "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다."
+        )
+        out = self.run_js(
+            "en",
+            "[warnText(%s),warnText('두 경로가 다른 곳을 가리킵니다(L12 / L480). 확인이 필요합니다.'),"
+            "warnText(''),warnText('모르는 문장입니다.')]" % json.dumps(warn, ensure_ascii=False),
+        )
         self.assertFalse(HANGUL.search(out[0]), out[0])
         self.assertIn("23%", out[0])
         self.assertIn("L12", out[1])
@@ -351,24 +415,36 @@ class PickWarnings(unittest.TestCase):
 
     def test_korean_shows_the_server_warning_unchanged(self):
         """ko: exactly the server's text."""
-        warn = "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다."
+        warn = (
+            "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다."
+        )
         self.assertEqual(self.run_js("ko", "warnText(%s)" % json.dumps(warn, ensure_ascii=False)), warn)
 
 
 def _png(w, h):
     """A white 8-bit grayscale PNG (the viewer only needs real page images and their size)."""
+
     def chunk(tag, data):
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
     raw = b"".join(b"\x00" + b"\xff" * w for _ in range(h))
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
 
 
-TEX = "\\documentclass{article}\n\\begin{document}\n" + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40)) + "\\end{document}\n"
+TEX = (
+    "\\documentclass{article}\n\\begin{document}\n"
+    + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40))
+    + "\\end{document}\n"
+)
 ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
 BOB = {"login": "bob@example.com", "name": "Bob Lee"}
 SEOJUN = {"login": "seojun@example.com", "name": "김서준"}
-VERA = {"login": "vera@example.com", "name": "Vera Park"}       # a view-only member: her changes are refused (403)
+VERA = {"login": "vera@example.com", "name": "Vera Park"}  # a view-only member: her changes are refused (403)
 # User content in the fixture: document tab names, a note, a reply and a person's name in Korean. Everything
 # else on screen is chrome and must be English in English mode. '한국어' is the switch back to Korean.
 USER_TEXT = ("본문", "답변서", "이 문장을 다듬어 주세요", "표 설명을 줄였습니다", "김서준")
@@ -450,7 +526,7 @@ class EnglishChrome(unittest.TestCase):
         C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
         ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C))
         ps.init_seq()
-        page = _png(1275, 1650)            # a letter page at 150 dpi
+        page = _png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.DOCS:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True)
@@ -468,6 +544,7 @@ class EnglishChrome(unittest.TestCase):
         def add(lo, hi, note, actor, **kw):
             d = dict(file=str(C.main), lo=lo, hi=hi, page=1 + lo // 20, note=note, **kw)
             return add_pin(d, actor, ps).record["id"]
+
         claimed = add(4, 5, "Tighten this sentence", ALICE)
         ps.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
@@ -483,14 +560,17 @@ class EnglishChrome(unittest.TestCase):
         ps.set_done(done, True, ALICE)
         dropped = add(28, 29, "Wrong spot", ALICE)
         ps.drop_pin(dropped, ALICE)
-        add_pin(dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE, ps, doc=rr).record["id"]
+        add_pin(
+            dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE, ps, doc=rr
+        ).record["id"]
 
-        def age(rows):               # threads and pins from yesterday and a few hours ago, so relative times show
+        def age(rows):  # threads and pins from yesterday and a few hours ago, so relative times show
             for i, r in enumerate(rows):
                 r["at"] = "2026-09-2%d 09:%02d:00" % (3 + i % 2, i)
                 for m in r.get("thread") or []:
                     m["at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3 * 3600))
             return None, True
+
         ps.transact(age)
 
     def talk(self, raw):
@@ -532,10 +612,15 @@ class EnglishChrome(unittest.TestCase):
             h["Content-Length"] = str(len(body))
         if req.method == "POST":
             h["Origin"] = "http://127.0.0.1:18999"
-        raw = ("%s %s HTTP/1.1\r\n" % (req.method, u.path + ("?" + u.query if u.query else ""))
-               + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n").encode("latin-1") + body
+        raw = (
+            "%s %s HTTP/1.1\r\n" % (req.method, u.path + ("?" + u.query if u.query else ""))
+            + "".join("%s: %s\r\n" % kv for kv in h.items())
+            + "\r\n"
+        ).encode("latin-1") + body
         code, hdrs, data = self.talk(raw)
-        route.fulfill(status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data)
+        route.fulfill(
+            status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data
+        )
 
     def open(self, lang, **device):
         context = self.browser.new_context(**device)
@@ -545,7 +630,9 @@ class EnglishChrome(unittest.TestCase):
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s#doc=ms" % lang)
-        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=6&&REVIEW_ALL.length===2", timeout=20000)
+        page.wait_for_function(
+            "typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=6&&REVIEW_ALL.length===2", timeout=20000
+        )
         page.wait_for_timeout(300)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
@@ -573,8 +660,10 @@ class EnglishChrome(unittest.TestCase):
         self.assert_english(page, "desktop reply on a pin awaiting review (outcome line, keep state)")
 
     def test_touch_chrome_is_english(self):
-        for name, device in (("fold", {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True}),
-                             ("phone", {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True})):
+        for name, device in (
+            ("fold", {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True}),
+            ("phone", {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}),
+        ):
             with self.subTest(device=name):
                 page = self.open("en", **device)
                 self.assert_english(page, name)
@@ -590,19 +679,31 @@ class EnglishChrome(unittest.TestCase):
         refused, so the shared fixture state never changes."""
         page = self.open(lang, viewport={"width": 1400, "height": 850})
         pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
-        scope = scope_http_error(ScopeUnreadable())      # built by the worker; no git in this fixture
+        scope = scope_http_error(ScopeUnreadable())  # built by the worker; no git in this fixture
         self.canned = {"/api/revision-build": (scope.code, scope.body)}
         self.addCleanup(lambda: (setattr(self, "canned", {}), setattr(self, "who", ALICE)))
         cases = (
-            ("viewer_only", "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", VERA,
-             "closePin(%d)" % pid),                                            # 403: a view-only member presses [완료]
-            ("conflict", "conflict", ALICE, "undoAppend(%d,'x',999)" % pid),     # 409: undo with a stale base_rev
-            ("note_append_too_long", "덧붙일 메모가 너무 깁니다(2000자 이하).", ALICE,
-             "appendToPin(%d,'x'.repeat(2001))" % pid),                       # 400: validation
-            ("pin_not_found", "핀 #999999 이 없습니다.", ALICE, "undoAppend(999999,'x',0)"),   # 404: the pin is gone
-            ("scope_failed", scope.body["error"], ALICE,                        # 422: pin-scoped comparison
-             "api('/api/revision-build',{method:'POST',body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
-             ".catch(()=>{})" % pid),
+            (
+                "viewer_only",
+                "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.",
+                VERA,
+                "closePin(%d)" % pid,
+            ),  # 403: a view-only member presses [완료]
+            ("conflict", "conflict", ALICE, "undoAppend(%d,'x',999)" % pid),  # 409: undo with a stale base_rev
+            (
+                "note_append_too_long",
+                "덧붙일 메모가 너무 깁니다(2000자 이하).",
+                ALICE,
+                "appendToPin(%d,'x'.repeat(2001))" % pid,
+            ),  # 400: validation
+            ("pin_not_found", "핀 #999999 이 없습니다.", ALICE, "undoAppend(999999,'x',0)"),  # 404: the pin is gone
+            (
+                "scope_failed",
+                scope.body["error"],
+                ALICE,  # 422: pin-scoped comparison
+                "api('/api/revision-build',{method:'POST',body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
+                ".catch(()=>{})" % pid,
+            ),
         )
         out = []
         for reason, server_text, who, call in cases:
@@ -610,8 +711,10 @@ class EnglishChrome(unittest.TestCase):
             page.evaluate("document.querySelector('#toasts').replaceChildren()")
             page.evaluate("async()=>{await %s;}" % call)
             page.wait_for_selector("#toasts .toast.err")
-            title, desc = page.evaluate("(()=>{const t=document.querySelector('#toasts .toast.err');"
-                                        "return [t.querySelector('.t-title').textContent,(t.querySelector('.t-desc')||{}).textContent||''];})()")
+            title, desc = page.evaluate(
+                "(()=>{const t=document.querySelector('#toasts .toast.err');"
+                "return [t.querySelector('.t-title').textContent,(t.querySelector('.t-desc')||{}).textContent||''];})()"
+            )
             out.append((reason, server_text, title, desc))
         return page, out
 
@@ -637,13 +740,25 @@ class EnglishChrome(unittest.TestCase):
         page = self.open("en", viewport={"width": 1400, "height": 850})
         page.evaluate("marks()")
         self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 3)
-        self.assertEqual(page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16)
+        self.assertEqual(
+            page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16
+        )
 
     def test_korean_default_is_unchanged(self):
         page = self.open("ko", viewport={"width": 1400, "height": 850})
         self.assertEqual(page.evaluate("document.documentElement.lang"), "ko")
         text = page.text_content("body")
-        for s in ("열린 핀 6", "검토 대기 2", "3쪽", "Bob Lee님 확인 필요", "내 확인 차례", "로컬/에이전트", "변경 보기", "3시간 전", "PDF 재빌드"):
+        for s in (
+            "열린 핀 6",
+            "검토 대기 2",
+            "3쪽",
+            "Bob Lee님 확인 필요",
+            "내 확인 차례",
+            "로컬/에이전트",
+            "변경 보기",
+            "3시간 전",
+            "PDF 재빌드",
+        ):
             self.assertIn(s, text)
         self.assertRegex(page.title(), r"^Limn · Demo · 본문 · 열린 6 · 검토 2$")
         self.assertEqual(page.get_attribute("#jump", "placeholder"), "쪽 이동")
@@ -652,10 +767,20 @@ class EnglishChrome(unittest.TestCase):
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.open(lang, viewport={"width": 1400, "height": 850})
-                self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), 348)
-                tops = page.evaluate("[...document.querySelectorAll('#bar1>*')].filter(e=>e.getClientRects().length&&!e.classList.contains('sp'))"
-                                     ".map(e=>Math.round(e.getBoundingClientRect().top))")
+                self.assertEqual(
+                    page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().width)"), 348
+                )
+                tops = page.evaluate(
+                    "[...document.querySelectorAll('#bar1>*')].filter(e=>e.getClientRects().length&&!e.classList.contains('sp'))"
+                    ".map(e=>Math.round(e.getBoundingClientRect().top))"
+                )
                 self.assertGreaterEqual(len(tops), 8)
                 self.assertEqual(len(set(tops)), 1, tops)
-                self.assertFalse(page.evaluate("[...document.querySelectorAll('#bar1 button')].some(b=>b.scrollWidth>b.clientWidth+1)"))
-                self.assertGreaterEqual(page.evaluate("document.querySelector('#jump').getBoundingClientRect().width"), 40)
+                self.assertFalse(
+                    page.evaluate(
+                        "[...document.querySelectorAll('#bar1 button')].some(b=>b.scrollWidth>b.clientWidth+1)"
+                    )
+                )
+                self.assertGreaterEqual(
+                    page.evaluate("document.querySelector('#jump').getBoundingClientRect().width"), 40
+                )

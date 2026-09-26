@@ -7,6 +7,7 @@ checked apart from the real page; tests/test_viewer_files.py checks the packaged
 
 Run: uv run pytest -q tests/test_viewer_assemble.py
 """
+
 import ast
 import json
 import tempfile
@@ -15,9 +16,11 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-PAGE = ("<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK__</i>"
-        "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
-        "__APP_JS__</script></html>")
+PAGE = (
+    "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK__</i>"
+    "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
+    "__APP_JS__</script></html>"
+)
 ICONS = {"x": '<path d="M1 1"/>', "a": '<path d="M2 2"/>'}
 
 
@@ -44,16 +47,26 @@ class ViewerHtml(unittest.TestCase):
 
     def html(self, messages=None, icons=ICONS):
         """The assembled test page with fixed inputs."""
-        return assemble.viewer_html(self.dir, {"가": "A"} if messages is None else messages,
-                                    pdfjs_version="9.9.9", mark="<svg id=m/>", icons=icons)
+        return assemble.viewer_html(
+            self.dir,
+            {"가": "A"} if messages is None else messages,
+            pdfjs_version="9.9.9",
+            mark="<svg id=m/>",
+            icons=icons,
+        )
 
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
         """The exact page: parts joined in order, the version, the mark, both JSON tables (sorted), icon tokens in
         the page and inside a part replaced - and the run-time __LABEL__ left for build_html()."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
-        expected = ("<html><style>b{}\n</style><title>__LABEL__</title>" + svg("x") + "<i><svg id=m/></i>"
-                    "<script>const V='9.9.9';const ICONS=" + json.dumps(ICONS, sort_keys=True)
-                    + ';const I18N_EN={"가": "A"};\nf();\ng(' + svg("a") + ");\n</script></html>")
+        expected = (
+            "<html><style>b{}\n</style><title>__LABEL__</title>" + svg("x") + "<i><svg id=m/></i>"
+            "<script>const V='9.9.9';const ICONS="
+            + json.dumps(ICONS, sort_keys=True)
+            + ';const I18N_EN={"가": "A"};\nf();\ng('
+            + svg("a")
+            + ");\n</script></html>"
+        )
         self.assertEqual(self.html(), expected)
 
     def test_the_same_inputs_give_the_same_page_whatever_the_table_order(self):
@@ -64,7 +77,7 @@ class ViewerHtml(unittest.TestCase):
         self.assertIn('{"a": {"one": "x", "other": "y"}, "b": "B"}', a)
 
     def test_a_message_can_never_close_the_script(self):
-        """"</" in a message is written as "<\\/", which the JS string reads back the same."""
+        """ "</" in a message is written as "<\\/", which the JS string reads back the same."""
         out = self.html({"</script>": "</b>"})
         self.assertIn('{"<\\/script>": "<\\/b>"}', out)
         self.assertEqual(out.count("</script>"), 1)
@@ -87,10 +100,18 @@ class ViewerHtml(unittest.TestCase):
     def test_the_packaged_page_keeps_only_the_run_time_placeholders(self):
         """The real folder with the real tables: no build-time placeholder or icon token survives, and the four
         placeholders build_html() fills are still there."""
-        out = assemble.viewer_html(assemble.VIEWER_DIR, {}, pdfjs_version=assemble.PDFJS_VERSION, mark="<svg/>",
-                                   icons=assemble.LUCIDE)
-        for gone in ("__APP_CSS__", "__APP_JS__", "__PDFJS_VERSION__", "__LIMN_MARK__", "__LUCIDE_JSON__",
-                     "__UI_EN_JSON__", "{{ic:"):
+        out = assemble.viewer_html(
+            assemble.VIEWER_DIR, {}, pdfjs_version=assemble.PDFJS_VERSION, mark="<svg/>", icons=assemble.LUCIDE
+        )
+        for gone in (
+            "__APP_CSS__",
+            "__APP_JS__",
+            "__PDFJS_VERSION__",
+            "__LIMN_MARK__",
+            "__LUCIDE_JSON__",
+            "__UI_EN_JSON__",
+            "{{ic:",
+        ):
             self.assertNotIn(gone, out)
         for kept in ("__LABEL__", "__ACCENT__", "__ACCENT_KEY__", "__FAVICON_HREF__"):
             self.assertIn(kept, out)
@@ -109,8 +130,15 @@ class LoadUiMessages(unittest.TestCase):
 
     def test_only_strings_and_well_formed_plural_forms_are_kept(self):
         """Empty keys or values, non-string values and plural forms without a string "other" are dropped."""
-        table = {"가": "A", "": "x", "나": "", "다": 3, "{n}라": {"one": "r", "other": "rs"}, "{n}마": {"one": "m"},
-                 "{n}바": {"other": ""}}
+        table = {
+            "가": "A",
+            "": "x",
+            "나": "",
+            "다": 3,
+            "{n}라": {"one": "r", "other": "rs"},
+            "{n}마": {"one": "m"},
+            "{n}바": {"other": ""},
+        }
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "ui_en.json"
             path.write_text(json.dumps(table, ensure_ascii=False), encoding="utf-8")
@@ -128,7 +156,6 @@ class Independence(unittest.TestCase):
         self.assertEqual(modules, {"__future__", "json", "re", "collections.abc", "pathlib", "typing"})
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
-
 
 
 class ServiceWorker(unittest.TestCase):

@@ -2,6 +2,7 @@
 
 This file and src/limn/migrate.py are the only places allowed to use the old name.
 """
+
 import os
 import socket
 import subprocess
@@ -58,7 +59,7 @@ def box(tmp_path):
     (ms / "hl.tex").write_text("\\documentclass{article}\\begin{document}h\\end{document}\n")
     old_cfg, old_root = cfg / "pin-viewer", data / "pin-viewer"
     old_cfg.mkdir(parents=True)
-    legacy_state = data / "paper-a-pin"          # a state dir outside the old data root
+    legacy_state = data / "paper-a-pin"  # a state dir outside the old data root
     for d in (legacy_state, old_root / "paper-b", old_root / "paper-c", old_root / "app", old_root / "app.prev"):
         d.mkdir(parents=True)
     (legacy_state / "pins.jsonl").write_text('{"id": 1}\n')
@@ -74,24 +75,47 @@ def box(tmp_path):
     # systemctl stub: every unit is inactive unless listed in STUB_ACTIVE.
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "systemctl").write_text('#!/usr/bin/env bash\nfor u in $STUB_ACTIVE; do [[ " $* " == *" $u "* ]] && '
-                                      '{ echo active; exit 0; }; done\necho inactive; exit 3\n')
+    (bindir / "systemctl").write_text(
+        '#!/usr/bin/env bash\nfor u in $STUB_ACTIVE; do [[ " $* " == *" $u "* ]] && '
+        "{ echo active; exit 0; }; done\necho inactive; exit 3\n"
+    )
     (bindir / "systemctl").chmod(0o755)
-    env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(cfg), XDG_DATA_HOME=str(data),
-               PATH="%s:%s" % (bindir, os.environ.get("PATH", "")), PYTHONPATH=str(SRC), STUB_ACTIVE="")
+    env = dict(
+        os.environ,
+        HOME=str(home),
+        XDG_CONFIG_HOME=str(cfg),
+        XDG_DATA_HOME=str(data),
+        PATH="%s:%s" % (bindir, os.environ.get("PATH", "")),
+        PYTHONPATH=str(SRC),
+        STUB_ACTIVE="",
+    )
     env.pop("LIMN_CONFIG_DIR", None)
     env.pop("LIMN_DATA_ROOT", None)
 
     def run(*args, **extra):
         e = dict(env, **extra)
-        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False)
+        return subprocess.run(
+            [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False
+        )
 
     def snapshot():
-        return {p: (p.read_bytes() if p.is_file() else None) for p in sorted(tmp_path.rglob("*"))
-                if "bin" not in p.parts}
+        return {
+            p: (p.read_bytes() if p.is_file() else None) for p in sorted(tmp_path.rglob("*")) if "bin" not in p.parts
+        }
 
-    return dict(run=run, cfg=cfg, data=data, old_cfg=old_cfg, old_root=old_root, legacy_state=legacy_state,
-                repo=repo, env=env, snapshot=snapshot, tmp=tmp_path, fmt=fmt)
+    return dict(
+        run=run,
+        cfg=cfg,
+        data=data,
+        old_cfg=old_cfg,
+        old_root=old_root,
+        legacy_state=legacy_state,
+        repo=repo,
+        env=env,
+        snapshot=snapshot,
+        tmp=tmp_path,
+        fmt=fmt,
+    )
 
 
 def read_env(p):
@@ -126,7 +150,8 @@ def test_migrate_copies_configs_and_keeps_every_value(box):
         for k, v in old_vals.items():
             assert new_vals[k] == v, (n, k)
         text = (new / ("%s.env" % n)).read_text()
-        assert not [ln for ln in text.splitlines() if ln.startswith("#") and "pin-viewer" in ln]  # old-name comments dropped
+        # old-name comments dropped
+        assert not [ln for ln in text.splitlines() if ln.startswith("#") and "pin-viewer" in ln]
         assert text.startswith("# limn@%s" % n)
         assert not (new / ("%s.env" % n)).is_symlink()
     # A missing STATE_DIR is pinned to the old default so pins do not vanish.

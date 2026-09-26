@@ -7,6 +7,7 @@ through `app` (limn.web.app.App), which the composition root binds (server.Handl
 answers for pin outcomes are in limn.web.answers and the errors in limn.web.errors. Statuses, headers and bodies are
 the agent contract (docs/handbook/api.md).
 """
+
 from __future__ import annotations
 
 import json
@@ -21,13 +22,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import ParseResult, parse_qs, urlparse
 
+from limn.documents import DocNotFound
 from limn.mark import png as mark_png
 from limn.pins.lifecycle import NotInTrash
 from limn.pins.model import TrashedPin
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
-from limn.documents import DocNotFound
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
@@ -47,17 +48,20 @@ def _first(q: Query, key: str) -> str | None:
 
 class Server(ThreadingHTTPServer):
     """The IPv4 server: one daemon thread per connection, and a backlog deep enough for bursts."""
+
     daemon_threads = True
-    request_queue_size = 128          # so dozens of concurrent requests don't stall a second at a time on SYN retransmits
+    request_queue_size = 128  # so dozens of concurrent requests don't stall a second at a time on SYN retransmits
 
 
 class Server6(Server):
     """The same server on an IPv6 --bind address."""
+
     address_family = socket.AF_INET6
 
 
 class Handler(BaseHTTPRequestHandler):
     """One connection's requests. Unbound: a subclass sets `app` (server.Handler) before it serves anything."""
+
     protocol_version = "HTTP/1.1"
     # If the body arrives shorter than Content-Length and the connection never closes, the read would hang forever. Idle keep-alive connections are also closed after this time.
     timeout = 30
@@ -102,7 +106,9 @@ class Handler(BaseHTTPRequestHandler):
         self._raw = b""
         if self.headers.get("Transfer-Encoding") is not None:
             self.close_connection = True
-            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.", reason="transfer_encoding")
+            raise HTTPError(
+                400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.", reason="transfer_encoding"
+            )
         cls = self.headers.get_all("Content-Length") or []
         if len(set(v.strip() for v in cls)) > 1:
             self.close_connection = True
@@ -110,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
         cl = cls[0].strip() if cls else ""
         if cl == "":
             return b""
-        if not re.fullmatch(r"[0-9]+", cl):          # isdigit() would also accept latin-1 digits like '²'
+        if not re.fullmatch(r"[0-9]+", cl):  # isdigit() would also accept latin-1 digits like '²'
             self.close_connection = True
             raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.", reason="bad_content_length")
         n = int(cl)
@@ -118,9 +124,11 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).", reason="body_too_large")
         raw = self.rfile.read(n) if n else b""
-        if len(raw) != n:                                 # a truncated request - never acted on (including /api/clear)
+        if len(raw) != n:  # a truncated request - never acted on (including /api/clear)
             self.close_connection = True
-            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).", reason="body_truncated")
+            raise HTTPError(
+                400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).", reason="body_truncated"
+            )
         self._raw = raw
         return raw
 
@@ -132,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
         - Origin: if present, must be loopback when Host is loopback (port irrelevant - SSH -L), or the same
           origin as that host when Host is *.ts.net (origin_ok).
           A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
-        if not self.app.C.origin_check:               # --no-origin-check: an escape hatch for when the observed path differs from expectations
+        # --no-origin-check: an escape hatch for when the observed path differs from expectations
+        if not self.app.C.origin_check:
             return
         host = self.headers.get("Host")
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
@@ -141,8 +150,9 @@ class Handler(BaseHTTPRequestHandler):
             raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % self.app.hdr_text(host)[:100], reason="bad_host")
         origin = self.headers.get("Origin")
         if origin is not None and not self.app.origin_ok(origin, host):
-            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.hdr_text(origin)[:100],
-                            reason="bad_origin")
+            raise HTTPError(
+                403, "다른 출처의 요청은 받지 않습니다: %s" % self.app.hdr_text(origin)[:100], reason="bad_origin"
+            )
 
     def _guard(self) -> Json:
         """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the principal on
@@ -165,14 +175,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def _wants_page(self) -> bool:
         """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
-        return (self.command == "GET" and urlparse(self.path).path == "/"
-                and "text/html" in (self.headers.get("Accept") or ""))
+        return (
+            self.command == "GET"
+            and urlparse(self.path).path == "/"
+            and "text/html" in (self.headers.get("Accept") or "")
+        )
 
     def _refuse(self, e: HTTPError) -> None:
         """Send a refusal: the readable HTML page to a browser opening /, the JSON error body to everyone else."""
         if self._wants_page():
             lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
-            return self._send(e.code, error_page_html(e, lang, self.app.UI_EN).encode("utf-8"), "text/html; charset=utf-8")
+            return self._send(
+                e.code, error_page_html(e, lang, self.app.UI_EN).encode("utf-8"), "text/html; charset=utf-8"
+            )
         self._json(e.body, e.code)
 
     def _run(self, fn: Callable[[], None]) -> None:
@@ -183,9 +198,9 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except HTTPError as err:
             self._refuse(err)
-        except (BrokenPipeError, ConnectionResetError, socket.timeout):
+        except (TimeoutError, BrokenPipeError, ConnectionResetError):
             self.close_connection = True
-        except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
+        except Exception as e:  # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)
             try:
                 self._json({"error": "서버 내부 오류: %s" % e, "reason": "internal"}, 500)
@@ -216,8 +231,12 @@ class Handler(BaseHTTPRequestHandler):
     def _found(self, found: Document | DocNotFound) -> Document:
         """The document a lookup found, or the 404 for a key this instance does not serve, listing the keys it does."""
         if isinstance(found, DocNotFound):
-            raise HTTPError(404, "없는 문서입니다: %s" % self.app.hdr_text(found.key)[:40], docs=list(found.known),
-                            reason="unknown_doc")
+            raise HTTPError(
+                404,
+                "없는 문서입니다: %s" % self.app.hdr_text(found.key)[:40],
+                docs=list(found.known),
+                reason="unknown_doc",
+            )
         return found
 
     def _get_revision(self, path: str, D: Document, q: Query) -> None:
@@ -230,8 +249,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(answers.revision_answer(app.revision_diff(D, commit, pin)))
         if path == "/api/revision-build":
             return self._json(answers.revision_answer(app.revision_status(D, commit, pin)))
-        return self._send(200, answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)), "application/pdf",
-                          cache="private, max-age=600")
+        return self._send(
+            200,
+            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
+            "application/pdf",
+            cache="private, max-age=600",
+        )
 
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
         """GET routes that act on the request's document D (?doc=, found in _get): the viewer page, people,
@@ -239,31 +262,34 @@ class Handler(BaseHTTPRequestHandler):
         propagate to _run as HTTPError."""
         app = self.app
         if path == "/":
-            self._record(actor)                   # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
+            # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
+            self._record(actor)
             return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":                 # @-tag autocomplete candidates (no write). role: people.json role, editor if absent
+        if path == "/api/people":  # @-tag autocomplete candidates (no write). role: people.json role, editor if absent
             roles = app.people_roles()
-            ppl = sorted(app.known_people(app.snapshot_pins()).values(),
-                         key=lambda x: (x.get("last_seen") is None, x["name"].lower()))
+            ppl = sorted(
+                app.known_people(app.snapshot_pins()).values(),
+                key=lambda x: (x.get("last_seen") is None, x["name"].lower()),
+            )
             ppl = [dict(x, role=roles.get(x["login"], app.DEFAULT_ROLE)) for x in ppl]
             return self._json({"people": ppl, "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
-        if path in ("/favicon-32.png", "/apple-touch-icon.png"):   # PNG fallbacks of the SVG favicon, drawn by limn.mark
+        if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
             size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
             return self._send(200, mark_png(size, app.C.accent, rounded), "image/png", cache="public, max-age=86400")
-        if path == "/api/version":                # the installed Limn version - no write
+        if path == "/api/version":  # the installed Limn version - no write
             return self._json({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
             light = (q.get("light") or ["0"])[0] == "1"
             if not light:
                 self._record(actor)
             out = app.meta(D, actor, light=light)
-            out["me"] = self._me(actor)           # + role (additive)
+            out["me"] = self._me(actor)  # + role (additive)
             # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
             out.update(app.events_since(actor, accepted(parse.parse_event_cursor(_first(q, "ev")))))
             return self._json(out)
-        if path == "/sw.js":                      # the service worker for browser notifications (app data is never cached)
+        if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
             return self._send(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
         if path == "/api/revisions":
             return self._json(app.revision_history(D))
@@ -274,16 +300,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(answers.diet_log(app.build_state_snapshot(D), full))
-        if path == "/pins.md":                    # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
+        # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
+        if path == "/pins.md":
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)
             return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
-            app.maybe_purge_trash()               # hourly Trash expiry on a long-running server (this path already writes)
+            app.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
             allp = (q.get("all") or ["0"])[0] == "1"
             rows = app.pins_payload(app.snapshot_pins(), allp)
-            if q.get("doc"):                          # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
+            if q.get("doc"):  # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
                 rows = [r for r in rows if r["doc"] == D.key]
             return self._json(rows)
         if path == "/api/docs":
@@ -291,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pins/dropped":
             return self._json({"dropped": app.dropped_payload()})
         m = re.fullmatch(r"/api/pins/(\d+)", path)
-        if m:                                     # one pin (including its thread) - for when an agent needs to read a long thread in full
+        if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
             pid = int(m.group(1))
             rec = next((r for r in app.pins_payload(app.snapshot_pins(), True) if r["id"] == pid), None)
             if rec is None:
@@ -314,7 +341,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
             # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
-            vf = app.vendor_file(path[len("/vendor/pdfjs/"):])
+            vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
             if vf is not None:
                 try:
                     data = vf.read_bytes()
@@ -336,9 +363,13 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     data = None
             if data is None:
-                raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % app.hdr_text(name)[:60],
-                                pdf_build_gone=bool(name), pages_build=app.cur_pages(D).name,
-                                reason="pdf_build_gone" if name else "pdf_missing")    # no ?build=: nothing is gone
+                raise HTTPError(
+                    404,
+                    "그 빌드의 PDF 가 없습니다: %s" % app.hdr_text(name)[:60],
+                    pdf_build_gone=bool(name),
+                    pages_build=app.cur_pages(D).name,
+                    reason="pdf_build_gone" if name else "pdf_missing",
+                )  # no ?build=: nothing is gone
             return self._send(200, data, "application/pdf", cache="private, max-age=600")
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
@@ -382,10 +413,14 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
-        if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
+        if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
             if d.get("confirm") != CLEAR_CONFIRM:
-                raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
-                                % CLEAR_CONFIRM, reason="confirm_required")
+                raise HTTPError(
+                    400,
+                    '모든 핀을 지우려면 본문에 {"confirm": "%s"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다).'
+                    % CLEAR_CONFIRM,
+                    reason="confirm_required",
+                )
             return self._json(dict(app.clear_pins(actor), ok=True))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
@@ -402,7 +437,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pin":
             want = d.get("doc")
             if isinstance(want, str) and want != D.key:
-                D = self._found(app.request_doc(want))   # the body's doc wins, as it always has: "" names the first document
+                # the body's doc wins, as it always has: "" names the first document
+                D = self._found(app.request_doc(want))
             request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/revision-build":
@@ -411,8 +447,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(result, 202 if result["state"] == "running" else 200)
         # /api/rebuild (the only route left; _post sends only these four here)
         if D.is_pdf:
-            raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."
-                            % D.key, reason="view_only_no_rebuild")
+            raise HTTPError(
+                400,
+                "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % D.key,
+                reason="view_only_no_rebuild",
+            )
         full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
         if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
             r = app.build_async(D)
@@ -429,15 +468,18 @@ class Handler(BaseHTTPRequestHandler):
             hints = accepted(parse.parse_mention_hints(d.get("mentions")))
             reopen = accepted(parse.parse_reopen_flag(d))
             human = not app.is_agent(actor) and self.principal.role != "agent"
-            return self._json(answers.reply_answer(app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human),
-                                                   app.public, app.pin_state))
+            return self._json(
+                answers.reply_answer(
+                    app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human), app.public, app.pin_state
+                )
+            )
         if act == "confirm":
             return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
         if act == "drop":
             return self._json({"ok": isinstance(app.drop_pin(pid, actor), TrashedPin)})
         if act == "restore":
             return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
-        if act == "purge":                        # owner only (check_role)
+        if act == "purge":  # owner only (check_role)
             if isinstance(app.purge_pin(pid, actor), NotInTrash):
                 raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
             return self._json({"ok": True, "purged": pid})
@@ -446,8 +488,9 @@ class Handler(BaseHTTPRequestHandler):
             body = accepted(parse.parse_edit(d, app.assignee_people(d)))
             region, pdoc = app.edit_scope(pid)
             place = accepted(parse.parse_edit_place(body, region, app.document_facts(pdoc)))
-            return self._json(answers.edit_answer(app.edit_pin(pid, replace(body.request, place=place), actor, region),
-                                                  app.public))
+            return self._json(
+                answers.edit_answer(app.edit_pin(pid, replace(body.request, place=place), actor, region), app.public)
+            )
         if act == "claim":
             ttl, eta = accepted(parse.parse_claim_body(d))
             return self._json(answers.claim_answer(app.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public))
@@ -461,10 +504,23 @@ class Handler(BaseHTTPRequestHandler):
             changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src))
             review = accepted(parse.parse_review_flag(d))
             if review is None and self.principal.role == "agent":
-                review = True                     # a person with the agent role closes into review like any agent
-        else:                                     # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
+                review = True  # a person with the agent role closes into review like any agent
+        else:  # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
             reason = accepted(parse.parse_thread_text(d.get("reason"), "reason", required=False))
-        return self._json(answers.state_answer(
-            app.set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
-                         hints=accepted(parse.parse_mention_hints(d.get("mentions"))), changes=changes),
-            app.public, app.pin_state))
+        return self._json(
+            answers.state_answer(
+                app.set_done(
+                    pid,
+                    act == "close",
+                    actor,
+                    reply,
+                    ref,
+                    review=review,
+                    reason=reason,
+                    hints=accepted(parse.parse_mention_hints(d.get("mentions"))),
+                    changes=changes,
+                ),
+                app.public,
+                app.pin_state,
+            )
+        )

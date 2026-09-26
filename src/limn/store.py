@@ -19,6 +19,7 @@ parsed line the store trusts (valid), the anchor re-sync of rows against the .te
 renderer (render) and the exception a transaction step raises to refuse its request (refusal). It creates no lock
 and holds no state of its own, so a store value is cheap to make per call.
 """
+
 from __future__ import annotations
 
 import json
@@ -41,6 +42,7 @@ T = TypeVar("T")
 @dataclass(frozen=True)
 class PinFiles:
     """Where the pin store keeps its files: fixed names under one state directory."""
+
     state: Path
 
     @property
@@ -85,6 +87,7 @@ class PinStore:
     line numbers in place and says whether it changed any; render turns the live pins into pins.md's text; a
     transaction step raising refusal is a refused request, after which the re-sync is still written.
     """
+
     files: PinFiles
     lock: threading.RLock
     valid: Callable[[object], bool]
@@ -114,8 +117,9 @@ class PinStore:
                 continue
             rows.append(r)
         if bad:
-            print("warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]),
-                  file=sys.stderr)
+            print(
+                "warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]), file=sys.stderr
+            )
         return rows, bad
 
     def read_pins(self) -> tuple[list[Row], list[int]]:

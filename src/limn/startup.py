@@ -19,6 +19,7 @@ Pure decisions and the few startup probes live together because they change toge
 time. The probes (free_port, probe_port, detect_main, parse_doc_arg's file checks, git_remote_url,
 tighten_state_perms) touch only what their arguments name.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,8 +37,15 @@ from pathlib import Path
 from typing import NamedTuple, TypedDict
 
 from limn.access import (
-    HEADER_NAME_RE, LOOPBACK_AGENT_DEPRECATION, HostEntry, IPNetwork, is_loopback_bind, local_owner_actor,
-    parse_networks, parse_public_hosts, valid_login,
+    HEADER_NAME_RE,
+    LOOPBACK_AGENT_DEPRECATION,
+    HostEntry,
+    IPNetwork,
+    is_loopback_bind,
+    local_owner_actor,
+    parse_networks,
+    parse_public_hosts,
+    valid_login,
 )
 from limn.config import ACCENT_PALETTE, Cfg
 from limn.documents import DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, RunPaths
@@ -55,8 +63,11 @@ def app_version() -> str:
     none. Reads the neighbouring file rather than importing the package, so it gives the same value whether the server
     is imported as a module (python -m limn.server) or run directly by file path (python .../limn/server.py)."""
     try:
-        m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']',
-                      Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"), re.M)
+        m = re.search(
+            r'^__version__\s*=\s*["\']([^"\']+)["\']',
+            Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"),
+            re.M,
+        )
     except OSError:
         m = None
     return m.group(1) if m else "0+unknown"
@@ -64,28 +75,31 @@ def app_version() -> str:
 
 class StartupRefused(NamedTuple):
     """Why the server does not start: the message main() prints to stderr before exiting with status 1."""
+
     message: str
 
 
 # ---------------------------------------------------------------- access (docs/adr/0002-access-control.md)
 
+
 @dataclass(frozen=True)
 class AccessOptions:
     """The access settings a command line starts with. Every field is also a run setting of the same name (Cfg), which
     the composition root sets from this value; the startup log (access_log_lines) reads the same value back."""
-    auth: str                                # identity provider: one of limn.access.AUTH_PROVIDERS
-    bind: str                                # the listen address
-    agent_loopback: bool                     # a headerless loopback request is the agent (deprecated)
-    tailnet_agent: bool                      # ...also one through tailscale serve (opt-in, deprecated)
-    public_hosts: tuple[HostEntry, ...]      # --public-host entries
-    trusted_proxies: tuple[IPNetwork, ...]   # --trusted-proxies networks
-    proxy_user_header: str                   # the header carrying the user under --auth trusted-proxy
-    proxy_name_header: str                   # ...the display name
-    proxy_email_header: str | None           # ...the e-mail (None = not configured)
-    members_only: bool                       # admit only logins in people.json or --allow
-    local_user: str | None                   # the owner's login under --auth local (None = $USER, then "owner")
-    insecure: bool                           # a non-loopback bind allowed only by --i-know-this-is-insecure
-    agent_token_file: Path | None            # where this machine's agents keep the token (ADR-0007); never read
+
+    auth: str  # identity provider: one of limn.access.AUTH_PROVIDERS
+    bind: str  # the listen address
+    agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
+    tailnet_agent: bool  # ...also one through tailscale serve (opt-in, deprecated)
+    public_hosts: tuple[HostEntry, ...]  # --public-host entries
+    trusted_proxies: tuple[IPNetwork, ...]  # --trusted-proxies networks
+    proxy_user_header: str  # the header carrying the user under --auth trusted-proxy
+    proxy_name_header: str  # ...the display name
+    proxy_email_header: str | None  # ...the e-mail (None = not configured)
+    members_only: bool  # admit only logins in people.json or --allow
+    local_user: str | None  # the owner's login under --auth local (None = $USER, then "owner")
+    insecure: bool  # a non-loopback bind allowed only by --i-know-this-is-insecure
+    agent_token_file: Path | None  # where this machine's agents keep the token (ADR-0007); never read
 
 
 def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
@@ -104,38 +118,54 @@ def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
     except ValueError:
         return StartupRefused("--bind takes an IP address (or localhost): %s" % bind)
     if not loop_bind and auth != "trusted-proxy" and not a.i_know_this_is_insecure:
-        return StartupRefused("Refusing to bind %s with --auth %s: a non-loopback address is only safe behind an authenticating "
-                              "proxy (--auth trusted-proxy). Keep the default 127.0.0.1 and expose it with tailscale serve, or "
-                              "pass --i-know-this-is-insecure if this network is private." % (bind, auth))
+        return StartupRefused(
+            "Refusing to bind %s with --auth %s: a non-loopback address is only safe behind an authenticating "
+            "proxy (--auth trusted-proxy). Keep the default 127.0.0.1 and expose it with tailscale serve, or "
+            "pass --i-know-this-is-insecure if this network is private." % (bind, auth)
+        )
     loopback_agent_possible = auth == "tailscale" and loop_bind
     if a.agent_loopback is True and not loopback_agent_possible:
-        return StartupRefused("--agent-loopback (AGENT_LOOPBACK=1) works only with --auth tailscale on a loopback --bind "
-                              "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>"
-                              % (auth, bind))
+        return StartupRefused(
+            "--agent-loopback (AGENT_LOOPBACK=1) works only with --auth tailscale on a loopback --bind "
+            "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>" % (auth, bind)
+        )
     agent_loopback = loopback_agent_possible and a.agent_loopback is not False
     if a.tailnet_agent and not agent_loopback:
-        return StartupRefused("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
-                              "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
-                              "--bind %s%s). Give agents a token instead: limn token create <instance>"
-                              % (auth, bind, ", --no-agent-loopback" if a.agent_loopback is False else ""))
+        return StartupRefused(
+            "--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
+            "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
+            "--bind %s%s). Give agents a token instead: limn token create <instance>"
+            % (auth, bind, ", --no-agent-loopback" if a.agent_loopback is False else "")
+        )
     try:
         public_hosts = parse_public_hosts(a.public_host)
         trusted_proxies = parse_networks(a.trusted_proxies)
     except ValueError as e:
         return StartupRefused(str(e))
-    for opt, v in (("--proxy-user-header", a.proxy_user_header), ("--proxy-name-header", a.proxy_name_header),
-                   ("--proxy-email-header", a.proxy_email_header)):
+    for opt, v in (
+        ("--proxy-user-header", a.proxy_user_header),
+        ("--proxy-name-header", a.proxy_name_header),
+        ("--proxy-email-header", a.proxy_email_header),
+    ):
         if v is not None and not HEADER_NAME_RE.fullmatch(v):
             return StartupRefused("%s takes an HTTP header name: %r" % (opt, v))
     if a.local_user is not None and not valid_login(a.local_user):
         return StartupRefused("--local-user takes a login (no spaces, not 'local' or 'agent:...'): %r" % a.local_user)
     return AccessOptions(
-        auth=auth, bind=bind, agent_loopback=agent_loopback, tailnet_agent=bool(a.tailnet_agent),
-        public_hosts=public_hosts, trusted_proxies=trusted_proxies, proxy_user_header=a.proxy_user_header,
-        proxy_name_header=a.proxy_name_header, proxy_email_header=a.proxy_email_header,
-        members_only=bool(a.members_only), local_user=a.local_user,
+        auth=auth,
+        bind=bind,
+        agent_loopback=agent_loopback,
+        tailnet_agent=bool(a.tailnet_agent),
+        public_hosts=public_hosts,
+        trusted_proxies=trusted_proxies,
+        proxy_user_header=a.proxy_user_header,
+        proxy_name_header=a.proxy_name_header,
+        proxy_email_header=a.proxy_email_header,
+        members_only=bool(a.members_only),
+        local_user=a.local_user,
         insecure=bool(a.i_know_this_is_insecure) and not loop_bind and auth != "trusted-proxy",
-        agent_token_file=Path(a.agent_token_file).expanduser() if a.agent_token_file else None)
+        agent_token_file=Path(a.agent_token_file).expanduser() if a.agent_token_file else None,
+    )
 
 
 def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) -> list[str]:
@@ -152,31 +182,43 @@ def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) ->
     if s.agent_token_file is not None:
         parts.append("token file %s (%s)" % (s.agent_token_file, "present" if token_file_present else "absent"))
     parts.append("loopback agent %s" % ("on (deprecated)" if s.agent_loopback else "off"))
-    if s.agent_loopback:                          # only meaningful where the loopback agent exists
+    if s.agent_loopback:  # only meaningful where the loopback agent exists
         parts.append("tailnet agent %s" % ("on (deprecated)" if s.tailnet_agent else "off"))
     parts.append("members-only %s" % ("on" if s.members_only else "off"))
     if s.public_hosts:
         parts.append("public hosts %s" % ",".join(n + (":%d" % p if p else "") for n, p in s.public_hosts))
     out = ["auth        " + " · ".join(parts)]
     if not is_loopback_bind(s.bind):
-        out.append("warning     bound to %s (not loopback) - identity provider: %s. Anyone who can reach this port "
-                   "can try it; only %s" % (s.bind, s.auth,
-                                           "the configured --trusted-proxies may vouch for people"
-                                           if s.auth == "trusted-proxy" else "tokens and the provider stand in the way"))
+        out.append(
+            "warning     bound to %s (not loopback) - identity provider: %s. Anyone who can reach this port "
+            "can try it; only %s"
+            % (
+                s.bind,
+                s.auth,
+                "the configured --trusted-proxies may vouch for people"
+                if s.auth == "trusted-proxy"
+                else "tokens and the provider stand in the way",
+            )
+        )
     if s.insecure:
-        out.append("warning     !!! --i-know-this-is-insecure: --auth %s on %s is NOT an authentication boundary - "
-                   "anyone on this network can read the manuscript and change pins. Use --auth trusted-proxy behind an "
-                   "authenticating proxy, or bind 127.0.0.1 and use tailscale serve !!!" % (s.auth, s.bind))
+        out.append(
+            "warning     !!! --i-know-this-is-insecure: --auth %s on %s is NOT an authentication boundary - "
+            "anyone on this network can read the manuscript and change pins. Use --auth trusted-proxy behind an "
+            "authenticating proxy, or bind 127.0.0.1 and use tailscale serve !!!" % (s.auth, s.bind)
+        )
     if s.agent_loopback:
         out.append("warning     " + LOOPBACK_AGENT_DEPRECATION)
     if s.tailnet_agent:
-        out.append("warning     --tailnet-agent: a headerless request through tailscale serve (a tagged device) is treated "
-                   "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
-                   "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT")
+        out.append(
+            "warning     --tailnet-agent: a headerless request through tailscale serve (a tagged device) is treated "
+            "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
+            "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT"
+        )
     return out
 
 
 # ---------------------------------------------------------------- the port
+
 
 def free_port(start: int = 18300, end: int = 18400) -> int | StartupRefused:
     """Find a free port. The point is not to steal someone else's port."""
@@ -189,8 +231,7 @@ def free_port(start: int = 18300, end: int = 18400) -> int | StartupRefused:
 
 def port_in_use_message(bind: str, port: int) -> str:
     """The one line for a --port another process already listens on."""
-    return ("limn serve: port %d on %s is already in use - stop the other server, or pick another --port"
-            % (port, bind))
+    return "limn serve: port %d on %s is already in use - stop the other server, or pick another --port" % (port, bind)
 
 
 def listen_refusal(bind: str, port: int, e: OSError) -> StartupRefused:
@@ -206,7 +247,7 @@ def probe_port(bind: str, port: int) -> StartupRefused | None:
     fam = socket.AF_INET6 if ":" in bind else socket.AF_INET
     s = socket.socket(fam, socket.SOCK_STREAM)
     try:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # the same option the server sets (allow_reuse_address)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # the same option the server sets (allow_reuse_address)
         s.bind((bind, port))
     except OSError as e:
         return listen_refusal(bind, port, e)
@@ -217,8 +258,10 @@ def probe_port(bind: str, port: int) -> StartupRefused | None:
 
 # ---------------------------------------------------------------- documents and the state folder (§Multiple documents)
 
+
 class DocSpec(TypedDict):
     """One parsed --doc: key, display name, kind ('tex' or 'pdf'), build root (src) and main file, both resolved."""
+
     key: str
     name: str
     kind: str
@@ -311,26 +354,41 @@ def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc]:
         if p["key"] in seen:
             raise ValueError("--doc 키가 겹칩니다: %s" % p["key"])
         seen.add(p["key"])
-        out.append(Doc(p["key"], p["name"], p["kind"], src=p["src"], main=p["main"],
-                       root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"), paths=paths))
+        out.append(
+            Doc(
+                p["key"],
+                p["name"],
+                p["kind"],
+                src=p["src"],
+                main=p["main"],
+                root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"),
+                paths=paths,
+            )
+        )
     return out
 
 
 def detect_main(src: Path) -> Path | StartupRefused:
     """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates."""
-    cands = [p for p in sorted(src.glob("*.tex"))
-             if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]]
+    cands = [
+        p
+        for p in sorted(src.glob("*.tex"))
+        if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]
+    ]
     if len(cands) == 1:
         return cands[0]
     how = "found none" if not cands else "found several"
     listing = "\n".join("  - %s" % p.name for p in cands) or "  (none)"
-    return StartupRefused("%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing))
+    return StartupRefused(
+        "%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing)
+    )
 
 
 @dataclass(frozen=True)
 class RunDocuments:
     """What the command line serves: the --doc documents (None without --doc: the single document of --main) and the
     main .tex of the run (the first LaTeX --doc document's, else the first document's; else --main's or the detected one)."""
+
     docs: list[Doc] | None
     main: Path
 
@@ -366,8 +424,9 @@ def state_slug(src: Path) -> str:
 def state_dir(state_dir_arg: str | None, src: Path, data_home: Path) -> Path:
     """The state folder: --state-dir (resolved), else <data_home>/limn/serve/<state_slug(src)>, where data_home is
     $XDG_DATA_HOME or ~/.local/share. Only decides; the caller creates it."""
-    return Path(state_dir_arg).expanduser().resolve() if state_dir_arg \
-        else data_home / "limn" / "serve" / state_slug(src)
+    return (
+        Path(state_dir_arg).expanduser().resolve() if state_dir_arg else data_home / "limn" / "serve" / state_slug(src)
+    )
 
 
 def tighten_state_perms(people_file: Path) -> None:
@@ -384,20 +443,28 @@ def tighten_state_perms(people_file: Path) -> None:
         try:
             os.chmod(p, 0o600)
         except OSError as e:
-            print("warning: %s is writable by others (%o) and could not be tightened: %s" % (p, mode, e), file=sys.stderr)
+            print(
+                "warning: %s is writable by others (%o) and could not be tightened: %s" % (p, mode, e), file=sys.stderr
+            )
             return
         print("people.json: tightened %s from %o to 600 (it was writable by others)" % (p, mode), file=sys.stderr)
 
 
 # ---------------------------------------------------------------- instance label (§Running multiple manuscript instances at once)
 
+
 def git_remote_url(src: Path) -> str | None:
     """git origin URL of --manuscript. None if it isn't a git repo or has no origin - a failure never blocks startup."""
     if not shutil.which("git"):
         return None
     try:
-        r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
-                           capture_output=True, text=True, timeout=5, check=False)
+        r = subprocess.run(
+            ["git", "-C", str(src), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     url = r.stdout.strip()
@@ -428,7 +495,7 @@ def default_label(src: Path, repo_url: str | None) -> str:
 def clean_label(v: object) -> str | StartupRefused:
     """Validate a label. Newlines and excessive length are blocked here since they'd break the tool bar / tab title."""
     v = "" if v is None else str(v).strip()
-    v = " ".join(v.split())         # collapse newlines/tabs/repeated whitespace to a single space
+    v = " ".join(v.split())  # collapse newlines/tabs/repeated whitespace to a single space
     if not v:
         v = "원고"
     if len(v) > LABEL_MAX:
@@ -465,26 +532,37 @@ def run_accent(accent_arg: str | None, label: str) -> str | StartupRefused:
 
 # ---------------------------------------------------------------- the startup summary
 
+
 def summary_lines(c: Cfg, multi_doc: bool, access_lines: Sequence[str], pdfjs_found: bool) -> list[str]:
     """The startup summary: manuscript (the folder with --doc, else the main .tex), label, state folder, address,
     access (access_lines), the allow list, and the optional features. pdfjs_found says whether both PDF.js files are
     in c.pdfjs_dir."""
     host = "[%s]" % c.bind if ":" in c.bind else c.bind
-    out = ["manuscript  %s" % (c.src if multi_doc else c.main),
-           "label       %s (%s)%s" % (c.label, c.accent, "" if c.repo else " - no git origin, using the folder name as default"),
-           "state       %s" % c.state]
+    out = [
+        "manuscript  %s" % (c.src if multi_doc else c.main),
+        "label       %s (%s)%s"
+        % (c.label, c.accent, "" if c.repo else " - no git origin, using the folder name as default"),
+        "state       %s" % c.state,
+    ]
     if is_loopback_bind(c.bind):
         out.append("address     http://%s:%d/   (external exposure only via tailscale serve)" % (host, c.port))
     else:
         out.append("address     http://%s:%d/" % (host, c.port))
     out.extend(access_lines)
     if c.allow:
-        out.append("allow       %s%s" % (", ".join(sorted(c.allow)),
-                                         " (a loopback request with no header is still allowed)" if c.agent_loopback else ""))
+        out.append(
+            "allow       %s%s"
+            % (
+                ", ".join(sorted(c.allow)),
+                " (a loopback request with no header is still allowed)" if c.agent_loopback else "",
+            )
+        )
     if not c.origin_check:
         out.append("warning     --no-origin-check: Host/Origin checking is off (no DNS rebinding defense)")
     if c.git_pull:
-        out.append("git-pull    checks main right after startup and every 60 seconds, rebuilding the PDF on a new commit")
+        out.append(
+            "git-pull    checks main right after startup and every 60 seconds, rebuilding the PDF on a new commit"
+        )
     if pdfjs_found:
         out.append("pdf.js      %s (vector rendering)" % c.pdfjs_dir)
     else:

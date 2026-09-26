@@ -10,8 +10,10 @@ float environments, the state folder, the token-weight cache and the store's pin
 says where each pin's file is now (the overlaps count each pin in that file). Nothing here reads
 the server's run settings or imports the server (coding rule R5); the composition root (server.py) binds these.
 """
+
 from __future__ import annotations
 
+import contextlib
 import re
 import subprocess
 import threading
@@ -24,7 +26,15 @@ from limn import build
 from limn.documents import Doc, to_source
 from limn.files import file_in_tree, tex_lines
 from limn.mapping import (
-    TokenWeights, by_text, compute_levels, densest, norm, pin_rel_path, score_range, snippet, truncate_quote,
+    TokenWeights,
+    by_text,
+    compute_levels,
+    densest,
+    norm,
+    pin_rel_path,
+    score_range,
+    snippet,
+    truncate_quote,
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
@@ -38,12 +48,18 @@ TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 
 # ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
 
+
 def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | None:
     """The (input file, line) SyncTeX gives for one point of a page (in points), or None when it gives none, is
     missing or times out (10 s)."""
     try:
-        out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
-                             capture_output=True, text=True, timeout=10, check=False).stdout
+        out = subprocess.run(
+            ["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
     inp = line = None
@@ -51,10 +67,8 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
         if ln.startswith("Input:"):
             inp = ln[6:].strip()
         elif ln.startswith("Line:"):
-            try:
+            with contextlib.suppress(ValueError):
                 line = int(ln[5:].strip())
-            except ValueError:
-                pass
         if inp and line:
             return inp, line
     return None
@@ -83,15 +97,36 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
 
 # ---------------------------------------------------------------- Reverse mapping 2: rendered text
 
+
 def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> str:
     """Pulls out the characters actually printed inside the selection rectangle (1px = 1pt since -r 72); "" when
     pdftotext is missing or times out (15 s)."""
     try:
         return subprocess.run(
-            ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
-             "-x", str(int(x0)), "-y", str(int(y0)),
-             "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(pdf), "-"],
-            capture_output=True, text=True, timeout=15, check=False).stdout
+            [
+                "pdftotext",
+                "-f",
+                str(page),
+                "-l",
+                str(page),
+                "-r",
+                "72",
+                "-x",
+                str(int(x0)),
+                "-y",
+                str(int(y0)),
+                "-W",
+                str(max(1, int(x1 - x0))),
+                "-H",
+                str(max(1, int(y1 - y0))),
+                str(pdf),
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        ).stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return ""
 
@@ -110,6 +145,7 @@ class TokenCache:
     """The document frequencies of one file's word tokens, kept for the last file weighed (one entry).
 
     The composition root makes one per process; picks from several request threads share it under its lock."""
+
     _entry: dict[tuple[str, int, int], dict[str, int]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -135,7 +171,7 @@ class TokenCache:
         out = []
         for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
             freq = df.get(t, 0)
-            if freq > n * 0.05:            # a word scattered across the whole manuscript can't pin down a location
+            if freq > n * 0.05:  # a word scattered across the whole manuscript can't pin down a location
                 continue
             out.append((t, 1.0 / (1.0 + freq)))
         return out
@@ -143,10 +179,12 @@ class TokenCache:
 
 # ---------------------------------------------------------------- Where a pin's file is now (ADR-0006)
 
+
 class PinLocation(NamedTuple):
     """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
-    rel: str                 # POSIX path relative to the manuscript root (--manuscript)
-    path: Path               # root / rel - the absolute path the API returns as `file`
+
+    rel: str  # POSIX path relative to the manuscript root (--manuscript)
+    path: Path  # root / rel - the absolute path the API returns as `file`
 
 
 # Where a stored pin's file is now, as the composition root binds pin_location to its root and documents. It only
@@ -203,7 +241,7 @@ def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | Non
         under: str | None = Path(file).resolve().relative_to(root.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         under = None
-    scope = doc_scope(doc, root) if under is None else ""         # only a moved record needs its document folder
+    scope = doc_scope(doc, root) if under is None else ""  # only a moved record needs its document folder
     rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
     if rel is None:
         return None
@@ -241,20 +279,22 @@ def located_file(r: Row, locate: Locator) -> str:
 # The rule is limn.pins.position's (overlaps_by_id, selection_rel, overlaps_for_range); here each pin is counted in
 # the file locate finds for it now (located_file), so a moved checkout's old and new pins overlap as one file.
 
+
 def overlaps_by_id(rows: Sequence[Row], locate: Locator) -> dict[int, list[dict[str, Any]]]:
     """The relationship of every pair of open line pins of rows on the same file, as locate places each pin's file now
     (limn.pins.position.overlaps_by_id): {id: [{"id", "rel"}, ...]} with an entry for every open pin. Never stored."""
-    return position.overlaps_by_id(rows, lambda r: located_file(cast(Row, r), locate))   # r is one of rows
+    return position.overlaps_by_id(rows, lambda r: located_file(cast(Row, r), locate))  # r is one of rows
 
 
 def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row], locate: Locator) -> list[dict[str, Any]]:
     """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins of rows that
     locate places in that file now (limn.pins.position.overlaps_for_range): [{"id", "lo", "hi", "rel"}] in row order.
     Nothing is saved."""
-    return position.overlaps_for_range(file, lo, hi, rows, lambda r: located_file(cast(Row, r), locate))   # one of rows
+    return position.overlaps_for_range(file, lo, hi, rows, lambda r: located_file(cast(Row, r), locate))  # one of rows
 
 
 # ---------------------------------------------------------------- Anchors and re-syncing
+
 
 def sync_all(rows: list[Row], locate: Locator) -> bool:
     """If the manuscript is newer than a pin, re-match its line numbers via the anchor (limn.pins.position.resync).
@@ -267,7 +307,7 @@ def sync_all(rows: list[Row], locate: Locator) -> bool:
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
     for i, r in enumerate(rows):
-        if r.get("done") or not r.get("file"):         # a view-only PDF's pin has no lines - nothing to re-match
+        if r.get("done") or not r.get("file"):  # a view-only PDF's pin has no lines - nothing to re-match
             continue
         loc = locate(r)
         if loc is None:
@@ -291,6 +331,7 @@ def sync_all(rows: list[Row], locate: Locator) -> bool:
 
 # ---------------------------------------------------------------- Location estimation (.est)
 
+
 def est_context(D: Doc) -> EstContext:
     """What estimation needs to know about document D's builds (limn.pins.position.est_basis), its history read once."""
     h = build.load_builds(D)
@@ -299,6 +340,7 @@ def est_context(D: Doc) -> EstContext:
 
 
 # ---------------------------------------------------------------- Selection resolution
+
 
 class Selection(Protocol):
     """A validated drag (limn.web.parse.PickRequest): the page directory it is traced in, the page (1-based), the box
@@ -362,6 +404,7 @@ class PickContext:
     refused), the float environments of the range ladder (--float-envs), the state folder (for the "PDF older than the
     manuscript" check), the process's token-weight cache, and the overlaps of a range with the stored open pins
     (file, lo, hi) -> [{"id", "lo", "hi", "rel"}]."""
+
     root: Path
     envs: Sequence[str]
     state: Path
@@ -390,12 +433,16 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
 
     src = to_source(D, sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
-        return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
-                         % src.suffix, "reason": "generated_file"}
+        return {
+            "error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다." % src.suffix,
+            "reason": "generated_file",
+        }
     found = file_in_tree(str(src), ctx.root)
     if not isinstance(found, Path):
-        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
-                "reason": "synctex_outside"}
+        return {
+            "error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
+            "reason": "synctex_outside",
+        }
     src = found
 
     lines = tex_lines(src)
@@ -410,8 +457,10 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
     if alt:
         cands.append(("text", alt[0], alt[1], alt[2]))
     if not cands:
-        return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
-                "reason": "no_source_here"}
+        return {
+            "error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
+            "reason": "no_source_here",
+        }
 
     # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
     cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
@@ -422,10 +471,9 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
 
     lad = compute_levels(lines, raw_lo, raw_hi, ctx.envs)
     lo, hi = lad["lo"], lad["hi"]
-    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
-        # If both expand into the same block, the two paths haven't actually diverged - don't warn.
-        if not (lo <= cands[1][1] <= hi):
-            warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
+    # If both expand into the same block, the two paths haven't actually diverged - don't warn.
+    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12 and not (lo <= cands[1][1] <= hi):
+        warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
     if build.source_newer(D, ctx.state, pdir.name) > 2:
         stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
@@ -435,16 +483,38 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
         warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
 
     quote = truncate_quote(norm(rtext), 60)
-    return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
-            "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
-            "score": round(best, 2), "warn": warn, "n_lines": len(lines),
-            "snippet": snippet(lines, lo, hi), "frac": frac, "quote": quote,
-            "levels": lad["levels"], "default_level": lad["default_level"],
-            "overlaps": ctx.overlaps(str(src), lo, hi), "pdf_build": pdir.name}
+    return {
+        "file": str(src),
+        "name": src.name,
+        "page": page,
+        "lo": lo,
+        "hi": hi,
+        "raw_lo": raw_lo,
+        "raw_hi": raw_hi,
+        "kind": lad["kind"],
+        "via": via,
+        "score": round(best, 2),
+        "warn": warn,
+        "n_lines": len(lines),
+        "snippet": snippet(lines, lo, hi),
+        "frac": frac,
+        "quote": quote,
+        "levels": lad["levels"],
+        "default_level": lad["default_level"],
+        "overlaps": ctx.overlaps(str(src), lo, hi),
+        "pdf_build": pdir.name,
+    }
 
 
-def _pick_region(D: Doc, pdir: Path, page: int, box: tuple[float, float, float, float], size: tuple[float, float],
-                 frac: list[float] | None, rtext: str) -> dict[str, Any]:
+def _pick_region(
+    D: Doc,
+    pdir: Path,
+    page: int,
+    box: tuple[float, float, float, float],
+    size: tuple[float, float],
+    frac: list[float] | None,
+    rtext: str,
+) -> dict[str, Any]:
     """pick for a view-only document - returns only page/region and the region's text (pdftotext), no SyncTeX.
     If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
     x0, y0, x1, y1 = box
@@ -458,9 +528,20 @@ def _pick_region(D: Doc, pdir: Path, page: int, box: tuple[float, float, float, 
     bstate = build.state_snapshot(D)
     if bstate["state"] == "running":
         warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
-    return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
-            "pdf": D.rel_path(), "name": D.main.name, "quote": truncate_quote(text, PDF_QUOTE_MAX),
-            "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
+    return {
+        "doc": D.key,
+        "kind": "region",
+        "view_only": True,
+        "page": page,
+        "frac": frac,
+        "pdf": D.rel_path(),
+        "name": D.main.name,
+        "quote": truncate_quote(text, PDF_QUOTE_MAX),
+        "n_chars": len(text),
+        "warn": warn,
+        "overlaps": [],
+        "pdf_build": pdir.name,
+    }
 
 
 def overlaps_api(rng: SourceLines, ctx: PickContext) -> dict[str, Any]:
@@ -479,8 +560,15 @@ def snippet_api(rng: SourceLines, levels: bool, envs: Sequence[str]) -> dict[str
     """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by limn.web.parse.parse_snippet),
     and with levels the range ladder around them for the float environments envs."""
     f, lines, lo, hi = rng.file, rng.lines, rng.lo, rng.hi
-    out: dict[str, Any] = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
-                           "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
+    out: dict[str, Any] = {
+        "file": str(f),
+        "name": f.name,
+        "lo": lo,
+        "hi": hi,
+        "n": hi - lo + 1,
+        "n_lines": len(lines),
+        "snippet": snippet(lines, lo, hi),
+    }
     if levels:
         lad = compute_levels(lines, lo, hi, envs)
         out["levels"] = lad["levels"]

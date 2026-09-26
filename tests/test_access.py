@@ -7,6 +7,7 @@ Run: uv run pytest -q tests/test_access.py
 Opt-in check against a copy of real state (never the live directory — the server writes):
     LIMN_TEST_STATE_COPY=<copy of a state dir> uv run pytest -q tests/test_access.py -k Migration
 """
+
 import importlib.util
 import io
 import json
@@ -24,14 +25,15 @@ from pathlib import Path
 from unittest import mock
 
 from limn import access, config
-from limn.web.answers import CONFIRM_BY_HUMAN
-from limn.pins import render as md_render
-from helpers import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 from limn.access import LOCAL_ACTOR, load_tokens
 from limn.config import Cfg
+from limn.pins import render as md_render
 from limn.pins.view import pin_state
 from limn.service.context import is_agent
 from limn.startup import StartupRefused
+from limn.web.answers import CONFIRM_BY_HUMAN
+
+from helpers import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -40,10 +42,21 @@ ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Al
 BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
 CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
 
-ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
-                       trusted_proxies=Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
-                       proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
-                       members_only=False, local_user=None, insecure=False, agent_token_file=None)
+ACCESS_DEFAULTS = dict(
+    auth="tailscale",
+    agent_loopback=True,
+    tailnet_agent=False,
+    bind="127.0.0.1",
+    public_hosts=(),
+    trusted_proxies=Cfg.trusted_proxies,
+    proxy_user_header="X-Forwarded-User",
+    proxy_name_header="X-Forwarded-Preferred-Username",
+    proxy_email_header=None,
+    members_only=False,
+    local_user=None,
+    insecure=False,
+    agent_token_file=None,
+)
 
 
 def reset_access(mod=ps):
@@ -51,7 +64,7 @@ def reset_access(mod=ps):
     for k, v in ACCESS_DEFAULTS.items():
         setattr(mod.C, k, v)
     mod.C.allow = frozenset()
-    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)   # a fresh process: warns again
+    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)  # a fresh process: warns again
     mod.TOKENS_CACHE = access.FileCache()
     mod.ROLES_CACHE = access.FileCache()
 
@@ -95,6 +108,7 @@ def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:
             mod.Handler(b, (peer, 0), None)
         finally:
             b.close()
+
     t = threading.Thread(target=serve, daemon=True)
     t.start()
     a.sendall(raw)
@@ -140,8 +154,14 @@ class AccessBase(Base):
         return code, data
 
     def pin_id(self, headers=None, token=None, lo=4, hi=5, peer="127.0.0.1"):
-        code, d = self.call("POST", "/api/pin", {"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": "n"},
-                            headers, peer, token)
+        code, d = self.call(
+            "POST",
+            "/api/pin",
+            {"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": "n"},
+            headers,
+            peer,
+            token,
+        )
         self.assertEqual(code, 200, d)
         return d["id"]
 
@@ -149,17 +169,21 @@ class AccessBase(Base):
         return json.loads(ps.C.people_file.read_text(encoding="utf-8"))["people"] if ps.C.people_file.exists() else []
 
     def set_people(self, rows):
-        ps.C.people_file.write_text(json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n",
-                                    encoding="utf-8")
+        ps.C.people_file.write_text(
+            json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
 
 
 # ---------------------------------------------------------------- identity providers
+
 
 class TailscaleProvider(AccessBase):
     def test_headers_trusted_from_loopback(self):
         code, d = self.call("GET", "/api/meta?light=1", headers=ALICE)
         self.assertEqual(code, 200)
-        self.assertEqual((d["me"]["login"], d["me"]["name"], d["me"]["role"]), ("alice@example.com", "Alice Kim", "editor"))
+        self.assertEqual(
+            (d["me"]["login"], d["me"]["name"], d["me"]["role"]), ("alice@example.com", "Alice Kim", "editor")
+        )
 
     def test_headers_ignored_from_non_loopback_peer(self):
         code, d = self.call("GET", "/api/meta?light=1", headers=ALICE, peer="10.0.0.5")
@@ -193,7 +217,7 @@ class TailscaleProvider(AccessBase):
         code, d = self.call("GET", "/api/pins")
         self.assertEqual(code, 401)
         self.assertIn("Bearer", d["error"])
-        code, _ = self.call("GET", "/api/pins", headers=ALICE)     # people keep working
+        code, _ = self.call("GET", "/api/pins", headers=ALICE)  # people keep working
         self.assertEqual(code, 200)
 
     def test_agent_logins_from_headers_are_refused(self):
@@ -216,7 +240,7 @@ class LocalProvider(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.set_done(rid, True, dict(LOCAL_ACTOR))                   # an agent's close -> review
+        ps.set_done(rid, True, dict(LOCAL_ACTOR))  # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -249,23 +273,38 @@ class TrustedProxyProvider(AccessBase):
         h = {"X-Forwarded-User": "alice", "X-Forwarded-Preferred-Username": "Alice K"}
         for peer in ("10.0.0.1", "192.168.5.77"):
             code, d = self.call("GET", "/api/meta?light=1", headers=h, peer=peer)
-            self.assertEqual((code, d["me"]["login"], d["me"]["name"], d["me"]["role"]), (200, "alice", "Alice K", "editor"))
+            self.assertEqual(
+                (code, d["me"]["login"], d["me"]["name"], d["me"]["role"]), (200, "alice", "Alice K", "editor")
+            )
 
     def test_other_peers_and_missing_header_are_401(self):
         h = {"X-Forwarded-User": "alice"}
         self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="10.0.0.9")[0], 401)
-        self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="127.0.0.1")[0], 401)   # loopback is not in the list here
-        self.assertEqual(self.call("GET", "/api/pins", peer="10.0.0.1")[0], 401)               # the proxy, but no user
-        self.assertEqual(self.call("GET", "/api/pins", headers=ALICE, peer="127.0.0.1")[0], 401)  # tailscale headers mean nothing
+        # loopback is not in the list here
+        self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="127.0.0.1")[0], 401)
+        self.assertEqual(self.call("GET", "/api/pins", peer="10.0.0.1")[0], 401)  # the proxy, but no user
+        # tailscale headers mean nothing
+        self.assertEqual(self.call("GET", "/api/pins", headers=ALICE, peer="127.0.0.1")[0], 401)
 
     def test_custom_header_names_and_email_as_login(self):
-        ps.C.proxy_user_header, ps.C.proxy_name_header, ps.C.proxy_email_header = "X-Auth-User", "X-Auth-Name", "X-Auth-Email"
-        h = {"X-Auth-User": "u123", "X-Auth-Name": "Alice", "X-Auth-Email": "alice@example.com", "X-Forwarded-User": "mallory"}
+        ps.C.proxy_user_header, ps.C.proxy_name_header, ps.C.proxy_email_header = (
+            "X-Auth-User",
+            "X-Auth-Name",
+            "X-Auth-Email",
+        )
+        h = {
+            "X-Auth-User": "u123",
+            "X-Auth-Name": "Alice",
+            "X-Auth-Email": "alice@example.com",
+            "X-Forwarded-User": "mallory",
+        }
         code, d = self.call("GET", "/api/meta?light=1", headers=h, peer="10.0.0.1")
         self.assertEqual((code, d["me"]["login"], d["me"]["name"]), (200, "alice@example.com", "Alice"))
         code, d = self.call("GET", "/api/meta?light=1", headers={"X-Auth-User": "u123"}, peer="10.0.0.1")
-        self.assertEqual((code, d["me"]["login"]), (200, "u123"))                    # no e-mail -> the user header
-        self.assertEqual(self.call("GET", "/api/pins", headers={"X-Forwarded-User": "mallory"}, peer="10.0.0.1")[0], 401)
+        self.assertEqual((code, d["me"]["login"]), (200, "u123"))  # no e-mail -> the user header
+        self.assertEqual(
+            self.call("GET", "/api/pins", headers={"X-Forwarded-User": "mallory"}, peer="10.0.0.1")[0], 401
+        )
 
     def test_proxy_person_pins_and_is_recorded(self):
         h = {"X-Forwarded-User": "alice@example.com"}
@@ -276,8 +315,12 @@ class TrustedProxyProvider(AccessBase):
     def test_members_only_applies_to_proxy_users(self):
         ps.C.members_only = True
         self.set_people([{"login": "alice@example.com", "name": "Alice"}])
-        self.assertEqual(self.call("GET", "/api/pins", headers={"X-Forwarded-User": "alice@example.com"}, peer="10.0.0.1")[0], 200)
-        self.assertEqual(self.call("GET", "/api/pins", headers={"X-Forwarded-User": "eve@example.com"}, peer="10.0.0.1")[0], 403)
+        self.assertEqual(
+            self.call("GET", "/api/pins", headers={"X-Forwarded-User": "alice@example.com"}, peer="10.0.0.1")[0], 200
+        )
+        self.assertEqual(
+            self.call("GET", "/api/pins", headers={"X-Forwarded-User": "eve@example.com"}, peer="10.0.0.1")[0], 403
+        )
 
     def test_tokens_work_from_anywhere(self):
         _, tok = token_create(ps.C.state, "ci")
@@ -286,6 +329,7 @@ class TrustedProxyProvider(AccessBase):
 
 
 # ---------------------------------------------------------------- startup rules: bind, loopback agent
+
 
 class StartupRules(AccessBase):
     def configure(self, *args):
@@ -299,14 +343,18 @@ class StartupRules(AccessBase):
         a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
         refused = ps.configure_access(a)
         self.assertIsInstance(refused, StartupRefused)
-        self.assertIsInstance(refused.message, str)                   # a message, not a bare exit code
+        self.assertIsInstance(refused.message, str)  # a message, not a bare exit code
         return refused.message
 
     def test_defaults_are_v01(self):
         log = self.configure()
-        self.assertEqual((ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False))
-        self.assertEqual(log[0], "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · "
-                                 "members-only off")
+        self.assertEqual(
+            (ps.C.auth, ps.C.agent_loopback, ps.C.bind, ps.C.members_only), ("tailscale", True, "127.0.0.1", False)
+        )
+        self.assertEqual(
+            log[0],
+            "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · members-only off",
+        )
         self.assertTrue(any(ln.startswith("warning     ") and "deprecated" in ln for ln in log))
 
     def test_no_agent_loopback(self):
@@ -321,7 +369,9 @@ class StartupRules(AccessBase):
         self.assertFalse(ps.C.agent_loopback)
         self.assertIn("--agent-loopback", self.refused("--auth", "trusted-proxy", "--agent-loopback"))
         self.assertIn("--agent-loopback", self.refused("--auth", "local", "--agent-loopback"))
-        self.assertIn("--agent-loopback", self.refused("--bind", "0.0.0.0", "--i-know-this-is-insecure", "--agent-loopback"))
+        self.assertIn(
+            "--agent-loopback", self.refused("--bind", "0.0.0.0", "--i-know-this-is-insecure", "--agent-loopback")
+        )
         self.configure("--agent-loopback")
         self.assertTrue(ps.C.agent_loopback)
 
@@ -333,7 +383,7 @@ class StartupRules(AccessBase):
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "trusted-proxy" in ln for ln in log), log)
         self.assertFalse(any("!!!" in ln for ln in log))
         log = self.configure("--bind", "0.0.0.0", "--i-know-this-is-insecure")
-        self.assertFalse(ps.C.agent_loopback)                          # forced off on a non-loopback bind
+        self.assertFalse(ps.C.agent_loopback)  # forced off on a non-loopback bind
         self.assertTrue(any("!!!" in ln and "--i-know-this-is-insecure" in ln for ln in log), log)
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "tailscale" in ln for ln in log))
 
@@ -359,6 +409,7 @@ class StartupRules(AccessBase):
 
 # ---------------------------------------------------------------- agent API tokens
 
+
 class Tokens(AccessBase):
     def test_store_hashes_at_rest_0600_and_lists(self):
         e1, t1 = token_create(ps.C.state)
@@ -367,27 +418,33 @@ class Tokens(AccessBase):
         self.assertTrue(t1.startswith("limn_") and len(t1) > 40)
         raw = ps.C.tokens_file.read_text(encoding="utf-8")
         self.assertNotIn(t1, raw)
-        self.assertNotIn(t1[len("limn_"):], raw)
+        self.assertNotIn(t1[len("limn_") :], raw)
         self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
         d = json.loads(raw)
         self.assertEqual(d["version"], 1)
         self.assertEqual([t["hash"] for t in d["tokens"]], [access.token_hash(t1), access.token_hash(t2)])
-        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{8}", t["id"]) and re.fullmatch(r"sha256:[0-9a-f]{64}", t["hash"])
-                            and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", t["created"]) for t in d["tokens"]))
+        self.assertTrue(
+            all(
+                re.fullmatch(r"[0-9a-f]{8}", t["id"])
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", t["hash"])
+                and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", t["created"])
+                for t in d["tokens"]
+            )
+        )
         self.assertEqual([t["name"] for t in load_tokens(ps.C.state)], ["agent", "agent-2"])
         with self.assertRaises(ValueError):
-            token_create(ps.C.state, "agent")                      # names are unique
+            token_create(ps.C.state, "agent")  # names are unique
         with self.assertRaises(ValueError):
             token_create(ps.C.state, "bad name")
-        self.assertEqual(token_revoke(ps.C.state, e1["id"])["name"], "agent")   # by id
-        self.assertEqual(token_revoke(ps.C.state, "agent-2")["id"], e2["id"])   # by name
+        self.assertEqual(token_revoke(ps.C.state, e1["id"])["name"], "agent")  # by id
+        self.assertEqual(token_revoke(ps.C.state, "agent-2")["id"], e2["id"])  # by name
         self.assertIsNone(token_revoke(ps.C.state, "agent-2"))
         self.assertEqual(load_tokens(ps.C.state), [])
         self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
 
     def test_token_principal_is_an_agent(self):
         _, tok = token_create(ps.C.state, "ci")
-        code, d = self.call("GET", "/api/meta?light=1", token=tok, headers=ALICE)   # a valid token wins over headers
+        code, d = self.call("GET", "/api/meta?light=1", token=tok, headers=ALICE)  # a valid token wins over headers
         self.assertEqual(d["me"], {"login": "agent:ci", "name": "ci", "role": "agent"})
         pid = self.pin_id(token=tok)
         self.assertEqual(self.pin(pid)["author"], {"login": "agent:ci", "name": "ci"})
@@ -397,7 +454,7 @@ class Tokens(AccessBase):
         self.assertEqual(code, 403)
         self.assertEqual(pin_state(self.pin(pid)), "review")
         self.call("GET", "/", token=tok)
-        self.assertEqual(self.people_file(), [])                        # never recorded in people.json
+        self.assertEqual(self.people_file(), [])  # never recorded in people.json
         code, d = self.call("GET", "/api/people", token=tok)
         self.assertNotIn("agent:ci", [p["login"] for p in d["people"]])
         self.assertTrue(is_agent({"login": "agent:ci"}) and is_agent(dict(LOCAL_ACTOR)))
@@ -410,7 +467,7 @@ class Tokens(AccessBase):
         code, d = self.call("GET", "/api/pins", token=tok)
         self.assertEqual(code, 401)
         self.assertIn("error", d)
-        _, tok2 = token_create(ps.C.state, "ci")                     # a new token is accepted without restart too
+        _, tok2 = token_create(ps.C.state, "ci")  # a new token is accepted without restart too
         self.assertEqual(self.call("GET", "/api/pins", token=tok2)[0], 200)
 
     def test_invalid_token_never_falls_back(self):
@@ -420,29 +477,32 @@ class Tokens(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, token=bad, headers=ALICE)[0], 401)
         self.assertFalse(self.pin(pid).get("done"))
         self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Bearer "})[0], 401)
-        self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Basic YTpi"})[0], 200)   # not ours: ignored
+        # not ours: ignored
+        self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Basic YTpi"})[0], 200)
 
     def test_token_file_is_reread_when_it_changes(self):
         self.assertEqual(ps.current_tokens(), [])
         _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(access.token_lookup(tok, ps.current_tokens())["name"], "ci")
-        ps.C.tokens_file.write_text("{broken", encoding="utf-8")        # unreadable -> no token accepted (fail closed)
+        ps.C.tokens_file.write_text("{broken", encoding="utf-8")  # unreadable -> no token accepted (fail closed)
         with mock.patch.object(ps.sys, "stderr", io.StringIO()):
             self.assertIsNone(access.token_lookup(tok, ps.current_tokens()))
-        with self.assertRaises(ValueError):                            # and the CLI refuses to overwrite it
+        with self.assertRaises(ValueError):  # and the CLI refuses to overwrite it
             token_create(ps.C.state, "x")
 
     def cli(self, *args, env=None):
         e = dict(os.environ, PYTHONPATH=str(SRC))
         e.update(env or {})
-        return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False)
+        return subprocess.run(
+            [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=e, check=False
+        )
 
     def test_cli_create_list_revoke(self):
         root = Path(self.tmp.name)
         cfg, data = root / "cfg", root / "data"
         cfg.mkdir()
-        (cfg / "paper.env").write_text("MANUSCRIPT=%s\nSTATE_DIR=\"%s\"\n" % (self.src, root / "st"), encoding="utf-8")
-        (cfg / "other.env").write_text("MANUSCRIPT=%s\n" % self.src, encoding="utf-8")   # no STATE_DIR -> data root
+        (cfg / "paper.env").write_text('MANUSCRIPT=%s\nSTATE_DIR="%s"\n' % (self.src, root / "st"), encoding="utf-8")
+        (cfg / "other.env").write_text("MANUSCRIPT=%s\n" % self.src, encoding="utf-8")  # no STATE_DIR -> data root
         env = {"LIMN_CONFIG_DIR": str(cfg), "LIMN_DATA_ROOT": str(data)}
         r = self.cli("token", "create", "paper", "--name", "ci", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -472,6 +532,7 @@ class Tokens(AccessBase):
         """cli.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
         checked against the shell function itself with whatever bash is first on PATH (3.2 on stock macOS)."""
         from importlib import import_module
+
         sys.path.insert(0, str(SRC))
         try:
             cli = import_module("limn.cli")
@@ -479,28 +540,42 @@ class Tokens(AccessBase):
             sys.path.remove(str(SRC))
         f = Path(self.tmp.name) / "x.env"
         f.write_text("# STATE_DIR=/no\n  STATE_DIR='/a b'  \r\nOTHER=1\nSTATE_DIR=\"/c\"\n", encoding="utf-8")
-        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/c")          # the last line wins
+        self.assertEqual(cli.env_get(f, "STATE_DIR"), "/c")  # the last line wins
         f.write_text("STATE_DIR='/a b'  \r\n", encoding="utf-8")
         self.assertEqual(cli.env_get(f, "STATE_DIR"), "/a b")
         self.assertIsNone(cli.env_get(f, "NOPE"))
         bash = shutil.which("bash")
-        if bash:                                                       # the same answer as instances.sh's env_get
+        if bash:  # the same answer as instances.sh's env_get
             # eval, not `source <(...)`: bash 3.2 (macOS /bin/bash) sources nothing from a process substitution
             script = 'eval "$(sed -n "/^env_get()/,/^}/p" "$1")"; env_get "$2" STATE_DIR'
-            out = subprocess.run([bash, "-c", script, "x", str(SRC / "limn" / "instances.sh"), str(f)],
-                                 capture_output=True, text=True, timeout=30, check=False).stdout.strip()
+            out = subprocess.run(
+                [bash, "-c", script, "x", str(SRC / "limn" / "instances.sh"), str(f)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            ).stdout.strip()
             self.assertEqual(out, "/a b")
 
 
 # ---------------------------------------------------------------- roles and admission
 
+
 class Roles(AccessBase):
-    VIEWER_REFUSED = [("/api/pin", {"file": None, "lo": 4, "hi": 5}), ("/api/pins/{id}/reply", {"text": "x"}),
-                      ("/api/pins/{id}/close", None), ("/api/pins/{id}/reopen", None),
-                      ("/api/pins/{id}/edit", {"note": "x", "base_rev": 0}), ("/api/pins/{id}/claim", None),
-                      ("/api/pins/{id}/unclaim", None), ("/api/pins/{id}/drop", None),
-                      ("/api/pins/{id}/restore", None), ("/api/pins/{id}/confirm", None),
-                      ("/api/rebuild?async=1", None), ("/api/clear", None)]
+    VIEWER_REFUSED = [
+        ("/api/pin", {"file": None, "lo": 4, "hi": 5}),
+        ("/api/pins/{id}/reply", {"text": "x"}),
+        ("/api/pins/{id}/close", None),
+        ("/api/pins/{id}/reopen", None),
+        ("/api/pins/{id}/edit", {"note": "x", "base_rev": 0}),
+        ("/api/pins/{id}/claim", None),
+        ("/api/pins/{id}/unclaim", None),
+        ("/api/pins/{id}/drop", None),
+        ("/api/pins/{id}/restore", None),
+        ("/api/pins/{id}/confirm", None),
+        ("/api/rebuild?async=1", None),
+        ("/api/clear", None),
+    ]
 
     def test_viewer_is_refused_every_state_change(self):
         self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "viewer"}])
@@ -517,13 +592,17 @@ class Roles(AccessBase):
         code, d = self.call("GET", "/api/meta", headers=BOB)
         self.assertEqual((code, d["me"]["role"]), (200, "viewer"))
         code, d = self.call("POST", "/api/pick", {"page": 1, "x0": 0, "y0": 0, "x1": 1, "y1": 1}, BOB)
-        self.assertNotEqual(code, 403, d)                              # a computation, not a change
+        self.assertNotEqual(code, 403, d)  # a computation, not a change
         code, d = self.call("POST", "/api/revision-build", {"commit": "0" * 40}, BOB)
         self.assertNotEqual(code, 403, d)
 
     def test_editor_and_missing_role_can_do_everything(self):
-        self.set_people([{"login": "alice@example.com", "name": "Alice"},
-                         {"login": "bob@example.com", "name": "Bob", "role": "editor"}])
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice"},
+                {"login": "bob@example.com", "name": "Bob", "role": "editor"},
+            ]
+        )
         for h in (ALICE, BOB):
             pid = self.pin_id(h)
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
@@ -547,7 +626,7 @@ class Roles(AccessBase):
         self.assertEqual(code, 403)
         code, d = self.call("POST", "/api/pins/%d/reopen" % pid, None, BOB)
         self.assertEqual(code, 200)
-        code, d = self.call("POST", "/api/pins/%d/close" % pid, {"review": False}, BOB)   # an explicit body still wins
+        code, d = self.call("POST", "/api/pins/%d/close" % pid, {"review": False}, BOB)  # an explicit body still wins
         self.assertEqual(d["state"], "done")
 
     def test_loopback_agent_confirm_is_403(self):
@@ -558,7 +637,7 @@ class Roles(AccessBase):
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)
 
     def test_role_changes_apply_without_restart(self):
-        self.call("GET", "/", headers=BOB)                              # auto-added, no role
+        self.call("GET", "/", headers=BOB)  # auto-added, no role
         pid = self.add()
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "a"}, BOB)[0], 200)
         member_set_role(ps.C.state, "bob@example.com", "viewer")
@@ -572,17 +651,32 @@ class Roles(AccessBase):
         self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4}, BOB)[0], 403)
 
     def test_record_person_preserves_role(self):
-        self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "viewer", "first_seen": "2026-09-01 10:00:00",
-                          "last_seen": "2026-09-01 10:00:00"}])
-        self.assertTrue(ps.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10 ** 9 * 2))
+        self.set_people(
+            [
+                {
+                    "login": "bob@example.com",
+                    "name": "Bob",
+                    "role": "viewer",
+                    "first_seen": "2026-09-01 10:00:00",
+                    "last_seen": "2026-09-01 10:00:00",
+                }
+            ]
+        )
+        self.assertTrue(ps.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
         p = self.people_file()[0]
         self.assertEqual((p["role"], p["name"], p["first_seen"]), ("viewer", "Bob P.", "2026-09-01 10:00:00"))
 
     def test_people_api_and_meta_carry_roles(self):
-        self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"},
-                         {"login": "bob@example.com", "name": "Bob"}])
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice", "role": "owner"},
+                {"login": "bob@example.com", "name": "Bob"},
+            ]
+        )
         code, d = self.call("GET", "/api/people", headers=ALICE)
-        self.assertEqual({p["login"]: p["role"] for p in d["people"]}, {"alice@example.com": "owner", "bob@example.com": "editor"})
+        self.assertEqual(
+            {p["login"]: p["role"] for p in d["people"]}, {"alice@example.com": "owner", "bob@example.com": "editor"}
+        )
         self.assertEqual(d["me"]["role"], "owner")
         code, d = self.call("GET", "/api/meta", headers=BOB)
         self.assertEqual(d["me"]["role"], "editor")
@@ -598,16 +692,20 @@ class Roles(AccessBase):
                 member_add(ps.C.state, bad)
         with self.assertRaises(ValueError):
             member_add(ps.C.state, "carol@example.com", "admin")
-        self.assertEqual([(p["login"], p["role"]) for p in load_people_file(ps.C.state)],
-                         [("alice@example.com", "viewer"), ("bob@example.com", "editor")])
+        self.assertEqual(
+            [(p["login"], p["role"]) for p in load_people_file(ps.C.state)],
+            [("alice@example.com", "viewer"), ("bob@example.com", "editor")],
+        )
         self.assertEqual(member_set_role(ps.C.state, "alice@example.com", "owner")["role"], "owner")
         self.assertIsNone(member_set_role(ps.C.state, "nobody@example.com", "owner"))
         self.assertEqual(member_remove(ps.C.state, "bob@example.com")["login"], "bob@example.com")
         self.assertIsNone(member_remove(ps.C.state, "bob@example.com"))
         d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
-        self.assertEqual(d, {"version": 1, "people": [{"login": "alice@example.com", "name": "alice", "role": "owner"}]})
+        self.assertEqual(
+            d, {"version": 1, "people": [{"login": "alice@example.com", "name": "alice", "role": "owner"}]}
+        )
         ps.C.people_file.write_text("{broken", encoding="utf-8")
-        with self.assertRaises(ValueError):                            # never overwrite a file we could not read
+        with self.assertRaises(ValueError):  # never overwrite a file we could not read
             member_add(ps.C.state, "dan@example.com")
         self.assertEqual(ps.C.people_file.read_text(encoding="utf-8"), "{broken")
 
@@ -616,7 +714,15 @@ class Roles(AccessBase):
         st = str(ps.C.state)
 
         def cli(*a):
-            return subprocess.run([sys.executable, "-m", "limn", "member", *a], capture_output=True, text=True, timeout=60, env=e, check=False)
+            return subprocess.run(
+                [sys.executable, "-m", "limn", "member", *a],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=e,
+                check=False,
+            )
+
         self.assertEqual(cli("add", "--state-dir", st, "alice@example.com", "--role", "viewer").returncode, 0)
         self.assertEqual(cli("add", "--state-dir", st, "bob@example.com", "--name", "Bob Park").returncode, 0)
         self.assertNotEqual(cli("add", "--state-dir", st, "bob@example.com").returncode, 0)
@@ -627,7 +733,7 @@ class Roles(AccessBase):
         r = cli("list", "--state-dir", st)
         self.assertRegex(r.stdout, r"alice@example\.com +editor ")
         self.assertNotIn("bob@example.com", r.stdout)
-        self.assertEqual(ps.role_of("alice@example.com"), "editor")   # the server sees it at once
+        self.assertEqual(ps.role_of("alice@example.com"), "editor")  # the server sees it at once
 
 
 class Admission(AccessBase):
@@ -639,9 +745,9 @@ class Admission(AccessBase):
         self.assertEqual(self.pin(pid)["author"], {"login": "carol@example.com", "name": "Carol Lee"})
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "보충"}, CAROL)[0], 200)
         code, d = self.call("POST", "/api/pins/%d/close" % pid, {"reply": "고침"}, CAROL)
-        self.assertEqual((code, d["state"]), (200, "done"))              # a person closing is the reviewer
+        self.assertEqual((code, d["state"]), (200, "done"))  # a person closing is the reviewer
         rid = self.add(8, 9)
-        self.assertEqual(self.call("POST", "/api/pins/%d/close" % rid)[1]["state"], "review")   # the agent's close
+        self.assertEqual(self.call("POST", "/api/pins/%d/close" % rid)[1]["state"], "review")  # the agent's close
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid, None, CAROL)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "carol@example.com")
@@ -658,27 +764,27 @@ class Admission(AccessBase):
         self.assertEqual(code, 403)
         self.assertIn("limn member add", d["error"])
         self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4}, CAROL)[0], 403)
-        self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])   # not recorded
-        ps.C.allow = frozenset({"carol@example.com"})                  # --allow logins are admitted too
+        self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])  # not recorded
+        ps.C.allow = frozenset({"carol@example.com"})  # --allow logins are admitted too
         self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)
-        member_add(ps.C.state, "bob@example.com")                   # a new member is admitted on the next request
+        member_add(ps.C.state, "bob@example.com")  # a new member is admitted on the next request
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
         member_remove(ps.C.state, "bob@example.com")
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
 
     def test_members_only_keeps_agents(self):
         ps.C.members_only = True
-        self.assertEqual(self.call("GET", "/api/pins")[0], 200)          # loopback agent
+        self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # loopback agent
         _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
-        code, _ = self.call("GET", "/api/pins", headers={"Host": "box.tail1234.ts.net"})   # tagged device
+        code, _ = self.call("GET", "/api/pins", headers={"Host": "box.tail1234.ts.net"})  # tagged device
         self.assertEqual(code, 403)
 
     def test_allow_keeps_v01_semantics(self):
         ps.C.allow = frozenset({"alice@example.com"})
         self.set_people([{"login": "bob@example.com", "name": "Bob"}])
         self.assertEqual(self.call("GET", "/api/pins", headers=ALICE)[0], 200)
-        code, d = self.call("GET", "/api/pins", headers=BOB)             # in people.json but not in --allow
+        code, d = self.call("GET", "/api/pins", headers=BOB)  # in people.json but not in --allow
         self.assertEqual(code, 403)
         self.assertIn("허용되지 않은 계정", d["error"])
         self.assertEqual(self.call("GET", "/api/pins")[0], 200)
@@ -687,6 +793,7 @@ class Admission(AccessBase):
 
 # ---------------------------------------------------------------- Host/Origin with --public-host
 
+
 class PublicHost(AccessBase):
     def setUp(self):
         super().setUp()
@@ -694,8 +801,10 @@ class PublicHost(AccessBase):
 
     def test_parse(self):
         self.assertEqual(ps.C.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
-        self.assertEqual(access.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
-                         (("a.example.com", None), ("b.example.com", 9000)))
+        self.assertEqual(
+            access.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
+            (("a.example.com", None), ("b.example.com", 9000)),
+        )
         for bad in ("https://x.example.com", "x.example.com/p", "localhost", "a b", "x.example.com:99999"):
             with self.assertRaises(ValueError):
                 access.parse_public_hosts([bad])
@@ -707,23 +816,31 @@ class PublicHost(AccessBase):
         self.assertFalse(ps.host_ok("other.example.com"))
         self.assertTrue(ps.origin_ok("https://limn.example.com", "limn.example.com"))
         self.assertTrue(ps.origin_ok("https://limn.example.com:443", "limn.example.com"))
-        self.assertFalse(ps.origin_ok("http://limn.example.com", "limn.example.com"))      # https only
+        self.assertFalse(ps.origin_ok("http://limn.example.com", "limn.example.com"))  # https only
         self.assertFalse(ps.origin_ok("https://limn.example.com:8443", "limn.example.com"))
         self.assertFalse(ps.origin_ok("https://evil.example.com", "limn.example.com"))
         self.assertTrue(ps.origin_ok("https://alt.example.com:8443", "alt.example.com:8443"))
         self.assertFalse(ps.origin_ok("https://alt.example.com", "alt.example.com:8443"))
-        self.assertFalse(ps.origin_ok("https://limn.example.com", "127.0.0.1:18999"))        # never on a loopback Host
+        self.assertFalse(ps.origin_ok("https://limn.example.com", "127.0.0.1:18999"))  # never on a loopback Host
         self.assertFalse(ps.origin_ok("https://limn.example.com", "box.tail1234.ts.net"))
         reset_access()
-        self.assertFalse(ps.host_ok("limn.example.com"))                                     # nothing without the option
+        self.assertFalse(ps.host_ok("limn.example.com"))  # nothing without the option
 
     def test_requests_and_pins_md_base(self):
         # A headerless request under a public host is not the loopback agent (v0.2.1) - a person or a token is needed.
-        code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            dict(ALICE, Host="limn.example.com", Origin="https://limn.example.com"))
+        code, _ = self.call(
+            "POST",
+            "/api/pin",
+            {"file": str(self.main), "lo": 4, "hi": 4},
+            dict(ALICE, Host="limn.example.com", Origin="https://limn.example.com"),
+        )
         self.assertEqual(code, 200)
-        code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
-                            dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"))
+        code, _ = self.call(
+            "POST",
+            "/api/pin",
+            {"file": str(self.main), "lo": 4, "hi": 4},
+            dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"),
+        )
         self.assertEqual(code, 403)
         _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(ps.remote_base_for("limn.example.com"), "https://limn.example.com")
@@ -736,6 +853,7 @@ class PublicHost(AccessBase):
 
 # ---------------------------------------------------------------- the agent contract additions
 
+
 class ContractAdditions(AccessBase):
     def test_pins_md_has_exactly_one_token_guidance_line(self):
         self.add()
@@ -744,7 +862,7 @@ class ContractAdditions(AccessBase):
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         i = lines.index(md_render.TOKEN_GUIDANCE)
         self.assertTrue(lines[i - 2].startswith("처리한 핀은 닫는다"))  # after the existing guidance paragraph
-        self.assertEqual(lines[i - 1], md_render.claim_guidance("http://127.0.0.1:18999"))   # and the v0.2.1 claim line
+        self.assertEqual(lines[i - 1], md_render.claim_guidance("http://127.0.0.1:18999"))  # and the v0.2.1 claim line
         self.assertIn("Authorization: Bearer", md_render.TOKEN_GUIDANCE)
         self.assertIn("limn token create <인스턴스>", md_render.TOKEN_GUIDANCE)
         self.assertIn("폐지 예정", md_render.TOKEN_GUIDANCE)
@@ -752,7 +870,10 @@ class ContractAdditions(AccessBase):
             self.assertIn(s, md)
 
     def test_js_is_agent(self):
-        js = extract_js_fn("isAgent") + ";console.log(JSON.stringify([isAgent({login:'local'}),isAgent({login:'agent:ci'}),"
+        js = (
+            extract_js_fn("isAgent")
+            + ";console.log(JSON.stringify([isAgent({login:'local'}),isAgent({login:'agent:ci'}),"
+        )
         js += "isAgent({login:'alice@example.com'}),isAgent(null)]))"
         out = run_node(js)
         if out is None:
@@ -763,32 +884,110 @@ class ContractAdditions(AccessBase):
 # ---------------------------------------------------------------- migration from v0.1
 
 V01_PINS = [
-    {"id": 1, "file": "{main}", "name": "main.tex", "page": 1, "lo": 4, "hi": 5, "note": "로컬에서 남긴 메모",
-     "at": "2026-09-20 10:00:00", "author": {"login": "local", "name": "로컬/에이전트"}, "rev": 0},
-    {"id": 2, "file": "{main}", "name": "main.tex", "page": 1, "lo": 8, "hi": 9, "note": "alice 메모",
-     "at": "2026-09-20 10:05:00", "author": {"login": "alice@example.com", "name": "Alice Kim"}, "rev": 0},
-    {"id": 3, "file": "{main}", "name": "main.tex", "page": 1, "lo": 17, "hi": 17, "note": "끝난 핀",
-     "at": "2026-09-20 10:10:00", "author": {"login": "alice@example.com", "name": "Alice Kim"}, "done": True,
-     "done_at": "2026-09-21 09:00:00", "closed_by": {"login": "alice@example.com", "name": "Alice Kim"}, "rev": 1},
-    {"id": 4, "file": "{main}", "name": "main.tex", "page": 1, "lo": 19, "hi": 19, "note": "검토할 핀",
-     "at": "2026-09-20 10:15:00", "author": {"login": "alice@example.com", "name": "Alice Kim"}, "done": True,
-     "review": True, "done_at": "2026-09-21 09:30:00", "closed_by": {"login": "local", "name": "로컬/에이전트"},
-     "close_reply": "고쳤음", "close_ref": "PR #1", "rev": 1},
-    {"id": 5, "file": "{main}", "name": "main.tex", "page": 1, "lo": 12, "hi": 14, "note": "이 표는 왜 필요한가요?",
-     "kind_req": "question", "at": "2026-09-20 10:20:00", "author": {"login": "bob@example.com", "name": "Bob Park"}, "rev": 0},
+    {
+        "id": 1,
+        "file": "{main}",
+        "name": "main.tex",
+        "page": 1,
+        "lo": 4,
+        "hi": 5,
+        "note": "로컬에서 남긴 메모",
+        "at": "2026-09-20 10:00:00",
+        "author": {"login": "local", "name": "로컬/에이전트"},
+        "rev": 0,
+    },
+    {
+        "id": 2,
+        "file": "{main}",
+        "name": "main.tex",
+        "page": 1,
+        "lo": 8,
+        "hi": 9,
+        "note": "alice 메모",
+        "at": "2026-09-20 10:05:00",
+        "author": {"login": "alice@example.com", "name": "Alice Kim"},
+        "rev": 0,
+    },
+    {
+        "id": 3,
+        "file": "{main}",
+        "name": "main.tex",
+        "page": 1,
+        "lo": 17,
+        "hi": 17,
+        "note": "끝난 핀",
+        "at": "2026-09-20 10:10:00",
+        "author": {"login": "alice@example.com", "name": "Alice Kim"},
+        "done": True,
+        "done_at": "2026-09-21 09:00:00",
+        "closed_by": {"login": "alice@example.com", "name": "Alice Kim"},
+        "rev": 1,
+    },
+    {
+        "id": 4,
+        "file": "{main}",
+        "name": "main.tex",
+        "page": 1,
+        "lo": 19,
+        "hi": 19,
+        "note": "검토할 핀",
+        "at": "2026-09-20 10:15:00",
+        "author": {"login": "alice@example.com", "name": "Alice Kim"},
+        "done": True,
+        "review": True,
+        "done_at": "2026-09-21 09:30:00",
+        "closed_by": {"login": "local", "name": "로컬/에이전트"},
+        "close_reply": "고쳤음",
+        "close_ref": "PR #1",
+        "rev": 1,
+    },
+    {
+        "id": 5,
+        "file": "{main}",
+        "name": "main.tex",
+        "page": 1,
+        "lo": 12,
+        "hi": 14,
+        "note": "이 표는 왜 필요한가요?",
+        "kind_req": "question",
+        "at": "2026-09-20 10:20:00",
+        "author": {"login": "bob@example.com", "name": "Bob Park"},
+        "rev": 0,
+    },
 ]
 V01_PEOPLE = [
-    {"login": "alice@example.com", "first_seen": "2026-09-20 09:59:00", "name": "Alice Kim", "last_seen": "2026-09-21 09:00:00"},
-    {"login": "bob@example.com", "first_seen": "2026-09-20 10:19:00", "name": "Bob Park", "last_seen": "2026-09-20 10:20:00"},
+    {
+        "login": "alice@example.com",
+        "first_seen": "2026-09-20 09:59:00",
+        "name": "Alice Kim",
+        "last_seen": "2026-09-21 09:00:00",
+    },
+    {
+        "login": "bob@example.com",
+        "first_seen": "2026-09-20 10:19:00",
+        "name": "Bob Park",
+        "last_seen": "2026-09-20 10:20:00",
+    },
 ]
 
 
 def v03_close_line(md: str) -> str:
     """The one pins.md line v0.3 changes (docs/adr/0005-pin-scoped-changes.md): the close instruction asks for `changes`
     in the numbering of the commit `ref` names and ref = "PR #N (<hash>)". Everything else is compared byte for byte."""
-    return (md.replace("처리한 핀은 닫는다 — `curl", '처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl')
-              .replace('"ref":"커밋/PR(≤80자)"}\'', '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "'")
-              .replace("(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)", '(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)'))
+    return (
+        md.replace(
+            "처리한 핀은 닫는다 — `curl",
+            "처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl",
+        )
+        .replace(
+            '"ref":"커밋/PR(≤80자)"}\'',
+            '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "'",
+        )
+        .replace(
+            "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘)",
+            "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)",
+        )
+    )
 
 
 # pins.md as v0.1.0 renders the fixture above (header timestamp masked as <갱신>, the manuscript path as {src}).
@@ -824,7 +1023,9 @@ def mask(md: str) -> str:
 def load_v01():
     """The server module exactly as released in v0.1.0 (from git), or None when the history is not available (shallow CI clone)."""
     for ref in ("v0.1.0", "946a92d"):
-        r = subprocess.run(["git", "show", "%s:src/limn/server.py" % ref], cwd=ROOT, capture_output=True, timeout=30, check=False)
+        r = subprocess.run(
+            ["git", "show", "%s:src/limn/server.py" % ref], cwd=ROOT, capture_output=True, timeout=30, check=False
+        )
         if r.returncode == 0 and b"def pins_md_text" in r.stdout:
             break
     else:
@@ -847,8 +1048,19 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
     C.allow = frozenset()
     C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
     C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-    mod.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
-                           finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
+    mod.BUILD_STATE.update(
+        state="idle",
+        phase=None,
+        started_at=None,
+        start_ts=None,
+        seq=0,
+        finished_at=None,
+        last=None,
+        errors=[],
+        log_tail="",
+        head=None,
+        pull=None,
+    )
     mod.set_docs(None)
     mod.init_seq()
     if hasattr(mod, "TOKENS_CACHE"):
@@ -866,10 +1078,13 @@ class Migration(AccessBase):
     def write_fixture(self, state: Path) -> None:
         state.mkdir(parents=True, exist_ok=True)
         rows = [json.loads(json.dumps(r).replace("{main}", str(self.main))) for r in V01_PINS]
-        (state / "pins.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+        (state / "pins.jsonl").write_text(
+            "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8"
+        )
         (state / "pins.seq").write_text("5", encoding="utf-8")
-        (state / "people.json").write_text(json.dumps({"version": 1, "people": V01_PEOPLE}, ensure_ascii=False, indent=1) + "\n",
-                                           encoding="utf-8")
+        (state / "people.json").write_text(
+            json.dumps({"version": 1, "people": V01_PEOPLE}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
 
     def setUp(self):
         super().setUp()
@@ -881,32 +1096,57 @@ class Migration(AccessBase):
         cfg = root / "cfg"
         cfg.mkdir()
         (cfg / "paper.env").write_text(
-            "# a v0.1 config\nLABEL=\"Paper V\"\nMANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nTS_PORT=19030\n"
-            "STATE_DIR=%s\nGIT_PULL=1\nEXTRA_ARGS=--no-build\n" % (self.src, ps.C.state), encoding="utf-8")
+            '# a v0.1 config\nLABEL="Paper V"\nMANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nTS_PORT=19030\n'
+            "STATE_DIR=%s\nGIT_PULL=1\nEXTRA_ARGS=--no-build\n" % (self.src, ps.C.state),
+            encoding="utf-8",
+        )
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", "run", "paper"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            check=False,
+        )
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.splitlines(), [
-            sys.executable, str(SRC / "limn" / "server.py"), "--manuscript", str(self.src), "--port", "19130",
-            "--state-dir", str(ps.C.state), "--main", "main.tex", "--git-pull", "--label", "Paper V", "--no-build"])
+        self.assertEqual(
+            r.stdout.splitlines(),
+            [
+                sys.executable,
+                str(SRC / "limn" / "server.py"),
+                "--manuscript",
+                str(self.src),
+                "--port",
+                "19130",
+                "--state-dir",
+                str(ps.C.state),
+                "--main",
+                "main.tex",
+                "--git-pull",
+                "--label",
+                "Paper V",
+                "--no-build",
+            ],
+        )
 
     def test_handler_semantics_unchanged(self):
-        code, d = self.call("GET", "/api/meta?light=1")                  # headerless loopback = the agent
+        code, d = self.call("GET", "/api/meta?light=1")  # headerless loopback = the agent
         self.assertEqual({k: d["me"][k] for k in ("login", "name")}, LOCAL_ACTOR)
         code, d = self.call("POST", "/api/pins/1/close", {"reply": "고침"})
         self.assertEqual((code, d["state"]), (200, "review"))
         self.assertEqual(self.pin(1)["closed_by"], LOCAL_ACTOR)
         self.assertEqual(self.call("POST", "/api/pins/4/confirm")[0], 403)
-        pid = self.pin_id(ALICE)                                          # a tailnet person pins, closes, confirms
+        pid = self.pin_id(ALICE)  # a tailnet person pins, closes, confirms
         self.assertEqual(self.pin(pid)["author"], {"login": "alice@example.com", "name": "Alice Kim"})
         self.assertEqual(self.call("POST", "/api/pins/2/close", None, ALICE)[1]["state"], "done")
         code, d = self.call("POST", "/api/pins/4/confirm", None, ALICE)
         self.assertEqual((code, d["state"]), (200, "done"))
-        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)   # an unknown tailnet person is auto-added
+        self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)  # an unknown tailnet person is auto-added
         people = {p["login"]: p for p in self.people_file()}
         self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com", "carol@example.com"])
         self.assertTrue(all("role" not in p for p in people.values()))
-        self.assertEqual(people["bob@example.com"], V01_PEOPLE[1])      # untouched
+        self.assertEqual(people["bob@example.com"], V01_PEOPLE[1])  # untouched
         self.assertFalse(ps.C.tokens_file.exists())
 
     def test_pins_md_matches_the_v01_rendering(self):
@@ -916,8 +1156,8 @@ class Migration(AccessBase):
         lines = md.split("\n")
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         lines.remove(md_render.TOKEN_GUIDANCE)
-        lines.remove(md_render.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
-        lines.remove(md_render.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
+        lines.remove(md_render.claim_guidance("http://127.0.0.1:18999"))  # v0.2.1: one more additive line
+        lines.remove(md_render.REPLY_GUIDANCE)  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
@@ -935,12 +1175,12 @@ class Migration(AccessBase):
             c_new, b_new = get(ps, path, headers)
             self.assertEqual(c_new, c_old, path)
             new, old = json.loads(b_new), json.loads(b_old)
-            if path == "/api/pins/dropped":                              # v0.2.2: the Trash adds a computed expires_ts
-                for r in new["dropped"]:                                 # and hides entries older than TRASH_DAYS
+            if path == "/api/pins/dropped":  # v0.2.2: the Trash adds a computed expires_ts
+                for r in new["dropped"]:  # and hides entries older than TRASH_DAYS
                     self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
                 old["dropped"] = [r for r in old["dropped"] if not ps.trash_expired(r)]
             recs = new["dropped"] if path == "/api/pins/dropped" else [new["pin"]] if path == "/api/pins/4" else new
-            for r in recs:                                               # v0.3.2 (ADR-0006): an additive rel_path on line pins
+            for r in recs:  # v0.3.2 (ADR-0006): an additive rel_path on line pins
                 rel = r.pop("rel_path", None)
                 self.assertTrue(rel is None or r["file"].endswith("/" + rel), (path, r["file"], rel))
             self.assertEqual(new, old, path)
@@ -951,14 +1191,14 @@ class Migration(AccessBase):
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         lines.remove(md_render.TOKEN_GUIDANCE)
         claim = [ln for ln in lines if ln.startswith("처리를 시작하는 핀은 먼저 잡는다")]
-        self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
+        self.assertEqual(len(claim), 1)  # v0.2.1: one more additive line
         lines.remove(claim[0])
-        lines.remove(md_render.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
+        lines.remove(md_render.REPLY_GUIDANCE)  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), v03_close_line(mask(md_old)))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)
         p_old, p_new = json.loads(p_old), json.loads(p_new)
-        self.assertTrue(all(p.pop("role") == "editor" for p in p_new["people"]))   # the only change: an additive role
+        self.assertTrue(all(p.pop("role") == "editor" for p in p_new["people"]))  # the only change: an additive role
         p_new["me"].pop("role")
         self.assertEqual(p_new, p_old)
 
@@ -972,8 +1212,19 @@ class Migration(AccessBase):
         if v01 is None:
             self.skipTest("v0.1.0 is not in this clone's history")
         src_state = Path(src_state)
-        keep = ("pins.jsonl", "pins.seq", "pins.dropped.jsonl", "people.json", "events.jsonl", "builds.json",
-                "built_at.txt", "built_src_mtime.txt", "head.txt", "pages.cur", "pins.md")
+        keep = (
+            "pins.jsonl",
+            "pins.seq",
+            "pins.dropped.jsonl",
+            "people.json",
+            "events.jsonl",
+            "builds.json",
+            "built_at.txt",
+            "built_src_mtime.txt",
+            "head.txt",
+            "pages.cur",
+            "pins.md",
+        )
         states = []
         for tag in ("old", "new"):
             d = Path(self.tmp.name) / ("copy-" + tag)
@@ -982,17 +1233,23 @@ class Migration(AccessBase):
                 if (src_state / name).is_file():
                     shutil.copy2(src_state / name, d / name)
             states.append(d)
-        m = re.search(r"^원고: `([^`]+)`", (src_state / "pins.md").read_text(encoding="utf-8"), re.M) \
-            if (src_state / "pins.md").exists() else None
+        m = (
+            re.search(r"^원고: `([^`]+)`", (src_state / "pins.md").read_text(encoding="utf-8"), re.M)
+            if (src_state / "pins.md").exists()
+            else None
+        )
         ms = Path(m.group(1)) if m else self.src
         main = next(iter(sorted(ms.glob("*.tex"))), self.main) if ms.is_dir() else self.main
         configure(v01, ms, main, states[0])
         configure(ps, ms, main, states[1])
         self.assertFalse((states[1] / "tokens.json").exists())
         self.compare_with(v01)
-        people = json.loads((states[1] / "people.json").read_text(encoding="utf-8"))["people"] \
-            if (states[1] / "people.json").exists() else []
-        for p in people:                                                 # a real person keeps today's rights
+        people = (
+            json.loads((states[1] / "people.json").read_text(encoding="utf-8"))["people"]
+            if (states[1] / "people.json").exists()
+            else []
+        )
+        for p in people:  # a real person keeps today's rights
             code, _ = get(ps, "/api/pins", {"Tailscale-User-Login": p["login"]})
             self.assertEqual(code, 200, p["login"])
             self.assertEqual(ps.role_of(p["login"]), access.role_value(p.get("role")))

@@ -16,6 +16,7 @@ Two parts:
 
 The module knows no run arguments, no HTTP and no server.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,18 +38,27 @@ Signature: TypeAlias = tuple[str, int, int]
 ReadCache: TypeAlias = dict[str, tuple[Signature, list[Row]]]
 
 EVENTS_FILE = "events.jsonl"
-EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
+EVENTS_KEEP = 5000  # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
 EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 EVENTS_SINCE_MAX = 20
-EXCERPT_CHARS = 140                # a notice's excerpt, on one line (limn.pins.render.flat)
+EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.pins.render.flat)
 
 
 # ---------------------------------------------------------------- Pure: building and picking notices
 
-def make_event(typ: str, r: Mapping[str, Any], actor: Mapping[str, Any], to: Iterable[str | None] | None,
-               who: Callable[[Mapping[str, Any]], Row], doc_of: Callable[[Mapping[str, Any]], str], local_login: str,
-               msg: Mapping[str, Any] | None = None, text: str | None = None) -> Row | None:
+
+def make_event(
+    typ: str,
+    r: Mapping[str, Any],
+    actor: Mapping[str, Any],
+    to: Iterable[str | None] | None,
+    who: Callable[[Mapping[str, Any]], Row],
+    doc_of: Callable[[Mapping[str, Any]], str],
+    local_login: str,
+    msg: Mapping[str, Any] | None = None,
+    text: str | None = None,
+) -> Row | None:
     """One events.jsonl record of type typ about pin record r (seq/at/ts are filled in by EventLog.emit), or None.
 
     to is deduplicated in order and loses empty logins, the actor themselves and local_login (the headerless agent);
@@ -89,9 +99,14 @@ def events_since(rows: list[Row], me: str | None, cursor: int | None, doc_names:
     if not me:
         out["events"] = []
         return out
-    evs = [_with_doc_name(e, doc_names) for e in rows
-           if e.get("seq", 0) > cursor and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
-           and (e.get("by") or {}).get("login") != me]
+    evs = [
+        _with_doc_name(e, doc_names)
+        for e in rows
+        if e.get("seq", 0) > cursor
+        and e.get("type") in NOTIFY_TYPES
+        and me in (e.get("to") or [])
+        and (e.get("by") or {}).get("login") != me
+    ]
     out["events"] = evs[-EVENTS_SINCE_MAX:]
     return out
 
@@ -103,6 +118,7 @@ def _with_doc_name(e: Row, doc_names: Mapping[str, str]) -> Row:
 
 
 # ---------------------------------------------------------------- The file
+
 
 def _is_int(v: object) -> bool:
     """A JSON integer: an int, but not a bool."""
@@ -116,6 +132,7 @@ class EventLog:
     The composition root makes the lock and the cache once and passes them to every value it makes; the clock
     (epoch seconds and the local wall-clock string the notices carry) comes in the same way, so a frozen clock in a
     test reaches every record."""
+
     path: Path
     lock: threading.Lock
     cache: ReadCache

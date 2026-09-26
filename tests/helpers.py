@@ -4,6 +4,7 @@ temporary manuscript and state folder, the socketpair request helpers, and the n
 Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
 would give two sets of module globals: two C, two DOCS, two locks).
 """
+
 import dataclasses
 import errno
 import importlib.util
@@ -50,7 +51,7 @@ def extract_js_fn(name: str) -> str:
     src = ps.HTML
     key = "function %s(" % name
     i = src.index(key)
-    if i >= 6 and src[i - 6:i] == "async ":
+    if i >= 6 and src[i - 6 : i] == "async ":
         i -= 6
     j = src.index("{", i)
     depth = 0
@@ -63,7 +64,7 @@ def extract_js_fn(name: str) -> str:
             if depth == 0:
                 break
         k += 1
-    return src[i:k + 1]
+    return src[i : k + 1]
 
 
 def js_icons() -> str:
@@ -77,16 +78,56 @@ def js_thread() -> str:
     ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
     st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
     mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
-    return "\n".join([ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")] + [extract_js_fn(n) for n in (
-        "relTime", "relSpan", "msgBody", "isAgent", "isQuestion", "assigneeOf", "assignChip", "stDot", "reopenedTurn", "threadOf", "allMentions", "replyCount", "msgText", "msgHtml", "threadHtml", "pinState", "isMe", "reviewerLabel",
-        "peopleName", "mentionToks", "reEsc", "meLogin", "pinRefExists", "pinRefGone", "fmtText", "mentionsMe", "addressedTag", "fyiTag")])
+    return "\n".join(
+        [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
+        + [
+            extract_js_fn(n)
+            for n in (
+                "relTime",
+                "relSpan",
+                "msgBody",
+                "isAgent",
+                "isQuestion",
+                "assigneeOf",
+                "assignChip",
+                "stDot",
+                "reopenedTurn",
+                "threadOf",
+                "allMentions",
+                "replyCount",
+                "msgText",
+                "msgHtml",
+                "threadHtml",
+                "pinState",
+                "isMe",
+                "reviewerLabel",
+                "peopleName",
+                "mentionToks",
+                "reEsc",
+                "meLogin",
+                "pinRefExists",
+                "pinRefGone",
+                "fmtText",
+                "mentionsMe",
+                "addressedTag",
+                "fyiTag",
+            )
+        ]
+    )
 
 
 def js_i18n(lang: str = "ko") -> str:
     """The viewer's message functions tr()/tl()/trMsg()/errText() with the language fixed - pulled functions call
     them for every UI string and API error, so a node harness needs them. Korean (the source) unless lang='en'."""
-    return "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
-                      extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("trMsg"), extract_js_fn("errText")])
+    return "\n".join(
+        [
+            "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+            extract_js_fn("tr"),
+            extract_js_fn("tl"),
+            extract_js_fn("trMsg"),
+            extract_js_fn("errText"),
+        ]
+    )
 
 
 def run_node(js: str, tz: str = None):
@@ -223,12 +264,23 @@ class Base(unittest.TestCase):
         C.allow = frozenset()
         C.origin_check = True
         C.git_pull = False
-        ps.SYNC_WATCH = gitsync.SyncWatch()        # a fresh remote-main watch status ("checking")
+        ps.SYNC_WATCH = gitsync.SyncWatch()  # a fresh remote-main watch status ("checking")
         C.pdfjs_dir = None
         C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-        ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
-                              finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
-        ps.set_docs(None)                          # start as a single document (no --doc) — clears the list left over from multi-doc tests
+        ps.BUILD_STATE.update(
+            state="idle",
+            phase=None,
+            started_at=None,
+            start_ts=None,
+            seq=0,
+            finished_at=None,
+            last=None,
+            errors=[],
+            log_tail="",
+            head=None,
+            pull=None,
+        )
+        ps.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
         ps.init_seq()
 
     def tearDown(self):
@@ -237,8 +289,9 @@ class Base(unittest.TestCase):
 
     def add(self, lo=4, hi=5, note="n", actor=None):
         """Add a pin on main.tex lines lo-hi (page 1) as actor (default the local agent); returns its id."""
-        return add_pin({"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": note},
-                          actor or dict(LOCAL_ACTOR)).record["id"]
+        return add_pin(
+            {"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": note}, actor or dict(LOCAL_ACTOR)
+        ).record["id"]
 
     def pin(self, pid):
         """The stored record of pin pid after a synced read, or None."""
@@ -247,11 +300,13 @@ class Base(unittest.TestCase):
     def talk(self, raw: bytes, shut=True) -> bytes:
         """Send raw over one connection and collect response bytes until the server closes it."""
         a, b = socket.socketpair()
+
         def serve():
             try:
                 ps.Handler(b, ("127.0.0.1", 0), None)
             finally:
-                b.close()                         # this is socketserver's shutdown_request duty
+                b.close()  # this is socketserver's shutdown_request duty
+
         t = threading.Thread(target=serve, daemon=True)
         t.start()
         a.sendall(raw)
@@ -294,12 +349,14 @@ def req(method, path, body=b"", headers=None):
 
 
 # the smallest PDF that pdftoppm/pdftotext can read (one page, one line of text). poppler rebuilds the xref itself.
-MINI_PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-            b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-            b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R"
-            b"/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
-            b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 20 150 Td (Reviewer one) Tj ET\nendstream endobj\n"
-            b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+MINI_PDF = (
+    b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+    b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R"
+    b"/Resources<</Font<</F1 5 0 R>>>>>>endobj\n"
+    b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 20 150 Td (Reviewer one) Tj ET\nendstream endobj\n"
+    b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+)
 
 
 def jreq(method, path, obj=None, headers=None):

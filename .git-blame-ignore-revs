@@ -1,0 +1,8 @@
+# Commits that only reformat code; `git blame` skips them with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's blame view reads this file on its own). Add a commit here only if it changes no AST.
+
+# Move the trailing comments that would make the formatter split code (comments only)
+b6455ea16a4849c2fb77bda603b49407e6a36258
+# Format the tree with ruff format
+f015ac503ef002374e4217db9c392a4d608810c4

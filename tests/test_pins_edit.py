@@ -5,12 +5,29 @@ test_server.py and the other version suites; here the pure decisions and records
 
 Run: uv run pytest -q tests/test_pins_edit.py
 """
+
 import unittest
 
 from limn.pins.edit import (
-    ASSIGNEE_AGENT, AddRequest, Anchoring, ClosedPinReshaped, EditRequest, LinePlace, Located, NoteTooLong, PinEdited,
-    PinOutsideTree, RangeOutsideFile, RegionPlace, StaleEdit, assignment_text, decide_edit, evolve_edit, file_after,
-    new_line_pin, new_region_pin,
+    ASSIGNEE_AGENT,
+    AddRequest,
+    Anchoring,
+    ClosedPinReshaped,
+    EditRequest,
+    LinePlace,
+    Located,
+    NoteTooLong,
+    PinEdited,
+    PinOutsideTree,
+    RangeOutsideFile,
+    RegionPlace,
+    StaleEdit,
+    assignment_text,
+    decide_edit,
+    evolve_edit,
+    file_after,
+    new_line_pin,
+    new_region_pin,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin
 
@@ -22,10 +39,23 @@ NOTE_MAX = 2000
 
 def line_record(**extra):
     """A stored line pin at L4-L5 of main.tex, matched by SyncTeX, with one earlier thread entry."""
-    record = {"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 2, "kind": "lines",
-              "via": "synctex", "score": 0.7, "frac": [0.1, 0.2, 0.3, 0.4], "note": "old", "id": 3,
-              "thread": [{"id": 1, "by": {"login": "bob@example.com", "name": "Bob"}, "at": "t0", "text": "hi"}],
-              "anchor": {"head": "x"}, "synced_at": 1.0, "rev": 2}
+    record = {
+        "file": "/ms/main.tex",
+        "name": "main.tex",
+        "lo": 4,
+        "hi": 5,
+        "page": 2,
+        "kind": "lines",
+        "via": "synctex",
+        "score": 0.7,
+        "frac": [0.1, 0.2, 0.3, 0.4],
+        "note": "old",
+        "id": 3,
+        "thread": [{"id": 1, "by": {"login": "bob@example.com", "name": "Bob"}, "at": "t0", "text": "hi"}],
+        "anchor": {"head": "x"},
+        "synced_at": 1.0,
+        "rev": 2,
+    }
     record.update(extra)
     return record
 
@@ -37,8 +67,9 @@ def decide(pin, count=None, clock="10:00", **fields):
 
 def edited(**fields):
     """The PinEdited fact for Alice at AT with the given changes; everything else untouched."""
-    base = dict(note=None, place=None, lines=None, range_changed=False, scope=None, kind=None, kind_req=None,
-                assignee=None)
+    base = dict(
+        note=None, place=None, lines=None, range_changed=False, scope=None, kind=None, kind_req=None, assignee=None
+    )
     base.update(fields)
     return PinEdited(ALICE, AT, **base)
 
@@ -48,11 +79,15 @@ class DecideEdit(unittest.TestCase):
 
     def test_closed_pin_refuses_reshaping_but_not_note_level_fields(self):
         """A closed pin keeps its place (409 done) - yet its note, kind_req and assignee may still change."""
-        for pin in (ReviewPin.from_record(line_record(done=True, review=True)), DonePin.from_record(line_record(done=True))):
+        for pin in (
+            ReviewPin.from_record(line_record(done=True, review=True)),
+            DonePin.from_record(line_record(done=True)),
+        ):
             self.assertEqual(decide(pin, base_rev=2, lo=4), ClosedPinReshaped(pin))
             self.assertEqual(decide(pin, base_rev=2, scope="para"), ClosedPinReshaped(pin))
-            self.assertEqual(decide(pin, base_rev=2, place=LinePlace({"file": "/ms/main.tex"}, frozenset())),
-                             ClosedPinReshaped(pin))
+            self.assertEqual(
+                decide(pin, base_rev=2, place=LinePlace({"file": "/ms/main.tex"}, frozenset())), ClosedPinReshaped(pin)
+            )
             self.assertIsInstance(decide(pin, base_rev=2, note="n", kind_req="question", assignee="agent"), PinEdited)
 
     def test_stale_base_rev_is_a_conflict_checked_after_the_closed_rule(self):
@@ -68,7 +103,9 @@ class DecideEdit(unittest.TestCase):
         pin = OpenPin.from_record(line_record())
         self.assertEqual(decide(pin, note_append="more").note, "old\n(추가 10:00) more")
         self.assertEqual(decide(pin, base_rev=2, note="new", note_append="more").note, "new\n(추가 10:00) more")
-        self.assertEqual(decide(OpenPin.from_record(line_record(note="")), note_append="more").note, "(추가 10:00) more")
+        self.assertEqual(
+            decide(OpenPin.from_record(line_record(note="")), note_append="more").note, "(추가 10:00) more"
+        )
 
     def test_merged_note_over_the_limit_is_refused_with_its_length(self):
         """The merged length is what counts, even when the appended text alone is short."""
@@ -82,7 +119,7 @@ class DecideEdit(unittest.TestCase):
         self.assertEqual(decide(pin, count=None, base_rev=2, lo=4, hi=6), PinOutsideTree())
         self.assertEqual(decide(pin, count=10, base_rev=2, hi=11), RangeOutsideFile(10, 4, 11))
         self.assertEqual(decide(pin, count=10, base_rev=2, lo=6), RangeOutsideFile(10, 6, 5))
-        self.assertEqual(decide(pin, count=0, base_rev=2, lo=1, hi=1).lines, (1, 1))   # an empty file still has line 1
+        self.assertEqual(decide(pin, count=0, base_rev=2, lo=1, hi=1).lines, (1, 1))  # an empty file still has line 1
 
     def test_range_changes_when_moved_or_when_the_pin_was_stale(self):
         """The same lines are no change unless the pin had lost its place; one bound alone keeps the stored other."""
@@ -107,22 +144,34 @@ class EvolveEdit(unittest.TestCase):
     def test_line_re_placement_keeps_unnamed_page_and_frac_and_defaults_kind(self):
         """Location fields are replaced as a whole; page/frac the request left out stay, kind falls back to "lines"."""
         record = line_record(scope="raw", quote="q", frac_build="pages")
-        place = LinePlace({"file": "/ms/b.tex", "name": "b.tex", "lo": 8, "hi": 9, "page": 1},
-                          frozenset({"file", "lo", "hi"}))
-        out = evolve_edit(OpenPin.from_record(record), edited(place=place, range_changed=True), None, None, None, None).record
-        self.assertEqual((out["file"], out["lo"], out["hi"], out["page"], out["frac"], out["kind"]),
-                         ("/ms/b.tex", 8, 9, 2, [0.1, 0.2, 0.3, 0.4], "lines"))
+        place = LinePlace(
+            {"file": "/ms/b.tex", "name": "b.tex", "lo": 8, "hi": 9, "page": 1}, frozenset({"file", "lo", "hi"})
+        )
+        out = evolve_edit(
+            OpenPin.from_record(record), edited(place=place, range_changed=True), None, None, None, None
+        ).record
+        self.assertEqual(
+            (out["file"], out["lo"], out["hi"], out["page"], out["frac"], out["kind"]),
+            ("/ms/b.tex", 8, 9, 2, [0.1, 0.2, 0.3, 0.4], "lines"),
+        )
         for gone in ("via", "score", "scope", "quote"):
             self.assertNotIn(gone, out)
-        self.assertEqual(out["frac_build"], "pages")          # frac was not re-placed, so its build identity stays
+        self.assertEqual(out["frac_build"], "pages")  # frac was not re-placed, so its build identity stays
 
     def test_line_re_placement_with_frac_forgets_frac_build_and_takes_scope_and_kind_from_the_request(self):
         """A named frac replaces the stored one and drops the legacy frac_build; scope/kind fill in what place lacks."""
-        place = LinePlace({"file": "/ms/main.tex", "lo": 4, "hi": 5, "page": 3, "frac": [0, 0, 1, 1]},
-                          frozenset({"file", "lo", "hi", "page", "frac"}))
-        out = evolve_edit(OpenPin.from_record(line_record(frac_build="pages")),
-                          edited(place=place, range_changed=True, scope="para", kind="env"), None, None, None,
-                          None).record
+        place = LinePlace(
+            {"file": "/ms/main.tex", "lo": 4, "hi": 5, "page": 3, "frac": [0, 0, 1, 1]},
+            frozenset({"file", "lo", "hi", "page", "frac"}),
+        )
+        out = evolve_edit(
+            OpenPin.from_record(line_record(frac_build="pages")),
+            edited(place=place, range_changed=True, scope="para", kind="env"),
+            None,
+            None,
+            None,
+            None,
+        ).record
         self.assertEqual((out["page"], out["frac"], out["scope"], out["kind"]), (3, [0, 0, 1, 1], "para", "env"))
         self.assertNotIn("frac_build", out)
 
@@ -137,10 +186,18 @@ class EvolveEdit(unittest.TestCase):
     def test_moved_lines_forget_matching_and_take_the_new_anchor(self):
         """A moved range drops via/score; the shell's anchor and synced_at replace the old ones and clear stale/sync."""
         pin = OpenPin.from_record(line_record(stale=True, sync="lost"))
-        out = evolve_edit(pin, edited(lines=(4, 7), range_changed=True), Located("/ms/main.tex", "main.tex"),
-                          Anchoring({"head": "y"}, 9.5), None, None).record
-        self.assertEqual((out["lo"], out["hi"], out["anchor"], out["synced_at"], out["file_rel"]),
-                         (4, 7, {"head": "y"}, 9.5, "main.tex"))
+        out = evolve_edit(
+            pin,
+            edited(lines=(4, 7), range_changed=True),
+            Located("/ms/main.tex", "main.tex"),
+            Anchoring({"head": "y"}, 9.5),
+            None,
+            None,
+        ).record
+        self.assertEqual(
+            (out["lo"], out["hi"], out["anchor"], out["synced_at"], out["file_rel"]),
+            (4, 7, {"head": "y"}, 9.5, "main.tex"),
+        )
         for gone in ("via", "score", "stale", "sync"):
             self.assertNotIn(gone, out)
 
@@ -156,29 +213,53 @@ class EvolveEdit(unittest.TestCase):
         self.assertIsInstance(out, DonePin)
         self.assertEqual((out.record["note"], out.record["kind_req"], out.record["rev"]), ("new", "question", 3))
         self.assertNotIn("mentions", out.record)
-        self.assertEqual((out.record["edited_at"], out.record["edited_by"]),
-                         (AT, {"login": ALICE.login, "name": ALICE.name}))
-        tagged = evolve_edit(OpenPin.from_record(line_record()), edited(note="@Bob"), None, None, ["bob@example.com"], None)
+        self.assertEqual(
+            (out.record["edited_at"], out.record["edited_by"]), (AT, {"login": ALICE.login, "name": ALICE.name})
+        )
+        tagged = evolve_edit(
+            OpenPin.from_record(line_record()), edited(note="@Bob"), None, None, ["bob@example.com"], None
+        )
         self.assertEqual(tagged.record["mentions"], ["bob@example.com"])
-        untouched = evolve_edit(OpenPin.from_record(line_record(mentions=["x"])), edited(kind_req="fix"), None, None, None, None)
+        untouched = evolve_edit(
+            OpenPin.from_record(line_record(mentions=["x"])), edited(kind_req="fix"), None, None, None, None
+        )
         self.assertEqual(untouched.record["mentions"], ["x"])
 
     def test_a_changed_assignee_leaves_an_assign_entry(self):
         """A new assignee is recorded with an ev=assign thread entry by the editor; the same assignee changes nothing."""
-        out = evolve_edit(OpenPin.from_record(line_record()), edited(assignee="bob@example.com"), None, None, None, "Bob Park").record
+        out = evolve_edit(
+            OpenPin.from_record(line_record()), edited(assignee="bob@example.com"), None, None, None, "Bob Park"
+        ).record
         self.assertEqual(out["assignee"], "bob@example.com")
-        self.assertEqual(out["thread"][-1], {"id": 2, "by": {"login": ALICE.login, "name": ALICE.name, "pic": ALICE.pic},
-                                             "at": AT, "text": "담당: @Bob Park", "ev": "assign"})
-        same = evolve_edit(OpenPin.from_record(line_record(assignee="agent")), edited(assignee="agent"), None, None, None, None)
+        self.assertEqual(
+            out["thread"][-1],
+            {
+                "id": 2,
+                "by": {"login": ALICE.login, "name": ALICE.name, "pic": ALICE.pic},
+                "at": AT,
+                "text": "담당: @Bob Park",
+                "ev": "assign",
+            },
+        )
+        same = evolve_edit(
+            OpenPin.from_record(line_record(assignee="agent")), edited(assignee="agent"), None, None, None, None
+        )
         self.assertEqual(len(same.record["thread"]), 1)
 
     def test_new_fields_go_to_the_end_in_the_stores_order(self):
         """Fields already stored keep their position; file_rel, kind_req, edited_* follow in the old write order."""
         record = {"id": 1, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "a", "rev": 0}
-        out = evolve_edit(OpenPin.from_record(record), edited(note="b", kind_req="fix"), Located("/ms/main.tex", "main.tex"), None,
-                          (), None).record
-        self.assertEqual(list(out), ["id", "file", "lo", "hi", "note", "rev", "file_rel", "kind_req", "edited_at",
-                                     "edited_by"])
+        out = evolve_edit(
+            OpenPin.from_record(record),
+            edited(note="b", kind_req="fix"),
+            Located("/ms/main.tex", "main.tex"),
+            None,
+            (),
+            None,
+        ).record
+        self.assertEqual(
+            list(out), ["id", "file", "lo", "hi", "note", "rev", "file_rel", "kind_req", "edited_at", "edited_by"]
+        )
 
 
 class Helpers(unittest.TestCase):
@@ -213,24 +294,60 @@ class NewPins(unittest.TestCase):
     def test_new_line_pin(self):
         """Location, kind default, note, at, id, author, kind_req, mentions, assignee, anchor, synced_at, pdf_build,
         doc, rev 0, then where the file is (file rewritten in place, file_rel last)."""
-        place = LinePlace({"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 1},
-                          frozenset({"file", "lo", "hi"}))
+        place = LinePlace(
+            {"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 1}, frozenset({"file", "lo", "hi"})
+        )
         request = AddRequest(place, "fix @Bob", "question", "bob@example.com")
-        pin = new_line_pin(place, request, 7, AT, {"login": "alice@example.com", "name": "Alice"}, ["bob@example.com"],
-                           Anchoring({"head": "h"}, 0), "pages", "ms", Located("/ms2/main.tex", "main.tex"))
+        pin = new_line_pin(
+            place,
+            request,
+            7,
+            AT,
+            {"login": "alice@example.com", "name": "Alice"},
+            ["bob@example.com"],
+            Anchoring({"head": "h"}, 0),
+            "pages",
+            "ms",
+            Located("/ms2/main.tex", "main.tex"),
+        )
         self.assertIsInstance(pin, OpenPin)
-        self.assertEqual(list(pin.record), ["file", "name", "lo", "hi", "page", "kind", "note", "at", "id", "author",
-                                            "kind_req", "mentions", "assignee", "anchor", "synced_at", "pdf_build",
-                                            "doc", "rev", "file_rel"])
-        self.assertEqual((pin.record["file"], pin.record["kind"], pin.record["id"], pin.record["rev"]),
-                         ("/ms2/main.tex", "lines", 7, 0))
+        self.assertEqual(
+            list(pin.record),
+            [
+                "file",
+                "name",
+                "lo",
+                "hi",
+                "page",
+                "kind",
+                "note",
+                "at",
+                "id",
+                "author",
+                "kind_req",
+                "mentions",
+                "assignee",
+                "anchor",
+                "synced_at",
+                "pdf_build",
+                "doc",
+                "rev",
+                "file_rel",
+            ],
+        )
+        self.assertEqual(
+            (pin.record["file"], pin.record["kind"], pin.record["id"], pin.record["rev"]),
+            ("/ms2/main.tex", "lines", 7, 0),
+        )
 
     def test_new_line_pin_keeps_a_sent_build_and_kind_and_omits_empty_fields(self):
         """pdf_build the viewer sent wins over the current build; no kind_req, tags or assignee means no such fields."""
-        place = LinePlace({"file": "/ms/main.tex", "lo": 4, "hi": 5, "kind": "env", "pdf_build": "pages-1"},
-                          frozenset())
-        pin = new_line_pin(place, AddRequest(place, ""), 1, AT, {"login": "local"}, (), Anchoring({}, 0), "pages",
-                           "ms", None)
+        place = LinePlace(
+            {"file": "/ms/main.tex", "lo": 4, "hi": 5, "kind": "env", "pdf_build": "pages-1"}, frozenset()
+        )
+        pin = new_line_pin(
+            place, AddRequest(place, ""), 1, AT, {"login": "local"}, (), Anchoring({}, 0), "pages", "ms", None
+        )
         self.assertEqual((pin.record["kind"], pin.record["pdf_build"]), ("env", "pages-1"))
         for absent in ("kind_req", "mentions", "assignee", "file_rel"):
             self.assertNotIn(absent, pin.record)
@@ -240,8 +357,26 @@ class NewPins(unittest.TestCase):
         place = RegionPlace({"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 2, "frac": [0, 0, 1, 1]})
         request = AddRequest(place, "n", "fix", ASSIGNEE_AGENT)
         pin = new_region_pin(place, request, 9, AT, {"login": "local"}, ["bob@example.com"], "pages", "rv")
-        self.assertEqual(list(pin.record), ["pdf", "name", "kind", "page", "frac", "note", "at", "id", "author",
-                                            "kind_req", "pdf_build", "doc", "rev", "mentions", "assignee"])
+        self.assertEqual(
+            list(pin.record),
+            [
+                "pdf",
+                "name",
+                "kind",
+                "page",
+                "frac",
+                "note",
+                "at",
+                "id",
+                "author",
+                "kind_req",
+                "pdf_build",
+                "doc",
+                "rev",
+                "mentions",
+                "assignee",
+            ],
+        )
 
 
 if __name__ == "__main__":

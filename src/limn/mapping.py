@@ -7,6 +7,7 @@ SyncTeX and pdftotext, reading .tex files, the token-weight cache, re-syncing st
 limn/locate.py, which calls into this module (and into limn.pins.position for the rules about stored pins). The rules
 themselves are described in docs/handbook/domain.md.
 """
+
 # Lazy annotations to match server.py's style, not for an older interpreter: Limn needs Python >= 3.10 (server.py
 # uses `match`), and instances.sh refuses an older one before it starts the server.
 from __future__ import annotations
@@ -14,7 +15,6 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeAlias
-
 
 FLOAT_KINDS = ("figure", "table", "algorithm")
 
@@ -29,6 +29,7 @@ Level: TypeAlias = dict[str, Any]
 
 # ---------------------------------------------------------------- Line text
 
+
 def norm(line: str) -> str:
     """The line with runs of whitespace collapsed to one space and the ends trimmed - the form anchors compare."""
     return " ".join(line.split())
@@ -42,7 +43,7 @@ def truncate_quote(s: object, n: int = 60) -> str:
     "whole thing". When truncating, the ellipsis is appended after n-1 characters of body text, so the
     result is always n characters or fewer (never n+1 from n characters plus the ellipsis)."""
     text = str(s)
-    return text[:n - 1] + "…" if len(text) > n else text
+    return text[: n - 1] + "…" if len(text) > n else text
 
 
 def is_comment(line: str) -> bool:
@@ -56,6 +57,7 @@ def strip_comment(line: str) -> str:
 
 
 # ---------------------------------------------------------------- Reverse mapping: picking lines
+
 
 def densest(values: list[int], gap: int = 30) -> list[int]:
     """Breaks at large gaps and keeps only the densest cluster.
@@ -78,7 +80,7 @@ def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> flo
     """Scores 0-1 how much of the region's characters a candidate line range contains."""
     if not tw:
         return 0.0
-    blob = " ".join(lines[max(0, lo - 2):hi + 1])
+    blob = " ".join(lines[max(0, lo - 2) : hi + 1])
     return sum(w for t, w in tw if t in blob) / sum(w for _, w in tw)
 
 
@@ -187,7 +189,7 @@ def env_spans(lines: Sequence[str]) -> list[tuple[int, int, str]]:
 
 def snippet(lines: Sequence[str], lo: int, hi: int, cap: int = 80) -> str:
     """Lines lo..hi (1-based, inclusive) numbered in a 5-wide column; beyond cap lines, a Korean "(N줄 더)" tail."""
-    chunk = lines[lo - 1:hi]
+    chunk = lines[lo - 1 : hi]
     extra = len(chunk) - cap
     if extra > 0:
         chunk = chunk[:cap]
@@ -216,11 +218,17 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
 
     def add(level: str, lo: int, hi: int, label: str, env: str | None = None) -> None:
         """Append a rung, or replace the rung with the same range and list the replaced name under merged."""
-        item: Level = {"level": level, "lo": lo, "hi": hi, "label": label, "n": hi - lo + 1,
-                "snippet": snippet(lines, lo, hi)}
+        item: Level = {
+            "level": level,
+            "lo": lo,
+            "hi": hi,
+            "label": label,
+            "n": hi - lo + 1,
+            "snippet": snippet(lines, lo, hi),
+        }
         if env:
             item["env"] = env
-        for i, old in enumerate(levels):              # levels with the same range are merged (keeping the later name)
+        for i, old in enumerate(levels):  # levels with the same range are merged (keeping the later name)
             if (old["lo"], old["hi"]) == (lo, hi):
                 item["merged"] = old.get("merged", []) + [old["level"]]
                 levels[i] = item
@@ -229,8 +237,9 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
 
     add("raw", raw_lo, raw_hi, "드래그한 줄")
     spans = env_spans(lines)
-    encl = sorted((s for s in spans if s[0] <= raw_lo <= s[1] and s[2] != "document"),
-                  key=lambda s: (s[1] - s[0], -s[0]))
+    encl = sorted(
+        (s for s in spans if s[0] <= raw_lo <= s[1] and s[2] != "document"), key=lambda s: (s[1] - s[0], -s[0])
+    )
     pa, pb = para_bounds(lines, raw_lo, raw_hi)
     if encl:
         # A paragraph never crosses the innermost enclosing environment. If the drag is strictly inside that
@@ -258,8 +267,7 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
     # If the outer environment wraps the inner one by exactly one line on each side (a single tabular inside
     # a minipage), treat them as the same block - listing the inner one separately would waste a ladder
     # rung on an almost-identical range. The outer name is kept.
-    encl = [s for i, s in enumerate(encl)
-            if not any(o[0] == s[0] - 1 and o[1] == s[1] + 1 for o in encl[i + 1:])]
+    encl = [s for i, s in enumerate(encl) if not any(o[0] == s[0] - 1 and o[1] == s[1] + 1 for o in encl[i + 1 :])]
     for k, (a, b, name) in enumerate(encl[:3]):
         key = "env" if k == 0 else "env%d" % (k + 1)
         suffix = "" if k == 0 else (" (바깥)" if k == 1 else " (바깥 2)")
@@ -281,11 +289,11 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
     assert default is not None
     if not default["level"].startswith("env") and kind != "paragraph":
         kind = "paragraph"
-    return {"levels": levels, "default_level": default["level"], "lo": default["lo"],
-            "hi": default["hi"], "kind": kind}
+    return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
 
 
 # ---------------------------------------------------------------- Anchors
+
 
 def anchor_of(lines: Sequence[str], lo: int, hi: int) -> dict[str, str | int]:
     """Captures the head/tail text of the block a pin points at (pure-comment lines are skipped).
@@ -302,8 +310,12 @@ def anchor_of(lines: Sequence[str], lo: int, hi: int) -> dict[str, str | int]:
     body = [i for i in idx if not is_comment(lines[i])] or idx
     if not body:
         return {}
-    return {"head": norm(lines[body[0]]), "tail": norm(lines[body[-1]]),
-            "head_off": body[0] - (lo - 1), "tail_off": (hi - 1) - body[-1]}
+    return {
+        "head": norm(lines[body[0]]),
+        "tail": norm(lines[body[-1]]),
+        "head_off": body[0] - (lo - 1),
+        "tail_off": (hi - 1) - body[-1],
+    }
 
 
 def find_line(nlines: Sequence[str], needle: object, near: int) -> int | None:
@@ -337,6 +349,7 @@ def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> b
 
 # ---------------------------------------------------------------- Where a pin's file is (docs/adr/0006-relative-pin-paths.md)
 
+
 def anchor_offset(v: object) -> int:
     """A stored anchor's head_off/tail_off - how far its first/last non-comment line sits from lo/hi - when it is an int
     in 0..9999, else 0 (a legacy anchor has none, and a bad value must not move the pin)."""
@@ -355,8 +368,9 @@ def file_tails(file: str) -> list[str]:
     return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
 
 
-def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool],
-                 scope: str = "") -> str | None:
+def pin_rel_path(
+    file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool], scope: str = ""
+) -> str | None:
     """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
 
     1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves

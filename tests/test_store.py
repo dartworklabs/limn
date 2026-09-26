@@ -7,6 +7,7 @@ concurrent saves, quarantined lines) is Store at the end of this file.
 
 Run: uv run pytest -q tests/test_store.py
 """
+
 import ast
 import json
 import os
@@ -17,14 +18,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import store
-from limn import build as limn_build
+from limn import build as limn_build, store
 from limn.access import LOCAL_ACTOR
 from limn.pins.edit import PinOutsideTree
 from limn.store import PinFiles, PinStore, dump_jsonl, find_pin
 from limn.web.errors import InputRejected
 
-from helpers import add_pin, Base, edit_pin, ps, record_of, TEX
+from helpers import TEX, Base, add_pin, edit_pin, ps, record_of
 
 STORE_PY = Path(store.__file__)
 
@@ -69,10 +69,12 @@ class StoreBase(unittest.TestCase):
 
     def add(self, pid: int):
         """A transaction step that appends pin pid -> (pid, True)."""
+
         def fn(rows):
             """Appends {id: pid} and reports a change."""
             rows.append({"id": pid})
             return pid, True
+
         return fn
 
 
@@ -107,6 +109,7 @@ class WriteOrderTest(StoreBase):
             """Records which file was replaced, then replaces it."""
             order.append(path.name)
             real(path, text, mode)
+
         with mock.patch.object(store, "atomic_write", side_effect=spy):
             self.store.transact(self.add(1))
         self.assertEqual(order, ["pins.jsonl", "pins.md"])
@@ -129,6 +132,7 @@ class WriteOrderTest(StoreBase):
         def boom(rows):
             """A renderer that fails."""
             raise RuntimeError("boom")
+
         broken = PinStore(self.store.files, self.store.lock, valid, self.sync, boom, Refused)
         with self.assertRaises(RuntimeError):
             broken.transact(self.add(2))
@@ -170,6 +174,7 @@ class WhenWrittenTest(StoreBase):
         def refuse(rows):
             """Refuses the request."""
             raise Refused("no")
+
         with self.assertRaises(Refused):
             self.store.transact(refuse)
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1, "synced": true}\n')
@@ -182,6 +187,7 @@ class WhenWrittenTest(StoreBase):
         def refuse(rows):
             """Refuses the request."""
             raise Refused("no")
+
         with self.assertRaises(Refused):
             self.store.transact(refuse)
         self.assertEqual(self.store.files.pins_jsonl.stat().st_mtime_ns, before)
@@ -195,6 +201,7 @@ class WhenWrittenTest(StoreBase):
             """Half-changes rows, then fails."""
             rows[0]["half"] = True
             raise KeyError("bug")
+
         with self.assertRaises(KeyError):
             self.store.transact(defect)
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
@@ -227,8 +234,10 @@ class CorruptLineTest(StoreBase):
             self.store.transact(self.add(4))
             self.put("junk\n")
             self.store.transact(self.add(5))
-        self.assertEqual(sorted(p.name for p in self.state.glob("*.bak")),
-                         ["pins.jsonl.corrupt-20260926-100000-1.bak", "pins.jsonl.corrupt-20260926-100000.bak"])
+        self.assertEqual(
+            sorted(p.name for p in self.state.glob("*.bak")),
+            ["pins.jsonl.corrupt-20260926-100000-1.bak", "pins.jsonl.corrupt-20260926-100000.bak"],
+        )
         self.assertEqual((self.state / "pins.jsonl.corrupt-20260926-100000-1.bak").read_text(), "junk\n")
 
     def test_read_only_request_with_a_corrupt_line_writes_nothing(self):
@@ -245,8 +254,9 @@ class CorruptLineTest(StoreBase):
         self.assertEqual((rows, bad), ([{"id": 1}], [2]))
         with mock.patch("time.strftime", return_value="20260926-100000"):
             self.store.write_dropped(rows, bad)
-        self.assertEqual((self.state / "pins.dropped.jsonl.corrupt-20260926-100000.bak").read_text(),
-                         '{"id": 1}\nbroken\n')
+        self.assertEqual(
+            (self.state / "pins.dropped.jsonl.corrupt-20260926-100000.bak").read_text(), '{"id": 1}\nbroken\n'
+        )
         self.assertEqual(self.store.files.dropped.read_text(encoding="utf-8"), '{"id": 1}\n')
 
     def test_missing_file_reads_empty(self):
@@ -274,12 +284,13 @@ class LockTest(StoreBase):
             started.set()
             self.store.transact(self.add(2))
             done.set()
+
         with self.store.lock:
             self.store.transact(self.add(1))
             t = threading.Thread(target=other)
             t.start()
             self.assertTrue(started.wait(5))
-            self.assertFalse(done.wait(0.3))           # blocked on the lock
+            self.assertFalse(done.wait(0.3))  # blocked on the lock
             self.assertEqual(self.store.read_pins()[0], [{"id": 1}])
         t.join(5)
         self.assertTrue(done.is_set())
@@ -294,6 +305,7 @@ class LockTest(StoreBase):
             """Waits for the others, then appends one pin with a fresh id."""
             barrier.wait(5)
             self.store.transact(lambda rows: (rows.append({"id": self.store.next_id(rows)}), True))
+
         threads = [threading.Thread(target=save) for _ in range(30)]
         for t in threads:
             t.start()
@@ -365,6 +377,7 @@ class HelperTest(unittest.TestCase):
 # The store under the running server's add, edit, clear and Trash. These classes load server.py (helpers.ps) and drive
 # the module through its bindings; the tests above call the module on its own.
 
+
 class Store(Base):
     def test_concurrent_adds_all_kept(self):
         ids, errs = [], []
@@ -374,6 +387,7 @@ class Store(Base):
                 ids.append(self.add(note="c%d" % i))
             except Exception as e:  # noqa: BLE001
                 errs.append(e)
+
         ts = [threading.Thread(target=go, args=(i,)) for i in range(30)]
         for t in ts:
             t.start()
@@ -397,20 +411,22 @@ class Store(Base):
     def test_mistyped_fields_are_quarantined(self):
         self.add()
         good = {"file": str(self.main), "lo": 4, "hi": 4}
-        bad = [dict(good, id=960, file="main.tex"),               # relative path
-               dict(good, id=961, author="str"),
-               dict(good, id=962, frac="bad"),
-               dict(good, id=963, edited_by=5),
-               dict(good, id=964, rev="x"),
-               dict(good, id=965, synced_at="x"),
-               dict(good, id=966, edited_at=5),
-               dict(good, id=967, done="yes"),
-               dict(good, id=968, frac=[0, 0, 1]),
-               dict(good, id=969, author={"name": 3})]
+        bad = [
+            dict(good, id=960, file="main.tex"),  # relative path
+            dict(good, id=961, author="str"),
+            dict(good, id=962, frac="bad"),
+            dict(good, id=963, edited_by=5),
+            dict(good, id=964, rev="x"),
+            dict(good, id=965, synced_at="x"),
+            dict(good, id=966, edited_at=5),
+            dict(good, id=967, done="yes"),
+            dict(good, id=968, frac=[0, 0, 1]),
+            dict(good, id=969, author={"name": 3}),
+        ]
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             for r in bad:
                 fh.write(json.dumps(r) + "\n")
-        os.utime(self.main, (time.time() + 5, time.time() + 5))   # so sync_all compares synced_at
+        os.utime(self.main, (time.time() + 5, time.time() + 5))  # so sync_all compares synced_at
         self.assertEqual([r["id"] for r in ps.snapshot_pins()], [1])
         self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
 
@@ -423,29 +439,33 @@ class Store(Base):
         self.assertNotIn("outsidesecret", json.dumps(ps.snapshot_pins()))
 
     def test_lines_edit_drops_via_score(self):
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "via": "synctex", "score": 0.74},
-                         dict(LOCAL_ACTOR)).record["id"]
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "via": "synctex", "score": 0.74}, dict(LOCAL_ACTOR)
+        ).record["id"]
         p = record_of(edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(LOCAL_ACTOR)))
         self.assertNotIn("via", p)
         self.assertNotIn("score", p)
 
     def test_stale_term_in_pins_md(self):
         pid = self.add(8, 9)
-        self.main.write_text(TEX.replace("Body line seven betaunique.", "rewritten").replace(
-            "Body line eight gammaunique.", "rewritten2"), encoding="utf-8")
+        self.main.write_text(
+            TEX.replace("Body line seven betaunique.", "rewritten").replace(
+                "Body line eight gammaunique.", "rewritten2"
+            ),
+            encoding="utf-8",
+        )
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("%d · 위치 잃음" % pid, md)   # "위치 잃음" is spelled out in the number column (formerly ⚠)
-        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)          # the legend line
+        self.assertIn("%d · 위치 잃음" % pid, md)  # "위치 잃음" is spelled out in the number column (formerly ⚠)
+        self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)  # the legend line
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
         self.add()
         before = ps.C.pins_jsonl.read_text()
-        with mock.patch.object(ps, "pins_md_text", side_effect=RuntimeError("boom")):
-            with self.assertRaises(RuntimeError):
-                self.add(note="x")
+        with mock.patch.object(ps, "pins_md_text", side_effect=RuntimeError("boom")), self.assertRaises(RuntimeError):
+            self.add(note="x")
         self.assertEqual(ps.C.pins_jsonl.read_text(), before)
 
     def test_two_clears_same_second_keep_both(self):
@@ -462,19 +482,21 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         pid = self.add()
         ps.drop_pin(pid, dict(LOCAL_ACTOR))
-        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")):   # the transaction's own write
-            with self.assertRaises(OSError):
-                ps.restore_pin(pid, dict(LOCAL_ACTOR))
+        # the transaction's own write
+        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")), self.assertRaises(OSError):
+            ps.restore_pin(pid, dict(LOCAL_ACTOR))
         dropped, _ = ps.read_jsonl(ps.C.dropped)
         self.assertIn(pid, [r["id"] for r in dropped])
         self.assertEqual(record_of(ps.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
         self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 3, "frac": [0.1, 0.2, 0.3, 0.4]},
-                         dict(LOCAL_ACTOR)).record["id"]
-        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0},
-                                  dict(LOCAL_ACTOR)))
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 3, "frac": [0.1, 0.2, 0.3, 0.4]}, dict(LOCAL_ACTOR)
+        ).record["id"]
+        p = record_of(
+            edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0}, dict(LOCAL_ACTOR))
+        )
         self.assertEqual((p["lo"], p["hi"], p["page"], p["kind"]), (8, 9, 3, "lines"))
         self.assertEqual(p["frac"], [0.1, 0.2, 0.3, 0.4])
 
@@ -489,11 +511,14 @@ class Store(Base):
         # a drag made right after a rebuild, before the screen updates, must stay tagged with the old build.
         (ps.C.state / "pages-20260101000000").mkdir()
         ps.C.pages_ptr.write_text("pages-20260101000000")
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
-                         dict(LOCAL_ACTOR)).record["id"]
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"}, dict(LOCAL_ACTOR)
+        ).record["id"]
         self.assertEqual(self.pin(pid)["pdf_build"], "pages")
-        self.assertEqual(add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(LOCAL_ACTOR)),
-                         InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build"))
+        self.assertEqual(
+            add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(LOCAL_ACTOR)),
+            InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build"),
+        )
 
     def _new_build(self, name="pages-20260101000000"):
         (ps.C.state / name).mkdir(exist_ok=True)
@@ -501,12 +526,18 @@ class Store(Base):
         return name
 
     def test_edit_loc_with_new_frac_restamps_pdf_build(self):
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]},
-                         dict(LOCAL_ACTOR)).record["id"]
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]}, dict(LOCAL_ACTOR)
+        ).record["id"]
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
-                                                 "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0}, dict(LOCAL_ACTOR)))
+        p = record_of(
+            edit_pin(
+                pid,
+                {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0},
+                dict(LOCAL_ACTOR),
+            )
+        )
         self.assertNotEqual(p["pdf_build"], old_build)
         self.assertEqual(p["pdf_build"], nb)
 
@@ -514,8 +545,13 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb},
-                                        "base_rev": 0}, dict(LOCAL_ACTOR)))
+        p = record_of(
+            edit_pin(
+                pid,
+                {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb}, "base_rev": 0},
+                dict(LOCAL_ACTOR),
+            )
+        )
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_edit_loc_replaces_legacy_frac_build_field(self):
@@ -525,8 +561,13 @@ class Store(Base):
         rows[0]["frac_build"] = "pages"
         ps.write_pins(rows)
         nb = self._new_build()
-        p = record_of(edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]},
-                                        "base_rev": 0}, dict(LOCAL_ACTOR)))
+        p = record_of(
+            edit_pin(
+                pid,
+                {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]}, "base_rev": 0},
+                dict(LOCAL_ACTOR),
+            )
+        )
         self.assertEqual(p["pdf_build"], nb)
         self.assertNotIn("frac_build", p)
 
@@ -556,7 +597,6 @@ class Store(Base):
     def test_meta_exposes_pages_build(self):
         d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.DOCS[0]).name)
-
 
 
 if __name__ == "__main__":

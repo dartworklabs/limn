@@ -9,6 +9,7 @@ The existing events (`cleared`, `purged`) are still written for compatibility. O
 audit_entry() builds a line from values the caller passes (the clock included); append_audit() is the only writer of
 the file. The module knows no run arguments, no HTTP and no server: the state directory comes in as an argument.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,9 @@ AUDIT_ACTIONS = ("cleared", "purged", "token_created", "token_revoked", "member_
 AUDIT_VIA = ("http", "cli")
 
 
-def audit_entry(action: str, by: Mapping[str, Any] | None, via: str, details: Mapping[str, Any],
-                now: float) -> dict[str, Any]:
+def audit_entry(
+    action: str, by: Mapping[str, Any] | None, via: str, details: Mapping[str, Any], now: float
+) -> dict[str, Any]:
     """One audit.jsonl line: {at, ts, action, by, via, details}.
 
     at is the local wall-clock string of `now` (the shape now_str() writes), ts the same instant in epoch seconds; by
@@ -39,9 +41,14 @@ def audit_entry(action: str, by: Mapping[str, Any] | None, via: str, details: Ma
     if via not in AUDIT_VIA:
         raise ValueError("unknown audit channel %r" % via)
     login = (by or {}).get("login")
-    return {"at": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S"), "ts": round(now, 3),
-            "action": action, "by": {"login": login, "name": (by or {}).get("name") or login}, "via": via,
-            "details": dict(details)}
+    return {
+        "at": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+        "ts": round(now, 3),
+        "action": action,
+        "by": {"login": login, "name": (by or {}).get("name") or login},
+        "via": via,
+        "details": dict(details),
+    }
 
 
 def append_audit(state: Path, entry: Mapping[str, Any]) -> bool:
@@ -59,7 +66,7 @@ def append_audit(state: Path, entry: Mapping[str, Any]) -> bool:
             try:
                 os.fchmod(fd, 0o600)
                 while line:
-                    line = line[os.write(fd, line):]
+                    line = line[os.write(fd, line) :]
                 os.fsync(fd)
             finally:
                 os.close(fd)

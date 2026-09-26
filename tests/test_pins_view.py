@@ -6,6 +6,7 @@ facts and clock as arguments, and must never call a collaborator they do not nee
 
 Run: uv run pytest -q tests/test_pins_view.py
 """
+
 import json
 import unittest
 
@@ -28,12 +29,21 @@ def shown(r):
 class PinState(unittest.TestCase):
     """pin_state names the state type parse_pin gives - one rule for the API and the transitions."""
 
-    RECORDS = ({}, {"done": False, "review": True}, {"done": True}, {"done": True, "review": False},
-               {"done": True, "review": True}, {"done": 1, "review": "yes"}, {"review": True})
+    RECORDS = (
+        {},
+        {"done": False, "review": True},
+        {"done": True},
+        {"done": True, "review": False},
+        {"done": True, "review": True},
+        {"done": 1, "review": "yes"},
+        {"review": True},
+    )
 
     def test_the_names_of_every_shape(self):
         """Not done is open (a stray review flag is meaningless); done with review true is review; else done."""
-        self.assertEqual([pin_state(r) for r in self.RECORDS], ["open", "open", "done", "done", "review", "done", "open"])
+        self.assertEqual(
+            [pin_state(r) for r in self.RECORDS], ["open", "open", "done", "done", "review", "done", "open"]
+        )
 
     def test_the_name_is_the_parsed_state_types(self):
         """For every shape, the name is the `state` of the type the transitions parse the record into."""
@@ -49,10 +59,13 @@ class PinView(unittest.TestCase):
         r = {"id": 4, "note": "n", "kind_req": "question", "note_mentions": ["bob@example.com"]}
         before, show = dict(r), shown(r)
         rec = pin_view(r, show, [{"id": 2, "rel": "inside"}], False, "main", NOW)
-        self.assertEqual(list(rec), ["id", "note", "kind_req", "note_mentions", "shown", "rel", "est", "doc", "state",
-                                     "addressed", "fyi"])
-        self.assertEqual((rec["rel"], rec["est"], rec["doc"], rec["state"]), ([{"id": 2, "rel": "inside"}], False,
-                                                                              "main", "open"))
+        self.assertEqual(
+            list(rec),
+            ["id", "note", "kind_req", "note_mentions", "shown", "rel", "est", "doc", "state", "addressed", "fyi"],
+        )
+        self.assertEqual(
+            (rec["rel"], rec["est"], rec["doc"], rec["state"]), ([{"id": 2, "rel": "inside"}], False, "main", "open")
+        )
         self.assertEqual((r, show), (before, shown(before)))
 
     def test_a_computed_name_already_in_the_record_is_overwritten_in_place(self):
@@ -80,8 +93,12 @@ class PinsPayload(unittest.TestCase):
 
     def setUp(self):
         """Three pins of two documents (one done) and a recording est_context."""
-        self.rows = [{"id": 1, "doc": "a", "pdf_build": "b1"}, {"id": 2, "doc": "b", "pdf_build": "b2"},
-                     {"id": 3, "doc": "a", "done": True, "pdf_build": "b2"}, {"id": 4, "doc": "a", "pdf_build": "b2"}]
+        self.rows = [
+            {"id": 1, "doc": "a", "pdf_build": "b1"},
+            {"id": 2, "doc": "b", "pdf_build": "b2"},
+            {"id": 3, "doc": "a", "done": True, "pdf_build": "b2"},
+            {"id": 4, "doc": "a", "pdf_build": "b2"},
+        ]
         self.asked = []
 
     def est_context(self, key):
@@ -91,8 +108,9 @@ class PinsPayload(unittest.TestCase):
 
     def payload(self, allp):
         """pins_payload over self.rows with a fixed rel and doc field."""
-        return pins_payload(self.rows, allp, {1: [{"id": 4, "rel": "partial"}]}, shown, lambda r: r["doc"],
-                            self.est_context, NOW)
+        return pins_payload(
+            self.rows, allp, {1: [{"id": 4, "rel": "partial"}]}, shown, lambda r: r["doc"], self.est_context, NOW
+        )
 
     def test_open_pins_only_unless_all(self):
         """Without allp a done pin is left out; with it every row comes, in row order."""
@@ -102,8 +120,10 @@ class PinsPayload(unittest.TestCase):
     def test_est_by_build_and_true_for_a_document_no_longer_served(self):
         """Another build of a different manuscript is estimated, the current build is not; unknown document: True."""
         got = {r["id"]: (r["est"], r["rel"], r["doc"], r["shown"]) for r in self.payload(False)}
-        self.assertEqual(got, {1: (True, [{"id": 4, "rel": "partial"}], "a", True), 2: (True, [], "b", True),
-                               4: (False, [], "a", True)})
+        self.assertEqual(
+            got,
+            {1: (True, [{"id": 4, "rel": "partial"}], "a", True), 2: (True, [], "b", True), 4: (False, [], "a", True)},
+        )
 
     def test_each_listed_document_is_asked_once(self):
         """est_context reads a document's build history: once per document, and never for one with no listed pin."""
@@ -120,8 +140,12 @@ class DroppedPayload(unittest.TestCase):
 
     def test_order_expiry_and_show(self):
         """Ordered by dropped_at (missing first, ties in row order); expires_ts rounded to ms, absent when unknown."""
-        rows = [{"id": 1, "dropped_at": "2026-09-26 10:00:00"}, {"id": 2}, {"id": 3, "dropped_at": "2026-09-25 09:00:00"},
-                {"id": 4, "dropped_at": "2026-09-25 09:00:00"}]
+        rows = [
+            {"id": 1, "dropped_at": "2026-09-26 10:00:00"},
+            {"id": 2},
+            {"id": 3, "dropped_at": "2026-09-25 09:00:00"},
+            {"id": 4, "dropped_at": "2026-09-25 09:00:00"},
+        ]
         expiry = {1: 100.12345, 3: 50.0, 4: None}
         out = dropped_payload(rows, shown, lambda r: expiry.get(r["id"]))
         self.assertEqual([r["id"] for r in out], [2, 3, 4, 1])
@@ -134,6 +158,7 @@ class DroppedPayload(unittest.TestCase):
 #
 # The Trash list (dropped_payload and GET /api/pins/dropped). These classes load server.py (helpers.ps) and drive the
 # module through its bindings; the tests above call the module on its own.
+
 
 class DroppedList(Base):
     """§B: GET /api/pins/dropped — returns dropped pins read-only, together with dropped_at/dropped_by."""
@@ -174,8 +199,6 @@ class DroppedList(Base):
         self.assertIn(b" 403 ", out)
 
 
-
-
 class PublicRecord(unittest.TestCase):
     """public_record: a stored record as the API returns it, placed where the composition root finds its file now."""
 
@@ -185,7 +208,7 @@ class PublicRecord(unittest.TestCase):
         out = public_record(r, ("/new/ms/sec/a.tex", "sec/a.tex"))
         self.assertEqual(out, {"id": 1, "file": "/new/ms/sec/a.tex", "rev": 3, "lo": 2, "rel_path": "sec/a.tex"})
         self.assertEqual(list(out), ["id", "file", "rev", "lo", "rel_path"])
-        self.assertEqual(r["rel_path"], "stale")                                 # r itself is never changed
+        self.assertEqual(r["rel_path"], "stale")  # r itself is never changed
 
     def test_unplaced_record_keeps_its_file_and_has_no_rel_path(self):
         """Without a place (a region pin, or a file not found) the stored file stays; rev defaults to 0."""

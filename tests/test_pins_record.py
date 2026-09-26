@@ -7,6 +7,7 @@ those two shapes.
 
 Run: uv run pytest -q tests/test_pins_record.py
 """
+
 import unittest
 
 from limn.pins.record import THREAD_EVENTS, is_int, valid_rec
@@ -41,14 +42,29 @@ class Location(unittest.TestCase):
 
     def test_line_pin_needs_an_absolute_file_and_an_ordered_integer_range(self):
         """No file, an empty or relative file, a missing, bool, zero or reversed lo/hi each make the line broken."""
-        for bad in ({"file": None}, {"file": ""}, {"file": "main.tex"}, {"lo": None}, {"lo": True, "hi": True},
-                    {"lo": 0}, {"lo": 6}, {"hi": "5"}):
+        for bad in (
+            {"file": None},
+            {"file": ""},
+            {"file": "main.tex"},
+            {"lo": None},
+            {"lo": True, "hi": True},
+            {"lo": 0},
+            {"lo": 6},
+            {"hi": "5"},
+        ):
             self.assertFalse(check(dict(LINE, **bad)), bad)
 
     def test_region_pin_needs_an_absolute_pdf_a_page_and_four_numbers(self):
         """A relative pdf, no page or page 0, lo/hi on a region pin, or a frac that is not four numbers is broken."""
-        for bad in ({"pdf": "review.pdf"}, {"page": None}, {"page": 0}, {"lo": 1, "hi": 2}, {"frac": None},
-                    {"frac": [0.1, 0.2, 0.5]}, {"frac": [0.1, 0.2, 0.5, True]}):
+        for bad in (
+            {"pdf": "review.pdf"},
+            {"page": None},
+            {"page": 0},
+            {"lo": 1, "hi": 2},
+            {"frac": None},
+            {"frac": [0.1, 0.2, 0.5]},
+            {"frac": [0.1, 0.2, 0.5, True]},
+        ):
             self.assertFalse(check(dict(REGION, **bad)), bad)
 
     def test_id_must_be_an_integer_and_the_record_a_dict(self):
@@ -69,7 +85,7 @@ class Collaborators(unittest.TestCase):
         self.assertEqual(seen, ["gone"])
         self.assertFalse(check(dict(LINE, doc="Bad Key")))
         self.assertFalse(check(dict(LINE, doc=7)))
-        self.assertTrue(check(dict(LINE, doc=None)))                          # a legacy record has none
+        self.assertTrue(check(dict(LINE, doc=None)))  # a legacy record has none
 
     def test_author_and_every_by_field_are_checked_by_the_given_actor_rule(self):
         """author and *_by values go to the actor rule; None is allowed; the rule's no makes the line broken."""
@@ -86,22 +102,62 @@ class Fields(unittest.TestCase):
 
     def test_optional_fields_of_the_wrong_kind_break_the_line(self):
         """Each case is one field with a shape the store has never written."""
-        for bad in ({"page": "1"}, {"note": 3}, {"close_reply": 1}, {"close_ref": []}, {"kind_req": "Q"},
-                    {"mentions": "bob"}, {"mentions": [1]}, {"assignee": ""}, {"assignee": 1}, {"anchor": "x"},
-                    {"raw_lo": 1.5}, {"rev": "2"}, {"synced_at": "10:00"}, {"claim_until": True}, {"eta_ts": "soon"},
-                    {"done": 1}, {"review": "y"}, {"stale": "no"}, {"name": 1}, {"file_rel": 1},
-                    {"done_at": 5}, {"at": 1}, {"changes": [{"file": "a.tex", "lo": "1", "hi": 2}]},
-                    {"frac": [0, 0, 1]}):
+        for bad in (
+            {"page": "1"},
+            {"note": 3},
+            {"close_reply": 1},
+            {"close_ref": []},
+            {"kind_req": "Q"},
+            {"mentions": "bob"},
+            {"mentions": [1]},
+            {"assignee": ""},
+            {"assignee": 1},
+            {"anchor": "x"},
+            {"raw_lo": 1.5},
+            {"rev": "2"},
+            {"synced_at": "10:00"},
+            {"claim_until": True},
+            {"eta_ts": "soon"},
+            {"done": 1},
+            {"review": "y"},
+            {"stale": "no"},
+            {"name": 1},
+            {"file_rel": 1},
+            {"done_at": 5},
+            {"at": 1},
+            {"changes": [{"file": "a.tex", "lo": "1", "hi": 2}]},
+            {"frac": [0, 0, 1]},
+        ):
             self.assertFalse(check(dict(LINE, **bad)), bad)
 
     def test_known_fields_in_their_stored_shape_and_unknown_fields_pass(self):
         """A record with every optional field in its stored shape, plus a field this version does not know, passes."""
-        full = dict(LINE, page=1, kind_req="question", mentions=["bob@example.com"], assignee="agent",
-                    anchor={"text": "x"}, raw_lo=4, raw_hi=5, rev=2, synced_at=1790000000.5, score=0.9,
-                    claim_until=1790000100, claim_ts=1790000000, eta_ts=1790000050, done=False, review=None,
-                    stale=True, name="main.tex", kind="line", via="synctex", file_rel="main.tex",
-                    changes=[{"file": "/ms/main.tex", "lo": 1, "hi": 2}], done_at="2026-09-26 11:00:00",
-                    future_field={"anything": [1, 2]})
+        full = dict(
+            LINE,
+            page=1,
+            kind_req="question",
+            mentions=["bob@example.com"],
+            assignee="agent",
+            anchor={"text": "x"},
+            raw_lo=4,
+            raw_hi=5,
+            rev=2,
+            synced_at=1790000000.5,
+            score=0.9,
+            claim_until=1790000100,
+            claim_ts=1790000000,
+            eta_ts=1790000050,
+            done=False,
+            review=None,
+            stale=True,
+            name="main.tex",
+            kind="line",
+            via="synctex",
+            file_rel="main.tex",
+            changes=[{"file": "/ms/main.tex", "lo": 1, "hi": 2}],
+            done_at="2026-09-26 11:00:00",
+            future_field={"anything": [1, 2]},
+        )
         self.assertTrue(check(full))
 
 
@@ -115,14 +171,23 @@ class Thread(unittest.TestCase):
     def test_every_transition_mark_and_a_plain_reply_pass(self):
         """The marks lifecycle and edit write (close, reopen, confirm, assign) and a reply without ev are valid."""
         self.assertEqual(THREAD_EVENTS, ("close", "reopen", "confirm", "assign"))
-        thread = [self.entry(id=i + 1, ev=ev) for i, ev in enumerate(THREAD_EVENTS)] + [self.entry(id=9, ref="PR #3",
-                                                                                                    mentions=["b"])]
+        thread = [self.entry(id=i + 1, ev=ev) for i, ev in enumerate(THREAD_EVENTS)] + [
+            self.entry(id=9, ref="PR #3", mentions=["b"])
+        ]
         self.assertTrue(check(dict(LINE, thread=thread)))
 
     def test_a_malformed_entry_breaks_the_line(self):
         """No or a bool id, text or at not a string, by not an actor, an unknown ev, a bad ref or mentions: broken."""
-        for bad in ({"id": None}, {"id": True}, {"text": None}, {"at": 5}, {"by": "alice"}, {"ev": "delete"},
-                    {"ref": 3}, {"mentions": "b"}):
+        for bad in (
+            {"id": None},
+            {"id": True},
+            {"text": None},
+            {"at": 5},
+            {"by": "alice"},
+            {"ev": "delete"},
+            {"ref": 3},
+            {"mentions": "b"},
+        ):
             self.assertFalse(check(dict(LINE, thread=[self.entry(**bad)])), bad)
         self.assertFalse(check(dict(LINE, thread="hi")))
         self.assertFalse(check(dict(LINE, thread=["hi"])))

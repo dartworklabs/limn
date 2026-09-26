@@ -6,6 +6,7 @@ module's import purity is checked in test_pins_lifecycle.py with the other text 
 
 Run: uv run pytest -q tests/test_guidance.py
 """
+
 import unittest
 from pathlib import PurePosixPath
 
@@ -47,7 +48,7 @@ class LoopbackRefused(unittest.TestCase):
 
     def test_curl_names_the_file_and_never_a_token(self):
         """The curl form reads the file at call time through $(cat ...)."""
-        self.assertEqual(token_file_curl("~/t"), "`curl -H \"Authorization: Bearer $(cat ~/t)\" …`")
+        self.assertEqual(token_file_curl("~/t"), '`curl -H "Authorization: Bearer $(cat ~/t)" …`')
 
 
 if __name__ == "__main__":
