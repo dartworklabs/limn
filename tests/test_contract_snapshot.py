@@ -4,9 +4,8 @@ A fixed sequence of requests - new pins by people and the agent, a question, a c
 ref and changes, a confirm, a reopen, an edit, the Trash and back, and the refusals an agent meets (confirm by the
 agent, a stale edit, a claim on a closed pin, a missing pin) - runs through the real handler with the clock, the time
 zone and the paths pinned. Every answer (status and body), pins.md after every write, and at the end GET /pins.md,
-GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json. The
-snapshot was recorded from the server before stage 6 finished (docs/handbook/code-style-roadmap.md, stage 4 evidence),
-so a refactor that changes any of these bytes fails here.
+GET /api/pins, GET /api/pins/<id> and GET /api/pins/dropped are compared with tests/data/contract_snapshot.json
+(docs/handbook/verification.md §4), so a refactor that changes any of these bytes fails here.
 
 Paths are written as <ROOT> (the temporary folder), the clock is 2026-09-26 10:00:00 +09:00 whatever the machine's
 zone. A deliberate contract change (docs/handbook/api.md, approved first) re-records the snapshot:

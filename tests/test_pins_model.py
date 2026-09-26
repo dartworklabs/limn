@@ -2,8 +2,8 @@
 
 The round trip is the contract that lets the store parse records into typed states without a migration: a record
 parsed and written back must give the same JSON line, byte for byte, with the store's own json.dumps settings
-(dump_jsonl in server.py) - unknown fields, field order, legacy and malformed values included
-(docs/handbook/code-style-roadmap.md R2 §확인하는 법).
+(limn.store.dump_jsonl) - unknown fields, field order, legacy and malformed values included
+(docs/handbook/code-style-roadmap.md §R2).
 
 The corpus tests/data/pin_records.jsonl holds one record for every distinct record shape (field names, order and
 value kinds) that the full test suite read from or wrote to pins.jsonl and pins.dropped.jsonl, temp paths replaced.

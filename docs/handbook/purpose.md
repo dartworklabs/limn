@@ -47,7 +47,7 @@ Limn이 필요한 순간은 다음과 같다.
 
 | 영역 | 현재 정답이 있는 곳 | Handbook의 역할 |
 | --- | --- | --- |
-| 서버 동작·비즈니스 규칙 | 코드 [`src/limn/server.py`](../../src/limn/server.py)와 그것을 고정하는 테스트 | 안내판. 규칙의 이유와 중요한 값(한도·시간·임계치)을 [domain.md](domain.md), [build-sync.md](build-sync.md)에 설명한다 |
+| 서버 동작·비즈니스 규칙 | 코드 [`src/limn/`](../../src/limn/__init__.py) 패키지와 그것을 고정하는 테스트. 모듈의 층은 [architecture.md](architecture.md) §현재 구조 | 안내판. 규칙의 이유와 중요한 값(한도·시간·임계치)을 [domain.md](domain.md), [build-sync.md](build-sync.md)에 설명한다 |
 | 뷰어 화면 규칙 | `src/limn/viewer/`의 파일과 `tests/test_viewer.py`의 `Frontend*` 가드 | 안내판. 규칙과 근거는 [viewer.md](viewer.md) |
 | 에이전트 계약 (`pins.md`, HTTP API) | [api.md](api.md)가 계약 문서이고, 코드가 그 계약을 구현한다. 둘이 어긋나면 결함이다 | **정본.** 계약을 바꾸려면 이 문서부터 바꾼다 |
 | 에이전트 작업 절차 | [SKILL.ko.md](../../skill/SKILL.ko.md) / [SKILL.md](../../skill/SKILL.md) | 안내판 |
@@ -57,7 +57,7 @@ Limn이 필요한 순간은 다음과 같다.
 | 구조·불변식 | Handbook [architecture.md](architecture.md) | **정본** |
 | 검증 절차와 합격 기준 | Handbook [verification.md](verification.md). 실행 증거는 CI 로그 | **정본** |
 | 변경 절차 | Handbook [workflow.md](workflow.md), 기여 조건은 [CONTRIBUTING.md](../../CONTRIBUTING.md)와 [CLA.md](../../CLA.md) | **정본** |
-| 코딩 규칙과 정렬 계획 | 우리 코딩 스킬(`code-implement`, `code-testing`, `code-security`)이 규칙의 정본이고, 이 프로젝트에 적용하는 순서는 [code-style-roadmap.md](code-style-roadmap.md) | 로드맵의 정본 |
+| 코딩 규칙 | 우리 코딩 스킬(`code-implement`, `code-testing`, `code-security`)이 규칙의 정본이고, 이 프로젝트에서 규칙이 지켜지는 모양과 남은 일은 [code-style-roadmap.md](code-style-roadmap.md) | 적용 모양과 남은 일의 정본 |
 | 결정 이유 | `docs/adr/` ([ADR-0001](../adr/0001-blueprint.md)부터 번호순) | 안내판. ADR은 왜 그렇게 정했는지를 보존하며, 현재값의 정본은 아니다 |
 | 보안 정책·신고 | [SECURITY.md](../../SECURITY.md) | 안내판 |
 | 릴리스 기록 | [CHANGELOG.md](../../CHANGELOG.md), git 태그 `v*` | 안내판 |
