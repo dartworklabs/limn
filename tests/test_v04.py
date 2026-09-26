@@ -393,16 +393,17 @@ class ScopedChangesAfterAClone(ScopedRepo):
         self.assertIn("blueberries", s["diff"])
 
 
-# ---------------------------------------------------------------- rollback to 0.3.0
+# ---------------------------------------------------------------- rollback to 0.3.x
 
-def load_v030():
-    """The server module exactly as released in v0.3.0 (from git), or None in a shallow clone."""
-    r = subprocess.run(["git", "show", "v0.3.0:src/limn/server.py"], cwd=ROOT, capture_output=True, timeout=30, check=False)
+def load_release(tag):
+    """The server module exactly as released in `tag` (from git, with its sibling modules), or None in a shallow clone."""
+    r = subprocess.run(["git", "show", "%s:src/limn/server.py" % tag], cwd=ROOT, capture_output=True, timeout=30, check=False)
     if r.returncode != 0 or b"def revision_pin_scope" not in r.stdout:
         return None
-    d = Path(tempfile.mkdtemp(prefix="limn-v030-"))
-    (d / "server_v030.py").write_bytes(r.stdout)
-    spec = importlib.util.spec_from_file_location("limn_server_v030", d / "server_v030.py")
+    d = Path(tempfile.mkdtemp(prefix="limn-%s-" % tag))
+    name = "server_%s" % tag.replace(".", "")
+    (d / (name + ".py")).write_bytes(r.stdout)
+    spec = importlib.util.spec_from_file_location("limn_" + name, d / (name + ".py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     shutil.rmtree(d, ignore_errors=True)
@@ -410,19 +411,22 @@ def load_v030():
 
 
 class RollbackToV030(MovedManuscriptBase):
-    """State written by this version is read by the released 0.3.0 server, and 0.3.0's writes are read back correctly."""
+    """State written by this version is read by the released 0.3.0 server, and 0.3.0's writes are read back correctly.
+    RollbackToV031 runs the same tests against 0.3.1, the release this one replaces."""
+
+    TAG = "v0.3.0"
 
     @classmethod
     def setUpClass(cls):
-        cls.v030 = load_v030()
+        cls.v030 = load_release(cls.TAG)
 
     def setUp(self):
         if self.v030 is None:
-            self.skipTest("v0.3.0 is not in this clone's history (shallow checkout)")
+            self.skipTest("%s is not in this clone's history (shallow checkout)" % self.TAG)
         super().setUp()
 
     def old(self, path, method="GET", body=None):
-        """One request to the 0.3.0 module on the same manuscript and state directory."""
+        """One request to the released module on the same manuscript and state directory."""
         configure(self.v030, ps.C.src, ps.C.main, ps.C.state)
         return self.v030_call(method, path, body)
 
@@ -473,6 +477,13 @@ class RollbackToV030(MovedManuscriptBase):
         self.move()                                                                   # and then the checkout moves
         p = self.api_pins()[self.p_new]
         self.assertEqual((p["file"], p["rel_path"]), (str(self.b / "sections" / "y.tex"), "sections/y.tex"))
+
+
+
+class RollbackToV031(RollbackToV030):
+    """The same rollback checks against 0.3.1 - the release deployed before this one."""
+
+    TAG = "v0.3.1"
 
 
 if __name__ == "__main__":

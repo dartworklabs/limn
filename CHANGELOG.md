@@ -3,7 +3,7 @@
 ## 0.4.0 — unreleased
 
 Pins follow a moved manuscript ([issue #7](https://github.com/dartworklabs/limn/issues/7), decision record
-[ADR-0006](docs/adr/0006-relative-pin-paths.md), status: proposed). The stored pin record gains one optional field. The
+[ADR-0006](docs/adr/0006-relative-pin-paths.md)). The stored pin record gains one optional field. The
 HTTP API adds one computed field, and `file` in responses now names the file where it is now. The `pins.md` format is
 unchanged.
 
@@ -30,8 +30,9 @@ unchanged.
 - `/edit` checks a `note_append` that would exceed the note limit before changing anything (a 400 could leave a
   partial edit when the same write re-synced lines).
 - Not covered: the paths inside a closed pin's `changes` stay absolute (after a move, [View changes] infers the hunks),
-  and view-only PDF pins keep their `pdf` path (they are found by document key).
-- Rolling back to 0.3.0 is safe: 0.3.0 ignores `file_rel` (and never returns a `rel_path`), records rewritten by 0.4
+  and view-only PDF pins keep their `pdf` path (they are found by document key). Follow-ups:
+  [issue #24](https://github.com/dartworklabs/limn/issues/24).
+- Rolling back to 0.3.1 (or 0.3.0) is safe: 0.3.x ignores `file_rel` (and never returns a `rel_path`), records rewritten by 0.4
   carry a current `file`, and untouched records look exactly as they did before the upgrade.
 
 ## 0.3.1 — 2026-09-26
