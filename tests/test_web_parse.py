@@ -143,11 +143,17 @@ class Fields(unittest.TestCase):
         self.assertEqual(parse.parse_claim_body({"ttl_min": 480, "eta_min": 241}), (120, 240))
 
     def test_revision_parameters(self):
-        """The pin is parsed before anything else; POST names only commit, doc and pin, and pin is a JSON integer."""
-        self.assertEqual(parse.parse_revision_query({"commit": ["abc"], "pin": ["12"]}), ("abc", 12))
-        self.assertEqual(parse.parse_revision_query({}), ("", None))
+        """The pin is parsed before the commit; POST names only commit, doc and pin, pin is a JSON integer, and the commit
+        is a full lowercase SHA-1."""
+        sha = "0123456789abcdef0123456789abcdef01234567"
+        bad_commit = InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit")
+        self.assertEqual(parse.parse_revision_query({"commit": [sha], "pin": ["12"]}), (sha, 12))
+        self.assertEqual(parse.parse_revision_query({"commit": ["abc"], "pin": ["12"]}), bad_commit)
+        self.assertEqual(parse.parse_revision_query({}), bad_commit)
         self.assertEqual(parse.parse_revision_query({"pin": ["0"]}), InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin"))
-        self.assertEqual(parse.parse_revision_build({"commit": 5, "pin": 3}), (5, 3))
+        self.assertEqual(parse.parse_revision_build({"commit": sha.upper(), "pin": 3}), bad_commit)
+        self.assertEqual(parse.parse_revision_build({"commit": 5}), bad_commit)
+        self.assertEqual(parse.parse_revision_build({"commit": sha, "pin": 3}), (sha, 3))
         self.assertEqual(parse.parse_revision_build({"x": 1, "pin": "1"}),
                          InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields"))
         self.assertEqual(parse.parse_revision_build({"pin": True}), InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin"))

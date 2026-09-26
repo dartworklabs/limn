@@ -24,6 +24,8 @@ from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 from limn.store import PinStore
+from limn import revisions
+from limn import scope as scoping
 from limn.web import answers, parse
 from limn.web.errors import InputRejected
 
@@ -161,6 +163,13 @@ def pick(d: dict, mod=None):
     if isinstance(selection, parse.PickBuildGone):
         return answers.pick_build_gone()
     return mod.pick(D, answers.accepted(selection))
+
+
+def revision_spec(commit: str, pin: int | None = None, mod=None):
+    """What a comparison request of the current document compares (limn.revisions.revision_spec with the server copy's
+    context), or its refusal value."""
+    mod = mod or ps
+    return revisions.revision_spec(mod.cur_doc(), commit, pin, mod.revision_context())
 
 
 def record_of(outcome) -> dict:
@@ -2660,9 +2669,12 @@ class ManuscriptRevisions(Base):
         self.assertEqual(code, 400)
 
     def test_rejects_arbitrary_commit_and_bad_id(self):
+        """Only a full SHA-1 parses (400 bad_commit otherwise), and only a commit in the document's recent list is read:
+        even a name that got past the parser is never handed to git."""
+        for commit in ("HEAD", "--help"):
+            self.assertEqual(parse.parse_commit(commit), InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit"))
         for commit in ("HEAD", "a" * 40, "--help"):
-            with self.assertRaises(ps.HTTPError):
-                ps.revision_diff(ps.cur_doc(), commit)
+            self.assertEqual(ps.revision_diff(ps.cur_doc(), commit), revisions.CommitNotRecent())
 
     def test_shared_build_root_keeps_document_histories_separate(self):
         heads = {"ms": self.main}
@@ -2682,8 +2694,7 @@ class ManuscriptRevisions(Base):
             self.assertEqual(history["revisions"][0]["subject"],
                              "manuscript update" if d.key == "ms" else d.key + " update")
         hl_head = ps.revision_history(docs[1])["revisions"][0]["id"]
-        with self.assertRaises(ps.HTTPError):
-            ps.revision_diff(docs[0], hl_head)
+        self.assertEqual(ps.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
 
     def test_main_path_outside_document_source_is_unavailable(self):
         bad = ps.Doc("bad", "bad", src=self.src, main=self.secret)
@@ -2694,34 +2705,33 @@ class ManuscriptRevisions(Base):
         self.assertFalse(ps.revision_history(linked)["available"])
 
     def test_caps_large_diff(self):
-        old = ps.REVISION_DIFF_MAX
-        ps.REVISION_DIFF_MAX = 50
+        old = scoping.REVISION_DIFF_MAX
+        scoping.REVISION_DIFF_MAX = 50
         try:
             d = ps.revision_diff(ps.cur_doc(), self.latest)
         finally:
-            ps.REVISION_DIFF_MAX = old
+            scoping.REVISION_DIFF_MAX = old
         self.assertTrue(d["truncated"])
         self.assertLessEqual(len(d["diff"].encode("utf-8")), 53)  # UTF-8 replacement at the byte boundary
 
     def test_revision_spec_uses_first_parent_and_rejects_root(self):
-        spec = ps.revision_spec(ps.cur_doc(), self.latest)
+        spec = revision_spec(self.latest)
         self.assertEqual((spec.base, spec.head), (self.first, self.latest))
-        with self.assertRaises(ps.HTTPError):
-            ps.revision_spec(ps.cur_doc(), self.first)
+        self.assertEqual(revision_spec(self.first), revisions.NoParent())
 
     def test_revision_snapshot_uses_git_and_rejects_symlinks(self):
         self.main.write_text("uncommitted secret")
         dest = self.repo / "snapshot"
-        spec = ps.revision_spec(ps.cur_doc(), self.latest)
-        ps.revision_snapshot(spec, spec.head, dest)
+        spec = revision_spec(self.latest)
+        revisions.revision_snapshot(spec, spec.head, dest)
         self.assertIn("New manuscript sentence.", (dest / "main.tex").read_text())
         self.assertFalse((dest / "other").exists())
         (self.src / "escape.tex").symlink_to(self.secret)
         for cmd in (["git", "add", "ms/escape.tex"], ["git", "commit", "-qm", "link"]):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
-        with self.assertRaises(ps.HTTPError):
-            ps.revision_snapshot(ps.revision_spec(ps.cur_doc(), head), head, self.repo / "bad-snapshot")
+        self.assertEqual(revisions.revision_snapshot(revision_spec(head), head, self.repo / "bad-snapshot"),
+                         revisions.StepFailed("unsafe_snapshot"))
 
     def test_outline_uses_only_current_pdf_aux_and_balanced_tex_groups(self):
         current = ps.C.state / "pages-20260924010000"
@@ -2768,7 +2778,7 @@ class ManuscriptRevisions(Base):
             return {"state": "ready", "warnings": ["test warning"], "error": None, "reason": None}
         body = json.dumps({"commit": self.latest}).encode()
         request = req("POST", "/api/revision-build", body, {"Content-Type": "application/json"})
-        with mock.patch.object(ps, "revision_compile", side_effect=compile):
+        with mock.patch.object(revisions, "revision_compile", side_effect=compile):
             try:
                 code, _, raw = split_resp(self.talk(request))
                 self.assertEqual(code, 202)
@@ -2788,19 +2798,16 @@ class ManuscriptRevisions(Base):
         self.assertEqual(self.main.read_bytes(), original)
         self.assertEqual(marker.read_text(), "pages-20260924000000")
         self.assertEqual(ps.BUILD_STATE, before)
-        with mock.patch.object(ps, "revision_history", return_value={"available": True, "revisions": []}):
+        with mock.patch.object(revisions, "revision_history", return_value={"available": True, "revisions": []}):
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
-            with self.assertRaises(ps.HTTPError):
-                ps.revision_status(ps.cur_doc(), self.latest)
+            self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest), revisions.CommitNotRecent())
 
     def test_revision_failure_has_no_pdf_and_can_retry(self):
-        failure = ps.HTTPError(503, "test timeout", reason="timeout")
-        with mock.patch.object(ps, "revision_compile", side_effect=failure) as run:
+        with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")) as run:
             ps.revision_start(ps.cur_doc(), self.latest)
             status = self._wait_revision()
             self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
-            with self.assertRaises(ps.HTTPError):
-                ps.revision_pdf(ps.cur_doc(), self.latest)
+            self.assertEqual(ps.revision_pdf(ps.cur_doc(), self.latest), revisions.RevisionNotReady())
             ps.revision_start(ps.cur_doc(), self.latest)
             self._wait_revision()
             self.assertEqual(run.call_count, 2)
@@ -2822,26 +2829,22 @@ class ManuscriptRevisions(Base):
         self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-build?commit=HEAD")))[0], 400)
 
     def test_revision_source_limits_and_gitlinks_are_rejected(self):
-        spec = ps.revision_spec(ps.cur_doc(), self.latest)
-        with mock.patch.object(ps, "REVISION_FILE_MAX", 1):
-            with self.assertRaises(ps.HTTPError) as raised:
-                ps.revision_snapshot(spec, self.latest, self.repo / "large")
-            self.assertEqual(raised.exception.body["reason"], "size_limit")
+        spec = revision_spec(self.latest)
+        with mock.patch.object(revisions, "REVISION_FILE_MAX", 1):
+            self.assertEqual(revisions.revision_snapshot(spec, self.latest, self.repo / "large"),
+                             revisions.StepFailed("snapshot_size"))
         for cmd in (["git", "update-index", "--add", "--cacheinfo", "160000," + self.first + ",ms/sub"],
                     ["git", "commit", "-qm", "add submodule"]):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
-        with self.assertRaises(ps.HTTPError) as raised:
-            ps.revision_snapshot(spec, head, self.repo / "submodule-snapshot")
-        self.assertEqual(raised.exception.body["reason"], "unsafe_snapshot")
+        self.assertEqual(revisions.revision_snapshot(spec, head, self.repo / "submodule-snapshot"),
+                         revisions.StepFailed("unsafe_snapshot"))
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
-        with mock.patch.object(ps, "REVISION_SLOTS", threading.BoundedSemaphore(0)):
-            with self.assertRaises(ps.HTTPError) as raised:
-                ps.revision_start(ps.cur_doc(), self.latest)
-            self.assertEqual(raised.exception.code, 409)
-        spec = ps.revision_spec(ps.cur_doc(), self.latest)
-        root = ps._revision_cache_root(ps.cur_doc())
+        with mock.patch.object(ps.REVISION_JOBS, "slots", threading.BoundedSemaphore(0)):
+            self.assertEqual(ps.revision_start(ps.cur_doc(), self.latest), revisions.AllSlotsBusy())
+        spec = revision_spec(self.latest)
+        root = revisions.revision_cache_root(ps.cur_doc())
         jobdir = root / spec.key
         jobdir.mkdir()
         (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
@@ -2852,12 +2855,12 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "idle")
         for i in range(8):
             (root / ("%064x" % i)).mkdir()
-        ps._revision_prune(root, spec.key)
-        self.assertLessEqual(sum(p.is_dir() for p in root.iterdir()), ps.REVISION_CACHE_KEEP)
+        revisions.revision_prune(root, spec.key, ps.REVISION_JOBS.active)
+        self.assertLessEqual(sum(p.is_dir() for p in root.iterdir()), revisions.REVISION_CACHE_KEEP)
 
     def test_corrupt_revision_cache_is_a_miss(self):
-        spec = ps.revision_spec(ps.cur_doc(), self.latest)
-        root = ps._revision_cache_root(ps.cur_doc())
+        spec = revision_spec(self.latest)
+        root = revisions.revision_cache_root(ps.cur_doc())
         jobdir = root / spec.key
         jobdir.mkdir()
         for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
@@ -2866,19 +2869,16 @@ class ManuscriptRevisions(Base):
 
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
         with mock.patch.object(ps.shutil, "which", return_value=None):
-            with self.assertRaises(ps.HTTPError) as raised:
-                ps.revision_sandbox(self.repo, Path("."), "latexmk", [])
-        self.assertEqual(raised.exception.body["reason"], "tool_unavailable")
+            self.assertEqual(revisions.revision_sandbox(self.repo, Path("."), "latexmk", []),
+                             revisions.StepFailed("sandbox_tools"))
         with self.assertRaises(ValueError):
-            ps.revision_sandbox(self.repo, Path("."), "sh", [])
+            revisions.revision_sandbox(self.repo, Path("."), "sh", [])
 
     def test_revision_exec_bounds_output_and_time(self):
-        with self.assertRaises(ps.HTTPError) as raised:
-            ps.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 2, 100)
-        self.assertEqual(raised.exception.body["reason"], "size_limit")
-        with self.assertRaises(ps.HTTPError) as raised:
-            ps.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, .1)
-        self.assertEqual(raised.exception.body["reason"], "timeout")
+        self.assertEqual(revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 2, 100),
+                         revisions.StepFailed("size"))
+        self.assertEqual(revisions.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, .1),
+                         revisions.StepFailed("timeout"))
 
     def test_outline_complex_titles_keep_alignment_and_http_build_identity(self):
         pages = ps.C.state / "pages"
@@ -2925,7 +2925,7 @@ class ManuscriptRevisions(Base):
         before = {p.name: p.read_bytes() for p in self.src.iterdir()}
         dest = self.repo / "actual-job"
         dest.mkdir()
-        status = ps.revision_compile(ps.revision_spec(ps.cur_doc(), head), dest, 30)
+        status = revisions.revision_compile(revision_spec(head), dest, 30)
         self.assertEqual(status["state"], "ready")
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("Old", text)

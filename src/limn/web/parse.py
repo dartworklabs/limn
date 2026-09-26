@@ -24,6 +24,7 @@ from typing import Any, NamedTuple, Protocol, TypeAlias
 from limn.build import valid_build_name
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.mapping import norm, truncate_quote
+from limn.revisions import REVISION_ID_RE
 from limn.pins.edit import (
     ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, PDF_QUOTE_MAX, AddRequest, EditRequest, LinePlace, Place,
     RegionPlace,
@@ -342,27 +343,33 @@ def parse_pin_param(v: object) -> int | None | InputRejected:
 
 
 class RevisionQuery(NamedTuple):
-    """A revision route's commit (as sent; the service checks it) and optional pin."""
+    """A revision request's commit (a full lowercase SHA-1) and optional pin."""
     commit: str
     pin: int | None
 
 
+def parse_commit(v: object) -> str | InputRejected:
+    """A commit id as the revision routes take it: a full lowercase SHA-1 string. Whether it is one of the document's
+    recent commits is the service's to decide."""
+    if not isinstance(v, str) or not REVISION_ID_RE.fullmatch(v):
+        return InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit")
+    return v
+
+
 def parse_revision_query(q: Query) -> RevisionQuery | InputRejected:
-    """GET /api/revision-diff|-build|-pdf: ?commit= (empty when absent) and the optional &pin= (parse_pin_param)."""
+    """GET /api/revision-diff|-build|-pdf: the optional &pin= (parse_pin_param) first, then ?commit= (parse_commit)."""
     pin = parse_pin_param(_first(q, "pin"))
     if isinstance(pin, InputRejected):
         return pin
-    return RevisionQuery(_first(q, "commit", "") or "", pin)
+    commit = parse_commit(_first(q, "commit", "") or "")
+    if isinstance(commit, InputRejected):
+        return commit
+    return RevisionQuery(commit, pin)
 
 
-class RevisionBuild(NamedTuple):
-    """POST /api/revision-build's commit (as sent - any JSON value; the service checks it) and optional pin."""
-    commit: object
-    pin: int | None
-
-
-def parse_revision_build(d: Json) -> RevisionBuild | InputRejected:
-    """POST /api/revision-build's body: only commit, doc and pin; pin, when present, a JSON integer in range."""
+def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
+    """POST /api/revision-build's body: only commit, doc and pin; pin, when present, a JSON integer in range; then
+    the commit (parse_commit)."""
     if set(d) - REVISION_BUILD_FIELDS:
         return InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields")
     if "pin" in d and not _is_int(d["pin"]):
@@ -370,7 +377,10 @@ def parse_revision_build(d: Json) -> RevisionBuild | InputRejected:
     pin = parse_pin_param(d.get("pin"))
     if isinstance(pin, InputRejected):
         return pin
-    return RevisionBuild(d.get("commit"), pin)
+    commit = parse_commit(d.get("commit"))
+    if isinstance(commit, InputRejected):
+        return commit
+    return RevisionQuery(commit, pin)
 
 
 def parse_event_cursor(v: str | None) -> int | None | InputRejected:

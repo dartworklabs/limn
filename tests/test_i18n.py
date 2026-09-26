@@ -22,7 +22,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
+from limn.scope import ScopeUnreadable
 from limn.web import parse
+from limn.web.errors import scope_http_error
 from test_server import add_pin, shut_wr
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -589,7 +591,7 @@ class EnglishChrome(unittest.TestCase):
         refused, so the shared fixture state never changes."""
         page = self.open(lang, viewport={"width": 1400, "height": 850})
         pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
-        scope = ps.scope_http_error(ps.ScopeRejected("scope_unreadable"))      # built by the worker; no git in this fixture
+        scope = scope_http_error(ScopeUnreadable())      # built by the worker; no git in this fixture
         self.canned = {"/api/revision-build": (scope.code, scope.body)}
         self.addCleanup(lambda: (setattr(self, "canned", {}), setattr(self, "who", ALICE)))
         cases = (
