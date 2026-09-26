@@ -1,7 +1,9 @@
 """server.py - the composition root and the wired handler, driven over a socketpair (no port is opened).
 
-What stays here is what only server.py can answer: its own functions (app_version, build_html, favicon_href, diet_log,
-valid_rec, default_pdfjs_dir, main() as the one exit), the requests end to end through the handler and the server's
+What stays here is what only server.py can answer: its own functions and bindings (app_version, build_html,
+favicon_href, valid_rec - the store's record check as server.py binds it, default_pdfjs_dir, main() as the one exit),
+the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
+rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
 feature classes whose tests span the API, pins.md and the viewer together (claims with an estimate, pin kinds and
 threads, review, @-tags and notices, overlaps). A test whose subject is one module lives in that module's file
@@ -42,6 +44,8 @@ from helpers import (
     add_pin, Base, DOCS_DIR, edit_pin, extract_js_fn, jreq, js_i18n, MINI_PDF, pick, PKG, ps, record_of, req, run_node,
     shut_wr, SKILL_KO, SKILL_MD, split_resp, TEX,
 )
+from limn.pins.lifecycle import pin_reopened_in_round
+from limn.web.answers import diet_log
 
 
 class Smuggling(Base):
@@ -569,29 +573,29 @@ class RemotePinsMd(Base):
 
 class ResponseDiet(unittest.TestCase):
     def test_ok_drops_log_and_log_tail(self):
-        out = ps.diet_log({"state": "ok", "log": "x" * 5000, "log_tail": "y" * 10, "pages": 3}, full=False)
+        out = diet_log({"state": "ok", "log": "x" * 5000, "log_tail": "y" * 10, "pages": 3}, full=False)
         self.assertNotIn("log", out)
         self.assertNotIn("log_tail", out)
         self.assertEqual(out["pages"], 3)
 
     def test_ok_errors_trims_log_tail_to_40_lines(self):
         big = "\n".join("line%d" % i for i in range(100))
-        out = ps.diet_log({"state": "ok_errors", "log_tail": big}, full=False)
+        out = diet_log({"state": "ok_errors", "log_tail": big}, full=False)
         self.assertEqual(out["log_tail"].splitlines(), big.splitlines()[-40:])
 
     def test_fail_trims_log_to_40_lines(self):
         big = "\n".join(str(i) for i in range(60))
-        out = ps.diet_log({"state": "fail", "log": big}, full=False)
+        out = diet_log({"state": "fail", "log": big}, full=False)
         self.assertEqual(len(out["log"].splitlines()), 40)
         self.assertEqual(out["log"].splitlines(), big.splitlines()[-40:])
 
     def test_full_flag_bypasses_diet_entirely(self):
         payload = {"state": "ok", "log": "keep-me-fully"}
-        out = ps.diet_log(payload, full=True)
+        out = diet_log(payload, full=True)
         self.assertEqual(out, payload)
 
     def test_existing_fields_are_kept(self):
-        out = ps.diet_log({"ok": True, "state": "ok", "errors": [], "elapsed_s": 1.2, "pages": 2,
+        out = diet_log({"ok": True, "state": "ok", "errors": [], "elapsed_s": 1.2, "pages": 2,
                            "head": "abc1234", "log": "x"}, full=False)
         for k in ("ok", "state", "errors", "elapsed_s", "pages", "head"):
             self.assertIn(k, out)
@@ -1742,7 +1746,7 @@ class MentionsPeopleEvents(Base):
         ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
         ps.confirm_pin(pid, dict(self.S))
         ps.set_done(pid, False, dict(self.S), reason="다시 봐 주세요")
-        self.assertTrue(ps.pin_reopened_in_round(self.pin(pid)))
+        self.assertTrue(pin_reopened_in_round(self.pin(pid)))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)

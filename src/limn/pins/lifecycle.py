@@ -413,6 +413,20 @@ def thread_message(thread: Sequence[Any] | None, by: dict[str, str], at: str, te
     return msg
 
 
+def pin_reopened_in_round(record: Record) -> bool:
+    """Has the pin been reopened since it was last closed - the latest ev=reopen entry of its thread comes after the
+    latest ev=close one (none counts as before everything)? Drives pins.md's "reopened" marker (§Pending review).
+
+    This is effectively the same condition as limn.mentions.thread_round() starting the current round from the
+    reopen, but it's kept separate in case their definitions diverge in the future (the old version only checked
+    "is the round's first post a reopen", which missed a round where a confirm (ev=confirm) followed the reopen -
+    after a confirm-then-reopen, the round must start at [reopen, ...], not [confirm, reopen, ...])."""
+    th = thread_of(record)
+    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
+    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    return last_reopen > last_close
+
+
 def _is_num(value: object) -> TypeGuard[int | float]:
     """An int or float that is not a bool - how stored epoch times are recognised."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)

@@ -32,6 +32,8 @@ T = TypeVar("T")
 
 CONFIRM_BY_HUMAN = "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요."
 CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다."
+# The log lines an agent response keeps for a non-successful build (docs/handbook/build-sync.md §에이전트 응답 다이어트).
+LOG_TAIL_LINES = 40
 
 
 def accepted(value: T | InputRejected) -> T:
@@ -196,3 +198,23 @@ def revision_pdf_answer(result: bytes | RevisionRefusal) -> bytes:
     if isinstance(result, bytes):
         return result
     revision_refused(result)
+
+
+def diet_log(payload: dict[str, Any], full: bool) -> dict[str, Any]:
+    """The build state or build result as GET /api/build and POST /api/rebuild answer it (docs/handbook/build-sync.md
+    §에이전트 응답 다이어트): log/log_tail are dropped when state=='ok' (even a success ran a few KB via font paths),
+    and for any other state (ok_errors, fail, ...) trimmed to their last LOG_TAIL_LINES lines - on a copy. With full
+    (?log=1) payload itself comes back. The build state (BUILD_STATE, builds.json) is never changed: this applies only
+    right before the HTTP response."""
+    if full:
+        return payload
+    out = dict(payload)
+    state = out.get("state")
+    for key in ("log", "log_tail"):
+        if key not in out:
+            continue
+        if state == "ok":
+            out.pop(key, None)
+        else:
+            out[key] = "\n".join(str(out[key] or "").splitlines()[-LOG_TAIL_LINES:])
+    return out

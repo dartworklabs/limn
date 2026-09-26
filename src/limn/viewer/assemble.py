@@ -13,6 +13,9 @@ Placeholders filled here:
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
 
+The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(); it is served on its own,
+not inlined.
+
 A missing or malformed viewer file is a packaging defect and raises (OSError / ValueError): the server fails at import
 rather than serve a broken page.
 """
@@ -31,6 +34,8 @@ VIEWER_DIR = Path(__file__).resolve().parent                     # this package'
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
 VIEWER_MANIFEST = "parts.txt"                                    # the ordered list of parts, beside index.html
 VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")    # folder/name.ext: never leaves the viewer folder
+# The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
+SERVICE_WORKER = "sw.js"
 
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
@@ -169,6 +174,17 @@ def load_viewer_html(directory: Path) -> str:
             raise ValueError("viewer template marker %s must appear exactly once in index.html" % marker)
         page = page.replace(marker, text)
     return page
+
+
+def service_worker(directory: Path) -> str:
+    """The service worker script GET /sw.js serves: directory/sw.js as it is, no placeholders.
+
+    It shows the viewer's browser notifications (showNotification - Chrome on Android blocks the page's own new
+    Notification()) and, on a click, brings the viewer tab forward and opens that pin - or, for the [되살리기] action
+    on a 'dropped' notification, asks the tab to restore it; with no tab open, the new window's link carries
+    &act=restore. It has no fetch handler, so app data and page images are never cached. A missing file is a
+    packaging defect and raises OSError, like the page's parts."""
+    return (directory / SERVICE_WORKER).read_text(encoding="utf-8")
 
 
 def viewer_html(directory: Path, messages: Mapping[str, Message], *, pdfjs_version: str, mark: str,

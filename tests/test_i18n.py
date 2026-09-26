@@ -28,6 +28,7 @@ from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
 from helpers import add_pin, shut_wr
+from limn.access import LOCAL_ACTOR
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"
@@ -458,7 +459,7 @@ class EnglishChrome(unittest.TestCase):
             (D.dir / "pages.cur").write_text(pages.name)
             (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
             (D.dir / "head.txt").write_text("abc1234")
-        agent = dict(ps.LOCAL_ACTOR)
+        agent = dict(LOCAL_ACTOR)
         for who in (ALICE, BOB, SEOJUN):
             ps.record_person(who)
         access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.cli_audit(C.state))

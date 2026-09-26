@@ -26,6 +26,11 @@ from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
 from test_qa_021 import CLEAR_BODY, actor
 from limn import access
 from helpers import add_pin, Base, edit_pin, ps
+from limn.access import LOCAL_ACTOR
+from limn.audit import append_audit, audit_entry
+from limn.events import EVENTS_KEEP
+from limn.mentions import note_mention_targets
+from limn.store import find_pin
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -45,7 +50,7 @@ class NoteMentionCooldownRule(unittest.TestCase):
     reading passed in - no file, no clock of its own."""
 
     def targets(self, recent, now, added=(B_LOGIN,), by=A_LOGIN, pin=7):
-        return ps.note_mention_targets(list(added), recent, by, pin, now)
+        return note_mention_targets(list(added), recent, by, pin, now)
 
     def test_everyone_added_is_notified_when_there_is_no_recent_note_mention(self):
         """With an empty log every newly tagged person gets a mention, in the order given."""
@@ -107,7 +112,7 @@ class NoteMentionCooldown(Base):
         return [e for e in ps._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
 
     def edit_note(self, pid, note, who):
-        return edit_pin(pid, {"note": note, "base_rev": ps.find_pin(ps.snapshot_pins(), pid)["rev"]}, who)
+        return edit_pin(pid, {"note": note, "base_rev": find_pin(ps.snapshot_pins(), pid)["rev"]}, who)
 
     def toggle(self, pid, who, times=3):
         for _ in range(times):
@@ -120,7 +125,7 @@ class NoteMentionCooldown(Base):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
             self.toggle(pid, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        self.assertEqual(ps.find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])   # the note still tags him
+        self.assertEqual(find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])   # the note still tags him
 
     def test_the_tag_notifies_again_after_the_window(self):
         """Ten minutes after the last sent note mention, re-adding the tag is a new mention (fake clock)."""
@@ -163,7 +168,7 @@ class NoteMentionCooldown(Base):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
             ps.reply_pin(pid, "@Bob Park 하나", self.A)
             ps.reply_pin(pid, "@Bob Park 둘", self.A)
-            ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+            ps.set_done(pid, True, dict(LOCAL_ACTOR))
             ps.set_done(pid, False, self.A, reason="@Bob Park 다시")
         self.assertEqual(len(self.mentions_to_bob()), 4)
 
@@ -206,7 +211,7 @@ class AuditLogServer(AccessBase):
         self.assertEqual(code, 200, d)
         self.assertEqual(ps._read_events()[0][-1]["type"], "cleared")                     # still written for compatibility
         ps.emit_events([{"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
-                        for _ in range(ps.EVENTS_KEEP + 1)])
+                        for _ in range(EVENTS_KEEP + 1)])
         self.assertNotIn("cleared", {e["type"] for e in ps._read_events()[0]})
         rows = audit_rows()
         self.assertEqual(len(rows), 1)
@@ -218,7 +223,7 @@ class AuditLogServer(AccessBase):
 
     def test_purge_is_audited(self):
         """The owner's permanent delete from the Trash leaves an audit line naming the pin."""
-        ps.drop_pin(1, dict(ps.LOCAL_ACTOR))
+        ps.drop_pin(1, dict(LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/1/purge", None, ALICE)
         self.assertEqual(code, 200, d)
         self.assertEqual([(r["action"], r["by"]["login"], r["details"]) for r in audit_rows()],
@@ -228,7 +233,7 @@ class AuditLogServer(AccessBase):
         """Nothing that did not happen is audited: a clear without the phrase, a non-owner's clear or purge, a missing pin."""
         self.assertEqual(self.call("POST", "/api/clear", {"confirm": "yes"}, ALICE)[0], 400)
         self.assertEqual(self.call("POST", "/api/clear", CLEAR_BODY, BOB)[0], 403)
-        ps.drop_pin(1, dict(ps.LOCAL_ACTOR))
+        ps.drop_pin(1, dict(LOCAL_ACTOR))
         self.assertEqual(self.call("POST", "/api/pins/1/purge", None, BOB)[0], 403)
         self.assertEqual(self.call("POST", "/api/pins/99/purge", None, ALICE)[0], 404)
         self.assertEqual(audit_rows(), [])
@@ -284,7 +289,7 @@ class AuditLogServer(AccessBase):
 
         def write(k):
             for i in range(25):
-                ps.append_audit(ps.C.state, ps.audit_entry("purged", by, "http", {"pin": k * 100 + i}, time.time()))
+                append_audit(ps.C.state, audit_entry("purged", by, "http", {"pin": k * 100 + i}, time.time()))
         ts = [threading.Thread(target=write, args=(k,)) for k in range(4)]
         for t in ts:
             t.start()
@@ -300,7 +305,7 @@ class AuditEntryShape(unittest.TestCase):
     def test_entry_carries_the_given_time_actor_channel_and_details(self):
         """at is the local wall-clock string of `now`, ts the same instant in epoch seconds; by keeps only login and name."""
         now = 1790000000.25
-        e = ps.audit_entry("token_created", {"login": "u", "name": "U", "pic": "https://x"}, "cli", {"id": "ab12cd34"}, now)
+        e = audit_entry("token_created", {"login": "u", "name": "U", "pic": "https://x"}, "cli", {"id": "ab12cd34"}, now)
         self.assertEqual(e, {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "ts": now,
                              "action": "token_created", "by": {"login": "u", "name": "U"}, "via": "cli",
                              "details": {"id": "ab12cd34"}})
@@ -308,9 +313,9 @@ class AuditEntryShape(unittest.TestCase):
     def test_unknown_actions_and_channels_are_programming_errors(self):
         """Only the documented actions and channels can be written."""
         with self.assertRaises(ValueError):
-            ps.audit_entry("deleted_everything", {"login": "u"}, "cli", {}, 0.0)
+            audit_entry("deleted_everything", {"login": "u"}, "cli", {}, 0.0)
         with self.assertRaises(ValueError):
-            ps.audit_entry("cleared", {"login": "u"}, "mail", {}, 0.0)
+            audit_entry("cleared", {"login": "u"}, "mail", {}, 0.0)
 
 
 class AuditLogCli(unittest.TestCase):

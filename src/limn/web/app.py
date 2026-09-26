@@ -18,8 +18,7 @@ binding is a type error. tests/test_web.py checks at run time that server.py pro
 """
 from __future__ import annotations
 
-import re
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Sequence
 from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
@@ -57,9 +56,6 @@ class App(Protocol):
     UI_EN: Messages                   # the viewer's ko -> en message table, for the refusal page
     APP_NAME: str
     DEFAULT_ROLE: str                 # the role of a person people.json gives none
-    CLEAR_CONFIRM: str                # the phrase POST /api/clear must carry
-    PAGE_FILE_RE: re.Pattern[str]     # a page image name GET /pages/<name> serves
-    VENDOR_MIME: Mapping[str, str]    # suffix -> Content-Type of a file vendor_file() returns
 
     # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
 
@@ -167,10 +163,6 @@ class App(Protocol):
 
     def build_state_snapshot(self, D: Document) -> Json:
         """GET /api/build for document D (limn.build.state_snapshot)."""
-        ...
-
-    def diet_log(self, payload: Json, full: bool) -> Json:
-        """A build payload with its log trimmed unless full."""
         ...
 
     def maybe_purge_trash(self) -> int:

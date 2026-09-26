@@ -12,7 +12,7 @@ import unittest
 from limn.access import LOCAL_ACTOR
 from limn.pins.model import parse_pin
 from limn.pins.position import EstContext
-from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload
+from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload, public_record
 
 from helpers import Base, ps, req
 
@@ -173,6 +173,25 @@ class DroppedList(Base):
         out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
         self.assertIn(b" 403 ", out)
 
+
+
+
+class PublicRecord(unittest.TestCase):
+    """public_record: a stored record as the API returns it, placed where the composition root finds its file now."""
+
+    def test_placed_record_gets_file_and_rel_path_and_loses_file_rel(self):
+        """With a place, file and rel_path are the place's; the stored file_rel and rel_path never go out."""
+        r = {"id": 1, "file": "/old/ms/sec/a.tex", "file_rel": "sec/a.tex", "rel_path": "stale", "rev": 3, "lo": 2}
+        out = public_record(r, ("/new/ms/sec/a.tex", "sec/a.tex"))
+        self.assertEqual(out, {"id": 1, "file": "/new/ms/sec/a.tex", "rev": 3, "lo": 2, "rel_path": "sec/a.tex"})
+        self.assertEqual(list(out), ["id", "file", "rev", "lo", "rel_path"])
+        self.assertEqual(r["rel_path"], "stale")                                 # r itself is never changed
+
+    def test_unplaced_record_keeps_its_file_and_has_no_rel_path(self):
+        """Without a place (a region pin, or a file not found) the stored file stays; rev defaults to 0."""
+        for rev in (None, "2", True):
+            r = {"id": 2, "pdf": "/ms/r.pdf", "file_rel": "x"} | ({} if rev is None else {"rev": rev})
+            self.assertEqual(public_record(r, None), {"id": 2, "pdf": "/ms/r.pdf", "rev": 0}, rev)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@ before claim_ts existed the claim's start epoch. GET /api/pins/dropped returns t
 answers are the agent contract: field names, order and values must not change.
 
 Everything here is pure. What only the instance knows arrives as arguments: how a record is shown (the composition
-root's public(), which places the pin's file on this machine), which document a pin belongs to, the estimation facts
+root's public(): public_record() with where the pin's file is on this machine now), which document a pin belongs to,
+the estimation facts
 of a document's builds (read at most once per document, only for documents with a listed pin), the overlaps already
 computed over all rows, when a Trash entry expires, and the clock.
 """
@@ -38,6 +39,27 @@ def pin_state(r: Row) -> StateName:
     An old server or old viewer just sees it as done, and nothing breaks. A legacy done:true record with no
     review field stays plain done - reading it never triggers a migration write."""
     return state_of(r).state
+
+
+def public_record(r: Row, place: tuple[str, str] | None) -> Json:
+    """A record as the API returns it (docs/handbook/api.md §핀 파일의 위치, ADR-0006): a copy with rev defaulted to 0
+    (a missing or non-integer rev) and without the stored `file_rel` and any stored `rel_path`. place is where the
+    composition root finds a line pin's file under the manuscript root now - (absolute path, path relative to the
+    root) - and becomes `file` and `rel_path`; with None (a region pin, or a file it cannot locate) the stored file
+    stays and there is no rel_path. rel_path is always this server's answer, never a value an older version left
+    behind. Never changes r."""
+    out = dict(r)
+    out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
+    out.pop("file_rel", None)
+    out.pop("rel_path", None)
+    if place is not None:
+        out["file"], out["rel_path"] = place
+    return out
+
+
+def _is_int(v: object) -> bool:
+    """An int that is not a bool - how a stored rev is recognised."""
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def _is_num(v: object) -> bool:

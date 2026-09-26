@@ -29,7 +29,6 @@ import argparse
 import dataclasses
 import html
 import os
-import re
 import sys
 import threading
 import time
@@ -38,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from email.message import Message
-from typing import TYPE_CHECKING, Any, TypeGuard, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import quote
 
 if __package__ in (None, ""):
@@ -46,24 +45,25 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed, NotInTrash,
-    PinStillOpen, ThreadFull, claim_holds, reopens_on_reply,
+    PinStillOpen, ThreadFull, claim_holds, pin_reopened_in_round, reopens_on_reply,
 )
-from limn.pins.edit import KIND_REQS, NOTE_MAX, AddRequest, EditRefusal, EditRequest  # noqa: E402,F401 - NOTE_MAX is ps.NOTE_MAX to the tests
+from limn.pins.edit import AddRequest, EditRefusal, EditRequest  # noqa: E402 - after the path bootstrap above
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
     DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin, is_region_pin, parse_pin,
 )
+from limn.pins import record  # noqa: E402 - the store's record check; valid_rec() below binds it
+from limn.pins.record import is_int  # noqa: E402 - after the path bootstrap above
 # The pin services (add, edit, reply, close/reopen, confirm, claim, the Trash, clear); pin_context() wires them.
 from limn.service import add_edit, claim, trash, transitions  # noqa: E402 - after the path bootstrap above
-from limn.service.context import Event, Json, PinContext, is_agent as is_agent  # noqa: E402 - is_agent is an App member
+from limn.service.context import Event, Json, PinContext, is_agent as is_agent, who  # noqa: E402 - is_agent is an App member
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig, BuildResult  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
+from limn.files import tex_lines, vendor_file as find_vendor_file  # noqa: E402 - after the path bootstrap above
 from limn import events, people  # noqa: E402 - after the path bootstrap above
 from limn.audit import append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
 from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
-from limn.mentions import (  # noqa: E402,F401 - pin_mentions_all, resolve_mentions are ps.* to the tests
-    NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
-    resolve_mentions, tag_note, thread_round,
+from limn.mentions import (  # noqa: E402 - after the path bootstrap above
+    NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, tag_note, thread_round,
 )
 from limn.people import is_actor as _is_actor  # noqa: E402
 from limn.store import PinFiles, PinStore, Row, find_pin  # noqa: E402 - after the path bootstrap above
@@ -83,17 +83,15 @@ from limn.build import build_pdf as build_pdf, cur_pages as cur_pages, pdf_chang
 build_state_snapshot = build.state_snapshot
 from limn.revisions import git as _git, revision_history as revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal  # noqa: E402 - after the path bootstrap above
-from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
-from limn.mapping import (  # noqa: E402,F401 - anchor_of is ps.anchor_of to the tests
-    anchor_of, truncate_quote,
-)
 from limn import locate  # noqa: E402 - after the path bootstrap above
 from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
 from limn.pins import view  # noqa: E402 - after the path bootstrap above
 from limn.pins.view import pin_state as pin_state  # noqa: E402,F401 - an App member (web/app.py)
 from limn.pins.position import EstContext  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
-from limn.viewer.assemble import LUCIDE, PDFJS_VERSION, VIEWER_DIR, load_ui_messages, viewer_html  # noqa: E402
+from limn.viewer.assemble import (  # noqa: E402 - after the path bootstrap above
+    LUCIDE, PDFJS_VERSION, VIEWER_DIR, load_ui_messages, service_worker, viewer_html,
+)
 from limn import access  # noqa: E402 - after the path bootstrap above
 from limn.access import (  # noqa: E402 - after the path bootstrap above
     DEFAULT_ROLE as DEFAULT_ROLE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
@@ -112,45 +110,20 @@ from limn.web.parse import CloseChange  # noqa: E402 - after the path bootstrap 
 # The run settings' type, and the startup rules and command line that fill them in (main() -> start() below).
 from limn.config import Cfg  # noqa: E402 - after the path bootstrap above
 from limn import startup  # noqa: E402 - after the path bootstrap above
-from limn.startup import APP_NAME as APP_NAME, StartupRefused  # noqa: E402 - after the path bootstrap above
+from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version  # noqa: E402 - App members
 from limn.args import serve_parser  # noqa: E402 - after the path bootstrap above
-
-
-def app_version() -> str:
-    """Package version (__version__ in src/limn/__init__.py). Reads the neighboring file so it
-    returns the same value whether imported as a module (python -m limn.server) or run
-    directly by file path (python .../limn/server.py)."""
-    try:
-        m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']',
-                      Path(__file__).with_name("__init__.py").read_text(encoding="utf-8"), re.M)
-    except OSError:
-        m = None
-    return m.group(1) if m else "0+unknown"
 
 
 # The viewer's ko -> en message table: the viewer page embeds it, and the handler's refusal page reads it (App.UI_EN).
 UI_EN: Messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
-PAGE_FILE_RE = re.compile(r"page-\d+\.png")
-# The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
-VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 
-# The limits a request's fields are checked against (the note, close reply/ref/changes, claim minutes, reply text,
-# @-tag hints) are with the request parsers in limn/web/parse.py; the pin note's NOTE_MAX and the kind_req values
-# KIND_REQS, which the record check here also needs, are in limn/pins/edit.py.
-# Pin kind and thread (docs/handbook/api.md §스레드). 24% of pins (10 of 42 in A-DEMO) were questions rather than
-# something to fix, but the only place to leave an answer was the single close_reply field on closing, so
-# there was no way to ask back. kind_req is kept separate from the legacy kind (scope type) to avoid a name clash.
+# The settings the pin services get from this instance (pin_context), module globals so a test can patch them. The
+# rules they bound live with the rules: the request limits in limn/web/parse.py, NOTE_MAX and KIND_REQS in
+# limn/pins/edit.py, the thread marks a record may carry in limn/pins/record.py, PEOPLE_TOUCH_S in limn.people,
+# EVENTS_KEEP in limn.events, NOTE_MENTION_COOLDOWN_S in limn.mentions (docs/handbook/api.md §스레드, §@태그·사람·이벤트).
 THREAD_MAX = 200                   # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
-THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
-# Assignee (docs/handbook/api.md §담당). Who handles this pin - either "agent" or a person's login. If absent, it's a
-# legacy pin, so addressed_to()'s inference (the @-tag on a question pin) is used as-is. Guessing this from the
-# body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
-# The value that hands a pin to the agent, ASSIGNEE_AGENT = "agent", lives with the edit rules in limn.pins.edit.
-# @-tags (docs/handbook/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
-# Their limits live with their rules: PEOPLE_TOUCH_S in limn.people, EVENTS_KEEP and the notice types in limn.events,
-# NOTE_MENTION_COOLDOWN_S in limn.mentions.
 TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
 
 # The pin store's lock (limn.store.PinStore.lock): every path that touches the pin files goes through this single
@@ -225,28 +198,8 @@ def vendor_file(name: str) -> Path | None:
 
 
 # ---------------------------------------------------------------- Build
-
-# The log lines an agent response keeps for a non-successful build (docs/handbook/build-sync.md §에이전트 응답 다이어트).
-LOG_TAIL_LINES = 40
-
-
-def diet_log(payload: Json, full: bool) -> Json:
-    """Diets the agent response: drops log/log_tail when state=='ok' (even a success ran a few KB via font paths).
-    ok_errors|fail are trimmed to the last LOG_TAIL_LINES lines. Left untouched when full (?log=1).
-    Internal state (BUILD_STATE/builds.json) is left alone; this only applies right before the HTTP response."""
-    if full:
-        return payload
-    out = dict(payload)
-    state = out.get("state")
-    for key in ("log", "log_tail"):
-        if key not in out:
-            continue
-        if state == "ok":
-            out.pop(key, None)
-        else:
-            out[key] = "\n".join(str(out[key] or "").splitlines()[-LOG_TAIL_LINES:])
-    return out
-
+#
+# The agent response's log diet (?log=1 for the full log) is the HTTP layer's: limn.web.answers.diet_log.
 
 def build_config() -> BuildConfig:
     """The build settings from the run arguments. Made per build, so a test (or main()) that changes C is seen at once."""
@@ -416,107 +369,14 @@ def meta(D: Doc, actor: Json, light: bool = False) -> Json:
 
 
 # ---------------------------------------------------------------- Pin store
-
-def _is_int(v: object) -> TypeGuard[int]:
-    return isinstance(v, int) and not isinstance(v, bool)
-
+#
+# Which stored records the store trusts is limn/pins/record.py's check; valid_rec binds it to the document key format
+# (limn.documents) and the recorded actor's shape (limn.people), which it cannot import and stay pure.
 
 def valid_rec(r: object) -> bool:
-    """Checks only the fields the store trusts and indexes on. If even one is wrong, the line is treated as broken.
-
-    Back when only id was checked, a single record with a string lo or no file turned every GET/POST into a
-    500 - and because the pins.jsonl write had already committed right before that 500, a retry created a
-    duplicate pin (observed)."""
-    if not isinstance(r, dict) or not _is_int(r.get("id")):
-        return False
-    if r.get("doc") is not None and not (isinstance(r["doc"], str) and DOC_KEY_RE.fullmatch(r["doc"])):
-        return False
-    if is_region_pin(r):
-        # A view-only PDF's pin: instead of file/lo/hi, its location is pdf (absolute path)/page/region (frac) (see "View-only PDF documents" above).
-        if not os.path.isabs(r["pdf"]) or not (_is_int(r.get("page")) and r["page"] >= 1):
-            return False
-        if r.get("lo") is not None or r.get("hi") is not None:
-            return False
-        fr = r.get("frac")
-        if not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
-            return False
-    else:
-        if not isinstance(r.get("file"), str) or not r["file"]:
-            return False
-        lo, hi = r.get("lo"), r.get("hi")
-        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi):
-            return False
-        if not os.path.isabs(r["file"]):              # a relative path would point at a different file depending on the server's cwd
-            return False
-    if "page" in r and not _is_int(r["page"]):
-        return False
-    if "note" in r and r["note"] is not None and not isinstance(r["note"], str):
-        return False
-    for k in ("close_reply", "close_ref"):
-        if r.get(k) is not None and not isinstance(r[k], str):
-            return False
-    if r.get("changes") is not None and not valid_changes(r["changes"]):
-        return False
-    # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
-    if r.get("kind_req") is not None and r["kind_req"] not in KIND_REQS:
-        return False
-    if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
-        return False
-    if r.get("assignee") is not None and not (isinstance(r["assignee"], str) and r["assignee"]):
-        return False
-    if r.get("thread") is not None and not _valid_thread(r["thread"]):
-        return False
-    if "anchor" in r and not isinstance(r["anchor"], dict):
-        return False
-    for k in ("raw_lo", "raw_hi", "rev"):
-        if r.get(k) is not None and not _is_int(r[k]):
-            return False
-    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch seconds - named apart from '*_at' (string timestamps)
-        if r.get(k) is not None and not _is_num(r[k]):
-            return False
-    for k in ("done", "stale", "review"):
-        if r.get(k) is not None and not isinstance(r[k], bool):
-            return False
-    for k in ("name", "kind", "via", "scope", "sync", "pdf_build", "frac_build", "file_rel"):
-        if r.get(k) is not None and not isinstance(r[k], str):
-            return False
-    for k, v in r.items():
-        if k == "at" or k.endswith("_at") and k != "synced_at":
-            if v is not None and not isinstance(v, str):
-                return False
-        elif k == "author" or k.endswith("_by"):
-            if v is not None and not _is_actor(v):
-                return False
-    fr = r.get("frac")
-    if fr is not None and not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
-        return False
-    return True
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
-def _is_str_list(v: object) -> TypeGuard[list[str]]:
-    return isinstance(v, list) and all(isinstance(x, str) for x in v)
-
-
-def _valid_thread(th: object) -> bool:
-    """thread = [{id, by, at, text, ev?, ref?, mentions?}] - the viewer renders by.name/text as-is."""
-    if not isinstance(th, list):
-        return False
-    for m in th:
-        if not isinstance(m, dict) or not _is_int(m.get("id")) or not isinstance(m.get("text"), str):
-            return False
-        if not isinstance(m.get("at"), str) or not _is_actor(m.get("by")):
-            return False
-        if m.get("ev") is not None and m["ev"] not in THREAD_EVENTS:
-            return False
-        if m.get("ref") is not None and not isinstance(m["ref"], str):
-            return False
-        if m.get("mentions") is not None and not _is_str_list(m["mentions"]):
-            return False
-    return True
+    """The store's record check (limn.pins.record.valid_rec) with DOC_KEY_RE and limn.people.is_actor: is r a pin
+    record the store may trust? A record failing it is a broken line."""
+    return record.valid_rec(r, DOC_KEY_RE.fullmatch, _is_actor)
 
 
 def pin_location(r: Record, root: Path) -> PinLocation | None:
@@ -582,19 +442,11 @@ def snapshot_pins() -> list[Row]:
 
 
 def public(r: Record) -> Json:
-    """A record as the API returns it: a copy with rev defaulted to 0 and - for a line pin that pin_location() places
-    under the manuscript root - `file` set to its absolute path on this machine now and the computed `rel_path` to its
-    path relative to the root (ADR-0006, for old records too). The stored `file_rel` is not returned: rel_path is always
-    this server's answer, never a value an older version left behind. A pin that cannot be located keeps its stored
-    file and has no rel_path. Never changes r."""
-    out = dict(r)
-    out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
-    out.pop("file_rel", None)
-    out.pop("rel_path", None)
+    """A record as the API returns it (limn.pins.view.public_record), placed where pin_location() finds its file under
+    the manuscript root now: `file` the absolute path on this machine, `rel_path` relative to the root (ADR-0006).
+    Never changes r."""
     loc = pin_location(r, C.src)
-    if loc is not None:
-        out["file"], out["rel_path"] = str(loc.path), loc.rel
-    return out
+    return view.public_record(r, None if loc is None else (str(loc.path), loc.rel))
 
 
 # ---------------------------------------------------------------- Computed fields of GET /api/pins, and overlap
@@ -640,7 +492,7 @@ def overlaps_for_range(file: str, lo: int, hi: int) -> list[Json]:
     return locate.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_locator())
 
 
-# ---------------------------------------------------------------- Pin ids and the actor as a record signs it
+# ---------------------------------------------------------------- Pin ids
 
 def init_seq() -> None:
     """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
@@ -650,10 +502,6 @@ def init_seq() -> None:
 def next_id(rows: list[Row]) -> int:
     """An id is never reused - hands out the next one and records it in pins.seq (PinStore.next_id)."""
     return pin_store().next_id(rows)
-
-
-def who(actor: Mapping[str, Any]) -> Json:
-    return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
 
 
 # ---------------------------------------------------------------- Request documents and parsing facts
@@ -726,24 +574,6 @@ def edit_pin(pid: int, request: EditRequest, actor: Json,
     """POST /api/pins/{id}/edit: pin pid edited in place (limn.service.add_edit.edit_pin); region and the placed loc
     come from edit_scope()."""
     return add_edit.edit_pin(pin_context(), pid, request, actor, region)
-
-
-def thread_replies(r: Record) -> list[Any]:
-    """Replies only, excluding state-transition records (ev)."""
-    th: list[Any] = r["thread"] if isinstance(r.get("thread"), list) else []
-    return [m for m in th if isinstance(m, dict) and not m.get("ev")]
-
-
-def pin_reopened_in_round(r: Record) -> bool:
-    """Has it been reopened since it was last completed (last close) - drives pins.md's "reopened" marker (§Pending review).
-    This is effectively the same condition as thread_round() starting the current round from the reopen,
-    but it's kept separate in case their definitions diverge in the future (the old version only checked
-    "is the round's first post a reopen", which missed a round where a confirm (ev=confirm) followed the
-    reopen - after a confirm-then-reopen, the round must start at [reopen, ...], not [confirm, reopen, ...])."""
-    th: list[Any] = r["thread"] if isinstance(r.get("thread"), list) else []
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
-    return last_reopen > last_close
 
 
 # ---------------------------------------------------------------- People, @-tags, events (docs/handbook/api.md §@태그·사람·이벤트)
@@ -832,23 +662,6 @@ def events_since(actor: Json, cursor: int | None) -> Json:
     rows, _ = _read_events()
     me = (actor or {}).get("login")
     return events.events_since(rows, None if not me or is_agent(actor) else me, cursor, {d.key: d.name for d in DOCS})
-
-
-# Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
-# Notification()) and, on click, brings the viewer tab forward and opens that pin (or, for the [되살리기] action on a
-# 'dropped' notification, asks the tab to restore it; with no tab open, the new window's link carries &act=restore). There is no fetch handler -
-# app data and page images are never cached.
-SW_JS = r"""'use strict';
-self.addEventListener('install',()=>self.skipWaiting());
-self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
-self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.notification.data||{};
-  const url=new URL(d.url||'/',self.location.origin).href;
-  e.waitUntil((async()=>{const cs=await self.clients.matchAll({type:'window',includeUncontrolled:true});
-    for(const c of cs){if(new URL(c.url).origin!==self.location.origin)continue;
-      try{await c.focus();}catch(_){}
-      c.postMessage({type:e.action==='restore'?'restore-pin':'open-pin',pin:d.pin,doc:d.doc});return;}
-    if(self.clients.openWindow)await self.clients.openWindow(url+(e.action==='restore'?'&act=restore':''));})());});
-"""
 
 
 def reply_reopens(r: Record, human: bool, mentioned: Sequence[str], reopen: bool | None = None) -> bool:
@@ -946,9 +759,6 @@ def restore_pin(pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInT
     return trash.restore_pin(pin_context(), pid, actor)
 
 
-CLEAR_CONFIRM = "clear all pins"
-
-
 def clear_pins(actor: Json | None = None) -> Json:
     """POST /api/clear: archive and clear every pin, with its notice and audit line (limn.service.trash.clear_pins)."""
     return trash.clear_pins(pin_context(), actor)
@@ -984,7 +794,7 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
             loc = pin_location(r, C.src)             # ADR-0006: still relative after the checkout moved
             location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
             lo, hi = r.get("lo"), r.get("hi")
-            if loc is not None and not r.get("done") and r.get("quote") and _is_int(lo) and _is_int(hi) and lo == hi:
+            if loc is not None and not r.get("done") and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
                 if loc.path not in sources:          # outside the tree (loc None) is never read
                     sources[loc.path] = tex_lines(loc.path)
                 lines = sources[loc.path]
@@ -1125,8 +935,10 @@ def cli_audit(state: Path) -> access.AuditSink:
 
 # ---------------------------------------------------------------- Viewer
 
-# The page GET / serves, before build_html() fills in the run's label and accent (limn/viewer/assemble.py).
+# The page GET / serves, before build_html() fills in the run's label and accent, and the service worker GET /sw.js
+# serves - both read from the viewer package once, at import (limn/viewer/assemble.py).
 HTML = viewer_html(VIEWER_DIR, UI_EN, pdfjs_version=PDFJS_VERSION, mark=inline_svg(), icons=LUCIDE)
+SW_JS = service_worker(VIEWER_DIR)
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)

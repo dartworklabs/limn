@@ -15,7 +15,7 @@ import re
 import socket
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
@@ -31,6 +31,12 @@ from limn.documents import DocNotFound
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
+# The phrase POST /api/clear must carry as its body's `confirm` before every pin is archived and cleared.
+CLEAR_CONFIRM = "clear all pins"
+# A page image name GET /pages/<name> serves: the page-N.png files a build writes into the page directory (limn.build).
+PAGE_FILE_RE = re.compile(r"page-\d+\.png")
+# The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
+VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 
 
 def _first(q: Query, key: str) -> str | None:
@@ -267,7 +273,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(app.outline_labels(D))
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
-            return self._json(app.diet_log(app.build_state_snapshot(D), full))
+            return self._json(answers.diet_log(app.build_state_snapshot(D), full))
         if path == "/pins.md":                    # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
@@ -298,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
         if path.startswith("/pages/"):
             name = os.path.basename(path)
-            if app.PAGE_FILE_RE.fullmatch(name):
+            if PAGE_FILE_RE.fullmatch(name):
                 f = app.cur_pages(D) / name
                 try:
                     data = f.read_bytes()
@@ -316,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = None
                 if data is not None:
                     # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
-                    return self._send(200, data, app.VENDOR_MIME[vf.suffix], cache="public, max-age=86400")
+                    return self._send(200, data, VENDOR_MIME[vf.suffix], cache="public, max-age=86400")
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
         if path == "/pdf":
             # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
@@ -377,9 +383,9 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
-            if d.get("confirm") != app.CLEAR_CONFIRM:
+            if d.get("confirm") != CLEAR_CONFIRM:
                 raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
-                                % app.CLEAR_CONFIRM, reason="confirm_required")
+                                % CLEAR_CONFIRM, reason="confirm_required")
             return self._json(dict(app.clear_pins(actor), ok=True))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
@@ -412,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             r = app.build_async(D)
             return self._json(r, 409 if r.get("busy") else 202)
         r = app.build_all(D)
-        return self._json(app.diet_log(r, full), 409 if r.get("busy") else 200)
+        return self._json(answers.diet_log(r, full), 409 if r.get("busy") else 200)
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
