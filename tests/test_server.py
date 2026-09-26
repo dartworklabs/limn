@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn.mapping import find_level
+from limn.pins.lifecycle import AgentCannotConfirm
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -5920,9 +5921,7 @@ class ReviewState(Base):
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
         self.assertEqual(ps.pin_state(self.pin(pid)), "review")       # the status doesn't change
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.confirm_pin(pid, dict(ps.LOCAL_ACTOR))
-        self.assertEqual(cm.exception.code, 403)
+        self.assertEqual(ps.confirm_pin(pid, dict(ps.LOCAL_ACTOR)), AgentCannotConfirm())   # a value, answered 403 above
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
