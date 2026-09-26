@@ -13,7 +13,7 @@ from pathlib import Path
 from limn import mapping
 from limn.mapping import find_level
 
-from helpers import Base, ps, TEX
+from helpers import TEX, Base, ps
 
 MAPPING_PY = Path(mapping.__file__)
 PURE_IMPORTS = {"__future__", "re", "collections.abc", "typing", "dataclasses"}

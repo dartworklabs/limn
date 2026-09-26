@@ -17,7 +17,7 @@ recorded actor (limn.people.is_actor). The composition root passes both in (serv
 from __future__ import annotations
 
 from collections.abc import Callable
-from posixpath import isabs            # os.path.isabs on POSIX, the only platform Limn runs on - string work only
+from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
 from limn.pins.edit import KIND_REQS
@@ -92,13 +92,10 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         if k == "at" or k.endswith("_at") and k != "synced_at":
             if v is not None and not isinstance(v, str):
                 return False
-        elif k == "author" or k.endswith("_by"):
-            if v is not None and not is_actor(v):
-                return False
+        elif (k == "author" or k.endswith("_by")) and v is not None and not is_actor(v):
+            return False
     fr = r.get("frac")
-    if fr is not None and not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
-        return False
-    return True
+    return fr is None or (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr))
 
 
 def is_int(v: object) -> TypeGuard[int]:

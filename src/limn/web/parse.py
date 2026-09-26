@@ -24,11 +24,19 @@ from typing import Any, NamedTuple, Protocol, TypeAlias
 from limn.build import valid_build_name
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.mapping import norm, truncate_quote
-from limn.revisions import REVISION_ID_RE
 from limn.pins.edit import (
-    ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, PDF_QUOTE_MAX, AddRequest, EditRequest, LinePlace, Place,
+    ASSIGNEE_AGENT,
+    KIND_REQS,
+    LOCAL_LOGIN,
+    NOTE_MAX,
+    PDF_QUOTE_MAX,
+    AddRequest,
+    EditRequest,
+    LinePlace,
+    Place,
     RegionPlace,
 )
+from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 
 Json: TypeAlias = Mapping[str, Any]        # a request's JSON object

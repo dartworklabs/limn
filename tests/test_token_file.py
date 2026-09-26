@@ -27,9 +27,10 @@ from unittest import mock
 
 from limn import access
 from limn.guidance import UNAUTHENTICATED, shell_path
-from test_access import AccessBase, get, token_create, token_revoke
 from limn.pins import render as md_render
+
 from helpers import ps
+from test_access import AccessBase, get, token_create, token_revoke
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -264,9 +265,8 @@ class SaveTokenFileReview(SandboxTest):
         """--force writes a temp file first; when the swap fails the temp file (holding the token) is removed."""
         from limn import cli
         self.box.token_file.write_text("limn_old\n", encoding="utf-8")
-        with mock.patch("os.replace", side_effect=OSError(18, "Invalid cross-device link")):
-            with self.assertRaises(OSError):
-                cli.write_token_file(self.box.token_file, "limn_new", replace=True)
+        with mock.patch("os.replace", side_effect=OSError(18, "Invalid cross-device link")), self.assertRaises(OSError):
+            cli.write_token_file(self.box.token_file, "limn_new", replace=True)
         self.assertEqual(sorted(p.name for p in self.box.cfg.iterdir()), ["paper.env", "paper.token"])
         self.assertEqual(self.box.token_file.read_text(encoding="utf-8"), "limn_old\n")
 

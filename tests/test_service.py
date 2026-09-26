@@ -24,10 +24,17 @@ from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.edit import AddRequest, EditRequest, LinePlace, StaleEdit
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyLive, ClaimedByOther, NotClaimed, NotInTrash, ThreadFull, ClaimClosedPin,
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyLive,
+    ClaimClosedPin,
+    ClaimedByOther,
+    NotClaimed,
+    NotInTrash,
+    ThreadFull,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
-from limn.service import add_edit, claim, trash, transitions
+from limn.service import add_edit, claim, transitions, trash
 from limn.service.context import PinContext, is_agent, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse

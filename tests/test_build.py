@@ -19,9 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from unittest import mock
 
-from limn import build, files
-from limn import build as limn_build
-from limn import meta as limn_meta
+from limn import build, build as limn_build, files, meta as limn_meta
 
 from helpers import Base, ps, req
 

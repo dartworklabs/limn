@@ -16,8 +16,21 @@ from limn.files import tex_lines
 from limn.locate import PinLocation
 from limn.mapping import anchor_of
 from limn.pins.edit import (
-    ASSIGNEE_AGENT, NOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest, LinePlace, Located, PinEdited,
-    RegionPlace, decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
+    ASSIGNEE_AGENT,
+    NOTE_MAX,
+    AddRequest,
+    Anchoring,
+    EditRefusal,
+    EditRequest,
+    LinePlace,
+    Located,
+    PinEdited,
+    RegionPlace,
+    decide_edit,
+    evolve_edit,
+    file_after,
+    new_line_pin,
+    new_region_pin,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, parse_pin
 from limn.service.context import Event, PinContext, Row, typed_actor

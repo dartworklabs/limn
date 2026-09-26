@@ -33,85 +33,141 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime
-from pathlib import Path
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from datetime import datetime
 from email.message import Message
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import quote
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed, NotInTrash,
-    PinStillOpen, ThreadFull, claim_holds, pin_reopened_in_round, reopens_on_reply,
+# The limn.* modules this composition root wires together. The pin services (add_edit, claim, trash, transitions) are
+# wired by pin_context(); pins.md's renderer gets its input from pins_md_input(); the run settings' type, the startup
+# rules and the command line fill in C (main() -> start() below). `X as X` marks a name this module exports as an App
+# member (web/app.py) - mypy's explicit re-export, so the App check at the Handler sees it: the page directory on screen
+# and a build's PDF (limn.build's own functions, bound here without a shell), is_agent, outline_labels, pin_state,
+# revision_history, hdr_text (the handler quotes a refused Host/Origin/document key through it), APP_NAME and
+# app_version. The build state is bound by assignment below the imports, because an import under another name is
+# never an export. meta_reads is the module; meta() below is the App member that binds it. record is the store's
+# record check; valid_rec() below binds it.
+from limn import (
+    access,
+    build,
+    documents,
+    events,
+    gitsync,
+    locate,
+    meta as meta_reads,
+    people,
+    revisions,
+    startup,
 )
-from limn.pins.edit import AddRequest, EditRefusal, EditRequest  # noqa: E402 - after the path bootstrap above
-from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
-    DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin, is_region_pin, parse_pin,
+from limn.access import (
+    DEFAULT_ROLE as DEFAULT_ROLE,
+    LOCAL_ACTOR,
+    LOOPBACK_AGENT_DEPRECATION,
+    file_present,
+    hdr_text as hdr_text,
+    home_or_none,
+    load_tokens,
+    roles_of,
 )
-from limn.pins import record  # noqa: E402 - the store's record check; valid_rec() below binds it
-from limn.pins.record import is_int  # noqa: E402 - after the path bootstrap above
-# The pin services (add, edit, reply, close/reopen, confirm, claim, the Trash, clear); pin_context() wires them.
-from limn.service import add_edit, claim, trash, transitions  # noqa: E402 - after the path bootstrap above
-from limn.service.context import Event, Json, PinContext, is_agent as is_agent, who  # noqa: E402 - is_agent is an App member
-from limn import build  # noqa: E402 - after the path bootstrap above
-from limn.build import BuildConfig, BuildResult  # noqa: E402 - after the path bootstrap above
-from limn.files import tex_lines, vendor_file as find_vendor_file  # noqa: E402 - after the path bootstrap above
-from limn import events, people  # noqa: E402 - after the path bootstrap above
-from limn.audit import append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
-from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
-from limn.mentions import (  # noqa: E402 - after the path bootstrap above
-    NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, tag_note, thread_round,
+from limn.args import serve_parser
+from limn.audit import append_audit, audit_entry, os_actor
+from limn.build import (
+    BuildConfig,
+    BuildResult,
+    build_pdf as build_pdf,
+    cur_pages as cur_pages,
+    pdf_changed,
 )
-from limn.people import is_actor as _is_actor  # noqa: E402
-from limn.store import PinFiles, PinStore, Row, find_pin  # noqa: E402 - after the path bootstrap above
-from limn import revisions  # noqa: E402 - after the path bootstrap above
-from limn import gitsync  # noqa: E402 - after the path bootstrap above
-from limn import documents  # noqa: E402 - after the path bootstrap above
-from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, Doc, DocNotFound, DocumentFacts,
+from limn.config import Cfg
+from limn.documents import (
+    DEFAULT_DOC_KEY,
+    DOC_KEY_RE,
+    Doc,
+    DocNotFound,
+    DocumentFacts,
 )
-from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
-from limn.meta import MetaSettings, outline_labels as outline_labels  # noqa: E402,F401 - outline_labels is an App member
-# The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
-# document (web/app.py); they are limn.build's own functions, bound here without a shell. `X as X` marks a name this
-# module exports (mypy's explicit re-export), so the App check at the Handler sees it; the build state is bound by
-# assignment because an import under another name is never an export.
-from limn.build import build_pdf as build_pdf, cur_pages as cur_pages, pdf_changed  # noqa: E402,F401
+from limn.events import EVENTS_KEEP
+from limn.files import tex_lines, vendor_file as find_vendor_file
+from limn.guidance import shell_path
+from limn.locate import PinLocation, est_context, locate_file
+from limn.mark import favicon_svg, inline_svg
+from limn.mentions import (
+    NoteTags,
+    addressed_to,
+    fyi_mentions_to,
+    note_mention_targets,
+    tag_note,
+    thread_round,
+)
+from limn.meta import MetaSettings, outline_labels as outline_labels
+from limn.people import is_actor as _is_actor
+from limn.pins import record, view
+from limn.pins.edit import AddRequest, EditRefusal, EditRequest
+from limn.pins.lifecycle import (
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    AlreadyLive,
+    ClaimClosedPin,
+    ClaimedByOther,
+    NotClaimed,
+    NotInTrash,
+    PinStillOpen,
+    ThreadFull,
+    claim_holds,
+    pin_reopened_in_round,
+    reopens_on_reply,
+)
+from limn.pins.model import (
+    DonePin,
+    OpenPin,
+    PinNotFound,
+    Record,
+    ReviewPin,
+    TrashedPin,
+    is_region_pin,
+    parse_pin,
+)
+from limn.pins.position import EstContext
+from limn.pins.record import is_int
+from limn.pins.render import (
+    DocHeading,
+    PinFacts,
+    PinsMdInput,
+    pins_md_text as render_pins_md_text,
+    rel_badge,
+)
+from limn.pins.view import pin_state as pin_state
+from limn.revisions import (
+    DiffRefusal,
+    PdfRefusal,
+    StartRefusal,
+    StatusRefusal,
+    git as _git,
+    revision_history as revision_history,
+)
+from limn.service import add_edit, claim, transitions, trash
+from limn.service.context import Event, Json, PinContext, is_agent as is_agent, who
+from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
+from limn.store import PinFiles, PinStore, Row, find_pin
+from limn.viewer.assemble import (
+    LUCIDE,
+    PDFJS_VERSION,
+    VIEWER_DIR,
+    load_ui_messages,
+    service_worker,
+    viewer_html,
+)
+from limn.web.errors import HTTPError, Messages, revision_failure_text
+from limn.web.handler import Handler as WebHandler, Server, Server6
+from limn.web.parse import CloseChange
+
 build_state_snapshot = build.state_snapshot
-from limn.revisions import git as _git, revision_history as revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
-from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal  # noqa: E402 - after the path bootstrap above
-from limn import locate  # noqa: E402 - after the path bootstrap above
-from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
-from limn.pins import view  # noqa: E402 - after the path bootstrap above
-from limn.pins.view import pin_state as pin_state  # noqa: E402,F401 - an App member (web/app.py)
-from limn.pins.position import EstContext  # noqa: E402 - after the path bootstrap above
-from limn.mark import favicon_svg, inline_svg  # noqa: E402
-from limn.viewer.assemble import (  # noqa: E402 - after the path bootstrap above
-    LUCIDE, PDFJS_VERSION, VIEWER_DIR, load_ui_messages, service_worker, viewer_html,
-)
-from limn import access  # noqa: E402 - after the path bootstrap above
-from limn.access import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_ROLE as DEFAULT_ROLE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
-    file_present, home_or_none, load_tokens, roles_of,
-)
-# hdr_text is an App member (web/app.py): the handler quotes a refused Host/Origin/document key through it.
-from limn.access import hdr_text as hdr_text  # noqa: E402,F401 - after the path bootstrap above
-from limn.guidance import shell_path  # noqa: E402 - after the path bootstrap above
-# pins.md's renderer; server.py builds its input (pins_md_input).
-from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
-    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text, rel_badge,
-)
-from limn.web.errors import HTTPError, Messages, revision_failure_text  # noqa: E402 - after the path bootstrap above
-from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
-from limn.web.parse import CloseChange  # noqa: E402 - after the path bootstrap above
-# The run settings' type, and the startup rules and command line that fill them in (main() -> start() below).
-from limn.config import Cfg  # noqa: E402 - after the path bootstrap above
-from limn import startup  # noqa: E402 - after the path bootstrap above
-from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version  # noqa: E402 - App members
-from limn.args import serve_parser  # noqa: E402 - after the path bootstrap above
 
 
 # The viewer's ko -> en message table: the viewer page embeds it, and the handler's refusal page reads it (App.UI_EN).

@@ -16,13 +16,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import locate
-from limn import build as limn_build
+from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
 from limn.mapping import anchor_of
 from limn.pins import position
 
-from helpers import add_pin, Base, edit_pin, ps, req, TEX
+from helpers import TEX, Base, add_pin, edit_pin, ps, req
 
 LOCATE_PY = Path(locate.__file__)
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK", "PIN_LOCK",

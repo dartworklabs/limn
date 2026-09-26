@@ -11,9 +11,24 @@ from typing import Any, Protocol
 
 from limn.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinReopened, PinStillOpen, Replied, ThreadFull,
-    confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
-    reopen_request, reopens_on_reply,
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    CloseRequest,
+    PinReopened,
+    PinStillOpen,
+    Replied,
+    ThreadFull,
+    confirm,
+    confirmer,
+    decide_close,
+    decide_reopen,
+    decide_reply,
+    evolve_close,
+    evolve_reopen,
+    evolve_reply,
+    reopen_request,
+    reopens_on_reply,
 )
 from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, parse_pin
 from limn.service.context import Event, PinContext, Row, is_agent, typed_actor

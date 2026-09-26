@@ -21,16 +21,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.mentions import NOTE_MENTION_COOLDOWN_S
-from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
-from test_qa_021 import CLEAR_BODY, actor
 from limn import access
-from helpers import add_pin, Base, edit_pin, ps
 from limn.access import LOCAL_ACTOR
 from limn.audit import append_audit, audit_entry
 from limn.events import EVENTS_KEEP
-from limn.mentions import note_mention_targets
+from limn.mentions import NOTE_MENTION_COOLDOWN_S, note_mention_targets
 from limn.store import find_pin
+
+from helpers import Base, add_pin, edit_pin, ps
+from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
+from test_qa_021 import CLEAR_BODY, actor
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

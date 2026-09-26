@@ -16,7 +16,15 @@ import unittest
 from pathlib import Path
 
 from limn.pins.model import (
-    Claim, Close, Confirmation, DonePin, Dropped, OpenPin, ReviewPin, TrashedPin, parse_pin,
+    Claim,
+    Close,
+    Confirmation,
+    DonePin,
+    Dropped,
+    OpenPin,
+    ReviewPin,
+    TrashedPin,
+    parse_pin,
 )
 
 CORPUS = Path(__file__).parent / "data" / "pin_records.jsonl"

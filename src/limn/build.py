@@ -19,6 +19,7 @@ tracked build runs - compile_tex for LaTeX, render_pdf_doc (the view-only PDF "b
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -450,10 +451,8 @@ def run_logged(cmd: list[str], cwd: Path, timeout: int) -> tuple[int | None, str
         out, _ = p.communicate(timeout=timeout)
         return p.returncode, out or "", False
     except subprocess.TimeoutExpired:
-        try:
+        with contextlib.suppress(OSError):
             os.killpg(p.pid, signal.SIGKILL)
-        except OSError:
-            pass
         out, _ = p.communicate()
         return None, (out or "") + "\n[시간 초과 %d초 — 빌드를 중단했습니다]" % timeout, True
 
@@ -525,10 +524,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
     _rc, out, timed_out = run_logged(
         ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, cfg.timeout)
-    try:
+    with contextlib.suppress(OSError):
         atomic_write(D.dir / "build.log", out)
-    except OSError:
-        pass
     tail = "\n".join(out.splitlines()[-40:])[-4000:]
     res["log"] = tail
 
@@ -656,16 +653,12 @@ def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildResult:
     if newdir is None:
         res["log"] = err
         res["elapsed_s"] = round(time.time() - t0, 1)
-        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
+        with contextlib.suppress(OSError):           # never retries the same file every 3 seconds - re-renders only when the file changes
             atomic_write(D.dir / "pdf_sig.txt", sig)
-        except OSError:
-            pass
         return res
     res["head"] = commit_pages(D, newdir)
-    try:
+    with contextlib.suppress(OSError):
         atomic_write(D.dir / "pdf_sig.txt", sig)
-    except OSError:
-        pass
     res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
                elapsed_s=round(time.time() - t0, 1))
     return res
@@ -831,10 +824,8 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
     main_pdf = D.pdf_name
     main_at = tuple(D.main_rel.parent.parts)            # the PDF next to the main .tex (a build artifact / committed copy) is not part of the manuscript
     state_in_root = None
-    try:
+    with contextlib.suppress(ValueError, OSError, RuntimeError):
         state_in_root = tuple(state_dir.resolve().relative_to(root.resolve()).parts)
-    except (ValueError, OSError, RuntimeError):
-        pass
 
     def walk(d: Path, rel_parts: tuple[str, ...]) -> Iterator[tuple[str, os.DirEntry[str]]]:
         """Depth-first, name-sorted walk of d (rel_parts is d relative to root), yielding the manuscript files."""
@@ -905,16 +896,12 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
                 return val
     newest = 0.0
     if D.is_pdf:                                          # view-only: that one PDF file is the manuscript
-        try:
+        with contextlib.suppress(OSError):
             newest = D.main.stat().st_mtime
-        except OSError:
-            pass
     else:
         for _rel, e in iter_sources(D, D.src, state_dir):
-            try:
+            with contextlib.suppress(OSError):
                 newest = max(newest, e.stat().st_mtime)
-            except OSError:
-                pass
     with _MTIME_LOCK:
         cache[0], cache[1], cache[2] = key, newest, time.time()
     return newest

@@ -38,9 +38,25 @@ from limn import scope
 from limn.files import atomic_write
 from limn.pins.model import is_region_pin
 from limn.scope import (
-    FileChange, PinFacts, PinNotInDoc, PinScope, RepoRange, ScopeItem, ScopeMeta, ScopeRefusal, ScopeUnwritable,
-    UnsafePath, git_lines, parse_raw_entries, parse_u0_blocks, pin_facts, pin_scope, plan_scope_writes, recorded_changes,
-    scope_meta, scope_payload,
+    FileChange,
+    PinFacts,
+    PinNotInDoc,
+    PinScope,
+    RepoRange,
+    ScopeItem,
+    ScopeMeta,
+    ScopeRefusal,
+    ScopeUnwritable,
+    UnsafePath,
+    git_lines,
+    parse_raw_entries,
+    parse_u0_blocks,
+    pin_facts,
+    pin_scope,
+    plan_scope_writes,
+    recorded_changes,
+    scope_meta,
+    scope_payload,
 )
 from limn.store import find_pin
 
@@ -578,10 +594,8 @@ def revision_exec(cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 10
         # group whose members have all exited but are not yet reaped (a zombie leader on the early exits, an orphan
         # the system has not reaped yet) is EPERM. Either way nothing is left to kill, and the command's own answer
         # stands (EPERM raised here used to override it and turn a finished git read into a 500).
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
         proc.wait()
         for pipe in buffers:
             pipe.close()

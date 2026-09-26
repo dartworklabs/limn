@@ -22,9 +22,27 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeVar
 
 from limn.pull import (
-    Building, Built, DocProgress, Json, PullFailed, PullOutcome, PullSkipped, after_pull, deferred, disabled,
-    fetch_failure, head_of, initial_status, is_dirty, merged, needs_rebuild, pull_record, repo_top, settled,
-    tracks_main, unexpected,
+    Building,
+    Built,
+    DocProgress,
+    Json,
+    PullFailed,
+    PullOutcome,
+    PullSkipped,
+    after_pull,
+    deferred,
+    disabled,
+    fetch_failure,
+    head_of,
+    initial_status,
+    is_dirty,
+    merged,
+    needs_rebuild,
+    pull_record,
+    repo_top,
+    settled,
+    tracks_main,
+    unexpected,
 )
 
 PULL_SHARE_S = 20                  # seconds - if another document already pulled within this window, reuse its result

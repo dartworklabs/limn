@@ -12,8 +12,26 @@ from pathlib import Path
 
 from limn import pull
 from limn.pull import (
-    Building, Built, Pulled, PullFailed, PullSkipped, UpToDate, after_pull, behind, deferred, fetch_failure, head_of,
-    is_dirty, merged, needs_rebuild, pull_record, repo_top, settled, sync_state, tracks_main, unexpected,
+    Building,
+    Built,
+    Pulled,
+    PullFailed,
+    PullSkipped,
+    UpToDate,
+    after_pull,
+    behind,
+    deferred,
+    fetch_failure,
+    head_of,
+    is_dirty,
+    merged,
+    needs_rebuild,
+    pull_record,
+    repo_top,
+    settled,
+    sync_state,
+    tracks_main,
+    unexpected,
 )
 
 A, B = "a" * 40, "b" * 40

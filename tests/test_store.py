@@ -17,14 +17,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import store
-from limn import build as limn_build
+from limn import build as limn_build, store
 from limn.access import LOCAL_ACTOR
 from limn.pins.edit import PinOutsideTree
 from limn.store import PinFiles, PinStore, dump_jsonl, find_pin
 from limn.web.errors import InputRejected
 
-from helpers import add_pin, Base, edit_pin, ps, record_of, TEX
+from helpers import TEX, Base, add_pin, edit_pin, ps, record_of
 
 STORE_PY = Path(store.__file__)
 
@@ -443,9 +442,8 @@ class Store(Base):
     def test_render_failure_does_not_commit(self):
         self.add()
         before = ps.C.pins_jsonl.read_text()
-        with mock.patch.object(ps, "pins_md_text", side_effect=RuntimeError("boom")):
-            with self.assertRaises(RuntimeError):
-                self.add(note="x")
+        with mock.patch.object(ps, "pins_md_text", side_effect=RuntimeError("boom")), self.assertRaises(RuntimeError):
+            self.add(note="x")
         self.assertEqual(ps.C.pins_jsonl.read_text(), before)
 
     def test_two_clears_same_second_keep_both(self):
@@ -462,9 +460,9 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         pid = self.add()
         ps.drop_pin(pid, dict(LOCAL_ACTOR))
-        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")):   # the transaction's own write
-            with self.assertRaises(OSError):
-                ps.restore_pin(pid, dict(LOCAL_ACTOR))
+        # the transaction's own write
+        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")), self.assertRaises(OSError):
+            ps.restore_pin(pid, dict(LOCAL_ACTOR))
         dropped, _ = ps.read_jsonl(ps.C.dropped)
         self.assertIn(pid, [r["id"] for r in dropped])
         self.assertEqual(record_of(ps.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)

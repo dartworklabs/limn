@@ -22,11 +22,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build
-from limn import people as limn_people
-from test_access import ALICE, BOB, AccessBase
+from limn import build as limn_build, people as limn_people
 
 from helpers import ps
+from test_access import ALICE, BOB, AccessBase
 
 SNAPSHOT = Path(__file__).parent / "data" / "contract_snapshot.json"
 T0 = 1790384400.0                                   # 2026-09-26 10:00:00 +09:00

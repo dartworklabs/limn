@@ -10,25 +10,25 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
-import struct
 import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config, startup
-from limn import locate
+from limn import access, config, locate, startup
+from limn.access import LOCAL_ACTOR
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
+
 from helpers import add_pin, shut_wr
-from limn.access import LOCAL_ACTOR
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"

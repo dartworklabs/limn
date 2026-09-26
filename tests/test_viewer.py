@@ -16,12 +16,10 @@ import shutil
 import unittest
 from pathlib import Path
 
-from limn.pins import position
-from limn.pins import render as md_render
+from limn.pins import position, render as md_render
 from limn.viewer import assemble as viewer_assemble
 
-from helpers import DOCS_DIR, extract_js_fn, js_icons, js_thread, PKG, ps, run_node, SKILL_KO, SKILL_MD
-
+from helpers import DOCS_DIR, PKG, SKILL_KO, SKILL_MD, extract_js_fn, js_icons, js_thread, ps, run_node
 
 # ---------------------------------------------------------------- frontend pure logic (run the real source under node)
 #

@@ -15,7 +15,6 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeAlias
 
-
 FLOAT_KINDS = ("figure", "table", "algorithm")
 
 

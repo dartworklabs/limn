@@ -21,8 +21,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import gitsync, revisions
-from limn import build as limn_build
+from limn import build as limn_build, gitsync, revisions
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull

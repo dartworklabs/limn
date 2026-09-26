@@ -27,7 +27,7 @@ from limn.access import LOOPBACK_AGENT_DEPRECATION
 from limn.documents import DOCS_MAX
 from limn.startup import AccessOptions, RunDocuments, StartupRefused
 
-from helpers import MINI_PDF, ps, TEX as FIXTURE_TEX
+from helpers import MINI_PDF, TEX as FIXTURE_TEX, ps
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "limn"
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"

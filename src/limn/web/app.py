@@ -23,14 +23,22 @@ from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
-from limn.pins.edit import AddRequest, EditRefusal, EditRequest
-from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed,
-    NotInTrash, PinStillOpen, ThreadFull,
-)
 from limn import access
 from limn.config import Cfg
 from limn.documents import Doc, DocNotFound
+from limn.pins.edit import AddRequest, EditRefusal, EditRequest
+from limn.pins.lifecycle import (
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    AlreadyLive,
+    ClaimClosedPin,
+    ClaimedByOther,
+    NotClaimed,
+    NotInTrash,
+    PinStillOpen,
+    ThreadFull,
+)
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.web.errors import Messages

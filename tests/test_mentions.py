@@ -11,8 +11,17 @@ from pathlib import Path
 
 from limn import mentions
 from limn.mentions import (
-    NOTE_MENTION_COOLDOWN_S, NoteTags, addressed_to, fyi_mentions_to, mention_hits, mention_tokens, note_mention_targets,
-    pin_mentions_all, resolve_mentions, tag_note, thread_round,
+    NOTE_MENTION_COOLDOWN_S,
+    NoteTags,
+    addressed_to,
+    fyi_mentions_to,
+    mention_hits,
+    mention_tokens,
+    note_mention_targets,
+    pin_mentions_all,
+    resolve_mentions,
+    tag_note,
+    thread_round,
 )
 
 MENTIONS_PY = Path(mentions.__file__)

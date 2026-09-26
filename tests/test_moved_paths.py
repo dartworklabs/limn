@@ -17,12 +17,13 @@ import unittest
 from pathlib import Path
 
 from limn import mapping, startup
-from limn.store import dump_jsonl
-from test_access import AccessBase
-from helpers import add_pin, ps
-from test_v03 import ScopedRepo
 from limn.access import LOCAL_ACTOR
 from limn.locate import locate_file
+from limn.store import dump_jsonl
+
+from helpers import add_pin, ps
+from test_access import AccessBase
+from test_v03 import ScopedRepo
 
 MS_MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n" + "".join(
     "Body sentence %d.\n" % i for i in range(4, 30)) + "\\end{document}\n"

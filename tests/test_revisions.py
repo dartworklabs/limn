@@ -18,15 +18,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import revisions
-from limn import scope as scoping
-from limn import meta as limn_meta
-from limn import build as limn_build
+from limn import build as limn_build, meta as limn_meta, revisions, scope as scoping
 from limn.documents import Doc
 from limn.web import parse
 from limn.web.errors import InputRejected
 
-from helpers import Base, ps, req, revision_spec, split_resp, TEX
+from helpers import TEX, Base, ps, req, revision_spec, split_resp
 
 
 class ManuscriptRevisions(Base):

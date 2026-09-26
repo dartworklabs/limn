@@ -12,6 +12,7 @@ the server's run settings or imports the server (coding rule R5); the compositio
 """
 from __future__ import annotations
 
+import contextlib
 import re
 import subprocess
 import threading
@@ -24,7 +25,15 @@ from limn import build
 from limn.documents import Doc, to_source
 from limn.files import file_in_tree, tex_lines
 from limn.mapping import (
-    TokenWeights, by_text, compute_levels, densest, norm, pin_rel_path, score_range, snippet, truncate_quote,
+    TokenWeights,
+    by_text,
+    compute_levels,
+    densest,
+    norm,
+    pin_rel_path,
+    score_range,
+    snippet,
+    truncate_quote,
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
@@ -51,10 +60,8 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
         if ln.startswith("Input:"):
             inp = ln[6:].strip()
         elif ln.startswith("Line:"):
-            try:
+            with contextlib.suppress(ValueError):
                 line = int(ln[5:].strip())
-            except ValueError:
-                pass
         if inp and line:
             return inp, line
     return None
@@ -422,10 +429,9 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> dict[str, Any]:
 
     lad = compute_levels(lines, raw_lo, raw_hi, ctx.envs)
     lo, hi = lad["lo"], lad["hi"]
-    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
-        # If both expand into the same block, the two paths haven't actually diverged - don't warn.
-        if not (lo <= cands[1][1] <= hi):
-            warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
+    # If both expand into the same block, the two paths haven't actually diverged - don't warn.
+    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12 and not (lo <= cands[1][1] <= hi):
+        warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
     if build.source_newer(D, ctx.state, pdir.name) > 2:
         stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."

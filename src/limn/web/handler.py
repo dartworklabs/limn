@@ -21,13 +21,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import ParseResult, parse_qs, urlparse
 
+from limn.documents import DocNotFound
 from limn.mark import png as mark_png
 from limn.pins.lifecycle import NotInTrash
 from limn.pins.model import TrashedPin
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
-from limn.documents import DocNotFound
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
@@ -183,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except HTTPError as err:
             self._refuse(err)
-        except (BrokenPipeError, ConnectionResetError, socket.timeout):
+        except (TimeoutError, BrokenPipeError, ConnectionResetError):
             self.close_connection = True
         except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)

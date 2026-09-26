@@ -14,13 +14,31 @@ from typing import Any, NoReturn, TypeAlias, TypeVar
 
 from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed,
-    NotInTrash, PinStillOpen, ThreadFull,
+    AgentCannotConfirm,
+    AlreadyClosed,
+    AlreadyDone,
+    AlreadyLive,
+    ClaimClosedPin,
+    ClaimedByOther,
+    NotClaimed,
+    NotInTrash,
+    PinStillOpen,
+    ThreadFull,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.revisions import (
-    AllSlotsBusy, CommitNotRecent, DiffFailed, DiffUnavailable, DocumentBusy, NoHistory, NoParent, NotInRepo,
-    RevisionNotReady, RevisionPdfMissing, RevisionRefusal, UnsafeCache,
+    AllSlotsBusy,
+    CommitNotRecent,
+    DiffFailed,
+    DiffUnavailable,
+    DocumentBusy,
+    NoHistory,
+    NoParent,
+    NotInRepo,
+    RevisionNotReady,
+    RevisionPdfMissing,
+    RevisionRefusal,
+    UnsafeCache,
 )
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeUnreadable, ScopeUnwritable, UnsafePath
 from limn.web.errors import HTTPError, InputRejected, scope_http_error

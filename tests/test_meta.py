@@ -19,9 +19,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
-from limn import documents, meta
-from limn import build as limn_build
-from limn import meta as limn_meta
+from limn import build as limn_build, documents, meta, meta as limn_meta
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc, DocNotFound
 from limn.meta import MetaSettings

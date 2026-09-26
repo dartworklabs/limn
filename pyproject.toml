@@ -44,9 +44,24 @@ line-length = 120
 extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]   # copied from upstream; fix there, not here
 
 [tool.ruff.lint]
-# Stage 1 of docs/handbook/code-style-roadmap.md: bug-candidate rules only. Style rules ("W", "I", "UP",
-# "SIM") and docstrings ("D") come later, with the whole-tree reformat in its own commit.
-select = ["F", "E4", "E7", "E9", "B", "PLW1510"]
+# Stage 1 of docs/handbook/code-style-roadmap.md (R4): bug candidates ("F", "B", "PLW1510") and style rules ("E",
+# "W", "I", "UP", "SIM"); `ruff format` owns the layout. Docstring rules ("D") come later, new modules first.
+select = ["F", "E", "W", "I", "B", "UP", "SIM", "PLW1510"]
+ignore = [
+    "E501",   # line length: the formatter wraps code; long comment and docstring lines are not checked
+    "UP030",  # str.format templates keep their explicit field numbers ...
+    "UP031",  # ... printf-style strings stay printf-style ...
+    "UP032",  # ... and .format() calls are not rewritten to f-strings: the messages are agent contract bytes
+    "UP042",  # `class X(str, Enum)` -> StrEnum changes str() and format() of the members
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The limn.* imports follow the sys.path bootstrap that lets an instance run the file directly.
+"src/limn/server.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it
+known-local-folder = ["helpers", "test_*"]   # the tests' shared modules, imported after limn
 
 [tool.mypy]
 # Stage 7 of docs/handbook/code-style-roadmap.md: every module of the package is type-checked strictly - the modules

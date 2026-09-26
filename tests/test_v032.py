@@ -19,11 +19,12 @@ import unittest
 from pathlib import Path
 
 from limn import mapping
-from limn.store import dump_jsonl
-from test_access import AccessBase, configure, mask
-from helpers import add_pin, ps
-from test_v03 import ScopedRepo
 from limn.access import LOCAL_ACTOR
+from limn.store import dump_jsonl
+
+from helpers import add_pin, ps
+from test_access import AccessBase, configure, mask
+from test_v03 import ScopedRepo
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -433,8 +434,8 @@ class RollbackToV030(MovedManuscriptBase):
         return self.v030_call(method, path, body)
 
     def v030_call(self, method, path, body):
-        from test_access import talk_to
         from helpers import req, split_resp
+        from test_access import talk_to
         raw = json.dumps(body).encode() if body is not None else b""
         h = {"Content-Type": "application/json"} if body is not None else {}
         code, _, out = split_resp(talk_to(self.v030, req(method, path, raw, h)))

@@ -16,10 +16,11 @@ import re
 import time
 import unittest
 
-from test_qa_021 import BrowserBase, actor
-from test_access import ALICE
-from helpers import add_pin, extract_js_fn, ps, run_node
 from limn.access import LOCAL_ACTOR
+
+from helpers import add_pin, extract_js_fn, ps, run_node
+from test_access import ALICE
+from test_qa_021 import BrowserBase, actor
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}

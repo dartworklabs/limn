@@ -11,7 +11,17 @@ from dataclasses import dataclass
 from typing import Any, TypeGuard, TypeVar, cast
 
 from limn.pins.model import (
-    Actor, Agent, Claim, DonePin, OpenPin, Person, Pin, Record, ReviewPin, TrashedPin, parse_pin,
+    Actor,
+    Agent,
+    Claim,
+    DonePin,
+    OpenPin,
+    Person,
+    Pin,
+    Record,
+    ReviewPin,
+    TrashedPin,
+    parse_pin,
 )
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)

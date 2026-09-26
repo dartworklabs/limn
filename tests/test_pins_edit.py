@@ -8,9 +8,25 @@ Run: uv run pytest -q tests/test_pins_edit.py
 import unittest
 
 from limn.pins.edit import (
-    ASSIGNEE_AGENT, AddRequest, Anchoring, ClosedPinReshaped, EditRequest, LinePlace, Located, NoteTooLong, PinEdited,
-    PinOutsideTree, RangeOutsideFile, RegionPlace, StaleEdit, assignment_text, decide_edit, evolve_edit, file_after,
-    new_line_pin, new_region_pin,
+    ASSIGNEE_AGENT,
+    AddRequest,
+    Anchoring,
+    ClosedPinReshaped,
+    EditRequest,
+    LinePlace,
+    Located,
+    NoteTooLong,
+    PinEdited,
+    PinOutsideTree,
+    RangeOutsideFile,
+    RegionPlace,
+    StaleEdit,
+    assignment_text,
+    decide_edit,
+    evolve_edit,
+    file_after,
+    new_line_pin,
+    new_region_pin,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin
 

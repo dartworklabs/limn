@@ -24,28 +24,49 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import files, gitsync, locate, mapping, mentions, startup
-from limn import build as limn_build
+from limn import build as limn_build, files, gitsync, locate, mapping, mentions, startup
 from limn.access import LOCAL_ACTOR
 from limn.events import NOTIFY_TYPES
-from limn.pins import render as md_render
-from limn.pins import position
+from limn.pins import position, render as md_render
 from limn.pins.edit import NOTE_MAX, NoteTooLong
-from limn.pins.lifecycle import AgentCannotConfirm, CLAIM_FIELDS, ClaimClosedPin, ClaimedByOther, ThreadFull
+from limn.pins.lifecycle import (
+    CLAIM_FIELDS,
+    AgentCannotConfirm,
+    ClaimClosedPin,
+    ClaimedByOther,
+    ThreadFull,
+    pin_reopened_in_round,
+)
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
 from limn.startup import StartupRefused
 from limn.store import find_pin
 from limn.viewer import assemble as viewer_assemble
 from limn.web import parse
+from limn.web.answers import diet_log
 from limn.web.errors import HTTPError, InputRejected
 
 from helpers import (
-    add_pin, Base, DOCS_DIR, edit_pin, extract_js_fn, jreq, js_i18n, MINI_PDF, pick, PKG, ps, record_of, req, run_node,
-    shut_wr, SKILL_KO, SKILL_MD, split_resp, TEX,
+    DOCS_DIR,
+    MINI_PDF,
+    PKG,
+    SKILL_KO,
+    SKILL_MD,
+    TEX,
+    Base,
+    add_pin,
+    edit_pin,
+    extract_js_fn,
+    jreq,
+    js_i18n,
+    pick,
+    ps,
+    record_of,
+    req,
+    run_node,
+    shut_wr,
+    split_resp,
 )
-from limn.pins.lifecycle import pin_reopened_in_round
-from limn.web.answers import diet_log
 
 
 class Smuggling(Base):

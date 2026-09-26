@@ -20,6 +20,7 @@ server's writes and `limn member`'s.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import ipaddress
@@ -170,15 +171,11 @@ def hdr_text(v: object) -> str:
         return ""
     s = str(v).strip()
     if "=?" in s:
-        try:
+        with contextlib.suppress(Exception):             # noqa: BLE001 — a single bad header must never drop the request
             s = str(make_header(decode_header(s)))
-        except Exception:                                # noqa: BLE001 — a single bad header must never drop the request
-            pass
     else:
-        try:
+        with contextlib.suppress(UnicodeEncodeError, UnicodeDecodeError):
             s = s.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
     return "".join(ch for ch in s if ch.isprintable())[:300]
 
 
