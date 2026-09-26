@@ -18,7 +18,8 @@ from pathlib import Path
 from unittest import mock
 
 from limn.mapping import find_level
-from limn.pins.lifecycle import AgentCannotConfirm, ThreadFull
+from limn.pins.lifecycle import AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
+from limn.pins.model import PinNotFound
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -2178,7 +2179,7 @@ class RemotePinsMd(Base):
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
         pid = self.add()
-        p = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        p = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120))
         self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Wendy"})
         self.assertEqual(p["rev"], 1)
         self.assertTrue(ps.claim_active(self.pin(pid)))
@@ -2186,35 +2187,31 @@ class Claim(Base):
     def test_default_ttl_used_when_body_omits_it(self):
         pid = self.add()
         before = time.time()
-        p = ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), ps.clean_claim_ttl({}))
+        p = record_of(ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), ps.clean_claim_ttl({})))
         self.assertAlmostEqual(p["claim_until"], before + ps.CLAIM_TTL_DEFAULT * 60, delta=5)
 
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
         ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)
-        self.assertEqual(cm.exception.code, 409)
-        self.assertEqual(cm.exception.body["claimed_by"]["login"], "alice@x.com")
-        self.assertIn("claim_until", cm.exception.body)
+        refused = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)          # answered 409 "claimed"
+        self.assertIsInstance(refused, ClaimedByOther)
+        self.assertEqual(refused.claimed_by["login"], "alice@x.com")
+        self.assertIsNotNone(refused.claim_until)
 
     def test_claim_same_identity_extends(self):
         pid = self.add()
-        first = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 5)
-        second = ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 200)
+        first = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 5))
+        second = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 200))
         self.assertGreater(second["claim_until"], first["claim_until"])
         self.assertEqual(second["rev"], first["rev"] + 1)
 
     def test_claim_on_closed_pin_is_409_done(self):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        self.assertEqual(cm.exception.code, 409)
-        self.assertEqual(cm.exception.body["error"], "done")
+        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120), ClaimClosedPin)   # 409 "done"
 
     def test_claim_missing_pin_id_returns_none(self):
-        self.assertIsNone(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120))
+        self.assertEqual(ps.claim_pin(999, dict(ps.LOCAL_ACTOR), 120), PinNotFound(999))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
         for bad in (0, -1, "120", 12.5, True, None):                  # 400 for a wrong type or a value below 1
@@ -2236,19 +2233,19 @@ class Claim(Base):
                 r["claim_until"] = time.time() - 10
         ps.write_pins(rows)
         self.assertFalse(ps.claim_active(self.pin(pid)))
-        p = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)
+        p = record_of(ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120))
         self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
 
     def test_unclaim_clears_fields_regardless_of_requester(self):
         pid = self.add()
         ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        p = ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"})
+        p = record_of(ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"}))
         self.assertNotIn("claimed_by", p)
         self.assertNotIn("claimed_at", p)
         self.assertNotIn("claim_until", p)
 
     def test_unclaim_missing_pin_returns_none(self):
-        self.assertIsNone(ps.unclaim_pin(999, dict(ps.LOCAL_ACTOR)))
+        self.assertEqual(ps.unclaim_pin(999, dict(ps.LOCAL_ACTOR)), PinNotFound(999))
 
     def test_close_clears_claim(self):
         pid = self.add()
@@ -4957,7 +4954,7 @@ class ClaimEta(Base):
     def test_claim_stores_eta_and_start(self):
         pid = self.add()
         t0 = time.time()
-        p = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
+        p = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15})))
         self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
         self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
         self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
@@ -4967,34 +4964,33 @@ class ClaimEta(Base):
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
         pid = self.add()
-        first = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5}))
+        first = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 5})))
         with ps.PIN_LOCK:                                              # move it back to having been claimed 10 minutes ago
             rows, _ = ps.read_pins()
             r = ps.find_pin(rows, pid)
             for k in ("claim_ts", "eta_ts", "claim_until"):
                 r[k] -= 600
             ps.write_pins(rows)
-        second = ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20}))
+        second = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 20})))
         self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)      # the start time stays put
         self.assertEqual(second["claimed_at"], first["claimed_at"])
         self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # the new estimate starts from now
         self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        third = ps.claim_pin(pid, self.A, *ps.clean_claim_body({}))                      # extending with no new estimate keeps the previous one
+        third = record_of(ps.claim_pin(pid, self.A, *ps.clean_claim_body({})))                    # extending with no new estimate keeps the previous one
         self.assertEqual(third["eta_ts"], second["eta_ts"])
         self.assertEqual(third["rev"], second["rev"] + 1)
 
     def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
         pid = self.add()
         ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 15}))
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))
-        self.assertEqual(cm.exception.code, 409)
-        self.assertIn("eta_ts", cm.exception.body)
+        refused = ps.claim_pin(pid, self.B, *ps.clean_claim_body({"eta_min": 5}))          # answered 409 "claimed"
+        self.assertIsInstance(refused, ClaimedByOther)
+        self.assertIsNotNone(refused.eta_ts)
         with ps.PIN_LOCK:                                              # A's claim has expired
             rows, _ = ps.read_pins()
             ps.find_pin(rows, pid)["claim_until"] = time.time() - 1
             ps.write_pins(rows)
-        p = ps.claim_pin(pid, self.B, *ps.clean_claim_body({}))
+        p = record_of(ps.claim_pin(pid, self.B, *ps.clean_claim_body({})))
         self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
         self.assertNotIn("eta_ts", p)                                   # doesn't inherit someone else's old estimate
 
@@ -5005,7 +5001,7 @@ class ClaimEta(Base):
             if how == "close":
                 rec = record_of(ps.set_done(pid, True, self.A))
             elif how == "unclaim":
-                rec = ps.unclaim_pin(pid, self.A)
+                rec = record_of(ps.unclaim_pin(pid, self.A))
             else:
                 ps.drop_pin(pid, self.A)
                 rec = ps.read_jsonl(ps.C.dropped)[0][-1]
@@ -5892,9 +5888,7 @@ class ReviewState(Base):
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), "고침")
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])                         # not in the open-pin list (legacy contract)
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30)
-        self.assertEqual(cm.exception.body["error"], "done")
+        self.assertIsInstance(ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30), ClaimClosedPin)   # 409 "done"
         m = ps.meta(dict(ps.LOCAL_ACTOR))
         self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 

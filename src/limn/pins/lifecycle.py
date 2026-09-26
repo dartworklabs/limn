@@ -237,6 +237,89 @@ def replies_of(record: Record) -> list[Any]:
     return [m for m in thread_of(record) if isinstance(m, dict) and not m.get("ev")]
 
 
+@dataclass(frozen=True)
+class ClaimRequest:
+    """A validated claim body: minutes until the marker lapses, and the optional estimate of the work."""
+    ttl_min: int
+    eta_min: int | None = None
+
+
+@dataclass(frozen=True)
+class ClaimClosedPin:
+    """A closed pin cannot be claimed; the pin travels along for the 409 body."""
+    pin: ReviewPin | DonePin
+
+
+@dataclass(frozen=True)
+class ClaimedByOther:
+    """Someone else holds a live claim; the 409 body tells who, until when, and their estimate."""
+    claimed_by: Any
+    claim_until: Any
+    eta_ts: Any
+
+
+@dataclass(frozen=True)
+class NotClaimed:
+    """Unclaiming a pin that had no claim changes nothing; the pin is shown with any stray claim field cleared."""
+    pin: Pin
+
+
+def claim_holds(record: Record, now: float) -> bool:
+    """Does the record carry an unexpired claim at epoch `now`? claim_until is epoch seconds, independent of timezone."""
+    until = record.get("claim_until")
+    return _is_num(until) and float(until) > now
+
+
+def claim(pin: Pin, by: Actor, now: float, at: str, request: ClaimRequest,
+          legacy_start: float | None) -> OpenPin | ClaimClosedPin | ClaimedByOther:
+    """Place or extend the in-progress marker on an open pin; a closed pin is refused.
+
+    now is epoch seconds and at the same moment as the store's time string. legacy_start is the epoch of an old
+    claim's claimed_at, used only to backfill claim_ts when extending a claim written before claim_ts existed.
+    """
+    match pin:
+        case OpenPin():
+            return claim_open(pin, by, now, at, request, legacy_start)
+        case ReviewPin() | DonePin():
+            return ClaimClosedPin(pin)
+
+
+def claim_open(pin: OpenPin, by: Actor, now: float, at: str, request: ClaimRequest,
+               legacy_start: float | None) -> OpenPin | ClaimedByOther:
+    """An open pin's claim rule: another identity's live claim refuses; the same identity extends; otherwise a new claim.
+
+    An extension keeps the start (claimed_at/claim_ts) and re-measures claim_until from now; eta_ts is reset only when
+    an estimate is given. A new claim drops every earlier claim field first, so a stale estimate never survives.
+    """
+    held = claim_holds(pin.record, now)
+    mine = held and (pin.record.get("claimed_by") or {}).get("login") == by.login
+    if held and not mine:
+        return ClaimedByOther(pin.record["claimed_by"], pin.record["claim_until"], pin.record.get("eta_ts"))
+    record = dict(pin.record)
+    if not mine:
+        for key in CLAIM_FIELDS:
+            record.pop(key, None)
+        record["claimed_at"] = at
+        record["claim_ts"] = now
+    elif not _is_num(record.get("claim_ts")):
+        record["claim_ts"] = legacy_start or now
+    record["claimed_by"] = signature(by)
+    record["claim_until"] = now + request.ttl_min * 60
+    if request.eta_min is not None:
+        record["eta_ts"] = now + request.eta_min * 60
+    record["rev"] = next_rev(pin.record)
+    return OpenPin(record)
+
+
+def unclaim(pin: PinT) -> PinT | NotClaimed:
+    """Clear the in-progress marker, whoever asks (the trust model restricts nothing here); rev goes up only if there was one."""
+    cleared = {key: value for key, value in pin.record.items() if key not in CLAIM_FIELDS}
+    if "claimed_by" not in pin.record:
+        return NotClaimed(type(pin)(cleared))
+    cleared["rev"] = next_rev(pin.record)
+    return type(pin)(cleared)
+
+
 def next_rev(record: Record) -> int:
     """The revision after a change: the store's rule counts a missing or empty rev as 0."""
     return int(record.get("rev") or 0) + 1
@@ -277,6 +360,11 @@ def thread_message(thread: Sequence[Any] | None, by: dict[str, str], at: str, te
     if mentions:
         msg["mentions"] = list(mentions)
     return msg
+
+
+def _is_num(value: object) -> bool:
+    """An int or float that is not a bool - how stored epoch times are recognised."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _is_int(value: object) -> bool:
