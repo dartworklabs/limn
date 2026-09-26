@@ -4,8 +4,8 @@
 Instance management lives in the bash script instances.sh next to this file. This module hands it
 the paths it needs (interpreter, server, unit template, the limn executable) and the version via
 environment variables, then execs bash. `limn token` and `limn member` are Python: they edit the
-instance's state directory through the state helpers in limn.access, with the audit sink and the people.json format
-that server.py wires (cli_audit, PEOPLE_FORMAT). server.py is imported only by the commands that need it, so
+instance's state directory through the state helpers in limn.access, with the audit sink server.py wires
+(cli_audit). server.py is imported only by the commands that need it, so
 `limn version` and the instance commands stay fast.
 """
 from __future__ import annotations
@@ -430,12 +430,12 @@ def cmd_member(argv: Sequence[str]) -> int:
         state, pos, ns = split_target("limn member add", rest, 1, [
             (("--role",), {"default": access.DEFAULT_ROLE, "choices": access.ROLES, "help": "role (default editor)"}),
             (("--name",), {"help": "display name (default: the part of the login before @)"})])
-        e = access.member_add(state, pos[0], ns.role, ns.name, ps.PEOPLE_FORMAT, ps.cli_audit(state))
+        e = access.member_add(state, pos[0], ns.role, ns.name, ps.cli_audit(state))
         print("added %s as %s (%s) — %s" % (e["login"], e["role"], e["name"], note))
         return 0
     if sub in ("list", "ls"):
         state, _, _ = split_target("limn member list", rest, 0)
-        rows = access.load_people_file(state, ps.PEOPLE_FORMAT)
+        rows = access.load_people_file(state)
         if not rows:
             print("no members in %s" % state)
             return 0
@@ -449,13 +449,13 @@ def cmd_member(argv: Sequence[str]) -> int:
         return 0
     if sub in ("remove", "rm"):
         state, pos, _ = split_target("limn member remove", rest, 1)
-        if access.member_remove(state, pos[0], ps.PEOPLE_FORMAT, ps.cli_audit(state)) is None:
+        if access.member_remove(state, pos[0], ps.cli_audit(state)) is None:
             raise CliError("%s is not in %s" % (pos[0], state / "people.json"))
         print("removed %s — %s" % (pos[0], note))
         return 0
     if sub == "role":
         state, pos, _ = split_target("limn member role", rest, 2)
-        changed = access.member_set_role(state, pos[0], pos[1], ps.PEOPLE_FORMAT, ps.cli_audit(state))
+        changed = access.member_set_role(state, pos[0], pos[1], ps.cli_audit(state))
         if changed is None:
             raise CliError("%s is not in %s (add it with `limn member add`)" % (pos[0], state / "people.json"))
         print("%s is now %s — %s" % (changed["login"], changed["role"], note))

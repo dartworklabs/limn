@@ -100,5 +100,45 @@ class TokenWeights(unittest.TestCase):
         self.assertEqual(dict(cache.weights("alpha", other, ("f", 2, 1))), {"alpha": 1.0})
 
 
+class Overlaps(unittest.TestCase):
+    """Overlaps count each open line pin in the file the locator finds for it now, else its stored file."""
+
+    NEW = Path("/ms/new/main.tex")
+
+    def locator(self, r):
+        """Places pins stored under /old/ at NEW (a moved checkout); every other file cannot be placed."""
+        return locate.PinLocation("main.tex", self.NEW) if str(r.get("file", "")).startswith("/old/") else None
+
+    def setUp(self):
+        """Pin 1 from before the move, pin 2 after it (same lines inside), a done pin and one in another file."""
+        self.rows = [{"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
+                     {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
+                     {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
+                     {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5}]
+
+    def test_pins_before_and_after_a_move_are_one_file(self):
+        """The moved pin and the new one relate; the done pin has no entry; the other file relates to nothing."""
+        self.assertEqual(locate.overlaps_by_id(self.rows, self.locator),
+                         {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})
+
+    def test_a_range_is_compared_in_the_located_file(self):
+        """A new selection of NEW meets the moved pin and the new one, not the done pin."""
+        self.assertEqual(locate.overlaps_for_range(str(self.NEW), 4, 5, self.rows, self.locator),
+                         [{"id": 1, "lo": 3, "hi": 9, "rel": "inside"}, {"id": 2, "lo": 4, "hi": 5, "rel": "equal"}])
+
+    def test_overlaps_api_asks_the_contexts_overlaps(self):
+        """GET /api/overlaps' body is {"overlaps": ctx.overlaps(file, lo, hi)} for the parsed range."""
+        asked = []
+
+        def overlaps(file, lo, hi):
+            """Records the question and answers one overlap."""
+            asked.append((file, lo, hi))
+            return [{"id": 7, "lo": lo, "hi": hi, "rel": "equal"}]
+        ctx = locate.PickContext(Path("/ms"), (), Path("/state"), locate.TokenCache(), overlaps)
+        rng = type("Range", (), {"file": self.NEW, "lines": ["a"] * 9, "lo": 2, "hi": 3})()
+        self.assertEqual(locate.overlaps_api(rng, ctx), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]})
+        self.assertEqual(asked, [(str(self.NEW), 2, 3)])
+
+
 if __name__ == "__main__":
     unittest.main()
