@@ -16,8 +16,6 @@ Idempotent: running it again gives the same result. Old files and directories ar
 `--dry-run` writes nothing and shows what would happen.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 import re

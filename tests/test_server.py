@@ -2182,7 +2182,7 @@ class NotifyServer(Base):
         self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
         self.assertEqual(h["cache-control"], "no-cache")
         js = raw.decode()
-        self.assertIn("showNotification" if False else "notificationclick", js)
+        self.assertIn("notificationclick", js)
         self.assertIn("clients.openWindow", js)
         # v0.2.2: [되살리기] on a 'dropped' notification
         self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)

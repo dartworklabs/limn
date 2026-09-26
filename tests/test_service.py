@@ -50,10 +50,6 @@ STAMP = "2026-09-26 10:00:00"
 AGENT = dict(LOCAL_ACTOR)
 
 
-class Refused(Exception):
-    """The refusal a transaction step may raise (the server passes its HTTPError); no service raises it."""
-
-
 def valid(r: object) -> bool:
     """The test's record check: a JSON object with an integer id."""
     return isinstance(r, dict) and isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
@@ -101,7 +97,7 @@ class ServiceBase(unittest.TestCase):
         self.state = root / "state"
         self.state.mkdir()
         self.lock = threading.RLock()
-        self.store = PinStore(PinFiles(self.state), self.lock, valid, lambda rows: False, lambda rows: "md\n", Refused)
+        self.store = PinStore(PinFiles(self.state), self.lock, valid, lambda rows: False, lambda rows: "md\n")
         self.rec = Recorder(self.lock)
         self.people = {"alice@example.com": ALICE_ACTOR, "bob@example.com": BOB_ACTOR}
         self.checked = [0.0]
@@ -324,7 +320,7 @@ class Transitions(ServiceBase):
             """A re-sync that must not run."""
             raise AssertionError("store touched")
 
-        ctx = self.context(store=PinStore(PinFiles(self.state), self.lock, valid, boom, lambda rows: "", Refused))
+        ctx = self.context(store=PinStore(PinFiles(self.state), self.lock, valid, boom, lambda rows: ""))
         self.assertEqual(transitions.confirm_pin(ctx, 1, AGENT), AgentCannotConfirm())
 
     def test_a_person_confirms_a_pin_awaiting_review(self):

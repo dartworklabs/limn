@@ -11,8 +11,6 @@ documents it rebuilds and when an "updating" status settles are decided here too
 threads are limn.gitsync's.
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias

@@ -14,8 +14,6 @@ timeout - comes in a RevisionContext made per request by the composition root (s
 git runs without a shell; only full SHA-1s that git itself listed, and git's own object ids, reach its arguments.
 """
 
-from __future__ import annotations
-
 import contextlib
 import fcntl
 import hashlib

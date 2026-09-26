@@ -158,7 +158,7 @@ class ModuleBoundary(unittest.TestCase):
 
     def test_guidance_imports_nothing_effectful(self):
         """The token-file wording is strings in, strings out: only re, shlex and PurePath."""
-        self.assertEqual(self.imported(GUIDANCE_PY), {"__future__", "re", "shlex", "pathlib"})
+        self.assertEqual(self.imported(GUIDANCE_PY), {"re", "shlex", "pathlib"})
         self.assertIn("from pathlib import PurePath", GUIDANCE_PY.read_text(encoding="utf-8"))
 
 

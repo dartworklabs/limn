@@ -2,9 +2,9 @@
 
 The store (limn.store.PinStore) trusts and indexes a few fields of every record - id, where the pin is, the thread
 the viewer renders as-is - so a line whose fields do not have their stored shape is treated as broken: kept aside
-with its original bytes, never served or rewritten. Back when only id was checked, a single record with a string lo
-or no file turned every GET/POST into a 500 - and because the pins.jsonl write had already committed right before
-that 500, a retry created a duplicate pin (observed).
+with its original bytes, never served or rewritten. Checking id alone is not enough: a single record with a string
+lo or no file turns every GET/POST into a 500, and because the pins.jsonl write commits right before that 500, a
+retry creates a duplicate pin (observed).
 
 Every optional field may be missing (a legacy record), and a field this version does not know passes untouched (an
 older server must not drop what a newer one wrote, docs/adr/0005-pin-scoped-changes.md, 0006). The check changes
@@ -15,19 +15,15 @@ Pure. Two shapes it checks are owned by modules that are not: a document key (li
 recorded actor (limn.people.is_actor). The composition root passes both in (server.valid_rec).
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
-from limn.pins.edit import KIND_REQS
+from limn.pins.edit import is_kind_req
+from limn.pins.lifecycle import THREAD_EVENTS
 from limn.pins.model import is_region_pin
+from limn.pins.shapes import is_int, is_num
 from limn.scope import valid_changes
-
-# The marks a thread entry may carry (ev): the close, reopen and confirm transitions (limn.pins.lifecycle) and an
-# assignee change (limn.pins.edit). A reply has none.
-THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 
 
 def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]) -> bool:
@@ -47,7 +43,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         if r.get("lo") is not None or r.get("hi") is not None:
             return False
         fr = r.get("frac")
-        if not (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr)):
+        if not (isinstance(fr, list) and len(fr) == 4 and all(is_num(x) for x in fr)):
             return False
     else:
         if not isinstance(r.get("file"), str) or not r["file"]:
@@ -67,7 +63,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
     if r.get("changes") is not None and not valid_changes(r["changes"]):
         return False
     # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
-    if r.get("kind_req") is not None and r["kind_req"] not in KIND_REQS:
+    if r.get("kind_req") is not None and not is_kind_req(r["kind_req"]):
         return False
     if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
         return False
@@ -82,7 +78,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
             return False
     # epoch seconds - named apart from '*_at' (string timestamps)
     for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):
-        if r.get(k) is not None and not _is_num(r[k]):
+        if r.get(k) is not None and not is_num(r[k]):
             return False
     for k in ("done", "stale", "review"):
         if r.get(k) is not None and not isinstance(r[k], bool):
@@ -97,18 +93,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         elif (k == "author" or k.endswith("_by")) and v is not None and not is_actor(v):
             return False
     fr = r.get("frac")
-    return fr is None or (isinstance(fr, list) and len(fr) == 4 and all(_is_num(x) for x in fr))
-
-
-def is_int(v: object) -> TypeGuard[int]:
-    """An int that is not a bool - how a JSON integer arrives from json.loads. Public for the edge that reads a
-    record's fields before any check of its own (server.pins_md_input)."""
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    """A JSON number (int or float, not bool) - how epoch seconds and frac coordinates are stored."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return fr is None or (isinstance(fr, list) and len(fr) == 4 and all(is_num(x) for x in fr))
 
 
 def _is_str_list(v: object) -> TypeGuard[list[str]]:

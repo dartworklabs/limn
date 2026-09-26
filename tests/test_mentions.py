@@ -39,11 +39,23 @@ class ModuleBoundary(unittest.TestCase):
     """mentions.py is pure: it reaches no file, clock, process, network or server."""
 
     def test_imports_only_pure_modules(self):
-        """Its imports are typing/collections helpers and limn.pins.edit (for ASSIGNEE_AGENT) - nothing effectful."""
+        """Its imports are typing/collections helpers, limn.pins.edit (ASSIGNEE_AGENT), limn.pins.lifecycle (the round
+        scan) and limn.pins.shapes (is_num) - nothing effectful."""
         tree = ast.parse(MENTIONS_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertLessEqual(modules, {"__future__", "collections", "collections.abc", "typing", "limn.pins.edit"})
+        self.assertLessEqual(
+            modules,
+            {
+                "__future__",
+                "collections",
+                "collections.abc",
+                "typing",
+                "limn.pins.edit",
+                "limn.pins.lifecycle",
+                "limn.pins.shapes",
+            },
+        )
 
     def test_reads_no_server_global(self):
         """No run-argument object, current document or server helper is named in the module."""

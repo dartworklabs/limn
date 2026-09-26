@@ -5,11 +5,9 @@ in server.py), and actors arrive parsed. An outcome the caller must answer is a 
 annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeGuard, TypeVar, cast
+from typing import Any, Literal, TypeAlias, TypeVar, cast, get_args
 
 from limn.pins.model import (
     Actor,
@@ -22,10 +20,17 @@ from limn.pins.model import (
     Record,
     ReviewPin,
     TrashedPin,
+    claim_unexpired,
     parse_pin,
 )
+from limn.pins.shapes import is_int
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
+
+# The mark a thread entry may carry (ev): the close, reopen and confirm transitions here and an assignee change
+# (limn.pins.edit). A reply has none. limn.pins.record accepts no other stored value.
+ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
+THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
 
 # The in-progress marker's fields (docs/handbook/api.md §처리 중 표시); a close clears them.
 CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
@@ -201,7 +206,8 @@ def evolve_reopen(pin: Pin, event: PinReopened) -> OpenPin:
 
 
 def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
-    """POST /reopen: apply the reopen and bump rev - even for a pin that was already open, as before."""
+    """POST /reopen: apply the reopen and bump rev - also for a pin that was already open, which a reopen request
+    rewrites all the same."""
     opened = evolve_reopen(pin, event)
     return OpenPin.from_record({**opened.record, "rev": next_rev(pin.record)})
 
@@ -305,9 +311,14 @@ class NotClaimed:
 
 
 def claim_holds(record: Record, now: float) -> bool:
-    """Does the record carry an unexpired claim at epoch `now`? claim_until is epoch seconds, independent of timezone."""
-    until = record.get("claim_until")
-    return _is_num(until) and float(until) > now
+    """Does the stored record show an unexpired claim at epoch `now`? claim_unexpired() on its claim_until alone.
+
+    pins.md's in-progress marker and GET /api/pins's backfilled claim_ts read the record this way, not through the
+    lifted Claim.holds, and the difference is kept on purpose (both answers are the agent contract): a hand-edited
+    record whose claim_until has no claimed_by object, or whose closed state still carries claim fields, shows the
+    claim here while it is no claim for POST /claim. This server never writes either shape.
+    """
+    return claim_unexpired(record.get("claim_until"), now)
 
 
 def claim(
@@ -440,7 +451,7 @@ def thread_message(
     by: dict[str, str],
     at: str,
     text: str = "",
-    ev: str | None = None,
+    ev: ThreadEv | None = None,
     ref: str | None = None,
     mentions: Sequence[str] | None = None,
 ) -> dict[str, Any]:
@@ -449,7 +460,7 @@ def thread_message(
     ev marks a state-transition record (close, reopen, confirm); ref and mentions are kept only when given.
     """
     entries = thread if isinstance(thread, list) else []
-    mid = max((m.get("id", 0) for m in entries if isinstance(m, dict) and _is_int(m.get("id"))), default=0) + 1
+    mid = max((m.get("id", 0) for m in entries if isinstance(m, dict) and is_int(m.get("id"))), default=0) + 1
     msg: dict[str, Any] = {"id": mid, "by": by, "at": at, "text": text or ""}
     if ev:
         msg["ev"] = ev
@@ -460,25 +471,25 @@ def thread_message(
     return msg
 
 
+def round_marks(record: Record) -> tuple[int, int]:
+    """(last close, last reopen): the positions in thread_of(record) of the latest ev=close and the latest ev=reopen
+    entry, -1 for none. The one scan behind a pin's current round - limn.mentions.thread_round() and
+    pin_reopened_in_round() both read it, so the round and pins.md's "reopened" marker cannot disagree."""
+    th = thread_of(record)
+    last_close = max((i for i, m in enumerate(th) if has_ev(m, "close")), default=-1)
+    last_reopen = max((i for i, m in enumerate(th) if has_ev(m, "reopen")), default=-1)
+    return last_close, last_reopen
+
+
+def has_ev(entry: object, ev: ThreadEv) -> bool:
+    """Is this thread entry (as stored: anything a thread list holds) a JSON object marked ev? Readers ask this
+    rather than compare `entry.get("ev")` to a string, so a misspelt mark is a type error."""
+    return isinstance(entry, dict) and entry.get("ev") == ev
+
+
 def pin_reopened_in_round(record: Record) -> bool:
     """Has the pin been reopened since it was last closed - the latest ev=reopen entry of its thread comes after the
-    latest ev=close one (none counts as before everything)? Drives pins.md's "reopened" marker (§Pending review).
-
-    This is effectively the same condition as limn.mentions.thread_round() starting the current round from the
-    reopen, but it's kept separate in case their definitions diverge in the future (the old version only checked
-    "is the round's first post a reopen", which missed a round where a confirm (ev=confirm) followed the reopen -
-    after a confirm-then-reopen, the round must start at [reopen, ...], not [confirm, reopen, ...])."""
-    th = thread_of(record)
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    latest ev=close one (none counts as before everything), whatever follows it (a confirm, replies)? Drives pins.md's
+    "reopened" marker (§Pending review); the current round then starts at that reopen (limn.mentions.thread_round)."""
+    last_close, last_reopen = round_marks(record)
     return last_reopen > last_close
-
-
-def _is_num(value: object) -> TypeGuard[int | float]:
-    """An int or float that is not a bool - how stored epoch times are recognised."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _is_int(value: object) -> bool:
-    """An int that is not a bool - how stored ids and revisions are recognised."""
-    return isinstance(value, int) and not isinstance(value, bool)

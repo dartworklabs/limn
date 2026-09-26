@@ -193,7 +193,7 @@ class ChangesAfterAClone(ScopedRepo):
             r["changes"] = [dict(c, file="/nowhere/else/other.tex") for c in r["changes"]]
             return None, True
 
-        ps.transact(fn)
+        ps.pin_store().transact(fn)
         self.clone()
         code, d = self.diff(self.fix, self.p1)
         self.assertEqual((code, d["scope"]["source"]), (200, "inferred"))

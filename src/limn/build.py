@@ -18,8 +18,6 @@ step (it coordinates every document of the repository, so it is passed in as `pu
 tracked build runs - compile_tex for LaTeX, render_pdf_doc (the view-only PDF "build") for a PDF document.
 """
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import json
@@ -39,6 +37,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeGuard, TypeVar
 
 from limn.files import atomic_write
+from limn.pins.shapes import is_int, is_num
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -141,16 +140,6 @@ class ManuscriptCopyError(Exception):
     """The build copy of the manuscript is incomplete or stale; the message says why (exit code, last error line)."""
 
 
-def _is_int(v: object) -> TypeGuard[int]:
-    """An int that is not a bool (JSON true must not pass as a count)."""
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    """An int or float that is not a bool."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
 # ---------------------------------------------------------------- Page-image version directories
 
 
@@ -240,7 +229,7 @@ def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
 def build_ref_mtime(D: BuildDoc, name: str) -> float | None:
     """The manuscript src_mtime at the time that build started (looked up via build history -> built_src_mtime.txt -> PDF timestamp, in that order)."""
     ent = load_builds(D)["by"].get(name)
-    if ent and _is_num(ent.get("src_mtime")):
+    if ent and is_num(ent.get("src_mtime")):
         return float(ent["src_mtime"])
     if name == cur_pages(D).name:
         v = read_built_src_mtime(D)
@@ -403,7 +392,7 @@ def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildRe
             "elapsed_s": 0.0,
         }
     src_mtime_for_build = res.get("src_mtime")
-    if not _is_num(src_mtime_for_build):
+    if not is_num(src_mtime_for_build):
         # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
         src_mtime_for_build = src_mtime_at_start
     if res.get("state") in ("ok", "ok_errors"):
@@ -795,7 +784,7 @@ def _valid_build_entry(b: object) -> bool:
     return (
         isinstance(b, dict)
         and valid_build_name(b.get("build"))
-        and (b.get("src_mtime") is None or _is_num(b.get("src_mtime")))
+        and (b.get("src_mtime") is None or is_num(b.get("src_mtime")))
         and (b.get("src_hash") is None or isinstance(b.get("src_hash"), str))
     )
 
@@ -808,7 +797,7 @@ def load_builds(D: BuildDoc) -> dict[str, Any]:
         d = None
     out = _empty_builds()
     if isinstance(d, dict):
-        if _is_int(d.get("seq")) and d["seq"] >= 0:
+        if is_int(d.get("seq")) and d["seq"] >= 0:
             out["seq"] = d["seq"]
         if isinstance(d.get("builds"), list):
             out["builds"] = [b for b in d["builds"] if _valid_build_entry(b)]

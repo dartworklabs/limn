@@ -24,8 +24,6 @@ change. Binding anything but loopback requires `trusted-proxy` or an explicit
 Python 3.10 standard library only.
 """
 
-from __future__ import annotations
-
 import argparse
 import dataclasses
 import html
@@ -34,11 +32,11 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 if __package__ in (None, ""):
@@ -77,7 +75,7 @@ from limn.access import (
     person_role,
 )
 from limn.args import serve_parser
-from limn.audit import append_audit, audit_entry, os_actor
+from limn.audit import AuditAction, append_audit, audit_action, audit_entry, os_actor
 from limn.build import (
     BuildConfig,
     BuildResult,
@@ -93,7 +91,7 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.events import EVENTS_KEEP
+from limn.events import EVENTS_KEEP, EventType
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
 from limn.locate import PinLocation, est_context, locate_file
@@ -134,9 +132,9 @@ from limn.pins.model import (
     TrashedPin,
     is_region_pin,
     parse_pin,
+    state_of,
 )
 from limn.pins.position import EstContext
-from limn.pins.record import is_int
 from limn.pins.render import (
     DocHeading,
     PinFacts,
@@ -144,6 +142,7 @@ from limn.pins.render import (
     pins_md_text as render_pins_md_text,
     rel_badge,
 )
+from limn.pins.shapes import is_int
 from limn.pins.view import pin_state as pin_state
 from limn.revisions import (
     DiffRefusal,
@@ -165,7 +164,7 @@ from limn.viewer.assemble import (
     service_worker,
     viewer_html,
 )
-from limn.web.errors import HTTPError, Messages, revision_failure_text
+from limn.web.errors import HTTPError as HTTPError, Messages, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
 from limn.web.parse import CloseChange
 
@@ -213,8 +212,6 @@ BUILDS_LOCK = threading.Lock()
 
 
 C = Cfg()
-# A transaction step's result type (transact).
-T = TypeVar("T")
 
 
 # ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
@@ -513,8 +510,8 @@ def pin_store() -> PinStore:
 
     Made per call, like build_config(), so a test or main() that changes C.state is seen at once; the lock is the one
     process-wide PIN_LOCK. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
-    sync_all (reads the .tex files under C.src), the renderer pins_md_text, and HTTPError as a step's refusal."""
-    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text, HTTPError)
+    sync_all (reads the .tex files under C.src) and the renderer pins_md_text."""
+    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text)
 
 
 # The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
@@ -534,13 +531,6 @@ def read_pins() -> tuple[list[Row], list[int]]:
 def write_pins(rows: list[Row], bad: list[int] | None = None) -> None:
     """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold PIN_LOCK."""
     pin_store().write_pins(rows, bad)
-
-
-def transact(fn: Callable[[list[Row]], tuple[T, bool]]) -> tuple[list[Row], T]:
-    """Write-order invariant: with PIN_LOCK -> read -> sync -> apply the request's change -> atomic write -> pins.md.
-
-    fn(rows) returns (result, whether it mutated); returns (rows, result). See PinStore.transact."""
-    return pin_store().transact(fn)
 
 
 def snapshot_pins() -> list[Row]:
@@ -608,11 +598,6 @@ def init_seq() -> None:
     pin_store().init_seq()
 
 
-def next_id(rows: list[Row]) -> int:
-    """An id is never reused - hands out the next one and records it in pins.seq (PinStore.next_id)."""
-    return pin_store().next_id(rows)
-
-
 # ---------------------------------------------------------------- Request documents and parsing facts
 #
 # The request parsers live in limn/web/parse.py (coding rule R3): each returns the validated value or an InputRejected
@@ -675,7 +660,7 @@ def pin_context() -> PinContext:
     )
 
 
-def http_audit(action: str, by: Json, details: Json) -> bool:
+def http_audit(action: AuditAction, by: Json, details: Json) -> bool:
     """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
     return append_audit(C.state, audit_entry(action, by, "http", details, time.time()))
 
@@ -755,7 +740,7 @@ def event_log() -> events.EventLog:
 
 
 def make_event(
-    typ: str,
+    typ: EventType,
     r: Mapping[str, Any],
     actor: Mapping[str, Any],
     to: Iterable[str | None] | None,
@@ -941,14 +926,14 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
     sources: dict[Path, list[str]] = {}
     facts: dict[int, PinFacts] = {}
     for r in rows:
-        if pin_state(r) == "done":
+        if state_of(r) is DonePin:
             continue
         location, line_len = "", None
         if not is_region_pin(r):
             loc = pin_location(r, C.src)  # ADR-0006: still relative after the checkout moved
             location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
             lo, hi = r.get("lo"), r.get("hi")
-            if loc is not None and not r.get("done") and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
+            if loc is not None and state_of(r) is OpenPin and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
                 if loc.path not in sources:  # outside the tree (loc None) is never read
                     sources[loc.path] = tex_lines(loc.path)
                 lines = sources[loc.path]
@@ -1111,7 +1096,7 @@ def cli_audit(state: Path) -> access.AuditSink:
 
     def record(action: str, details: Json) -> bool:
         """Append one audit line for action with details (append_audit: a failed write only warns)."""
-        return append_audit(state, audit_entry(action, os_actor(), "cli", details, time.time()))
+        return append_audit(state, audit_entry(audit_action(action), os_actor(), "cli", details, time.time()))
 
     return record
 

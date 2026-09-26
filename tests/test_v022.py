@@ -22,7 +22,7 @@ from pathlib import Path
 
 from limn import access, startup, store as limn_store
 from limn.access import LOCAL_ACTOR
-from limn.events import EVENT_TYPES, NOTIFY_TYPES
+from limn.events import NOTIFY_TYPES
 from limn.files import atomic_write
 from limn.pins import position, render as md_render
 from limn.pins.model import OpenPin, ReviewPin
@@ -466,7 +466,7 @@ class ViewerMarkup(unittest.TestCase):
 
     def test_dropped_is_a_notification_type(self):
         self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
-        self.assertIn("dropped", EVENT_TYPES)
+        self.assertIn("dropped", NOTIFY_TYPES)
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab

@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import limn.pins
+from limn.mentions import thread_round
 from limn.pins.lifecycle import (
     AgentCannotConfirm,
     AlreadyClosed,
@@ -43,10 +44,11 @@ from limn.pins.lifecycle import (
     reopen_request,
     reopens_on_reply,
     restore,
+    round_marks,
     thread_message,
     unclaim,
 )
-from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
+from limn.pins.model import Agent, Claim as ClaimValue, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
@@ -61,6 +63,7 @@ PURE_IMPORTS = {
     "limn.pins.lifecycle",
     "limn.pins.position",
     "limn.pins.edit",
+    "limn.pins.shapes",
     "limn.mentions",  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
     "limn.scope",  # the stored `changes` shape record.py checks; pure (tests/test_scope.py)
     "posixpath",  # record.py's isabs: string work only (os.path is posixpath on POSIX)
@@ -69,7 +72,7 @@ PURE_IMPORTS = {
 }  # the last two: pure text modules render.py uses (checked below)
 # What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
 # pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
-PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib"}
+PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib", "limn.pins.shapes"}
 ALICE_PERSON = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AT = "2026-09-26 10:00:00"
 
@@ -434,6 +437,14 @@ class ClaimTransitions(unittest.TestCase):
         self.assertFalse(claim_holds({"claim_until": NOW}, NOW))
         self.assertFalse(claim_holds({"claim_until": True}, NOW))
 
+    def test_the_record_and_the_lifted_claim_share_one_expiry_rule(self):
+        """claim_holds on a record and Claim.holds on its claim agree for every claim_until an open pin can lift."""
+        for until in (NOW + 1, int(NOW) + 1, NOW, NOW - 1, None):
+            record = {"claimed_by": {"login": "a"}, "claim_until": until}
+            lifted = OpenPin.from_record(record).claim
+            self.assertIsInstance(lifted, ClaimValue)
+            self.assertEqual(claim_holds(record, NOW), lifted.holds(NOW), until)
+
     def test_unclaim_clears_and_bumps_rev_only_when_there_was_a_claim(self):
         """Unclaiming a claimed pin writes; an unclaimed pin comes back as NotClaimed with any stray field cleared."""
         cleared = unclaim(OpenPin.from_record({"id": 1, "claimed_by": {"login": "a"}, "claim_until": 1.0, "rev": 2}))
@@ -525,6 +536,27 @@ class ReopenedInRound(unittest.TestCase):
     def test_a_reopen_without_any_close_counts(self):
         """A legacy thread that lost its close still shows the reopen."""
         self.assertTrue(pin_reopened_in_round({"thread": [self.entry(1, "reopen")]}))
+
+    def test_round_marks_are_the_latest_close_and_reopen(self):
+        """(last close, last reopen) by position in the thread, -1 for none; entries that are not objects count for
+        position but never as a mark."""
+        th = ["x", self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close"), self.entry(4)]
+        self.assertEqual(round_marks({"thread": th}), (3, 2))
+        self.assertEqual(round_marks({"thread": [self.entry(1)]}), (-1, -1))
+        self.assertEqual(round_marks({"thread": "x"}), (-1, -1))
+
+    def test_the_marker_and_the_current_round_agree(self):
+        """Whenever the marker says reopened, the current round (limn.mentions.thread_round) starts at that reopen."""
+        e = self.entry
+        for th in (
+            [e(1, "close"), e(2, "confirm"), e(3, "reopen"), e(4)],
+            [e(1, "close"), e(2), e(3, "reopen")],
+            [e(1, "reopen"), e(2, "close"), e(3)],
+            [e(1), e(2)],
+        ):
+            r = {"thread": th}
+            starts_at_reopen = bool(thread_round(r)) and thread_round(r)[0].get("ev") == "reopen"
+            self.assertEqual(pin_reopened_in_round(r), starts_at_reopen, th)
 
 
 if __name__ == "__main__":
