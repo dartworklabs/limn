@@ -19,7 +19,7 @@ from pathlib import Path
 from limn import mapping
 from limn.store import dump_jsonl
 from test_access import AccessBase
-from test_server import ps
+from test_server import add_pin, ps
 from test_v03 import ScopedRepo
 
 MS_MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n" + "".join(
@@ -80,10 +80,10 @@ class MultiDocMoved(AccessBase):
         self.serve(self.old, "response/main.tex")
         ms, rr = ps.DOCS
         with ps.using_doc(ms):
-            self.p_ms = ps.add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
+            self.p_ms = add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
                                     "note": "ms appendix", "doc": "ms"}, dict(ps.LOCAL_ACTOR)).record["id"]
         with ps.using_doc(rr):
-            self.p_rr = ps.add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
+            self.p_rr = add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
                                     "note": "reply", "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
         rows = ps.read_pins()[0]
         for r in rows:

@@ -62,10 +62,11 @@ class Binding(unittest.TestCase):
         with self.assertRaises(AttributeError):
             ps.Handler.app.no_such_service  # noqa: B018 - the lookup is the behaviour under test
 
-    def test_server_reexports_the_error_types_it_raises(self):
-        """server.py's services raise and return the HTTP layer's own types, so except/match in the handler sees them."""
+    def test_server_reexports_the_error_type_it_raises(self):
+        """server.py's services still raise the HTTP layer's own HTTPError, so the handler's except sees it. A refused
+        request field is the parsers' (limn.web.parse): server.py neither makes nor imports InputRejected."""
         self.assertIs(ps.HTTPError, HTTPError)
-        self.assertIs(ps.InputRejected, InputRejected)
+        self.assertFalse(hasattr(ps, "InputRejected"))
 
 
 class ImportDirection(unittest.TestCase):
@@ -129,7 +130,8 @@ class Answers(unittest.TestCase):
         """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale
         edit is 409 conflict."""
         self.assertEqual(answers.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
-        self.assert_refused(lambda: answers.add_answer(InputRejected("lo 는 정수여야 합니다.", "not_integer")), 400,
+        self.assertEqual(answers.accepted(9), 9)
+        self.assert_refused(lambda: answers.accepted(InputRejected("lo 는 정수여야 합니다.", "not_integer")), 400,
                             {"error": "lo 는 정수여야 합니다.", "reason": "not_integer"})
         self.assert_refused(lambda: answers.edit_answer(PinNotFound(4), show), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"})
         self.assert_refused(lambda: answers.edit_answer(StaleEdit(ReviewPin.from_record({"id": 4, "done": True, "review": True})), show), 409,

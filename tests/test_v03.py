@@ -26,7 +26,8 @@ from unittest import mock
 from limn.web.errors import SCOPE_REJECTIONS
 from test_access import ALICE, AccessBase, talk_to
 from test_qa_021 import BrowserBase, actor
-from test_server import extract_js_fn, ps, req, run_node, split_resp
+from limn.web import parse
+from test_server import add_pin, extract_js_fn, ps, req, run_node, split_resp
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)
@@ -493,7 +494,7 @@ class CloseChanges(AccessBase):
                 code, d = self.close({"changes": [item]})
                 self.assertEqual(code, 400, d)
                 self.assertFalse(self.pin(self.pid).get("done"))
-        for whole in ({"file": "main.tex", "lo": 1, "hi": 1}, "x", [{"file": "main.tex", "lo": 1, "hi": 1}] * (ps.CLOSE_CHANGES_MAX + 1)):
+        for whole in ({"file": "main.tex", "lo": 1, "hi": 1}, "x", [{"file": "main.tex", "lo": 1, "hi": 1}] * (parse.CLOSE_CHANGES_MAX + 1)):
             with self.subTest(whole=str(whole)[:40]):
                 code, d = self.close({"changes": whole})
                 self.assertEqual(code, 400, d)
@@ -961,7 +962,7 @@ class ScopedPdf(ScopedRepo):
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
         ps.set_done(opener, True, dict(ps.LOCAL_ACTOR), ref=both[:8],
-                    changes=(ps.CloseChange(str(self.main.resolve()), 7, 7),))
+                    changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),))
         spec = ps.revision_spec(ps.cur_doc(), both, opener)
         self.assertEqual(len(spec.scope), 1)
         dest = self.repo / "job-half"
@@ -1189,16 +1190,16 @@ class ScopedViewer(BrowserBase):
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
             self.git(*args)
         self.commit("first")
-        self.p1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "alpha"}, A).record["id"]
-        self.p2 = ps.add_pin({"file": str(self.main), "lo": 11, "hi": 11, "page": 1, "note": "beta"}, A).record["id"]
-        self.p3 = ps.add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "gamma"}, A).record["id"]
+        self.p1 = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "alpha"}, A).record["id"]
+        self.p2 = add_pin({"file": str(self.main), "lo": 11, "hi": 11, "page": 1, "note": "beta"}, A).record["id"]
+        self.p3 = add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "gamma"}, A).record["id"]
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(ps.LOCAL_ACTOR)
-        ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(ps.CloseChange(str(self.main.resolve()), 4, 5),))
+        ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5),))
         ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
         ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])
-        self.p4 = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
+        self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
         ps.set_done(self.p4, True, loc, reply="filler", ref=self.solo[:8])
@@ -1488,8 +1489,8 @@ class ViewerTrashControls(BrowserBase):
         ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
             {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
             {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
-        self.gone = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
+        self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         ps.drop_pin(self.gone, A)
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):

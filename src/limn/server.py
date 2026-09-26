@@ -56,7 +56,6 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from pathlib import Path
 from collections.abc import Callable, Collection, Sequence, Set as AbstractSet
-from dataclasses import replace
 from typing import Literal, NamedTuple, TypedDict
 from urllib.parse import quote, urlparse
 
@@ -70,15 +69,15 @@ from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
     find_trashed, next_rev, reopen_request, reopens_on_reply, restore, unclaim,
 )
 from limn.pins.edit import (  # noqa: E402 - after the path bootstrap above
-    ASSIGNEE_AGENT, AddRequest, Anchoring, EditRefusal, EditRequest, LinePlace, Located, PinEdited, RegionPlace,
-    decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
+    ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, PDF_QUOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
+    LinePlace, Located, PinEdited, RegionPlace, decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
 )
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
     Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin,
 )
 from limn import build  # noqa: E402 - after the path bootstrap above
-from limn.build import BuildConfig, valid_build_name  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write  # noqa: E402 - after the path bootstrap above
+from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
+from limn.files import atomic_write, file_in_tree  # noqa: E402 - after the path bootstrap above
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
@@ -86,7 +85,7 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
 )
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn.web.answers import CONFIRM_BY_HUMAN  # noqa: E402 - after the path bootstrap above
-from limn.web.errors import HTTPError, InputRejected, scope_http_error  # noqa: E402 - after the path bootstrap above
+from limn.web.errors import HTTPError, scope_http_error  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
 
 APP_NAME = "limn"
@@ -201,22 +200,12 @@ def icon_svg(name: str) -> str:
             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%s</svg>'
             % (name, LUCIDE[name]))
 
-NOTE_MAX = 4000
-CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (§P0b-보완 C)
-CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
-CLOSE_CHANGES_MAX = 50             # v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
-CHANGE_LINE_MAX = 1_000_000       # a line number past this is not a manuscript line
-CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (§P0c-C)
-CLAIM_TTL_MIN = 1
-CLAIM_TTL_MAX = 120                # the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
-CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
-CLAIM_ETA_MAX = 240
-CLAIM_TTL_FLOOR = 30               # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
+# The limits a request's fields are checked against (the note, close reply/ref/changes, claim minutes, reply text,
+# @-tag hints) are with the request parsers in limn/web/parse.py; the pin note's NOTE_MAX and the kind_req values
+# KIND_REQS, which the record check here also needs, are in limn/pins/edit.py.
 # Pin kind and thread (docs/handbook/api.md §스레드). 24% of pins (10 of 42 in A-DEMO) were questions rather than
 # something to fix, but the only place to leave an answer was the single close_reply field on closing, so
 # there was no way to ask back. kind_req is kept separate from the legacy kind (scope type) to avoid a name clash.
-KIND_REQS = ("fix", "question")    # defaults to fix if absent - legacy pins are all fix requests
-THREAD_TEXT_MAX = 1000             # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
 THREAD_MAX = 200                   # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
 THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 # Assignee (docs/handbook/api.md §담당). Who handles this pin - either "agent" or a person's login. If absent, it's a
@@ -224,7 +213,6 @@ THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 # body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
 # The value that hands a pin to the agent, ASSIGNEE_AGENT = "agent", lives with the edit rules in limn.pins.edit.
 # @-tags (docs/handbook/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
-MENTION_MAX = 10                   # cap on mention hints per post
 PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
 EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
 NOTE_MENTION_COOLDOWN_S = 600      # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
@@ -233,10 +221,7 @@ TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.drop
 GIT_PULL_TIMEOUT = 30              # seconds - one fetch for --git-pull (§P0c-E)
 REVISION_DIFF_MAX = 256 * 1024     # response/memory cap. Review large changes in the repo instead.
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
-SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
-ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
-              "frac", "note", "scope", "quote", "pdf_build")
-LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
+LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 # Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
 # The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
@@ -916,23 +901,6 @@ class ChangeRecord(TypedDict):
     file: str
     lo: int
     hi: int
-
-
-class CloseChange(NamedTuple):
-    """One validated range of a close body's `changes` (clean_close_changes), immutable: an absolute, resolved path
-    inside the manuscript folder, and the new-side lines 1 ≤ lo ≤ hi ≤ CHANGE_LINE_MAX the agent changed for the pin.
-    (A NamedTuple rather than a dataclass: the tests load server.py outside sys.modules, where dataclasses cannot
-    resolve postponed annotations.)"""
-    file: str
-    lo: int
-    hi: int
-
-    def record(self) -> ChangeRecord:
-        """The JSON shape stored on the pin record."""
-        return {"file": self.file, "lo": self.lo, "hi": self.hi}
-
-
-Changes = tuple[CloseChange, ...]
 
 
 class ScopeMeta(TypedDict):
@@ -2293,14 +2261,17 @@ def png_size(path: Path) -> tuple:
         return struct.unpack(">II", fh.read(24)[16:24])
 
 
-def page_list(pdir: Path = None) -> list:
+def page_list(pdir: Path = None, dpi: int | None = None) -> list:
+    """The page images of pdir (default: the current document's on screen) as {name, pt_w, pt_h}: sizes in points at
+    the dpi they were rendered at (default: this instance's). An unreadable image is left out."""
+    dpi = C.dpi if dpi is None else dpi
     pages = []
     for p in sorted((pdir or cur_pages()).glob("page-*.png")):
         try:
             w, h = png_size(p)
         except (OSError, struct.error):
             continue
-        pages.append({"name": p.name, "pt_w": w * 72.0 / C.dpi, "pt_h": h * 72.0 / C.dpi})
+        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
     return pages
 
 
@@ -2477,9 +2448,8 @@ def tex_lines(path: Path) -> list:
         return []
 
 
-def to_source(path: str) -> Path:
-    """Maps a build-copy path back to the original checkout path."""
-    D = cur_doc()
+def to_source(D: Doc, path: str) -> Path:
+    """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path."""
     p = Path(path)
     for base in (D.build, D.build.resolve()):
         try:
@@ -2498,35 +2468,6 @@ def to_source(path: str) -> Path:
         if cand.is_file():
             return cand
     return p
-
-
-def source_file(p: object) -> Path | InputRejected:
-    """The real file inside the manuscript tree that p names (absolute, or relative to the tree), or why not.
-
-    Anything else is refused: its first line would otherwise leak into pins.md. Resolving symlinks and checking the
-    file reads file metadata only.
-    """
-    if not isinstance(p, str) or not p or "\x00" in p or len(p) > 4096:
-        return InputRejected("file 이 올바르지 않습니다.", "bad_file")
-    q = Path(p)
-    if not q.is_absolute():
-        q = C.src / q
-    try:
-        rel = q.resolve().relative_to(C.src.resolve())
-    except (ValueError, OSError, RuntimeError):
-        return InputRejected("원고 디렉토리 밖의 파일입니다: %s" % p, "file_outside_manuscript")
-    out = C.src / rel
-    if not out.is_file():
-        return InputRejected("원고 안에 그런 파일이 없습니다: %s" % p, "file_not_found")
-    return out
-
-
-def safe_src(p) -> Path:
-    """source_file for the callers that still raise (pick, snippet, overlaps): HTTPError(400) with the same message."""
-    out = source_file(p)
-    if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message, reason=out.reason)
-    return out
 
 
 # ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
@@ -3200,135 +3141,15 @@ def who(actor: dict) -> dict:
     return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
 
 
-# ---------------------------------------------------------------- Input validation
+# ---------------------------------------------------------------- Request documents and parsing facts
 #
-# The parse_* functions are the HTTP boundary of pin edit and add (coding rule R3): each returns the validated value
-# or an InputRejected carrying the exact 400 message of the agent contract, and never raises for bad input. The older
-# clean_* validators, and the raising forms _int/_num/safe_src kept for callers not yet moved, raise HTTPError(400).
-
-def int_field(v: object, what: str) -> int | InputRejected:
-    """An integral JSON number (1 and 1.0 both give 1; a bool, NaN or 1.5 does not) named `what` in the refusal."""
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
-        return InputRejected("%s 는 정수여야 합니다." % what, "not_integer")
-    return int(v)
-
-
-def num_field(v: object, what: str) -> float | InputRejected:
-    """A finite JSON number other than a bool, as a float, named `what` in the refusal."""
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
-        return InputRejected("%s 는 유한한 숫자여야 합니다." % what, "not_number")
-    return float(v)
-
-
-def _int(v, what: str) -> int:
-    """int_field for the callers that still raise (pick): HTTPError(400) with the same message."""
-    out = int_field(v, what)
-    if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message, reason=out.reason)
-    return out
-
-
-def _num(v, what: str) -> float:
-    """num_field for the callers that still raise (pick): HTTPError(400) with the same message."""
-    out = num_field(v, what)
-    if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message, reason=out.reason)
-    return out
-
-
-def parse_note(v: object) -> str | InputRejected:
-    """A pin's note: a string of at most NOTE_MAX characters; absent or null is the empty note."""
-    if v is None:
-        return ""
-    if not isinstance(v, str):
-        return InputRejected("note 는 문자열이어야 합니다.", "bad_note")
-    if len(v) > NOTE_MAX:
-        return InputRejected("메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, "note_too_long")
-    return v
-
-
-def clean_close_body(d: dict) -> tuple:
-    """Validates the close body's optional {"reply", "ref"} fields. Absent or an empty (whitespace-only)
-    string both become (None, None) - preserving the existing "curl POST with no body" behavior (§P0b-보완 C)."""
-    reply = d.get("reply")
-    if reply is not None:
-        if not isinstance(reply, str):
-            raise HTTPError(400, "reply 는 문자열이어야 합니다.", reason="bad_reply")
-        if len(reply) > CLOSE_REPLY_MAX:
-            raise HTTPError(400, "reply 가 너무 깁니다(%d자 이하)." % CLOSE_REPLY_MAX, reason="reply_too_long")
-        if not reply.strip():
-            reply = None
-    ref = d.get("ref")
-    if ref is not None:
-        if not isinstance(ref, str):
-            raise HTTPError(400, "ref 는 문자열이어야 합니다.", reason="bad_ref")
-        if len(ref) > CLOSE_REF_MAX:
-            raise HTTPError(400, "ref 가 너무 깁니다(%d자 이하)." % CLOSE_REF_MAX, reason="ref_too_long")
-        if not ref.strip():
-            ref = None
-    return reply, ref
-
-
-def clean_close_changes(v: object, root: Path) -> Changes | None:
-    """HTTP-boundary parser for the close body's optional `changes`: [{file, lo, hi}] - the new-side lines the agent
-    changed for this pin. file is a path inside root (the manuscript folder), absolute or relative to it (the pins.md
-    location column); the result carries it resolved and absolute, like a pin's file. Absent or [] -> None (the
-    pre-0.3 close). Raises HTTPError(400) naming the offending item - the messages are part of the agent contract."""
-    if v is None:
-        return None
-    if not isinstance(v, list):
-        raise HTTPError(400, "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.", reason="bad_changes")
-    if len(v) > CLOSE_CHANGES_MAX:
-        raise HTTPError(400, "changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX, reason="too_many_changes")
-    out, base = [], root.resolve()
-    for i, c in enumerate(v):
-        what = "changes[%d]" % i
-        if not isinstance(c, dict) or set(c) != {"file", "lo", "hi"}:
-            raise HTTPError(400, "%s 는 file·lo·hi 세 필드만 가진 객체여야 합니다." % what, reason="bad_changes")
-        f, lo, hi = c["file"], c["lo"], c["hi"]
-        if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
-            raise HTTPError(400, "%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what, reason="bad_changes")
-        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
-            raise HTTPError(400, "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), reason="bad_changes")
-        try:
-            path = (Path(f) if os.path.isabs(f) else base / f).resolve()
-            path.relative_to(base)
-        except (ValueError, OSError, RuntimeError):
-            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, reason="change_outside_manuscript") from None
-        out.append(CloseChange(str(path), lo, hi))
-    return tuple(out) or None
-
-
-def clean_pin_param(v: object) -> int | None:
-    """HTTP-boundary parser for the optional pin of a revision request (query string or JSON int): None if absent or
-    empty, else a pin id 1..999999999. Raises HTTPError(400) otherwise; whether the pin exists is decided later."""
-    if v is None or v == "":
-        return None
-    if isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,8}", v):
-        return int(v)
-    if _is_int(v) and 1 <= v <= 999999999:
-        return v
-    raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.", reason="bad_pin")
-
-
-def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejected:
-    """Assignee - "agent" or the login of a person this viewer knows. None if absent (not sent = unchanged).
-
-    known is the logins of known_people(), which the caller reads only when the body names an assignee.
-    """
-    if v is None:
-        return None
-    if v == ASSIGNEE_AGENT:
-        return ASSIGNEE_AGENT
-    if not isinstance(v, str) or not v or v == LOCAL_ACTOR["login"]:
-        return InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee")
-    if v not in known:
-        return InputRejected("담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v, "unknown_assignee")
-    return v
-
+# The request parsers live in limn/web/parse.py (coding rule R3): each returns the validated value or an InputRejected
+# with the exact 400 message of the agent contract, and the handler passes the parsed value to the service here. A
+# parser that checks a request against the manuscript reads it through document_facts().
 
 def assignee_people(d: dict) -> Collection[str]:
-    """The logins parse_assignee checks against: known_people() when the body names an assignee, else none (no read)."""
+    """The logins limn.web.parse.parse_assignee checks against: known_people() when the body names an assignee, else
+    none (no read)."""
     return known_people() if d.get("assignee") is not None else ()
 
 
@@ -3337,172 +3158,10 @@ def _person_name(login: str) -> str:
     return (known_people().get(login) or {}).get("name") or login
 
 
-def parse_kind_req(v: object) -> str | None | InputRejected:
-    """Pin kind - 'fix' (fix request) | 'question'. None if absent (= fix, same as a legacy pin)."""
-    if v is None:
-        return None
-    if not isinstance(v, str) or v not in KIND_REQS:
-        return InputRejected("kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS), "bad_kind_req")
-    return v
-
-
-def clean_thread_text(v, what: str = "text", required: bool = True):
-    """One reply or reopen reason. Like a note, only string type and length are checked (the screen renders via esc()). Newlines are
-    normalized to \\n and control characters (other than newline/tab) are stripped - so the pins.md table and notification bodies
-    don't break. After trimming whitespace, an empty result is 400 (when required)."""
-    if v is None:
-        if required:
-            raise HTTPError(400, "%s 가 필요합니다." % what, reason="text_required")
-        return None
-    if not isinstance(v, str):
-        raise HTTPError(400, "%s 는 문자열이어야 합니다." % what, reason="bad_text")
-    v = v.replace("\r\n", "\n").replace("\r", "\n")
-    v = "".join(ch for ch in v if ch in "\n\t" or not (ord(ch) < 32 or 127 <= ord(ch) < 160)).strip()
-    if len(v) > THREAD_TEXT_MAX:
-        raise HTTPError(400, "%s 가 너무 깁니다(%d자 이하)." % (what, THREAD_TEXT_MAX), reason="text_too_long")
-    if not v:
-        if required:
-            raise HTTPError(400, "%s 가 비어 있습니다." % what, reason="text_empty")
-        return None
-    return v
-
-
-def parse_loc(d: dict) -> dict | InputRejected:
-    """A line pin's location fields in the shape to store, or the first field refused.
-
-    file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file
-    (source_file, tex_lines) before checking the range. page defaults to 1; kind, via, score, frac, scope, quote
-    (truncated to 60 characters) and pdf_build (a page directory name) are kept when sent.
-    """
-    out: dict = {}
-    f = source_file(d.get("file"))
-    if isinstance(f, InputRejected):
-        return f
-    n = len(tex_lines(f))
-    lo = int_field(d.get("lo"), "lo")
-    if isinstance(lo, InputRejected):
-        return lo
-    hi = int_field(d.get("hi"), "hi")
-    if isinstance(hi, InputRejected):
-        return hi
-    if not 1 <= lo <= hi <= max(n, 1):
-        return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi), "range_outside_file")
-    out.update(file=str(f), name=f.name, lo=lo, hi=hi)
-    page = int_field(d.get("page", 1), "page")
-    if isinstance(page, InputRejected):
-        return page
-    if page < 1:
-        return InputRejected("page 는 1 이상이어야 합니다.", "bad_page")
-    out["page"] = page
-    for k in ("raw_lo", "raw_hi"):
-        if d.get(k) is not None:
-            raw = int_field(d[k], k)
-            if isinstance(raw, InputRejected):
-                return raw
-            out[k] = raw
-    if d.get("kind") is not None:
-        if not isinstance(d["kind"], str) or len(d["kind"]) > 80:
-            return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
-        out["kind"] = d["kind"]
-    if d.get("via") is not None:
-        if d["via"] not in ("synctex", "text"):
-            return InputRejected("via 는 synctex|text 입니다.", "bad_via")
-        out["via"] = d["via"]
-    if d.get("score") is not None:
-        score = num_field(d["score"], "score")
-        if isinstance(score, InputRejected):
-            return score
-        out["score"] = score
-    if d.get("frac") is not None:
-        fr = d["frac"]
-        if not isinstance(fr, list) or len(fr) != 4:
-            return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
-        nums = [num_field(x, "frac") for x in fr]
-        bad = next((x for x in nums if isinstance(x, InputRejected)), None)
-        if bad is not None:
-            return bad
-        out["frac"] = nums
-    if d.get("scope") is not None:
-        if d["scope"] not in SCOPES:
-            return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
-        out["scope"] = d["scope"]
-    if d.get("quote") is not None:
-        if not isinstance(d["quote"], str):
-            return InputRejected("quote 는 문자열입니다.", "bad_quote")
-        out["quote"] = truncate_quote(d["quote"], 60)
-    if d.get("pdf_build") is not None:                # the build on screen at drag time (pdf_build from the pick response)
-        if not valid_build_name(d["pdf_build"]):
-            return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build")
-        out["pdf_build"] = d["pdf_build"]
-    return out
-
-
-PDF_QUOTE_MAX = 160               # region text for a view-only pin - more generous than 60 chars since there's no line number (material for the agent's judgment)
-REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build")
-
-
-def parse_frac(fr: object) -> list | InputRejected:
-    """A view-only pin's region [x, y, w, h] as fractions of the page, checked more strictly than a LaTeX pin's
-    frac since it is the pin's only location: 4 finite numbers, inside the page (0..1), with positive area."""
-    if not isinstance(fr, list) or len(fr) != 4:
-        return InputRejected("frac 은 숫자 4개 목록 [x, y, w, h](쪽 대비 비율)입니다.", "bad_frac")
-    nums = [num_field(v, "frac") for v in fr]
-    bad = next((v for v in nums if isinstance(v, InputRejected)), None)
-    if bad is not None:
-        return bad
-    x, y, w, h = nums
-    eps = 1e-6
-    if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < w <= 1 + eps and 0 < h <= 1 + eps
-            and x + w <= 1 + eps and y + h <= 1 + eps):
-        return InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).", "frac_outside_page")
-    return [x, y, w, h]
-
-
-def parse_region(d: dict) -> dict | InputRejected:
-    """A pin location on the current (view-only PDF) document: {pdf, name, kind: "region", page, frac, quote?, pdf_build?}.
-
-    file, lo, hi and scope are refused - such a pin has no lines. page is checked against the page count of the build
-    the request names (pdf_build) or the current one, which this reads from the page directory; with no pages yet,
-    any page >= 1 passes. quote is whitespace-normalized and truncated to PDF_QUOTE_MAX.
-    """
-    D = cur_doc()
-    for k in ("file", "lo", "hi", "scope"):
-        if d.get(k) is not None:
-            return InputRejected("보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (D.key, k), "no_source_lines")
-    out: dict = {"pdf": str(D.main), "name": D.main.name, "kind": "region"}
-    page = int_field(d.get("page"), "page")
-    if isinstance(page, InputRejected):
-        return page
-    want = d.get("pdf_build")
-    if want is not None and not valid_build_name(want):
-        return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build")
-    n = len(page_list(pages_dir_for(want)))
-    if page < 1 or (n and page > n):
-        return InputRejected("page 는 1..%d 이어야 합니다." % max(n, 1), "page_out_of_range")
-    out["page"] = page
-    frac = parse_frac(d.get("frac"))
-    if isinstance(frac, InputRejected):
-        return frac
-    out["frac"] = frac
-    if d.get("quote") is not None:
-        if not isinstance(d["quote"], str):
-            return InputRejected("quote 는 문자열입니다.", "bad_quote")
-        out["quote"] = truncate_quote(norm(d["quote"]), PDF_QUOTE_MAX)
-    if want is not None:
-        out["pdf_build"] = want
-    return out
-
-
-def request_doc(q: dict, body: dict | None = None, file_hint: object | None = None) -> Doc:
-    """The document a request refers to: ?doc= or body doc. If neither is present, guessed from file (agent curl); if that's absent too, the first document.
-    An unknown key is 404 - silently falling back to the first document would attach the pin to the wrong document."""
-    key = (q.get("doc") or [None])[0] if q else None
-    bkey = body.get("doc") if isinstance(body, dict) else None
-    if bkey is not None and not isinstance(bkey, str):
-        raise HTTPError(400, "doc 은 문자열이어야 합니다.", reason="bad_doc")
-    if key and bkey and key != bkey:
-        raise HTTPError(400, "doc 이 주소(%s)와 본문(%s)에서 다릅니다." % (key, bkey), reason="doc_mismatch")
-    key = key or bkey
+def request_doc(key: str | None, file_hint: object | None = None) -> Doc:
+    """The document key names (limn.web.parse.parse_doc_key checked it). With no key, the document holding file_hint
+    (agent curl names only a file), else the first document. An unknown key is 404 - silently falling back to the first
+    document would attach the pin to the wrong document."""
     if not key:
         if file_hint and multi_doc():
             return doc_for_file(file_hint)
@@ -3513,60 +3172,79 @@ def request_doc(q: dict, body: dict | None = None, file_hint: object | None = No
     return D
 
 
+class DocumentFacts:
+    """limn.web.parse.DocumentFacts for document D: what the location parsers read from this machine's disk - the
+    manuscript tree root, a file's lines, the pages of a build of D (sized at dpi). Made per request by
+    document_facts(); every method reads at call time."""
+
+    def __init__(self, D: Doc, root: Path, dpi: int) -> None:
+        """Bind the document, the manuscript root and the dpi the page images were rendered at."""
+        self._doc, self._root, self._dpi = D, root, dpi
+
+    @property
+    def key(self) -> str:
+        """The document key."""
+        return self._doc.key
+
+    @property
+    def is_pdf(self) -> bool:
+        """True for a view-only PDF document."""
+        return self._doc.is_pdf
+
+    @property
+    def pdf(self) -> Path:
+        """The document's main file (a view-only document's PDF)."""
+        return self._doc.main
+
+    @property
+    def root(self) -> Path:
+        """The manuscript tree."""
+        return self._root
+
+    def lines(self, path: Path) -> list:
+        """The file's lines (tex_lines: [] when unreadable)."""
+        return tex_lines(path)
+
+    def page_count(self, name: str | None) -> int:
+        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.build.pages_dir_for)."""
+        return len(page_list(build.pages_dir_for(self._doc, name), self._dpi))
+
+    def current_build(self) -> str:
+        """The name of D's page directory on screen."""
+        return build.cur_pages(self._doc).name
+
+    def pick_pages(self, name: str | None) -> tuple | None:
+        """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
+        when name is a page directory of D that is gone."""
+        if name is not None and not (self._doc.dir / name).is_dir():
+            return None
+        pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
+        return pdir, [(p["pt_w"], p["pt_h"]) for p in page_list(pdir, self._dpi)]
+
+
+def document_facts(D: Doc) -> DocumentFacts:
+    """The parsing facts of document D with this instance's manuscript root and dpi - made per request like
+    pin_store(), so a test (or main()) that changes C is seen at once."""
+    return DocumentFacts(D, C.src, C.dpi)
+
+
 # ---------------------------------------------------------------- Pin operations
 #
-# Adding and editing a pin (docs/handbook/api.md §핀 만들기, §핀 고치기). The shell parses the body (parse_add,
-# parse_edit), reads what only the disk and the clock know under the pin lock, and leaves the rules and the record to
-# limn.pins.edit. Each returns an outcome value that the HTTP layer answers (limn.web.answers.add_answer, edit_answer).
-
-def parse_add(d: dict, region: bool, known: Collection[str]) -> AddRequest | InputRejected:
-    """A POST /api/pin body for the current document -> the new pin's validated place and fields, or the first field
-    refused, in the contract's order: the location first (parse_region on a view-only document, which refuses
-    file/lo/hi/scope; parse_loc otherwise, which reads the named file), then note, kind_req, mention hints and
-    assignee (known: the logins from assignee_people())."""
-    if region:
-        named: dict = {k: d[k] for k in REGION_FIELDS + ("file", "lo", "hi", "scope") if k in d}
-        fields = parse_region(named)
-    else:
-        named = {k: d[k] for k in ADD_FIELDS if k in d}
-        fields = parse_loc(named)
-    if isinstance(fields, InputRejected):
-        return fields
-    note = parse_note(d.get("note"))
-    if isinstance(note, InputRejected):
-        return note
-    kind_req = parse_kind_req(d.get("kind_req"))
-    if isinstance(kind_req, InputRejected):
-        return kind_req
-    hints = parse_mention_hints(d.get("mentions"))
-    if isinstance(hints, InputRejected):
-        return hints
-    assignee = parse_assignee(d.get("assignee"), known)
-    if isinstance(assignee, InputRejected):
-        return assignee
-    place = RegionPlace(fields) if region else LinePlace(fields, frozenset(named))
-    return AddRequest(place, note, kind_req, assignee, tuple(hints))
-
+# Adding and editing a pin (docs/handbook/api.md §핀 만들기, §핀 고치기). The handler parses the body
+# (limn.web.parse.parse_add, parse_edit and parse_edit_place); the shell reads what only the disk and the clock know
+# under the pin lock, and leaves the rules and the record to limn.pins.edit. Each returns an outcome value that the
+# HTTP layer answers (limn.web.answers.add_answer, edit_answer).
 
 def located(loc: PinLocation | None) -> Located | None:
     """A pin location found on disk (pin_location) as the value limn.pins.edit records: absolute path and rel."""
     return None if loc is None else Located(str(loc.path), loc.rel)
 
 
-def add_pin(d: dict, actor: dict) -> OpenPin | InputRejected:
-    """Saves a new pin from a POST /api/pin body for the current document (or the body's `doc`) -> the new open pin, or
-    the first field refused (nothing is written then). A LaTeX document gets a line pin with its anchor, the author and
-    - since 0.3.2 (ADR-0006) - file_rel next to the absolute file; a view-only document gets a region pin. Queues
-    mention/assigned notices and emits them after the write. An unknown `doc` is HTTPError(404) from request_doc."""
-    D = cur_doc()
-    want = d.get("doc")
-    if isinstance(want, str) and want != D.key:        # if the body's doc differs from the current document, switch to that one (404 on an unknown key)
-        other = request_doc({}, {"doc": want})
-        with using_doc(other):
-            return add_pin(dict(d, doc=other.key), actor)
-    request = parse_add(d, D.is_pdf, assignee_people(d))
-    if isinstance(request, InputRejected):
-        return request
+def add_pin(D: Doc, request: AddRequest, actor: dict) -> OpenPin:
+    """Saves a new pin in document D from a parsed POST /api/pin body (limn.web.parse.parse_add) -> the new open pin. A
+    LaTeX document gets a line pin with its anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the
+    absolute file; a view-only document gets a region pin. Queues mention/assigned notices and emits them after the
+    write."""
     match request.place:
         case LinePlace() as place:
             return _add_line_pin(place, request, actor, D)
@@ -3595,7 +3273,7 @@ def _add_line_pin(place: LinePlace, request: AddRequest, actor: dict, D: Doc) ->
                               f.stat().st_mtime if f.exists() else 0)
         # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation): the
         # viewer echoes pdf_build from the pick response; a call without it (agent curl) takes the current build.
-        pin = new_line_pin(place, request, pid, at, actor, tags.mentions, anchoring, cur_pages().name, D.key,
+        pin = new_line_pin(place, request, pid, at, actor, tags.mentions, anchoring, build.cur_pages(D).name, D.key,
                            located(pin_location({"file": place.fields["file"]}, C.src)))
         rows.append(dict(pin.record))
         evs.append(make_event("mention", pin.record, actor, tags.notify, text=request.note))
@@ -3618,7 +3296,7 @@ def _add_region_pin(place: RegionPlace, request: AddRequest, actor: dict, D: Doc
         at = now_str()
         pid = next_id(rows)
         tags = note_tags(request.note, "", rows, request.hints, actor, pid)
-        pin = new_region_pin(place, request, pid, at, actor, tags.mentions, cur_pages().name, D.key)
+        pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build.cur_pages(D).name, D.key)
         rows.append(dict(pin.record))
         evs.append(make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
@@ -3630,117 +3308,27 @@ def _add_region_pin(place: RegionPlace, request: AddRequest, actor: dict, D: Doc
     return out
 
 
-class EditBody(NamedTuple):
-    """An edit body with every field checked except loc, which is checked against the pin's own document once the
-    pin is known (edit_place). request.place is still None."""
-    loc: dict | None
-    request: EditRequest
-
-
-REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다."
-
-
-def parse_edit(d: dict, known: Collection[str]) -> EditBody | InputRejected:
-    """A POST /api/pins/{id}/edit body -> its checked fields, or the first one refused, in the contract's order.
-
-    note (null is the empty note), note_append (a non-blank string of at most 2000 characters), loc (an object),
-    lo/hi (integers), scope, kind, kind_req, mention hints and assignee (known: the logins from assignee_people()).
-    base_rev is required unless the edit is a note_append, and something must be changed.
-    """
-    note = None
-    if "note" in d:
-        note = parse_note(d.get("note"))
-        if isinstance(note, InputRejected):
-            return note
-    note_append = d.get("note_append")
-    if note_append is not None:
-        if not isinstance(note_append, str):
-            return InputRejected("note_append 는 문자열이어야 합니다.", "bad_note_append")
-        if not note_append.strip():
-            return InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
-        if len(note_append) > 2000:
-            return InputRejected("덧붙일 메모가 너무 깁니다(2000자 이하).", "note_append_too_long")
-    loc = d.get("loc")
-    if loc is not None and not isinstance(loc, dict):
-        return InputRejected("loc 는 객체여야 합니다.", "bad_loc")
-    lo = int_field(d["lo"], "lo") if d.get("lo") is not None else None
-    if isinstance(lo, InputRejected):
-        return lo
-    hi = int_field(d["hi"], "hi") if d.get("hi") is not None else None
-    if isinstance(hi, InputRejected):
-        return hi
-    scope = d.get("scope")
-    if scope is not None and scope not in SCOPES:
-        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
-    kind = d.get("kind")
-    if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
-        return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
-    kind_req = parse_kind_req(d.get("kind_req"))   # a note-level value that can be changed even on a closed pin
-    if isinstance(kind_req, InputRejected):
-        return kind_req
-    hints = parse_mention_hints(d.get("mentions"))
-    if isinstance(hints, InputRejected):
-        return hints
-    assignee = parse_assignee(d.get("assignee"), known)   # like kind_req, changeable on a closed pin (leaves an ev=assign)
-    if isinstance(assignee, InputRejected):
-        return assignee
-    base_given = "base_rev" in d
-    if not base_given and note_append is None:
-        return InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required")
-    base = int_field(d["base_rev"], "base_rev") if base_given else None
-    if isinstance(base, InputRejected):
-        return base
-    moves = loc is not None or lo is not None or hi is not None
-    if not (note is not None or moves or scope is not None or kind is not None or note_append is not None
-            or kind_req is not None or assignee is not None):
-        return InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change")
-    return EditBody(loc, EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee,
-                                     tuple(hints)))
-
-
-def edit_place(loc: dict | None, region: bool) -> LinePlace | RegionPlace | None | InputRejected:
-    """An edit's loc checked against the current document (the caller enters the pin's own): parse_region for a
-    view-only pin, parse_loc for a line pin. pdf_build records which build frac's coordinates belong to, so a loc
-    that re-places frac takes the one sent or the current build, and a loc without frac cannot change it."""
-    if loc is None:
-        return None
-    fields = parse_region(loc) if region else parse_loc(loc)
-    if isinstance(fields, InputRejected):
-        return fields
-    if "frac" in loc:
-        fields.setdefault("pdf_build", cur_pages().name)
-    else:
-        fields.pop("pdf_build", None)
-    return RegionPlace(fields) if region else LinePlace(fields, frozenset(loc))
-
-
-def edit_pin(pid: int, d: dict, actor: dict) -> OpenPin | ReviewPin | DonePin | EditRefusal | InputRejected | PinNotFound:
-    """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
-
-    The body is parsed first (parse_edit); a view-only pin refuses lo/hi/scope/kind, and loc is checked against the
-    pin's own document even if the request names no doc. Under the pin lock the shell reads where the pin's file will
-    be and - for a lo/hi edit - its line count, and limn.pins.edit.decide_edit() refuses or accepts: a closed pin
-    cannot be reshaped, a stale base_rev is a conflict (so a pin the agent closed, or one line matching moved, is
-    never silently overwritten with stale lo/hi), a merged note_append must fit NOTE_MAX, lo/hi must fit the file.
-    Refusals write nothing of their own. An accepted edit gets a new anchor when its range changed, the note's
-    @-tags, edited_at/by and rev (evolve_edit); mention/assigned notices are emitted after the write.
-    """
-    body = parse_edit(d, assignee_people(d))
-    if isinstance(body, InputRejected):
-        return body
-    request = body.request
-    # Location checks and the default build are scoped to that pin's document. A pin's kind (LaTeX/view-only) never changes.
+def edit_scope(pid: int) -> tuple:
+    """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
+    view-only (region) pin, and the document its loc is checked against - the pin's own, else the current one."""
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
-    pdoc = (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
-    if region and (request.lo is not None or request.hi is not None or request.scope is not None
-                   or request.kind is not None):
-        return InputRejected(REGION_EDIT_REFUSAL, "no_source_lines")
-    with using_doc(pdoc):
-        place = edit_place(body.loc, region)
-    if isinstance(place, InputRejected):
-        return place
-    request = replace(request, place=place)
+    return region, (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
+
+
+def edit_pin(pid: int, request: EditRequest, actor: dict,
+             region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
+    """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
+
+    request is the parsed body with its loc already placed against the pin's own document (limn.web.parse.parse_edit
+    and parse_edit_place, with region and the document from edit_scope()); region says the pin is a view-only one,
+    whose file is never located. Under the pin lock the shell reads where the pin's file will be and - for a lo/hi
+    edit - its line count, and limn.pins.edit.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a
+    stale base_rev is a conflict (so a pin the agent closed, or one line matching moved, is never silently overwritten
+    with stale lo/hi), a merged note_append must fit NOTE_MAX, lo/hi must fit the file. Refusals write nothing of their
+    own. An accepted edit gets a new anchor when its range changed, the note's @-tags, edited_at/by and rev
+    (evolve_edit); mention/assigned notices are emitted after the write.
+    """
     clock = datetime.now().astimezone().strftime("%H:%M") if request.note_append is not None else ""
     evs = []
 
@@ -3965,23 +3553,6 @@ def mention_hits(text: str, people: dict, hints=None, exclude: str = None) -> li
     return found
 
 
-def parse_mention_hints(v: object) -> list | InputRejected:
-    """The viewer's @-tag hints: at most MENTION_MAX login strings, used to pick among people who share a name."""
-    if v is None:
-        return []
-    if not _is_str_list(v) or len(v) > MENTION_MAX:
-        return InputRejected("mentions 는 로그인 문자열 목록(%d개 이하)입니다." % MENTION_MAX, "bad_mentions")
-    return v
-
-
-def clean_mention_hints(v) -> list:
-    """parse_mention_hints for the routes that still raise (reply, close, reopen): HTTPError(400), same message."""
-    out = parse_mention_hints(v)
-    if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message, reason=out.reason)
-    return out
-
-
 def pin_mentions_all(r: dict) -> list:
     """Every person called out on this pin (note + the entire thread)."""
     out = list(r.get("mentions") or [])
@@ -4149,24 +3720,20 @@ NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned"
 EVENTS_SINCE_MAX = 20
 
 
-def events_since(actor: dict, cursor) -> dict:
+def events_since(actor: dict, cursor: int | None) -> dict:
     """Notification material carried in /api/meta polling (docs/handbook/api.md §브라우저 알림 커서). Always includes ev_seq (the latest event number), and if
-    ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
+    the parsed ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
     out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
     if cursor is None:
         return out
-    try:
-        cur = int(cursor)
-    except (TypeError, ValueError):
-        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.", reason="bad_event_cursor") from None
     me = (actor or {}).get("login")
     if not me or is_agent(actor):
         out["events"] = []
         return out
     names = {d.key: d.name for d in DOCS}
     evs = [dict(e, doc_name=names.get(e.get("doc"), e.get("doc"))) for e in rows
-           if e.get("seq", 0) > cur and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
+           if e.get("seq", 0) > cursor and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
            and (e.get("by") or {}).get("login") != me]
     out["events"] = evs[-EVENTS_SINCE_MAX:]
     return out
@@ -4260,14 +3827,6 @@ def reply_reopens(r: dict, human: bool, mentioned, reopen=None) -> bool:
     return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
 
 
-def clean_reopen_flag(d: dict):
-    """The reply body's optional reopen - true/false overrides the rule, absent (None) lets the server decide."""
-    v = d.get("reopen")
-    if v is not None and not isinstance(v, bool):
-        raise HTTPError(400, "reopen 은 true/false 입니다(없으면 서버 규칙을 따릅니다).", reason="bad_reopen")
-    return v
-
-
 def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None,
               human=None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
     """One reply (from a person or an agent); the pin as it stands after it is returned, its new entry last in the thread.
@@ -4332,20 +3891,13 @@ def is_agent(actor: dict) -> bool:
     return login == LOCAL_ACTOR["login"] or str(login).startswith(AGENT_LOGIN_PREFIX)
 
 
-def clean_review_flag(d: dict):
-    """The close body's optional review - true means awaiting review, false means done right away. None if absent (left to the closer to decide)."""
-    v = d.get("review")
-    if v is not None and not isinstance(v, bool):
-        raise HTTPError(400, "review 는 true/false 입니다.", reason="bad_review")
-    return v
-
-
 def set_done(pid: int, done: bool, actor: dict, reply: str | None = None, ref: str | None = None,
-             review: bool | None = None, reason: str | None = None, hints=None, changes: Changes | None = None):
+             review: bool | None = None, reason: str | None = None, hints=None, changes=None):
     """Close (done=True) or reopen (done=False) - the single entry POST /close and /reopen and older callers use.
 
-    `reply`/`ref`/`changes` (already validated by clean_close_body/clean_close_changes) and `review` belong to a
-    close; `reason` and `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
+    `reply`/`ref`/`changes` (already parsed by limn.web.parse.parse_close_body/parse_close_changes: changes is a
+    sequence of CloseChange, each giving its stored form by .record()) and `review` belong to a close; `reason` and
+    `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
     """
     if done:
         return close_pin(pid, actor, CloseRequest(reply, ref, tuple(c.record() for c in changes or ()), review))
@@ -4569,42 +4121,6 @@ def claim_active(r: dict) -> bool:
     return claim_holds(r, time.time())
 
 
-
-
-def _claim_int(d: dict, key: str, lo: int, hi: int):
-    """One optional integer from the body. None if absent. 400 if not an integer or below lo; clamped to hi if it exceeds the ceiling.
-
-    Clamping is for backward compatibility - so an agent that still sends the old ttl_min=480 doesn't break
-    when trying to extend with the same value after the ceiling was lowered to 120, instead of getting a 400.
-    The value actually applied is returned as *_applied in the response."""
-    if key not in d:
-        return None
-    v = d[key]
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
-        raise HTTPError(400, "%s 은 정수여야 합니다." % key, reason="not_integer")
-    v = int(v)
-    if v < lo:
-        raise HTTPError(400, "%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi), reason="too_small")
-    return min(v, hi)
-
-
-def clean_claim_body(d: dict) -> tuple:
-    """The claim body -> (ttl_min, eta_min or None). Both are optional.
-
-    eta_min (1..240) is the estimated time to handle - shown in the viewer as "in progress - about 15 min -
-    around 20:40". ttl_min (1..120) is the time until the lock auto-expires (a safety net). Values past the
-    ceiling are clamped to it (compatible with the legacy ttl_min 480). If ttl_min is omitted, it's
-    min(120, max(30, eta x 2)) when eta_min is given, otherwise 120."""
-    eta = _claim_int(d, "eta_min", CLAIM_ETA_MIN, CLAIM_ETA_MAX)
-    ttl = _claim_int(d, "ttl_min", CLAIM_TTL_MIN, CLAIM_TTL_MAX)
-    if ttl is None:
-        ttl = min(CLAIM_TTL_MAX, max(CLAIM_TTL_FLOOR, eta * 2)) if eta is not None else CLAIM_TTL_DEFAULT
-    return ttl, eta
-
-
-def clean_claim_ttl(d: dict) -> int:
-    """Compatibility for legacy callers - just the ttl from clean_claim_body."""
-    return clean_claim_body(d)[0]
 
 
 def claim_pin(pid: int, actor: dict, ttl_min: int,
@@ -5094,55 +4610,33 @@ def pins_md_text(rows: list, base: str | None = None) -> str:
 
 # ---------------------------------------------------------------- Selection resolution
 
-def pick(d: dict) -> dict:
-    """Dragged region -> source line range + range ladder.
+def pick(D: Doc, request) -> dict:
+    """Dragged region -> source line range + range ladder, for document D and a selection parsed by
+    limn.web.parse.parse_pick (page directory, page, box and page size in points, the viewer's frac).
 
     Pits the SyncTeX candidate and the text candidate against each other on equal footing. Treating either
     as a conditional fallback leaves no way to catch SyncTeX being silently wrong (inside minipage/tabular).
 
-    pdf_build (optional) is the build on screen at drag time (META.pages_build). A drag made after a rebuild
+    The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
     finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
     against that build's PDF and returned as pdf_build in the response - the viewer carries that value
     through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
-    want = d.get("pdf_build")
-    if want is not None:
-        if not valid_build_name(want):
-            raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", reason="bad_pdf_build")
-        if not (cur_doc().dir / want).is_dir():
-            return {"error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
-                    "reason": "pdf_build_gone", "pdf_build_gone": True}
-    pdir = pages_dir_for(want) if want is not None else cur_pages()
-    pages = page_list(pdir)
-    page = _int(d.get("page"), "page")
-    if not 1 <= page <= len(pages):
-        raise HTTPError(400, "page 는 1..%d 이어야 합니다." % len(pages), reason="page_out_of_range")
-    pw, ph = pages[page - 1]["pt_w"], pages[page - 1]["pt_h"]
-    xs = sorted(min(max(_num(d.get(k), k), 0.0), pw) for k in ("x0", "x1"))
-    ys = sorted(min(max(_num(d.get(k), k), 0.0), ph) for k in ("y0", "y1"))
-    x0, x1 = xs
-    y0, y1 = ys
-    frac = d.get("frac")
-    if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and
-                                 all(not isinstance(v, bool) and isinstance(v, (int, float))
-                                     and math.isfinite(v) for v in frac)):
-        raise HTTPError(400, "frac 은 숫자 4개 목록입니다.", reason="bad_frac")
-
-    pdf = cur_pdf(pdir)
+    pdir, page, (x0, y0, x1, y1), (pw, ph), frac = request
+    pdf = build.cur_pdf(D, pdir)
     rtext = region_text(pdf, page, x0, y0, x1, y1)
-    D = cur_doc()
     if D.is_pdf:
         return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
     sy = by_synctex(pdf, page, x0, y0, x1, y1)
 
-    src = to_source(sy[0]) if sy else D.main
+    src = to_source(D, sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
         return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
                          % src.suffix, "reason": "generated_file"}
-    try:
-        src = safe_src(str(src))
-    except HTTPError:
+    found = file_in_tree(str(src), C.src)
+    if not isinstance(found, Path):
         return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
                 "reason": "synctex_outside"}
+    src = found
 
     lines = tex_lines(src)
     if not lines:
@@ -5173,10 +4667,10 @@ def pick(d: dict) -> dict:
         if not (lo <= cands[1][1] <= hi):
             warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
 
-    if source_newer(pdir.name) > 2:
+    if build.source_newer(D, C.state, pdir.name) > 2:
         stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
         warn = stale_note + (" " + warn if warn else "")
-    bstate = build_state_snapshot()
+    bstate = build.state_snapshot(D)
     if bstate["state"] == "running" and bstate["phase"] == "latex":
         warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
 
@@ -5200,7 +4694,7 @@ def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, r
     warn = ""
     if not text:
         warn = "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요."
-    bstate = build_state_snapshot()
+    bstate = build.state_snapshot(D)
     if bstate["state"] == "running":
         warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
     return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
@@ -5208,45 +4702,27 @@ def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, r
             "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
 
 
-def snippet_api(q: dict) -> dict:
-    """GET /api/snippet: the source lines lo..hi of a manuscript file (and with levels=1 the range ladder around them).
-    400 for a view-only document (no_source_lines), a file outside the tree, non-integer lo/hi or a range outside the file."""
-    if cur_doc().is_pdf:
-        raise HTTPError(400, "보기 전용 문서(%s)에는 원문 줄이 없습니다." % cur_doc().key, reason="no_source_lines")
-    f = safe_src((q.get("file") or [""])[0])
-    lines = tex_lines(f)
-    try:
-        lo = int((q.get("lo") or [""])[0])
-        hi = int((q.get("hi") or [""])[0])
-    except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.", reason="not_integer") from None
-    if not 1 <= lo <= hi <= len(lines):
-        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), reason="range_outside_file")
+def snippet_api(rng, levels: bool) -> dict:
+    """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by limn.web.parse.parse_snippet:
+    the file, its lines as read, lo and hi), and with levels the range ladder around them."""
+    f, lines, lo, hi = rng
     out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
            "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
-    if (q.get("levels") or ["0"])[0] == "1":
+    if levels:
         lad = compute_levels(lines, lo, hi, C.envs)
         out["levels"] = lad["levels"]
         out["default_level"] = lad["default_level"]
     return out
 
 
-def overlaps_api(q: dict) -> dict:
+def overlaps_api(rng) -> dict:
     """GET /api/overlaps — asks about a not-yet-saved selection's overlap using only file/range (kept for agent/legacy-viewer compatibility).
 
     The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
     range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
-    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer."""
-    f = safe_src((q.get("file") or [""])[0])
-    lines = tex_lines(f)
-    try:
-        lo = int((q.get("lo") or [""])[0])
-        hi = int((q.get("hi") or [""])[0])
-    except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.", reason="not_integer") from None
-    if not 1 <= lo <= hi <= len(lines):
-        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), reason="range_outside_file")
-    return {"overlaps": overlaps_for_range(str(f), lo, hi)}
+    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer. rng is the range
+    parsed by limn.web.parse.parse_source_range."""
+    return {"overlaps": overlaps_for_range(str(rng.file), rng.lo, rng.hi)}
 
 
 # ---------------------------------------------------------------- Identity (tailscale serve headers)
