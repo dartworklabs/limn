@@ -26,6 +26,8 @@ PURE_IMPORTS = {
     "typing",
     "limn.mapping",
     "limn.pins.lifecycle",
+    "limn.pins.model",
+    "limn.pins.shapes",
 }
 
 LINES = ["\\section{Intro}", "alpha line one", "beta line two", "", "gamma line four", "delta line five"]
@@ -40,7 +42,7 @@ class Purity(unittest.TestCase):
     """The module must not reach files, processes, the clock or the network (architecture.md stop signal)."""
 
     def test_imports_only_pure_modules(self):
-        """Only pure standard modules and the pure limn modules (mapping, the pin lifecycle) are imported."""
+        """Only pure standard modules and the pure limn modules (mapping, the pin lifecycle, model and shapes) are imported."""
         tree = ast.parse(POSITION_PY.read_text(encoding="utf-8"))
         imported = set()
         for node in ast.walk(tree):
@@ -141,7 +143,7 @@ class Overlap(unittest.TestCase):
             {"id": 1, "file": "/old/x.tex", "lo": 1, "hi": 5},
             {"id": 2, "file": "/new/x.tex", "lo": 2, "hi": 3},
             {"id": 3, "file": "/new/x.tex", "lo": 1, "hi": 5, "done": True},
-            {"id": 4, "page": 1},
+            {"id": 4, "pdf": "/ms/figure.pdf", "page": 1, "frac": [0, 0, 0.5, 0.5]},
         ]
         rel = position.overlaps_by_id(rows, lambda r: "x.tex")
         self.assertEqual(rel, {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})

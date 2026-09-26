@@ -12,8 +12,6 @@ documents, whether --git-pull is on, the git runner (limn.revisions.git over lim
 timeout per call), the clock and the build starter on every call, and owns the one PullShare and SyncWatch of the process.
 """
 
-from __future__ import annotations
-
 import sys
 import threading
 import traceback

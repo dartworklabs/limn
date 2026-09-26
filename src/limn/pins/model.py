@@ -20,6 +20,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, TypeAlias, TypeVar
 
+from limn.pins.shapes import is_num
+
 Record: TypeAlias = Mapping[str, Any]
 # The name of a pin's state as the API and pins.md show it (GET /api/pins `state`, docs/handbook/api.md §검토 대기).
 StateName: TypeAlias = Literal["open", "review", "done"]
@@ -38,11 +40,6 @@ def _is_text(value: object) -> bool:
 def _is_signature(value: object) -> bool:
     """A JSON object - the stored form of an actor."""
     return isinstance(value, Mapping)
-
-
-def _is_epoch(value: object) -> bool:
-    """An int or float that is not a bool - how claim_ts, claim_until and eta_ts are stored (epoch seconds)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _is_changes(value: object) -> bool:
@@ -66,16 +63,22 @@ class Claim:
     eta: float | None = None
 
     def holds(self, now: float) -> bool:
-        """Is the claim unexpired at epoch `now`? claim_until is epoch seconds, independent of timezone."""
-        return self.until is not None and self.until > now
+        """Is the claim unexpired at epoch `now`? The rule is claim_unexpired's, on this claim's until."""
+        return claim_unexpired(self.until, now)
+
+
+def claim_unexpired(until: object, now: float) -> bool:
+    """The one expiry rule of a claim: is `until` (a stored claim_until) a JSON number of epoch seconds after epoch
+    `now`? Epoch seconds are independent of timezone; a missing or non-numeric claim_until has lapsed."""
+    return is_num(until) and until > now
 
 
 CLAIM_SHAPES: Shapes = {
     "claimed_by": ("by", _is_signature),
     "claimed_at": ("at", _is_text),
-    "claim_ts": ("start", _is_epoch),
-    "claim_until": ("until", _is_epoch),
-    "eta_ts": ("eta", _is_epoch),
+    "claim_ts": ("start", is_num),
+    "claim_until": ("until", is_num),
+    "eta_ts": ("eta", is_num),
 }
 
 

@@ -50,6 +50,13 @@ class Append(unittest.TestCase):
             self.assertEqual([json.loads(ln) for ln in lines], [first, second])
             self.assertEqual(first["by"], {"login": "u", "name": "u"})
 
+    def test_an_untyped_action_is_checked_at_the_cli_edge(self):
+        """audit_action() passes a known action through and refuses any other string with ValueError - the check the
+        CLI sink (which gets a plain str from limn.access) and audit_entry() share."""
+        self.assertEqual(audit.audit_action("token_created"), "token_created")
+        with self.assertRaisesRegex(ValueError, "unknown audit action 'dropped'"):
+            audit.audit_action("dropped")
+
     def test_os_actor_names_the_process_account(self):
         """by for the CLI is the uid's account name, used as both login and name."""
         actor = audit.os_actor()

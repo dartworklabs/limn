@@ -7,17 +7,16 @@ this machine's token file, and what other parts decide about each pin (where its
 is addressed to, its current thread round) - arrives as values in PinsMdInput, built by server.pins_md_input().
 """
 
-from __future__ import annotations
-
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, TypeGuard
+from typing import Any
 
 from limn.guidance import token_file_curl
-from limn.mapping import truncate_quote
-from limn.pins.lifecycle import claim_holds
-from limn.pins.model import Record, ReviewPin, is_region_pin, parse_pin
+from limn.mapping import flat
+from limn.pins.lifecycle import claim_holds, has_ev
+from limn.pins.model import OpenPin, Record, ReviewPin, is_region_pin, state_of
+from limn.pins.shapes import is_int, is_num
 
 
 @dataclass(frozen=True)
@@ -95,7 +94,7 @@ def claim_md(r: Record, now: float) -> str:
     used (it was misread as the estimated completion time). now is epoch seconds."""
     name = md_cell((r.get("claimed_by") or {}).get("name") or "?")
     eta = r.get("eta_ts")
-    if not _is_num(eta):
+    if not is_num(eta):
         return "처리 중(%s)" % name
     left = (float(eta) - now) / 60.0
     return "처리 중(%s, %s)" % (name, "약 %d분" % ceil5(left) if left > 0 else "예상 초과")
@@ -136,7 +135,7 @@ def location_col(r: Record, facts: PinFacts) -> str:
 
 def range_label(r: Record) -> str:
     """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines; otherwise the legacy kind.
-    Every branch escapes via md_cell (missing that on just the env branch used to be a bug)."""
+    Every branch that shows a record value escapes it through md_cell."""
     if is_region_pin(r):
         return "영역"
     scope = r.get("scope")
@@ -161,7 +160,7 @@ def render_quote(r: Record, facts: PinFacts) -> str:
     if scope not in (None, "raw", "para"):
         return ""
     lo, hi = r.get("lo"), r.get("hi")
-    if not (_is_int(lo) and _is_int(hi)) or lo != hi:
+    if not (is_int(lo) and is_int(hi)) or lo != hi:
         return ""
     q = r.get("quote")
     if not q:
@@ -183,14 +182,14 @@ def josa(n: object, cons: str, vowel: str) -> str:
 
 
 def rel_badge(rel: Sequence[Mapping[str, Any]], by_id: Mapping[int, Record], me: Record | None = None) -> str:
-    """Picks one representative relationship for pins.md / card tags - phrased as a short, meaningful label (the old ⊂#N/∩#N marks were unreadable).
+    """Picks one representative relationship for pins.md / card tags, as a short label that says what to do.
 
     1. If there's a pin with the exact same range (the same spot marked twice), the one with the smallest id: '#N과 같은 범위'
     2. If there's an inside relationship, the smallest enclosing outer pin: '#N 범위 안'
     3. The smallest-id partial: '#N과 일부 겹침'
     contains (wraps) is never shown. Since the rel entries from GET /api/pins are only {id,rel} (the
     contract), ranges are looked up from by_id (the full rows). Without me (this pin), same-range pins
-    can't be singled out, so it falls back to only inside/overlap, as before. The viewer's relBadge() is the same rule."""
+    can't be singled out, so only inside and partial are considered. The viewer's relBadge() is the same rule."""
     if me is not None:
         same = [
             x
@@ -228,7 +227,8 @@ LEGEND = (
     "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
     "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)"
 )
-# v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
+# pins.md's agent-auth header line (docs/handbook/api.md §인증). Agents match its start; token_guidance_line() only
+# appends to it.
 TOKEN_GUIDANCE = (
     '에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, '
     "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
@@ -238,9 +238,9 @@ TOKEN_GUIDANCE = (
 
 
 def token_guidance_line(shown_file: str | None) -> str:
-    """The agent-auth line of pins.md: TOKEN_GUIDANCE as before, plus one clause when this machine's agents have a token
-    file to send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause
-    is appended after the old text, never woven in, so the line still starts with what agents already match."""
+    """The agent-auth line of pins.md: TOKEN_GUIDANCE, plus one clause when this machine's agents have a token file to
+    send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause is
+    appended after TOKEN_GUIDANCE, never woven in, so the line always starts with what agents match."""
     if not shown_file:
         return TOKEN_GUIDANCE
     return (
@@ -259,7 +259,8 @@ REPLY_GUIDANCE = (
 
 
 def claim_guidance(base: str) -> str:
-    """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
+    """The line after the close instruction: how to claim a pin before working on it, what a 409 means, and how to
+    give the claim up. base is the URL the curl examples use."""
     return (
         "처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
         "%s/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 "
@@ -271,17 +272,10 @@ THREAD_MD_SHOW = 3  # number of current-round thread posts shown in pins.md's no
 THREAD_MD_CHARS = 200  # character count for one of those posts - the full text is via GET /api/pins/N
 
 
-def flat(s: object, n: int) -> str:
-    """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut).
-    None and "" both give "". The one rule for a text shown on one line: pins.md's thread posts and close replies
-    here, and the excerpt of an events.jsonl notice (limn.events.make_event)."""
-    return truncate_quote(" ".join(str(s or "").split()), n)
-
-
 def thread_md(r: Record, facts: PinFacts) -> str:
     """The current round's thread (facts.round), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
     Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
-    msgs = [m for m in facts.round if m.get("ev") != "close" and (m.get("text") or not m.get("ev"))]
+    msgs = [m for m in facts.round if not has_ev(m, "close") and (m.get("text") or not m.get("ev"))]
     if not msgs:
         return ""
     shown = msgs[-THREAD_MD_SHOW:]
@@ -290,9 +284,9 @@ def thread_md(r: Record, facts: PinFacts) -> str:
         name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
         label = (
             "다시 연 이유(%s)" % name
-            if m.get("ev") == "reopen"
+            if has_ev(m, "reopen")
             else "담당 바꿈(%s)" % name
-            if m.get("ev") == "assign"
+            if has_ev(m, "assign")
             else name
         )
         parts.append("%s: %s" % (label, flat(m.get("text"), THREAD_MD_CHARS)))
@@ -347,8 +341,8 @@ def pins_md_text(page: PinsMdInput) -> str:
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
     base = page.base or loopback_base
-    openn = [r for r in rows if not r.get("done")]
-    reviewn = [r for r in rows if isinstance(parse_pin(r), ReviewPin)]
+    openn = [r for r in rows if state_of(r) is OpenPin]
+    reviewn = [r for r in rows if state_of(r) is ReviewPin]
     n_done = len(rows) - len(openn) - len(reviewn)
 
     # The author's name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author
@@ -482,7 +476,7 @@ def pins_md_text(page: PinsMdInput) -> str:
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
-    out.append(REPLY_GUIDANCE)  # v0.2.2: one more additive line
+    out.append(REPLY_GUIDANCE)
     if any_symbol:
         out.append(LEGEND)
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
@@ -516,13 +510,3 @@ def pins_md_text(page: PinsMdInput) -> str:
     if not shown:
         out += ["", "열린 핀 없음"]
     return "\n".join(out + review_md(reviewn, facts, sectioned)) + "\n"
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    """An int or float that is not a bool - how a stored eta_ts (epoch seconds) is recognised."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a stored line number is recognised."""
-    return isinstance(v, int) and not isinstance(v, bool)

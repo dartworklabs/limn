@@ -20,8 +20,6 @@ A missing or malformed viewer file is a packaging defect and raises (OSError / V
 rather than serve a broken page.
 """
 
-from __future__ import annotations
-
 import json
 import re
 from collections.abc import Mapping

@@ -15,8 +15,6 @@ git runs through limn.gitrun (no shell, no stdin or terminal, GIT_TERMINAL_PROMP
 dropped, a timeout per call); only full SHA-1s that git itself listed, and git's own object ids, reach its arguments.
 """
 
-from __future__ import annotations
-
 import contextlib
 import fcntl
 import hashlib

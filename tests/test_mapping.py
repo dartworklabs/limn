@@ -17,7 +17,7 @@ from limn.mapping import find_level
 from helpers import TEX, Base, ps
 
 MAPPING_PY = Path(mapping.__file__)
-PURE_IMPORTS = {"__future__", "re", "collections.abc", "typing", "dataclasses"}
+PURE_IMPORTS = {"__future__", "re", "collections.abc", "typing", "dataclasses", "limn.pins.shapes"}
 
 # A table set inside running text (no blank lines around it), so the paragraph and the table differ.
 TABLE_DOC = [
@@ -52,6 +52,31 @@ class Purity(unittest.TestCase):
         source = MAPPING_PY.read_text(encoding="utf-8")
         self.assertNotIn("C.", source)
         self.assertNotIn("cur_doc(", source)
+
+
+class AnchorMatching(unittest.TestCase):
+    """find_line and anchor_holds match an anchor line by one rule (partial_key), and read offsets by anchor_offset."""
+
+    def test_partial_key_is_the_first_40_characters_of_12_or_more(self):
+        """A line of 12 characters or more may match by its first 40; a shorter one only whole."""
+        self.assertIsNone(mapping.partial_key("x" * 11))
+        self.assertEqual(mapping.partial_key("x" * 12), "x" * 12)
+        self.assertEqual(mapping.partial_key("y" * 50), "y" * 40)
+
+    def test_find_line_and_anchor_holds_accept_the_same_partial_match(self):
+        """A long head found inside a longer line by find_line also holds there; a short one does neither."""
+        long_head, short_head = "a" * 45, "short"
+        nlines = ["intro", "a" * 40 + " and more", "short line"]
+        self.assertEqual(mapping.find_line(nlines, long_head, 2), 2)
+        self.assertTrue(mapping.anchor_holds({"head": long_head, "head_off": 0}, 2, nlines))
+        self.assertIsNone(mapping.find_line(nlines, short_head, 3))
+        self.assertFalse(mapping.anchor_holds({"head": short_head, "head_off": 0}, 3, nlines))
+
+    def test_anchor_offset_accepts_only_an_int_in_0_to_9999(self):
+        """A bool, a negative, 10000 or a string reads as 0 - as does a missing offset."""
+        self.assertEqual(
+            [mapping.anchor_offset(v) for v in (3, 9999, 10000, -1, True, "2", None)], [3, 9999, 0, 0, 0, 0, 0]
+        )
 
 
 class FloatEnvironments(unittest.TestCase):

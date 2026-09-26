@@ -5,8 +5,6 @@ record in place only when the rule accepts (so the saved line keeps its field or
 write committed. Every outcome goes back unchanged for the HTTP layer to answer.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol
 
@@ -26,7 +24,6 @@ from limn.pins.lifecycle import (
     decide_reopen,
     decide_reply,
     evolve_close,
-    evolve_reopen,
     evolve_reply,
     reopen_request,
     reopens_on_reply,
@@ -108,8 +105,8 @@ def reply_pin(
                 r.clear()
                 r.update(replied.record)
                 msg = r["thread"][-1]
-                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
-                # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
+                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin - otherwise a
+                # second "@Bob ..." reaches nobody (observed). Everyone else involved gets replied - never both.
                 evs.append(ctx.make_event("mention", r, actor, ment, msg=msg))
                 evs.append(
                     ctx.make_event(
@@ -200,7 +197,7 @@ def reopen_pin(
     ctx: PinContext, pid: int, actor: Mapping[str, Any], reason: str | None, hints: Iterable[str] | None
 ) -> OpenPin | PinNotFound:
     """Reopen pin pid under the pin lock; a closed pin records the reason and notifies (see _reopen). rev goes up
-    even for a pin that was already open, as before."""
+    even for a pin that was already open."""
     evs: list[Event | None] = []
 
     def fn(rows: list[Row]) -> tuple[OpenPin | PinNotFound, bool]:
@@ -208,7 +205,7 @@ def reopen_pin(
         r = find_pin(rows, pid)
         if r is None:
             return PinNotFound(pid), False
-        opened = _reopen(ctx, r, rows, actor, reason, hints, evs, request=True)
+        opened = _reopen(ctx, r, rows, actor, reason, hints, evs)
         return opened, True
 
     with ctx.store.lock:
@@ -225,11 +222,10 @@ def _reopen(
     reason: str | None,
     hints: Iterable[str] | None,
     evs: list[Event | None],
-    request: bool = False,
 ) -> OpenPin:
-    """Reopens r in place (inside transact) by limn.pins.lifecycle's rule, and - if the pin was closed - queues a
-    mention for everyone the reason @-tags and reopened for the author. Used by POST /reopen (request=True, which
-    also bumps rev); a reopening reply goes through reopen_request itself in reply_pin. Returns the reopened pin."""
+    """POST /reopen's step: reopens r in place (inside transact) by limn.pins.lifecycle.reopen_request, rev bumped,
+    and - if the pin was closed - queues a mention for everyone the reason @-tags and reopened for the author. A
+    reopening reply calls reopen_request itself in reply_pin. Returns the reopened pin."""
     pin = parse_pin(r)
     ment = (
         resolve_mentions(reason or "", ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
@@ -237,7 +233,7 @@ def _reopen(
         else []
     )
     event = decide_reopen(pin, typed_actor(actor), ctx.now(), reason, tuple(ment))
-    opened = reopen_request(pin, event) if request else evolve_reopen(pin, event)
+    opened = reopen_request(pin, event)
     r.clear()
     r.update(opened.record)
     if event.was_closed:
@@ -262,7 +258,7 @@ def confirm_pin(
 ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
     """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
 
-    An agent is refused before the store is touched, as before. Otherwise the pin is loaded under the pin lock
+    An agent is refused before the store is touched. Otherwise the pin is loaded under the pin lock
     (transact) and lifecycle.confirm() decides; only a new DonePin is written, in place, so the saved line
     keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer. No notice.
     """

@@ -10,8 +10,6 @@ bad install of the web side). server.py is imported only by `limn serve`, and li
 need it, so `limn version` and the instance commands stay fast.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 import re
@@ -25,7 +23,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, TypeAlias
 
 from limn import __version__
-from limn.audit import append_audit, audit_entry, os_actor
+from limn.audit import append_audit, audit_action, audit_entry, os_actor
 from limn.gitrun import run_git
 
 HERE = Path(__file__).resolve().parent
@@ -187,11 +185,12 @@ def split_target(
 def cli_audit(state: Path) -> Callable[[str, Mapping[str, Any]], bool]:
     """The audit sink of `limn token` / `limn member` on state (limn.access.AuditSink): each change becomes one
     audit.jsonl line (limn.audit) as the OS account running the command (os_actor), via "cli", stamped with the clock
-    when it is recorded. A failed write only warns on stderr and returns False, as append_audit does."""
+    when it is recorded. The action is narrowed by audit_action (ValueError for one limn.audit does not name - a
+    defect of the caller). A failed write only warns on stderr and returns False, as append_audit does."""
 
     def record(action: str, details: Mapping[str, Any]) -> bool:
         """Append one audit line for action with details."""
-        return append_audit(state, audit_entry(action, os_actor(), "cli", details, time.time()))
+        return append_audit(state, audit_entry(audit_action(action), os_actor(), "cli", details, time.time()))
 
     return record
 

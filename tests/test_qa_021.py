@@ -13,7 +13,6 @@ Run: uv run pytest -q tests/test_qa_021.py
 import json
 import os
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -21,29 +20,22 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import urlparse
 
-from limn import access, config, mapping, startup
+from limn import access, startup
 from limn.access import LOCAL_ACTOR
-from limn.build import cur_pages
-from limn.files import tex_lines
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
 from limn.startup import StartupRefused
 from limn.store import find_pin
 
 from helpers import Base, add_pin, edit_pin, extract_js_fn, ps, req, run_node, split_resp
-from test_access import ALICE, BOB, CAROL, AccessBase, member_add, reset_access, talk_to, token_create
+from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, AccessBase, actor, member_add, talk_to, token_create
+from helpers_browser import BrowserBase
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 DAVE = {"Tailscale-User-Login": "dave@example.com", "Tailscale-User-Name": "Dave Choi"}
-CLEAR_BODY = {"confirm": "clear all pins"}
 TS_HOST = "box.tail1234.ts.net"
-
-
-def actor(h):
-    return {"login": h["Tailscale-User-Login"], "name": h["Tailscale-User-Name"]}
 
 
 # ---------------------------------------------------------------- A. @mentions always notify
@@ -633,165 +625,6 @@ class UpdateSource(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- browser: viewer-only UI and the question nudge
-
-TEX = (
-    "\\documentclass{article}\n\\begin{document}\n"
-    + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40))
-    + "\\end{document}\n"
-)
-
-
-class BrowserBase(unittest.TestCase):
-    """The real viewer against the in-process server (same approach as test_i18n.EnglishChrome). /api/pick is answered
-    with a computed pick result, since the test has no PDF or SyncTeX."""
-
-    WHO = ALICE
-
-    @classmethod
-    def setUpClass(cls):
-        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            if required:
-                raise
-            raise unittest.SkipTest("Playwright unavailable") from None
-        cls.pw = sync_playwright().start()
-        exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-        try:
-            cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
-        except Exception as e:  # no bundled or system browser
-            cls.pw.stop()
-            if required:
-                raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
-        cls.saved_html = ps.HTML
-        ps.HTML = ps.build_html("Demo", "#2563eb")
-
-    @classmethod
-    def tearDownClass(cls):
-        ps.HTML = cls.saved_html
-        cls.browser.close()
-        cls.pw.stop()
-
-    def setUp(self):
-        from test_i18n import _png
-
-        self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
-        src = root / "ms"
-        src.mkdir()
-        (src / "main.tex").write_text(TEX, encoding="utf-8")
-        C = ps.C
-        C.src, C.main = src, src / "main.tex"
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
-        reset_access()
-        ps._PEOPLE_SEEN.clear()
-        ps.set_docs(None)
-        ps.init_seq()
-        pages = C.state / "pages-20260925100000"
-        pages.mkdir()
-        for i in (1, 2):
-            (pages / ("page-%d.png" % i)).write_bytes(_png(1275, 1650))
-        (C.state / "pages.cur").write_text(pages.name)
-        (C.state / "built_at.txt").write_text("2026-09-25 10:00:00")
-        (C.state / "head.txt").write_text("abc1234")
-        self.main = C.main
-
-    def tearDown(self):
-        reset_access()
-        self.tmp.cleanup()
-
-    def talk(self, raw):
-        return split_resp(talk_to(ps, raw))
-
-    def route(self, route):
-        rq = route.request
-        u = urlparse(rq.url)
-        if u.netloc != "viewer.test":
-            return route.abort()
-        if u.path == "/api/pick":
-            lines = tex_lines(self.main)
-            lad = mapping.compute_levels(lines, 5, 5, ps.C.envs)
-            d = {
-                "file": str(self.main),
-                "name": "main.tex",
-                "page": 1,
-                "lo": lad["lo"],
-                "hi": lad["hi"],
-                "raw_lo": 5,
-                "raw_hi": 5,
-                "kind": lad["kind"],
-                "via": "synctex",
-                "score": 1.0,
-                "warn": "",
-                "n_lines": len(lines),
-                "snippet": mapping.snippet(lines, lad["lo"], lad["hi"]),
-                "frac": [0.1, 0.1, 0.3, 0.05],
-                "quote": "Line 5",
-                "levels": lad["levels"],
-                "default_level": lad["default_level"],
-                "overlaps": [],
-                "pdf_build": cur_pages(ps.DOCS[0]).name,
-            }
-            return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
-        body = rq.post_data_buffer or b""
-        h = {
-            "Host": "127.0.0.1:18999",
-            "Tailscale-User-Login": self.WHO["Tailscale-User-Login"],
-            "Tailscale-User-Name": self.WHO["Tailscale-User-Name"],
-        }
-        if rq.headers.get("content-type"):
-            h["Content-Type"] = rq.headers["content-type"]
-        if body:
-            h["Content-Length"] = str(len(body))
-        if rq.method == "POST":
-            h["Origin"] = "http://127.0.0.1:18999"
-        raw = (
-            "%s %s HTTP/1.1\r\n" % (rq.method, u.path + ("?" + u.query if u.query else ""))
-            + "".join("%s: %s\r\n" % kv for kv in h.items())
-            + "\r\n"
-        ).encode("latin-1") + body
-        code, hdrs, data = self.talk(raw)
-        route.fulfill(
-            status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data
-        )
-
-    def open(self, n_open, lang="ko", init=None, **device):
-        """Open the viewer in a new context and return the page once boot() has finished: the pin lists (open, review,
-        done) are loaded and polling has started, with at least n_open open pins. init is an optional script run
-        before the viewer's own.
-
-        The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
-        `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done
-        pin that the viewer did not know yet (showChange() of an unknown pin does nothing, and nothing retries)."""
-        context = self.browser.new_context(**(device or {"viewport": {"width": 1400, "height": 850}}))
-        self.addCleanup(context.close)
-        if init:
-            context.add_init_script(init)
-        page = context.new_page()
-        errors = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
-        page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=%s" % lang)
-        page.wait_for_function(
-            "typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&OPEN_ALL.length>=%d" % n_open, timeout=20000
-        )
-        page.wait_for_timeout(300)
-        self.addCleanup(lambda: self.assertEqual(errors, []))
-        return page
-
-    def open_composer(self, page):
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
-        page.wait_for_selector("#composer:not([hidden])", timeout=8000)
-        page.wait_for_function("CUR&&CUR.lo", timeout=8000)
-
 
 # Makes the viewer's pin list (GET /api/pins?all=1) answer 1.5s late, as on a slow CI runner; other requests are untouched.
 SLOW_PIN_LIST = (

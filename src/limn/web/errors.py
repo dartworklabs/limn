@@ -11,8 +11,6 @@ A browser that opens the viewer (GET / asking for HTML) and is refused gets a sh
 JSON (v0.2.1), in the viewer's language (ko/en) from the same message table the viewer uses (ui_en.json).
 """
 
-from __future__ import annotations
-
 import html
 from collections.abc import Mapping
 from email.message import Message

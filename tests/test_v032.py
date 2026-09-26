@@ -20,19 +20,19 @@ import unittest
 from pathlib import Path
 
 from limn import mapping
-from limn.access import LOCAL_ACTOR
-from limn.store import dump_jsonl
 
-from helpers import add_pin, ps
-from test_access import AccessBase, configure, mask
-from test_v03 import ScopedRepo
+from helpers import ps, req, split_resp
+from helpers_access import (
+    MOVED_X as X,
+    MovedManuscriptBase,
+    ScopedRepo,
+    configure,
+    mask,
+    talk_to,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
-MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{sections/x}\n\\input{sections/long}\n\\end{document}\n"
-X_LINES = ["%% line %d" % i if i in (1, 2) else "Sentence number %d about topic%d." % (i, i) for i in range(1, 21)]
-X = "\n".join(X_LINES) + "\n"
-LONG = "Long line " + "word " * 150 + "\n"  # one line over 600 characters (the «…» quote rule)
 SECRET = "TOPSECRET outside-the-tree line " + "x" * 700 + "\n"
 
 
@@ -113,68 +113,6 @@ class PinRelPathRule(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- moving the manuscript between two server runs
-
-
-class MovedManuscriptBase(AccessBase):
-    """A manuscript with \\input'ed sections at <tmp>/paper-a, pins placed there, then the folder renamed to paper-b."""
-
-    def setUp(self):
-        super().setUp()
-        root = Path(self.tmp.name)
-        self.a, self.b = root / "paper-a", root / "paper-b"
-        (self.a / "sections").mkdir(parents=True)
-        (self.a / "main.tex").write_text(MAIN, encoding="utf-8")
-        (self.a / "sections" / "x.tex").write_text(X, encoding="utf-8")
-        (self.a / "sections" / "long.tex").write_text(LONG, encoding="utf-8")
-        self.use_root(self.a)
-        self.p_new = self.pin_at("sections/x.tex", 5, 6)
-        self.p_old = self.pin_at("sections/x.tex", 10, 11)
-        self.p_quote = add_pin(
-            {
-                "file": str(self.a / "sections" / "long.tex"),
-                "lo": 1,
-                "hi": 1,
-                "scope": "raw",
-                "quote": "Long line word word",
-                "note": "q",
-            },
-            dict(LOCAL_ACTOR),
-        ).record["id"]
-        self.make_legacy(self.p_old, self.p_quote)  # as 0.3.0 wrote them: no file_rel
-
-    def use_root(self, root: Path):
-        """Point the server at a manuscript root, as `limn serve --manuscript <root>` would."""
-        ps.C.src, ps.C.main = root, root / "main.tex"
-
-    def pin_at(self, rel, lo, hi, note="n"):
-        return add_pin({"file": str(ps.C.src / rel), "lo": lo, "hi": hi, "note": note}, dict(LOCAL_ACTOR)).record["id"]
-
-    def stored(self):
-        return {r["id"]: r for r in ps.read_pins()[0]}
-
-    def rewrite(self, fn):
-        """Edit pins.jsonl directly (a state written by another version, or by hand)."""
-        rows = ps.read_pins()[0]
-        fn(rows)
-        ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
-
-    def make_legacy(self, *ids):
-        self.rewrite(lambda rows: [r.pop("file_rel", None) for r in rows if r["id"] in ids])
-
-    def move(self):
-        """Stop, rename the checkout, start again on the new path (the handler has no state beyond C and the files)."""
-        os.rename(self.a, self.b)
-        self.use_root(self.b)
-
-    def api_pins(self):
-        code, rows = self.call("GET", "/api/pins")
-        self.assertEqual(code, 200, rows)
-        return {r["id"]: r for r in rows}
-
-    def pins_md(self):
-        code, md = self.call("GET", "/pins.md")
-        self.assertEqual(code, 200)
-        return md
 
 
 class MovedManuscript(MovedManuscriptBase):
@@ -475,9 +413,6 @@ class RollbackToV030(MovedManuscriptBase):
         return self.v030_call(method, path, body)
 
     def v030_call(self, method, path, body):
-        from helpers import req, split_resp
-        from test_access import talk_to
-
         raw = json.dumps(body).encode() if body is not None else b""
         h = {"Content-Type": "application/json"} if body is not None else {}
         code, _, out = split_resp(talk_to(self.v030, req(method, path, raw, h)))

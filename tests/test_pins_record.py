@@ -12,8 +12,16 @@ import unittest
 
 from limn.pins.record import THREAD_EVENTS, is_int, valid_rec
 
-ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
-LINE = {"id": 3, "file": "/ms/main.tex", "lo": 4, "hi": 5, "note": "fix", "author": ALICE, "at": "2026-09-26 10:00:00"}
+ALICE_ACTOR = {"login": "alice@example.com", "name": "Alice Kim"}
+LINE = {
+    "id": 3,
+    "file": "/ms/main.tex",
+    "lo": 4,
+    "hi": 5,
+    "note": "fix",
+    "author": ALICE_ACTOR,
+    "at": "2026-09-26 10:00:00",
+}
 REGION = {"id": 4, "pdf": "/ms/review.pdf", "page": 2, "frac": [0.1, 0.2, 0.5, 0.1], "kind": "region", "doc": "rv"}
 
 
@@ -94,10 +102,10 @@ class Collaborators(unittest.TestCase):
             self.assertTrue(check(dict(LINE, **{key: None})), key)
         asked = []
         valid_rec(dict(LINE, edited_by={"login": "b"}), doc_key, lambda v: asked.append(v) or True)
-        self.assertEqual(asked, [ALICE, {"login": "b"}])
+        self.assertEqual(asked, [ALICE_ACTOR, {"login": "b"}])
 
 
-class Fields(unittest.TestCase):
+class OptionalFields(unittest.TestCase):
     """The optional fields the viewer renders as-is must have their stored shape when present."""
 
     def test_optional_fields_of_the_wrong_kind_break_the_line(self):
@@ -166,7 +174,7 @@ class Thread(unittest.TestCase):
 
     def entry(self, **extra):
         """One valid thread entry, with extra fields merged in."""
-        return dict({"id": 1, "by": ALICE, "at": "2026-09-26 10:00:00", "text": "hi"}, **extra)
+        return dict({"id": 1, "by": ALICE_ACTOR, "at": "2026-09-26 10:00:00", "text": "hi"}, **extra)
 
     def test_every_transition_mark_and_a_plain_reply_pass(self):
         """The marks lifecycle and edit write (close, reopen, confirm, assign) and a reply without ev are valid."""

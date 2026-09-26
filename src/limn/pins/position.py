@@ -14,25 +14,20 @@ Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). Read
 and where a pin's file is now is limn.locate's job; it passes the facts in and applies what comes back.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, TypeAlias, TypeGuard
+from typing import Any, Literal, TypeAlias
 
 from limn.mapping import anchor_holds, anchor_of, anchor_offset, find_line
 from limn.pins.lifecycle import next_rev
+from limn.pins.model import OpenPin, is_region_pin, state_of
+from limn.pins.shapes import is_num
 
 # One stored pin as the store holds it: a JSON object. The rules here only read it; resync returns a changed copy.
 Row: TypeAlias = Mapping[str, Any]
 # How one range relates to another: a lies inside b, a contains b, or they overlap in part.
 RangeRel: TypeAlias = Literal["inside", "contains", "partial"]
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    """A JSON number (int or float, not bool) - how a stored src_mtime is recognised."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 # ---------------------------------------------------------------- Location estimation (.est)
@@ -63,7 +58,7 @@ def epoch(s: object) -> float | None:
 
 def pin_build(r: Row) -> str | None:
     """The name of the build a pin's coordinates belong to, or None for a pin that never recorded one. frac_build is
-    the legacy field name with the same meaning (83b91a5)."""
+    the field name older records carry, with the same meaning; pdf_build wins when both are set."""
     for k in ("pdf_build", "frac_build"):
         v = r.get(k)
         if isinstance(v, str) and v:
@@ -97,7 +92,7 @@ def est_basis(
     if cur not in by:
         by[cur] = {"build": cur, "src_mtime": built_src_mtime, "src_hash": None}
     bsm = built_src_mtime
-    if bsm is None and _is_num(by[cur].get("src_mtime")):
+    if bsm is None and is_num(by[cur].get("src_mtime")):
         bsm = float(by[cur]["src_mtime"])
     return EstContext(cur, by, built_at, bsm)
 
@@ -111,17 +106,15 @@ def same_source(a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> boo
     if a.get("src_hash") and b.get("src_hash"):
         return bool(a["src_hash"] == b["src_hash"])
     ma, mb = a.get("src_mtime"), b.get("src_mtime")
-    return _is_num(ma) and _is_num(mb) and abs(float(ma) - float(mb)) < 0.01
+    return is_num(ma) and is_num(mb) and abs(float(ma) - float(mb)) < 0.01
 
 
 def legacy_est(r: Row, ctx: EstContext) -> bool:
-    """Fallback heuristic for a legacy pin without pdf_build (the old viewer's rule, redone server-side with epoch
-    numbers): estimated if the pin was placed before the current PDF, and the manuscript that produced the current PDF
-    (src_mtime at start) changed after the pin.
+    """Fallback for a legacy pin without pdf_build, in epoch seconds: estimated if the pin was placed before the
+    current PDF, and the manuscript that produced the current PDF (src_mtime at start) changed after the pin.
 
-    The only reference time is when it was placed (at) - using edited_at would turn off estimation just from
-    editing the note (confirmed by independent verification). An edit that re-places frac (loc) now records
-    pdf_build, so it no longer falls through to this heuristic."""
+    The only reference time is when it was placed (at): edited_at would turn estimation off just for editing the
+    note. An edit that re-places frac (loc) records pdf_build, so such a pin never reaches this rule."""
     ba, pa = ctx.built_at, epoch(r.get("at"))
     if ba is None or pa is None or pa >= ba:
         return False
@@ -168,10 +161,10 @@ def overlaps_by_id(rows: Sequence[Row], file_of: Callable[[Row], str]) -> dict[i
     out: dict[int, list[dict[str, Any]]] = {}
     by_file: dict[str, list[Row]] = {}
     for r in rows:
-        if r.get("done"):
+        if state_of(r) is not OpenPin:
             continue
         out.setdefault(r["id"], [])
-        if not r.get("file"):  # a view-only PDF's pin - no line-range overlap
+        if is_region_pin(r):  # a view-only PDF's pin - no line-range overlap
             continue
         by_file.setdefault(file_of(r), []).append(r)
     for group in by_file.values():
@@ -219,7 +212,7 @@ def overlaps_for_range(
     relationships via a banner with wording that spells out the relationship."""
     out = []
     for r in rows:
-        if r.get("done") or not r.get("file"):
+        if state_of(r) is not OpenPin or is_region_pin(r):
             continue
         if file_of(r) != file:
             continue

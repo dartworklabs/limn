@@ -452,7 +452,13 @@ class Summary(unittest.TestCase):
         """The folder under --doc, a bracketed IPv6 address, allow, --no-origin-check, --git-pull, missing pdf.js."""
         c = config.Cfg()
         c.src, c.main, c.state, c.port = Path("/m"), Path("/m/main.tex"), Path("/s"), 18301
-        c.bind, c.repo, c.allow, c.origin_check, c.git_pull = "::", "git@x:y.git", frozenset({"b", "a"}), False, True
+        c.bind, c.repo, c.allow, c.origin_check, c.git_pull = (
+            "::",
+            "git@example.com:y.git",
+            frozenset({"b", "a"}),
+            False,
+            True,
+        )
         c.agent_loopback = False
         self.assertEqual(
             startup.summary_lines(c, True, [], False),

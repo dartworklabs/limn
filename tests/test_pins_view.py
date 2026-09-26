@@ -80,6 +80,16 @@ class PinView(unittest.TestCase):
         rec = pin_view(r, shown(r), [], False, "main", NOW)
         self.assertIsInstance(rec["claim_ts"], float)
 
+    def test_a_closed_pin_with_live_claim_fields_gets_its_start_epoch_too(self):
+        """Pinned on purpose: a hand-edited done or review pin that still carries a live claim_until (no claim_ts)
+        gets claim_ts, as an open one does - GET /api/pins reads the record (lifecycle.claim_holds), not the lifted
+        claim, which only an open pin has. Changing this changes the agent contract and must be deliberate."""
+        claim = {"claimed_by": {"login": "a"}, "claimed_at": "2026-09-26 10:00:00", "claim_until": NOW + 60}
+        for state in ({"done": True}, {"done": True, "review": True}):
+            r = {"id": 1, **state, **claim}
+            rec = pin_view(r, shown(r), [], False, "main", NOW)
+            self.assertIsInstance(rec["claim_ts"], float, state)
+
     def test_no_claim_start_when_not_needed_or_not_known(self):
         """No claim_ts added for an expired claim, a claim that has one, or an unreadable claimed_at."""
         base = {"id": 1, "claimed_by": {"login": "a"}, "claimed_at": "2026-09-26 10:00:00", "claim_until": NOW + 60}

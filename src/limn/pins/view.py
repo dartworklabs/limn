@@ -13,15 +13,14 @@ of a document's builds (read at most once per document, only for documents with 
 computed over all rows, when a Trash entry expires, and the clock.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, TypeAlias
 
 from limn.mentions import addressed_to, fyi_mentions_to
 from limn.pins.lifecycle import claim_holds
-from limn.pins.model import StateName, state_of
+from limn.pins.model import OpenPin, StateName, state_of
 from limn.pins.position import EstContext, epoch, pin_est
+from limn.pins.shapes import is_int, is_num
 
 # One stored pin (or Trash entry) as the store read it, and one record as the API returns it: JSON objects.
 Row: TypeAlias = Mapping[str, Any]
@@ -50,22 +49,12 @@ def public_record(r: Row, place: tuple[str, str] | None) -> Json:
     stays and there is no rel_path. rel_path is always this server's answer, never a value an older version left
     behind. Never changes r."""
     out = dict(r)
-    out["rev"] = out["rev"] if _is_int(out.get("rev")) else 0
+    out["rev"] = out["rev"] if is_int(out.get("rev")) else 0
     out.pop("file_rel", None)
     out.pop("rel_path", None)
     if place is not None:
         out["file"], out["rel_path"] = place
     return out
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a stored rev is recognised."""
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
-def _is_num(v: object) -> bool:
-    """A JSON number (int or float, not bool) - how a stored claim_ts is recognised."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def pin_view(r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: float) -> Json:
@@ -74,7 +63,7 @@ def pin_view(r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: flo
     epoch read from claimed_at (the viewer's "since 20:02 (23 min in)"); none when claimed_at is not a readable time.
     Never changes r or shown."""
     rec = dict(shown, rel=rel, est=est, doc=doc, state=pin_state(r), addressed=addressed_to(r), fyi=fyi_mentions_to(r))
-    if claim_holds(r, now) and not _is_num(r.get("claim_ts")):
+    if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
         if ts is not None:
             rec["claim_ts"] = ts
@@ -99,7 +88,7 @@ def pins_payload(
     ctxs: dict[str, EstContext | None] = {}
     out = []
     for r in rows:
-        if not (allp or not r.get("done")):
+        if not (allp or state_of(r) is OpenPin):
             continue
         k = doc_of(r)
         if k not in ctxs:

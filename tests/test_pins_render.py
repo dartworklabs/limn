@@ -21,12 +21,11 @@ from limn.pins import render, render as md_render
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 
 from helpers import Base, add_pin, ps, req
+from helpers_access import ALICE_ACTOR, BOB_ACTOR
 
 RENDER_PY = Path(render.__file__)
 T = 1_790_000_000.0
 MAIN = DocHeading("main", "본문", "main.tex", False, None, None)
-ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
-BOB = {"login": "bob@example.com", "name": "Bob Park"}
 
 
 def facts(**extra):
@@ -87,7 +86,10 @@ class Purity(unittest.TestCase):
 
     def test_same_input_same_text_and_the_input_is_untouched(self):
         """Rendering is a function of the input: twice gives the same bytes, and no record is mutated."""
-        rows = [line_pin(1, author=ALICE), line_pin(2, author=BOB, done=True, review=True, close_reply="done")]
+        rows = [
+            line_pin(1, author=ALICE_ACTOR),
+            line_pin(2, author=BOB_ACTOR, done=True, review=True, close_reply="done"),
+        ]
         before = copy.deepcopy(rows)
         p = page(rows)
         self.assertEqual(pins_md_text(p), pins_md_text(p))
@@ -166,7 +168,7 @@ class OpenRows(unittest.TestCase):
             eta_ts=T + 14 * 60,
         )
         f = facts(reopened=True, addressed=("bob@example.com",), fyi=("carol@example.com",), badge="#3 범위 안")
-        md = pins_md_text(page([r], {7: f}, people={"bob@example.com": BOB}))
+        md = pins_md_text(page([r], {7: f}, people={"bob@example.com": BOB_ACTOR}))
         self.assertEqual(
             table_rows(md)[0].split(" | ")[0],
             "| 7 · 다시 열림 · → @Bob Park · 참고 @carol@example.com · 질문 · #3 범위 안 · "
@@ -182,6 +184,13 @@ class OpenRows(unittest.TestCase):
         self.assertIn("처리 중(Kim, 예상 초과)", pins_md_text(page([r], now=T + 31)))
         self.assertNotIn("처리 중", pins_md_text(page([r], now=T + 60)).split("표시:")[0].split("| # |")[-1])
 
+    def test_a_claim_until_without_claimed_by_still_shows_the_marker(self):
+        """Pinned on purpose: a hand-edited open pin with a live claim_until but no claimed_by object shows
+        '처리 중(?)' - pins.md reads the record (lifecycle.claim_holds), not the lifted Claim that POST /claim decides
+        on. Changing this changes the agent contract and must be deliberate."""
+        r = line_pin(1, claim_until=T + 60)
+        self.assertEqual(table_rows(pins_md_text(page([r])))[0].split(" | ")[0], "| 1 · 처리 중(?)")
+
     def test_note_cells_escape_pipes_and_newlines(self):
         """The note keeps its lines as ⏎ and a pipe cannot add a column."""
         row = table_rows(pins_md_text(page([line_pin(1, note="a | b\r\nc")])))[0]
@@ -190,8 +199,8 @@ class OpenRows(unittest.TestCase):
 
     def test_author_prefix_only_with_two_or_more_authors(self):
         """'[name]' leads the note once pins come from 2+ authors; a single author gets none."""
-        one = pins_md_text(page([line_pin(1, author=ALICE), line_pin(2, author=ALICE)]))
-        two = pins_md_text(page([line_pin(1, author=ALICE), line_pin(2, author=BOB)]))
+        one = pins_md_text(page([line_pin(1, author=ALICE_ACTOR), line_pin(2, author=ALICE_ACTOR)]))
+        two = pins_md_text(page([line_pin(1, author=ALICE_ACTOR), line_pin(2, author=BOB_ACTOR)]))
         self.assertNotIn("[Alice Kim]", one)
         self.assertIn("[Alice Kim] note 1", two)
         self.assertIn("[Bob Park] note 2", two)
@@ -247,7 +256,7 @@ class LongLineQuote(unittest.TestCase):
         self.assertIn("보기 전용 PDF 의 핀은 줄 번호가 없다", md)
 
 
-class Documents(unittest.TestCase):
+class DocumentSections(unittest.TestCase):
     """Several documents, or a pin under a key not configured, group the rows into subsections."""
 
     def test_multi_document_sections_in_configured_order(self):
@@ -286,7 +295,7 @@ class ReviewTable(unittest.TestCase):
     def test_rows_sorted_with_author_and_answer(self):
         """Rows by id; the author confirms; a close with no reply says so; ref follows the reply."""
         rows = [
-            line_pin(5, done=True, review=True, author=BOB, close_reply="  fixed\n it ", close_ref="PR #3"),
+            line_pin(5, done=True, review=True, author=BOB_ACTOR, close_reply="  fixed\n it ", close_ref="PR #3"),
             line_pin(2, done=True, review=True, kind_req="question"),
         ]
         md = pins_md_text(page(rows))
@@ -307,14 +316,14 @@ class ReviewTable(unittest.TestCase):
         self.assertIn("| 1 | `main.tex L4-L5` |", pins_md_text(page(rows, {1: facts(doc_key="gone")})))
 
 
-class Helpers(unittest.TestCase):
+class RenderHelpers(unittest.TestCase):
     """The small pure pieces the text is built from."""
 
     def test_flat_collapses_whitespace_and_truncates(self):
         """Runs of whitespace become one space; over n characters ends with an ellipsis within n."""
-        self.assertEqual(render.flat(" a\n\tb  c ", 10), "a b c")
-        self.assertEqual(render.flat("abcdefghij", 5), "abcd…")
-        self.assertEqual(render.flat(None, 5), "")
+        self.assertEqual(mapping.flat(" a\n\tb  c ", 10), "a b c")
+        self.assertEqual(mapping.flat("abcdefghij", 5), "abcd…")
+        self.assertEqual(mapping.flat(None, 5), "")
 
     def test_region_text_tolerates_a_malformed_frac(self):
         """A frac that is not four numbers reads as zeros instead of failing the whole sheet."""
@@ -352,7 +361,7 @@ class PinsMdV2(Base):
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
             # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
-            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})
+            ps.set_done(pid, True, {"login": "a@example.com", "name": "A"})
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -547,20 +556,20 @@ class AuthorPrefixInPinsMd(Base):
     # the author prefix has the form '[name] ' (§api.md note has [author] up front) — the old '@name: '
     # shape was misread as an @-mention (observed: '@Wendy Kim: …' in pins.md looked like a mention).
     def test_single_author_has_no_prefix(self):
-        self.add(note="n", actor={"login": "alice@x.com", "name": "Wendy"})
+        self.add(note="n", actor={"login": "alice@example.com", "name": "Wendy"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Wendy]", md)
 
     def test_multiple_authors_get_prefix(self):
-        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
-        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
+        self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("[Wendy] n1", md)
         self.assertIn("[Bob] n2", md)
 
     def test_same_author_twice_does_not_trigger_prefix(self):
-        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
-        self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Wendy"})
+        self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
+        self.add(8, 8, note="n2", actor={"login": "alice@example.com", "name": "Wendy"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Wendy]", md)
 
@@ -573,7 +582,7 @@ class AuthorPrefixInPinsMd(Base):
             if r["id"] == pid1:
                 r.pop("author", None)
         ps.write_pins(rows)
-        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("[Bob] n2", md)
         self.assertNotIn("[None]", md)
@@ -581,9 +590,9 @@ class AuthorPrefixInPinsMd(Base):
 
     def test_closed_pins_excluded_from_author_count(self):
         # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
-        pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
+        pid = self.add(4, 5, note="n1", actor={"login": "alice@example.com", "name": "Wendy"})
         ps.set_done(pid, True, dict(LOCAL_ACTOR))
-        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        self.add(8, 8, note="n2", actor={"login": "bob@example.com", "name": "Bob"})
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("[Bob]", md)
 

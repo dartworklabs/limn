@@ -7,8 +7,6 @@ the composition root (server.build_arg_parser). Building the parser reads one en
 LIMN_AGENT_TOKEN_FILE (the default of --agent-token-file), and nothing else.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 

@@ -9,9 +9,7 @@ Run: uv run pytest -q tests/test_brand.py
 """
 
 import json
-import os
 import re
-import shutil
 import struct
 import unittest
 import zlib
@@ -19,9 +17,9 @@ from urllib.parse import unquote
 
 from limn import mark
 
-from helpers import ps, req, split_resp
-from test_access import AccessBase, talk_to
-from test_viewer_files import viewer_text
+from helpers import ps, req, split_resp, viewer_text
+from helpers_access import AccessBase, talk_to
+from helpers_browser import ChromiumTestCase
 
 ACCENT = "#1d4ed8"
 
@@ -194,35 +192,14 @@ class FaviconRoutes(AccessBase):
         self.assertEqual((code, body), (204, b""))
 
 
-class MarkInTheBrowser(unittest.TestCase):
+class MarkInTheBrowser(ChromiumTestCase):
     """Real Chromium: the mark renders at its size in both themes, filled by the right tokens."""
 
     @classmethod
     def setUpClass(cls):
         """Start Chromium once (skip without Playwright or a browser, fail if LIMN_TEST_REQUIRE_BROWSER=1)."""
-        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            if required:
-                raise
-            raise unittest.SkipTest("Playwright unavailable") from None
-        cls.pw = sync_playwright().start()
-        exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-        try:
-            cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
-        except Exception as e:  # no bundled or system browser
-            cls.pw.stop()
-            if required:
-                raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
+        super().setUpClass()
         cls.html = ps.build_html("A-DEMO", ACCENT).replace("\nboot();", "\n")
-
-    @classmethod
-    def tearDownClass(cls):
-        """Close the browser and Playwright."""
-        cls.browser.close()
-        cls.pw.stop()
 
     def page(self, theme):
         """The viewer markup alone (boot() off), desktop width, in theme."""

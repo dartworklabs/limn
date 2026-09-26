@@ -13,8 +13,6 @@ Pure: no files, no clock and no state beyond the constants below - png() memoise
 rounded), which changes nothing observable.
 """
 
-from __future__ import annotations
-
 import functools
 import math
 import re

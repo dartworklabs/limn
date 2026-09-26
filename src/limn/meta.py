@@ -11,8 +11,6 @@ value - the --git-pull sync status, the pins as read, which document a pin belon
 the agent contract; a change here must keep every body byte-identical.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +19,7 @@ from typing import Any
 from limn import build
 from limn.documents import Doc
 from limn.outline import toc_labels
+from limn.pins.model import OpenPin, state_of
 
 AUX_MAX_BYTES = 4 * 1024 * 1024  # a larger .aux is not read for outline labels
 
@@ -84,7 +83,7 @@ def docs_payload(
     counted in other_open."""
     counts: dict[str, int] = {}
     for r in rows:
-        if not r.get("done"):
+        if state_of(r) is OpenPin:
             k = doc_of(r)
             counts[k] = counts.get(k, 0) + 1
     known = {d.key for d in docs}

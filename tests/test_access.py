@@ -14,166 +14,42 @@ import json
 import os
 import re
 import shutil
-import socket
 import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import access, config
+from limn import access
 from limn.access import LOCAL_ACTOR, load_tokens
-from limn.cli import cli_audit
-from limn.config import Cfg
 from limn.pins import render as md_render
 from limn.pins.view import pin_state
 from limn.service.context import is_agent
 from limn.startup import StartupRefused
 from limn.web.answers import CONFIRM_BY_HUMAN
 
-from helpers import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
+from helpers import extract_js_fn, ps, run_node
+from helpers_access import (
+    ALICE,
+    BOB,
+    CAROL,
+    AccessBase,
+    configure,
+    get,
+    load_people_file,
+    mask,
+    member_add,
+    member_remove,
+    member_set_role,
+    reset_access,
+    token_create,
+    token_revoke,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
-
-ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
-BOB = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
-CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
-
-ACCESS_DEFAULTS = dict(
-    auth="tailscale",
-    agent_loopback=True,
-    tailnet_agent=False,
-    bind="127.0.0.1",
-    public_hosts=(),
-    trusted_proxies=Cfg.trusted_proxies,
-    proxy_user_header="X-Forwarded-User",
-    proxy_name_header="X-Forwarded-Preferred-Username",
-    proxy_email_header=None,
-    members_only=False,
-    local_user=None,
-    insecure=False,
-    agent_token_file=None,
-)
-
-
-def reset_access(mod=ps):
-    """Access settings back to the v0.1-equivalent defaults (the Cfg object is shared by every test module)."""
-    for k, v in ACCESS_DEFAULTS.items():
-        setattr(mod.C, k, v)
-    mod.C.allow = frozenset()
-    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)  # a fresh process: warns again
-    mod.TOKENS_CACHE = access.FileCache()
-    mod.ROLES_CACHE = access.FileCache()
-
-
-def token_create(state, name=None):
-    """`limn token create` on state as the CLI runs it: limn.access with limn.cli.cli_audit -> (entry, plaintext)."""
-    return access.token_create(state, name, cli_audit(state))
-
-
-def token_revoke(state, ref):
-    """`limn token revoke` on state as the CLI runs it -> the removed entry, or None."""
-    return access.token_revoke(state, ref, cli_audit(state))
-
-
-def member_add(state, login, role=access.DEFAULT_ROLE, name=None):
-    """`limn member add` on state as the CLI runs it, with limn.cli.cli_audit -> the new entry."""
-    return access.member_add(state, login, role, name, cli_audit(state))
-
-
-def member_remove(state, login):
-    """`limn member remove` on state as the CLI runs it -> the removed entry, or None."""
-    return access.member_remove(state, login, cli_audit(state))
-
-
-def member_set_role(state, login, role):
-    """`limn member role` on state as the CLI runs it -> the updated entry, or None."""
-    return access.member_set_role(state, login, role, cli_audit(state))
-
-
-def load_people_file(state, mod=ps):
-    """people.json as `limn member list` reads it (strict: ValueError for an unreadable file)."""
-    return access.load_people_file(state)
-
-
-def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:
-    """One request over a socketpair to mod.Handler, from the given TCP peer address."""
-    a, b = socket.socketpair()
-
-    def serve():
-        try:
-            mod.Handler(b, (peer, 0), None)
-        finally:
-            b.close()
-
-    t = threading.Thread(target=serve, daemon=True)
-    t.start()
-    a.sendall(raw)
-    shut_wr(a)
-    a.settimeout(10)
-    out = b""
-    try:
-        while True:
-            chunk = a.recv(65536)
-            if not chunk:
-                break
-            out += chunk
-    finally:
-        a.close()
-    t.join(10)
-    return out
-
-
-class AccessBase(Base):
-    def setUp(self):
-        super().setUp()
-        reset_access()
-        ps._PEOPLE_SEEN.clear()
-
-    def tearDown(self):
-        reset_access()
-        super().tearDown()
-
-    def call(self, method, path, body=None, headers=None, peer="127.0.0.1", token=None):
-        h = dict(headers or {})
-        raw = b""
-        if body is not None:
-            raw = json.dumps(body).encode()
-            h["Content-Type"] = "application/json"
-        if token is not None:
-            h["Authorization"] = "Bearer %s" % token
-        code, hdrs, out = split_resp(talk_to(ps, req(method, path, raw, h), peer))
-        try:
-            data = json.loads(out)
-        except ValueError:
-            data = out.decode("utf-8", "replace")
-        self.last_headers = hdrs
-        return code, data
-
-    def pin_id(self, headers=None, token=None, lo=4, hi=5, peer="127.0.0.1"):
-        code, d = self.call(
-            "POST",
-            "/api/pin",
-            {"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": "n"},
-            headers,
-            peer,
-            token,
-        )
-        self.assertEqual(code, 200, d)
-        return d["id"]
-
-    def people_file(self):
-        return json.loads(ps.C.people_file.read_text(encoding="utf-8"))["people"] if ps.C.people_file.exists() else []
-
-    def set_people(self, rows):
-        ps.C.people_file.write_text(
-            json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
-        )
-
 
 # ---------------------------------------------------------------- identity providers
 
@@ -1014,11 +890,6 @@ V01_PINS_MD = """\
 |---|---|---|---|
 | 4 | `main.tex L19-L19` | Alice Kim | 고쳤음 (PR #1) |
 """
-TIME_LINE = re.compile(r"^갱신: \d{4}-\d\d-\d\d \d\d:\d\d  ·", re.M)
-
-
-def mask(md: str) -> str:
-    return TIME_LINE.sub("갱신: <갱신>  ·", md)
 
 
 def load_v01():
@@ -1038,39 +909,6 @@ def load_v01():
     spec.loader.exec_module(mod)
     shutil.rmtree(d, ignore_errors=True)
     return mod
-
-
-def configure(mod, src: Path, main: Path, state: Path) -> None:
-    """The same run configuration Base uses, applied to any server module (v0.1 or current)."""
-    C = mod.C
-    C.src, C.main, C.state, C.build = src, main, state, state / "build"
-    C.port, C.dpi, C.timeout = 18999, 150, 60
-    C.envs = tuple(mod.DEFAULT_ENVS.split(","))
-    C.allow = frozenset()
-    C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
-    C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-    mod.BUILD_STATE.update(
-        state="idle",
-        phase=None,
-        started_at=None,
-        start_ts=None,
-        seq=0,
-        finished_at=None,
-        last=None,
-        errors=[],
-        log_tail="",
-        head=None,
-        pull=None,
-    )
-    mod.set_docs(None)
-    mod.init_seq()
-    if hasattr(mod, "TOKENS_CACHE"):
-        reset_access(mod)
-
-
-def get(mod, path, headers=None):
-    code, _, body = split_resp(talk_to(mod, req("GET", path, b"", headers)))
-    return code, body.decode("utf-8")
 
 
 class Migration(AccessBase):
