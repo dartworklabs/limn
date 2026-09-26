@@ -3968,19 +3968,48 @@ def check_role(p: Principal, path: str) -> None:
 
 VIEWER_DIR = Path(__file__).resolve().parent / "viewer"
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
+VIEWER_MANIFEST = "parts.txt"                                    # the ordered list of parts, beside index.html
+VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")    # folder/name.ext: never leaves the viewer folder
+
+
+def viewer_manifest(directory: Path) -> dict[str, tuple[str, ...]]:
+    """The viewer's part files per marker, in page order, as listed in directory/parts.txt.
+
+    The manifest is a marker line (__APP_CSS__, __APP_JS__) followed by the paths of its parts, relative to the
+    folder; "#" starts a comment and blank lines are skipped. Every marker has a non-empty list, and a path appears
+    once. Anything else is a packaging defect and raises ValueError (a missing manifest raises OSError).
+    """
+    parts: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for raw in (directory / VIEWER_MANIFEST).read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line in VIEWER_MARKERS and line not in parts:
+            current = parts[line] = []
+        elif current is not None and VIEWER_PART_RE.fullmatch(line):
+            current.append(line)
+        else:
+            raise ValueError("viewer manifest %s: unexpected line %r" % (VIEWER_MANIFEST, raw))
+    names = [n for ns in parts.values() for n in ns]
+    if set(parts) != set(VIEWER_MARKERS) or not all(parts.values()) or len(names) != len(set(names)):
+        raise ValueError("viewer manifest %s must list each of %s once, with parts, and no part twice"
+                         % (VIEWER_MANIFEST, ", ".join(VIEWER_MARKERS)))
+    return {m: tuple(parts[m]) for m in VIEWER_MARKERS}
 
 
 def load_viewer_html(directory: Path) -> str:
     """The viewer page with its stylesheet and main script inlined, as one HTML string.
 
-    index.html carries one __APP_CSS__ and one __APP_JS__ marker; app.css and app.js hold the text that
-    goes there, byte for byte. Inlining keeps GET / a single response with no extra routes. A missing or
-    malformed file is a packaging defect and raises at import (OSError / ValueError).
+    index.html carries one __APP_CSS__ and one __APP_JS__ marker. The parts listed under each marker in parts.txt
+    (viewer_manifest) are joined in that order, byte for byte, and put where the marker was - the CSS parts into the
+    one <style>, the JS parts into the one <script>, so no build step or module loader is involved. Inlining keeps
+    GET / a single response with no extra routes. A missing or malformed file is a packaging defect and raises at
+    import (OSError / ValueError).
     """
     page = (directory / "index.html").read_text(encoding="utf-8")
-    parts = {"__APP_CSS__": (directory / "app.css").read_text(encoding="utf-8"),
-             "__APP_JS__": (directory / "app.js").read_text(encoding="utf-8")}
-    for marker, text in parts.items():
+    for marker, names in viewer_manifest(directory).items():
+        text = "".join((directory / name).read_text(encoding="utf-8") for name in names)
         if page.count(marker) != 1 or any(m in text for m in VIEWER_MARKERS):
             raise ValueError("viewer template marker %s must appear exactly once in index.html" % marker)
         page = page.replace(marker, text)

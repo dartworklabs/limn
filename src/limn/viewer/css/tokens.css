@@ -1,0 +1,42 @@
+
+/* ---------------- Design tokens (docs/handbook/viewer.md §디자인 토큰과 컴포넌트). Borrows only shadcn/ui's system (names/roles) - no code.
+   Color literals live only in these two blocks (dark :root, light :root[data-theme=light]). Every rule uses var(--...).
+   A regression test (FrontendDesignTokens) blocks color/radius/font-size literals outside these blocks. Neutral colors are the zinc family. */
+:root{color-scheme:dark;
+  --background:#09090b;--foreground:#fafafa;
+  --sidebar:#18181b;--card:#131316;--card-foreground:#fafafa;--popover:#18181b;--popover-foreground:#fafafa;
+  --muted:#27272a;--muted-foreground:#a1a1aa;--subtle-foreground:#8b8b94;
+  --secondary:#27272a;--secondary-foreground:#fafafa;--accent:#2e2e33;--accent-foreground:#fafafa;
+  --border:#27272a;--border-strong:#52525b;--input:#3f3f46;--field:#0c0c0e;--code:#0c0c0e;--outline-bg:#3f3f4633;
+  --primary:#6ea8fe;--primary-foreground:#0b1220;--ring:var(--primary);
+  --destructive:#f0787a;--destructive-foreground:#1f0708;
+  --success:#4ec9a0;--success-foreground:#06231b;--warning:#e0a458;--warning-foreground:#2a1a04;
+  --status-open:var(--success);--status-open-foreground:var(--success-foreground);--status-claimed:#f0b43c;
+  --status-closed:var(--success);--status-dropped:#71717a;--status-warning:var(--warning);
+  --status-review:#b197fc;--status-review-foreground:#1e1033;
+  --tooltip:#09090b;--tooltip-foreground:#fafafa;
+  --shadow-color:#00000088;--shadow-page:0 2px 18px var(--shadow-color)}
+:root[data-theme=light]{color-scheme:light;
+  --background:#e4e4e7;--foreground:#09090b;
+  --sidebar:#ffffff;--card:#fafafa;--card-foreground:#09090b;--popover:#ffffff;--popover-foreground:#09090b;
+  --muted:#f4f4f5;--muted-foreground:#52525b;--subtle-foreground:#71717a;
+  --secondary:#f4f4f5;--secondary-foreground:#18181b;--accent:#e4e4e7;--accent-foreground:#09090b;
+  --border:#e4e4e7;--border-strong:#a1a1aa;--input:#d4d4d8;--field:#ffffff;--code:#f4f4f5;--outline-bg:#ffffff;
+  --primary:#1860cf;--primary-foreground:#ffffff;
+  --destructive:#cf222e;--destructive-foreground:#ffffff;
+  --success:#1a7f5a;--success-foreground:#ffffff;--warning:#8a5c00;--warning-foreground:#ffffff;
+  --status-claimed:#b86e00;--status-dropped:#71717a;
+  --status-review:#6d28d9;--status-review-foreground:#ffffff;
+  --tooltip:#18181b;--tooltip-foreground:#fafafa;
+  --shadow-color:#00000022;--shadow-page:0 1px 6px var(--shadow-color)}
+/* Theme-independent scales: radius in 3 steps (only circular dots/avatars use 50%), text in 5 steps, spacing in
+   6 steps, control heights. The label color (--brand) is filled in per instance by the server (--accent argument) and stays fixed across theme changes. */
+:root{--brand:__ACCENT__;--brand-foreground:#ffffff;
+  --outline-width:240px;--doc-nav-h:44px;
+  --radius-sm:4px;--radius:6px;--radius-lg:10px;
+  --text-xs:11px;--text-sm:12px;--text-base:13px;--text-lg:14px;--text-xl:16px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;
+  --control-h-sm:24px;--control-h:28px;--control-h-lg:36px;--control-h-touch:44px;
+  --shadow-sm:0 1px 4px var(--shadow-color);--shadow:0 4px 16px var(--shadow-color);--shadow-lg:0 6px 24px var(--shadow-color);
+  --font-sans:-apple-system,BlinkMacSystemFont,"Pretendard","Noto Sans KR",sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,monospace}

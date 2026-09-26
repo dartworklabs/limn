@@ -36,7 +36,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 4,451 | 설정, 문서 목록(`DOCS`), 빌드 연결(`build_all`·`build_async`: `BuildConfig`·`--git-pull`·보기 전용 그리기를 묶는다)과 `--git-pull`·원격 main 감시, 원고 이력·비교 PDF 서비스를 이 인스턴스에 묶는 연결(`revision_context`), 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 4,480 | 설정, 문서 목록(`DOCS`), 빌드 연결(`build_all`·`build_async`: `BuildConfig`·`--git-pull`·보기 전용 그리기를 묶는다)과 `--git-pull`·원격 main 감시, 원고 이력·비교 PDF 서비스를 이 인스턴스에 묶는 연결(`revision_context`), 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 입구. 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
 | [`src/limn/web/`](../../src/limn/web/handler.py) | 1,905 | HTTP 층(2026-09-26 옮김): 처리기와 서버 클래스·본문 읽기와 한도·GET/POST 경로 분기(`handler.py`), 요청 본문·쿼리의 파서(`parse.py`: 값이나 `InputRejected`를 돌려주고 처리기가 400으로 답한다), 핀 조작과 원고 이력 결과마다의 응답(`answers.py`), `HTTPError`·`InputRejected`·핀 단위 변경 거절 표·비교 PDF 실패 문구 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`의 `App` 프로토콜). `server.py`를 가져오지 않는다 (`tests/test_web.py`가 검사) |
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/revisions.py`](../../src/limn/revisions.py) | 936 | 원고 이력의 git 쪽(2026-09-26 옮김): 최근 커밋, 한 커밋의 소스 diff(핀 단위 포함), 비교 PDF 빌드(스냅숏·격리 실행·캐시·작업 스레드). 문서와 `RevisionContext`(핀 목록, 옮긴 경로 찾기, 프로세스의 범위 캐시와 작업 목록, 실패 문구)를 인자로 받고, 거절과 실패를 값으로 돌려준다. `C`·`cur_doc()`·서버·HTTP 층을 모른다 (`tests/test_scope.py`가 검사) |
@@ -47,14 +47,14 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 1,061 | 핀 도메인의 순수 코드: 상태 타입과 그 상태에만 있는 필드(`Claim`·`Close`·`Confirmation`·`Dropped`), 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/mark.py`](../../src/limn/mark.py) | 125 | Limn 마크(점에서 시작해 줄로 이어지는 한 획)의 기하 하나와 세 모양: 뷰어 인라인 SVG, 파비콘 SVG, 표준 라이브러리만으로 그리는 PNG. 순수하다 (`tests/test_brand.py`) |
-| [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
+| [`src/limn/viewer/`](../../src/limn/viewer/parts.txt) | 4,123 | 뷰어 화면: `index.html`(175), 스타일 조각 `css/` 10개(902), 스크립트 조각 `js/` 35개(2,985), 조각 순서 `parts.txt`(61). 서버가 시작할 때 `parts.txt` 순서대로 조각을 이어 `index.html`에 끼우고 한 장의 HTML로 내보낸다. 빌드 단계·모듈 로더는 없다 ([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때) |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,628 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 271 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
 | [`src/limn/cli.py`](../../src/limn/cli.py) | 492 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
-`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·원고 이력 연결(2026-09-26부터 `limn/revisions.py`·`limn/scope.py`)·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소(2026-09-26부터 `limn/store.py`를 조립하고 옛 이름으로 넘기는 셸)·위치 추정·겹침·요청 문서와 파싱 사실·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기 연결·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
+`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·원고 이력 연결(2026-09-26부터 `limn/revisions.py`·`limn/scope.py`)·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소(2026-09-26부터 `limn/store.py`를 조립하고 옛 이름으로 넘기는 셸)·위치 추정·겹침·요청 문서와 파싱 사실·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기 연결·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계). 같은 날 스크립트와 스타일을 책임별 조각 파일로 나눴고, 서버는 조각을 정해진 순서로 이어 붙이기만 한다 (R6).
 
 `server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 이때 `limn/` 폴더 자체도 `sys.path` 맨 앞에 오므로, 표준 라이브러리 모듈과 이름이 같은 패키지(`limn/http/` 등)를 두면 표준 모듈(`http.server`)이 가려져 서버가 뜨지 않는다. HTTP 층을 `http/`가 아니라 `web/`에 둔 이유다. 서버와 옮긴 모듈은 Python 3.10 이상에서만 돈다. `server.py`가 `match` 문을 쓰므로 3.9는 파일을 읽는 단계에서 `SyntaxError`로 멈춘다. 옮긴 모듈이 `from __future__ import annotations`로 시작하는 것은 옆 모듈과 모양을 맞춘 것이지, 오래된 파이썬을 위한 장치가 아니다. 인스턴스 경로가 안전한 이유는 두 가지다. `limn run`(systemd 유닛이 부르는 명령)은 자기가 도는 도구 가상환경의 파이썬을 `LIMN_PYTHON`으로 넘기고, 그 파이썬은 설치 때 `requires-python >= 3.10`을 이미 통과했다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH에서 3.10 이상인 파이썬을 찾는다. 없으면 `help`를 뺀 모든 명령이 무엇이든 시작하기 전에 멈추고, 그 파이썬의 경로·버전·고치는 법을 한 줄로 알린다([instances.md](instances.md) §환경 변수).
 
@@ -110,7 +110,7 @@ src/limn/
 │   ├── app.py           처리기가 부르는 서비스 목록(App) — 지금은 server.py의 셸 이름 그대로
 │   ├── parse.py         요청 본문·쿼리 파서 — 값이나 InputRejected (2026-09-26 옮김)
 │   └── (신원 헤더는 아직 server.py)
-├── viewer/              index.html · app.css · app.js — 패키지 데이터 파일
+├── viewer/              index.html · parts.txt(조각 순서) · css/ · js/ — 패키지 데이터 파일, 서버가 한 장으로 잇는다
 ├── server.py            조립 지점: 설정 파싱, 자원 생성, 스레드 시작·종료
 ├── instances.sh
 └── migrate.py
@@ -132,7 +132,7 @@ src/limn/
 
 ### 2. 서버 런타임은 표준 라이브러리만 쓴다
 
-`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js와 Lucide만 쓴다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, Playwright, Ruff, ShellCheck, mypy)은 이 규칙과 무관하다.
+`pyproject.toml`의 `dependencies = []`가 이 규칙의 실행 정본이다. Python 3.10 이상에서 돈다. 뷰어도 React·Tailwind·빌드 단계·CDN 없이 번들한 PDF.js와 Lucide만 쓴다. 뷰어의 CSS·JS를 여러 조각 파일로 나눈 뒤에도 번들러나 모듈 로더를 들이지 않는다. 서버가 `parts.txt` 순서대로 조각을 이어 인라인 `<style>`·`<script>` 하나씩으로 내보낸다. 배포가 패키지 설치 하나로 끝나야 연구실 머신에서 유지할 수 있기 때문이다. 개발 의존성(pytest, Playwright, Ruff, ShellCheck, mypy)은 이 규칙과 무관하다.
 
 ### 3. 에이전트 계약은 호환을 깨지 않는다
 

@@ -1,0 +1,159 @@
+/* Status (docs/handbook/viewer.md §상태 표현): the left-edge color stripe was removed (author feedback 2026-09-24 - looked dated). Distinguished by the small
+   dot color at the front of the card header plus a matching badge (text/icon) - never by color alone. Open is green, in-progress is amber, awaiting review is purple, location lost is the warning color.
+   Closed/dropped aren't a card at all but a faded archive row, where a leading icon (check/trash-2) is the status. */
+.st-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status-open)}
+.st-dot.claimed{background:var(--status-claimed)}
+.st-dot.review{background:var(--status-review)}
+.st-dot.lost{background:var(--status-warning)}
+.st-dot.done{background:var(--status-closed)}
+.st-dot.dropped{background:var(--status-dropped)}
+.badge-reopen{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
+.badge-review{background:color-mix(in srgb,var(--status-review) 14%,transparent);color:var(--status-review)}
+button.badge-review{font-weight:600}
+.rv-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 var(--space-1);margin-left:2px;border-radius:var(--radius-lg);
+  background:var(--status-review);color:var(--status-review-foreground);font-size:var(--text-xs);font-weight:700;line-height:1}
+.rv-close{margin-top:4px;color:var(--muted-foreground);font-size:var(--text-sm)}
+.rv-close b{color:var(--card-foreground);font-weight:600}
+.pin.st{border-color:var(--warning)}
+.pin.editing{border-color:var(--primary)}
+.pin.cur{box-shadow:0 0 0 2px var(--primary)}
+.pin.flash{animation:pinflash 1.2s ease-in-out 1}
+@keyframes pinflash{0%,100%{box-shadow:0 0 0 2px var(--primary)}50%{box-shadow:0 0 0 5px var(--primary)}}
+.pin .n{color:var(--card-foreground);font-weight:700}
+.pin .n.go{cursor:pointer;color:var(--primary);border-radius:var(--radius);padding:0 var(--space-1);margin:0 -4px}
+/* One unified link style (QA 2026-09-24): the card header's #number/line-range/N페이지 and a #12 inside a post are all "a reference
+   that navigates or copies on click" - there used to be three distinct looks: bold dotted underline, blue, gray dotted underline. Now one:
+   primary-color text, no underline at rest, solid underline on hover/focus. Gray text is non-clickable information (author/timestamp).
+   Same inside a faded archive row - the row's text is faded and only the clickable words are in the primary color. */
+:is(.loc,.pg-link,.pin .n.go,.pin-ref){text-decoration:none;text-underline-offset:3px}
+:is(.loc,.pg-link,.pin .n.go,.pin-ref):is(:hover,:focus-visible){text-decoration:underline}
+.pin .note{margin-top:4px;white-space:pre-wrap;word-break:break-word;cursor:text}
+/* Card header: number/range/page on the left, author/collapse on the right. Badges are a single row below the header. Actions form an equal-width grid; only [완료] is emphasized and [삭제] is in the destructive color. */
+.pin .head{flex-wrap:wrap;gap:var(--space-1) var(--space-2);min-height:28px}
+.pin .head .loc{white-space:nowrap}
+.pin .head .pg-link{white-space:nowrap;flex:none}
+/* Header right-side group (.h-meta = assignee chip - reply count - author): when space runs out, the whole
+   group drops to the next line, right-aligned. It used to be crammed onto one line, so an assignee chip could truncate the author's name down to a single
+   letter 'W' (QA 2026-09-24). Within the group, the assignee chip's name truncates first, then the author's name. compact (a collapsed card) keeps a single
+   line (author shown as just an avatar) and shrinks in the same order. */
+.pin .head .h-meta{display:inline-flex;align-items:center;gap:var(--space-2);margin-left:auto;min-width:0;max-width:100%}
+.h-meta .au{flex:0 1 auto;min-width:0;max-width:14em}
+.h-meta .badge-assign{flex:0 100 auto;min-width:4.5em}
+.pin .tags{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:4px}
+.pin .tags:empty{display:none}
+.pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:var(--space-2);margin-top:8px}
+.pin .acts button{min-width:0;padding-left:var(--space-1);padding-right:var(--space-1)}
+button.b-close{font-weight:600}
+/* Buttons inside a card are borderless and filled (secondary) - so six bordered buttons never line up inside an already-bordered card.
+   Only [완료] gets the soft emphasis; [삭제] is plain destructive-colored text with no fill, so it never becomes the most eye-catching button. [취소] next to an input field uses the same fill. */
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);color:var(--secondary-foreground);border-color:transparent}
+.pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default):hover{background:var(--accent)}
+.pin .acts button.btn-destructive{background:transparent}
+.pin .acts button.btn-destructive:hover{background:color-mix(in srgb,var(--destructive) 12%,transparent)}   /* [완료] = soft, [삭제] = destructive - the variant is set by the class in the markup */
+.e-acts{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--space-2);margin-top:8px}
+/* Pin kind (fix request / question) and thread (docs/handbook/viewer.md §스레드와 검토). The question badge has a primary-color border; the thread is set apart by a dotted line below the note. */
+.kind-seg{margin:8px 0 0}
+.kind-seg button{flex:1 1 0}
+.edit .kind-seg{margin:0 0 var(--space-2)}
+.badge-question{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)}
+.badge-mention{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground)}
+.badge-mention .ic{color:var(--primary)}
+.mention{color:var(--primary);font-weight:600;background:color-mix(in srgb,var(--primary) 12%,transparent);border-radius:var(--radius-sm);padding:0 var(--space-1);
+  white-space:nowrap}   /* so a name never splits across a line break into two pills, '@Bob' / 'Lee' */
+/* A resolved @-tag = primary-color text + a light-tint pill (like Slack/GitHub). A tag that mentions me is one shade darker. An unresolved '@word' is plain text. */
+.mention.me{background:color-mix(in srgb,var(--primary) 28%,transparent);color:var(--foreground)}
+.badge-assign{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--foreground);font-weight:600;flex:0 0 auto;max-width:12em;overflow:hidden;justify-content:flex-start}
+.badge-assign .as-n{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.badge-assign.me{background:color-mix(in srgb,var(--primary) 28%,transparent)}
+.assign-row{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-2)}
+.assign-row .as-lab{flex:none;color:var(--muted-foreground);font-size:var(--text-sm)}
+.assign-row .as-seg{flex:1;min-width:0;margin:0}
+body.lay-narrow #c-assign{order:1;margin:0 0 8px}
+.mention-bad{color:var(--muted-foreground);text-decoration:underline dotted;text-underline-offset:3px}
+.m-preview{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2);margin-top:var(--space-2);font-size:var(--text-sm)}
+.m-preview .m-lab{display:inline-flex;align-items:center;gap:2px;color:var(--muted-foreground)}
+.m-preview .m-lab .ic{width:12px;height:12px}
+.m-preview .m-note{color:var(--muted-foreground)}
+body.lay-narrow #note-mentions{order:1;margin:-4px 0 8px}
+/* Question-suggestion line (.q-hint): faded text + a link-style button. No box (single nesting level). Sits below the note field, so the field never shifts while typing. */
+.q-hint{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground)}
+.q-hint svg{width:14px;height:14px;flex:none}
+.q-hint button{background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
+.q-hint button:is(:hover,:focus-visible){background:transparent;color:var(--primary);text-decoration:underline}
+body.lay-narrow #c-qhint{order:1;margin:-4px 0 8px}
+/* A '#12' inside text = a link to that pin (a navigable string is dotted-underline, solid on hover - the same convention as .pg-link/#number) */
+.pin-ref{color:var(--primary);font-weight:600;cursor:pointer}
+/* '#12' pointing at a deleted pin (in the Trash): faded, struck number + 'deleted pin' - clicking opens the Trash at that row */
+.pin-ref.gone{color:var(--muted-foreground);font-weight:400}
+.pin-ref.gone small{font-size:var(--text-xs)}
+/* Trash (docs/handbook/viewer.md §휴지통): a dialog from [⋯] (compact) or the link under the list (desktop). Rows are the flat archive rows. */
+#trash{width:min(560px,calc(100vw - 16px))}
+#trash .trash-note{margin:var(--space-2) 0 0;font-size:var(--text-sm)}
+#trash .arc-list{max-height:min(60vh,520px);overflow:auto}
+.trash-left{color:var(--subtle-foreground)}
+#trash .arc-l1{flex-wrap:wrap;white-space:normal;row-gap:var(--space-1)}   /* [되살리기] [영구 삭제] drop to their own line on a phone instead of being cut off */
+#trash .arc-l1 .sp{flex:1 0 0}
+.arc-acts{flex:none;display:inline-flex;gap:var(--space-1);margin-left:auto}
+#trash-link{display:flex;margin:12px auto 0;color:var(--muted-foreground);background:transparent;border-color:transparent}
+#trash-link:hover{background:var(--accent);color:var(--foreground)}
+body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like the other secondary lists */
+.arc-row.flash{animation:pinflash 1.2s ease-in-out 1;border-radius:var(--radius)}
+/* @-tag autocomplete: a list that appears right below the input field (above it if there's no room). Never steals the input field's focus (blocks pointerdown). */
+#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;overflow:hidden;background:var(--popover);
+  color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+#mention-pop button{display:flex;width:100%;justify-content:flex-start;gap:var(--space-2);border:0;border-radius:0;background:transparent;text-align:left;padding:var(--space-2) var(--space-3)}   /* a selected row = a full-width flat band (shadcn Command) - never a rounded box within a box (single nesting level) */
+#mention-pop button[aria-selected=true]{background:var(--accent)}
+#mention-pop .ml{color:var(--muted-foreground);font-size:var(--text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#mention-pop .dim{padding:var(--space-2) var(--space-3)}
+.thread{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border)}   /* a single divider - not a box */
+.thread:empty{display:none}
+.msg{display:flex;align-items:flex-start;gap:var(--space-2);font-size:var(--text-base);line-height:1.5}
+.msg .av{width:20px;height:20px;margin-top:1px}
+.msg-b{flex:1;min-width:0}
+.msg-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--space-2);color:var(--muted-foreground);font-size:var(--text-sm)}
+.msg-h b{color:var(--foreground);font-weight:600}
+.msg-t{white-space:pre-wrap;word-break:break-word}
+.msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}   /* a single 1,000-character reply stretched a card to 1,390px (QA) */
+button.msg-more{align-self:flex-start;margin-top:2px;color:var(--muted-foreground)}
+.thread :is(button.msg-more,button.th-more){justify-content:flex-start;padding-left:var(--space-1);padding-right:var(--space-1);margin-left:calc(-1 * var(--space-1))}   /* the text aligns with the thread posts' left edge */
+.msg.ev{display:block;padding-left:28px;color:var(--muted-foreground);font-size:var(--text-sm)}
+.msg.ev .msg-t{color:var(--card-foreground);font-size:var(--text-base)}
+button.th-more{align-self:flex-start;color:var(--muted-foreground)}
+.th-n{display:inline-flex;align-items:center;gap:2px;flex:none;color:var(--muted-foreground);font-size:var(--text-xs);cursor:pointer;border-radius:var(--radius);padding:0 2px;position:relative}
+.th-n:hover{background:var(--accent);color:var(--foreground)}
+.th-n .ic{width:12px;height:12px}
+.reply-box{display:flex;flex-direction:column;gap:var(--space-2);margin-top:8px}
+.reply-box textarea{min-height:3.2em}
+.r-acts{display:grid;grid-template-columns:1fr 2fr;gap:var(--space-2)}
+.pin:has(.reply-box)>.acts{display:none}   /* while the input field is open, its own [취소]/[보내기] act as this card's action row - otherwise the two rows overlapped */
+/* The reply outcome line (docs/handbook/viewer.md §스레드와 검토): on a closed pin, one line under the box says what sending will do -
+   reopen for the agent, notify the tagged person, or keep the state - with the rarely used [상태 유지] toggle beside it. */
+.r-outcome{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);font-size:var(--text-sm);color:var(--muted-foreground)}
+.r-outcome .ic{width:14px;height:14px;flex:none}
+.r-outcome.reopen{color:var(--status-review)}
+.r-outcome .r-out-t{flex:1 1 12em;min-width:0}
+/* The override is a switch (role=switch): a small track + knob before its label, the label naming the non-default outcome.
+   On = filled track with the knob on the right. The whole button is the touch target (44px on touch, like the other controls). */
+.r-outcome button.r-keep{flex:none;gap:var(--space-2);background:transparent;border-color:transparent;color:var(--muted-foreground);padding:0 var(--space-1)}
+.r-outcome button.r-keep::before{content:"";flex:none;width:28px;height:16px;border-radius:var(--radius-lg);box-sizing:border-box;border:1px solid var(--border-strong);
+  background:radial-gradient(circle 6px at 7px 50%,var(--muted-foreground) 96%,transparent) var(--muted)}
+.r-outcome button.r-keep[aria-checked=true]{color:var(--foreground)}
+.r-outcome button.r-keep[aria-checked=true]::before{border-color:var(--primary);background:radial-gradient(circle 6px at 19px 50%,var(--primary-foreground) 96%,transparent) var(--primary)}
+.reply-box .r-err{margin:0}
+#trash .arc-l2 .arc-reply:not(.open){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.arc-sep{flex:none;color:var(--subtle-foreground)}
+.arc-thread{margin:4px 0 0 var(--space-5)}   /* indentation only - no box */
+.arc-thread .thread{margin:0;padding:0;border:0}
+.edit .c-tools{margin-top:0;flex-wrap:wrap}
+.edit .c-tools .e-range{white-space:nowrap}   /* the line range never wraps character by character - the whole thing drops to the next line if there's no room */
+.pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}
+.au{display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--text-sm);color:var(--muted-foreground);max-width:150px}
+.au .au-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au.old{font-style:italic}
+.av{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover}
+.av.i{display:inline-flex;align-items:center;justify-content:center;background:var(--primary);color:var(--primary-foreground);
+  font-size:var(--text-xs);font-weight:700;font-style:normal}
+.av.agent{background:var(--accent);color:var(--muted-foreground)}
+.av.agent .ic{width:13px;height:13px}
+.me-tag{color:var(--muted-foreground);font-weight:400}
+.edit{margin-top:var(--space-2)}

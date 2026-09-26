@@ -33,6 +33,8 @@ jobs:
     env:
       # Browser layout tests must run here, not skip.
       LIMN_TEST_REQUIRE_BROWSER: "1"
+      # So must the node --check of the served page's inline scripts (tests/test_viewer_files.py): node 22 is set up below.
+      LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,7 +99,9 @@ jobs:
           limn serve --version
           limn help | head -5
           python_dir=$(uv tool dir)/dartwork-limn
-          find "$python_dir" -path '*limn/vendor/pdfjs/pdf.min.mjs' | grep -q . && echo "pdf.js packaged"
-          find "$python_dir" -path '*limn/systemd/limn@.service' | grep -q . && echo "unit template packaged"
-          find "$python_dir" -path '*limn/instances.sh' | grep -q . && echo "instance manager packaged"
-          find "$python_dir" -path '*limn/viewer/app.js' | grep -q . && echo "viewer packaged"
+          # Each missing file fails the step (a `find | grep -q . && echo` line only fails it when it is the last one).
+          for f in vendor/pdfjs/pdf.min.mjs systemd/limn@.service instances.sh \
+                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js; do
+            find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
+            echo "packaged: $f"
+          done

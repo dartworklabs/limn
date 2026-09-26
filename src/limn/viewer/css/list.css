@@ -1,0 +1,56 @@
+/* ---------------- List sections (docs/handbook/viewer.md §목록 구획): open pins - awaiting review - done, one header component. The header spans
+   the full width and stays stuck to the top while scrolling (sticky) - so it's always clear which section is in view. Each section is wrapped in
+   <section>, so the previous header gets pushed out once the next section arrives. --stick-top is the height of the tool bar (#bar1) stuck at the
+   top in compact mode (measured by JS). The toggle button carries chevron - name - count - (collapsed only) 'new N'; tools follow it. A closed pin is a flat row, not a card. */
+.lsec{position:relative}
+.lsec+.lsec{margin-top:12px}
+.sec-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);
+  background:var(--sidebar);margin:0 -12px 4px;padding:var(--space-1) var(--space-3);border-top:1px solid var(--border);scroll-margin-top:var(--stick-top,0px)}
+#sec-open>.sec-head{border-top:0}
+/* scroll-margin-top pairs with revealList()'s scrollIntoView({block:'start'}) - without it, the browser aligns this header's
+   "static in-flow position" to the top of the viewport (0), but the sticky calculation then renders it pushed back down by stick-top.
+   The next row's in-flow position lands in that empty gap (0 to stick-top) and got completely hidden under #bar1 (a touch regression). */
+button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-width:0;margin-left:calc(-1 * var(--space-1));padding:0 var(--space-1);
+  background:transparent;border-color:transparent;color:var(--foreground);font-weight:700;white-space:nowrap;scroll-margin-top:var(--stick-top,0px)}
+button.sec-tg:hover{background:var(--accent)}
+.sec-tg>.ic{width:14px;height:14px;color:var(--muted-foreground)}
+.sec-tg .sec-name{white-space:nowrap}
+.sec-n{justify-content:center;min-width:20px;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px;font-weight:600;vertical-align:1px}
+.sec-new{flex:none;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px;font-size:var(--text-xs);font-weight:600;
+  background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--foreground)}
+/* A section header's tools (re-read/pins that call me/all documents) are borderless ghosts - an active filter shows as a filled surface */
+.sec-head button:not(.sec-tg){background:transparent;border-color:transparent;color:var(--muted-foreground);white-space:nowrap}
+.sec-head button:not(.sec-tg):hover{background:var(--accent);color:var(--foreground)}
+.sec-head button:not(.sec-tg)[aria-pressed=true]{background:var(--accent);border-color:transparent;color:var(--foreground)}
+.arc-n,.dcnt{flex:none;justify-content:center;min-width:20px;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px}
+.arc-list{padding:var(--space-2) 0 var(--space-1)}
+.arc-list>.dim{padding:var(--space-1) 0}
+.arc-row{position:relative;padding:var(--space-2) 0;color:var(--muted-foreground);font-size:var(--text-base);line-height:1.5}
+.arc-row+.arc-row{border-top:1px solid var(--border)}   /* a flat row - a single divider, no stripe or box */
+.arc-row.dropped{color:var(--subtle-foreground)}
+.arc-row.dropped .arc-l1>.ic{color:var(--status-dropped)}
+.arc-row .ic{width:14px;height:14px}
+.arc-row.done .arc-l1>.ic{color:var(--status-closed)}
+.arc-l1{display:flex;align-items:center;gap:var(--space-1);min-height:26px;white-space:nowrap}
+.arc-l1 .n{font-weight:700}
+.arc-l1 .loc{font-size:var(--text-sm)}
+.arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */
+.arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.arc-l1 .loc{flex:none;overflow:visible}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
+button.arc-b{flex:none;color:var(--muted-foreground)}
+button.arc-b:hover{color:var(--foreground)}
+.arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
+.arc-reply{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.arc-reply.open{white-space:pre-wrap;overflow:visible;word-break:break-word}
+.arc-reply.none{font-style:italic;cursor:default}
+button.arc-orig-t{flex:none;background:transparent;border-color:transparent;color:var(--primary);padding:0 var(--space-1);font-size:var(--text-sm);text-underline-offset:3px}
+button.arc-orig-t:hover,button.arc-orig-t:focus-visible{background:transparent;color:var(--primary);text-decoration:underline}   /* a text action inside a row also uses the unified link style (primary color, underline on hover) */
+.arc-orig{margin:4px 0 0 var(--space-5);white-space:pre-wrap;word-break:break-word;color:var(--card-foreground)}
+.arc-orig b{display:block;font-size:var(--text-xs);font-weight:600;margin-bottom:2px}
+h3{margin:0 0 var(--space-2);font-size:var(--text-sm);color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em}
+.hint{padding:var(--space-4) var(--space-3);color:var(--muted-foreground);font-size:var(--text-base);text-align:center;line-height:1.85}
+kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px var(--space-1);font:inherit;font-size:var(--text-xs);white-space:nowrap}   /* the browser's default monospace font rendered a Korean button name ('길게 누르기') with awkward spacing */
+.spin{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;
+  animation:rot .8s linear infinite;display:inline-block}
+@keyframes rot{to{transform:rotate(360deg)}}
