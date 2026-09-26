@@ -6,16 +6,16 @@ locks; an import would reach a different copy than the one serving. Instead the 
 subclass to itself (server.Handler.app), and the handler calls through that at request time - so a name the tests
 rebind on their server copy (mock.patch.object(ps, "build_async")) is the one the handler calls.
 
-The members are server.py's current shells, most still reading the global C and the thread's current document;
-stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments. The handler parses what
-a route takes from the request (limn.web.parse) and passes the parsed values. Values the handler only passes back (a
+The members are server.py's services and wirings. The handler finds the request's document (request_doc) and passes
+it to every member that acts on one - there is no "current document" - and it parses what a route takes from the
+request (limn.web.parse) and passes the parsed values. Some members still read the run settings C themselves;
+stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments. Values the handler only passes back (a
 document) are typed by what the handler reads of them. tests/test_web.py checks that server.py provides every member.
 """
 from __future__ import annotations
 
 import re
 from collections.abc import Collection, Mapping, Sequence
-from contextlib import AbstractContextManager
 from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
@@ -154,16 +154,8 @@ class App(Protocol):
         """The logins an assignee in body d is checked against: the known people when d names one, else none."""
         ...
 
-    def using_doc(self, d: Document) -> AbstractContextManager[object]:
-        """Make d the thread's current document for the block."""
-        ...
-
-    def cur_doc(self) -> Document:
-        """The thread's current document."""
-        ...
-
-    def cur_pages(self) -> Path:
-        """The current document's page-image directory."""
+    def cur_pages(self, D: Document) -> Path:
+        """Document D's page-image directory on screen (limn.build.cur_pages)."""
         ...
 
     # ---- reads
@@ -184,8 +176,8 @@ class App(Protocol):
         """The pins, re-synced and saved under the pin lock."""
         ...
 
-    def meta(self, actor: Json, light: bool = False) -> Json:
-        """GET /api/meta for the current document."""
+    def meta(self, D: Document, actor: Json, light: bool = False) -> Json:
+        """GET /api/meta for document D."""
         ...
 
     def events_since(self, actor: Json, cursor: int | None) -> Json:
@@ -212,8 +204,8 @@ class App(Protocol):
         """GET /api/outline-labels."""
         ...
 
-    def build_state_snapshot(self) -> Json:
-        """GET /api/build for the current document."""
+    def build_state_snapshot(self, D: Document) -> Json:
+        """GET /api/build for document D (limn.build.state_snapshot)."""
         ...
 
     def diet_log(self, payload: Json, full: bool) -> Json:
@@ -256,8 +248,8 @@ class App(Protocol):
         """The bundled PDF.js file GET /vendor/pdfjs/<name> serves, or None."""
         ...
 
-    def build_pdf(self, name: str) -> Path | None:
-        """The PDF of build `name` of the current document, or None."""
+    def build_pdf(self, D: Document, name: str) -> Path | None:
+        """The PDF of build `name` of document D, or None (limn.build.build_pdf)."""
         ...
 
     def public(self, r: Record) -> Json:
@@ -327,10 +319,10 @@ class App(Protocol):
         """POST /api/revision-build."""
         ...
 
-    def build_all(self) -> Json:
-        """POST /api/rebuild: build the current document now."""
+    def build_all(self, D: Document) -> Json:
+        """POST /api/rebuild: build document D now."""
         ...
 
-    def build_async(self) -> Json:
-        """POST /api/rebuild?async=1: start the build in the background."""
+    def build_async(self, D: Document) -> Json:
+        """POST /api/rebuild?async=1: start document D's build in the background."""
         ...

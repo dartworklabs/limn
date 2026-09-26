@@ -77,7 +77,12 @@ from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap abov
 from limn.files import atomic_write, file_in_tree  # noqa: E402 - after the path bootstrap above
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
-from limn.documents import DocNotFound  # noqa: E402 - after the path bootstrap above
+from limn.documents import (  # noqa: E402 - after the path bootstrap above
+    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound,
+)
+# The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
+# document (web/app.py); they are limn.build's own functions, bound here without a shell.
+from limn.build import build_pdf, cur_pages, state_snapshot as build_state_snapshot  # noqa: E402,F401
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
@@ -333,96 +338,9 @@ C = Cfg()
 
 # ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
 #
-# A single paper repo has several documents - the body, the review response, the cover letter. One viewer
-# (one address) switches between them. The pin store (pins.jsonl/pins.seq) is singular - pin numbers must
-# be unique across documents so "handle #12" is unambiguous. Build/page images/PDF copy/build history live
-# under a per-document folder (Doc.dir). A single request handles a single document, and it's hung off a
-# thread-local value (using_doc) - so request code can look at "the current document" without taking a
-# parameter, keeping the existing code paths as-is. The build itself (limn/build.py) takes the document as an
-# argument; a Doc carries that document's build lock, build state, history lock and src_mtime memo.
-
-DOC_KEY_RE = re.compile(r"[a-z0-9-]{1,24}")
-DOC_NAME_MAX = 40
-DOCS_MAX = 12
-DEFAULT_DOC_KEY = "main"
-
-
-class Doc:
-    """One document. kind is 'tex' (LaTeX, lines traced back via SyncTeX) or 'pdf' (view-only - page/region only).
-
-    legacy=True means a single document started without --doc. The manuscript path/state folder are read
-    from C on demand (C.src/C.main/C.state/C.build) - this keeps the legacy state-folder layout working, and
-    the regression tests that swap out C keep working too. root=True puts build artifacts at the state
-    folder root (the same place as for a single document). Under --doc, only the LaTeX document keyed
-    main gets this - so adding documents to a single-document instance keeps the body's build history
-    (the source of location estimation) continuous."""
-
-    def __init__(self, key: str, name: str, kind: str = "tex", src: Path = None, main: Path = None,
-                 legacy: bool = False, root: bool = None, lock=None, bstate=None, bstate_lock=None,
-                 builds_lock=None, mcache=None):
-        self.key, self.name, self.kind = key, name, kind
-        self._src, self._main, self.legacy = src, main, legacy
-        self.root = legacy if root is None else root
-        self.lock = lock or threading.Lock()
-        self.bstate = bstate if bstate is not None else _fresh_build_state()
-        self.bstate_lock = bstate_lock or threading.Lock()
-        self.builds_lock = builds_lock or threading.Lock()
-        self.mcache = mcache if mcache is not None else [None, 0.0, 0.0]
-
-    @property
-    def src(self) -> Path:
-        """Build root - the scope copied into the build copy. For view-only, the folder holding the PDF."""
-        return C.src if self.legacy else self._src
-
-    @property
-    def main(self) -> Path:
-        """The main .tex for LaTeX, or the PDF file for view-only."""
-        return C.main if self.legacy else self._main
-
-    @property
-    def dir(self) -> Path:
-        """Per-document state folder - page images, build history, built_at, etc."""
-        return C.state if self.root else C.state / "docs" / self.key
-
-    @property
-    def build(self) -> Path:
-        return C.build if self.legacy else self.dir / "build"
-
-    @property
-    def main_rel(self) -> Path:
-        try:
-            return self.main.relative_to(self.src)
-        except ValueError:
-            return Path(self.main.name)
-
-    @property
-    def out(self) -> Path:
-        """The folder where latexmk runs and the PDF comes out. A --doc document runs in the folder holding
-        its main .tex (the same as running latexmk there normally would - the build root before '::' is only
-        the copy scope). A single document is the build root, as before."""
-        return self.build if self.legacy else self.build / self.main_rel.parent
-
-    @property
-    def pdf_name(self) -> str:
-        """Name of the PDF copy inside the page directory."""
-        return self.main.stem + ".pdf"
-
-    @property
-    def is_pdf(self) -> bool:
-        return self.kind == "pdf"
-
-    def rel_path(self) -> str:
-        """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""
-        try:
-            return str(self.main.resolve().relative_to(C.src.resolve()))
-        except (ValueError, OSError, RuntimeError):
-            return str(self.main)
-
-
-def _fresh_build_state() -> dict:
-    return {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
-            "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
-            "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
+# A document (limn.documents.Doc) is always an argument: the handler finds the request's (request_doc) and passes it
+# on, a build thread gets its own, and startup walks the list. The list itself (DOCS, the first document is the
+# default) is this composition root's; a Doc reads the run paths through the C it is given at construction.
 
 
 def now_str() -> str:
@@ -532,22 +450,12 @@ def build_html(label: str, accent: str) -> str:
     return out
 
 
-# ---------------------------------------------------------------- Page-image version directories
+# ---------------------------------------------------------------- Page-image version directories and the build
 #
 # The build - page directories, build state, the LaTeX build, history, fingerprint - lives in limn/build.py and
-# takes the document and the settings it needs as arguments (docs/handbook/build-sync.md). The functions below
-# with the old names are shells: they bind the request's document (cur_doc()) and the run arguments (C) until
-# the HTTP layer passes them itself (docs/handbook/code-style-roadmap.md stage 6).
-
-def cur_pages() -> Path:
-    """The current document's page-image directory on screen (limn.build.cur_pages)."""
-    return build.cur_pages(cur_doc())
-
-
-def pages_dir_for(name) -> Path:
-    """The current document's page directory the browser is looking at, or the current one (limn.build.pages_dir_for)."""
-    return build.pages_dir_for(cur_doc(), name)
-
+# takes the document and the settings it needs as arguments (docs/handbook/build-sync.md). Callers here pass the
+# document they act on and the run settings; only the tracked build (build_all/build_async) is wired here, because
+# it binds the instance's BuildConfig, --git-pull and the view-only render.
 
 def default_pdfjs_dir() -> Path:
     """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
@@ -572,32 +480,7 @@ def vendor_file(name: str):
     return f
 
 
-def build_pdf(name) -> Path:
-    """The PDF GET /pdf?build=<name> serves for the current document, or None (limn.build.build_pdf)."""
-    return build.build_pdf(cur_doc(), name)
-
-
-def cur_pdf(pdir: Path = None) -> Path:
-    """The current document's PDF matched to the page images (limn.build.cur_pdf)."""
-    return build.cur_pdf(cur_doc(), pdir)
-
-
-def source_newer(name: str = None) -> float:
-    """Seconds the current document's manuscript is newer than that build (default: the one on screen), else 0.0 (limn.build.source_newer)."""
-    return build.source_newer(cur_doc(), C.state, name)
-
-
-def migrate_pages() -> None:
-    """Turn the current document's legacy page layout into a version directory (limn.build.migrate_pages)."""
-    build.migrate_pages(cur_doc())
-
-
 # ---------------------------------------------------------------- Build
-
-def build_state_snapshot() -> dict:
-    """The current document's build state as GET /api/build returns it (limn.build.state_snapshot)."""
-    return build.state_snapshot(cur_doc())
-
 
 LOG_TAIL_LINES = 40                # lines kept in the diet response for a non-successful build (§P0c-F)
 
@@ -625,55 +508,23 @@ def build_config() -> BuildConfig:
     return BuildConfig(state=C.state, dpi=C.dpi, timeout=C.timeout)
 
 
-def build_all() -> dict:
-    """Rebuild the current document's PDF (synchronous). If it is already building, returns busy without waiting (limn.build.build_now)."""
-    return build.build_now(cur_doc(), _build_tracked)
+def build_all(D: Doc) -> dict:
+    """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns busy without
+    waiting (limn.build.build_now)."""
+    return build.build_now(D, lambda: _build_tracked(D))
 
 
-def build_async() -> dict:
-    """POST /api/rebuild?async=1 for the current document: start the tracked build on a daemon thread (limn.build.build_in_background)."""
-    D = cur_doc()
-
-    def tracked() -> dict:
-        """The build thread sees the same document: the steps _build_tracked binds (and tests replace) still read cur_doc()."""
-        with using_doc(D):
-            return _build_tracked()
-    return build.build_in_background(D, tracked, now_str())
+def build_async(D: Doc) -> dict:
+    """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
+    (limn.build.build_in_background); the thread builds D itself."""
+    return build.build_in_background(D, lambda: _build_tracked(D), now_str())
 
 
-def _build_tracked() -> dict:
-    """One tracked build of the current document: LaTeX (_build) or, for view-only, the page render (_render_pdf_doc) (limn.build.run_tracked)."""
-    D = cur_doc()
-    return build.run_tracked(D, C.state, _render_pdf_doc if D.is_pdf else _build, now_str())
-
-
-def finish_build(res: dict, src_mtime_for_build) -> None:
-    """Record a finished build of the current document in its history and build state (limn.build.finish_build)."""
-    build.finish_build(cur_doc(), res, src_mtime_for_build)
-
-
-# ---------------------------------------------------------------- Build history (builds.json) and manuscript fingerprint
-#
-# What each build records and why location estimation (.est) needs it: limn/build.py §Build history.
-
-def load_builds() -> dict:
-    """The current document's build history {seq, builds, last, by} (limn.build.load_builds)."""
-    return build.load_builds(cur_doc())
-
-
-def seed_builds() -> None:
-    """Add the current document's existing build to its history and restore its last result (limn.build.seed_builds)."""
-    build.seed_builds(cur_doc(), C.state)
-
-
-def _read_built_at():
-    """When the current document's page images were committed, or None (limn.build.read_built_at)."""
-    return build.read_built_at(cur_doc())
-
-
-def _read_head():
-    """The short git hash the current document's page images came from, or None (limn.build.read_head)."""
-    return build.read_head(cur_doc())
+def _build_tracked(D: Doc) -> dict:
+    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (_render_pdf_doc)
+    (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
+    step = (lambda: _render_pdf_doc(D)) if D.is_pdf else (lambda: _build(D))
+    return build.run_tracked(D, C.state, step, now_str())
 
 
 # ---------------------------------------------------------------- --git-pull (§P0c-E)
@@ -803,8 +654,7 @@ def _tex_plain(text: str, depth: int = 0) -> str:
 
 
 def outline_labels(D: Doc) -> dict:
-    with using_doc(D):
-        pages = cur_pages()
+    pages = build.cur_pages(D)
     result = {"build": pages.name, "labels": []}
     if D.is_pdf:
         return result
@@ -983,8 +833,7 @@ def sync_main_once() -> dict:
             except OSError:
                 built = ""
             if state == "updated" or not built or built == "-" or not head.startswith(built):
-                with using_doc(D):
-                    build_async()
+                build_async(D)
                 out["state"] = "updating"
         if out["state"] == "updating":
             with _SYNC_LOCK:
@@ -1024,19 +873,9 @@ def repo_pull() -> dict:
         return res
 
 
-def _build() -> dict:
-    """The LaTeX build of the current document with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
-    return build.compile_tex(cur_doc(), build_config(), repo_pull if C.git_pull else None)
-
-
-def _render_pages(pdf: Path, extra: list):
-    """Render pdf into a new page directory of the current document: (directory, None) or (None, error) (limn.build.render_pages)."""
-    return build.render_pages(cur_doc(), pdf, extra, C.dpi)
-
-
-def _commit_pages(newdir: Path) -> str:
-    """Make newdir the current document's page directory and return the short head (limn.build.commit_pages)."""
-    return build.commit_pages(cur_doc(), newdir)
+def _build(D: Doc) -> dict:
+    """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
+    return build.compile_tex(D, build_config(), repo_pull if C.git_pull else None)
 
 
 # ---------------------------------------------------------------- View-only PDF documents
@@ -1053,20 +892,19 @@ def pdf_signature(D: Doc):
         return None
 
 
-def _render_pdf_doc() -> dict:
-    """The 'build' for a view-only document - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
+def _render_pdf_doc(D: Doc) -> dict:
+    """The 'build' for view-only document D - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
     t0 = time.time()
-    D = cur_doc()
     res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
     sig = pdf_signature(D)
     if sig is None:
         res["log"] = "PDF 가 없습니다: %s" % D.main
         return res
     try:
-        res["src_hash"] = doc_fingerprint(D)
+        res["src_hash"] = build.doc_fingerprint(D, C.state)
     except OSError:
         res["src_hash"] = None
-    newdir, err = _render_pages(D.main, [])
+    newdir, err = build.render_pages(D, D.main, [], C.dpi)
     if newdir is None:
         res["log"] = err
         res["elapsed_s"] = round(time.time() - t0, 1)
@@ -1075,7 +913,7 @@ def _render_pdf_doc() -> dict:
         except OSError:
             pass
         return res
-    res["head"] = _commit_pages(newdir)
+    res["head"] = build.commit_pages(D, newdir)
     try:
         atomic_write(D.dir / "pdf_sig.txt", sig)
     except OSError:
@@ -1101,8 +939,7 @@ def refresh_pdf_doc(D: Doc) -> bool:
     """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
     if not D.is_pdf or not pdf_changed(D):
         return False
-    with using_doc(D):
-        r = build_async()
+    r = build_async(D)
     return not r.get("busy")
 
 
@@ -1113,12 +950,12 @@ def png_size(path: Path) -> tuple:
         return struct.unpack(">II", fh.read(24)[16:24])
 
 
-def page_list(pdir: Path = None, dpi: int | None = None) -> list:
-    """The page images of pdir (default: the current document's on screen) as {name, pt_w, pt_h}: sizes in points at
-    the dpi they were rendered at (default: this instance's). An unreadable image is left out."""
+def page_list(pdir: Path, dpi: int | None = None) -> list:
+    """The page images of page directory pdir as {name, pt_w, pt_h}: sizes in points at the dpi they were rendered at
+    (default: this instance's). An unreadable image is left out."""
     dpi = C.dpi if dpi is None else dpi
     pages = []
-    for p in sorted((pdir or cur_pages()).glob("page-*.png")):
+    for p in sorted(pdir.glob("page-*.png")):
         try:
             w, h = png_size(p)
         except (OSError, struct.error):
@@ -1131,30 +968,13 @@ _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-a
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
 # and regression tests see is exactly this document's.
 LEGACY_DOC = Doc(DEFAULT_DOC_KEY, "본문", legacy=True, lock=BUILD_LOCK, bstate=BUILD_STATE,
-                 bstate_lock=BUILD_STATE_LOCK, builds_lock=BUILDS_LOCK, mcache=_SRC_MTIME_CACHE)
+                 bstate_lock=BUILD_STATE_LOCK, builds_lock=BUILDS_LOCK, mcache=_SRC_MTIME_CACHE, paths=C)
 DOCS: list = [LEGACY_DOC]
-_TL = threading.local()
 
 
 def set_docs(docs=None) -> None:
     """Change the document list (main()/tests). Reverts to a single document when empty."""
     DOCS[:] = list(docs) if docs else [LEGACY_DOC]
-
-
-def cur_doc() -> Doc:
-    """The document this thread is handling. Request handlers / build threads hang it off via using_doc. Falls back to the first document."""
-    d = getattr(_TL, "doc", None)
-    return d if d is not None else DOCS[0]
-
-
-@contextlib.contextmanager
-def using_doc(d):
-    prev = getattr(_TL, "doc", None)
-    _TL.doc = d
-    try:
-        yield d
-    finally:
-        _TL.doc = prev
 
 
 def multi_doc() -> bool:
@@ -1192,31 +1012,6 @@ def doc_for_file(path) -> Doc:
     return best or DOCS[0]
 
 
-def doc_fingerprint(D: Doc) -> str:
-    """The document's manuscript fingerprint (limn.build.doc_fingerprint)."""
-    return build.doc_fingerprint(D, C.state)
-
-
-def source_fingerprint(root: Path) -> str:
-    """The current document's manuscript fingerprint over the files under root (limn.build.source_fingerprint)."""
-    return build.source_fingerprint(cur_doc(), root, C.state)
-
-
-def src_mtime(force: bool = False) -> float:
-    """Newest manuscript mtime of the current document, memoized 2 seconds unless force (limn.build.src_mtime)."""
-    return build.src_mtime(cur_doc(), C.state, force)
-
-
-def read_built_src_mtime():
-    """The src_mtime the current document's page images were built from, or None (limn.build.read_built_src_mtime)."""
-    return build.read_built_src_mtime(cur_doc())
-
-
-def write_built_src_mtime(value: float = None) -> None:
-    """Commit the current document's built src_mtime; measured now if value is omitted (limn.build.write_built_src_mtime)."""
-    build.write_built_src_mtime(cur_doc(), C.state, value)
-
-
 def pins_rev() -> str:
     try:
         st = C.pins_jsonl.stat()
@@ -1227,16 +1022,15 @@ def pins_rev() -> str:
 
 def doc_brief(D: Doc) -> dict:
     """A summary of one document - used by /api/docs and (with multiple documents) /api/meta's docs. Never writes (called from polling)."""
-    with using_doc(D):
-        b = build_state_snapshot()
-        stale = (not D.is_pdf) and source_newer() > 2
-        pdir = cur_pages()
-        n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
-        return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
-                "main": D.main.name, "stale_build": stale, "src_mtime": src_mtime(),
-                "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
-                "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
-                "pages_build": pdir.name, "n_pages": n_pages}
+    b = build.state_snapshot(D)
+    stale = (not D.is_pdf) and build.source_newer(D, C.state) > 2
+    pdir = build.cur_pages(D)
+    n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
+    return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
+            "main": D.main.name, "stale_build": stale, "src_mtime": build.src_mtime(D, C.state),
+            "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
+            "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
+            "pages_build": pdir.name, "n_pages": n_pages}
 
 
 def docs_payload() -> dict:
@@ -1253,26 +1047,27 @@ def docs_payload() -> dict:
             "other_open": sum(v for k, v in counts.items() if k not in known)}
 
 
-def meta(actor: dict, light: bool = False) -> dict:
-    D = cur_doc()
+def meta(D: Doc, actor: dict, light: bool = False) -> dict:
+    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer; with light (polling)
+    the pin counts are left out, and with them the sync write of snapshot_pins()."""
 
     def read(f):
         try:
             return (D.dir / f).read_text().strip()
         except OSError:
             return "?"
-    bstate = build_state_snapshot()
-    sm = src_mtime()
-    newer = 0.0 if D.is_pdf else source_newer()     # view-only: the server re-renders on its own when the PDF changes
-    out = {"pages": page_list(), "built_at": read("built_at.txt"), "head": read("head.txt"),
+    bstate = build.state_snapshot(D)
+    sm = build.src_mtime(D, C.state)
+    newer = 0.0 if D.is_pdf else build.source_newer(D, C.state)     # view-only: the server re-renders on its own when the PDF changes
+    out = {"pages": page_list(build.cur_pages(D)), "built_at": read("built_at.txt"), "head": read("head.txt"),
            "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
            "label": C.label, "accent": C.accent, "repo": C.repo,
            "building": D.lock.locked(), "sync": sync_status(),
            "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
            # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
            "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
-           "src_mtime": sm, "build_src_mtime": read_built_src_mtime(),
-           "pages_build": cur_pages().name,
+           "src_mtime": sm, "build_src_mtime": build.read_built_src_mtime(D),
+           "pages_build": build.cur_pages(D).name,
            "pins_rev": pins_rev(),
            # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
            "build_seq": bstate.get("seq", 0),
@@ -1745,17 +1540,17 @@ def _epoch(s):
     return dt.timestamp()
 
 
-def est_context() -> dict:
-    """Judgment material for one request (history read once)."""
-    h = load_builds()
-    cur = cur_pages().name
+def est_context(D: Doc) -> dict:
+    """Judgment material of document D for one request (its history read once)."""
+    h = build.load_builds(D)
+    cur = build.cur_pages(D).name
     by = dict(h["by"])
     if cur not in by:                                 # before seed_builds() (tests / a rare race) - judge with what's known
-        by[cur] = {"build": cur, "src_mtime": read_built_src_mtime(), "src_hash": None}
-    bsm = read_built_src_mtime()
+        by[cur] = {"build": cur, "src_mtime": build.read_built_src_mtime(D), "src_hash": None}
+    bsm = build.read_built_src_mtime(D)
     if bsm is None and _is_num(by[cur].get("src_mtime")):
         bsm = float(by[cur]["src_mtime"])
-    return {"cur": cur, "by": by, "built_at": _epoch(_read_built_at()), "bsm": bsm}
+    return {"cur": cur, "by": by, "built_at": _epoch(build.read_built_at(D)), "bsm": bsm}
 
 
 def same_source(a, b) -> bool:
@@ -1821,8 +1616,7 @@ def pins_payload(rows: list, allp: bool) -> list:
             if D is None:
                 ctxs[k] = None
             else:
-                with using_doc(D):
-                    ctxs[k] = est_context()
+                ctxs[k] = est_context(D)
         ctx = ctxs[k]
         rec = dict(public(r), rel=rel.get(r["id"], []), est=pin_est(r, ctx) if ctx else True, doc=k, state=pin_state(r),
                    addressed=addressed_to(r), fyi=fyi_mentions_to(r))
@@ -2152,10 +1946,10 @@ def _add_region_pin(place: RegionPlace, request: AddRequest, actor: dict, D: Doc
 
 def edit_scope(pid: int) -> tuple:
     """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
-    view-only (region) pin, and the document its loc is checked against - the pin's own, else the current one."""
+    view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
     r0 = find_pin(read_pins()[0], pid)
     region = r0 is not None and is_region_pin(r0)
-    return region, (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
+    return region, (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or DOCS[0]
 
 
 def edit_pin(pid: int, request: EditRequest, actor: dict,
@@ -3369,7 +3163,7 @@ def pins_md_text(rows: list, base: str | None = None) -> str:
     out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src,
            "논문: %s · 저장소: %s" % (C.label, C.repo or "(없음)")]
     if not sectioned:
-        head_short, built_at = _read_head(), _read_built_at()
+        head_short, built_at = build.read_head(DOCS[0]), build.read_built_at(DOCS[0])   # the one document
         if head_short and head_short != "-" and built_at:           # §P0c-D: omitted entirely if absent
             out.append("기준: %s · 빌드 %s" % (head_short, built_at))
             out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
@@ -3434,8 +3228,7 @@ def pins_md_text(rows: list, base: str | None = None) -> str:
         if d.is_pdf:
             title += " — 보기 전용 PDF(줄 번호 없음)"
         out += ["", title]
-        with using_doc(d):
-            head_short, built_at = _read_head(), _read_built_at()
+        head_short, built_at = build.read_head(d), build.read_built_at(d)
         if head_short and head_short != "-" and built_at:
             out.append("기준: %s · %s %s" % (head_short, "그림" if d.is_pdf else "빌드", built_at))
         out += [""] + header + rs
@@ -4341,23 +4134,22 @@ def make_docs(specs: list, ms: Path) -> list:
             raise ValueError("--doc 키가 겹칩니다: %s" % p["key"])
         seen.add(p["key"])
         out.append(Doc(p["key"], p["name"], p["kind"], src=p["src"], main=p["main"],
-                       root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex")))
+                       root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"), paths=C))
     return out
 
 
 def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
     """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
-    with using_doc(D):
-        D.dir.mkdir(parents=True, exist_ok=True)
-        if D.root:
-            migrate_pages()
-        seed_builds()
-        need = D.is_pdf and (pdf_changed(D) or not page_list())
-        if not D.is_pdf:
-            need = not no_build or not cur_pdf().exists() or not page_list()
-        if not need:
-            return {"state": "skip"}
-        return build_all() if wait else build_async()
+    D.dir.mkdir(parents=True, exist_ok=True)
+    if D.root:
+        build.migrate_pages(D)
+    build.seed_builds(D, C.state)
+    need = D.is_pdf and (pdf_changed(D) or not page_list(build.cur_pages(D)))
+    if not D.is_pdf:
+        need = not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D))
+    if not need:
+        return {"state": "skip"}
+    return build_all(D) if wait else build_async(D)
 
 
 def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
@@ -4630,10 +4422,11 @@ def main() -> None:
     init_seq()
     purge_trash()                    # Trash entries older than TRASH_DAYS go at startup, on every drop/restore, and hourly on reads
     if not docs:
-        migrate_pages()
-        seed_builds()                # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
-        if not a.no_build or not cur_pdf().exists() or not page_list():
-            r = build_all()
+        D = DOCS[0]
+        build.migrate_pages(D)
+        build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
+        if not a.no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
+            r = build_all(D)
             if r.get("state") == "fail":
                 sys.exit("Build failed:\n" + r.get("log", ""))
     else:
