@@ -4,7 +4,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작은 [operations.md](operations.md) §뷰어 사용법에 있다.
 
-구현은 두 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. [`src/limn/server.py`](../../src/limn/server.py) 는 요청의 문서와 실행 인자를 묶어 부르는 셸(`build_all`, `build_async`, `_build` 등 옛 이름 그대로), `--git-pull`(`git_pull_phase`, 저장소 단위로 나눠 쓰는 `repo_pull`), 원격 main 감시(`sync_main_once`), 보기 전용 PDF 다시 그리기(`_render_pdf_doc`)를 맡는다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
+구현은 두 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`; 2026-09-26부터 셸 없이 문서를 인자로 받는다), `--git-pull`(`git_pull_phase`, 저장소 단위로 나눠 쓰는 `repo_pull`), 원격 main 감시(`sync_main_once`), 보기 전용 PDF 다시 그리기(`_render_pdf_doc`)를 맡는다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다.
 
 > **한눈에**
 >

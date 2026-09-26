@@ -79,12 +79,10 @@ class MultiDocMoved(AccessBase):
         (self.old / "response" / "main.tex").write_text(RR_MAIN, encoding="utf-8")
         self.serve(self.old, "response/main.tex")
         ms, rr = ps.DOCS
-        with ps.using_doc(ms):
-            self.p_ms = add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
-                                    "note": "ms appendix", "doc": "ms"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        with ps.using_doc(rr):
-            self.p_rr = add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
-                                    "note": "reply", "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        self.p_ms = add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
+                             "note": "ms appendix", "doc": "ms"}, dict(ps.LOCAL_ACTOR), doc=ms).record["id"]
+        self.p_rr = add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
+                             "note": "reply", "doc": "rr"}, dict(ps.LOCAL_ACTOR), doc=rr).record["id"]
         rows = ps.read_pins()[0]
         for r in rows:
             r.pop("file_rel", None)                  # as 0.3.1 wrote them: absolute file only

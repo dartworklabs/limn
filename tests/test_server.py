@@ -126,12 +126,13 @@ def shut_wr(sock: socket.socket) -> None:
             raise
 
 
-def add_pin(d: dict, actor: dict, mod=None):
-    """What POST /api/pin does below its HTTP answer (limn.web.handler): the body's doc wins over the current document,
-    the body is parsed against that document (limn.web.parse.parse_add), and the service saves it. Returns the new
-    open pin, or the InputRejected of the first refused field. mod is the server copy to use (default ps)."""
+def add_pin(d: dict, actor: dict, mod=None, doc=None):
+    """What POST /api/pin does below its HTTP answer (limn.web.handler) for the request's document doc (default the
+    first): the body's doc wins over it, the body is parsed against that document (limn.web.parse.parse_add), and the
+    service saves it. Returns the new open pin, or the InputRejected of the first refused field. mod is the server copy
+    to use (default ps)."""
     mod = mod or ps
-    D = mod.cur_doc()
+    D = doc or mod.DOCS[0]
     want = d.get("doc")
     if isinstance(want, str) and want != D.key:
         D = mod.request_doc(want)
@@ -153,23 +154,23 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     return mod.edit_pin(pid, dataclasses.replace(body.request, place=place), actor, region)
 
 
-def pick(d: dict, mod=None):
-    """What POST /api/pick does below its HTTP answer for the current document: the selection parsed
+def pick(d: dict, mod=None, doc=None):
+    """What POST /api/pick does below its HTTP answer for document doc (default the first): the selection parsed
     (limn.web.parse.parse_pick), then resolved. A gone build gives the 200 body the handler sends; a refused field
     raises the HTTPError the handler would answer with."""
     mod = mod or ps
-    D = mod.cur_doc()
+    D = doc or mod.DOCS[0]
     selection = parse.parse_pick(d, mod.document_facts(D))
     if isinstance(selection, parse.PickBuildGone):
         return answers.pick_build_gone()
     return mod.pick(D, answers.accepted(selection))
 
 
-def revision_spec(commit: str, pin: int | None = None, mod=None):
-    """What a comparison request of the current document compares (limn.revisions.revision_spec with the server copy's
-    context), or its refusal value."""
+def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):
+    """What a comparison request of document doc (default the first) compares (limn.revisions.revision_spec with the
+    server copy's context), or its refusal value."""
     mod = mod or ps
-    return revisions.revision_spec(mod.cur_doc(), commit, pin, mod.revision_context())
+    return revisions.revision_spec(doc or mod.DOCS[0], commit, pin, mod.revision_context())
 
 
 def record_of(outcome) -> dict:
@@ -637,7 +638,7 @@ class PdfRoute(Base):
         self.assertEqual((code, body), (200, b"%PDF-new"))
 
     def test_pages_build_in_meta_matches_pdf_route(self):
-        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        m = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertEqual(m["pages_build"], self.new)
         self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
@@ -758,7 +759,7 @@ class Store(Base):
     def test_add_pin_stamps_pdf_build(self):
         # design 1: pin the coordinate system frac points into by "which build it was" (pdf_build), not the wall clock.
         pid = self.add()
-        self.assertEqual(self.pin(pid)["pdf_build"], ps.cur_pages().name)
+        self.assertEqual(self.pin(pid)["pdf_build"], ps.cur_pages(ps.DOCS[0]).name)
 
     def test_add_pin_keeps_client_pdf_build(self):
         """A pin keeps the pdf_build the viewer sends; a bad name is refused as bad_pdf_build."""
@@ -831,8 +832,8 @@ class Store(Base):
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
-        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
-        self.assertEqual(d["pages_build"], ps.cur_pages().name)
+        d = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
+        self.assertEqual(d["pages_build"], ps.cur_pages(ps.DOCS[0]).name)
 
 
 class Legacy(Base):
@@ -842,13 +843,13 @@ class Legacy(Base):
         ps.C.build.mkdir()
         (ps.C.build / "main.pdf").write_bytes(b"%PDF-old")
         (ps.C.build / "main.synctex.gz").write_bytes(b"syn-old")
-        ps.migrate_pages()
-        self.assertEqual(ps.cur_pdf(), ps.C.state / "pages" / "main.pdf")
+        limn_build.migrate_pages(ps.DOCS[0])
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]), ps.C.state / "pages" / "main.pdf")
         (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")       # even though the rebuild overwrites build/
-        self.assertEqual(ps.cur_pdf().read_bytes(), b"%PDF-old")  # pick reads the PDF paired with the screen
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")  # pick reads the PDF paired with the screen
         self.assertEqual((ps.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
-        ps.migrate_pages()                                        # calling it twice doesn't overwrite either
-        self.assertEqual(ps.cur_pdf().read_bytes(), b"%PDF-old")
+        limn_build.migrate_pages(ps.DOCS[0])                                        # calling it twice doesn't overwrite either
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
 
 
 class Anchor(Base):
@@ -910,14 +911,14 @@ class AsyncBuild(Base):
     def test_async_returns_running_then_409_while_busy(self):
         ev = threading.Event()
 
-        def fake_build():
+        def fake_build(D=None):
             ev.wait(5)
             return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.01, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
-            r1 = ps.build_async()
+            r1 = ps.build_async(ps.DOCS[0])
             self.assertEqual(r1, {"state": "running"})
-            self.assertEqual(ps.build_state_snapshot()["state"], "running")
-            r2 = ps.build_async()
+            self.assertEqual(ps.build_state_snapshot(ps.DOCS[0])["state"], "running")
+            r2 = ps.build_async(ps.DOCS[0])
             self.assertEqual(r2, {"state": "running", "busy": True})
             ev.set()
             for _ in range(200):
@@ -925,72 +926,72 @@ class AsyncBuild(Base):
                     break
                 time.sleep(0.02)
         self.assertFalse(ps.BUILD_LOCK.locked())
-        self.assertEqual(ps.build_state_snapshot()["state"], "ok")
+        self.assertEqual(ps.build_state_snapshot(ps.DOCS[0])["state"], "ok")
 
     def test_phase_copy_observed_before_build_runs(self):
         seen = []
 
-        def fake_build():
-            seen.append(ps.build_state_snapshot()["phase"])
+        def fake_build(D=None):
+            seen.append(ps.build_state_snapshot(ps.DOCS[0])["phase"])
             return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.0, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all()
+            ps.build_all(ps.DOCS[0])
         self.assertEqual(seen, ["copy"])
-        self.assertEqual(ps.build_state_snapshot()["phase"], None)   # phase is cleared when it finishes
+        self.assertEqual(ps.build_state_snapshot(ps.DOCS[0])["phase"], None)   # phase is cleared when it finishes
 
     def test_ok_errors_state_surfaces_in_build_state(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok_errors", "errors": [{"line": 412, "msg": "Undefined control sequence"}],
                     "log": "boom", "elapsed_s": 1.2, "pages": 3}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all()
-        st = ps.build_state_snapshot()
+            ps.build_all(ps.DOCS[0])
+        st = ps.build_state_snapshot(ps.DOCS[0])
         self.assertEqual(st["state"], "ok_errors")
         self.assertEqual(st["errors"][0]["line"], 412)
 
     def test_ok_errors_commits_built_src_mtime(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok_errors", "errors": [{"line": 1, "msg": "x"}],
                     "log": "", "elapsed_s": 0.0, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all()
-        self.assertIsNotNone(ps.read_built_src_mtime())
+            ps.build_all(ps.DOCS[0])
+        self.assertIsNotNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
 
     def test_failed_build_does_not_commit_built_src_mtime(self):
         # bug: built_src_mtime used to be written at build "start" and stayed even on failure — the screen
         # still showed the old PDF but the "manuscript modified" badge turned off. It should only be
         # committed on ok|ok_errors.
-        self.assertIsNone(ps.read_built_src_mtime())
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
 
-        def fake_build_fail():
+        def fake_build_fail(D=None):
             return {"ok": False, "state": "fail", "errors": [], "log": "boom", "elapsed_s": 0.1, "pages": 0}
         with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
-            ps.build_all()
-        self.assertIsNone(ps.read_built_src_mtime())          # still None because it failed
-        self.assertEqual(ps.build_state_snapshot()["state"], "fail")
+            ps.build_all(ps.DOCS[0])
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))          # still None because it failed
+        self.assertEqual(ps.build_state_snapshot(ps.DOCS[0])["state"], "fail")
 
-        def fake_build_ok():
+        def fake_build_ok(D=None):
             return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.1, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build_ok):
-            ps.build_all()
-        first_ok = ps.read_built_src_mtime()
+            ps.build_all(ps.DOCS[0])
+        first_ok = limn_build.read_built_src_mtime(ps.DOCS[0])
         self.assertIsNotNone(first_ok)                        # only committed once it succeeds
 
         with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
-            ps.build_all()
-        self.assertEqual(ps.read_built_src_mtime(), first_ok)  # a subsequent failure doesn't touch the committed value
+            ps.build_all(ps.DOCS[0])
+        self.assertEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), first_ok)  # a subsequent failure doesn't touch the committed value
 
     def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
         # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
         with mock.patch.object(ps, "_build", side_effect=RuntimeError("boom")):
-            r = ps.build_async()
+            r = ps.build_async(ps.DOCS[0])
             self.assertEqual(r, {"state": "running"})
             for _ in range(200):
                 if not ps.BUILD_LOCK.locked():
                     break
                 time.sleep(0.02)
         self.assertFalse(ps.BUILD_LOCK.locked())
-        st = ps.build_state_snapshot()
+        st = ps.build_state_snapshot(ps.DOCS[0])
         self.assertEqual(st["state"], "fail")
         self.assertIn("boom", st.get("log_tail") or "")
 
@@ -1020,22 +1021,22 @@ class AsyncBuild(Base):
 
         def poll():
             while not stop.is_set():
-                ph = ps.build_state_snapshot()["phase"]
+                ph = ps.build_state_snapshot(ps.DOCS[0])["phase"]
                 if ph and (not seen or seen[-1] != ph):
                     seen.append(ph)
                 time.sleep(0.01)
         t = threading.Thread(target=poll, daemon=True)
         t.start()
-        res = ps.build_all()
+        res = ps.build_all(ps.DOCS[0])
         stop.set()
         t.join(2)
         self.assertEqual(res["state"], "ok")
         self.assertIn("latex", seen)
         self.assertIn("render", seen)
-        self.assertTrue(ps.cur_pdf().exists())
-        aux = ps.cur_pages() / "main.aux"
+        self.assertTrue(limn_build.cur_pdf(ps.DOCS[0]).exists())
+        aux = ps.cur_pages(ps.DOCS[0]) / "main.aux"
         self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")
-        labels = ps.outline_labels(ps.cur_doc())
+        labels = ps.outline_labels(ps.DOCS[0])
         self.assertEqual(labels["build"], res["build"])
         self.assertEqual([(row["number"], row["title"]) for row in labels["labels"][:2]],
                          [("1", "Intro"), ("1.1", "Next")])
@@ -1050,7 +1051,7 @@ class Estimate(Base):
     def _fake_build(self, name, src_hash, src_mtime=None):
         (ps.C.state / name).mkdir(exist_ok=True)
         ps.C.pages_ptr.write_text(name)
-        ps.finish_build({"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.1, "pages": 1,
+        limn_build.finish_build(ps.DOCS[0], {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.1, "pages": 1,
                          "build": name, "src_hash": src_hash}, src_mtime if src_mtime is not None else time.time())
         return name
 
@@ -1123,8 +1124,8 @@ class Estimate(Base):
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
         (ps.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
-        ps.write_built_src_mtime(ps._epoch("2026-09-22T09:30:00+09:00"))
-        ctx = ps.est_context()
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, ps._epoch("2026-09-22T09:30:00+09:00"))
+        ctx = ps.est_context(ps.DOCS[0])
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
         self.assertTrue(ps.pin_est(old, ctx))
         # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
@@ -1147,40 +1148,40 @@ class Estimate(Base):
         self.assertEqual(ny, seoul)
 
     def test_fingerprint_ignores_diff_dirs_and_tracks_content(self):
-        h0 = ps.source_fingerprint(self.src)
+        h0 = limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state)
         for d in ("diff", "diff_temporary"):
             (self.src / d).mkdir()
             (self.src / d / "x.tex").write_text("latexdiff", encoding="utf-8")
             (self.src / d / "y.pdf").write_bytes(b"%PDF")
-        self.assertEqual(ps.source_fingerprint(self.src), h0)
+        self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
         os.utime(self.main, (time.time() + 10, time.time() + 10))                 # only the timestamp changed
-        self.assertEqual(ps.source_fingerprint(self.src), h0)
+        self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
         self.main.write_text(TEX + "% x\n", encoding="utf-8")
-        self.assertNotEqual(ps.source_fingerprint(self.src), h0)
+        self.assertNotEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
 
     def test_build_history_and_seq_in_meta(self):
-        m0 = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        m0 = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertEqual(m0["build_seq"], 0)
         self._fake_build("pages-20260101000000", "h1")
-        ps.finish_build({"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom",
+        limn_build.finish_build(ps.DOCS[0], {"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom",
                          "elapsed_s": 0.1}, None)
-        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        m = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
         self.assertEqual(m["last_build"]["state"], "fail")
         self.assertEqual(m["last_build"]["errors"], [{"line": 3, "msg": "x"}])
         self.assertTrue(m["last_build"]["finished_at"])
-        h = ps.load_builds()
+        h = limn_build.load_builds(ps.DOCS[0])
         self.assertEqual(h["seq"], 2)
         self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])   # a failure doesn't leave a build in history
         self.assertEqual(h["by"]["pages-20260101000000"]["src_hash"], "h1")
 
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
         self._fake_build("pages-20260101000000", "h1")
-        ps.finish_build({"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L",
+        limn_build.finish_build(ps.DOCS[0], {"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L",
                          "elapsed_s": 0.1}, None)
         ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")   # simulate a restart
-        ps.seed_builds()
-        st = ps.build_state_snapshot()
+        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
+        st = ps.build_state_snapshot(ps.DOCS[0])
         self.assertEqual((st["state"], st["seq"]), ("ok_errors", 2))
         self.assertEqual(st["errors"], [{"line": 1, "msg": "m"}])
         self.assertEqual(st["log_tail"], "L")
@@ -1189,21 +1190,21 @@ class Estimate(Base):
         d = ps.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
-        ps.write_built_src_mtime(ps.src_mtime(force=True) + 1)
-        ps.seed_builds()
-        ent = ps.load_builds()["by"]["pages"]
-        self.assertEqual(ent["src_hash"], ps.source_fingerprint(self.src))
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) + 1)
+        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
+        ent = limn_build.load_builds(ps.DOCS[0])["by"]["pages"]
+        self.assertEqual(ent["src_hash"], limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
         pid = self.add()                                   # first pin after startup -> no false positive from a rebuild that didn't change the manuscript
-        self._fake_build("pages-20260101000100", ps.source_fingerprint(self.src))
+        self._fake_build("pages-20260101000100", limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
         self.assertIs(self.est_of(pid), False)
 
     def test_seed_builds_leaves_hash_empty_when_source_is_newer(self):
         d = ps.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
-        ps.write_built_src_mtime(ps.src_mtime(force=True) - 100)
-        ps.seed_builds()
-        self.assertIsNone(ps.load_builds()["by"]["pages"]["src_hash"])
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) - 100)
+        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
+        self.assertIsNone(limn_build.load_builds(ps.DOCS[0])["by"]["pages"]["src_hash"])
 
     def test_light_meta_does_not_write_builds_file(self):
         self._fake_build("pages-20260101000000", "h1")
@@ -1218,18 +1219,18 @@ class Estimate(Base):
         import shutil as _sh
         if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
-        self.assertEqual(ps.build_all()["state"], "ok")
-        b1 = ps.cur_pages().name
+        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        b1 = ps.cur_pages(ps.DOCS[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
         time.sleep(1.1)                                      # build directory names are second-granularity
-        self.assertEqual(ps.build_all()["state"], "ok")
-        self.assertNotEqual(ps.cur_pages().name, b1)
+        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertNotEqual(ps.cur_pages(ps.DOCS[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(TEX.replace("After table epsilonunique.", "After table epsilonunique longer."),
                              encoding="utf-8")
         time.sleep(1.1)
-        self.assertEqual(ps.build_all()["state"], "ok")
+        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(ps.LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
@@ -1242,7 +1243,7 @@ class LightMeta(Base):
         self.add()
         before = ps.C.pins_jsonl.stat().st_mtime_ns
         for _ in range(5):
-            d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+            d = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         after = ps.C.pins_jsonl.stat().st_mtime_ns
         self.assertEqual(before, after)
         self.assertNotIn("n_open", d)
@@ -1258,55 +1259,55 @@ class LightMeta(Base):
         self.assertEqual(rev1, rev2)      # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
-        m0 = ps.src_mtime()
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
         (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
         (ps.C.src / "build").mkdir()
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
-        self.assertEqual(ps.src_mtime(), m0)          # must not change even outside the cache window (even after 2s)
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)          # must not change even outside the cache window (even after 2s)
         ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
-        self.assertEqual(ps.src_mtime(), m0)
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_ignores_diff_dir(self):
         # bug (should, P0b fix): the build rsync excludes diff/ (latexdiff output, exclude "diff/") but
         # src_mtime didn't — so running latexdiff even once flipped the "manuscript modified" badge on,
         # and after the next rebuild every pin was falsely marked "estimated" even though the layout was
         # unchanged.
-        m0 = ps.src_mtime()
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
         (ps.C.src / "diff").mkdir()
         (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
-        self.assertEqual(ps.src_mtime(), m0)
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
         ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
-        self.assertEqual(ps.src_mtime(), m0)
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_reacts_to_tex_change(self):
         ps._SRC_MTIME_CACHE[2] = 0.0
-        m0 = ps.src_mtime()
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
         ps._SRC_MTIME_CACHE[2] = 0.0
-        self.assertGreater(ps.src_mtime(), m0)
+        self.assertGreater(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_built_src_mtime_file_missing_is_fine(self):
-        self.assertIsNone(ps.read_built_src_mtime())
-        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+        d = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertIsNone(d["build_src_mtime"])
 
     def test_src_mtime_force_bypasses_cache(self):
         # bug: write_built_src_mtime() used to just take the 2-second-cached value — editing the
         # manuscript and rebuilding right away, within 2 seconds of the cache filling, wrongly recorded
         # the "pre-edit" mtime as the build-start time.
-        m0 = ps.src_mtime(force=True)      # fill the cache
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)      # fill the cache
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        cached = ps.src_mtime()            # inside the cache window (within 2s) — the stale value
+        cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)            # inside the cache window (within 2s) — the stale value
         self.assertEqual(cached, m0)
-        forced = ps.src_mtime(force=True)  # bypass the cache and measure for real — a fresh value
+        forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)  # bypass the cache and measure for real — a fresh value
         self.assertGreater(forced, m0)
 
     def test_write_built_src_mtime_uses_fresh_value(self):
         os.utime(self.main, (time.time() + 20, time.time() + 20))
-        ps.write_built_src_mtime()
-        self.assertAlmostEqual(ps.read_built_src_mtime(), ps.src_mtime(force=True), delta=1.0)
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state)
+        self.assertAlmostEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True), delta=1.0)
 
     def test_light_query_param_via_handler(self):
         out = self.talk(req("GET", "/api/meta?light=1"))
@@ -1364,21 +1365,21 @@ class Overlaps(Base):
         import shutil as _sh
         if not (_sh.which("latexmk") and _sh.which("pdftoppm") and _sh.which("pdftotext")):
             self.skipTest("latex tools not available")
-        res = ps.build_all()
+        res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
-        pages = ps.page_list()
+        pages = ps.page_list(ps.cur_pages(ps.DOCS[0]))
         self.assertTrue(pages)
         p = pages[0]
         d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
         self.assertNotIn("error", d)
         self.assertIn("quote", d)
         self.assertIn("overlaps", d)
-        self.assertEqual(d["pdf_build"], ps.cur_pages().name)
+        self.assertEqual(d["pdf_build"], ps.cur_pages(ps.DOCS[0]).name)
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
-        b1 = ps.cur_pages().name
+        b1 = ps.cur_pages(ps.DOCS[0]).name
         time.sleep(1.1)
-        self.assertEqual(ps.build_all()["state"], "ok")
-        self.assertNotEqual(ps.cur_pages().name, b1)
+        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertNotEqual(ps.cur_pages(ps.DOCS[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
         gone = pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "pages-19990101000000"})
@@ -2511,12 +2512,12 @@ class GitPullBuildIntegration(Base):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
-        res = ps.build_all()
+        res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
         self.assertEqual(res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
         self.assertEqual(res.get("head"), ps.C.state.joinpath("head.txt").read_text().strip())
-        snap = ps.build_state_snapshot()
+        snap = ps.build_state_snapshot(ps.DOCS[0])
         self.assertEqual(snap.get("pull"), res["pull"])
         self.assertEqual(snap.get("head"), res["head"])
 
@@ -2524,7 +2525,7 @@ class GitPullBuildIntegration(Base):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = False
-        res = ps.build_all()
+        res = ps.build_all(ps.DOCS[0])
         self.assertNotIn("pull", res)
 
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
@@ -2542,12 +2543,12 @@ class GitPullBuildIntegration(Base):
             return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
 
         with mock.patch.object(ps, "repo_pull", side_effect=fake_pull):
-            res = ps.build_all()
+            res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
         ps._SRC_MTIME_CACHE[2] = 0.0
-        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        m = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
-        self.assertAlmostEqual(ps.read_built_src_mtime(), ps.src_mtime(force=True), delta=1.0)
+        self.assertAlmostEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True), delta=1.0)
 
     def test_edit_after_copy_phase_still_marks_stale(self):
         # even when using the post-pull mtime (or the copy-start time when there's no pull), editing the
@@ -2567,18 +2568,18 @@ class GitPullBuildIntegration(Base):
 
         with mock.patch.object(ps, "repo_pull", side_effect=fake_pull), \
              mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run):
-            res = ps.build_all()
+            res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
         ps._SRC_MTIME_CACHE[2] = 0.0
-        m = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        m = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
 
 
 class AutomaticMainSync(Base):
     def test_new_head_schedules_each_tex_document_once(self):
-        docs = [ps.Doc("ms", "본문", src=self.src, main=self.main),
-                ps.Doc("hl", "하이라이트", src=self.src, main=self.main),
-                ps.Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf")]
+        docs = [ps.Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C),
+                ps.Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C),
+                ps.Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C)]
         ps.set_docs(docs)
         ps.C.git_pull = True
         pull = {"state": "ok", "reason": None, "head_before": "a" * 40, "head_after": "b" * 40}
@@ -2607,7 +2608,7 @@ class AutomaticMainSync(Base):
             out = ps.sync_main_once()
         build.assert_not_called()
         self.assertEqual(out["state"], "blocked")
-        self.assertEqual(ps.meta(dict(ps.LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
+        self.assertEqual(ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         ps.C.git_pull = True
@@ -2621,8 +2622,8 @@ class AutomaticMainSync(Base):
         with ps._SYNC_LOCK:
             ps._SYNC_STATE.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
-        with ps.cur_doc().bstate_lock:
-            ps.cur_doc().bstate["state"] = "fail"
+        with ps.DOCS[0].bstate_lock:
+            ps.DOCS[0].bstate["state"] = "fail"
         status = ps.sync_status()
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
 
@@ -2649,10 +2650,10 @@ class ManuscriptRevisions(Base):
         self.latest = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
 
     def test_latest_revision_diff_is_real_and_scoped(self):
-        history = ps.revision_history(ps.cur_doc())
+        history = ps.revision_history(ps.DOCS[0])
         self.assertTrue(history["available"])
         self.assertEqual(history["revisions"][0]["id"], self.latest)
-        d = ps.revision_diff(ps.cur_doc(), self.latest)
+        d = ps.revision_diff(ps.DOCS[0], self.latest)
         self.assertIn("New manuscript sentence.", d["diff"])
         self.assertNotIn("hidden change", d["diff"])
         self.assertNotIn("other/private.tex", d["diff"])
@@ -2674,7 +2675,7 @@ class ManuscriptRevisions(Base):
         for commit in ("HEAD", "--help"):
             self.assertEqual(parse.parse_commit(commit), InputRejected("올바른 커밋 ID가 아닙니다.", "bad_commit"))
         for commit in ("HEAD", "a" * 40, "--help"):
-            self.assertEqual(ps.revision_diff(ps.cur_doc(), commit), revisions.CommitNotRecent())
+            self.assertEqual(ps.revision_diff(ps.DOCS[0], commit), revisions.CommitNotRecent())
 
     def test_shared_build_root_keeps_document_histories_separate(self):
         heads = {"ms": self.main}
@@ -2687,7 +2688,7 @@ class ManuscriptRevisions(Base):
             subprocess.run(["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo,
                            check=True, capture_output=True)
             heads[key] = path
-        docs = [ps.Doc(k, k, src=self.repo, main=path) for k, path in heads.items()]
+        docs = [ps.Doc(k, k, src=self.repo, main=path, paths=ps.C) for k, path in heads.items()]
         for d in docs:
             history = ps.revision_history(d)
             self.assertTrue(history["available"])
@@ -2697,18 +2698,18 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
 
     def test_main_path_outside_document_source_is_unavailable(self):
-        bad = ps.Doc("bad", "bad", src=self.src, main=self.secret)
+        bad = ps.Doc("bad", "bad", src=self.src, main=self.secret, paths=ps.C)
         self.assertFalse(ps.revision_history(bad)["available"])
         link = self.src / "linked.tex"
         link.symlink_to(self.secret)
-        linked = ps.Doc("linked", "linked", src=self.src, main=link)
+        linked = ps.Doc("linked", "linked", src=self.src, main=link, paths=ps.C)
         self.assertFalse(ps.revision_history(linked)["available"])
 
     def test_caps_large_diff(self):
         old = scoping.REVISION_DIFF_MAX
         scoping.REVISION_DIFF_MAX = 50
         try:
-            d = ps.revision_diff(ps.cur_doc(), self.latest)
+            d = ps.revision_diff(ps.DOCS[0], self.latest)
         finally:
             scoping.REVISION_DIFF_MAX = old
         self.assertTrue(d["truncated"])
@@ -2742,7 +2743,7 @@ class ManuscriptRevisions(Base):
             r"\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Use \texorpdfstring{$x^2$}{x squared}}{8}{subsection.2.1}}" + "\n")
         ps.C.build.mkdir()
         (ps.C.build / "main.aux").write_text("wrong next build")
-        data = ps.outline_labels(ps.cur_doc())
+        data = ps.outline_labels(ps.DOCS[0])
         self.assertEqual(data["build"], current.name)
         self.assertEqual(data["labels"], [
             {"number": "2", "title": "A nested title & B", "page": "iv", "level": "section", "anchor": "section.2"},
@@ -2752,12 +2753,12 @@ class ManuscriptRevisions(Base):
     def test_outline_missing_snapshot_does_not_read_mutable_build(self):
         ps.C.build.mkdir()
         (ps.C.build / "main.aux").write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {9}Stale}{1}{section.9}}")
-        self.assertEqual(ps.outline_labels(ps.cur_doc())["labels"], [])
+        self.assertEqual(ps.outline_labels(ps.DOCS[0])["labels"], [])
 
     def _wait_revision(self):
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            status = ps.revision_status(ps.cur_doc(), self.latest)
+            status = ps.revision_status(ps.DOCS[0], self.latest)
             if status["state"] != "running":
                 return status
             time.sleep(.01)
@@ -2800,15 +2801,15 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.BUILD_STATE, before)
         with mock.patch.object(revisions, "revision_history", return_value={"available": True, "revisions": []}):
             self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-pdf?commit=" + self.latest)))[0], 404)
-            self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest), revisions.CommitNotRecent())
+            self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest), revisions.CommitNotRecent())
 
     def test_revision_failure_has_no_pdf_and_can_retry(self):
         with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")) as run:
-            ps.revision_start(ps.cur_doc(), self.latest)
+            ps.revision_start(ps.DOCS[0], self.latest)
             status = self._wait_revision()
             self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
-            self.assertEqual(ps.revision_pdf(ps.cur_doc(), self.latest), revisions.RevisionNotReady())
-            ps.revision_start(ps.cur_doc(), self.latest)
+            self.assertEqual(ps.revision_pdf(ps.DOCS[0], self.latest), revisions.RevisionNotReady())
+            ps.revision_start(ps.DOCS[0], self.latest)
             self._wait_revision()
             self.assertEqual(run.call_count, 2)
 
@@ -2842,17 +2843,17 @@ class ManuscriptRevisions(Base):
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         with mock.patch.object(ps.REVISION_JOBS, "slots", threading.BoundedSemaphore(0)):
-            self.assertEqual(ps.revision_start(ps.cur_doc(), self.latest), revisions.AllSlotsBusy())
+            self.assertEqual(ps.revision_start(ps.DOCS[0], self.latest), revisions.AllSlotsBusy())
         spec = revision_spec(self.latest)
-        root = revisions.revision_cache_root(ps.cur_doc())
+        root = revisions.revision_cache_root(ps.DOCS[0])
         jobdir = root / spec.key
         jobdir.mkdir()
         (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
         status = jobdir / "status.json"
         status.write_text(json.dumps({"state": "ready"}))
-        self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "ready")
+        self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest)["state"], "ready")
         os.utime(status, (1, 1))
-        self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "idle")
+        self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest)["state"], "idle")
         for i in range(8):
             (root / ("%064x" % i)).mkdir()
         revisions.revision_prune(root, spec.key, ps.REVISION_JOBS.active)
@@ -2860,12 +2861,12 @@ class ManuscriptRevisions(Base):
 
     def test_corrupt_revision_cache_is_a_miss(self):
         spec = revision_spec(self.latest)
-        root = revisions.revision_cache_root(ps.cur_doc())
+        root = revisions.revision_cache_root(ps.DOCS[0])
         jobdir = root / spec.key
         jobdir.mkdir()
         for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
             (jobdir / "status.json").write_text(content)
-            self.assertEqual(ps.revision_status(ps.cur_doc(), self.latest)["state"], "idle")
+            self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest)["state"], "idle")
 
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
         with mock.patch.object(ps.shutil, "which", return_value=None):
@@ -2905,11 +2906,11 @@ class ManuscriptRevisions(Base):
             Path(str(cmd[-1]) + "-1.png").write_bytes(b"png")
             return subprocess.CompletedProcess(cmd, 0)
         with mock.patch.object(ps.subprocess, "run", side_effect=render):
-            pages, error = ps._render_pages(pdf, [aux])
+            pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
         self.assertIsNone(error)
         (ps.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")
-        self.assertEqual(ps.outline_labels(ps.cur_doc())["labels"][0]["title"], "Before")
+        self.assertEqual(ps.outline_labels(ps.DOCS[0])["labels"][0]["title"], "Before")
 
     @unittest.skipUnless(all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable")
     def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
@@ -2974,7 +2975,7 @@ class RebuildLogDiet(Base):
         super().tearDown()
 
     def test_sync_rebuild_ok_omits_log(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200,
                     "elapsed_s": 0.01, "pages": 1, "head": "abc1234"}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
@@ -2985,7 +2986,7 @@ class RebuildLogDiet(Base):
         self.assertEqual(body["head"], "abc1234")
 
     def test_sync_rebuild_ok_errors_trims_log_to_40_lines(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok_errors", "errors": [{"line": 1, "msg": "x"}],
                     "log": "\n".join("l%d" % i for i in range(200)), "elapsed_s": 0.01, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
@@ -2994,7 +2995,7 @@ class RebuildLogDiet(Base):
         self.assertEqual(len(body["log"].splitlines()), 40)
 
     def test_sync_rebuild_log1_query_bypasses_diet(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok", "errors": [], "log": "keep-full", "elapsed_s": 0.01, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -3002,11 +3003,11 @@ class RebuildLogDiet(Base):
         self.assertEqual(body["log"], "keep-full")
 
     def test_get_api_build_applies_same_diet_and_log1_bypasses(self):
-        def fake_build():
+        def fake_build(D=None):
             return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200,
                     "elapsed_s": 0.01, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all()
+            ps.build_all(ps.DOCS[0])
         out = self.talk(req("GET", "/api/build"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertNotIn("log_tail", body)
@@ -3018,7 +3019,7 @@ class RebuildLogDiet(Base):
         # same axis as the live measurement (the live check) — mocking confirms the same conclusion quickly.
         big_log = "font path\n" * 300
 
-        def fake_build_before():
+        def fake_build_before(D=None):
             return {"ok": True, "state": "ok", "errors": [], "log": big_log, "elapsed_s": 0.01, "pages": 1}
         with mock.patch.object(ps, "_build", side_effect=fake_build_before):
             before = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -4197,14 +4198,14 @@ class HtmlTemplateStructure(unittest.TestCase):
 class InstanceMeta(Base):
     def test_meta_exposes_label_accent_repo(self):
         ps.C.label, ps.C.accent, ps.C.repo = "A-DEMO", "#1d4ed8", "git@example.com:org/a-demo.git"
-        d = ps.meta(dict(ps.LOCAL_ACTOR))
+        d = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR))
         self.assertEqual(d["label"], "A-DEMO")
         self.assertEqual(d["accent"], "#1d4ed8")
         self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
 
     def test_meta_repo_is_none_without_remote(self):
         ps.C.repo = None
-        d = ps.meta(dict(ps.LOCAL_ACTOR), light=True)
+        d = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)
         self.assertIsNone(d["repo"])
 
     def test_meta_endpoint_serves_new_fields(self):
@@ -4371,15 +4372,14 @@ class MultiDoc(Base):
     def test_state_layout_per_doc(self):
         self.assertEqual(self.ms.dir, ps.C.state / "docs" / "ms")
         self.assertEqual(self.rv.dir, ps.C.state / "docs" / "rv")
-        with ps.using_doc(self.rrd):
-            self.assertEqual(ps.cur_pages(), ps.C.state / "docs" / "rr" / "pages")
+        self.assertEqual(ps.cur_pages(self.rrd), ps.C.state / "docs" / "rr" / "pages")
         self.assertEqual(ps.C.pins_jsonl, ps.C.state / "pins.jsonl")          # one pin store shared across documents
 
     def test_single_doc_mode_keeps_legacy_paths(self):
         ps.set_docs(None)
         self.assertFalse(ps.multi_doc())
-        self.assertIs(ps.cur_doc(), ps.LEGACY_DOC)
-        self.assertEqual(ps.cur_pages(), ps.C.state / "pages")
+        self.assertIs(ps.DOCS[0], ps.LEGACY_DOC)
+        self.assertEqual(ps.cur_pages(ps.DOCS[0]), ps.C.state / "pages")
         self.assertEqual(ps.LEGACY_DOC.build, ps.C.build)
         self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)                        # the old global lock/state IS this document's
         self.assertIs(ps.LEGACY_DOC.bstate, ps.BUILD_STATE)
@@ -4399,8 +4399,7 @@ class MultiDoc(Base):
 
     def test_api_docs_lists_kind_and_counts(self):
         add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        with ps.using_doc(self.rrd):
-            add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR)).record["id"]
+        add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR), doc=self.rrd).record["id"]
         code, _, body = split_resp(self.talk(req("GET", "/api/docs")))
         self.assertEqual(code, 200)
         d = json.loads(body)
@@ -4518,8 +4517,7 @@ class MultiDoc(Base):
     def test_view_only_pin_edit_note_and_region_only(self):
         """A view-only document's pin takes a note and a region only; lines are refused (no_source_lines)."""
         self.fake_pages(self.rv)
-        with ps.using_doc(self.rv):
-            pid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR)).record["id"]
+        pid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR), doc=self.rv).record["id"]
         rev = self.pin(pid)["rev"]
         self.assertEqual(edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR)),
                          InputRejected(parse.REGION_EDIT_REFUSAL, "no_source_lines"))
@@ -4546,8 +4544,7 @@ class MultiDoc(Base):
 
     def test_sync_and_overlaps_skip_region_pins(self):
         self.fake_pages(self.rv)
-        with ps.using_doc(self.rv):
-            rid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR)).record["id"]
+        rid = add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR), doc=self.rv).record["id"]
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")                     # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
@@ -4566,16 +4563,14 @@ class MultiDoc(Base):
     def test_build_lock_is_per_doc(self):
         gate = threading.Event()
 
-        def slow_build():
+        def slow_build(D=None):
             gate.wait(5)
             return {"ok": False, "state": "fail", "errors": [], "log": "x", "elapsed_s": 0.0}
         with mock.patch.object(ps, "_build", side_effect=slow_build):
-            with ps.using_doc(self.ms):
-                self.assertEqual(ps.build_async(), {"state": "running"})
-                self.assertTrue(ps.build_async().get("busy"))                  # the same document allows only one build at a time
-                self.assertTrue(ps.build_all().get("busy"))
-            with ps.using_doc(self.rrd):
-                self.assertEqual(ps.build_async(), {"state": "running"})       # different documents run concurrently
+            self.assertEqual(ps.build_async(self.ms), {"state": "running"})
+            self.assertTrue(ps.build_async(self.ms).get("busy"))                  # the same document allows only one build at a time
+            self.assertTrue(ps.build_all(self.ms).get("busy"))
+            self.assertEqual(ps.build_async(self.rrd), {"state": "running"})       # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
             self.assertFalse(ps.BUILD_LOCK.locked())                           # the single-document global lock is left untouched
             gate.set()
@@ -4584,10 +4579,8 @@ class MultiDoc(Base):
                     break
                 time.sleep(0.05)
         self.assertFalse(self.ms.lock.locked() or self.rrd.lock.locked())
-        with ps.using_doc(self.ms):
-            self.assertEqual(ps.build_state_snapshot()["state"], "fail")
-        with ps.using_doc(self.rv):
-            self.assertEqual(ps.build_state_snapshot()["state"], "idle")      # build state is per-document too
+        self.assertEqual(ps.build_state_snapshot(self.ms)["state"], "fail")
+        self.assertEqual(ps.build_state_snapshot(self.rv)["state"], "idle")      # build state is per-document too
 
     def test_git_pull_is_shared_across_docs(self):
         calls = []
@@ -4605,24 +4598,24 @@ class MultiDoc(Base):
 
     @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm not available")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
-        with ps.using_doc(self.rv):
-            self.assertTrue(ps.pdf_changed(self.rv))                           # not rendered yet
-            res = ps._build_tracked()
-            self.assertEqual(res["state"], "ok", res.get("log"))
-            first = ps.cur_pages().name
-            self.assertTrue((ps.cur_pages() / "review.pdf").is_file())
-            self.assertFalse(ps.pdf_changed(self.rv))
-            self.assertFalse(ps.refresh_pdf_doc(self.rv))                      # unchanged, so it doesn't redraw
-            self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
-            os.utime(self.pdf, (time.time() + 3, time.time() + 3))
-            self.assertTrue(ps.pdf_changed(self.rv))
-            time.sleep(1.1)                                                    # page directory names are second-granularity
-            res = ps._build_tracked()
-            self.assertEqual(res["state"], "ok")
-            self.assertNotEqual(ps.cur_pages().name, first)
-            self.assertEqual(ps.build_state_snapshot()["seq"], 2)
-            b = ps.load_builds()["by"]
-            self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages().name]["src_hash"])   # the source of location estimation
+        rv = self.rv
+        self.assertTrue(ps.pdf_changed(rv))                           # not rendered yet
+        res = ps._build_tracked(rv)
+        self.assertEqual(res["state"], "ok", res.get("log"))
+        first = ps.cur_pages(rv).name
+        self.assertTrue((ps.cur_pages(rv) / "review.pdf").is_file())
+        self.assertFalse(ps.pdf_changed(rv))
+        self.assertFalse(ps.refresh_pdf_doc(rv))                      # unchanged, so it doesn't redraw
+        self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
+        os.utime(self.pdf, (time.time() + 3, time.time() + 3))
+        self.assertTrue(ps.pdf_changed(rv))
+        time.sleep(1.1)                                                    # page directory names are second-granularity
+        res = ps._build_tracked(rv)
+        self.assertEqual(res["state"], "ok")
+        self.assertNotEqual(ps.cur_pages(rv).name, first)
+        self.assertEqual(ps.build_state_snapshot(rv)["seq"], 2)
+        b = limn_build.load_builds(rv)["by"]
+        self.assertNotEqual(b[first]["src_hash"], b[ps.cur_pages(rv).name]["src_hash"])   # the source of location estimation
 
 
 class FrontendDocs(unittest.TestCase):
@@ -5969,7 +5962,7 @@ class ReviewState(Base):
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])                         # not in the open-pin list (legacy contract)
         self.assertIsInstance(ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 30), ClaimClosedPin)   # 409 "done"
-        m = ps.meta(dict(ps.LOCAL_ACTOR))
+        m = ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR))
         self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 
     def test_confirm_and_idempotence(self):
@@ -6831,9 +6824,9 @@ class EditAddParsing(Base):
 
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
-        self.assertEqual(parse.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.document_facts(ps.cur_doc())),
+        self.assertEqual(parse.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.document_facts(ps.DOCS[0])),
                          InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"))
-        request = parse.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.document_facts(ps.cur_doc()))
+        request = parse.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.document_facts(ps.DOCS[0]))
         self.assertEqual((request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
                          (str(self.main), 1, "n", ()))
         self.assertEqual(request.place.named, frozenset({"file", "lo", "hi", "note"}))

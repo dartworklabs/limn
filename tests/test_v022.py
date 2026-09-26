@@ -881,14 +881,12 @@ class ColdDeepLink(BrowserBase):
             (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
             (D.dir / "head.txt").write_text("abc1234")
         ms, hl = ps.DOCS
-        with ps.using_doc(ms):
-            for lo in range(4, 30, 2):
-                add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A).record["id"]
-        with ps.using_doc(hl):
-            for lo in range(4, 24, 2):
-                add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A).record["id"]
-            self.target = add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A).record["id"]
-            self.gone = add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A).record["id"]
+        for lo in range(4, 30, 2):
+            add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A).record["id"]
+        for lo in range(4, 24, 2):
+            add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A, doc=hl).record["id"]
+        self.target = add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A, doc=hl).record["id"]
+        self.gone = add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl).record["id"]
         ps.drop_pin(self.gone, B)
         self.addCleanup(ps.set_docs, None)
 

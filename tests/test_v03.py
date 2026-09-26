@@ -752,7 +752,7 @@ class SquashMergedPins(AccessBase):
         """The viewer's matchRevision picks the merged commit from ref = PR #N (hash)."""
         if not shutil.which("node"):
             self.skipTest("node not available")
-        revs = ps.revision_history(ps.cur_doc())["revisions"]
+        revs = ps.revision_history(ps.DOCS[0])["revisions"]
         out = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(matchRevision(%s,%s)));"
                        % (json.dumps(self.ref), json.dumps(revs)))
         self.assertEqual(json.loads(out)["id"], self.squash)
@@ -810,10 +810,10 @@ class ScopedErrorBodies(ScopedRepo):
 
     def build_status(self, pid):
         """Start the scoped build for pid on self.fix and wait for its final status."""
-        ps.revision_start(ps.cur_doc(), self.fix, pid)
+        ps.revision_start(ps.DOCS[0], self.fix, pid)
         end = time.time() + 30
         while time.time() < end:
-            st = ps.revision_status(ps.cur_doc(), self.fix, pid)
+            st = ps.revision_status(ps.DOCS[0], self.fix, pid)
             if st["state"] != "running":
                 return st
             time.sleep(0.05)
@@ -830,7 +830,7 @@ class ScopedErrorBodies(ScopedRepo):
             with self.subTest(case=name), mock.patch.object(revisions, "revision_changes", side_effect=fake):
                 st = self.build_status(self.p2)
                 self.assertEqual((st["state"], st["error"], st["reason"]), ("error", msg, reason))
-                shutil.rmtree(revisions.revision_cache_root(ps.cur_doc()))
+                shutil.rmtree(revisions.revision_cache_root(ps.DOCS[0]))
         spec = revision_spec(self.fix, self.p2)
         bad = ("ms/../evil.tex", "ms/../evil.tex", 0, 1, 0, 1)
         evil = scoping.FileChange(bad[0], bad[1], (b"x\n",), (b"y\n",), (scoping.Block(0, 1, 0, 1),), False)
@@ -1087,12 +1087,12 @@ class ReviewRegressions(AccessBase):
             with lock:
                 now[0] -= 1
             return real(*a, **k)
-        repo, paths = revisions.revision_scope(ps.cur_doc())
-        revs = ps.revision_history(ps.cur_doc())["revisions"]
+        repo, paths = revisions.revision_scope(ps.DOCS[0])
+        revs = ps.revision_history(ps.DOCS[0])["revisions"]
         rows = ps.read_pins()[0]
         with mock.patch.object(revisions, "revision_changes", side_effect=slow):
             ts = [threading.Thread(target=revisions.revision_pin_scope,
-                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()))
+                                   args=(ps.DOCS[0], rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()))
                   for pid in pins]
             for t in ts:
                 t.start()
@@ -1111,7 +1111,7 @@ class ReviewRegressions(AccessBase):
 
     def test_scoped_comparisons_never_evict_whole_commit_ones(self):
         """m4: pin-scoped cache entries have their own limit, so many pins do not push out the whole-commit PDFs."""
-        root = revisions.revision_cache_root(ps.cur_doc())
+        root = revisions.revision_cache_root(ps.DOCS[0])
         whole = [root / ("%064x" % i) for i in range(3)]
         scoped = [root / ("%064x" % (100 + i)) for i in range(revisions.REVISION_SCOPED_KEEP + 4)]
         for i, d in enumerate(whole + scoped):

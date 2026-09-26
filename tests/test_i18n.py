@@ -467,24 +467,22 @@ class EnglishChrome(unittest.TestCase):
         def add(lo, hi, note, actor, **kw):
             d = dict(file=str(C.main), lo=lo, hi=hi, page=1 + lo // 20, note=note, **kw)
             return add_pin(d, actor, ps).record["id"]
-        with ps.using_doc(ms):
-            claimed = add(4, 5, "Tighten this sentence", ALICE)
-            ps.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
-            korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-            ps.reply_pin(korean, "Working on it", ALICE)
-            add(12, 16, "Is this the right table? @Bob Lee", ALICE, kind_req="question", mentions=[BOB["login"]])
-            add(4, 5, "Same spot again", BOB)
-            add(20, 21, "Ask Bob about the wording", ALICE, assignee=BOB["login"])
-            add(22, 23, "Agent note", agent)
-            for author in (ALICE, BOB):
-                pid = add(24, 25, "Shorten the caption", author)
-                ps.set_done(pid, True, agent, reply="표 설명을 줄였습니다", ref="PR #7")
-            done = add(26, 27, "Fix the unit", ALICE)
-            ps.set_done(done, True, ALICE)
-            dropped = add(28, 29, "Wrong spot", ALICE)
-            ps.drop_pin(dropped, ALICE)
-        with ps.using_doc(rr):
-            add_pin(dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE, ps).record["id"]
+        claimed = add(4, 5, "Tighten this sentence", ALICE)
+        ps.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
+        korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
+        ps.reply_pin(korean, "Working on it", ALICE)
+        add(12, 16, "Is this the right table? @Bob Lee", ALICE, kind_req="question", mentions=[BOB["login"]])
+        add(4, 5, "Same spot again", BOB)
+        add(20, 21, "Ask Bob about the wording", ALICE, assignee=BOB["login"])
+        add(22, 23, "Agent note", agent)
+        for author in (ALICE, BOB):
+            pid = add(24, 25, "Shorten the caption", author)
+            ps.set_done(pid, True, agent, reply="표 설명을 줄였습니다", ref="PR #7")
+        done = add(26, 27, "Fix the unit", ALICE)
+        ps.set_done(done, True, ALICE)
+        dropped = add(28, 29, "Wrong spot", ALICE)
+        ps.drop_pin(dropped, ALICE)
+        add_pin(dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE, ps, doc=rr).record["id"]
 
         def age(rows):               # threads and pins from yesterday and a few hours ago, so relative times show
             for i, r in enumerate(rows):

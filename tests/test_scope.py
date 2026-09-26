@@ -46,6 +46,14 @@ class Boundaries(unittest.TestCase):
                 self.assertNotRegex(source, r"(?<![\w.])C\.[a-z_]")
                 self.assertNotIn("cur_doc(", source)
 
+    def test_no_current_document_anywhere(self):
+        """The document is an argument (R5): server.py and the HTTP layer keep no thread-local "current document"."""
+        for path in [PKG / "server.py"] + sorted((PKG / "web").glob("*.py")):
+            with self.subTest(module=path.name):
+                source = path.read_text(encoding="utf-8")
+                for name in ("cur_doc(", "using_doc(", "threading.local("):
+                    self.assertNotIn(name, source)
+
     def test_revisions_loads_without_server_or_the_http_layer(self):
         """limn.revisions answers with values; the HTTP layer imports it, never the other way round."""
         self.assertFalse({n for n in imports_of(PKG / "revisions.py") if n.startswith("limn.web") or n == "limn.server"})

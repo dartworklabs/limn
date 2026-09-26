@@ -603,7 +603,7 @@ class BrowserBase(unittest.TestCase):
                  "raw_hi": 5, "kind": lad["kind"], "via": "synctex", "score": 1.0, "warn": "", "n_lines": len(lines),
                  "snippet": ps.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",
                  "levels": lad["levels"], "default_level": lad["default_level"], "overlaps": [],
-                 "pdf_build": ps.cur_pages().name}
+                 "pdf_build": ps.cur_pages(ps.DOCS[0]).name}
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
         body = rq.post_data_buffer or b""
         h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": self.WHO["Tailscale-User-Login"],

@@ -48,7 +48,7 @@ class ManuscriptCopy(Base):
     def test_build_stops_before_latexmk_when_rsync_fails(self):
         """A non-zero rsync exit fails the build with the copy error and never compiles the partial copy."""
         with mock.patch.object(build, "run_logged", return_value=NO_PDF) as compile_step:
-            res = ps._build()
+            res = ps._build(ps.DOCS[0])
         compile_step.assert_not_called()
         self.assertEqual(res["state"], "fail")
         self.assertFalse(res["ok"])
@@ -57,7 +57,7 @@ class ManuscriptCopy(Base):
     def test_copy_error_names_the_rsync_exit_and_its_last_message(self):
         """The build log shows why the copy failed so the owner can fix permissions or disk space."""
         with mock.patch.object(build, "run_logged", return_value=NO_PDF):
-            res = ps._build()
+            res = ps._build(ps.DOCS[0])
         self.assertIn("23", res["log"])
         self.assertIn("some files/attrs were not transferred", res["log"])
 
