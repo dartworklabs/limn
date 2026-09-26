@@ -36,8 +36,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 6,653 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
-| [`src/limn/build.py`](../../src/limn/build.py) | 840 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 6,740 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 30 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다 |
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 492 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 362 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
@@ -54,7 +54,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
-1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 230곳쯤이다.
+1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 240곳쯤이다.
 2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 요청 처리 코드가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 43곳이다. 빌드(`limn/build.py`)는 2026-09-26부터 이 값을 읽지 않고 문서를 인자로 받는다. `server.py`의 옛 이름 셸이 `cur_doc()`과 `C`를 한 번 읽어 넘긴다.
 3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등.
 

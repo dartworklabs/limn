@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol, TypeAlias, TypeGuard
 
 from limn.files import atomic_write
 
@@ -49,6 +49,9 @@ SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
 SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
 # Build artifact directories (in case the state directory is placed inside the manuscript) + directories the build rsync excludes.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
+
+# One build's outcome, as the HTTP answer of POST /api/rebuild carries it (see compile_tex for the keys).
+BuildResult: TypeAlias = dict[str, Any]
 
 # Guards the read-and-refill of every document's src_mtime memo (BuildDoc.mcache). A leaf lock: nothing is
 # called while holding it, and it owns nothing that needs closing.
@@ -100,7 +103,7 @@ class BuildDoc(Protocol):
         """Held for the whole of one build of this document."""
 
     @property
-    def bstate(self) -> dict:
+    def bstate(self) -> dict[str, Any]:
         """The build state GET /api/build reports (see state_snapshot)."""
 
     @property
@@ -112,7 +115,7 @@ class BuildDoc(Protocol):
         """Guards the read-modify-write of builds.json."""
 
     @property
-    def mcache(self) -> list:
+    def mcache(self) -> list[Any]:
         """The src_mtime memo: [key, value, measured-at]."""
 
 
@@ -131,19 +134,19 @@ class ManuscriptCopyError(Exception):
     """The build copy of the manuscript is incomplete or stale; the message says why (exit code, last error line)."""
 
 
-def _is_int(v) -> bool:
+def _is_int(v: object) -> TypeGuard[int]:
     """An int that is not a bool (JSON true must not pass as a count)."""
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _is_num(v) -> bool:
+def _is_num(v: object) -> TypeGuard[int | float]:
     """An int or float that is not a bool."""
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 # ---------------------------------------------------------------- Page-image version directories
 
-def valid_build_name(v) -> bool:
+def valid_build_name(v: object) -> TypeGuard[str]:
     """Is v the name of a page directory (pages, pages-<14 digits>, pages-<14 digits>-<n>)? The only names a client may send back."""
     return isinstance(v, str) and PAGES_DIR_RE.fullmatch(v) is not None
 
@@ -163,7 +166,7 @@ def cur_pages(D: BuildDoc) -> Path:
     return base / "pages"
 
 
-def pages_dir_for(D: BuildDoc, name) -> Path:
+def pages_dir_for(D: BuildDoc, name: object) -> Path:
     """The page directory of the build the browser is currently looking at. Falls back to the current one if the name is wrong or already deleted.
 
     A drag made in the gap between a rebuild finishing and the viewer switching to the new view (a polling
@@ -176,7 +179,7 @@ def pages_dir_for(D: BuildDoc, name) -> Path:
     return cur_pages(D)
 
 
-def build_pdf(D: BuildDoc, name) -> Path | None:
+def build_pdf(D: BuildDoc, name: object) -> Path | None:
     """The PDF GET /pdf?build=<name> serves - only the copy that matches that build's page images (pages-<build>/<main>.pdf).
 
     Unlike cur_pdf, this never falls back to build/. The one in build/ can be overwritten in place by a
@@ -264,13 +267,13 @@ def migrate_pages(D: BuildDoc) -> None:
 
 # ---------------------------------------------------------------- Build state (progress chip / error panel)
 
-def state_update(D: BuildDoc, **kw) -> None:
+def state_update(D: BuildDoc, **kw: Any) -> None:
     """Merge kw into the document's build state under its lock."""
     with D.bstate_lock:
         D.bstate.update(kw)
 
 
-def state_snapshot(D: BuildDoc) -> dict:
+def state_snapshot(D: BuildDoc) -> dict[str, Any]:
     """The shape GET /api/build returns. If a build is running, elapsed_s is re-measured against the current time."""
     with D.bstate_lock:
         d = dict(D.bstate)
@@ -286,7 +289,7 @@ def state_snapshot(D: BuildDoc) -> dict:
 
 # ---------------------------------------------------------------- One build at a time per document
 
-def build_now(D: BuildDoc, run: Callable[[], dict]) -> dict:
+def build_now(D: BuildDoc, run: Callable[[], BuildResult]) -> BuildResult:
     """Run one build of D synchronously. If D is already building, returns busy without waiting.
 
     run is the tracked build (see run_tracked) bound to D by the caller. One lock per document - different
@@ -300,7 +303,7 @@ def build_now(D: BuildDoc, run: Callable[[], dict]) -> dict:
         lock.release()
 
 
-def build_in_background(D: BuildDoc, run: Callable[[], dict], started_at: str) -> dict:
+def build_in_background(D: BuildDoc, run: Callable[[], BuildResult], started_at: str) -> dict[str, Any]:
     """POST /api/rebuild?async=1: if D's lock is free, runs the same tracked build on a daemon thread and returns immediately.
 
     The state turns running before the thread starts, so the next poll already sees it. If run itself dies,
@@ -309,7 +312,7 @@ def build_in_background(D: BuildDoc, run: Callable[[], dict], started_at: str) -
         return {"state": "running", "busy": True}
     state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time())
 
-    def worker():
+    def worker() -> None:
         """Run the build, record an unexpected death as a failed build, and always release D's lock."""
         try:
             run()
@@ -322,7 +325,7 @@ def build_in_background(D: BuildDoc, run: Callable[[], dict], started_at: str) -
     return {"state": "running"}
 
 
-def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], dict], started_at: str) -> dict:
+def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildResult], started_at: str) -> BuildResult:
     """Wraps one build (compile_step) to fill in D's build state (progress chip / error panel) and the build history.
 
     compile_step is compile_tex for a LaTeX document or the view-only PDF render, bound to D by the caller.
@@ -354,7 +357,7 @@ def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], dict], 
     return res
 
 
-def finish_build(D: BuildDoc, res: dict, src_mtime_for_build) -> None:
+def finish_build(D: BuildDoc, res: BuildResult, src_mtime_for_build: float | None) -> None:
     """A build finished (success or failure either way) - record it in history, bump build_seq, then update D's build state.
 
     src_mtime_for_build is the mtime of "the manuscript this build actually compiled" (after the pull with
@@ -388,9 +391,9 @@ def finish_build(D: BuildDoc, res: dict, src_mtime_for_build) -> None:
 
 # ---------------------------------------------------------------- The LaTeX build
 
-def latex_errors(text: str) -> list:
+def latex_errors(text: str) -> list[dict[str, Any]]:
     """Pulls out up to 5 '! ' lines and the first following 'l.<n>' line each (no file guessing)."""
-    out = []
+    out: list[dict[str, Any]] = []
     lines = text.splitlines()
     for i, ln in enumerate(lines):
         if not ln.startswith("! "):
@@ -409,7 +412,7 @@ def latex_errors(text: str) -> list:
     return out
 
 
-def run_logged(cmd: list, cwd: Path, timeout: int):
+def run_logged(cmd: list[str], cwd: Path, timeout: int) -> tuple[int | None, str, bool]:
     """Runs the whole process group, and kills the whole group on timeout (including pdflatex spawned by latexmk).
 
     Returns (returncode or None, combined output, timed out)."""
@@ -457,7 +460,7 @@ def copy_manuscript(src: Path, dest: Path) -> None:
         raise ManuscriptCopyError(str(e)) from e
 
 
-def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict] | None) -> dict:
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]] | None) -> BuildResult:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
     pull is the --git-pull step (None when the flag is off); its result is reported as res["pull"]. Three
@@ -467,7 +470,7 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict] | None) 
     page directory's name) and pages."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
-    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
+    res: BuildResult = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
 
     if pull is not None:                                  # fast-forward to remote main before the copy step (§P0c-E)
         state_update(D, phase="pull")
@@ -527,11 +530,12 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict] | None) 
     aux = D.out / (D.main.stem + ".aux")
     if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
         extra.append(aux)
-    newdir, err = render_pages(D, pdf, extra, cfg.dpi)
-    if newdir is None:
-        res["log"] = err + "\n" + tail
+    rendered = render_pages(D, pdf, extra, cfg.dpi)
+    if rendered[0] is None:                          # (None, error message)
+        res["log"] = rendered[1] + "\n" + tail
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
+    newdir = rendered[0]
     head_short = commit_pages(D, newdir)
     res["head"] = head_short
 
@@ -543,7 +547,7 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict] | None) 
     return res
 
 
-def render_pages(D: BuildDoc, pdf: Path, extra: list, dpi: int):
+def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> tuple[Path, None] | tuple[None, str]:
     """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps showing the old directory until this finishes.
     Returns (directory, None) or (None, error message)."""
     D.dir.mkdir(parents=True, exist_ok=True)
@@ -601,19 +605,19 @@ def commit_pages(D: BuildDoc, newdir: Path) -> str:
 # at start). Wall-clock comparison (the old approach) was wrong across the board with browser time zones,
 # note edits, and pins placed on a stale PDF (confirmed by independent verification).
 
-def _empty_builds() -> dict:
+def _empty_builds() -> dict[str, Any]:
     """The history of a document that has never built: no seq, no builds, no last result."""
     return {"seq": 0, "builds": [], "last": None}
 
 
-def _valid_build_entry(b) -> bool:
+def _valid_build_entry(b: object) -> bool:
     """Is b a history entry the server can trust (a page-directory name, a numeric or absent src_mtime, a string or absent hash)?"""
     return (isinstance(b, dict) and valid_build_name(b.get("build"))
             and (b.get("src_mtime") is None or _is_num(b.get("src_mtime")))
             and (b.get("src_hash") is None or isinstance(b.get("src_hash"), str)))
 
 
-def load_builds(D: BuildDoc) -> dict:
+def load_builds(D: BuildDoc) -> dict[str, Any]:
     """{seq, builds, last, by}. Empty history if the file is missing or broken - the server still runs without history (estimation just stays conservative)."""
     try:
         d = json.loads((D.dir / "builds.json").read_text(encoding="utf-8"))
@@ -631,7 +635,7 @@ def load_builds(D: BuildDoc) -> dict:
     return out
 
 
-def _write_builds(D: BuildDoc, h: dict) -> None:
+def _write_builds(D: BuildDoc, h: dict[str, Any]) -> None:
     """Write the history, keeping the last BUILDS_KEEP builds. A failed write only warns - the build itself already succeeded."""
     body = {"seq": h["seq"], "last": h["last"], "builds": h["builds"][-BUILDS_KEEP:]}
     try:
@@ -640,12 +644,12 @@ def _write_builds(D: BuildDoc, h: dict) -> None:
         print("warning: failed to write build history: %s" % e, file=sys.stderr)
 
 
-def record_build(D: BuildDoc, last: dict, ent) -> int:
+def record_build(D: BuildDoc, last: dict[str, Any], ent: dict[str, Any] | None) -> int:
     """Add one finished build to the history and return the new seq. seq still advances (in memory) even if the write fails."""
     with D.builds_lock:
         h = load_builds(D)
         with D.bstate_lock:
-            seq = max(h["seq"], int(D.bstate.get("seq") or 0)) + 1
+            seq: int = max(h["seq"], int(D.bstate.get("seq") or 0)) + 1
         h["seq"] = seq
         h["last"] = dict(last, seq=seq, build=ent["build"] if ent else None)
         if ent:
@@ -720,7 +724,7 @@ def _excluded_dir(name: str) -> bool:
     return name.startswith(".") or name in BUILD_OUTDIRS
 
 
-def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str, os.DirEntry]]:
+def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str, os.DirEntry[str]]]:
     """Yields D's manuscript/figure-extension files under root as (relative path 'a/b.tex', os.DirEntry).
 
     src_mtime (badge / stale-PDF warning) and source_fingerprint (build fingerprint) look at the same list -
@@ -735,7 +739,7 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
     except (ValueError, OSError, RuntimeError):
         pass
 
-    def walk(d: Path, rel_parts: tuple):
+    def walk(d: Path, rel_parts: tuple[str, ...]) -> Iterator[tuple[str, os.DirEntry[str]]]:
         """Depth-first, name-sorted walk of d (rel_parts is d relative to root), yielding the manuscript files."""
         try:
             entries = sorted(os.scandir(d), key=lambda e: e.name)
@@ -798,7 +802,8 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
     key = str(D.src)
     if not force:
         with _MTIME_LOCK:
-            ckey, val, at = cache
+            ckey, at = cache[0], cache[2]
+            val: float = cache[1]
             if ckey == key and time.time() - at < 2.0:
                 return val
     newest = 0.0

@@ -133,7 +133,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |

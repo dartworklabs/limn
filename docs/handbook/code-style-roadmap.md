@@ -490,6 +490,6 @@ def now_str() -> str:
 | 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 편집·추가가 남음 |
 | 5 역변환과 빌드 | 완료 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). 같은 날 `build.py` 분리: 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고, `--git-pull`과 보기 전용 그리기는 단계로 넘겨받는다. `C.`·`cur_doc()` 없음(`tests/test_build.py`), 두 문서 동시 빌드 테스트 녹색. 옛 코드와 응답·빌드 상태·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인(성공, LaTeX 오류, PDF 없음, SyncTeX 없음, pdftoppm 실패, 복사 실패, 시간 초과, 빌드 예외, 두 LaTeX 문서와 보기 전용 PDF). `--git-pull`·원격 main 감시는 문서 여럿을 묶는 일이라 `server.py`에 남고, `server.py`의 옛 이름 셸은 6단계에서 없앤다 |
 | 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
-| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. `server.py`는 남음 |
+| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. 같은 날 `build.py`·`files.py`를 더했다(표기만 고침, 동작 그대로). `server.py`는 남음 |
 
 이 문서의 수치(줄 수, 함수 수, docstring 수, Ruff 건수)는 2026-09-25 Limn 0.2.2 기준 실측이다. 단계를 끝낼 때 새로 재서 고친다.
