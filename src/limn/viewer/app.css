@@ -52,6 +52,8 @@ body:not(.role-viewer) #c-viewer{display:none}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
   display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
+/* A sideways swipe never turns into the browser's back/forward navigation - it left Limn and lost the draft (input review 2026-09-26). */
+html,body{overscroll-behavior-x:none}
 /* PDF area: blocks the browser's pinch zoom and passes through only scrolling - a two-finger gesture is handled by the app's own zoom (docs/handbook/viewer.md §PDF 영역 전용 확대). */
 /* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
@@ -189,9 +191,39 @@ body.lay-narrow #revision-source,body.lay-narrow #revision-pdf{padding-bottom:84
 #grip:hover,#grip.on,#grip:focus-visible{background:var(--border-strong)}
 body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
 body.resizing #left{pointer-events:none}
+/* Collapsing by the handle (docs/handbook/viewer.md §패널 폭과 시트 높이, snapSide): stopped at the minimum the bar turns primary;
+   past half the minimum the panel's contents fade to 40% as a preview of the collapse (the panel box itself never gets opacity -
+   in mid its fixed tool bar would move, §펼친 화면 레이아웃) and the cursor says where the panel goes; a draft blocks that zone. */
+#grip.snap-min,body.lay-mid #grip.snap-min{background:var(--primary)}
+body.lay-wide.side-snap-collapse #bar1,body.side-snap-collapse :is(#bar2,#build-err,#banner,#composer,#list,#c-actions){opacity:.4}
+body.side-snap-collapse,body.side-snap-collapse #grip{cursor:w-resize}
+body.side-snap-blocked,body.side-snap-blocked #grip{cursor:not-allowed}
+/* Collapsed wide panel: only a 6px rail is left at the right edge (the handle itself, a flex item beside #left - never over its
+   scrollbar); dragging it left or a double-click brings the panel back. The status chips float as a card at the PDF area's
+   bottom-right as in mid, the tools hide with the panel (zoom stays on Ctrl+wheel / Ctrl±0), and [핀 N] moves to the nav bar. */
+body.lay-wide:not(.side-open) #grip{cursor:w-resize}
+body.lay-wide:not(.side-open) #grip::after{left:0;right:0}
+body.lay-wide:not(.side-open) #right{position:fixed;left:auto;top:auto;right:calc(var(--space-6) + 6px);bottom:var(--space-3);width:auto!important;min-width:0;
+  height:auto;max-width:calc(100vw - 2 * var(--space-6));display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);
+  background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
+body.lay-wide:not(.side-open) #right>:not(#bar2):not(#banner){display:none}
+body.lay-wide:not(.side-open) #right>:is(#bar2,#banner){pointer-events:auto;background:var(--sidebar);border:1px solid var(--border-strong);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+body.lay-wide:not(.side-open) :is(#meta-txt,#me){display:none}
+body.lay-wide:not(.side-open) #bar2:not(:has(.badge:not([hidden]))){display:none}
+/* The wide panel slides 0.18s (margin only - no transform, so nothing inside changes its containing block). */
+@keyframes side-out{to{margin-right:calc(-1 * var(--side-w,348px))}}
+@keyframes side-in{from{margin-right:calc(-1 * var(--side-w,348px))}}
+body.lay-wide.side-closing #right{animation:side-out .18s ease-in forwards}
+body.lay-wide.side-opening #right{animation:side-in .18s ease-out}
+/* [핀 N] of a collapsed wide panel: the right end of the nav bar, the same component as the tool bar's (count, review pill, draft dot). */
+#nav-side{flex:none;margin-left:auto;height:var(--control-h);gap:var(--space-1);padding:0 var(--space-2)}
+body:not(.lay-wide) #nav-side{display:none}
+/* A draft the collapsed panel is holding (draftOpen): a dot on [핀 N] - the note is only hidden, not gone. */
+.c-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--primary)}
 #sheet-grip{display:none}
 #right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
-  display:flex;flex-direction:column;flex:none;min-height:0}
+  display:flex;flex-direction:column;flex:none;min-height:0;touch-action:pan-y pinch-zoom}   /* horizontal drags stay pointer events (the overlay's swipe); pinch keeps the browser's zoom */
 .bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
 #bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* wraps to two lines in a narrowed panel - so it never overflows horizontally */
 /* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
@@ -260,7 +292,7 @@ input::placeholder,textarea::placeholder{color:var(--muted-foreground)}
 textarea{resize:vertical;min-height:4.8em}
 input.n{width:58px;text-align:center}
 .sp{flex:1}
-.pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none}
+.pg{position:relative;margin:0 auto var(--space-4);box-shadow:var(--shadow-page);user-select:none;cursor:crosshair}   /* a mouse drags a box here */
 :root[data-theme=light] .pg{border:1px solid var(--border)}
 .pg img{width:100%;height:100%;display:block}
 /* Vector rendering (docs/handbook/viewer.md §벡터 렌더링): the page canvas (.vb) fills the page box completely, and when zoom
@@ -545,7 +577,7 @@ button.sec-tg:hover{background:var(--accent)}
 .arc-ref{flex:0 1 auto;min-width:0;line-height:16px;padding:0 var(--space-1);max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}   /* the timestamp is never truncated - it's a short relative time so it's always readable (it used to become '09-24 1...') */
 .arc-l1 .dchip,.arc-l1 .loc{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.arc-l1 .loc{flex:none}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
+.arc-l1 .loc{flex:none;overflow:visible}   /* the line range is never truncated - in a narrow panel, 'L890-L897' next to a long reference used to get clipped to 'L89' (folded-layout QA 2026-09-25). The reference shrinks first instead */
 button.arc-b{flex:none;color:var(--muted-foreground)}
 button.arc-b:hover{color:var(--foreground)}
 .arc-l2{display:flex;align-items:baseline;gap:var(--space-2)}
@@ -580,7 +612,10 @@ kbd{background:var(--muted);border:1px solid var(--border);border-radius:var(--r
 .toast .t-title{font-weight:600}
 .toast .t-desc{color:var(--muted-foreground);font-size:var(--text-sm)}
 .toast .t-acts{display:flex;align-items:center;gap:var(--space-1);margin:-3px -5px -3px 0}
-#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}
+#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}
+/* The '+N' under a folded stack (syncToastStack): the way to open it on touch, where hover does not exist. */
+#toasts .t-more{pointer-events:auto;align-self:flex-end;background:var(--popover);box-shadow:var(--shadow-sm)}
+#toasts:is(:hover,:focus-within) .t-more{display:none}
 /* Touch: the toast body passes taps through (only its buttons receive them) - so a toast floating right above a phone's sheet never intercepts a PDF long-press or the tool bar. */
 @media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}}
@@ -669,6 +704,16 @@ body:not(.lay-narrow) #coach button{pointer-events:auto}
   .th-n{min-height:44px;min-width:44px;justify-content:center}
   .thread :is(button.msg-more,button.th-more){padding-left:var(--space-1);padding-right:var(--space-1)}
   #grip::after{left:-9px;right:-9px}
+  body.lay-wide:not(.side-open) #grip::after{left:-18px}   /* the collapsed rail: a 24px touch target reaching into the PDF side (touch scrollbars overlay) */
+}
+/* Mouse hit targets (WCAG 2.5.8, 24px; input review 2026-09-26): small controls keep their drawn size and get a 24x24 hit area
+   from ::after, centered on them - [3쪽] was 17x19, the reply count 23x17, a mark badge 22x22, card buttons 53x23. */
+@media (pointer:fine){
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go){position:relative}
+  :is(button.btn-sm,button.badge,button.sec-tg,button.arc-orig-t,.loc,.pg-link,.th-n,.pin .n.go)::after{content:'';position:absolute;left:50%;top:50%;
+    width:max(100%,24px);height:max(100%,24px);transform:translate(-50%,-50%)}
+  .mark b::after{content:'';position:absolute;inset:-1px}
+  button.badge-assign{overflow:visible}   /* its name ellipsizes by itself (.as-n); a clipping chip would clip its hit area too */
 }
 body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}
 /* mid: shows a grab bar in the middle of the handle (easier to find by touch) */
@@ -749,7 +794,7 @@ body.lay-narrow #sheet-grip{display:flex;align-items:center;justify-content:cent
 body.lay-narrow #sheet-grip::before{content:'';width:40px;height:4px;border-radius:var(--radius-sm);background:var(--border-strong)}
 body.lay-narrow #sheet-grip::after{content:'';position:absolute;left:0;right:0;top:0;bottom:-8px}
 body.lay-narrow #sheet-grip.on::before{background:var(--primary)}
-body.lay-narrow #bar1{top:24px;padding-top:0}
+body.lay-narrow #bar1{top:24px;padding-top:0;touch-action:none}   /* the whole tool bar drags the sheet; its taps still press buttons */
 /* ---- Spread-out folded layout / tablet (mid): the document nav bar on top, the action row on the bottom - both fixed to the full screen
    width, with the panel spread between them (docs/handbook/viewer.md §펼친 화면 레이아웃). It used to have the tool bar follow the panel, so [핀]
    jumped to the top-right when expanded and the bottom-right when collapsed (observed 842x758, y 56->693), and the document-side panel
@@ -806,14 +851,24 @@ body.lay-mid.side-open #coach{max-width:calc(100vw - var(--side-w,330px) - 3 * v
 @keyframes mid-panel-in{from{right:calc(-1 * var(--side-w,330px))}}
 @keyframes mid-grip-in{from{opacity:0}}
 @media (min-width:701px) and (max-width:900px){
-  body.lay-mid.side-open #right{position:fixed;right:0;top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
+  body.lay-mid.side-open #right{position:fixed;right:calc(-1 * var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:20;box-shadow:var(--shadow);
     animation:mid-panel-in .18s ease-out}
+  /* A swipe to dismiss moves it through right (--swipe-x, set while the finger drags); its release springs back or slides out. */
+  body.lay-mid.side-settling #right,body.lay-mid.side-settling #grip{transition:right .18s ease-out}
   /* At the width where the pin panel floats overlaid (folded), the change view gets offset by the panel width - unlike the body PDF, the diff
      can't be pushed aside to view, so the right half under the panel (the end of a wrapped line, the guidance line's [원고로]) was hidden (QA 2026-09-25, 842px). */
   body.lay-mid.side-open #revision-view{padding-right:var(--side-w,330px)}
-  body.lay-mid.side-open #grip{position:fixed;right:var(--side-w,330px);top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
+  /* The same while composing: a pick in the right column would hide under the panel (fold QA 2026-09-26, s10) - the PDF re-fits
+     to the space left of it (or scrolls there when zoomed). */
+  body.lay-mid.side-open.composing #left{padding-right:var(--side-w,330px)}
+  body.lay-mid.side-open #grip{position:fixed;right:calc(var(--side-w,330px) - var(--swipe-x,0px));top:var(--mid-top);bottom:calc(var(--mbar-h) + var(--kb,0px));z-index:21;
     animation:mid-grip-in .18s ease-out}
+  /* Collapsing (a drag past the threshold, [핀], Esc) slides it back out the same way - right only. */
+  body.lay-mid.side-open.side-closing #right{animation:mid-panel-out .18s ease-in forwards}
+  body.lay-mid.side-open.side-closing #grip{animation:mid-grip-out .18s ease-in forwards}
 }
+@keyframes mid-panel-out{to{right:calc(-1 * var(--side-w,330px))}}
+@keyframes mid-grip-out{to{opacity:0}}
 /* The folded layout (narrow) reuses the existing tool bar's [문서 ▾] button and sheet list as-is. */
 .dm-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dcnt{font-weight:600}

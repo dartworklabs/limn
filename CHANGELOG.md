@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.3.5 — unreleased
+
+Mouse and touch usability from the 2026-09-26 input review ([viewer.md](docs/handbook/viewer.md) §패널 폭과 시트 높이,
+§펼친 화면 레이아웃, §모바일 레이아웃). Viewer only: the HTTP API, `pins.md` and the state directory are unchanged; the
+browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse` hints in `pinPrefs.coach`) and a
+per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`).
+
+- **Collapse the panel by its handle, in every layout.** Drag it right: the width follows down to the minimum, stops
+  there between half the minimum and the minimum (the bar turns primary), and below half the minimum the panel's
+  contents fade to 40% as a preview; a release collapses it with a 0.18s slide, keeping the drag-start width as the
+  saved width. A draft (composing, editing, replying, relocating) stops the drag at the minimum instead. The wide panel,
+  which could not be closed before, leaves a 6px rail at the right edge (drag it back or double-click it), shows
+  `[핀 N ‹]` at the right end of the nav bar, floats the status chips and toasts at the PDF area's bottom-right, and
+  opens again for a pick, a mark, a pin link, the review list or an in-text `#N`. Remembered per device
+  (`pinPrefs.sideClosed`).
+- **Keys.** The handle follows the WAI-ARIA window splitter: Enter collapses and expands, Space cycles the presets,
+  Home = minimum, End = maximum (they were reversed); collapsed = `aria-valuenow` 0. `Ctrl/⌘+\` toggles the panel (or
+  the phone sheet) at every width outside text fields. Esc closes the 701-900px overlay after a selection, and returns
+  from [변경 보기] to the manuscript.
+- **Touch.** Swipe the 701-900px overlay right to dismiss it (35% of its width or a fling; a draft only rubber-bands).
+  Drag the phone sheet by its whole tool bar, or pull its content down at the top; a downward fling collapses it, an
+  upward fling goes to the next height, and a draft stops it at 30% instead of hiding the note. The system back
+  gesture closes the sheet, the overlay or the mid outline first (CloseWatcher, else one history entry), and a right
+  swipe no longer navigates back out of Limn. A double tap on the PDF toggles fit width and 2x. The click that used to
+  follow a handle tap or a quick pick and land on the panel under the finger is swallowed. The documents sheet and help
+  close on an outside tap; the documents sheet also follows a pull-down.
+- **Undo instead of loss.** Esc or [취소] on a selection with a written note offers `선택 취소됨 · [되돌리기]`, which
+  brings back the selection, the note and the box; [되돌리기] after saving a pin also reopens the composer with them.
+  The composer draft is also kept per tab in `sessionStorage` (per instance and document, written on every edit): a
+  reload, or leaving Limn with a second back gesture and coming back, restores it with `작성 중이던 메모를 되살렸습니다 ·
+  [버리기]` (only the note when the PDF was rebuilt meanwhile). Saving clears it; a discard clears it after its undo window.
+- **Smaller things.** Mouse hit targets reach 24x24 (WCAG 2.5.8) without changing what is drawn; the PDF shows a
+  crosshair and a first-time mouse user gets one hint; a pick in the overlay's right column is no longer hidden
+  under the panel; the handle's tooltip hides when the drag starts; more than three toasts get a button that opens
+  the stack on touch.
+- Rolling back to 0.3.4 is safe: it ignores `pinPrefs.sideClosed` (a wide panel just opens).
+
 ## 0.3.4 — unreleased
 
 English error messages, a Limn mark, and the two ADR-0006 follow-ups of

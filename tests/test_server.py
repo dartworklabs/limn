@@ -3099,6 +3099,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn("case '%s':" % act, ps.HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
+        """Touch CSS: 44px controls, 16px inputs, safe areas, and exactly which rules set touch-action (PDF, grips, panel, sheet bar)."""
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}")]
@@ -3109,11 +3110,13 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("var(--kb,0px)", css)
         # touch-action: the PDF area (#left) allows only scroll and blocks browser pinch (two fingers do
         # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
-        # Everything else is just the width/height grips (none so they don't fight scroll while dragging).
-        # The sidebar/sheet are left untouched.
+        # The width/height grips are none so they don't fight scroll while dragging. The panel is pan-y pinch-zoom
+        # (a horizontal drag stays a pointer stream for the overlay's swipe; pinch keeps the browser's zoom), and
+        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26).
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
-                     ["#left", "#outline-grip", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
+                     ["#left", "#outline-grip", "#grip", "#right", "body.selmode .pg", "body.lay-narrow #sheet-grip", "body.lay-narrow #bar1"])
+        self.assertRegex(css_nc, r"\n#right\{[^}]*touch-action:pan-y pinch-zoom\}")
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)
@@ -3780,10 +3783,11 @@ class FrontendToasts(unittest.TestCase):
             self.assertIn("setProperty('%s'" % v, body)
 
     def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
+        """Newest toast on top, 6s life, more than three fold (hover, focus or the '+N' button opens them), no motion when reduced."""
         body = extract_js_fn("toast")
         self.assertIn("box.insertBefore(t,box.firstChild)", body)
         self.assertIn("setTimeout(kill,6000)", body)
-        self.assertIn("#toasts:not(:hover):not(:focus-within) .toast:nth-child(n+4){display:none}", self.css)
+        self.assertIn("#toasts:not(:hover):not(:focus-within):not(.expanded) .toast:nth-child(n+4){display:none}", self.css)   # + the '+N' button on touch
         self.assertIn("@keyframes toast-in", self.css)
         self.assertIn("@media (prefers-reduced-motion: reduce){*{animation:none!important", self.css)
 
@@ -5321,7 +5325,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
-            function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
+            function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
+            function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
+            function saveDraftSoon(){} function syncDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
@@ -5617,13 +5623,14 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertTrue(page.evaluate("SIDE_OPEN"))
 
     def test_saved_widths_clamp_without_overwriting_and_mobile_keeps_sheet(self):
+        """A saved width is clamped for the screen but never overwritten; Home goes to the minimum; the phone keeps its sheet."""
         page = self.open_viewer(1180, preferences={'side': 430})
         self.assertEqual(page.locator('#right').bounding_box()['width'], 430)
         page = self.open_viewer(1024, preferences={'sideMid': 600})
         self.assertGreaterEqual(page.locator('#pdf-center').bounding_box()['width'], 480)
         self.assertEqual(page.evaluate("prefs().sideMid"), 600)
         page.locator('#grip').focus()
-        page.keyboard.press('End')
+        page.keyboard.press('Home')   # the window-splitter key for the panel's minimum (End is its maximum)
         self.assertEqual(page.locator('#right').bounding_box()['width'], 300)
         page = self.open_viewer(390, True)
         self.assertFalse(page.locator('#doc-nav').is_visible())
@@ -5834,13 +5841,14 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("ic('message-square')", body)
 
     def test_reply_editor_survives_redraw_and_save_sends_kind(self):
+        """The reply box survives list redraws, Esc closes it first, and a save sends the pin kind."""
         dp = extract_js_fn("drawPins")
         self.assertIn("slot.replaceWith(REPLY.el)", dp)
         self.assertIn("rta.focus()", dp)
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
         self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
-        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc closes the input field first
+        self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", ps.HTML)   # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
         self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)   # one path; the server decides
