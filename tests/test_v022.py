@@ -28,7 +28,7 @@ from limn.store import dump_jsonl
 from limn.events import EVENT_TYPES, NOTIFY_TYPES
 from test_access import ALICE, BOB, CAROL, AccessBase, token_create
 from test_qa_021 import BrowserBase, actor
-from test_server import add_pin, Base, extract_js_fn, js_i18n, js_icons, ps, run_node
+from helpers import add_pin, Base, extract_js_fn, js_i18n, js_icons, ps, run_node
 
 ROOT = Path(__file__).resolve().parent.parent
 HANGUL = re.compile(r"[가-힣]")

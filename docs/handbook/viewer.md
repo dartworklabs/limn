@@ -31,7 +31,7 @@
 
 > **핵심**
 >
-> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_server.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
+> 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_viewer.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
 **CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
@@ -49,7 +49,7 @@
 
 [`tests/test_i18n.py`](../../tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. 0.1.1부터는 `tl()` 틀에 번역이 없으면 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 0.3.4부터 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`tests/test_errors.py`](../../tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `ui_en.json`에 추가한다.
 
-**가드는 `tests/test_server.py`의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패). 조각과 조립은 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 지킨다. 목록과 파일이 맞는지, 조립한 페이지가 조각을 이은 것과 같은지 본다. 내보내는 페이지(`build_html()`)의 인라인 스크립트마다 `node --check`를 돌려, 문법 오류를 조각 파일과 줄(예: `js/cards.js:41`)로 알린다. node가 없으면 건너뛰고, `LIMN_TEST_REQUIRE_NODE=1`인 CI에서는 실패한다.
+**가드는 [`tests/test_viewer.py`](../../tests/test_viewer.py)의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패). 조각과 조립은 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 지킨다. 목록과 파일이 맞는지, 조립한 페이지가 조각을 이은 것과 같은지 본다. 내보내는 페이지(`build_html()`)의 인라인 스크립트마다 `node --check`를 돌려, 문법 오류를 조각 파일과 줄(예: `js/cards.js:41`)로 알린다. node가 없으면 건너뛰고, `LIMN_TEST_REQUIRE_NODE=1`인 CI에서는 실패한다.
 
 | 규칙(이 문서의 절) | 가드 클래스 |
 | --- | --- |
@@ -76,7 +76,7 @@
 | 그 밖의 뷰어 동작 | `FrontendLogic`, `FrontendStructure` |
 | 패널 접기·레일·키보드, 겹친 패널 밀어 닫기, 시트 끌기, 뒤로 가기, 유령 클릭, 두 번 탭, 선택 되돌리기, 탭에 남는 초안, 누르는 넓이 | `tests/test_viewer_input.py` — 순수 판단 `PanelSnapLogic`·`GripKeyLogic`·`GestureLogic`·`DraftLogic`, 브라우저 `DesktopPanelCollapse`·`DesktopPersistence`·`DraftPersistence`·`FoldOverlay`·`PhoneSheet`·`DesktopMisc`·`ReviewRegressions` |
 
-**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `tests/test_server.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
+**리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`INLINE_STYLE_OK`·`RADIUS_OK`)에 함께 있다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
 
 ## 레이아웃
 
@@ -765,7 +765,7 @@
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
 | 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px만 둔다 |
 
-가드는 [`tests/test_server.py`](../../tests/test_server.py)의 `FrontendDesignTokens`다. 인라인 CSS를 파싱해 다음을 막는다.
+가드는 [`tests/test_viewer.py`](../../tests/test_viewer.py)의 `FrontendDesignTokens`다. 인라인 CSS를 파싱해 다음을 막는다.
 
 - 토큰 블록 밖의 색 리터럴
 - 척도 밖의 radius·font-size

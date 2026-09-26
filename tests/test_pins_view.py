@@ -1,16 +1,20 @@
 """limn.pins.view - the computed fields of GET /api/pins and the Trash list, called directly with explicit collaborators.
 
-The answers through the HTTP handler are pinned in test_server.py and test_v022.py; here the pure functions get their
-record display, documents, estimation facts and clock as arguments, and must never call a collaborator they do not
-need.
+The answers through the HTTP handler are pinned in test_server.py, test_v022.py and, for the Trash list, DroppedList at
+the end of this file (through server.py). Above it the pure functions get their record display, documents, estimation
+facts and clock as arguments, and must never call a collaborator they do not need.
 
 Run: uv run pytest -q tests/test_pins_view.py
 """
+import json
 import unittest
 
+from limn.access import LOCAL_ACTOR
 from limn.pins.model import parse_pin
 from limn.pins.position import EstContext
 from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload
+
+from helpers import Base, ps, req
 
 NOW = 1790000000.0
 CUR = EstContext("b2", {"b1": {"build": "b1", "src_hash": "h1"}, "b2": {"build": "b2", "src_hash": "h2"}}, None, None)
@@ -124,6 +128,51 @@ class DroppedPayload(unittest.TestCase):
         self.assertEqual([r.get("expires_ts") for r in out], [None, 50.0, None, 100.123])
         self.assertTrue(all(r["shown"] for r in out))
         self.assertEqual(rows[0], {"id": 1, "dropped_at": "2026-09-26 10:00:00"})
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# The Trash list (dropped_payload and GET /api/pins/dropped). These classes load server.py (helpers.ps) and drive the
+# module through its bindings; the tests above call the module on its own.
+
+class DroppedList(Base):
+    """§B: GET /api/pins/dropped — returns dropped pins read-only, together with dropped_at/dropped_by."""
+
+    def test_dropped_payload_includes_dropped_at_and_by(self):
+        pid = self.add(note="oops")
+        ps.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        out = ps.dropped_payload()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["id"], pid)
+        self.assertEqual(out[0]["dropped_by"]["login"], "alice")
+        self.assertIn("dropped_at", out[0])
+
+    def test_dropped_payload_empty_when_nothing_dropped(self):
+        self.add()
+        self.assertEqual(ps.dropped_payload(), [])
+
+    def test_dropped_payload_excludes_restored_pins(self):
+        pid = self.add()
+        ps.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.restore_pin(pid, dict(LOCAL_ACTOR))
+        self.assertEqual(ps.dropped_payload(), [])
+
+    def test_get_pins_dropped_endpoint_http(self):
+        pid = self.add(note="secret-drop-note")
+        ps.drop_pin(pid, {"login": "alice", "name": "Wendy"})
+        out = self.talk(req("GET", "/api/pins/dropped"))
+        self.assertIn(b" 200 ", out)
+        payload = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(len(payload["dropped"]), 1)
+        self.assertEqual(payload["dropped"][0]["id"], pid)
+        self.assertEqual(payload["dropped"][0]["note"], "secret-drop-note")
+
+    def test_get_pins_dropped_respects_origin_check(self):
+        pid = self.add()
+        ps.drop_pin(pid, dict(LOCAL_ACTOR))
+        out = self.talk(req("GET", "/api/pins/dropped", headers={"Host": "evil.example"}))
+        self.assertIn(b" 403 ", out)
+
 
 
 if __name__ == "__main__":

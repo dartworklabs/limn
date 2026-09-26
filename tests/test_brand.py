@@ -17,7 +17,7 @@ import zlib
 from urllib.parse import unquote
 
 from test_access import AccessBase
-from test_server import ps, req, split_resp
+from helpers import ps, req, split_resp
 from test_access import talk_to
 from test_viewer_files import viewer_text
 

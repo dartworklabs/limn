@@ -3,7 +3,8 @@
 The composition (server.start: configure_access, the --port probe, configure_run, prepare, report, listen) runs in
 tests/test_access.py (StartupRules, TailnetAgentStartup) and as a real process in tests/test_access.py (serve on a busy
 port) and tests/test_token_file.py. This file pins each rule, every access refusal's exact message (a security
-boundary, docs/adr/0002-access-control.md) and the module boundary.
+boundary, docs/adr/0002-access-control.md) and the module boundary. DocArgs hands make_docs the server copy's run
+settings (helpers.ps.C) as the documents' paths, as server.py does.
 
 Run: uv run pytest -q tests/test_startup.py
 """
@@ -13,7 +14,9 @@ import dataclasses
 import errno
 import ipaddress
 import os
+import shutil
 import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +24,10 @@ from unittest import mock
 
 from limn import args, config, startup
 from limn.access import LOOPBACK_AGENT_DEPRECATION
+from limn.documents import DOCS_MAX
 from limn.startup import AccessOptions, RunDocuments, StartupRefused
+
+from helpers import MINI_PDF, ps, TEX as FIXTURE_TEX
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "limn"
 TEX = "\\documentclass{article}\n\\begin{document}\nx\n\\end{document}\n"
@@ -365,6 +371,176 @@ class Parser(unittest.TestCase):
         with mock.patch.dict(os.environ, {"LIMN_AGENT_TOKEN_FILE": "/x/t.token"}):
             self.assertEqual(args.serve_parser("d", "v", "e").parse_args(["--manuscript", "m"]).agent_token_file,
                              "/x/t.token")
+
+
+# ---------------------------------------------------------------- instance label (§Running multiple manuscript instances at once)
+
+class RepoNameFromUrl(unittest.TestCase):
+    def test_https_url(self):
+        self.assertEqual(startup.repo_name_from_url("https://github.com/example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_ssh_url_with_path(self):
+        self.assertEqual(startup.repo_name_from_url("git@github.com:example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_scp_style_without_slash(self):
+        self.assertEqual(startup.repo_name_from_url("git@host:reponame.git"), "reponame")
+
+    def test_no_git_suffix(self):
+        self.assertEqual(startup.repo_name_from_url("https://github.com/org/name"), "name")
+
+    def test_trailing_slash(self):
+        self.assertEqual(startup.repo_name_from_url("https://github.com/org/name/"), "name")
+
+
+class DefaultLabel(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_uses_repo_name_when_remote_given(self):
+        src = self.root / "some-checkout-dir"
+        src.mkdir()
+        self.assertEqual(startup.default_label(src, "git@github.com:example-lab/paper-a.git"),
+                         "paper-a")
+
+    def test_falls_back_to_folder_name_without_remote(self):
+        src = self.root / "my-manuscript"
+        src.mkdir()
+        self.assertEqual(startup.default_label(src, None), "my-manuscript")
+
+    def test_git_remote_url_none_when_not_a_repo(self):
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        src = self.root / "plain-dir"
+        src.mkdir()
+        self.assertIsNone(startup.git_remote_url(src))
+
+    def test_git_remote_url_reads_origin(self):
+        if not shutil.which("git"):
+            self.skipTest("git not available")
+        src = self.root / "repo"
+        src.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=src, check=True)
+        subprocess.run(["git", "remote", "add", "origin", "git@example.com:org/paper-x.git"],
+                       cwd=src, check=True)
+        self.assertEqual(startup.git_remote_url(src), "git@example.com:org/paper-x.git")
+        self.assertEqual(startup.default_label(src, startup.git_remote_url(src)), "paper-x")
+
+
+class LabelValidation(unittest.TestCase):
+    def test_strips_and_collapses_whitespace(self):
+        self.assertEqual(startup.clean_label("  A-DEMO  "), "A-DEMO")
+        self.assertEqual(startup.clean_label("A\nDEMO"), "A DEMO")
+
+    def test_empty_becomes_default_placeholder(self):
+        self.assertEqual(startup.clean_label(""), "원고")
+        self.assertEqual(startup.clean_label(None), "원고")
+
+    def test_over_length_is_refused(self):
+        """An explicit --label over LABEL_MAX refuses to start (main() prints the message and exits)."""
+        refused = startup.clean_label("x" * (startup.LABEL_MAX + 1))
+        self.assertIsInstance(refused, StartupRefused)
+        self.assertTrue(refused.message.startswith("--label must be %d characters or fewer" % startup.LABEL_MAX))
+
+    def test_exactly_max_length_ok(self):
+        v = "x" * startup.LABEL_MAX
+        self.assertEqual(startup.clean_label(v), v)
+
+
+class AccentValidation(unittest.TestCase):
+    def test_valid_format(self):
+        self.assertTrue(startup.valid_accent("#1d4ed8"))
+        self.assertTrue(startup.valid_accent("#AABBCC"))
+
+    def test_invalid_formats_rejected(self):
+        for bad in ("1d4ed8", "#1d4ed", "#1d4ed8ff", "#gggggg", "red", "", None):
+            self.assertFalse(startup.valid_accent(bad))
+
+    def test_pick_accent_is_deterministic_for_same_label(self):
+        a = startup.pick_accent("A-DEMO")
+        b = startup.pick_accent("A-DEMO")
+        self.assertEqual(a, b)
+        self.assertIn(a, config.ACCENT_PALETTE)
+
+    def test_pick_accent_differs_for_different_labels_usually(self):
+        # the palette has 8 colors so a 100% guarantee isn't possible, but if a handful of different
+        # labels all cluster onto the same color, the hash distribution is broken.
+        colors = {startup.pick_accent(lbl) for lbl in ("A-DEMO", "paper-b", "grant-2026", "thesis")}
+        self.assertGreater(len(colors), 1)
+
+
+class DocArgs(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ms = Path(self.tmp.name) / "repo"
+        (self.ms / "manuscript" / "2nd").mkdir(parents=True)
+        (self.ms / "manuscript" / "2nd" / "m.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (self.ms / "sub" / "rr").mkdir(parents=True)
+        (self.ms / "sub" / "rr" / "rr.tex").write_text(FIXTURE_TEX, encoding="utf-8")
+        (self.ms / "sub" / "review.pdf").write_bytes(MINI_PDF)
+        (self.ms / "notes.txt").write_text("x")
+        (Path(self.tmp.name) / "outside.tex").write_text(FIXTURE_TEX)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_simple_tex_uses_its_folder_as_build_root(self):
+        d = startup.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
+        self.assertEqual((d["key"], d["name"], d["kind"]), ("rr", "답변서", "tex"))
+        self.assertEqual(d["src"], (self.ms / "sub" / "rr").resolve())
+        self.assertEqual(d["main"], (self.ms / "sub" / "rr" / "rr.tex").resolve())
+
+    def test_extended_form_sets_build_root_separately(self):
+        d = startup.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
+        self.assertEqual(d["src"], (self.ms / "manuscript").resolve())
+        self.assertEqual(d["main"], (self.ms / "manuscript" / "2nd" / "m.tex").resolve())
+        doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, ps.C)[0]
+        self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
+        ps.C.state = Path(self.tmp.name) / "st"
+        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk runs from the folder that holds the main file
+
+    def test_pdf_is_view_only(self):
+        d = startup.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
+        self.assertEqual(d["kind"], "pdf")
+        self.assertEqual(d["name"], "리뷰어 코멘트")                  # a space inside the name is kept as-is
+
+    def test_absolute_path_inside_manuscript_is_accepted(self):
+        d = startup.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
+        self.assertEqual(d["kind"], "tex")
+
+    def test_rejects_bad_specs(self):
+        bad = ["rr답변서:sub/rr/rr.tex",               # no '='
+               "RR=답변서:sub/rr/rr.tex",              # uppercase key
+               "a" * 25 + "=x:sub/rr/rr.tex",          # 25-char key
+               "rr=답변서",                            # no ':'
+               "rr=:sub/rr/rr.tex",                    # empty name
+               "rr=" + "가" * 41 + ":sub/rr/rr.tex",   # 41-char name
+               "rr=답변서:",                           # empty path
+               "rr=답변서:../outside.tex",             # outside --manuscript
+               "rr=답변서:sub/rr/none.tex",            # nonexistent file
+               "rr=답변서:notes.txt",                  # extension
+               "rv=코멘트:sub::review.pdf",            # '::' is LaTeX-only
+               "ms=본문:manuscript::../outside.tex",   # main is outside the build root
+               "ms=본문:manuscript::2nd/m.tex::x",     # '::' twice
+               "ms=본문:nope::2nd/m.tex"]              # no build root
+        for spec in bad:
+            with self.assertRaises(ValueError, msg=spec):
+                startup.parse_doc_arg(spec, self.ms)
+
+    def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
+        with self.assertRaises(ValueError):
+            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C)
+        docs = startup.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms, ps.C)
+        self.assertEqual([d.root for d in docs], [True, False, False])    # only the LaTeX document keyed main is placed at the state-folder root
+        self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
+        with self.assertRaises(ValueError):
+            startup.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(DOCS_MAX + 1)], self.ms, ps.C)
+
 
 
 if __name__ == "__main__":

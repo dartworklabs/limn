@@ -19,7 +19,7 @@ from pathlib import Path
 from limn import mapping, startup
 from limn.store import dump_jsonl
 from test_access import AccessBase
-from test_server import add_pin, ps
+from helpers import add_pin, ps
 from test_v03 import ScopedRepo
 
 MS_MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n" + "".join(
