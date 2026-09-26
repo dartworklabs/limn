@@ -133,9 +133,9 @@ from limn.pins.model import (
     TrashedPin,
     is_region_pin,
     parse_pin,
+    state_of,
 )
 from limn.pins.position import EstContext
-from limn.pins.record import is_int
 from limn.pins.render import (
     DocHeading,
     PinFacts,
@@ -143,6 +143,7 @@ from limn.pins.render import (
     pins_md_text as render_pins_md_text,
     rel_badge,
 )
+from limn.pins.shapes import is_int
 from limn.pins.view import pin_state as pin_state
 from limn.revisions import (
     DiffRefusal,
@@ -934,14 +935,14 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
     sources: dict[Path, list[str]] = {}
     facts: dict[int, PinFacts] = {}
     for r in rows:
-        if pin_state(r) == "done":
+        if state_of(r) is DonePin:
             continue
         location, line_len = "", None
         if not is_region_pin(r):
             loc = pin_location(r, C.src)  # ADR-0006: still relative after the checkout moved
             location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
             lo, hi = r.get("lo"), r.get("hi")
-            if loc is not None and not r.get("done") and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
+            if loc is not None and state_of(r) is OpenPin and r.get("quote") and is_int(lo) and is_int(hi) and lo == hi:
                 if loc.path not in sources:  # outside the tree (loc None) is never read
                     sources[loc.path] = tex_lines(loc.path)
                 lines = sources[loc.path]

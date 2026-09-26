@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 from limn.files import atomic_write
-from limn.pins.render import flat
+from limn.mapping import flat
+from limn.pins.shapes import is_int
 
 # One notice or events.jsonl record, a pin record, an actor or a thread post as read from JSON.
 Row: TypeAlias = dict[str, Any]
@@ -42,7 +43,7 @@ EVENTS_KEEP = 5000  # number of recent events kept in events.jsonl. seq only inc
 EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
 EVENTS_SINCE_MAX = 20
-EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.pins.render.flat)
+EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.mapping.flat)
 
 
 # ---------------------------------------------------------------- Pure: building and picking notices
@@ -65,7 +66,7 @@ def make_event(
     None (not recorded) if that leaves it empty. who gives the actor as recorded ({login, name}) and doc_of the pin's
     document; both are only asked when a notice is made. The record carries kind_req when the pin has one, msg (the
     thread post's id) when a post is given, and an excerpt of text - or of the post's text - when not empty: on one
-    line, at most EXCERPT_CHARS characters (limn.pins.render.flat, the rule pins.md shows thread posts by)."""
+    line, at most EXCERPT_CHARS characters (limn.mapping.flat, the rule pins.md shows thread posts by)."""
     me = (actor or {}).get("login")
     rcpt = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != local_login]
     if not rcpt:
@@ -120,11 +121,6 @@ def _with_doc_name(e: Row, doc_names: Mapping[str, str]) -> Row:
 # ---------------------------------------------------------------- The file
 
 
-def _is_int(v: object) -> bool:
-    """A JSON integer: an int, but not a bool."""
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
 @dataclass(frozen=True)
 class EventLog:
     """events.jsonl of one state directory, with the process's write lock and read cache.
@@ -157,7 +153,7 @@ class EventLog:
                 e = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(e, dict) and _is_int(e.get("seq")):
+            if isinstance(e, dict) and is_int(e.get("seq")):
                 rows.append(e)
         self.cache["v"] = (sig, rows)
         return list(rows), sig

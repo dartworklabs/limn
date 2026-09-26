@@ -38,6 +38,7 @@ from limn.mapping import (
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
+from limn.pins.model import OpenPin, is_region_pin, state_of
 from limn.pins.position import EstContext, epoch, est_basis, resync
 
 # One stored pin as the store reads it: a JSON object (limn.store.Row).
@@ -307,7 +308,7 @@ def sync_all(rows: list[Row], locate: Locator) -> bool:
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
     for i, r in enumerate(rows):
-        if r.get("done") or not r.get("file"):  # a view-only PDF's pin has no lines - nothing to re-match
+        if state_of(r) is not OpenPin or is_region_pin(r):  # a view-only PDF's pin has no lines - nothing to re-match
             continue
         loc = locate(r)
         if loc is None:

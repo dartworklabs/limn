@@ -81,7 +81,7 @@ class SyncAll(unittest.TestCase):
         are the same objects as before; the result says something changed."""
         pin = {"id": 1, "file": str(self.tex), "lo": 2, "hi": 2, "anchor": anchor_of(self.lines, 2, 2), "synced_at": 0}
         done = dict(pin, id=2, done=True)
-        region = {"id": 3, "page": 1}
+        region = {"id": 3, "pdf": "/ms/figure.pdf", "page": 1, "frac": [0, 0, 0.5, 0.5]}
         rows = [pin, done, region]
         self.tex.write_text("inserted\n" + "\n".join(self.lines) + "\n", encoding="utf-8")
         self.assertTrue(locate.sync_all(rows, self.locator))

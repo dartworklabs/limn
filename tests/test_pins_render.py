@@ -182,6 +182,13 @@ class OpenRows(unittest.TestCase):
         self.assertIn("처리 중(Kim, 예상 초과)", pins_md_text(page([r], now=T + 31)))
         self.assertNotIn("처리 중", pins_md_text(page([r], now=T + 60)).split("표시:")[0].split("| # |")[-1])
 
+    def test_a_claim_until_without_claimed_by_still_shows_the_marker(self):
+        """Pinned on purpose: a hand-edited open pin with a live claim_until but no claimed_by object shows
+        '처리 중(?)' - pins.md reads the record (lifecycle.claim_holds), not the lifted Claim that POST /claim decides
+        on. Changing this changes the agent contract and must be deliberate."""
+        r = line_pin(1, claim_until=T + 60)
+        self.assertEqual(table_rows(pins_md_text(page([r])))[0].split(" | ")[0], "| 1 · 처리 중(?)")
+
     def test_note_cells_escape_pipes_and_newlines(self):
         """The note keeps its lines as ⏎ and a pipe cannot add a column."""
         row = table_rows(pins_md_text(page([line_pin(1, note="a | b\r\nc")])))[0]
@@ -312,9 +319,9 @@ class Helpers(unittest.TestCase):
 
     def test_flat_collapses_whitespace_and_truncates(self):
         """Runs of whitespace become one space; over n characters ends with an ellipsis within n."""
-        self.assertEqual(render.flat(" a\n\tb  c ", 10), "a b c")
-        self.assertEqual(render.flat("abcdefghij", 5), "abcd…")
-        self.assertEqual(render.flat(None, 5), "")
+        self.assertEqual(mapping.flat(" a\n\tb  c ", 10), "a b c")
+        self.assertEqual(mapping.flat("abcdefghij", 5), "abcd…")
+        self.assertEqual(mapping.flat(None, 5), "")
 
     def test_region_text_tolerates_a_malformed_frac(self):
         """A frac that is not four numbers reads as zeros instead of failing the whole sheet."""

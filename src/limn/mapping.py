@@ -16,6 +16,8 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeAlias
 
+from limn.pins.shapes import is_int
+
 FLOAT_KINDS = ("figure", "table", "algorithm")
 
 
@@ -44,6 +46,13 @@ def truncate_quote(s: object, n: int = 60) -> str:
     result is always n characters or fewer (never n+1 from n characters plus the ellipsis)."""
     text = str(s)
     return text[: n - 1] + "…" if len(text) > n else text
+
+
+def flat(s: object, n: int) -> str:
+    """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut).
+    None and "" both give "". The one rule for a text shown on one line: pins.md's thread posts and close replies
+    (limn.pins.render), and the excerpt of an events.jsonl notice (limn.events.make_event)."""
+    return truncate_quote(" ".join(str(s or "").split()), n)
 
 
 def is_comment(line: str) -> bool:
@@ -327,8 +336,8 @@ def find_line(nlines: Sequence[str], needle: object, near: int) -> int | None:
     if not isinstance(needle, str) or not needle:
         return None
     cands = [i for i, t in enumerate(nlines) if t == needle]
-    if not cands and len(needle) >= 12:
-        key = needle[:40]
+    key = partial_key(needle)
+    if not cands and key is not None:
         cands = [i for i, t in enumerate(nlines) if key in t]
     if not cands:
         return None
@@ -339,21 +348,27 @@ def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> b
     """Is the anchor's head line still where the pin's lo says (line lo + head_off, 1-based), by find_line()'s matching
     (the whole norm()-ed line, or its first 40 characters for a head of 12 or more)? head_off that is not an integer in
     0..9999 counts as 0, like a legacy anchor. False for a missing head or a line outside nlines."""
-    head, off = anchor.get("head"), anchor.get("head_off")
-    off = off if isinstance(off, int) and not isinstance(off, bool) and 0 <= off < 10000 else 0
-    i = lo + off - 1
+    head = anchor.get("head")
+    i = lo + anchor_offset(anchor.get("head_off")) - 1
     if not isinstance(head, str) or not head or not 0 <= i < len(nlines):
         return False
-    return nlines[i] == head or (len(head) >= 12 and head[:40] in nlines[i])
+    key = partial_key(head)
+    return nlines[i] == head or (key is not None and key in nlines[i])
 
 
-# ---------------------------------------------------------------- Where a pin's file is (docs/adr/0006-relative-pin-paths.md)
+def partial_key(needle: str) -> str | None:
+    """The part of an anchor line that may match inside a norm()-ed line of the file: its first 40 characters when
+    it has 12 or more, else None - a shorter line only matches a whole line (find_line, anchor_holds)."""
+    return needle[:40] if len(needle) >= 12 else None
 
 
 def anchor_offset(v: object) -> int:
     """A stored anchor's head_off/tail_off - how far its first/last non-comment line sits from lo/hi - when it is an int
     in 0..9999, else 0 (a legacy anchor has none, and a bad value must not move the pin)."""
-    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10000 else 0
+    return v if is_int(v) and 0 <= v < 10000 else 0
+
+
+# ---------------------------------------------------------------- Where a pin's file is (docs/adr/0006-relative-pin-paths.md)
 
 
 def _posix_parts(path: str) -> list[str]:

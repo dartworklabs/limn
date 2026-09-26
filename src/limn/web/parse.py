@@ -37,6 +37,7 @@ from limn.pins.edit import (
     Place,
     RegionPlace,
 )
+from limn.pins.shapes import is_int
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 
@@ -123,11 +124,6 @@ class DocumentFacts(Protocol):
         """The page directory a selection is traced in and each page's (width, height) in points: build's own (a valid
         name), or the one on screen for None. None when build names a page directory that is gone."""
         ...
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a JSON integer arrives from json.loads."""
-    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def _is_str_list(v: object) -> bool:
@@ -310,7 +306,7 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
         f, lo, hi = c["file"], c["lo"], c["hi"]
         if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
             return InputRejected("%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what, "bad_changes")
-        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
+        if not (is_int(lo) and is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
             return InputRejected(
                 "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes"
             )
@@ -377,7 +373,7 @@ def parse_pin_param(v: object) -> int | None | InputRejected:
         return None
     if isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,8}", v):
         return int(v)
-    if isinstance(v, int) and _is_int(v) and 1 <= v <= 999999999:
+    if isinstance(v, int) and is_int(v) and 1 <= v <= 999999999:
         return v
     return InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin")
 
@@ -413,7 +409,7 @@ def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
     the commit (parse_commit)."""
     if set(d) - REVISION_BUILD_FIELDS:
         return InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields")
-    if "pin" in d and not _is_int(d["pin"]):
+    if "pin" in d and not is_int(d["pin"]):
         return InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin")
     pin = parse_pin_param(d.get("pin"))
     if isinstance(pin, InputRejected):

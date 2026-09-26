@@ -12,12 +12,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, TypeGuard
+from typing import Any
 
 from limn.guidance import token_file_curl
-from limn.mapping import truncate_quote
+from limn.mapping import flat
 from limn.pins.lifecycle import claim_holds
-from limn.pins.model import Record, ReviewPin, is_region_pin, parse_pin
+from limn.pins.model import OpenPin, Record, ReviewPin, is_region_pin, state_of
+from limn.pins.shapes import is_int, is_num
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ def claim_md(r: Record, now: float) -> str:
     used (it was misread as the estimated completion time). now is epoch seconds."""
     name = md_cell((r.get("claimed_by") or {}).get("name") or "?")
     eta = r.get("eta_ts")
-    if not _is_num(eta):
+    if not is_num(eta):
         return "처리 중(%s)" % name
     left = (float(eta) - now) / 60.0
     return "처리 중(%s, %s)" % (name, "약 %d분" % ceil5(left) if left > 0 else "예상 초과")
@@ -161,7 +162,7 @@ def render_quote(r: Record, facts: PinFacts) -> str:
     if scope not in (None, "raw", "para"):
         return ""
     lo, hi = r.get("lo"), r.get("hi")
-    if not (_is_int(lo) and _is_int(hi)) or lo != hi:
+    if not (is_int(lo) and is_int(hi)) or lo != hi:
         return ""
     q = r.get("quote")
     if not q:
@@ -271,13 +272,6 @@ THREAD_MD_SHOW = 3  # number of current-round thread posts shown in pins.md's no
 THREAD_MD_CHARS = 200  # character count for one of those posts - the full text is via GET /api/pins/N
 
 
-def flat(s: object, n: int) -> str:
-    """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut).
-    None and "" both give "". The one rule for a text shown on one line: pins.md's thread posts and close replies
-    here, and the excerpt of an events.jsonl notice (limn.events.make_event)."""
-    return truncate_quote(" ".join(str(s or "").split()), n)
-
-
 def thread_md(r: Record, facts: PinFacts) -> str:
     """The current round's thread (facts.round), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
     Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
@@ -347,8 +341,8 @@ def pins_md_text(page: PinsMdInput) -> str:
     loopback_base = "http://127.0.0.1:%d" % page.port
     is_remote = page.base is not None and page.base != loopback_base
     base = page.base or loopback_base
-    openn = [r for r in rows if not r.get("done")]
-    reviewn = [r for r in rows if isinstance(parse_pin(r), ReviewPin)]
+    openn = [r for r in rows if state_of(r) is OpenPin]
+    reviewn = [r for r in rows if state_of(r) is ReviewPin]
     n_done = len(rows) - len(openn) - len(reviewn)
 
     # The author's name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author
@@ -516,13 +510,3 @@ def pins_md_text(page: PinsMdInput) -> str:
     if not shown:
         out += ["", "열린 핀 없음"]
     return "\n".join(out + review_md(reviewn, facts, sectioned)) + "\n"
-
-
-def _is_num(v: object) -> TypeGuard[int | float]:
-    """An int or float that is not a bool - how a stored eta_ts (epoch seconds) is recognised."""
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a stored line number is recognised."""
-    return isinstance(v, int) and not isinstance(v, bool)

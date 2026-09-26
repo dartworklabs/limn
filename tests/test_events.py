@@ -16,9 +16,8 @@ import threading
 import unittest
 from pathlib import Path
 
-from limn import events
+from limn import events, mapping
 from limn.events import EventLog, events_since, make_event
-from limn.pins import render
 
 EVENTS_PY = Path(events.__file__)
 ALICE = {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"}
@@ -44,12 +43,14 @@ class ModuleBoundary(unittest.TestCase):
     """events.py sits below the server: its path, lock, cache and clock come in as arguments."""
 
     def test_imports_only_the_standard_library_files_and_the_pure_text_rule(self):
-        """No server, HTTP or subprocess import; of limn only limn.files (atomic_write) and limn.pins.render (flat, the
-        one-line rule the excerpt shares with pins.md - a pure module)."""
+        """No server, HTTP or subprocess import; of limn only limn.files (atomic_write), limn.mapping (flat, the one-line
+        rule the excerpt shares with pins.md) and limn.pins.shapes (is_int) - the last two pure modules."""
         tree = ast.parse(EVENTS_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.files", "limn.pins.render"})
+        self.assertEqual(
+            {m for m in modules if m.startswith("limn")}, {"limn.files", "limn.mapping", "limn.pins.shapes"}
+        )
         self.assertFalse({"http", "http.server", "urllib", "subprocess", "time"} & modules)
 
     def test_reads_no_server_global(self):
@@ -98,11 +99,11 @@ class MakeEvent(unittest.TestCase):
         self.assertNotIn("excerpt", notice("dropped", r, ALICE, [BOB], text="  "))
 
     def test_the_excerpt_is_pins_md_one_line_rule_at_140_characters(self):
-        """The excerpt is limn.pins.render.flat at EXCERPT_CHARS: whitespace collapsed, cut with an ellipsis."""
+        """The excerpt is limn.mapping.flat at EXCERPT_CHARS: whitespace collapsed, cut with an ellipsis."""
         r = {"id": 3, "doc": "main"}
         text = "a  b\n\tc " + "x" * 500
         ev = notice("replied", r, ALICE, [BOB], text=text)
-        self.assertEqual(ev["excerpt"], render.flat(text, events.EXCERPT_CHARS))
+        self.assertEqual(ev["excerpt"], mapping.flat(text, events.EXCERPT_CHARS))
         self.assertEqual(len(ev["excerpt"]), events.EXCERPT_CHARS)
         self.assertTrue(ev["excerpt"].startswith("a b c x"))
 

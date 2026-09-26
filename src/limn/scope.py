@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from limn.mapping import anchor_offset, find_line, norm
+from limn.pins.shapes import is_int
 
 Record: TypeAlias = Mapping[str, Any]  # a pin record or a revision row, as read from JSON
 
@@ -481,9 +482,7 @@ def pin_facts(r: Record, rel: str | None) -> PinFacts:
         else None
     )
     lo, hi = r.get("lo"), r.get("hi")
-    return PinFacts(
-        r["id"], rel, lo if _is_int(lo) else None, hi if _is_int(hi) else None, bool(r.get("stale")), anchor
-    )
+    return PinFacts(r["id"], rel, lo if is_int(lo) else None, hi if is_int(hi) else None, bool(r.get("stale")), anchor)
 
 
 _REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
@@ -604,11 +603,6 @@ def valid_changes(v: object) -> bool:
     """Whether v has the stored shape of `changes` - a list of {file: str, lo: int, hi: int}. server.valid_rec() treats
     a record failing this as a broken line; recorded_changes() skips such items."""
     return isinstance(v, list) and all(
-        isinstance(c, dict) and isinstance(c.get("file"), str) and _is_int(c.get("lo")) and _is_int(c.get("hi"))
+        isinstance(c, dict) and isinstance(c.get("file"), str) and is_int(c.get("lo")) and is_int(c.get("hi"))
         for c in v
     )
-
-
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a JSON integer arrives from json.loads."""
-    return isinstance(v, int) and not isinstance(v, bool)
