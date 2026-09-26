@@ -36,8 +36,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,109 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
-| [`src/limn/mapping.py`](../../src/limn/mapping.py) | 311 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기. 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
+| [`src/limn/server.py`](../../src/limn/server.py) | 7,188 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/mapping.py`](../../src/limn/mapping.py) | 362 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.4, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,381 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |

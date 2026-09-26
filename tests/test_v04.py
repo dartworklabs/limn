@@ -18,6 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from limn import mapping
 from test_access import AccessBase, configure, mask
 from test_server import ps
 from test_v03 import ScopedRepo
@@ -34,10 +35,10 @@ SECRET = "TOPSECRET outside-the-tree line " + "x" * 700 + "\n"
 # ---------------------------------------------------------------- the decision (pure)
 
 class PinRelPathRule(unittest.TestCase):
-    """pin_rel_path() picks where a stored line pin's file lives relative to the current root, from facts passed in."""
+    """mapping.pin_rel_path() picks where a stored line pin's file lives relative to the current root, from facts passed in."""
 
     def pick(self, file, file_rel=None, under=None, existing=()):
-        return ps.pin_rel_path(file, file_rel, under, set(existing).__contains__)
+        return mapping.pin_rel_path(file, file_rel, under, set(existing).__contains__)
 
     def test_file_under_the_current_root_wins_even_if_missing(self):
         """The stored absolute path is the surest fact on this machine; a deleted file is not re-guessed elsewhere."""
@@ -75,9 +76,26 @@ class PinRelPathRule(unittest.TestCase):
 
     def test_tails_never_contain_parent_parts(self):
         """A stored path with '..' parts cannot produce a candidate that climbs out of the root."""
-        self.assertEqual(ps.file_tails("/a/../../etc/x.tex"), ["etc/x.tex", "x.tex"])
-        self.assertEqual(ps.file_tails("/p/s/x.tex"), ["p/s/x.tex", "s/x.tex", "x.tex"])
+        self.assertEqual(mapping.file_tails("/a/../../etc/x.tex"), ["etc/x.tex", "x.tex"])
+        self.assertEqual(mapping.file_tails("/p/s/x.tex"), ["p/s/x.tex", "s/x.tex", "x.tex"])
         self.assertEqual(self.pick("/a/../../etc/x.tex", existing={"a/../../etc/x.tex", "../../etc/x.tex"}), None)
+
+    def test_redundant_separators_and_dot_parts_are_normalised(self):
+        """'//' and '.' parts do not change the answer: a file_rel written as './sections//x.tex' is 'sections/x.tex'."""
+        self.assertEqual(self.pick("/old/paper/sections/x.tex", "./sections//x.tex"), "sections/x.tex")
+        self.assertEqual(mapping.file_tails("//p/./s//x.tex"), ["p/s/x.tex", "s/x.tex", "x.tex"])
+
+    def test_anchor_holds_only_where_the_head_line_is(self):
+        """anchor_holds() checks the head at lo + head_off with find_line()'s matching; a bad offset counts as 0."""
+        nlines = ["a", "Sentence number 5 about topic5.", "c"]
+        anchor = {"head": "Sentence number 5 about topic5.", "head_off": 1}
+        self.assertTrue(mapping.anchor_holds(anchor, 1, nlines))
+        self.assertFalse(mapping.anchor_holds(anchor, 2, nlines))
+        self.assertTrue(mapping.anchor_holds(dict(anchor, head_off=True), 2, nlines))      # not an int: 0
+        self.assertTrue(mapping.anchor_holds({"head": "Sentence number 5 about topic5. (longer)"}, 2,
+                                             ["x", "Sentence number 5 about topic5. (longer) and more"]))
+        self.assertFalse(mapping.anchor_holds({"head": ""}, 1, nlines))
+        self.assertFalse(mapping.anchor_holds(anchor, 5, nlines))
 
 
 # ---------------------------------------------------------------- moving the manuscript between two server runs

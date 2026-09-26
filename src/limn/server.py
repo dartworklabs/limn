@@ -54,7 +54,7 @@ from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from collections.abc import Callable, Sequence, Set as AbstractSet
 from typing import Literal, NamedTuple, TypedDict
 from urllib.parse import parse_qs, quote, urlparse
@@ -63,7 +63,8 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
-    anchor_of, by_text, compute_levels, densest, find_line, norm, score_range, snippet, truncate_quote,
+    anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
+    truncate_quote,
 )
 
 APP_NAME = "limn"
@@ -3183,16 +3184,6 @@ def _off(v) -> int:
     return v if _is_int(v) and 0 <= v < 10000 else 0
 
 
-def anchor_holds(anchor: dict, lo: int, nlines: Sequence[str]) -> bool:
-    """Is the anchor's head line still where the pin's lo says (lo + head_off, 1-based), by find_line()'s matching (whole
-    normalised line, or the first 40 characters for a head of 12 or more)? Pure; nlines are norm()ed lines."""
-    head = anchor.get("head")
-    i = lo + _off(anchor.get("head_off")) - 1
-    if not isinstance(head, str) or not head or not 0 <= i < len(nlines):
-        return False
-    return nlines[i] == head or (len(head) >= 12 and head[:40] in nlines[i])
-
-
 def sync_all(rows: list) -> bool:
     """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1.
 
@@ -3374,38 +3365,6 @@ class PinLocation(NamedTuple):
     """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
     rel: str                 # POSIX path relative to the manuscript root (--manuscript)
     path: Path               # root / rel - the absolute path the API returns as `file`
-
-
-def file_tails(file: str) -> list[str]:
-    """The relative tails of an absolute path, longest first, as POSIX strings: '/p/s/x.tex' -> ['p/s/x.tex', 's/x.tex',
-    'x.tex']. A tail with a '..' part is left out, so no candidate can climb above the root it is joined to. Pure."""
-    parts = PurePosixPath(file).parts
-    parts = parts[1:] if parts and parts[0] == "/" else parts
-    return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
-
-
-def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
-    """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
-
-    1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
-       symlinks, as 0.3.0's in_tree() did). It wins even if the file is gone - a known location is never re-guessed.
-    2. file_rel (stored by 0.4), when it is a non-empty relative path without '..' parts and the stored `file` ends with
-       it. The server writes the two together; 0.3.0 relocating a pin changes only `file`, and the mismatch drops the
-       stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ -> the repository);
-       otherwise file_rel itself, even if that file is gone - no shorter guess.
-    3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
-    None when nothing matches: the pin is outside the tree. Pure: `exists` answers for paths relative to the root and
-    is expected to accept only files that resolve inside it."""
-    if under_root is not None:
-        return under_root
-    tails = file_tails(file)
-    if isinstance(file_rel, str) and file_rel:
-        rel, parts = PurePosixPath(file_rel), PurePosixPath(file).parts
-        n = len(rel.parts)
-        if n and not rel.is_absolute() and ".." not in rel.parts and len(parts) > n and parts[-n:] == rel.parts:
-            longer = [t for t in tails if len(PurePosixPath(t).parts) > n]
-            return next((t for t in longer if exists(t)), rel.as_posix())
-    return next((t for t in tails if exists(t)), None)
 
 
 def _within(p: Path, root: Path) -> bool:
