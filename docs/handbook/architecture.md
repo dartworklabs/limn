@@ -36,7 +36,9 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,467 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 6,885 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
+| [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
+| [`src/limn/files.py`](../../src/limn/files.py) | 30 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다 |
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 821 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
@@ -46,14 +48,14 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
-`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·빌드·빌드 이력·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
+`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
 
 `server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 옮긴 모듈은 `server.py`처럼 `from __future__ import annotations`로 시작한다 — 인스턴스 관리자가 시스템 `python3`로 `server.py`를 띄울 때 새 모듈 때문에 먼저 멈추지 않게 하려는 것이다.
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
-1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. 코드 안에서 `C.` 참조가 200곳이다.
-2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 빌드·페이지 함수가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 46곳이다.
+1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 240곳쯤이다.
+2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 요청 처리 코드가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 43곳이다. 빌드(`limn/build.py`)는 2026-09-26부터 이 값을 읽지 않고 문서를 인자로 받는다. `server.py`의 옛 이름 셸이 `cur_doc()`과 `C`를 한 번 읽어 넘긴다.
 3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등.
 
 핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 옮겨진 전이(확인, 닫기·다시 열기, 답글, claim, 휴지통, 편집)는 그 타입을 받아 결과를 반환값으로 돌려준다. 새 핀의 레코드도 `limn.pins.edit`이 만든다.
@@ -92,7 +94,8 @@ src/limn/
 │   └── render.py        pins.md 렌더링 (입력 → 문자열)
 ├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
 ├── store.py             pins.jsonl 잠금·원자적 쓰기·손상 레코드 보존 (부수효과)
-├── build/               latexmk·pdftoppm·git 호출, 빌드 이력 (부수효과)
+├── build.py             원고 복사·latexmk·pdftoppm·쪽 디렉토리·빌드 이력·원고 지문 (부수효과, 2026-09-26 옮김)
+├── files.py             원자적 파일 교체 (모든 저장 쓰기가 공유, 2026-09-26 옮김)
 ├── http/                요청 파싱, 라우팅, 오류 매핑, 신원 헤더 (부수효과)
 ├── viewer/              index.html · app.css · app.js — 패키지 데이터 파일
 ├── server.py            조립 지점: 설정 파싱, 자원 생성, 스레드 시작·종료

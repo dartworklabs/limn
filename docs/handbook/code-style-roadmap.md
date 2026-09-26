@@ -346,6 +346,17 @@ def build(doc: Doc, cfg: BuildConfig, runner: Runner) -> BuildResult:
 
 **확인하는 법.** 옮긴 함수에 `C.`나 `cur_doc()` 참조가 남지 않는다 (`grep`으로 확인). 여러 문서를 동시에 빌드하는 기존 테스트가 그대로 녹색이다.
 
+**빌드에 적용한 모습 (2026-09-26).** [`limn/build.py`](../../src/limn/build.py)의 함수는 모두 문서를 첫 인자로 받는다. 설정은 조립 지점이 실행 인자에서 만든 작은 값 `BuildConfig(state, dpi, timeout)`로 넘긴다. 문서마다 따로인 오래 사는 자원(빌드 잠금, 빌드 상태와 그 잠금, 이력 잠금, `src_mtime` 캐시)은 원래대로 문서 객체가 갖고, 빌드 모듈은 import 때 아무 자원도 만들지 않는다. 캐시 세 칸을 읽고 채우는 짧은 잠금 하나만 모듈에 있다. 여러 문서를 묶는 `--git-pull`은 조립 지점 쪽에 두고 단계로 넘긴다.
+
+```python
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict] | None) -> dict:
+    """Builds D with -synctex=1 from a copy, ... then renders pages into a new directory and only swaps the pointer."""
+
+# server.py — 6단계까지 남는 셸: 요청의 문서와 실행 인자를 한 번 읽어 넘긴다
+def _build() -> dict:
+    return build.compile_tex(cur_doc(), build_config(), repo_pull if C.git_pull else None)
+```
+
 > **주의**
 >
 > 217곳을 한 번에 바꾸지 않는다. 지금 적용하는 층에서는 새 함수가 전역 참조를 새로 늘리지 않는 것까지만 한다. 모듈을 하나 꺼낼 때마다 그 모듈 안의 전역 참조만 걷어 낸다 (§단계별 로드맵 5단계).
@@ -477,8 +488,8 @@ def now_str() -> str:
 | 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용. 0.3.0~0.3.3 PR이 새 함수·테스트에 R1·R3·R7~R9를 적용함(0.3.3은 보안 경계라 R10 부정 경우 테스트도) |
 | 3 뷰어 분리 | 완료 | 2026-09-26. `server.py` 10,973 → 7,378행. 출력 바이트 동일 |
 | 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 이어서 편집·추가(`limn/pins/edit.py`: `decide_edit`가 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 값으로 돌려주고, `evolve_edit`·`new_line_pin`·`new_region_pin`이 레코드를 옛 필드 순서 그대로 만든다. 본문 파서 `parse_edit`·`parse_add`는 `InputRejected` 값을 돌려주고 처리기가 옛 문구로 답한다). 이로써 핀 조작의 전이는 모두 옮겼다. 남은 일: 상태에만 있는 필드를 상태 타입의 속성으로 올리기(R2 §다음 단계), `store.py`(잠금·원자적 쓰기) 꺼내기 |
-| 5 역변환과 빌드 | 진행 중 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). `build/`는 남음 |
+| 5 역변환과 빌드 | 완료 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). 같은 날 `build.py` 분리: 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고, `--git-pull`과 보기 전용 그리기는 단계로 넘겨받는다. `C.`·`cur_doc()` 없음(`tests/test_build.py`), 두 문서 동시 빌드 테스트 녹색. 옛 코드와 응답·빌드 상태·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인(성공, LaTeX 오류, PDF 없음, SyncTeX 없음, pdftoppm 실패, 복사 실패, 시간 초과, 빌드 예외, 두 LaTeX 문서와 보기 전용 PDF). `--git-pull`·원격 main 감시는 문서 여럿을 묶는 일이라 `server.py`에 남고, `server.py`의 옛 이름 셸은 6단계에서 없앤다 |
 | 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
-| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. `server.py`는 남음 |
+| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. 같은 날 `build.py`·`files.py`를 더했다(표기만 고침, 동작 그대로). `server.py`는 남음 |
 
 이 문서의 수치(줄 수, 함수 수, docstring 수, Ruff 건수)는 2026-09-25 Limn 0.2.2 기준 실측이다. 단계를 끝낼 때 새로 재서 고친다.

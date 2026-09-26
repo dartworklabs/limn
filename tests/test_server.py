@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn import build as limn_build
 from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
@@ -2506,7 +2507,7 @@ class GitPullBuildIntegration(Base):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
-        original_run_logged = ps.run_logged
+        original_run_logged = limn_build.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
             os.utime(self.main, (time.time() + 50, time.time() + 50))   # edit the source after copy finishes (during the latex phase)
@@ -2516,7 +2517,7 @@ class GitPullBuildIntegration(Base):
             return {"state": "up_to_date", "head_before": "aaa1111", "head_after": "aaa1111"}
 
         with mock.patch.object(ps, "repo_pull", side_effect=fake_pull), \
-             mock.patch.object(ps, "run_logged", side_effect=bump_then_run):
+             mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run):
             res = ps.build_all()
         self.assertEqual(res["state"], "ok")
         ps._SRC_MTIME_CACHE[2] = 0.0
