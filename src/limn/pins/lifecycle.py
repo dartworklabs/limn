@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, Pin, Record, ReviewPin
+
+PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
 
 # The in-progress marker's fields (docs/handbook/api.md §처리 중 표시); a close clears them.
 CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
@@ -170,6 +172,69 @@ def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
     """POST /reopen: apply the reopen and bump rev - even for a pin that was already open, as before."""
     opened = evolve_reopen(pin, event)
     return OpenPin({**opened.record, "rev": next_rev(pin.record)})
+
+
+@dataclass(frozen=True)
+class Replied:
+    """The fact of a plain reply: by whom, when, the text, and whom it @-tags."""
+    by: Actor
+    at: str
+    text: str
+    mentions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ThreadFull:
+    """The thread already holds as many replies as a pin may have; the conversation continues on a new pin."""
+    limit: int
+
+
+def reopens_on_reply(pin: Pin, human: bool, mentioned: Sequence[str], reopen: bool | None) -> bool:
+    """Does a reply reopen this pin? The one rule behind the viewer's single [Reply] (docs/handbook/api.md §스레드 (답글)).
+
+    An open pin never changes. Otherwise an explicit `reopen` (true/false, from the request) decides; without one, a
+    human's reply on a pin awaiting review or done reopens it - the reply becomes the rework instruction - unless it
+    tags a person (then it is a conversation with that person) or the pin is a question (then the reply is an answer).
+    An agent's reply never reopens by the rule. `mentioned` is the post's resolved @-tags of people, without the poster.
+    The viewer's preview (replyReopens) mirrors this function.
+    """
+    match pin:
+        case OpenPin():
+            return False
+        case ReviewPin() | DonePin():
+            if reopen is not None:
+                return bool(reopen)
+            if pin.record.get("kind_req") == "question" or not human:
+                return False
+            return not mentioned
+
+
+def decide_reply(pin: Pin, by: Actor, at: str, text: str, mentions: tuple[str, ...], reopens: bool,
+                 limit: int) -> PinReopened | Replied | ThreadFull:
+    """What a reply does: reopen the pin with the reply as the reason, refuse when the thread is full, or add a reply.
+
+    A reopening reply is not counted against the limit - it is recorded as a state-transition entry, like a close.
+    """
+    if reopens:
+        return decide_reopen(pin, by, at, text, mentions)
+    if len(replies_of(pin.record)) >= limit:
+        return ThreadFull(limit)
+    return Replied(by, at, text, mentions)
+
+
+def evolve_reply(pin: PinT, event: Replied) -> PinT:
+    """Apply a plain reply: one thread entry with its mentions, and rev bumped. The pin keeps its state."""
+    record = dict(pin.record)
+    record["thread"] = [*thread_of(pin.record),
+                        thread_message(pin.record.get("thread"), author(event.by), event.at, event.text,
+                                       mentions=event.mentions)]
+    record["rev"] = next_rev(pin.record)
+    return type(pin)(record)
+
+
+def replies_of(record: Record) -> list[Any]:
+    """The thread's replies, without state-transition entries (ev close/reopen/confirm)."""
+    return [m for m in thread_of(record) if isinstance(m, dict) and not m.get("ev")]
 
 
 def next_rev(record: Record) -> int:

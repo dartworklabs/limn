@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn.mapping import find_level
-from limn.pins.lifecycle import AgentCannotConfirm
+from limn.pins.lifecycle import AgentCannotConfirm, ThreadFull
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -5707,9 +5707,7 @@ class KindAndThread(Base):
         with mock.patch.object(ps, "THREAD_MAX", 2):
             ps.reply_pin(pid, "1", dict(self.S))
             ps.reply_pin(pid, "2", dict(self.S))
-            with self.assertRaises(ps.HTTPError) as cm:
-                ps.reply_pin(pid, "3", dict(self.S))
-            self.assertEqual(cm.exception.code, 409)
+            self.assertEqual(ps.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))   # answered 409 "full" over HTTP
             ps.set_done(pid, True, dict(self.S), "닫음")          # a status-transition record is exempt from the cap
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
@@ -6348,7 +6346,7 @@ class MentionsPeopleEvents(Base):
         p = self.pin(pid)
         self.assertNotIn("mentions", p)                    # a self-@mention isn't stored
         self.assertEqual(ps.addressed_to(p), [])
-        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W))[1]
+        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
     def test_mention_hints_validated(self):
