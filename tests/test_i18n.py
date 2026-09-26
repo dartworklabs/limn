@@ -569,6 +569,14 @@ class EnglishChrome(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertEqual(desc, server_text)
 
+    def test_the_limn_mark_survives_boot_and_pin_marks(self):
+        """After boot has drawn the pins' boxes on the PDF (.mark, removed and redrawn by marks()), the three Limn marks
+        (top bar, [더보기] label, help header) are still in the page - a first cut shared the .mark class and lost them."""
+        page = self.open("en", viewport={"width": 1400, "height": 850})
+        page.evaluate("marks()")
+        self.assertEqual(page.evaluate("document.querySelectorAll('svg.limn-mark').length"), 3)
+        self.assertEqual(page.evaluate("document.querySelector('#paper-identity-mark svg').getBoundingClientRect().width"), 16)
+
     def test_korean_default_is_unchanged(self):
         page = self.open("ko", viewport={"width": 1400, "height": 850})
         self.assertEqual(page.evaluate("document.documentElement.lang"), "ko")

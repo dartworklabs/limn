@@ -4090,13 +4090,16 @@ class AccentValidation(unittest.TestCase):
 
 class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
+        """build_html fills the label (title, identity crumb after the Limn mark), the accent stripe and every placeholder."""
         out = ps.build_html("A-DEMO", "#1d4ed8")
         self.assertIn("<title>Limn · A-DEMO</title>", out)
-        self.assertIn('id="paper-identity-mark" aria-hidden="true">A</span><span>A-DEMO</span>', out)
+        self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)   # the Limn mark (test_brand.py)
+        self.assertIn('</svg></span><span>A-DEMO</span>', out)
         self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
         self.assertNotIn("__LABEL__", out)
-        self.assertNotIn("__LABEL_INITIAL__", out)
+        self.assertNotIn("__LIMN_MARK__", out)
+        self.assertNotIn("__ACCENT_KEY__", out)
         self.assertNotIn("__ACCENT__", out)
         self.assertNotIn("__FAVICON_HREF__", out)
 
@@ -4105,19 +4108,15 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", out)
         self.assertIn("&lt;script&gt;", out)
 
-    def test_favicon_is_data_svg_with_first_letter(self):
-        out = ps.favicon_href("a-demo", "#1d4ed8")
+    def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
+        """The favicon is the Limn mark in the accent (since 0.3.3; it used to be the label's first letter). The label
+        never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
+        out = ps.favicon_href("#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
-        self.assertIn("circle", out)
-        # the uppercased first letter must be present inside the (url-encoded) svg
         from urllib.parse import unquote
-        self.assertIn(">A<", unquote(out))
-
-    def test_favicon_escapes_label_first_char(self):
-        # must be safe even if the first character, like '<', would break XML
-        out = ps.favicon_href("<x", "#1d4ed8")
-        from urllib.parse import unquote
-        self.assertIn("&lt;", unquote(out))
+        self.assertIn('fill="#1d4ed8"', unquote(out))
+        with self.assertRaises(ValueError):
+            ps.favicon_href('#1d4ed8"/><script>')
 
 
 class HtmlTemplateStructure(unittest.TestCase):
@@ -4128,7 +4127,9 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertIn("<title>Limn · __LABEL__</title>", ps.HTML)
 
     def test_favicon_placeholder(self):
-        self.assertIn('<link rel="icon" href="__FAVICON_HREF__">', ps.HTML)
+        """The SVG favicon placeholder, next to its PNG fallbacks keyed by the accent (test_brand.py)."""
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="__FAVICON_HREF__">', ps.HTML)
+        self.assertIn('href="/favicon-32.png?c=__ACCENT_KEY__"', ps.HTML)
 
     def test_brand_stripe_present(self):
         self.assertIn('id="brand-stripe"', ps.HTML)

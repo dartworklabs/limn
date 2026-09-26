@@ -86,6 +86,7 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
 )
+from limn.mark import favicon_svg, inline_svg, png as mark_png  # noqa: E402
 
 APP_NAME = "limn"
 
@@ -546,25 +547,22 @@ def valid_accent(v) -> bool:
     return isinstance(v, str) and ACCENT_RE.fullmatch(v) is not None
 
 
-def favicon_href(label: str, accent: str) -> str:
-    """An SVG data URL with the label's first character inside an accent-colored circle. Special characters inside data: are quote-encoded."""
-    ch = (label.strip()[:1] or "?").upper()
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-           '<circle cx="16" cy="16" r="16" fill="%s"/>'
-           '<text x="16" y="21" text-anchor="middle" font-family="sans-serif" font-size="16" '
-           'font-weight="700" fill="#ffffff">%s</text></svg>') % (accent, html.escape(ch, quote=True))
-    return "data:image/svg+xml," + quote(svg, safe="")
+def favicon_href(accent: str) -> str:
+    """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
+    accent tells tabs of different instances apart; the tab title carries the label. Quote-encoded for data:."""
+    return "data:image/svg+xml," + quote(favicon_svg(accent), safe="")
 
 
 def build_html(label: str, accent: str) -> str:
-    """Fills in the __LABEL__/__ACCENT__/__FAVICON_HREF__ placeholders of the viewer HTML template.
+    """Fills in the __LABEL__/__ACCENT__/__ACCENT_KEY__/__FAVICON_HREF__ placeholders of the viewer HTML template.
 
     Depends on run arguments (label/accent), so it's called after argparse (in main()) - unlike
-    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in."""
+    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in.
+    __ACCENT_KEY__ (the accent's hex digits) keys the PNG favicon URLs, so a new accent is never served from a cache."""
     out = HTML.replace("__LABEL__", html.escape(label, quote=True))
-    out = out.replace("__LABEL_INITIAL__", html.escape((label.strip()[:1] or "?").upper(), quote=True))
+    out = out.replace("__ACCENT_KEY__", accent.lstrip("#").lower())
     out = out.replace("__ACCENT__", accent)
-    out = out.replace("__FAVICON_HREF__", favicon_href(label, accent))
+    out = out.replace("__FAVICON_HREF__", favicon_href(accent))
     return out
 
 
@@ -5877,6 +5875,7 @@ def load_viewer_html(directory: Path) -> str:
 
 HTML = load_viewer_html(VIEWER_DIR)
 HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
+HTML = HTML.replace("__LIMN_MARK__", inline_svg())          # the mark by the label and in the help header (limn.mark)
 HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
 HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort_keys=True).replace("</", "<\\/"))
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
@@ -6215,6 +6214,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"people": ppl, "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
+        if path in ("/favicon-32.png", "/apple-touch-icon.png"):   # PNG fallbacks of the SVG favicon, drawn by limn.mark
+            size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
+            return self._send(200, mark_png(size, C.accent, rounded), "image/png", cache="public, max-age=86400")
         if path == "/api/version":                # the installed Limn version - no write
             return self._json({"name": APP_NAME, "version": app_version()})
         if path == "/api/meta":
