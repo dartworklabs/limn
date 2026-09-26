@@ -23,6 +23,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from test_access import AccessBase, get
 from test_server import ps
@@ -192,6 +193,81 @@ class SaveTokenFile(SandboxTest):
         self.assertNotIn(self.box.token_file.read_text(encoding="utf-8").strip(), r.stdout)
 
 
+class SaveTokenFileReview(SandboxTest):
+    """Review findings on --save (PR #26): the repository check, symlinks, and failures that must not leave a live token
+    nobody holds or a stray copy of it."""
+
+    def git_repo(self, top: Path, ignore: bool) -> None:
+        """A git work tree at top, ignoring *.token or not."""
+        subprocess.run(["git", "init", "-q", str(top)], check=True, capture_output=True)
+        if ignore:
+            (top / ".gitignore").write_text("*.token\n", encoding="utf-8")
+
+    def test_git_environment_cannot_hide_the_repository(self):
+        """GIT_DIR / GIT_WORK_TREE in the caller's environment must not make a work tree look like no repository."""
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+        self.git_repo(self.box.home, ignore=False)
+        env = dict(self.box.env, GIT_DIR=str(self.box.root / "nowhere"), GIT_WORK_TREE=str(self.box.root))
+        r = run_limn("token", "create", "paper", "--save", env=env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("git work tree", r.stderr)
+        self.assertEqual(self.box.tokens(), [])
+
+    def test_a_config_folder_symlinked_into_a_repository_is_judged_by_that_repository(self):
+        """The folder is resolved first: refused if the repository behind the symlink keeps the file, allowed if it
+        ignores it."""
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+        for ignore in (False, True):
+            with self.subTest(ignore=ignore):
+                repo = self.box.root / ("repo-%s" % ignore)
+                (repo / "limn").mkdir(parents=True)
+                self.git_repo(repo, ignore)
+                (repo / "limn" / "paper.env").write_text((self.box.cfg / "paper.env").read_text(), encoding="utf-8")
+                link = self.box.root / ("cfg-%s" % ignore)
+                link.symlink_to(repo / "limn")
+                r = run_limn("token", "create", "paper", "--save", env=dict(self.box.env, LIMN_CONFIG_DIR=str(link)))
+                self.assertEqual(r.returncode == 0, ignore, r.stderr)
+                self.assertEqual((repo / "limn" / "paper.token").exists(), ignore)
+
+    def test_force_over_a_symlink_replaces_the_link_and_never_writes_through_it(self):
+        """--force swaps a symlinked token file for a regular one; the file the link pointed at stays as it was."""
+        target = self.box.root / "elsewhere.txt"
+        target.write_text("not a token\n", encoding="utf-8")
+        self.box.token_file.symlink_to(target)
+        r = self.limn("token", "create", "paper", "--save", "--force")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.box.token_file.is_symlink())
+        self.assertEqual(target.read_text(encoding="utf-8"), "not a token\n")
+        self.assertEqual(stat.S_IMODE(self.box.token_file.stat().st_mode), 0o600)
+
+    def test_a_failed_revoke_after_a_failed_write_names_the_live_token(self):
+        """If even the rollback fails, the error names the token still valid and the command that revokes it."""
+        from limn import cli
+        env = {k: v for k, v in self.box.env.items() if k.startswith(("LIMN_", "XDG_", "HOME"))}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(cli, "write_token_file", side_effect=PermissionError(13, "Permission denied")), \
+                mock.patch("limn.server.token_revoke", side_effect=OSError(28, "No space left on device")), \
+                mock.patch.object(sys, "stderr", new_callable=lambda: open(os.devnull, "w")) as err:
+            self.addCleanup(err.close)
+            with self.assertRaises(cli.CliError) as cm:
+                cli.cmd_token(["create", "paper", "--save"])
+        [entry] = self.box.tokens()
+        self.assertIn("still valid", str(cm.exception))
+        self.assertIn("limn token revoke paper %s" % entry["id"], str(cm.exception))
+
+    def test_a_failed_replace_leaves_no_copy_of_the_token_behind(self):
+        """--force writes a temp file first; when the swap fails the temp file (holding the token) is removed."""
+        from limn import cli
+        self.box.token_file.write_text("limn_old\n", encoding="utf-8")
+        with mock.patch("os.replace", side_effect=OSError(18, "Invalid cross-device link")):
+            with self.assertRaises(OSError):
+                cli.write_token_file(self.box.token_file, "limn_new", replace=True)
+        self.assertEqual(sorted(p.name for p in self.box.cfg.iterdir()), ["paper.env", "paper.token"])
+        self.assertEqual(self.box.token_file.read_text(encoding="utf-8"), "limn_old\n")
+
+
 class RevokeTokenFile(SandboxTest):
     """`limn token revoke` removes the token file that held the revoked token, and only that one."""
 
@@ -203,6 +279,18 @@ class RevokeTokenFile(SandboxTest):
         self.assertIn("removed %s" % self.box.token_file, r.stdout)
         self.assertFalse(self.box.token_file.exists())
         self.assertEqual(self.box.tokens(), [])
+
+    def test_revoke_keeps_a_file_it_cannot_read_and_says_so(self):
+        """An unreadable token file is kept, and the output says it could not be read (not that it holds another)."""
+        if os.geteuid() == 0:
+            self.skipTest("root reads mode-000 files")
+        self.limn("token", "create", "paper", "--name", "local", "--save")
+        self.box.token_file.chmod(0o000)
+        self.addCleanup(self.box.token_file.chmod, 0o600)
+        r = self.limn("token", "revoke", "paper", "local")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("could not read", r.stdout)
+        self.assertTrue(self.box.token_file.exists())
 
     def test_revoking_another_token_keeps_the_file(self):
         """A file holding a different (still valid) token is kept, and the output says so."""
@@ -244,7 +332,7 @@ class ServerTokenFile(AccessBase):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         line = self.token_line(md)
         self.assertTrue(line.startswith(ps.TOKEN_GUIDANCE + " · "))
-        self.assertIn('Authorization: Bearer $(cat %s)' % ps.C.agent_token_file, line)
+        self.assertIn('Authorization: Bearer $(cat %s)' % ps.shell_path(ps.C.agent_token_file, ps.home_or_none()), line)
         self.assertNotIn(secret, md)
         self.assertEqual(len([ln for ln in md.splitlines() if ln.startswith(ps.TOKEN_GUIDANCE)]), 1)
 
@@ -256,6 +344,22 @@ class ServerTokenFile(AccessBase):
         ps.C.agent_token_file.chmod(0o000)                                # removing it later needs no read either
         self.add()
         self.assertIn("$(cat ", self.token_line(ps.C.pins_md.read_text(encoding="utf-8")))
+
+    def test_an_unsearchable_token_folder_breaks_neither_pins_nor_the_401(self):
+        """stat on a file in a folder the server cannot search raises PermissionError; that means "no file", never a
+        failed pin write or a 500."""
+        if os.geteuid() == 0:
+            self.skipTest("root searches any folder")
+        ps.C.agent_token_file.write_text("limn_x\n", encoding="utf-8")
+        self.cfg.chmod(0o000)
+        try:
+            pid = self.add()
+            self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), ps.TOKEN_GUIDANCE)
+            ps.C.agent_loopback = False
+            code, d = self.call("GET", "/api/pins/%d" % pid)
+            self.assertEqual(code, 401, d)
+        finally:
+            self.cfg.chmod(0o700)
 
     def test_remote_pins_md_never_names_the_token_file(self):
         """GET /pins.md through the tailnet renders for a reader who cannot reach this machine's files."""
@@ -275,7 +379,7 @@ class ServerTokenFile(AccessBase):
         self.assertEqual(code, 401)
         self.assertEqual(self.last_headers.get("www-authenticate"), 'Bearer realm="limn"')
         self.assertTrue(d["error"].startswith(ps.UNAUTHENTICATED))
-        self.assertIn("$(cat %s)" % ps.C.agent_token_file, d["error"])
+        self.assertIn("$(cat %s)" % ps.shell_path(ps.C.agent_token_file, ps.home_or_none()), d["error"])
         self.assertIn("limn token create paper --save", d["error"])
         ps.C.agent_token_file.write_text("limn_x\n", encoding="utf-8")
         code, d = self.call("GET", "/api/pins")
@@ -346,38 +450,54 @@ class InstanceManagerProbes(SandboxTest):
         stubs = self.box.root / "bin"
         stubs.mkdir()
         self.curl_log = self.box.root / "curl.log"
+        self.curl_stdin = self.box.root / "curl.stdin"
         real_curl = shutil.which("curl")
         (stubs / "systemctl").write_text('#!/usr/bin/env bash\ncase " $* " in *" is-active "*) echo active;; '
                                          '*" is-enabled "*) echo enabled;; *" show "*) echo 1;; esac\nexit 0\n')
         (stubs / "tailscale").write_text("#!/usr/bin/env bash\nexit 1\n")
-        (stubs / "curl").write_text('#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %s\nexec %s "$@"\n'
-                                    % (self.curl_log, real_curl))
+        # Logs argv, and stdin when curl is told to read headers from it (-H @-), then runs the real curl.
+        (stubs / "curl").write_text('#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %s\n'
+                                    'if [[ " $* " == *" @- "* ]]; then in=$(cat); printf "%%s\\n" "$in" >> %s; '
+                                    'exec %s "$@" <<< "$in"; fi\nexec %s "$@"\n'
+                                    % (self.curl_log, self.curl_stdin, real_curl, real_curl))
         for f in stubs.iterdir():
             f.chmod(0o755)
         self.box.env.update(PATH="%s:%s" % (stubs, os.environ.get("PATH", "")), XDG_RUNTIME_DIR=str(self.box.root),
                             LIMN_USER_UNIT_DIR=str(self.box.root / "units"), LIMN_WAIT="20",
                             LIMN_LEDGER=str(self.box.root / "ledger.txt"))
+        self.write_config()
+
+    def write_config(self) -> None:
+        """The instance config, for the current self.port."""
         (self.box.cfg / "paper.env").write_text(
             "MANUSCRIPT=%s\nDOCS=main=Paper:paper.pdf\nPORT=%d\nTS_PORT=%d\nSTATE_DIR=%s\nEXTRA_ARGS=--no-build\n"
             % (self.box.ms, self.port, self.port - 100, self.box.state), encoding="utf-8")
 
     def serve(self, loopback_agent: bool) -> None:
-        """Start the real server for this test's instance; stopped at cleanup."""
-        args = [sys.executable, str(SRC / "limn" / "server.py"), "--manuscript", str(self.box.ms), "--doc",
-                "main=Paper:paper.pdf", "--port", str(self.port), "--state-dir", str(self.box.state), "--no-build"]
-        if not loopback_agent:
-            args.append("--no-agent-loopback")
-        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=self.box.env)
-        self.addCleanup(lambda: (proc.terminate(), proc.wait(10)))
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            with socket.socket() as s:
-                if s.connect_ex(("127.0.0.1", self.port)) == 0:
-                    return
-            if proc.poll() is not None:
-                self.fail("the server exited with %s" % proc.returncode)
-            time.sleep(0.1)
-        self.fail("the server did not listen within 30 s")
+        """Start the real server for this test's instance; stopped at cleanup. The free port can be taken between
+        free_port() and the server's bind, so an early exit is retried on a new port (three tries)."""
+        for _ in range(3):
+            args = [sys.executable, str(SRC / "limn" / "server.py"), "--manuscript", str(self.box.ms), "--doc",
+                    "main=Paper:paper.pdf", "--port", str(self.port), "--state-dir", str(self.box.state), "--no-build"]
+            if not loopback_agent:
+                args.append("--no-agent-loopback")
+            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=self.box.env)
+            self.addCleanup(lambda p=proc: (p.terminate(), p.wait(10)))
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and proc.poll() is None:
+                with socket.socket() as s:
+                    if s.connect_ex(("127.0.0.1", self.port)) == 0:
+                        return
+                time.sleep(0.1)
+            if proc.poll() is None:
+                self.fail("the server did not listen within 30 s")
+            self.port = free_port()
+            self.write_config()
+        self.fail("the server exited three times (last status %s)" % proc.returncode)
+
+    def sent_tokens(self) -> str:
+        """What curl read from stdin (the headers the instance manager sent), '' if nothing."""
+        return self.curl_stdin.read_text(encoding="utf-8") if self.curl_stdin.exists() else ""
 
     def status_local_line(self) -> tuple:
         r = self.limn("status", "paper")
@@ -401,6 +521,7 @@ class InstanceManagerProbes(SandboxTest):
         log = self.curl_log.read_text(encoding="utf-8")
         self.assertIn("-H @-", log)
         self.assertNotIn(token, log)
+        self.assertEqual(set(self.sent_tokens().splitlines()), {"Authorization: Bearer " + token})
 
     def test_status_explains_a_401_without_a_token_file(self):
         """AGENT_LOOPBACK=0 and no token file: the 401 is reported with the command that fixes it."""
@@ -428,6 +549,9 @@ class InstanceManagerProbes(SandboxTest):
         self.assertIn("→ 401", line)
         self.assertIn("chmod 600", r.stderr)
         self.assertNotIn(self.box.token_file.read_text(encoding="utf-8").strip(), self.curl_log.read_text(encoding="utf-8"))
+        self.assertEqual(self.sent_tokens(), "")
+        self.assertIn("chmod 600", line)                                   # the fix that works: not a plain --save
+        self.assertNotIn("token file   none", r.stdout)
 
     def test_a_symlinked_or_malformed_token_file_is_not_used(self):
         """A symlink (it could point into a repository) or a file that is not one token line is refused."""
@@ -438,11 +562,69 @@ class InstanceManagerProbes(SandboxTest):
         self.box.token_file.symlink_to(real)
         _, r = self.status_local_line()
         self.assertIn("not a regular file", r.stderr)
+        real.unlink()                                                      # dangling: still there, never "none"
+        line, r = self.status_local_line()
+        self.assertNotIn("token file   none", r.stdout)
+        self.assertIn("--force", line)
         self.box.token_file.unlink()
         self.box.token_file.write_text("limn_x\nX-Injected: 1\n", encoding="utf-8")
         self.box.token_file.chmod(0o600)
         _, r = self.status_local_line()
         self.assertIn("does not hold one", r.stderr)
+        self.assertEqual(self.sent_tokens(), "")                           # nothing went to curl, let alone the 2nd line
+
+    def test_the_token_goes_only_to_a_port_this_account_listens_on(self):
+        """While an instance is down another account could hold its (predictable) port: the token is sent only when
+        every listener on the port is this account's. /proc/net/tcp (Linux) and lsof (macOS) are both checked."""
+        self.serve(loopback_agent=False)
+        self.assertEqual(self.limn("token", "create", "paper", "--save").returncode, 0)
+        me = os.getuid()
+        other = me + 4242
+        net = self.box.root / "net"
+        net.mkdir()
+        head = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        row = "   0: 0100007F:%04X 00000000:0000 0A 00000000:00000000 00:00000000 00000000 %5d        0 1 1 0\n"
+        (net / "tcp").write_text(head + row % (self.port, other), encoding="utf-8")
+        (net / "tcp6").write_text(head, encoding="utf-8")
+        self.box.env["LIMN_PROC_NET"] = str(net)
+        line, r = self.status_local_line()
+        self.assertEqual(self.sent_tokens(), "", "the token went to another account's listener")
+        self.assertIn("not sent", r.stdout)
+        (net / "tcp").write_text(head + row % (self.port, me), encoding="utf-8")
+        line, _ = self.status_local_line()
+        self.assertTrue(line.endswith("→ 200"), line)
+        # lsof (no /proc/net): only this account's listeners count, and none of another account may share the port
+        self.curl_stdin.unlink()
+        (net / "tcp").unlink()
+        stubs = self.box.root / "bin"
+        for mine, others, sent in (("", "", False), ("123", "456", False), ("123", "", True)):
+            (stubs / "lsof").write_text('#!/usr/bin/env bash\ncase " $* " in *" -u ^"*) printf "%s";; *) printf "%s";; esac\n'
+                                        % (others, mine))
+            (stubs / "lsof").chmod(0o755)
+            with self.subTest(mine=mine, others=others):
+                line, _ = self.status_local_line()
+                self.assertEqual(bool(self.sent_tokens()), sent, line)
+            if self.curl_stdin.exists():
+                self.curl_stdin.unlink()
+
+    def test_snippet_paths_work_when_pasted_into_a_shell(self):
+        """limn snippet's token file path survives a space (quoted, like the server's shell_path), and HOME unset or
+        empty never turns an absolute path into ~/…"""
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+        spaced = self.box.home / "my cfg"
+        spaced.mkdir()
+        (spaced / "paper.env").write_text((self.box.cfg / "paper.env").read_text(), encoding="utf-8")
+        (spaced / "paper.token").write_text("limn_abc\n", encoding="utf-8")
+        for home in (str(self.box.home), ""):
+            with self.subTest(home=home):
+                env = dict(self.box.env, LIMN_CONFIG_DIR=str(spaced), HOME=home)
+                out = run_limn("snippet", "paper", env=env).stdout
+                shown = out.split("Bearer $(cat ", 1)[1].split(")", 1)[0]
+                self.assertFalse(home == "" and shown.startswith("~"), shown)
+                read = subprocess.run(["bash", "-c", "cat %s" % shown], capture_output=True, text=True, check=False,
+                                      env=dict(os.environ, HOME=str(self.box.home)))
+                self.assertEqual(read.stdout, "limn_abc\n", shown)
 
     def test_start_stops_waiting_at_a_401(self):
         """`limn start` with AGENT_LOOPBACK=0 and no token: warns at once instead of waiting out LIMN_WAIT."""
