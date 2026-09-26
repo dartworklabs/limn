@@ -46,8 +46,12 @@ Agents on the machine that serves an instance keep its token in a **token file**
 `~/.config/limn/<instance>.token`, written once by `limn token create <instance> --save`: mode `0600` (folder `0700`),
 never in a repository (the command refuses a folder inside a git work tree that does not ignore the file), the
 token not printed unless `--print`. They send it with `curl -H "Authorization: Bearer $(cat ~/.config/limn/<instance>.token)"`;
-the instance manager's own checks pass it to curl on stdin, and skip a token file that is a symlink, belongs to
-another account, or is open to group/others. The server only checks that the file exists (it never reads it) to
+the instance manager's own checks pass it to curl on stdin, only when every process listening on the instance's
+port belongs to this account (so another account that grabs the port while the instance is down gets nothing), and
+skip a token file that is a symlink, belongs to another account, or is open to group/others. Agents face that same
+risk while an instance is down: on a machine other accounts use, keep instances up (the unit restarts on failure) or
+check that the port's listener is this account's before sending the token
+(`lsof -a -u "$(id -u)" -iTCP:<port> -sTCP:LISTEN`). The server only checks that the file exists (it never reads it) to
 tell agents about it in `pins.md`. `limn token revoke` removes the file when it held the revoked token. Once the
 agents use the file, set `AGENT_LOOPBACK=0` on that instance: only this account's processes can then act as the
 agent. A token expanded with `$(cat …)` is visible on that curl's command line while it runs; on a machine other

@@ -592,7 +592,8 @@ tokf="$T/config/v01.token"
 "$PV" token create v01 --name local --save > /dev/null 2>&1
 chk "token create --save writes the token file 0600" "[[ \$(mode_of '$tokf') == 600 ]]"
 out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
-chk "status sends a 0600 token file (BSD stat)" "grep -q 'sent with the check above' <<< \"\$out\" && ! grep -q 'not using it' <<< \"\$out\""
+chk "status accepts a 0600 token file (BSD stat), and sends it to no one: nothing of ours listens on the port" \
+    "grep -q 'not sent: no process of this account listens' <<< \"\$out\" && ! grep -q 'not using it' <<< \"\$out\""
 chmod 640 "$tokf"
 out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
 chk "status refuses a token file open to the group (BSD stat)" "grep -q 'open to group or others (mode 640)' <<< \"\$out\" && grep -q 'chmod 600' <<< \"\$out\""

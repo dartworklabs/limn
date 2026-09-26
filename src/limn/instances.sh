@@ -653,13 +653,62 @@ token_of() {
 
 # shell_path <path> — the path as an agent's shell should see it: ~/… under $HOME (the tilde still expands inside
 # $(cat …)), else as is. For text people paste, never for this script's own file access.
+# The server's shell_path() follows the same rule: ~/ only for a plain rest under a non-empty $HOME, else quoted.
 shell_path() {
-    # The tilde is literal text for the reader's shell, not an expansion here.
-    # shellcheck disable=SC2088
-    case "$1" in
-        "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;;
-        *) printf '%s' "$1" ;;
-    esac
+    local rest re='^[A-Za-z0-9._/-]+$'
+    if [[ -n "${HOME:-}" && "$1" == "$HOME"/* ]]; then
+        rest=${1#"$HOME"/}
+        if [[ "$rest" =~ $re ]]; then
+            # The tilde is literal text for the reader's shell, not an expansion here.
+            # shellcheck disable=SC2088
+            printf '~/%s' "$rest"
+            return
+        fi
+    fi
+    printf '%q' "$1"
+}
+
+# own_listener <port> — is every socket listening on <port> this account's (and is there one)? The token goes only to
+# our own server: while an instance is down another account could listen on its port (ports are predictable, they
+# are in the ledger) and read the Authorization header. Linux: the uid column of /proc/net/tcp and tcp6
+# (LIMN_PROC_NET points elsewhere in tests). Elsewhere (macOS): lsof, split into this account's listeners and
+# anyone else's. Neither available: no.
+own_listener() {
+    local port=$1 uid net=${LIMN_PROC_NET:-/proc/net}
+    uid=$(id -u)
+    if [[ -r "$net/tcp" ]]; then
+        "$PYTHON" -c 'import sys
+port, uid, owners = int(sys.argv[1]), sys.argv[2], set()
+for name in sys.argv[3:]:
+    try:
+        rows = open(name).read().splitlines()[1:]
+    except OSError:
+        continue
+    for row in rows:
+        c = row.split()
+        if len(c) > 7 and c[3] == "0A" and int(c[1].rsplit(":", 1)[1], 16) == port:
+            owners.add(c[7])
+sys.exit(0 if owners == {uid} else 1)' "$port" "$uid" "$net/tcp" "$net/tcp6" 2> /dev/null
+        return
+    fi
+    command -v lsof > /dev/null 2>&1 || return 1
+    [[ -n "$(lsof -nP -a -u "$uid" -iTCP:"$port" -sTCP:LISTEN -t 2> /dev/null)" ]] \
+        && [[ -z "$(lsof -nP -a -u "^$uid" -iTCP:"$port" -sTCP:LISTEN -t 2> /dev/null)" ]]
+}
+
+# probe_auth <name> <port> — how a check of <port> authenticates, as "<how> [token]": sent (the token file's token
+# goes with it), withheld (a usable token, but the port is not held by this account - see own_listener), unusable
+# (a token file token_of refused, with its warning), or none (no token file).
+probe_auth() {
+    local tok f
+    f=$(token_file_of "$1")
+    if tok=$(token_of "$1"); then
+        if own_listener "$2"; then printf 'sent %s' "$tok"; else printf 'withheld'; fi
+    elif [[ -e "$f" || -L "$f" ]]; then
+        printf 'unusable'
+    else
+        printf 'none'
+    fi
 }
 
 # probe_code <local port> [token] — HTTP code of a read-only route. The token goes to curl on stdin (-H @-), never
@@ -672,29 +721,43 @@ probe_code() {
         curl -s -o /dev/null -m 5 -w '%{http_code}' "$url" 2> /dev/null || true
     fi
 }
-http_code() { # http_code <name> <local port> — probe_code with the instance's token file, when it has a usable one
-    local tok
-    tok=$(token_of "$1") || tok=""
+http_code() { # http_code <name> <local port> — probe_code, with the token file's token when probe_auth sends it
+    local how tok=""
+    read -r how tok <<< "$(probe_auth "$1" "$2")"
     probe_code "$2" "$tok"
 }
-# refused_hint <name> <sent a token: 0|1> — what a 401 from the instance's own port means, and the fix.
+# refused_hint <name> <how: sent|withheld|unusable|none> — what a 401 from the instance's port means, and the fix.
 refused_hint() {
-    if [[ "$2" == 1 ]]; then
-        printf 'the token in %s was refused (revoked?) — make a new one: limn token create %s --save --force' "$(token_file_of "$1")" "$1"
-    else
-        printf 'it refuses requests without a token (AGENT_LOOPBACK=0) and there is no usable token file — limn token create %s --save' "$1"
-    fi
+    local f
+    f=$(token_file_of "$1")
+    case "$2" in
+        sent) printf 'the token in %s was refused (revoked?) — make a new one: limn token create %s --save --force' "$f" "$1" ;;
+        withheld) printf 'no process of this account listens on the port, so the token was not sent — is the instance down, or another account on its port?' ;;
+        unusable) printf 'the token file %s is not usable (see the warning) — chmod 600 it, or replace it: limn token create %s --save --force' "$f" "$1" ;;
+        *) printf 'it refuses requests without a token (AGENT_LOOPBACK=0, or AUTH other than tailscale) and there is no token file — limn token create %s --save' "$1" ;;
+    esac
 }
 # wait_ready <name> <port> — 0 once it answers 200; 2 if the unit failed; 3 on a 401 (it is up but refuses this
 # check: no usable token file, or a revoked one - waiting would not change that); 1 when LIMN_WAIT runs out.
-# READY_SENT tells the caller whether a token was sent (for refused_hint).
+# READY_HOW tells the caller how the last check authenticated (for refused_hint). The token file is read once; the
+# token goes with a check only while this account holds the port (own_listener), which a starting unit may not yet.
 wait_ready() {
-    local i code tok
-    tok=$(token_of "$1") || tok=""
-    READY_SENT=0
-    [[ -n "$tok" ]] && READY_SENT=1
+    local i code tok="" t f
+    f=$(token_file_of "$1")
+    if tok=$(token_of "$1"); then
+        READY_HOW=withheld
+    else
+        tok=""
+        READY_HOW=none
+        [[ -e "$f" || -L "$f" ]] && READY_HOW=unusable
+    fi
     for ((i = 0; i < WAIT_S; i++)); do
-        code=$(probe_code "$2" "$tok")
+        t=""
+        if [[ -n "$tok" ]] && own_listener "$2"; then
+            t=$tok
+            READY_HOW=sent
+        fi
+        code=$(probe_code "$2" "$t")
         [[ "$code" == 200 ]] && return 0
         [[ "$code" == 401 ]] && return 3
         if [[ "$(sysu is-active "$(unit_of "$1")" 2> /dev/null)" == failed ]]; then
@@ -952,7 +1015,7 @@ start_instance() { # start_instance <name> <serve 0|1>
     case $rc in
         0) say "127.0.0.1:$C_PORT 200" ;;
         2) die "the unit failed: journalctl --user -u $(unit_of "$n") -n 50" ;;
-        3) warn "127.0.0.1:$C_PORT is up but answers 401: $(refused_hint "$n" "$READY_SENT")" ;;
+        3) warn "127.0.0.1:$C_PORT is up but answers 401: $(refused_hint "$n" "$READY_HOW")" ;;
         *) warn "not 200 yet (may still be building) — limn status $n" ;;
     esac
     if [[ "$serve" == 1 ]]; then
@@ -1209,7 +1272,7 @@ cmd_update() {
         wait_ready "$n" "$C_PORT" || rc=$?
         case $rc in
             0) say "  $n restarted → 200" ;;
-            3) warn "  $n restarted → 401: $(refused_hint "$n" "$READY_SENT")" ;;
+            3) warn "  $n restarted → 401: $(refused_hint "$n" "$READY_HOW")" ;;
             *) warn "  $n restarted but not responding — limn status $n" ;;
         esac
     done
@@ -1250,19 +1313,21 @@ cmd_status() {
         say ""
         say "[$n] ${C_LABEL:-}"
         say "  unit         $unit  $(sysu is-active "$unit" 2> /dev/null) / $(sysu is-enabled "$unit" 2> /dev/null)  pid=$(sysu show -p MainPID --value "$unit" 2> /dev/null)"
-        local tok="" sent=0 code
-        tok=$(token_of "$n") && sent=1
+        local how tok="" code f
+        f=$(token_file_of "$n")
+        read -r how tok <<< "$(probe_auth "$n" "$C_PORT")"
         code=$(probe_code "$C_PORT" "$tok")
         if [[ "$code" == 401 ]]; then
-            say "  local        http://127.0.0.1:$C_PORT/  → 401 ($(refused_hint "$n" "$sent"))"
+            say "  local        http://127.0.0.1:$C_PORT/  → 401 ($(refused_hint "$n" "$how"))"
         else
             say "  local        http://127.0.0.1:$C_PORT/  → $code"
         fi
-        if [[ -e "$(token_file_of "$n")" ]]; then
-            say "  token file   $(token_file_of "$n")$([[ "$sent" == 1 ]] && printf ' (sent with the check above)' || printf ' (not usable, see the warning)')"
-        else
-            say "  token file   none — agents here use a token file once the owner runs: limn token create $n --save"
-        fi
+        case "$how" in
+            sent) say "  token file   $f (sent with the check above)" ;;
+            withheld) say "  token file   $f (not sent: no process of this account listens on 127.0.0.1:$C_PORT)" ;;
+            unusable) say "  token file   $f (not usable, see the warning)" ;;
+            *) say "  token file   none — agents here use a token file once the owner runs: limn token create $n --save" ;;
+        esac
         say "  tailnet      $(url_of "$C_TS_PORT")  (serve: $(ts_proxy_of "$C_TS_PORT" | grep . || echo none))"
         if [[ -n "$C_DOCS" ]]; then
             say "  manuscript   $C_MANUSCRIPT"
@@ -1356,7 +1421,7 @@ doc_restart_or_hint() {
         wait_ready "$n" "$C_PORT" || rc=$?
         case $rc in
             0) say "restarted → 127.0.0.1:$C_PORT 200" ;;
-            3) warn "restarted → 127.0.0.1:$C_PORT answers 401: $(refused_hint "$n" "$READY_SENT")" ;;
+            3) warn "restarted → 127.0.0.1:$C_PORT answers 401: $(refused_hint "$n" "$READY_HOW")" ;;
             *) warn "not responding after restart — limn status $n" ;;
         esac
     else

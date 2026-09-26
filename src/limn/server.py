@@ -5371,7 +5371,18 @@ def loopback_refused_text(token_file: Path | None, exists: bool, home: Path | No
 def existing_token_file_shown(f: Path | None) -> str | None:
     """The shell path of token file f when it exists, else None - the edge half of token_guidance_line(): one stat
     per render, never a read of the file."""
-    return shell_path(f, home_or_none()) if f is not None and f.exists() else None
+    return shell_path(f, home_or_none()) if file_present(f) else None
+
+
+def file_present(p: Path | None) -> bool:
+    """Whether p exists - False too when that cannot be told: Path.exists() raises PermissionError in a folder this
+    process may not search, and a token-file hint must never fail a pin write or turn a 401 into a 500."""
+    if p is None:
+        return False
+    try:
+        return p.exists()
+    except OSError:
+        return False
 
 
 def home_or_none() -> Path | None:
@@ -6294,7 +6305,7 @@ def identify(headers, peer) -> Principal:
         if not came_through_proxy(headers):
             # An agent on this machine with the loopback agent off (ADR-0007): say where its token file is.
             f = C.agent_token_file
-            raise HTTPError(401, loopback_refused_text(f, f is not None and f.exists(), home_or_none()))
+            raise HTTPError(401, loopback_refused_text(f, file_present(f), home_or_none()))
     raise HTTPError(401, UNAUTHENTICATED)
 
 
@@ -7065,7 +7076,7 @@ def access_log_lines() -> list:
         parts.append("user header %s" % C.proxy_user_header)
     parts.append("tokens %d" % len(load_tokens(C.state)))
     if C.agent_token_file is not None:
-        parts.append("token file %s (%s)" % (C.agent_token_file, "present" if C.agent_token_file.exists() else "absent"))
+        parts.append("token file %s (%s)" % (C.agent_token_file, "present" if file_present(C.agent_token_file) else "absent"))
     parts.append("loopback agent %s" % ("on (deprecated)" if C.agent_loopback else "off"))
     if C.agent_loopback:                          # only meaningful where the loopback agent exists
         parts.append("tailnet agent %s" % ("on (deprecated)" if C.tailnet_agent else "off"))

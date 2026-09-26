@@ -22,7 +22,9 @@ file exists, and a hint after the existing text of one `401`. The state director
   (not for a remote `GET /pins.md`), and with the loopback agent off a headerless local request gets `401` whose
   text is the old message followed by where the token file is (a proxied request keeps the old text).
 - **Instance manager.** `limn status`, `list`, and the waits in `start`, `update` and `doc … --restart` send the
-  token file (on curl's stdin, never its command line), so they keep working with `AGENT_LOOPBACK=0`. A `401` is
+  token file (on curl's stdin, never its command line), so they keep working with `AGENT_LOOPBACK=0` - and only when
+  every listener on the port is this account's (`/proc/net/tcp` on Linux, `lsof` on macOS), so another account holding
+  the port while the instance is down never receives it. A `401` is
   reported with the command that fixes it and ends the wait at once instead of running out `LIMN_WAIT`. A token
   file that is a symlink, belongs to another account, is open to group/others, or is not one token line is not used
   (a warning says why). `limn snippet` tells agents on the serving machine to use the token file.

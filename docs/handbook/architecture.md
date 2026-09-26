@@ -36,13 +36,13 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,236 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 7,322 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 492 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 362 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
-| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,544 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
+| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,609 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
-| [`src/limn/cli.py`](../../src/limn/cli.py) | 429 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
+| [`src/limn/cli.py`](../../src/limn/cli.py) | 475 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
