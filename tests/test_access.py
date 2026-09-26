@@ -26,6 +26,7 @@ from unittest import mock
 
 from limn import access, config
 from limn.access import LOCAL_ACTOR, load_tokens
+from limn.cli import cli_audit
 from limn.config import Cfg
 from limn.pins import render as md_render
 from limn.pins.view import pin_state
@@ -69,29 +70,29 @@ def reset_access(mod=ps):
     mod.ROLES_CACHE = access.FileCache()
 
 
-def token_create(state, name=None, mod=ps):
-    """`limn token create` on state as the CLI runs it: limn.access with mod's audit sink -> (entry, plaintext)."""
-    return access.token_create(state, name, mod.cli_audit(state))
+def token_create(state, name=None):
+    """`limn token create` on state as the CLI runs it: limn.access with limn.cli.cli_audit -> (entry, plaintext)."""
+    return access.token_create(state, name, cli_audit(state))
 
 
-def token_revoke(state, ref, mod=ps):
+def token_revoke(state, ref):
     """`limn token revoke` on state as the CLI runs it -> the removed entry, or None."""
-    return access.token_revoke(state, ref, mod.cli_audit(state))
+    return access.token_revoke(state, ref, cli_audit(state))
 
 
-def member_add(state, login, role=access.DEFAULT_ROLE, name=None, mod=ps):
-    """`limn member add` on state as the CLI runs it, with mod's audit sink -> the new entry."""
-    return access.member_add(state, login, role, name, mod.cli_audit(state))
+def member_add(state, login, role=access.DEFAULT_ROLE, name=None):
+    """`limn member add` on state as the CLI runs it, with limn.cli.cli_audit -> the new entry."""
+    return access.member_add(state, login, role, name, cli_audit(state))
 
 
-def member_remove(state, login, mod=ps):
+def member_remove(state, login):
     """`limn member remove` on state as the CLI runs it -> the removed entry, or None."""
-    return access.member_remove(state, login, mod.cli_audit(state))
+    return access.member_remove(state, login, cli_audit(state))
 
 
-def member_set_role(state, login, role, mod=ps):
+def member_set_role(state, login, role):
     """`limn member role` on state as the CLI runs it -> the updated entry, or None."""
-    return access.member_set_role(state, login, role, mod.cli_audit(state))
+    return access.member_set_role(state, login, role, cli_audit(state))
 
 
 def load_people_file(state, mod=ps):
