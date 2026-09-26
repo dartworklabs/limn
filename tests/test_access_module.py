@@ -7,6 +7,7 @@ end-to-end paths through the HTTP handler are tested in test_access.py and test_
 
 Run: uv run pytest -q tests/test_access_module.py
 """
+
 import ast
 import dataclasses
 import io
@@ -33,11 +34,19 @@ TOKEN = "limn_" + "t" * 43
 TOKEN_ROW = {"id": "0badc0de", "name": "ci", "hash": access.token_hash(TOKEN), "created": "2026-09-26 10:00:00"}
 # The options a server started with no access flags runs with (server.Cfg's values), stated here in full because
 # AccessSettings has no defaults. Each test overrides only what it is about.
-BASE_SETTINGS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False,
-                     trusted_proxies=(ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")),
-                     proxy_user_header="X-Forwarded-User", proxy_name_header="X-Forwarded-Preferred-Username",
-                     proxy_email_header=None, members_only=False, allow=frozenset(), local_user=None,
-                     agent_token_file=None)
+BASE_SETTINGS = dict(
+    auth="tailscale",
+    agent_loopback=True,
+    tailnet_agent=False,
+    trusted_proxies=(ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")),
+    proxy_user_header="X-Forwarded-User",
+    proxy_name_header="X-Forwarded-Preferred-Username",
+    proxy_email_header=None,
+    members_only=False,
+    allow=frozenset(),
+    local_user=None,
+    agent_token_file=None,
+)
 
 
 def settings(**over) -> AccessSettings:
@@ -48,7 +57,7 @@ def settings(**over) -> AccessSettings:
 def headers(values=None) -> Message:
     """A request header block like the one http.server hands the handler (repeated names allowed as pairs)."""
     m = Message()
-    for k, v in (values.items() if isinstance(values, dict) else values or []):
+    for k, v in values.items() if isinstance(values, dict) else values or []:
         m[k] = v
     return m
 
@@ -111,7 +120,7 @@ class ModuleBoundary(unittest.TestCase):
         source = ACCESS_PY.read_text(encoding="utf-8")
         self.assertNotIn("C.", source)
         self.assertFalse({n for n in self.imported(ACCESS_PY) if n and "server" in n})
-        self.assertNotIn("limn.audit", self.imported(ACCESS_PY))    # the CLI's audit sink arrives as an argument
+        self.assertNotIn("limn.audit", self.imported(ACCESS_PY))  # the CLI's audit sink arrives as an argument
 
     def test_the_people_format_access_imports_brings_no_server_store_or_notices(self):
         """access.py takes people.json's entry check and text from limn.people; that module imports only the standard
@@ -126,13 +135,25 @@ class ModuleBoundary(unittest.TestCase):
         and an entry people.valid_people drops is dropped by the CLI's read too."""
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
-            (state / "people.json").write_text(json.dumps({"version": 1, "people": [
-                {"login": "zed@example.com", "name": "Zed"}, {"login": ""}, {"login": "x@example.com", "name": 3}]}),
-                encoding="utf-8")
+            (state / "people.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "people": [
+                            {"login": "zed@example.com", "name": "Zed"},
+                            {"login": ""},
+                            {"login": "x@example.com", "name": 3},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             self.assertEqual(access.load_people_file(state), [{"login": "zed@example.com", "name": "Zed"}])
             access.member_add(state, "amy@example.com", "viewer", None, lambda action, details: None)
-            rows = [{"login": "amy@example.com", "name": "amy", "role": "viewer"},
-                    {"login": "zed@example.com", "name": "Zed"}]
+            rows = [
+                {"login": "amy@example.com", "name": "amy", "role": "viewer"},
+                {"login": "zed@example.com", "name": "Zed"},
+            ]
             self.assertEqual((state / "people.json").read_text(encoding="utf-8"), people.people_text(rows))
 
     def test_guidance_imports_nothing_effectful(self):
@@ -146,8 +167,12 @@ class Settings(unittest.TestCase):
 
     def test_every_field_must_be_given(self):
         """No field has a default, so leaving one out is an error, never the permissive legacy value."""
-        self.assertTrue(all(f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
-                            for f in dataclasses.fields(AccessSettings)))
+        self.assertTrue(
+            all(
+                f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+                for f in dataclasses.fields(AccessSettings)
+            )
+        )
         partial = dict(BASE_SETTINGS)
         del partial["agent_loopback"]
         with self.assertRaises(TypeError):
@@ -182,16 +207,29 @@ class Identify(RefusalCase):
     def test_a_valid_token_is_the_agent_under_every_provider(self):
         """A known token wins over identity headers and the provider, from any peer."""
         for auth in access.AUTH_PROVIDERS:
-            p = self.identify({"Authorization": "Bearer " + TOKEN, **ALICE}, peer="10.0.0.9",
-                              lookups=Lookups([TOKEN_ROW]), auth=auth)
+            p = self.identify(
+                {"Authorization": "Bearer " + TOKEN, **ALICE}, peer="10.0.0.9", lookups=Lookups([TOKEN_ROW]), auth=auth
+            )
             self.assertEqual(p, Principal({"login": "agent:ci", "name": "ci"}, "agent", "token"), auth)
 
     def test_an_unknown_or_revoked_token_is_401_and_never_falls_back_to_the_headers(self):
         """A token that matches no row is refused even though the Tailscale headers alone would pass."""
-        self.refused(self.identify, {"Authorization": "Bearer limn_wrong", **ALICE}, "127.0.0.1", Lookups([TOKEN_ROW]),
-                     code=401, reason="bad_token")
-        self.refused(self.identify, {"Authorization": "Bearer " + TOKEN, **ALICE}, "127.0.0.1", Lookups([]),
-                     code=401, reason="bad_token")                       # revoked: its row is gone
+        self.refused(
+            self.identify,
+            {"Authorization": "Bearer limn_wrong", **ALICE},
+            "127.0.0.1",
+            Lookups([TOKEN_ROW]),
+            code=401,
+            reason="bad_token",
+        )
+        self.refused(
+            self.identify,
+            {"Authorization": "Bearer " + TOKEN, **ALICE},
+            "127.0.0.1",
+            Lookups([]),
+            code=401,
+            reason="bad_token",
+        )  # revoked: its row is gone
 
     def test_an_empty_or_repeated_bearer_header_is_401_not_no_token(self):
         """`Bearer` without a value, or two Bearer headers, are malformed - never read as an anonymous request."""
@@ -225,16 +263,25 @@ class Identify(RefusalCase):
         lk = Lookups()
         self.assertEqual(self.identify({"Host": "127.0.0.1:18300"}, lookups=lk).via, "loopback-agent")
         self.assertEqual(lk.warnings, 1)
-        e = self.refused(self.identify, {"Host": "localhost"}, "::1", lk, agent_loopback=False,
-                         agent_token_file=Path("/srv/limn/paper.token"), code=401, reason="loopback_agent_off")
+        e = self.refused(
+            self.identify,
+            {"Host": "localhost"},
+            "::1",
+            lk,
+            agent_loopback=False,
+            agent_token_file=Path("/srv/limn/paper.token"),
+            code=401,
+            reason="loopback_agent_off",
+        )
         self.assertTrue(e.body["error"].startswith(guidance.UNAUTHENTICATED))
-        self.assertIn("limn token create paper --save", e.body["error"])      # the file does not exist here
+        self.assertIn("limn token create paper --save", e.body["error"])  # the file does not exist here
         self.assertEqual(lk.warnings, 1)
 
     def test_a_remote_request_with_the_loopback_agent_off_is_plain_401(self):
         """Through the proxy with the loopback agent off: the generic 401, not the local token-file hint."""
-        e = self.refused(self.identify, {"X-Forwarded-For": "1.2.3.4"}, agent_loopback=False,
-                         code=401, reason="unauthenticated")
+        e = self.refused(
+            self.identify, {"X-Forwarded-For": "1.2.3.4"}, agent_loopback=False, code=401, reason="unauthenticated"
+        )
         self.assertEqual(e.body["error"], guidance.UNAUTHENTICATED)
 
     def test_local_provider_owner_only_from_this_machine(self):
@@ -243,21 +290,49 @@ class Identify(RefusalCase):
             self.assertEqual(self.identify(auth="local").actor, {"login": "dana", "name": "dana"})
         self.assertEqual(self.identify(auth="local", local_user="alice").role, "owner")
         self.refused(self.identify, None, "10.0.0.5", auth="local", code=401, reason="unauthenticated")
-        self.refused(self.identify, {"X-Forwarded-Host": "x"}, auth="local", code=403, reason="headerless",
-                     page="no-identity")
+        self.refused(
+            self.identify, {"X-Forwarded-Host": "x"}, auth="local", code=403, reason="headerless", page="no-identity"
+        )
 
     def test_trusted_proxy_headers_count_only_from_a_trusted_peer(self):
         """--auth trusted-proxy: the user header from an untrusted peer, or no header, is 401."""
         nets = access.parse_networks("10.0.0.1")
         hdrs = {"X-Forwarded-User": "alice@example.com"}
-        self.refused(self.identify, hdrs, "10.0.0.2", auth="trusted-proxy", trusted_proxies=nets,
-                     code=401, reason="unauthenticated")
-        self.refused(self.identify, {}, "10.0.0.1", auth="trusted-proxy", trusted_proxies=nets,
-                     code=401, reason="unauthenticated")
-        self.refused(self.identify, {"X-Forwarded-User": "local"}, "10.0.0.1", auth="trusted-proxy",
-                     trusted_proxies=nets, code=401, reason="unauthenticated")
-        p = self.identify({**hdrs, "X-Email": "a@example.com"}, "::ffff:10.0.0.1", Lookups(roles={"a@example.com": "owner"}),
-                          auth="trusted-proxy", trusted_proxies=nets, proxy_email_header="X-Email")
+        self.refused(
+            self.identify,
+            hdrs,
+            "10.0.0.2",
+            auth="trusted-proxy",
+            trusted_proxies=nets,
+            code=401,
+            reason="unauthenticated",
+        )
+        self.refused(
+            self.identify,
+            {},
+            "10.0.0.1",
+            auth="trusted-proxy",
+            trusted_proxies=nets,
+            code=401,
+            reason="unauthenticated",
+        )
+        self.refused(
+            self.identify,
+            {"X-Forwarded-User": "local"},
+            "10.0.0.1",
+            auth="trusted-proxy",
+            trusted_proxies=nets,
+            code=401,
+            reason="unauthenticated",
+        )
+        p = self.identify(
+            {**hdrs, "X-Email": "a@example.com"},
+            "::ffff:10.0.0.1",
+            Lookups(roles={"a@example.com": "owner"}),
+            auth="trusted-proxy",
+            trusted_proxies=nets,
+            proxy_email_header="X-Email",
+        )
         self.assertEqual((p.actor["login"], p.role, p.via), ("a@example.com", "owner", "header"))
 
 
@@ -268,39 +343,70 @@ class Admit(RefusalCase):
 
     def admit(self, p, host=None, hdrs=None, lookups=None, **options):
         """admit() with these settings; hdrs None passes no header block."""
-        return access.admit(p, host, None if hdrs is None else headers(hdrs), settings(**options),
-                            (lookups or Lookups()).roles)
+        return access.admit(
+            p, host, None if hdrs is None else headers(hdrs), settings(**options), (lookups or Lookups()).roles
+        )
 
     def test_members_only_refuses_a_non_member_and_reads_roles_only_then(self):
         """A person not in people.json or --allow is 403 not_member; without --members-only roles are never read."""
         lk = Lookups()
         self.admit(self.PERSON, lookups=lk)
         self.assertEqual(lk.role_reads, 0)
-        e = self.refused(self.admit, self.PERSON, None, None, lk, members_only=True, code=403, reason="not_member",
-                         page="not-member")
+        e = self.refused(
+            self.admit, self.PERSON, None, None, lk, members_only=True, code=403, reason="not_member", page="not-member"
+        )
         self.assertEqual(e.page[1], {"login": "bob@example.com"})
         self.admit(self.PERSON, lookups=Lookups(roles={"bob@example.com": "viewer"}), members_only=True)
         self.admit(self.PERSON, members_only=True, allow=frozenset({"bob@example.com"}))
 
     def test_allow_refuses_a_login_it_does_not_list(self):
         """With --allow set, anyone else is 403 not_allowed with the not-allowed page."""
-        self.refused(self.admit, self.PERSON, None, None, None, allow=frozenset({"alice@example.com"}),
-                     code=403, reason="not_allowed", page="not-allowed")
+        self.refused(
+            self.admit,
+            self.PERSON,
+            None,
+            None,
+            None,
+            allow=frozenset({"alice@example.com"}),
+            code=403,
+            reason="not_allowed",
+            page="not-allowed",
+        )
 
     def test_the_headerless_agent_through_the_tailnet_is_refused_when_a_list_is_set(self):
         """A loopback-agent principal arriving on a *.ts.net Host or with a forwarding header is 403 under --allow."""
         agent = Principal(dict(access.LOCAL_ACTOR), "agent", "loopback-agent")
         allow = frozenset({"alice@example.com"})
-        self.refused(self.admit, agent, "box.tail1.ts.net", None, None, allow=allow, code=403, reason="headerless",
-                     page="no-identity")
-        self.refused(self.admit, agent, "localhost", {"X-Forwarded-For": "1.2.3.4"}, None, members_only=True,
-                     code=403, reason="headerless", page="no-identity")
-        self.admit(agent, "localhost", {}, allow=allow)                   # a plain local request passes
+        self.refused(
+            self.admit,
+            agent,
+            "box.tail1.ts.net",
+            None,
+            None,
+            allow=allow,
+            code=403,
+            reason="headerless",
+            page="no-identity",
+        )
+        self.refused(
+            self.admit,
+            agent,
+            "localhost",
+            {"X-Forwarded-For": "1.2.3.4"},
+            None,
+            members_only=True,
+            code=403,
+            reason="headerless",
+            page="no-identity",
+        )
+        self.admit(agent, "localhost", {}, allow=allow)  # a plain local request passes
 
     def test_tokens_and_the_local_owner_are_always_admitted(self):
         """The lists only filter header-vouched people."""
-        for p in (Principal({"login": "agent:ci", "name": "ci"}, "agent", "token"),
-                  Principal({"login": "dana", "name": "dana"}, "owner", "local-owner")):
+        for p in (
+            Principal({"login": "agent:ci", "name": "ci"}, "agent", "token"),
+            Principal({"login": "dana", "name": "dana"}, "owner", "local-owner"),
+        ):
             self.admit(p, members_only=True, allow=frozenset({"x@example.com"}))
 
 
@@ -319,8 +425,9 @@ class CheckRole(RefusalCase):
 
     def test_an_agent_cannot_confirm(self):
         """Confirm is a person's decision: 403 with the confirm-by-human text."""
-        e = self.refused(access.check_role, self.who("agent"), "/api/pins/7/confirm", 30, code=403,
-                         reason="confirm_by_human")
+        e = self.refused(
+            access.check_role, self.who("agent"), "/api/pins/7/confirm", 30, code=403, reason="confirm_by_human"
+        )
         self.assertEqual(e.body["error"], CONFIRM_BY_HUMAN)
         access.check_role(self.who("agent"), "/api/pins/7/close", 30)
 
@@ -335,8 +442,10 @@ class CheckRole(RefusalCase):
 
     def test_an_unknown_role_in_people_json_is_a_viewer(self):
         """Fail closed: a role value Limn does not know grants the least."""
-        self.assertEqual([access.role_value(v) for v in (None, "owner", "admin", 3, [])],
-                         ["editor", "owner", "viewer", "viewer", "viewer"])
+        self.assertEqual(
+            [access.role_value(v) for v in (None, "owner", "admin", 3, [])],
+            ["editor", "owner", "viewer", "viewer", "viewer"],
+        )
 
 
 class Hosts(unittest.TestCase):
@@ -353,10 +462,15 @@ class Hosts(unittest.TestCase):
 
     def test_an_origin_from_the_other_side_is_refused(self):
         """A tailnet Origin with a loopback Host, a null Origin, a plain-http public Origin and a wrong port fail."""
-        cases = [("https://box.tail1.ts.net", "localhost"), ("null", "localhost"),
-                 ("http://limn.example.com", "limn.example.com"), ("https://alt.example.com", "alt.example.com"),
-                 ("https://box.tail1.ts.net:8443", "box.tail1.ts.net"), ("https://other.tail1.ts.net", "box.tail1.ts.net"),
-                 ("http://localhost:x", "localhost")]
+        cases = [
+            ("https://box.tail1.ts.net", "localhost"),
+            ("null", "localhost"),
+            ("http://limn.example.com", "limn.example.com"),
+            ("https://alt.example.com", "alt.example.com"),
+            ("https://box.tail1.ts.net:8443", "box.tail1.ts.net"),
+            ("https://other.tail1.ts.net", "box.tail1.ts.net"),
+            ("http://localhost:x", "localhost"),
+        ]
         for origin, host in cases:
             self.assertFalse(access.origin_ok(origin, host, self.PUBLIC), (origin, host))
         self.assertTrue(access.origin_ok("https://alt.example.com:8443", "alt.example.com", self.PUBLIC))
@@ -364,7 +478,9 @@ class Hosts(unittest.TestCase):
 
     def test_the_pins_md_base_follows_the_host_kind(self):
         """*.ts.net as sent, a public host with its configured port, else the loopback URL on the server port."""
-        self.assertEqual(access.remote_base_for("box.tail1.ts.net:8443", self.PUBLIC, 18300), "https://box.tail1.ts.net:8443")
+        self.assertEqual(
+            access.remote_base_for("box.tail1.ts.net:8443", self.PUBLIC, 18300), "https://box.tail1.ts.net:8443"
+        )
         self.assertEqual(access.remote_base_for("alt.example.com", self.PUBLIC, 18300), "https://alt.example.com:8443")
         self.assertEqual(access.remote_base_for("evil.example.com", self.PUBLIC, 18300), "http://127.0.0.1:18300")
 
@@ -386,6 +502,7 @@ class Caches(unittest.TestCase):
             """Read the file, counting reads."""
             loads.append(1)
             return p.read_text(encoding="utf-8")
+
         self.assertEqual(cache.get(p, load, "empty"), "empty")
         p.write_text("one", encoding="utf-8")
         self.assertEqual((cache.get(p, load, "empty"), cache.get(p, load, "empty")), ("one", "one"))
@@ -393,7 +510,7 @@ class Caches(unittest.TestCase):
         self.assertEqual(cache.get(p, load, "empty"), "second")
         self.assertEqual(len(loads), 2)
         p.unlink()
-        self.assertEqual(cache.get(p, load, "empty"), "empty")      # a revoked-by-deletion file accepts nothing
+        self.assertEqual(cache.get(p, load, "empty"), "empty")  # a revoked-by-deletion file accepts nothing
 
     def test_the_key_includes_the_path_so_two_state_folders_never_share(self):
         """The same cache over another state folder's file loads that file, and switching back loads A's again -
@@ -406,6 +523,7 @@ class Caches(unittest.TestCase):
         def read(p):
             """A loader that reads p's current text."""
             return lambda: p.read_text(encoding="utf-8")
+
         self.assertEqual(cache.get(a, read(a), ""), "A")
         self.assertEqual(cache.get(b, read(b), ""), "B")
         self.assertEqual(cache.get(a, read(a), ""), "A")
@@ -418,8 +536,9 @@ class Caches(unittest.TestCase):
         calls load, and the token loader then accepts no token (and the role lookup would see no one)."""
         state = self.dir / "state"
         state.mkdir()
-        (state / "tokens.json").write_text(json.dumps({"tokens": [{"id": "1", "name": "ci", "hash": "sha256:x"}]}),
-                                           encoding="utf-8")
+        (state / "tokens.json").write_text(
+            json.dumps({"tokens": [{"id": "1", "name": "ci", "hash": "sha256:x"}]}), encoding="utf-8"
+        )
         cache = access.FileCache()
         path = state / "tokens.json"
         self.assertEqual(len(cache.get(path, lambda: access.load_tokens(state), [])), 1)
@@ -429,9 +548,12 @@ class Caches(unittest.TestCase):
             """The server's token loader, counting calls; the file itself is unreadable now."""
             loads.append(1)
             return access.load_tokens(state)
-        with mock.patch.object(Path, "stat", side_effect=PermissionError(13, "Permission denied")), \
-                mock.patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")), \
-                mock.patch("sys.stderr", io.StringIO()) as err:
+
+        with (
+            mock.patch.object(Path, "stat", side_effect=PermissionError(13, "Permission denied")),
+            mock.patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")),
+            mock.patch("sys.stderr", io.StringIO()) as err,
+        ):
             self.assertEqual(cache.get(path, load, [{"stale": True}]), [])
         self.assertEqual(loads, [1])
         self.assertIn("no agent token is accepted", err.getvalue())

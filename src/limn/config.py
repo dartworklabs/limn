@@ -4,6 +4,7 @@ The composition root (server.py) makes the one instance (`C = Cfg()`) and fills 
 limn/startup.py; the modules it wires receive the values (or C itself, typed by a Protocol such as
 limn.documents.RunPaths) as arguments. Nothing here reads the command line, the environment or the disk.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -17,12 +18,12 @@ from limn.store import PinFiles
 # A high-saturation "700-level" palette with enough contrast on both the dark and light theme backgrounds
 # (--bg #14161a / #e9ebef) and under white text (chip text). One is chosen by hashing the label string -
 # the same label always gets the same color.
-ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9",
-                  "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
+ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9", "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
 
 
 class Cfg:
     """Holds the run arguments. Every project-specific value passes through here."""
+
     src: Path
     main: Path
     state: Path
@@ -34,15 +35,15 @@ class Cfg:
     allow: frozenset[str]
     origin_check: bool = True
     git_pull: bool = False
-    pdfjs_dir: Path | None = None   # None = server.default_pdfjs_dir()
-    label: str = "원고"             # label distinguishing multiple instances (§Running multiple manuscript instances at once). Filled in by main()
+    pdfjs_dir: Path | None = None  # None = server.default_pdfjs_dir()
+    label: str = "원고"  # label distinguishing multiple instances (§Running multiple manuscript instances at once). Filled in by main()
     accent: str = ACCENT_PALETTE[0]  # the label's accent color (#rrggbb)
-    repo: str | None = None         # git origin URL of --manuscript. None if absent
+    repo: str | None = None  # git origin URL of --manuscript. None if absent
     # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
     # The names from auth on are also limn.startup.AccessOptions' fields: configure_access copies them over by name.
-    auth: str = "tailscale"         # identity provider: tailscale | local | trusted-proxy
-    agent_loopback: bool = True     # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
-    tailnet_agent: bool = False     # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
+    auth: str = "tailscale"  # identity provider: tailscale | local | trusted-proxy
+    agent_loopback: bool = True  # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
+    tailnet_agent: bool = False  # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
     bind: str = "127.0.0.1"
     # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
     public_hosts: tuple[HostEntry, ...] = ()
@@ -50,9 +51,9 @@ class Cfg:
     proxy_user_header: str = "X-Forwarded-User"
     proxy_name_header: str = "X-Forwarded-Preferred-Username"
     proxy_email_header: str | None = None
-    members_only: bool = False      # admit only logins in people.json (or --allow)
-    local_user: str | None = None   # the owner's login under --auth local (None = $USER, then "owner")
-    insecure: bool = False          # a non-loopback bind allowed by --i-know-this-is-insecure
+    members_only: bool = False  # admit only logins in people.json (or --allow)
+    local_user: str | None = None  # the owner's login under --auth local (None = $USER, then "owner")
+    insecure: bool = False  # a non-loopback bind allowed by --i-know-this-is-insecure
     # where agents on this machine keep this instance's token (ADR-0007); never read
     agent_token_file: Path | None = None
 

@@ -10,6 +10,7 @@ nothing here reads the server's run arguments or imports it. What only the compo
 value - the --git-pull sync status, the pins as read, which document a pin belongs to. The keys and their order are
 the agent contract; a change here must keep every body byte-identical.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -21,7 +22,7 @@ from limn import build
 from limn.documents import Doc
 from limn.outline import toc_labels
 
-AUX_MAX_BYTES = 4 * 1024 * 1024    # a larger .aux is not read for outline labels
+AUX_MAX_BYTES = 4 * 1024 * 1024  # a larger .aux is not read for outline labels
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class MetaSettings:
     """The run settings GET /api/meta reads or reports: the state folder (also where the manuscript scan stops), the
     pin files, the instance label/accent/repository the viewer shows, and the dpi the page images were rendered at.
     The composition root makes one per request from its run arguments."""
+
     state: Path
     pins_md: Path
     pins_jsonl: Path
@@ -39,7 +41,7 @@ class MetaSettings:
 
 
 def pins_rev(pins_jsonl: Path) -> str:
-    """"<mtime_ns>:<size>" of the live pins file, or "0" when there is none: the viewer refetches the pins only when
+    """ "<mtime_ns>:<size>" of the live pins file, or "0" when there is none: the viewer refetches the pins only when
     this changes, so it must change with every write (a write always replaces the file) and not otherwise."""
     try:
         st = pins_jsonl.stat()
@@ -56,15 +58,27 @@ def doc_brief(D: Doc, state_dir: Path) -> dict[str, Any]:
     stale = (not D.is_pdf) and build.source_newer(D, state_dir) > 2
     pdir = build.cur_pages(D)
     n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
-    return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
-            "main": D.main.name, "stale_build": stale, "src_mtime": build.src_mtime(D, state_dir),
-            "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
-            "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
-            "pages_build": pdir.name, "n_pages": n_pages}
+    return {
+        "key": D.key,
+        "name": D.name,
+        "kind": D.kind,
+        "view_only": D.is_pdf,
+        "path": D.rel_path(),
+        "main": D.main.name,
+        "stale_build": stale,
+        "src_mtime": build.src_mtime(D, state_dir),
+        "building": D.lock.locked(),
+        "build": {"state": b["state"], "phase": b["phase"]},
+        "build_seq": b.get("seq", 0),
+        "last_state": (b.get("last") or {}).get("state"),
+        "pages_build": pdir.name,
+        "n_pages": n_pages,
+    }
 
 
-def docs_payload(docs: Sequence[Doc], rows: Iterable[Mapping[str, Any]], doc_of: Callable[[Mapping[str, Any]], str],
-                 state_dir: Path) -> dict[str, Any]:
+def docs_payload(
+    docs: Sequence[Doc], rows: Iterable[Mapping[str, Any]], doc_of: Callable[[Mapping[str, Any]], str], state_dir: Path
+) -> dict[str, Any]:
     """GET /api/docs: every document of docs (the first is the default) with its open-pin count, from the pin records
     rows as read (doc_of says which document a record belongs to). Open pins of a key no document serves any more are
     counted in other_open."""
@@ -74,13 +88,17 @@ def docs_payload(docs: Sequence[Doc], rows: Iterable[Mapping[str, Any]], doc_of:
             k = doc_of(r)
             counts[k] = counts.get(k, 0) + 1
     known = {d.key for d in docs}
-    return {"docs": [dict(doc_brief(d, state_dir), n_open=counts.get(d.key, 0)) for d in docs],
-            "default": docs[0].key, "multi": len(docs) > 1,
-            "other_open": sum(v for k, v in counts.items() if k not in known)}
+    return {
+        "docs": [dict(doc_brief(d, state_dir), n_open=counts.get(d.key, 0)) for d in docs],
+        "default": docs[0].key,
+        "multi": len(docs) > 1,
+        "other_open": sum(v for k, v in counts.items() if k not in known),
+    }
 
 
-def meta(D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequence[Doc], sync: Mapping[str, Any],
-         now: float) -> dict[str, Any]:
+def meta(
+    D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequence[Doc], sync: Mapping[str, Any], now: float
+) -> dict[str, Any]:
     """GET /api/meta for document D without the pin counts - exactly the light poll's body: its pages (sized at
     settings.dpi), build markers, staleness, the build in progress and the last finished one, the instance settings,
     who is asking (actor) and the --git-pull status (sync). With several documents, each one's summary (docs) and a
@@ -92,27 +110,43 @@ def meta(D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequenc
             return (D.dir / f).read_text().strip()
         except OSError:
             return "?"
+
     bstate = build.state_snapshot(D)
     sm = build.src_mtime(D, settings.state)
     # view-only: the server re-renders on its own when the PDF changes
     newer = 0.0 if D.is_pdf else build.source_newer(D, settings.state)
     multi = len(docs) > 1
-    out = {"pages": build.page_list(build.cur_pages(D), settings.dpi), "built_at": read("built_at.txt"),
-           "head": read("head.txt"), "main": D.main.name, "pins_md": str(settings.pins_md),
-           "state_dir": str(settings.state), "me": actor,
-           "label": settings.label, "accent": settings.accent, "repo": settings.repo,
-           "building": D.lock.locked(), "sync": sync,
-           "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi,
-           # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
-           "stale_build": newer > 2, "src_age_s": round(max(0.0, now - sm), 1) if sm else None,
-           "src_mtime": sm, "build_src_mtime": build.read_built_src_mtime(D),
-           "pages_build": build.cur_pages(D).name,
-           "pins_rev": pins_rev(settings.pins_jsonl),
-           # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
-           "build_seq": bstate.get("seq", 0),
-           "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
-           "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
-    if multi:                             # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
+    out = {
+        "pages": build.page_list(build.cur_pages(D), settings.dpi),
+        "built_at": read("built_at.txt"),
+        "head": read("head.txt"),
+        "main": D.main.name,
+        "pins_md": str(settings.pins_md),
+        "state_dir": str(settings.state),
+        "me": actor,
+        "label": settings.label,
+        "accent": settings.accent,
+        "repo": settings.repo,
+        "building": D.lock.locked(),
+        "sync": sync,
+        "doc": D.key,
+        "doc_name": D.name,
+        "kind": D.kind,
+        "view_only": D.is_pdf,
+        "multi": multi,
+        # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
+        "stale_build": newer > 2,
+        "src_age_s": round(max(0.0, now - sm), 1) if sm else None,
+        "src_mtime": sm,
+        "build_src_mtime": build.read_built_src_mtime(D),
+        "pages_build": build.cur_pages(D).name,
+        "pins_rev": pins_rev(settings.pins_jsonl),
+        # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
+        "build_seq": bstate.get("seq", 0),
+        "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
+        "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")},
+    }
+    if multi:  # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
         briefs = [doc_brief(d, settings.state) for d in docs]
         out["docs"] = briefs
         out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in briefs)

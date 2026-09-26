@@ -17,6 +17,7 @@ What stays with the caller: which document and settings (server.py binds them pe
 step (it coordinates every document of the repository, so it is passed in as `pull`), and which compile step a
 tracked build runs - compile_tex for LaTeX, render_pdf_doc (the view-only PDF "build") for a PDF document.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -44,7 +45,7 @@ PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # list - a latexdiff artifact changing must not turn on "manuscript modified" / location re-estimation
 # when it isn't part of the build (observed: 17 PDFs under diff/).
 BUILD_EXCLUDE_DIRS = ("diff", "diff_temporary")
-BUILDS_KEEP = 200                  # number of successful builds kept in builds.json (roughly 200 bytes each)
+BUILDS_KEEP = 200  # number of successful builds kept in builds.json (roughly 200 bytes each)
 
 SRC_TEX_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst")
 SRC_FIG_EXTS = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg")
@@ -121,7 +122,7 @@ class BuildDoc(Protocol):
         """The src_mtime memo: [key, value, measured-at]."""
 
 
-Doc = TypeVar("Doc", bound=BuildDoc)      # one document type through a call that hands the document back to its caller
+Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,7 @@ class BuildConfig:
 
     state is the instance state folder: a state folder placed inside the manuscript is skipped when the
     manuscript is scanned. dpi is the page-image resolution, timeout the latexmk limit in seconds."""
+
     state: Path
     dpi: int
     timeout: int
@@ -150,6 +152,7 @@ def _is_num(v: object) -> TypeGuard[int | float]:
 
 
 # ---------------------------------------------------------------- Page-image version directories
+
 
 def valid_build_name(v: object) -> TypeGuard[str]:
     """Is v the name of a page directory (pages, pages-<14 digits>, pages-<14 digits>-<n>)? The only names a client may send back."""
@@ -229,7 +232,7 @@ def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
     f = (pdir or cur_pages(D)) / D.pdf_name
     if f.exists():
         return f
-    if D.is_pdf:                                          # view-only: the original PDF if pages haven't been rendered yet
+    if D.is_pdf:  # view-only: the original PDF if pages haven't been rendered yet
         return D.main
     return D.out / D.pdf_name
 
@@ -293,6 +296,7 @@ def migrate_pages(D: BuildDoc) -> None:
 
 # ---------------------------------------------------------------- Build state (progress chip / error panel)
 
+
 def state_update(D: BuildDoc, **kw: Any) -> None:
     """Merge kw into the document's build state under its lock."""
     with D.bstate_lock:
@@ -314,6 +318,7 @@ def state_snapshot(D: BuildDoc) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- One build at a time per document
+
 
 def build_now(D: BuildDoc, run: Callable[[], BuildResult]) -> BuildResult:
     """Run one build of D synchronously. If D is already building, returns busy without waiting.
@@ -342,11 +347,21 @@ def build_in_background(D: BuildDoc, run: Callable[[], BuildResult], started_at:
         """Run the build, record an unexpected death as a failed build, and always release D's lock."""
         try:
             run()
-        except Exception as e:                     # noqa: BLE001 — must not stay stuck at running even if the tracked build itself dies
-            finish_build(D, {"ok": False, "state": "fail", "errors": [],
-                             "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}, None)
+        except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the tracked build itself dies
+            finish_build(
+                D,
+                {
+                    "ok": False,
+                    "state": "fail",
+                    "errors": [],
+                    "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e,
+                    "elapsed_s": 0.0,
+                },
+                None,
+            )
         finally:
             D.lock.release()
+
     threading.Thread(target=worker, daemon=True).start()
     return {"state": "running"}
 
@@ -366,14 +381,27 @@ def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildRe
     "manuscript modified" badge must not turn off."""
     with D.bstate_lock:
         last_s = D.bstate.get("last_s")
-    state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time(),
-                 last_s=last_s, errors=[], log_tail="")
+    state_update(
+        D,
+        state="running",
+        phase="copy",
+        started_at=started_at,
+        start_ts=time.time(),
+        last_s=last_s,
+        errors=[],
+        log_tail="",
+    )
     src_mtime_at_start = src_mtime(D, state_dir, force=True)
     try:
         res = compile_step()
-    except Exception as e:                            # noqa: BLE001 — must not stay stuck at running even if the build dies
-        res = {"ok": False, "state": "fail", "errors": [],
-               "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
+    except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the build dies
+        res = {
+            "ok": False,
+            "state": "fail",
+            "errors": [],
+            "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e,
+            "elapsed_s": 0.0,
+        }
     src_mtime_for_build = res.get("src_mtime")
     if not _is_num(src_mtime_for_build):
         # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
@@ -397,26 +425,54 @@ def finish_build(D: BuildDoc, res: BuildResult, src_mtime_for_build: float | Non
     observed as running) still bumps seq. seq and the final state are changed together (so there's never a
     visible moment where the state is final but seq is still the old value)."""
     state = res.get("state", "fail")
-    last = {"state": state, "errors": list(res.get("errors") or [])[:5],
-            "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "elapsed_s": res.get("elapsed_s", 0.0), "log_tail": str(res.get("log") or "")[-4000:],
-            "head": res.get("head"), "pull": res.get("pull")}
+    last = {
+        "state": state,
+        "errors": list(res.get("errors") or [])[:5],
+        "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "elapsed_s": res.get("elapsed_s", 0.0),
+        "log_tail": str(res.get("log") or "")[-4000:],
+        "head": res.get("head"),
+        "pull": res.get("pull"),
+    }
     with D.bstate_lock:
         last["started_at"] = D.bstate.get("started_at")
     ent = None
     if state in ("ok", "ok_errors") and res.get("build"):
-        ent = {"build": res["build"], "src_mtime": src_mtime_for_build, "src_hash": res.get("src_hash"),
-               "finished_at": last["finished_at"]}
+        ent = {
+            "build": res["build"],
+            "src_mtime": src_mtime_for_build,
+            "src_hash": res.get("src_hash"),
+            "finished_at": last["finished_at"],
+        }
     seq = record_build(D, last, ent)
-    state_update(D, state=state, phase=None, start_ts=None, seq=seq, finished_at=last["finished_at"],
-                 elapsed_s=last["elapsed_s"], last_s=last["elapsed_s"],
-                 pages=res.get("pages", 0), errors=last["errors"], head=last["head"], pull=last["pull"],
-                 log_tail=res.get("log", ""), built_at=read_built_at(D),
-                 last={"state": state, "errors": last["errors"], "finished_at": last["finished_at"],
-                       "seq": seq, "head": last["head"], "pull": last["pull"]})
+    state_update(
+        D,
+        state=state,
+        phase=None,
+        start_ts=None,
+        seq=seq,
+        finished_at=last["finished_at"],
+        elapsed_s=last["elapsed_s"],
+        last_s=last["elapsed_s"],
+        pages=res.get("pages", 0),
+        errors=last["errors"],
+        head=last["head"],
+        pull=last["pull"],
+        log_tail=res.get("log", ""),
+        built_at=read_built_at(D),
+        last={
+            "state": state,
+            "errors": last["errors"],
+            "finished_at": last["finished_at"],
+            "seq": seq,
+            "head": last["head"],
+            "pull": last["pull"],
+        },
+    )
 
 
 # ---------------------------------------------------------------- The LaTeX build
+
 
 def latex_errors(text: str) -> list[dict[str, Any]]:
     """Pulls out up to 5 '! ' lines and the first following 'l.<n>' line each (no file guessing)."""
@@ -426,7 +482,7 @@ def latex_errors(text: str) -> list[dict[str, Any]]:
         if not ln.startswith("! "):
             continue
         line_no = None
-        for nxt in lines[i + 1:i + 40]:
+        for nxt in lines[i + 1 : i + 40]:
             m = re.match(r"l\.(\d+)", nxt)
             if m:
                 line_no = int(m.group(1))
@@ -444,8 +500,15 @@ def run_logged(cmd: list[str], cwd: Path, timeout: int) -> tuple[int | None, str
 
     Returns (returncode or None, combined output, timed out)."""
     try:
-        p = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             encoding="utf-8", errors="replace", start_new_session=True)
+        p = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+            errors="replace",
+            start_new_session=True,
+        )
     except FileNotFoundError:
         return None, "%s 를 찾지 못했습니다." % cmd[0], False
     try:
@@ -472,13 +535,18 @@ def copy_manuscript(src: Path, dest: Path) -> None:
             excl = []
             for d in BUILD_EXCLUDE_DIRS:
                 excl += ["--exclude", d + "/"]
-            r = subprocess.run([rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz",
-                               str(src) + "/", str(dest) + "/"],
-                               capture_output=True, text=True, errors="replace", timeout=300, check=False)
+            r = subprocess.run(
+                [rs, "-a", "--delete"] + excl + ["--exclude", "*.synctex.gz", str(src) + "/", str(dest) + "/"],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=300,
+                check=False,
+            )
             if r.returncode != 0:
                 last = (r.stderr.strip().splitlines() or ["(no message)"])[-1]
                 raise ManuscriptCopyError("rsync exit %d: %s" % (r.returncode, last))
-        else:                                            # must still work without rsync
+        else:  # must still work without rsync
             shutil.rmtree(dest, ignore_errors=True)
             shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*BUILD_EXCLUDE_DIRS, "*.synctex.gz"))
     except (subprocess.TimeoutExpired, OSError) as e:
@@ -524,7 +592,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     state_update(D, phase="latex")
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
     _rc, out, timed_out = run_logged(
-        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, cfg.timeout)
+        ["latexmk", "-pdf", "-synctex=1", "-interaction=nonstopmode", D.main.name], D.out, cfg.timeout
+    )
     with contextlib.suppress(OSError):
         atomic_write(D.dir / "build.log", out)
     tail = "\n".join(out.splitlines()[-40:])[-4000:]
@@ -534,8 +603,11 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     syn = D.out / (D.main.stem + ".synctex.gz")
     texlog = D.out / (D.main.stem + ".log")
     try:
-        logtxt = texlog.read_text(encoding="utf-8", errors="replace") \
-            if texlog.exists() and texlog.stat().st_mtime >= t0 - 1 else out
+        logtxt = (
+            texlog.read_text(encoding="utf-8", errors="replace")
+            if texlog.exists() and texlog.stat().st_mtime >= t0 - 1
+            else out
+        )
     except OSError:
         logtxt = out
     res["errors"] = latex_errors(logtxt)
@@ -555,7 +627,7 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
         extra.append(aux)
     rendered = render_pages(D, pdf, extra, cfg.dpi)
-    if rendered[0] is None:                          # (None, error message)
+    if rendered[0] is None:  # (None, error message)
         res["log"] = rendered[1] + "\n" + tail
         res["elapsed_s"] = round(time.time() - t0, 1)
         return res
@@ -585,8 +657,12 @@ def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> tuple[P
     newdir.mkdir(parents=True)
     state_update(D, phase="render")
     try:
-        r = subprocess.run(["pdftoppm", "-r", str(dpi), "-png", str(pdf), str(newdir / "page")],
-                           capture_output=True, timeout=600, check=False)
+        r = subprocess.run(
+            ["pdftoppm", "-r", str(dpi), "-png", str(pdf), str(newdir / "page")],
+            capture_output=True,
+            timeout=600,
+            check=False,
+        )
         ok_render = r.returncode == 0 and any(newdir.glob("page-*.png"))
     except (subprocess.TimeoutExpired, FileNotFoundError):
         ok_render = False
@@ -606,14 +682,19 @@ def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> tuple[P
 def commit_pages(D: BuildDoc, newdir: Path) -> str:
     """Swaps the pointer to the new page directory in one shot (atomically), keeps only current+previous, and writes built_at/head. head is the short hash."""
     prev = cur_pages(D).name
-    atomic_write(D.dir / "pages.cur", newdir.name)       # a single atomic swap
-    for d in D.dir.iterdir():                            # keep only current and previous
+    atomic_write(D.dir / "pages.cur", newdir.name)  # a single atomic swap
+    for d in D.dir.iterdir():  # keep only current and previous
         if d.is_dir() and PAGES_DIR_RE.fullmatch(d.name) and d.name not in (newdir.name, prev):
             shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     try:
-        head = subprocess.run(["git", "-C", str(D.src), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=10, check=False)
+        head = subprocess.run(
+            ["git", "-C", str(D.src), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
         head_short = head.stdout.strip() or "-"
     except (OSError, subprocess.SubprocessError):
         head_short = "-"
@@ -627,8 +708,9 @@ def commit_pages(D: BuildDoc, newdir: Path) -> str:
 # (mtime/size), the page images are re-rendered - since it goes through the same tracked build (run_tracked ->
 # history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
 
+
 def pdf_signature(D: BuildDoc) -> str | None:
-    """"<mtime_ns>:<size>" of view-only document D's PDF, or None when it cannot be read (missing)."""
+    """ "<mtime_ns>:<size>" of view-only document D's PDF, or None when it cannot be read (missing)."""
     try:
         st = D.main.stat()
         return "%d:%d" % (st.st_mtime_ns, st.st_size)
@@ -661,8 +743,13 @@ def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildResult:
     res["head"] = commit_pages(D, newdir)
     with contextlib.suppress(OSError):
         atomic_write(D.dir / "pdf_sig.txt", sig)
-    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
-               elapsed_s=round(time.time() - t0, 1))
+    res.update(
+        state="ok",
+        ok=True,
+        build=newdir.name,
+        pages=len(list(newdir.glob("page-*.png"))),
+        elapsed_s=round(time.time() - t0, 1),
+    )
     return res
 
 
@@ -697,6 +784,7 @@ def refresh_pdf_doc(D: Doc, start: Callable[[Doc], BuildResult]) -> bool:
 # at start). Wall-clock comparison (the old approach) was wrong across the board with browser time zones,
 # note edits, and pins placed on a stale PDF (confirmed by independent verification).
 
+
 def _empty_builds() -> dict[str, Any]:
     """The history of a document that has never built: no seq, no builds, no last result."""
     return {"seq": 0, "builds": [], "last": None}
@@ -704,9 +792,12 @@ def _empty_builds() -> dict[str, Any]:
 
 def _valid_build_entry(b: object) -> bool:
     """Is b a history entry the server can trust (a page-directory name, a numeric or absent src_mtime, a string or absent hash)?"""
-    return (isinstance(b, dict) and valid_build_name(b.get("build"))
-            and (b.get("src_mtime") is None or _is_num(b.get("src_mtime")))
-            and (b.get("src_hash") is None or isinstance(b.get("src_hash"), str)))
+    return (
+        isinstance(b, dict)
+        and valid_build_name(b.get("build"))
+        and (b.get("src_mtime") is None or _is_num(b.get("src_mtime")))
+        and (b.get("src_hash") is None or isinstance(b.get("src_hash"), str))
+    )
 
 
 def load_builds(D: BuildDoc) -> dict[str, Any]:
@@ -771,8 +862,14 @@ def seed_builds(D: BuildDoc, state_dir: Path) -> None:
                     ref = cur_pdf(D, cur).stat().st_mtime
                 except OSError:
                     ref = None
-            ent = {"build": cur.name, "seq": h["seq"], "src_mtime": bsm, "src_hash": None,
-                   "finished_at": read_built_at(D), "seeded": True}
+            ent = {
+                "build": cur.name,
+                "seq": h["seq"],
+                "src_mtime": bsm,
+                "src_hash": None,
+                "finished_at": read_built_at(D),
+                "seeded": True,
+            }
             now_m = src_mtime(D, state_dir, force=True)
             if ref is not None and now_m <= ref + 1e-6:
                 ent["src_hash"] = doc_fingerprint(D, state_dir)
@@ -784,12 +881,25 @@ def seed_builds(D: BuildDoc, state_dir: Path) -> None:
     kw = {"seq": h["seq"]}
     if last.get("state") in ("ok", "ok_errors", "fail"):
         errs = [e for e in (last.get("errors") or []) if isinstance(e, dict)][:5]
-        kw.update(state=last["state"], errors=errs, log_tail=str(last.get("log_tail") or ""),
-                  started_at=last.get("started_at"), finished_at=last.get("finished_at"),
-                  last_s=last.get("elapsed_s"), elapsed_s=last.get("elapsed_s"),
-                  head=last.get("head"), pull=last.get("pull"),
-                  last={"state": last["state"], "errors": errs, "finished_at": last.get("finished_at"),
-                        "seq": h["seq"], "head": last.get("head"), "pull": last.get("pull")})
+        kw.update(
+            state=last["state"],
+            errors=errs,
+            log_tail=str(last.get("log_tail") or ""),
+            started_at=last.get("started_at"),
+            finished_at=last.get("finished_at"),
+            last_s=last.get("elapsed_s"),
+            elapsed_s=last.get("elapsed_s"),
+            head=last.get("head"),
+            pull=last.get("pull"),
+            last={
+                "state": last["state"],
+                "errors": errs,
+                "finished_at": last.get("finished_at"),
+                "seq": h["seq"],
+                "head": last.get("head"),
+                "pull": last.get("pull"),
+            },
+        )
     state_update(D, **kw)
 
 
@@ -810,6 +920,7 @@ def read_head(D: BuildDoc) -> str | None:
 
 
 # ---------------------------------------------------------------- Manuscript fingerprint and src_mtime
+
 
 def _excluded_dir(name: str) -> bool:
     """Directories never scanned as manuscript: dot folders and build artifacts / folders the build copy skips."""
@@ -849,6 +960,7 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
                     continue
                 if os.path.splitext(e.name)[1].lower() in SRC_MTIME_EXTS:
                     yield "/".join(rel_parts + (e.name,)), e
+
     yield from walk(root, ())
 
 
@@ -898,7 +1010,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
             if ckey == key and time.time() - at < 2.0:
                 return val
     newest = 0.0
-    if D.is_pdf:                                          # view-only: that one PDF file is the manuscript
+    if D.is_pdf:  # view-only: that one PDF file is the manuscript
         with contextlib.suppress(OSError):
             newest = D.main.stat().st_mtime
     else:

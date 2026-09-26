@@ -8,6 +8,7 @@ cannot be known, and guessing would delete data. ids stay reserved in pins.seq, 
 Every write of the Trash happens under the pin store's lock. The irreversible operations (purge, clear) leave a
 notice, an audit.jsonl line and a log line; the audit line is appended outside the lock (it flocks and fsyncs).
 """
+
 from __future__ import annotations
 
 import sys
@@ -65,29 +66,32 @@ def drop_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin 
         ctx.store.write_dropped(_live_trash(ctx, old) + [dict(trashed.record)], bad)
         evs.append(ctx.make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
         return trashed, True
+
     with ctx.store.lock:
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
 
 
-def restore_pin(ctx: PinContext, pid: int,
-                actor: Mapping[str, Any]) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+def restore_pin(
+    ctx: PinContext, pid: int, actor: Mapping[str, Any]
+) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
     """Writes to pins.jsonl first, and only removes it from the dropped record once that succeeds.
 
     Reversing the order means a crash between the two writes makes the pin vanish from both files (observed).
     With this order, the worst case is "present in both", which is recoverable."""
-    with ctx.store.lock:                             # re-entrant - bundles transact and cleaning up the dropped record
+    with ctx.store.lock:  # re-entrant - bundles transact and cleaning up the dropped record
         result = ctx.store.transact(lambda rows: _restore(ctx, rows, pid, actor))[1]
         if isinstance(result, (NotInTrash, AlreadyLive)):
-            return result                            # refused: the Trash file is left as it was
+            return result  # refused: the Trash file is left as it was
         old, bad = ctx.store.read_dropped()
         ctx.store.write_dropped(_live_trash(ctx, [r for r in old if r.get("id") != pid]), bad)
         return result
 
 
-def _restore(ctx: PinContext, rows: list[Row], pid: int,
-             actor: Mapping[str, Any]) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, bool]:
+def _restore(
+    ctx: PinContext, rows: list[Row], pid: int, actor: Mapping[str, Any]
+) -> tuple[OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, bool]:
     """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into rows, re-synced and
     with rel_path and the current file recorded (ADR-0006). The rule is limn.pins.lifecycle.restore(); NotInTrash
     (404) and AlreadyLive (409) leave rows unchanged."""
@@ -100,7 +104,7 @@ def _restore(ctx: PinContext, rows: list[Row], pid: int,
         return result, False
     rec = dict(result.record)
     ctx.store.sync([rec])
-    ctx.stamp(rec)                                   # ADR-0006: a restored pin records where its file is now
+    ctx.stamp(rec)  # ADR-0006: a restored pin records where its file is now
     rows.append(rec)
     rows.sort(key=lambda r: r["id"])
     return parse_pin(rec), True
@@ -118,7 +122,7 @@ def purge_trash(ctx: PinContext, now: float | None = None) -> int:
         if n:
             try:
                 ctx.store.write_dropped(keep, bad)
-            except OSError as e:                      # e.g. a read-only state dir: expired entries stay hidden, the server still starts
+            except OSError as e:  # e.g. a read-only state dir: expired entries stay hidden, the server still starts
                 print("warning: could not purge the Trash: %s" % e, file=sys.stderr)
                 return 0
     if n:
@@ -150,7 +154,7 @@ def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin
             return found
         ctx.store.write_dropped(_live_trash(ctx, [r for r in rows if r.get("id") != pid]), bad)
         ctx.emit_events([{"type": "purged", "to": [], "pin": pid, "by": ctx.who(actor)}])
-    ctx.audit("purged", ctx.who(actor), {"pin": pid})       # outside the lock: it flocks and fsyncs
+    ctx.audit("purged", ctx.who(actor), {"pin": pid})  # outside the lock: it flocks and fsyncs
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
     sys.stderr.flush()
     return found
@@ -163,10 +167,12 @@ def clear_pins(ctx: PinContext, actor: Mapping[str, Any] | None = None) -> Json:
     always leaves a trace. No actor means the headerless agent. Returns {"cleared": n, "archive": <file name or None>}."""
     by = ctx.who(actor or LOCAL_ACTOR)
     with ctx.store.lock:
-        n, archive = ctx.store.clear()               # never over an earlier archive of the same second
+        n, archive = ctx.store.clear()  # never over an earlier archive of the same second
         ctx.emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
     ctx.audit("cleared", by, {"n": n, "archive": archive})  # outside the lock: it flocks and fsyncs
-    print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")),
-          file=sys.stderr)
+    print(
+        "clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")),
+        file=sys.stderr,
+    )
     sys.stderr.flush()
     return {"cleared": n, "archive": archive}

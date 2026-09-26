@@ -9,6 +9,7 @@ top of page 1, and the `limn update` source.
 
 Run: uv run pytest -q tests/test_qa_021.py
 """
+
 import json
 import os
 import re
@@ -47,6 +48,7 @@ def actor(h):
 
 # ---------------------------------------------------------------- A. @mentions always notify
 
+
 class MentionRules(Base):
     """Every explicit @mention in a new reply, reopen reason or note edit is a `mention` event for that person (never
     the author themself), whatever was mentioned before; everyone else involved gets `replied`; nobody gets both."""
@@ -78,7 +80,7 @@ class MentionRules(Base):
         ps.reply_pin(pid, "@Bob Park 다시 부름", self.A)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
         n = self.n()
-        ps.reply_pin(pid, "태그 없는 답글", self.A)                       # no tag: Bob (mentioned before) gets replied
+        ps.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_note_mention_then_reply_mention(self):
@@ -91,10 +93,10 @@ class MentionRules(Base):
         pid = self.add(actor=self.A)
         ps.reply_pin(pid, "@Bob Park 확인", self.A)
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)             # Bob tags himself: nothing for Bob
+        ps.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
         self.assertEqual(self.events_after(n), [("replied", ["alice@example.com"])])
         n = self.n()
-        ps.reply_pin(pid, "@Alice Kim 나", self.A)                         # the pin author tags herself
+        ps.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_mention_plus_other_participants_nobody_gets_both(self):
@@ -103,10 +105,12 @@ class MentionRules(Base):
         n = self.n()
         ps.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
         evs = ps._read_events()[0][n:]
-        self.assertEqual([(e["type"], sorted(e["to"])) for e in evs],
-                         [("mention", ["bob@example.com", "carol@example.com"]), ("replied", ["alice@example.com"])])
+        self.assertEqual(
+            [(e["type"], sorted(e["to"])) for e in evs],
+            [("mention", ["bob@example.com", "carol@example.com"]), ("replied", ["alice@example.com"])],
+        )
         to = [lg for e in evs for lg in e["to"]]
-        self.assertEqual(len(to), len(set(to)))                           # one event per person per reply
+        self.assertEqual(len(to), len(set(to)))  # one event per person per reply
 
     def test_reopen_reason_re_mention_notifies(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
@@ -126,14 +130,17 @@ class MentionRules(Base):
         v0.3.1 (issue #10 L3): tagging the same person again from the same pin's note by the same editor notifies at most
         once per NOTE_MENTION_COOLDOWN_S, so the re-tag below is made after the window (fake clock)."""
         from unittest import mock
-        t0 = float(int(time.time()))                                       # whole seconds: ts is stored rounded to ms
+
+        t0 = float(int(time.time()))  # whole seconds: ts is stored rounded to ms
         with mock.patch.object(ps.time, "time", return_value=t0):
-            pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
+            pid = add_pin(
+                {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A
+            ).record["id"]
             n = self.n()
-            edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
+            edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)  # typo fix only
             self.assertEqual(self.events_after(n), [])
         with mock.patch.object(ps.time, "time", return_value=t0 + NOTE_MENTION_COOLDOWN_S):
-            edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
+            edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)  # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
             edit_pin(pid, {"note": find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
@@ -142,14 +149,19 @@ class MentionRules(Base):
 
 # ---------------------------------------------------------------- B. /api/clear and headerless tailnet requests
 
+
 class ClearEndpoint(AccessBase):
     def setUp(self):
         super().setUp()
         ps._EVENTS_CACHE.clear()
-        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
-                         {"login": "bob@example.com", "name": "Bob Park"},
-                         {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"},
-                         {"login": "dave@example.com", "name": "Dave Choi", "role": "agent"}])
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+                {"login": "bob@example.com", "name": "Bob Park"},
+                {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"},
+                {"login": "dave@example.com", "name": "Dave Choi", "role": "agent"},
+            ]
+        )
         self.add()
         self.add(8, 9)
 
@@ -162,9 +174,14 @@ class ClearEndpoint(AccessBase):
 
     def test_only_the_owner_may_clear(self):
         _, tok = token_create(ps.C.state, "ci")
-        refused = [("editor", dict(headers=BOB)), ("viewer", dict(headers=CAROL)), ("agent-role person", dict(headers=DAVE)),
-                   ("token agent", dict(token=tok)), ("loopback agent", {}),
-                   ("token over tailnet", dict(token=tok, headers={"Host": TS_HOST}))]
+        refused = [
+            ("editor", dict(headers=BOB)),
+            ("viewer", dict(headers=CAROL)),
+            ("agent-role person", dict(headers=DAVE)),
+            ("token agent", dict(token=tok)),
+            ("loopback agent", {}),
+            ("token over tailnet", dict(token=tok, headers={"Host": TS_HOST})),
+        ]
         for label, kw in refused:
             code, d = self.call("POST", "/api/clear", CLEAR_BODY, **kw)
             self.assertEqual(code, 403, (label, d))
@@ -187,9 +204,11 @@ class ClearEndpoint(AccessBase):
         rows = [json.loads(ln) for ln in (ps.C.state / d["archive"]).read_text(encoding="utf-8").splitlines()]
         self.assertEqual([r["id"] for r in rows], [1, 2])
         ev = ps._read_events()[0][-1]
-        self.assertEqual((ev["type"], ev["by"]["login"], ev["n"], ev["archive"]), ("cleared", "alice@example.com", 2, d["archive"]))
+        self.assertEqual(
+            (ev["type"], ev["by"]["login"], ev["n"], ev["archive"]), ("cleared", "alice@example.com", 2, d["archive"])
+        )
         self.assertEqual(ev["to"], [])
-        self.assertEqual(self.add(), 3)                                    # ids keep counting
+        self.assertEqual(self.add(), 3)  # ids keep counting
 
     def test_local_owner_may_clear(self):
         ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
@@ -206,7 +225,9 @@ class PrincipalMatrix(AccessBase):
         """Status code of each operation for one principal (fresh pins per operation, so earlier ones do not interfere)."""
         out = {}
         out["read"] = self.call("GET", "/pins.md", **kw)[0]
-        out["pin"] = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, **kw)[0]
+        out["pin"] = self.call(
+            "POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, **kw
+        )[0]
         pid = self.add()
         out["reply"] = self.call("POST", "/api/pins/%d/reply" % pid, {"text": "답"}, **kw)[0]
         pid = self.add()
@@ -246,15 +267,19 @@ class PrincipalMatrix(AccessBase):
     def test_tailnet_headerless_is_refused(self):
         self.expect(self.run_ops(headers={"Host": TS_HOST}), **self.REFUSED_403)
         code, d = self.call("GET", "/pins.md", headers={"Host": TS_HOST})
-        self.assertIn("Bearer", d["error"])                               # tells the agent what to do instead
+        self.assertIn("Bearer", d["error"])  # tells the agent what to do instead
         self.expect(self.run_ops(headers={"Host": TS_HOST + ":18004"}), **self.REFUSED_403)
 
     def test_spoofed_loopback_host_through_the_proxy_is_refused(self):
         # tailscale serve routes by the TLS name and passes the client's Host through unchanged, so a tagged device can
         # send "Host: localhost". The proxy always sets X-Forwarded-For/-Host/-Proto (overwriting client values) - those,
         # not Host, tell that a request came through it.
-        for extra in ({"X-Forwarded-For": "100.64.0.9"}, {"X-Forwarded-Host": TS_HOST}, {"X-Forwarded-Proto": "https"},
-                      {"Forwarded": "for=100.64.0.9"}):
+        for extra in (
+            {"X-Forwarded-For": "100.64.0.9"},
+            {"X-Forwarded-Host": TS_HOST},
+            {"X-Forwarded-Proto": "https"},
+            {"Forwarded": "for=100.64.0.9"},
+        ):
             for host in ("localhost", "127.0.0.1:1", "[::1]", "LOCALHOST."):
                 h = dict(extra, Host=host)
                 self.assertEqual(self.call("GET", "/pins.md", headers=h)[0], 403, h)
@@ -262,16 +287,25 @@ class PrincipalMatrix(AccessBase):
                 self.assertEqual(self.call("POST", "/api/pins/%d/drop" % pid, None, headers=h)[0], 403, h)
                 self.assertIsNotNone(self.pin(pid))
         # the same forwarded headers with a person's identity or a token are fine
-        self.assertEqual(self.call("GET", "/pins.md", headers=dict(BOB, Host=TS_HOST, **{"X-Forwarded-For": "100.64.0.9"}))[0], 200)
+        self.assertEqual(
+            self.call("GET", "/pins.md", headers=dict(BOB, Host=TS_HOST, **{"X-Forwarded-For": "100.64.0.9"}))[0], 200
+        )
         _, tok = token_create(ps.C.state, "ci")
-        self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200)
+        self.assertEqual(
+            self.call("GET", "/pins.md", token=tok, headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0],
+            200,
+        )
 
     def test_opt_in_with_an_allowlist_refuses_forwarded_requests_too(self):
         ps.C.tailnet_agent = True
-        self.assertEqual(self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200)
+        self.assertEqual(
+            self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200
+        )
         ps.C.allow = frozenset({"alice@example.com"})
-        self.assertEqual(self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 403)
-        self.assertEqual(self.call("GET", "/pins.md")[0], 200)                  # a real local agent is still fine
+        self.assertEqual(
+            self.call("GET", "/pins.md", headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 403
+        )
+        self.assertEqual(self.call("GET", "/pins.md")[0], 200)  # a real local agent is still fine
 
     def test_public_host_headerless_is_refused(self):
         ps.C.public_hosts = access.parse_public_hosts(["limn.example.com"])
@@ -280,7 +314,7 @@ class PrincipalMatrix(AccessBase):
     def test_tailnet_headerless_opt_in_is_the_agent_again(self):
         ps.C.tailnet_agent = True
         self.expect(self.run_ops(headers={"Host": TS_HOST}), **self.AGENT)
-        ps.C.allow = frozenset({"alice@example.com"})                     # an allowlist still refuses it, as in v0.1
+        ps.C.allow = frozenset({"alice@example.com"})  # an allowlist still refuses it, as in v0.1
         self.assertEqual(self.call("GET", "/pins.md", headers={"Host": TS_HOST})[0], 403)
 
     def test_bearer_token_over_loopback_and_tailnet(self):
@@ -296,7 +330,7 @@ class PrincipalMatrix(AccessBase):
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         self.expect(self.run_ops(headers={"X-Forwarded-User": "alice@example.com"}, peer="10.0.0.1"), **self.OWNER)
         self.expect(self.run_ops(headers=h, peer="10.0.0.9"), **self.REFUSED_401)
-        self.expect(self.run_ops(peer="10.0.0.1"), **self.REFUSED_401)   # the proxy without a user header
+        self.expect(self.run_ops(peer="10.0.0.1"), **self.REFUSED_401)  # the proxy without a user header
 
     def test_loopback_agent_off_is_401_even_on_loopback(self):
         ps.C.agent_loopback = False
@@ -307,26 +341,36 @@ class ProxyHardening(AccessBase):
     """Security review follow-ups (L1, L2, L4)."""
 
     def test_more_proxy_markers_refuse_the_headerless_agent(self):
-        for extra in ({"X-Real-IP": "100.64.0.9"}, {"Via": "1.1 proxy"}, {"X-Forwarded-Port": "443"},
-                      {"X-Forwarded-Proto": "https"}, {"X-Forwarded-Host": TS_HOST}):
+        for extra in (
+            {"X-Real-IP": "100.64.0.9"},
+            {"Via": "1.1 proxy"},
+            {"X-Forwarded-Port": "443"},
+            {"X-Forwarded-Proto": "https"},
+            {"X-Forwarded-Host": TS_HOST},
+        ):
             h = dict(extra, Host="localhost")
             self.assertEqual(self.call("GET", "/pins.md", headers=h)[0], 403, h)
             self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5}, h)[0], 403, h)
-        self.assertEqual(self.call("GET", "/pins.md")[0], 200)                      # a real local agent
+        self.assertEqual(self.call("GET", "/pins.md")[0], 200)  # a real local agent
 
     def test_local_auth_refuses_proxied_requests(self):
         ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
         self.add()
-        for h in ({"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"}, {"Host": "localhost", "X-Forwarded-For": "100.64.0.9"},
-                  {"Host": "localhost", "X-Real-IP": "100.64.0.9"}):
+        for h in (
+            {"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"},
+            {"Host": "localhost", "X-Forwarded-For": "100.64.0.9"},
+            {"Host": "localhost", "X-Real-IP": "100.64.0.9"},
+        ):
             code, d = self.call("POST", "/api/clear", {"confirm": "clear all pins"}, h)
             self.assertEqual(code, 403, (h, d))
             self.assertEqual(self.call("GET", "/api/meta?light=1", headers=h)[0], 403, h)
         self.assertEqual(len(ps.snapshot_pins()), 1)
-        code, d = self.call("GET", "/api/meta?light=1")                               # the owner at the keyboard
+        code, d = self.call("GET", "/api/meta?light=1")  # the owner at the keyboard
         self.assertEqual((code, d["me"]["role"]), (200, "owner"))
-        _, tok = token_create(ps.C.state, "ci")                                     # tokens still work through a proxy
-        self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST, "X-Forwarded-For": "1.2.3.4"})[0], 200)
+        _, tok = token_create(ps.C.state, "ci")  # tokens still work through a proxy
+        self.assertEqual(
+            self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST, "X-Forwarded-For": "1.2.3.4"})[0], 200
+        )
 
     def test_people_json_is_written_0600(self):
         ps._PEOPLE_SEEN.clear()
@@ -339,6 +383,7 @@ class ProxyHardening(AccessBase):
     def test_startup_tightens_a_group_or_world_writable_people_json(self):
         import io
         from unittest import mock
+
         ps.C.people_file.write_text('{"version": 1, "people": []}\n', encoding="utf-8")
         os.chmod(ps.C.people_file, 0o666)
         err = io.StringIO()
@@ -348,7 +393,7 @@ class ProxyHardening(AccessBase):
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
         # logged once
         self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())
-        os.chmod(ps.C.people_file, 0o644)                                              # only writable-by-others is changed
+        os.chmod(ps.C.people_file, 0o644)  # only writable-by-others is changed
         startup.tighten_state_perms(ps.C.people_file)
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)
 
@@ -367,8 +412,11 @@ class TailnetAgentStartup(AccessBase):
         log = self.configure("--tailnet-agent")
         self.assertTrue(ps.C.tailnet_agent)
         self.assertIn("tailnet agent on (deprecated)", log[0])
-        for args in (("--tailnet-agent", "--no-agent-loopback"), ("--tailnet-agent", "--auth", "local"),
-                     ("--tailnet-agent", "--auth", "trusted-proxy")):
+        for args in (
+            ("--tailnet-agent", "--no-agent-loopback"),
+            ("--tailnet-agent", "--auth", "local"),
+            ("--tailnet-agent", "--auth", "trusted-proxy"),
+        ):
             refused = ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
             self.assertIsInstance(refused, StartupRefused)
             self.assertIn("--tailnet-agent", refused.message)
@@ -377,20 +425,40 @@ class TailnetAgentStartup(AccessBase):
         root = Path(self.tmp.name)
         cfg = root / "cfg"
         cfg.mkdir()
-        (cfg / "paper.env").write_text("MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n"
-                                       % (self.src, ps.C.state), encoding="utf-8")
+        (cfg / "paper.env").write_text(
+            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n" % (self.src, ps.C.state),
+            encoding="utf-8",
+        )
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", "run", "paper"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            check=False,
+        )
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("--tailnet-agent", r.stdout.splitlines())
-        (cfg / "paper.env").write_text("MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\nAGENT_LOOPBACK=0\n"
-                                       % (self.src, ps.C.state), encoding="utf-8")
-        r = subprocess.run([sys.executable, "-m", "limn", "run", "paper"], capture_output=True, text=True, timeout=60, env=env, check=False)
+        (cfg / "paper.env").write_text(
+            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\nAGENT_LOOPBACK=0\n"
+            % (self.src, ps.C.state),
+            encoding="utf-8",
+        )
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", "run", "paper"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            check=False,
+        )
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("TAILNET_AGENT", r.stderr)
 
 
 # ---------------------------------------------------------------- pins.md: claim and remote-agent token instructions
+
 
 class PinsMdInstructions(AccessBase):
     def test_claim_instruction_next_to_close(self):
@@ -415,10 +483,13 @@ class PinsMdInstructions(AccessBase):
 
 # ---------------------------------------------------------------- CLI: member add / list, serve on a busy port
 
+
 def cli(*args, env=None):
     e = dict(os.environ, PYTHONPATH=str(SRC))
     e.update(env or {})
-    return subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=120, env=e, check=False)
+    return subprocess.run(
+        [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=120, env=e, check=False
+    )
 
 
 class MemberCli(unittest.TestCase):
@@ -440,8 +511,15 @@ class MemberCli(unittest.TestCase):
 
     def test_member_list_footnote_says_how_roles_get_recorded(self):
         self.state.mkdir(parents=True)
-        (self.state / "people.json").write_text(json.dumps({"version": 1, "people": [
-            {"login": "bob@example.com", "name": "Bob", "last_seen": "2026-09-25 10:00:00"}]}), encoding="utf-8")
+        (self.state / "people.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "people": [{"login": "bob@example.com", "name": "Bob", "last_seen": "2026-09-25 10:00:00"}],
+                }
+            ),
+            encoding="utf-8",
+        )
         r = cli("member", "list", "--state-dir", str(self.state))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("recorded on first visit", r.stdout)
@@ -460,7 +538,16 @@ class ServeBusyPort(unittest.TestCase):
         s.listen(1)
         self.addCleanup(s.close)
         port = s.getsockname()[1]
-        r = cli("serve", "--manuscript", str(ms), "--port", str(port), "--state-dir", str(Path(tmp.name) / "state"), "--no-build")
+        r = cli(
+            "serve",
+            "--manuscript",
+            str(ms),
+            "--port",
+            str(port),
+            "--state-dir",
+            str(Path(tmp.name) / "state"),
+            "--no-build",
+        )
         self.assertNotEqual(r.returncode, 0)
         self.assertNotIn("Traceback", r.stderr)
         err = [ln for ln in r.stderr.splitlines() if ln.strip()]
@@ -471,12 +558,17 @@ class ServeBusyPort(unittest.TestCase):
 
 # ---------------------------------------------------------------- a readable 403 page
 
+
 class ErrorPage(AccessBase):
     def test_members_only_refusal_is_a_readable_page(self):
         ps.C.members_only = True
-        for lang, want in (("ko-KR,ko;q=0.9", "이 뷰어의 멤버가 아닙니다"), ("en-US,en;q=0.9", "not a member of this viewer")):
-            code, hdrs, body = split_resp(talk_to(ps, req("GET", "/", b"", dict(CAROL, **{"Accept": "text/html",
-                                                                                      "Accept-Language": lang}))))
+        for lang, want in (
+            ("ko-KR,ko;q=0.9", "이 뷰어의 멤버가 아닙니다"),
+            ("en-US,en;q=0.9", "not a member of this viewer"),
+        ):
+            code, hdrs, body = split_resp(
+                talk_to(ps, req("GET", "/", b"", dict(CAROL, **{"Accept": "text/html", "Accept-Language": lang})))
+            )
             self.assertEqual(code, 403)
             self.assertTrue(hdrs["content-type"].startswith("text/html"), hdrs)
             text = body.decode("utf-8")
@@ -485,7 +577,7 @@ class ErrorPage(AccessBase):
             self.assertIn("carol@example.com", text)
             self.assertNotIn('{"error"', text)
         code, hdrs, _ = split_resp(talk_to(ps, req("GET", "/api/pins", b"", CAROL)))
-        self.assertEqual((code, hdrs["content-type"].split(";")[0]), (403, "application/json"))   # the API stays JSON
+        self.assertEqual((code, hdrs["content-type"].split(";")[0]), (403, "application/json"))  # the API stays JSON
 
     def test_page_escapes_the_login(self):
         ps.C.members_only = True
@@ -496,6 +588,7 @@ class ErrorPage(AccessBase):
 
 # ---------------------------------------------------------------- the section strip at the top of page 1
 
+
 class SectionStrip(unittest.TestCase):
     def run_js(self, body):
         out = run_node(extract_js_fn("outlineIndexAt") + "\n" + extract_js_fn("destFrac") + "\n" + body)
@@ -504,19 +597,30 @@ class SectionStrip(unittest.TestCase):
         return json.loads(out)
 
     def test_first_section_at_the_very_top(self):
-        entries = [{"page": 1, "frac": 0.30}, {"page": 1, "frac": 0.55}, {"page": 1, "frac": 0.80},
-                   {"page": 2, "frac": 0.10}, {"page": 4, "frac": 0.0}]
-        js = "const E=%s;console.log(JSON.stringify([outlineIndexAt(E,1,0),outlineIndexAt(E,1,0.56),outlineIndexAt(E,1,0.95)," \
-             "outlineIndexAt(E,2,0.05),outlineIndexAt(E,3,0.5),outlineIndexAt(E,4,0),outlineIndexAt([],1,0)]))" % json.dumps(entries)
+        entries = [
+            {"page": 1, "frac": 0.30},
+            {"page": 1, "frac": 0.55},
+            {"page": 1, "frac": 0.80},
+            {"page": 2, "frac": 0.10},
+            {"page": 4, "frac": 0.0},
+        ]
+        js = (
+            "const E=%s;console.log(JSON.stringify([outlineIndexAt(E,1,0),outlineIndexAt(E,1,0.56),outlineIndexAt(E,1,0.95),"
+            "outlineIndexAt(E,2,0.05),outlineIndexAt(E,3,0.5),outlineIndexAt(E,4,0),outlineIndexAt([],1,0)]))"
+            % json.dumps(entries)
+        )
         self.assertEqual(self.run_js(js), [0, 1, 2, 2, 3, 4, -1])
 
     def test_dest_top_to_fraction(self):
-        js = "console.log(JSON.stringify([destFrac([{},{name:'XYZ'},72,792,0],792),destFrac([{},{name:'XYZ'},72,396,0],792)," \
-             "destFrac([{},{name:'Fit'}],792),destFrac([{},{name:'XYZ'},0,null,0],792),destFrac([{},{name:'XYZ'},0,900,0],792)]))"
+        js = (
+            "console.log(JSON.stringify([destFrac([{},{name:'XYZ'},72,792,0],792),destFrac([{},{name:'XYZ'},72,396,0],792),"
+            "destFrac([{},{name:'Fit'}],792),destFrac([{},{name:'XYZ'},0,null,0],792),destFrac([{},{name:'XYZ'},0,900,0],792)]))"
+        )
         self.assertEqual(self.run_js(js), [0, 0.5, 0, 0, 0])
 
 
 # ---------------------------------------------------------------- update source
+
 
 class UpdateSource(unittest.TestCase):
     def test_default_is_https_everywhere(self):
@@ -525,12 +629,16 @@ class UpdateSource(unittest.TestCase):
         text = (ROOT / "docs" / "handbook" / "instances.md").read_text(encoding="utf-8")
         row = next(ln for ln in text.splitlines() if ln.startswith("| `LIMN_REPO`"))
         self.assertIn("git+https://github.com/dartworklabs/limn", row)
-        self.assertIn("0.1.0의 기본값은 `git+ssh://", text)                  # the note on the v0.1.0 ssh default
+        self.assertIn("0.1.0의 기본값은 `git+ssh://", text)  # the note on the v0.1.0 ssh default
 
 
 # ---------------------------------------------------------------- browser: viewer-only UI and the question nudge
 
-TEX = "\\documentclass{article}\n\\begin{document}\n" + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40)) + "\\end{document}\n"
+TEX = (
+    "\\documentclass{article}\n\\begin{document}\n"
+    + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40))
+    + "\\end{document}\n"
+)
 
 
 class BrowserBase(unittest.TestCase):
@@ -568,6 +676,7 @@ class BrowserBase(unittest.TestCase):
 
     def setUp(self):
         from test_i18n import _png
+
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         src = root / "ms"
@@ -610,25 +719,49 @@ class BrowserBase(unittest.TestCase):
         if u.path == "/api/pick":
             lines = tex_lines(self.main)
             lad = mapping.compute_levels(lines, 5, 5, ps.C.envs)
-            d = {"file": str(self.main), "name": "main.tex", "page": 1, "lo": lad["lo"], "hi": lad["hi"], "raw_lo": 5,
-                 "raw_hi": 5, "kind": lad["kind"], "via": "synctex", "score": 1.0, "warn": "", "n_lines": len(lines),
-                 "snippet": mapping.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",
-                 "levels": lad["levels"], "default_level": lad["default_level"], "overlaps": [],
-                 "pdf_build": cur_pages(ps.DOCS[0]).name}
+            d = {
+                "file": str(self.main),
+                "name": "main.tex",
+                "page": 1,
+                "lo": lad["lo"],
+                "hi": lad["hi"],
+                "raw_lo": 5,
+                "raw_hi": 5,
+                "kind": lad["kind"],
+                "via": "synctex",
+                "score": 1.0,
+                "warn": "",
+                "n_lines": len(lines),
+                "snippet": mapping.snippet(lines, lad["lo"], lad["hi"]),
+                "frac": [0.1, 0.1, 0.3, 0.05],
+                "quote": "Line 5",
+                "levels": lad["levels"],
+                "default_level": lad["default_level"],
+                "overlaps": [],
+                "pdf_build": cur_pages(ps.DOCS[0]).name,
+            }
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
         body = rq.post_data_buffer or b""
-        h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": self.WHO["Tailscale-User-Login"],
-             "Tailscale-User-Name": self.WHO["Tailscale-User-Name"]}
+        h = {
+            "Host": "127.0.0.1:18999",
+            "Tailscale-User-Login": self.WHO["Tailscale-User-Login"],
+            "Tailscale-User-Name": self.WHO["Tailscale-User-Name"],
+        }
         if rq.headers.get("content-type"):
             h["Content-Type"] = rq.headers["content-type"]
         if body:
             h["Content-Length"] = str(len(body))
         if rq.method == "POST":
             h["Origin"] = "http://127.0.0.1:18999"
-        raw = ("%s %s HTTP/1.1\r\n" % (rq.method, u.path + ("?" + u.query if u.query else ""))
-               + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n").encode("latin-1") + body
+        raw = (
+            "%s %s HTTP/1.1\r\n" % (rq.method, u.path + ("?" + u.query if u.query else ""))
+            + "".join("%s: %s\r\n" % kv for kv in h.items())
+            + "\r\n"
+        ).encode("latin-1") + body
         code, hdrs, data = self.talk(raw)
-        route.fulfill(status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data)
+        route.fulfill(
+            status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data
+        )
 
     def open(self, n_open, lang="ko", init=None, **device):
         """Open the viewer in a new context and return the page once boot() has finished: the pin lists (open, review,
@@ -647,8 +780,9 @@ class BrowserBase(unittest.TestCase):
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s" % lang)
-        page.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&OPEN_ALL.length>=%d" % n_open,
-                               timeout=20000)
+        page.wait_for_function(
+            "typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&OPEN_ALL.length>=%d" % n_open, timeout=20000
+        )
         page.wait_for_timeout(300)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
@@ -660,8 +794,10 @@ class BrowserBase(unittest.TestCase):
 
 
 # Makes the viewer's pin list (GET /api/pins?all=1) answer 1.5s late, as on a slow CI runner; other requests are untouched.
-SLOW_PIN_LIST = ("(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.call(this,u,o);"
-                 "return String(u).startsWith('/api/pins?all=1')?p.then(r=>new Promise(ok=>setTimeout(()=>ok(r),1500))):p;};})()")
+SLOW_PIN_LIST = (
+    "(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.call(this,u,o);"
+    "return String(u).startsWith('/api/pins?all=1')?p.then(r=>new Promise(ok=>setTimeout(()=>ok(r),1500))):p;};})()"
+)
 
 
 class BrowserOpenWaitsForPins(BrowserBase):
@@ -711,33 +847,50 @@ class ViewerRoleUi(BrowserBase):
     def setUp(self):
         super().setUp()
         ps.record_person(actor(ALICE))
-        ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
-            {"login": "alice@example.com", "name": "Alice Kim"},
-            {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)).record["id"]
+        ps.C.people_file.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "people": [
+                        {"login": "alice@example.com", "name": "Alice Kim"},
+                        {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)
+        ).record["id"]
         ps.reply_pin(pid, "답글", actor(ALICE))
-        rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record["id"]
+        rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
+            "id"
+        ]
         ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
 
     def visible_acts(self, page):
-        return page.evaluate("[...document.querySelectorAll('[data-act]')].filter(e=>e.getClientRects().length&&!e.disabled)"
-                             ".map(e=>e.dataset.act)")
+        return page.evaluate(
+            "[...document.querySelectorAll('[data-act]')].filter(e=>e.getClientRects().length&&!e.disabled)"
+            ".map(e=>e.dataset.act)"
+        )
 
     def test_viewer_sees_no_state_changing_controls(self):
-        for name, device in (("desktop", {"viewport": {"width": 1400, "height": 850}}),
-                             ("phone", {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True})):
+        for name, device in (
+            ("desktop", {"viewport": {"width": 1400, "height": 850}}),
+            ("phone", {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}),
+        ):
             with self.subTest(device=name):
                 page = self.open(1, **device)
                 page.evaluate("setSide(true); OPEN_CARDS.add(1); drawPins()")
                 page.wait_for_timeout(200)
                 acts = self.visible_acts(page)
-                self.assertIn("view", acts)                                 # reading still works
+                self.assertIn("view", acts)  # reading still works
                 self.assertEqual(sorted(set(acts) & set(self.STATE_CHANGING + ("rebuild",))), [], acts)
                 self.open_composer(page)
                 self.assertFalse(page.is_visible("#btn-save"))
                 self.assertFalse(page.is_visible("#note"))
                 self.assertTrue(page.is_visible("#c-viewer"))
-                self.assertTrue(page.is_visible("#c-loc"))                  # the location is still shown (read)
+                self.assertTrue(page.is_visible("#c-loc"))  # the location is still shown (read)
                 n = len(ps.snapshot_pins())
                 page.keyboard.press("Control+Enter")
                 page.evaluate("savePin()")

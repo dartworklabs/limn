@@ -15,6 +15,7 @@ This module and its tests are the only places that know the old name. What it do
 Idempotent: running it again gives the same result. Old files and directories are never deleted.
 `--dry-run` writes nothing and shows what would happen.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,8 +35,10 @@ KEY_RE = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)=(.*)$")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 OLD_WORD_RE = re.compile(r"pin[-_ ]?viewer|pin_server|manuscript-pin-picker|핀 뷰어", re.I)
 HEADER_2 = "# Not sourced by a shell — do not use shell syntax in values."
-HISTORY = ("This repository moved here on 2026-09-25 from the manuscript-pin-picker skill of "
-           "writing-agent-playbook and bin/pin-viewer.sh of dotfiles (README, History).")
+HISTORY = (
+    "This repository moved here on 2026-09-25 from the manuscript-pin-picker skill of "
+    "writing-agent-playbook and bin/pin-viewer.sh of dotfiles (README, History)."
+)
 
 
 def xdg(var: str, default: str) -> Path:
@@ -76,8 +79,11 @@ def render(name: str, text: str, state_dir: str, had_state: bool) -> str:
     lines in order - comments that mention the old name (and an old copy of HEADER_2) dropped, every STATE_DIR line
     rewritten to state_dir, other lines kept as they were (a trailing CR removed). Without had_state (the old config
     set no non-empty STATE_DIR) a STATE_DIR line is appended, so the pins stay where the old install kept them."""
-    out = ["# %s@%s — written by `limn migrate` on %s. Keys: docs/handbook/instances.md." % (
-        NEW, name, date.today().isoformat()), HEADER_2]
+    out = [
+        "# %s@%s — written by `limn migrate` on %s. Keys: docs/handbook/instances.md."
+        % (NEW, name, date.today().isoformat()),
+        HEADER_2,
+    ]
     for ln in text.splitlines():
         s = ln.rstrip("\r")
         if s.lstrip().startswith("#"):
@@ -112,7 +118,9 @@ def unit_active(unit: str) -> bool:
     """Whether the systemd user unit is running or changing state (active, activating, reloading, deactivating).
     False when systemctl is missing, fails or times out (10 s) - a machine without systemd has no running unit."""
     try:
-        r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10, check=False)
+        r = subprocess.run(
+            ["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10, check=False
+        )
     except (OSError, subprocess.SubprocessError):
         return False
     return r.stdout.strip() in ("active", "activating", "reloading", "deactivating")
@@ -152,11 +160,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="limn migrate",
         description="Move instance configs (and optionally state dirs) from the old %s install to Limn. "
-                    "Old files are never deleted. %s" % (OLD, HISTORY))
+        "Old files are never deleted. %s" % (OLD, HISTORY),
+    )
     ap.add_argument("names", nargs="*", help="instances to migrate (default: all)")
     ap.add_argument("--dry-run", "-n", action="store_true", help="write nothing; show what would happen")
-    ap.add_argument("--move-state", action="store_true",
-                    help="move state dirs under the old data root to the new one (units must be stopped)")
+    ap.add_argument(
+        "--move-state",
+        action="store_true",
+        help="move state dirs under the old data root to the new one (units must be stopped)",
+    )
     cfg, data = xdg("XDG_CONFIG_HOME", ".config"), xdg("XDG_DATA_HOME", ".local/share")
     ap.add_argument("--old-config-dir", type=Path, default=cfg / OLD)
     ap.add_argument("--config-dir", type=Path, default=Path(os.environ.get("LIMN_CONFIG_DIR") or cfg / NEW))
@@ -198,8 +210,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # 1. config
         if dst.exists():
             cur, new = parse(dst.read_text(encoding="utf-8")), parse(want)
-            if cur == new or (without_state(cur) == without_state(new)
-                              and cur.get("STATE_DIR") == str(a.data_root / n)):
+            if cur == new or (
+                without_state(cur) == without_state(new) and cur.get("STATE_DIR") == str(a.data_root / n)
+            ):
                 print("  new config  %s — already migrated" % dst)
             else:
                 print("  new config  %s — exists with different values; left alone (check by hand)" % dst)
@@ -213,8 +226,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tmp.write_text(want, encoding="utf-8")
                 os.replace(tmp, dst)
         if link:
-            print("  note        the old config was a symlink — to keep configs in that repository, "
-                  "point LIMN_SOURCE_DIR at its directory")
+            print(
+                "  note        the old config was a symlink — to keep configs in that repository, "
+                "point LIMN_SOURCE_DIR at its directory"
+            )
 
         # 2. state dir
         cur_state = parse(dst.read_text(encoding="utf-8")).get("STATE_DIR", state) if dst.exists() else state
@@ -223,11 +238,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             target = a.data_root / n
             if not a.move_state:
                 print("  state dir   %s — under the old data root; fine to keep using it" % sp)
-                print("              to move it, stop the units, then: limn migrate --move-state %s  (-> %s)"
-                      % (n, target))
+                print(
+                    "              to move it, stop the units, then: limn migrate --move-state %s  (-> %s)"
+                    % (n, target)
+                )
             else:
-                why = ["%s is running" % u for u in ("%s@%s.service" % (OLD, n), "%s@%s.service" % (NEW, n))
-                       if unit_active(u)]
+                why = [
+                    "%s is running" % u
+                    for u in ("%s@%s.service" % (OLD, n), "%s@%s.service" % (NEW, n))
+                    if unit_active(u)
+                ]
                 if port_busy(vals.get("PORT", "")):
                     why.append("local port %s is in use" % vals.get("PORT"))
                 if target.exists():
@@ -262,8 +282,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("  systemctl --user disable --now %s@%s.service" % (OLD, n))
             print("  limn start %s" % n)
             print("  limn status %s" % n)
-        print("After switching, the old unit template (~/.config/systemd/user/%s@.service) and the old "
-              "configs can be removed." % OLD)
+        print(
+            "After switching, the old unit template (~/.config/systemd/user/%s@.service) and the old "
+            "configs can be removed." % OLD
+        )
     return 1 if problems else 0
 
 

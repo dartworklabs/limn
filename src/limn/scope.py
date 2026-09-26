@@ -10,6 +10,7 @@ edge that reads a commit into FileChange values, and the comparison build, are i
 refusal is a returned value of the ScopeRefusal set; limn.web.errors.SCOPE_REJECTIONS is the one table that turns
 each into a status, a Korean message and an API reason.
 """
+
 from __future__ import annotations
 
 import re
@@ -19,10 +20,10 @@ from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 from limn.mapping import anchor_offset, find_line, norm
 
-Record: TypeAlias = Mapping[str, Any]    # a pin record or a revision row, as read from JSON
+Record: TypeAlias = Mapping[str, Any]  # a pin record or a revision row, as read from JSON
 
-SCOPE_CONTEXT = 3                     # context lines around a scoped hunk, git's default
-REVISION_DIFF_MAX = 256 * 1024        # response/memory cap of a source diff. Review large changes in the repo instead.
+SCOPE_CONTEXT = 3  # context lines around a scoped hunk, git's default
+REVISION_DIFF_MAX = 256 * 1024  # response/memory cap of a source diff. Review large changes in the repo instead.
 _U0_HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
 
 
@@ -59,6 +60,7 @@ ScopeRefusal: TypeAlias = PinNotInDoc | ScopeUnreadable | ScopeMismatch | Unsafe
 class Block(NamedTuple):
     """One -U0 hunk of a file, 0-based. old_lo is where the old span starts; for a pure insertion (old_n == 0) it is the
     old index the new lines go before. new_lo is the same on the new side."""
+
     old_lo: int
     old_n: int
     new_lo: int
@@ -70,6 +72,7 @@ class FileChange(NamedTuple):
     old/new are the file's lines as bytes, each keeping its newline (git_lines). A pure rename, a mode change, a
     symlink or submodule entry and a binary file have no blocks - they are shown as a header and never attributed to
     a pin. modes are git's (old, new) file modes ("" for a side that does not exist)."""
+
     old_path: str | None
     new_path: str | None
     old: tuple[bytes, ...]
@@ -82,6 +85,7 @@ class FileChange(NamedTuple):
 class RawEntry(NamedTuple):
     """One entry of `git diff --raw -z`: paths as in FileChange, both blob ids (all zeros for a missing side), the two
     modes, and text - False for a symlink (120000) or submodule (160000) side, which is never read as lines."""
+
     old_path: str | None
     new_path: str | None
     old_oid: str
@@ -96,6 +100,7 @@ ScopeSource = Literal["changes", "inferred", "none"]
 
 class Anchor(NamedTuple):
     """A pin's anchor (anchor_of): the normalised first and last non-comment lines and their distance from lo/hi."""
+
     head: str
     tail: str
     head_off: int
@@ -106,6 +111,7 @@ class PinFacts(NamedTuple):
     """What scope attribution reads from a pin record (pin_facts): its id, its file relative to the repository (None
     for a view-only PDF pin or a file outside the repository), its range (None when the record has no int lo/hi),
     whether sync lost it, and its anchor if it has a usable one."""
+
     id: int
     rel: str | None
     lo: int | None
@@ -114,12 +120,13 @@ class PinFacts(NamedTuple):
     anchor: Anchor | None
 
 
-BlockId = tuple[int, int]                         # (index into the files, index into that file's blocks)
-ScopeItem = tuple[str, str, int, int, int, int]   # (old path or "", new path or "", *Block) - see scope_key()
+BlockId = tuple[int, int]  # (index into the files, index into that file's blocks)
+ScopeItem = tuple[str, str, int, int, int, int]  # (old path or "", new path or "", *Block) - see scope_key()
 
 
 class Placement(NamedTuple):
     """Where a pin's range may sit on one side of a commit: side "new" or "old", 1-based lines in git's numbering."""
+
     side: str
     lo: int
     hi: int
@@ -128,6 +135,7 @@ class Placement(NamedTuple):
 class RepoRange(NamedTuple):
     """A recorded change as attribution sees it: the repo-relative POSIX path (None when the recorded path could not be
     placed in the repository - pin_scope's caller drops those) and its new-side lines, 1 ≤ lo ≤ hi."""
+
     path: str | None
     lo: int
     hi: int
@@ -135,6 +143,7 @@ class RepoRange(NamedTuple):
 
 class ChangeRecord(TypedDict):
     """One item of a pin record's stored `changes` (api.md §핀 레코드 스키마): an absolute path and 1 ≤ lo ≤ hi."""
+
     file: str
     lo: int
     hi: int
@@ -143,6 +152,7 @@ class ChangeRecord(TypedDict):
 class ScopeMeta(TypedDict):
     """The additive fields of a revision-build status for a pin request (api.md §핀 단위 변경 보기). Never stored in
     status.json: several pins and pin-less requests share the whole-commit comparison."""
+
     scope: ScopeMode
     pin: int
     source: ScopeSource
@@ -152,6 +162,7 @@ class ScopeMeta(TypedDict):
 
 class _ScopeCounts(TypedDict):
     """The fields of ScopePayload that are always present (a TypedDict base, since 3.10 has no NotRequired)."""
+
     pin: int
     mode: ScopeMode
     source: ScopeSource
@@ -162,6 +173,7 @@ class _ScopeCounts(TypedDict):
 class ScopePayload(_ScopeCounts, total=False):
     """The additive `scope` object of GET /api/revision-diff?pin=; the patches and their truncation flags only in mode
     "pin"."""
+
     diff: str
     other_diff: str
     truncated: bool
@@ -171,6 +183,7 @@ class ScopePayload(_ScopeCounts, total=False):
 class ScopeWrite(NamedTuple):
     """One file of the synthetic "old + this pin's blocks" tree: path relative to the build root, and the bytes to write
     there, or None to remove the file (the pin's block deletes it)."""
+
     rel: str
     data: bytes | None
 
@@ -179,13 +192,14 @@ class PinScope(NamedTuple):
     """How one pin sees one commit. mode "pin" means the pin owns some but not all of the commit; "commit" means the
     whole commit is shown (it is all the pin's, none of it is, or scoping was not possible). source says what picked
     the blocks: "changes" (recorded at close), "inferred" (the pin's range) or "none"."""
+
     pin: int
     mode: ScopeMode
     source: ScopeSource
     hunks: int
     other: int
-    blocks: tuple[ScopeItem, ...] = ()   # scope_key() of the pin's blocks, in mode "pin" only
-    diff: bytes = b""                    # the two patches (UTF-8, cut at REVISION_DIFF_MAX + 1 bytes), in mode "pin" only
+    blocks: tuple[ScopeItem, ...] = ()  # scope_key() of the pin's blocks, in mode "pin" only
+    diff: bytes = b""  # the two patches (UTF-8, cut at REVISION_DIFF_MAX + 1 bytes), in mode "pin" only
     other_diff: bytes = b""
 
 
@@ -229,7 +243,7 @@ def pin_range_candidates(f: FileChange, pin: PinFacts) -> list[Placement]:
     closer to the recorded line comes first (the recorded number is in that side's coordinates; ties prefer the new
     side). A generic anchor such as \\begin{equation} is found on both sides - the distance is what tells them apart.
     The raw range comes last: old side if the pin went stale, else new."""
-    assert pin.lo is not None and pin.hi is not None       # the caller's precondition (attribute_blocks checks it)
+    assert pin.lo is not None and pin.hi is not None  # the caller's precondition (attribute_blocks checks it)
     lo, hi, anc = pin.lo, pin.hi, pin.anchor
     found: list[tuple[int, int, Placement]] = []
     sides = {"new": _pin_lines(f.new), "old": _pin_lines(f.old)}
@@ -266,8 +280,9 @@ def _pin_lines(lines: tuple[bytes, ...]) -> tuple[list[str], Callable[[int], int
     return texts, lambda n: starts[min(max(n, 1), len(starts)) - 1] if starts else n
 
 
-def attribute_blocks(files: Sequence[FileChange], pin: PinFacts,
-                     changes: Sequence[RepoRange]) -> tuple[ScopeSource, set[BlockId]]:
+def attribute_blocks(
+    files: Sequence[FileChange], pin: PinFacts, changes: Sequence[RepoRange]
+) -> tuple[ScopeSource, set[BlockId]]:
     """(source, block ids) - the blocks of this commit that belong to the pin.
 
     changes are the pin's recorded new-side ranges for this commit (recorded_changes). If none of them hits a block
@@ -287,9 +302,14 @@ def attribute_blocks(files: Sequence[FileChange], pin: PinFacts,
         for fi, f in enumerate(files):
             if pin.rel not in (f.old_path, f.new_path):
                 continue
-            for side, lo, hi in pin_range_candidates(f, pin):     # the first placement that meets a change wins
-                hit = {(fi, bi) for bi, b in enumerate(f.blocks)
-                       if _hits(touch_range(b.new_lo, b.new_n) if side == "new" else touch_range(b.old_lo, b.old_n), lo, hi)}
+            for side, lo, hi in pin_range_candidates(f, pin):  # the first placement that meets a change wins
+                hit = {
+                    (fi, bi)
+                    for bi, b in enumerate(f.blocks)
+                    if _hits(
+                        touch_range(b.new_lo, b.new_n) if side == "new" else touch_range(b.old_lo, b.old_n), lo, hi
+                    )
+                }
                 if hit:
                     chosen |= hit
                     break
@@ -336,17 +356,19 @@ def _hunk(f: FileChange, i: int, j: int) -> list[str]:
     they are the commit's real line numbers, the same ones the whole-commit diff and the pin's range use."""
     bl = f.blocks
     start = max(bl[i - 1].old_lo + bl[i - 1].old_n if i else 0, bl[i].old_lo - SCOPE_CONTEXT)
-    end = min(bl[j + 1].old_lo if j + 1 < len(bl) else len(f.old), bl[j].old_lo + bl[j].old_n + SCOPE_CONTEXT, len(f.old))
+    end = min(
+        bl[j + 1].old_lo if j + 1 < len(bl) else len(f.old), bl[j].old_lo + bl[j].old_n + SCOPE_CONTEXT, len(f.old)
+    )
     shift = sum(b.new_n - b.old_n for b in bl[:i])
     body, oc, nc, pos = [], 0, 0, start
-    for b in bl[i:j + 1]:
-        for ln in f.old[pos:b.old_lo]:
+    for b in bl[i : j + 1]:
+        for ln in f.old[pos : b.old_lo]:
             body += _patch_line(" ", ln)
         oc += b.old_lo - pos
         nc += b.old_lo - pos
-        for ln in f.old[b.old_lo:b.old_lo + b.old_n]:
+        for ln in f.old[b.old_lo : b.old_lo + b.old_n]:
             body += _patch_line("-", ln)
-        for ln in f.new[b.new_lo:b.new_lo + b.new_n]:
+        for ln in f.new[b.new_lo : b.new_lo + b.new_n]:
             body += _patch_line("+", ln)
         oc += b.old_n
         nc += b.new_n
@@ -355,7 +377,9 @@ def _hunk(f: FileChange, i: int, j: int) -> list[str]:
         body += _patch_line(" ", ln)
     oc += max(0, end - pos)
     nc += max(0, end - pos)
-    return ["@@ -%d,%d +%d,%d @@" % (start + 1 if oc else start, oc, start + shift + 1 if nc else start + shift, nc)] + body
+    return [
+        "@@ -%d,%d +%d,%d @@" % (start + 1 if oc else start, oc, start + shift + 1 if nc else start + shift, nc)
+    ] + body
 
 
 def scoped_patch(files: Sequence[FileChange], chosen: AbstractSet[BlockId], want: bool) -> tuple[str, int]:
@@ -375,8 +399,12 @@ def scoped_patch(files: Sequence[FileChange], chosen: AbstractSet[BlockId], want
         out += _file_header(f)
         groups: list[list[int]] = []
         for bi in pick:
-            prev = f.blocks[bi - 1]                        # only read when bi - 1 was picked too, so bi > 0
-            if groups and groups[-1][-1] == bi - 1 and f.blocks[bi].old_lo - (prev.old_lo + prev.old_n) <= 2 * SCOPE_CONTEXT:
+            prev = f.blocks[bi - 1]  # only read when bi - 1 was picked too, so bi > 0
+            if (
+                groups
+                and groups[-1][-1] == bi - 1
+                and f.blocks[bi].old_lo - (prev.old_lo + prev.old_n) <= 2 * SCOPE_CONTEXT
+            ):
                 groups[-1].append(bi)
             else:
                 groups.append([bi])
@@ -393,8 +421,8 @@ def apply_blocks(f: FileChange, chosen: AbstractSet[int]) -> bytes:
     pos = 0
     for bi, b in enumerate(f.blocks):
         if bi in chosen:
-            out += f.old[pos:b.old_lo]
-            out += f.new[b.new_lo:b.new_lo + b.new_n]
+            out += f.old[pos : b.old_lo]
+            out += f.new[b.new_lo : b.new_lo + b.new_n]
             pos = b.old_lo + b.old_n
     out += f.old[pos:]
     return b"".join(out)
@@ -423,8 +451,16 @@ def pin_scope(files: Sequence[FileChange] | None, pin: PinFacts, changes: Sequen
     if not (chosen and other):
         return PinScope(pin.id, "commit", source, mine, other)
     cut = REVISION_DIFF_MAX + 1
-    return PinScope(pin.id, "pin", source, mine, other, scope_key(files, chosen),
-                    mine_text.encode("utf-8", "replace")[:cut], other_text.encode("utf-8", "replace")[:cut])
+    return PinScope(
+        pin.id,
+        "pin",
+        source,
+        mine,
+        other,
+        scope_key(files, chosen),
+        mine_text.encode("utf-8", "replace")[:cut],
+        other_text.encode("utf-8", "replace")[:cut],
+    )
 
 
 def pin_facts(r: Record, rel: str | None) -> PinFacts:
@@ -434,10 +470,20 @@ def pin_facts(r: Record, rel: str | None) -> PinFacts:
     anc: Record = stored if isinstance(stored, dict) else {}
     head = anc.get("head")
     tail = anc.get("tail")
-    anchor = (Anchor(head, tail if isinstance(tail, str) else "", anchor_offset(anc.get("head_off")),
-                     anchor_offset(anc.get("tail_off"))) if isinstance(head, str) and head else None)
+    anchor = (
+        Anchor(
+            head,
+            tail if isinstance(tail, str) else "",
+            anchor_offset(anc.get("head_off")),
+            anchor_offset(anc.get("tail_off")),
+        )
+        if isinstance(head, str) and head
+        else None
+    )
     lo, hi = r.get("lo"), r.get("hi")
-    return PinFacts(r["id"], rel, lo if _is_int(lo) else None, hi if _is_int(hi) else None, bool(r.get("stale")), anchor)
+    return PinFacts(
+        r["id"], rel, lo if _is_int(lo) else None, hi if _is_int(hi) else None, bool(r.get("stale")), anchor
+    )
 
 
 _REF_SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b", re.ASCII)
@@ -488,8 +534,9 @@ def scope_payload(sc: PinScope) -> ScopePayload:
     return out
 
 
-def plan_scope_writes(files: Sequence[FileChange] | None, scope: Sequence[ScopeItem],
-                      source: str) -> list[ScopeWrite] | ScopeUnreadable | UnsafePath | ScopeMismatch:
+def plan_scope_writes(
+    files: Sequence[FileChange] | None, scope: Sequence[ScopeItem], source: str
+) -> list[ScopeWrite] | ScopeUnreadable | UnsafePath | ScopeMismatch:
     """The files to write into an old-side snapshot so it becomes old + only the scope's blocks.
 
     source is the build root relative to the repo ("." for the root); files outside it are not part of the compiled
@@ -511,9 +558,14 @@ def plan_scope_writes(files: Sequence[FileChange] | None, scope: Sequence[ScopeI
         name = f.old_path if f.old_path is not None else f.new_path or ""
         if not name.startswith(prefix):
             continue
-        rel = name[len(prefix):]
-        if (not rel or rel.startswith("/") or "\\" in rel or any(ord(c) < 32 for c in rel)
-                or any(part in ("", ".", "..", ".git") for part in rel.split("/"))):
+        rel = name[len(prefix) :]
+        if (
+            not rel
+            or rel.startswith("/")
+            or "\\" in rel
+            or any(ord(c) < 32 for c in rel)
+            or any(part in ("", ".", "..", ".git") for part in rel.split("/"))
+        ):
             return UnsafePath()
         out.append(ScopeWrite(rel, None if f.new_path is None else apply_blocks(f, idx)))
     if found != want:
@@ -536,7 +588,7 @@ def parse_raw_entries(raw: bytes) -> list[RawEntry]:
             continue
         old_mode, new_mode, old_oid, new_oid, status = meta[1:].decode("ascii").split()
         n = 2 if status[:1] in ("R", "C") else 1
-        names = [t.decode("utf-8") for t in tokens[i + 1:i + 1 + n]]
+        names = [t.decode("utf-8") for t in tokens[i + 1 : i + 1 + n]]
         if len(names) != n:
             raise ValueError("truncated raw entry")
         i += 1 + n
@@ -551,8 +603,10 @@ def parse_raw_entries(raw: bytes) -> list[RawEntry]:
 def valid_changes(v: object) -> bool:
     """Whether v has the stored shape of `changes` - a list of {file: str, lo: int, hi: int}. server.valid_rec() treats
     a record failing this as a broken line; recorded_changes() skips such items."""
-    return isinstance(v, list) and all(isinstance(c, dict) and isinstance(c.get("file"), str) and _is_int(c.get("lo"))
-                                       and _is_int(c.get("hi")) for c in v)
+    return isinstance(v, list) and all(
+        isinstance(c, dict) and isinstance(c.get("file"), str) and _is_int(c.get("lo")) and _is_int(c.get("hi"))
+        for c in v
+    )
 
 
 def _is_int(v: object) -> bool:

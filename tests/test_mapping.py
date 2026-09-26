@@ -6,6 +6,7 @@ ladder on the fixture manuscript with the float environments server.py runs with
 
 Run: uv run pytest -q tests/test_mapping.py
 """
+
 import ast
 import unittest
 from pathlib import Path
@@ -78,10 +79,11 @@ class FloatEnvironments(unittest.TestCase):
 # The range ladder on the fixture manuscript with the server's default float environments. These classes load
 # server.py (helpers.ps) and drive the module through its bindings; the tests above call the module on its own.
 
+
 class Ladder(Base):
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
+        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)  # a cell inside the table
         para = find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
@@ -92,7 +94,6 @@ class Ladder(Base):
         lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)
         para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
-
 
 
 if __name__ == "__main__":

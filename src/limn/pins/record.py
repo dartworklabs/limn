@@ -14,6 +14,7 @@ limn.pins.lifecycle write.
 Pure. Two shapes it checks are owned by modules that are not: a document key (limn.documents.DOC_KEY_RE) and a
 recorded actor (limn.people.is_actor). The composition root passes both in (server.valid_rec).
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -54,7 +55,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
         lo, hi = r.get("lo"), r.get("hi")
         if not (is_int(lo) and is_int(hi) and 1 <= lo <= hi):
             return False
-        if not isabs(r["file"]):              # a relative path would point at a different file depending on the server's cwd
+        if not isabs(r["file"]):  # a relative path would point at a different file depending on the server's cwd
             return False
     if "page" in r and not is_int(r["page"]):
         return False

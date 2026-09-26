@@ -11,6 +11,7 @@ file, that a page is in the build. They read those facts through DocumentFacts, 
 (server.document_facts) supplies for the request's document; nothing here reads a file itself, apart from resolving
 a named path against the tree (limn.files.file_in_tree and the close's `changes`).
 """
+
 from __future__ import annotations
 
 import math
@@ -39,27 +40,42 @@ from limn.pins.edit import (
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 
-Json: TypeAlias = Mapping[str, Any]        # a request's JSON object
+Json: TypeAlias = Mapping[str, Any]  # a request's JSON object
 Query: TypeAlias = Mapping[str, list[str]]  # parse_qs() of a query string
 
-CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (docs/handbook/api.md §닫을 때 사유 남기기)
-CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
+CLOSE_REPLY_MAX = 500  # what-was-fixed note left when closing (docs/handbook/api.md §닫을 때 사유 남기기)
+CLOSE_REF_MAX = 80  # reference (e.g. PR number) - matching values let the UI group closed pins together
 # v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
 CLOSE_CHANGES_MAX = 50
-CHANGE_LINE_MAX = 1_000_000       # a line number past this is not a manuscript line
-CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (docs/handbook/api.md §처리 중 표시 (claim))
+CHANGE_LINE_MAX = 1_000_000  # a line number past this is not a manuscript line
+CLAIM_TTL_DEFAULT = 120  # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (docs/handbook/api.md §처리 중 표시 (claim))
 CLAIM_TTL_MIN = 1
 # the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
 CLAIM_TTL_MAX = 120
-CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
+CLAIM_ETA_MIN = 1  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
 CLAIM_ETA_MAX = 240
-CLAIM_TTL_FLOOR = 30               # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
+CLAIM_TTL_FLOOR = 30  # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
 # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
 THREAD_TEXT_MAX = 1000
-MENTION_MAX = 10                   # cap on mention hints per post
+MENTION_MAX = 10  # cap on mention hints per post
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
-ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
-              "frac", "note", "scope", "quote", "pdf_build")
+ADD_FIELDS = (
+    "file",
+    "name",
+    "page",
+    "lo",
+    "hi",
+    "raw_lo",
+    "raw_hi",
+    "kind",
+    "via",
+    "score",
+    "frac",
+    "note",
+    "scope",
+    "quote",
+    "pdf_build",
+)
 REGION_FIELDS = ("page", "frac", "note", "quote", "pdf_build")
 REGION_EDIT_REFUSAL = "보기 전용 문서의 핀에는 줄 범위가 없습니다 — 메모(note)와 영역(loc: page, frac)만 고칩니다."
 PDF_BUILD_REFUSAL = "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다."
@@ -180,7 +196,11 @@ def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejec
     if not isinstance(v, str) or not v or v == LOCAL_LOGIN:
         return InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee")
     if v not in known:
-        return InputRejected("담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v, "unknown_assignee")
+        return InputRejected(
+            "담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요."
+            % v,
+            "unknown_assignee",
+        )
     return v
 
 
@@ -231,6 +251,7 @@ def parse_review_flag(d: Json) -> bool | None | InputRejected:
 
 class CloseBody(NamedTuple):
     """A close's optional reply and ref, each None when absent or blank."""
+
     reply: str | None
     ref: str | None
 
@@ -260,6 +281,7 @@ def parse_close_body(d: Json) -> CloseBody | InputRejected:
 class CloseChange(NamedTuple):
     """One validated range of a close body's `changes` (parse_close_changes), immutable: an absolute, resolved path
     inside the manuscript folder, and the new-side lines 1 ≤ lo ≤ hi ≤ CHANGE_LINE_MAX the agent changed for the pin."""
+
     file: str
     lo: int
     hi: int
@@ -277,7 +299,7 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
     if v is None:
         return None
     if not isinstance(v, list):
-        return InputRejected("changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.", "bad_changes")
+        return InputRejected('changes 는 [{"file", "lo", "hi"}] 목록이어야 합니다.', "bad_changes")
     if len(v) > CLOSE_CHANGES_MAX:
         return InputRejected("changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX, "too_many_changes")
     out, base = [], root.resolve()
@@ -289,18 +311,23 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
         if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
             return InputRejected("%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what, "bad_changes")
         if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
-            return InputRejected("%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes")
+            return InputRejected(
+                "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes"
+            )
         try:
             path = (Path(f) if os.path.isabs(f) else base / f).resolve()
             path.relative_to(base)
         except (ValueError, OSError, RuntimeError):
-            return InputRejected("%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, "change_outside_manuscript")
+            return InputRejected(
+                "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, "change_outside_manuscript"
+            )
         out.append(CloseChange(str(path), lo, hi))
     return tuple(out) or None
 
 
 class ClaimBody(NamedTuple):
     """A claim's minutes until the marker lapses (clamped) and its optional estimate (clamped)."""
+
     ttl: int
     eta: int | None
 
@@ -319,7 +346,9 @@ def _claim_int(d: Json, key: str, lo: int, hi: int) -> int | None | InputRejecte
         return InputRejected("%s 은 정수여야 합니다." % key, "not_integer")
     n = int(v)
     if n < lo:
-        return InputRejected("%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi), "too_small")
+        return InputRejected(
+            "%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi), "too_small"
+        )
     return min(n, hi)
 
 
@@ -355,6 +384,7 @@ def parse_pin_param(v: object) -> int | None | InputRejected:
 
 class RevisionQuery(NamedTuple):
     """A revision request's commit (a full lowercase SHA-1) and optional pin."""
+
     commit: str
     pin: int | None
 
@@ -493,7 +523,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> dict[str, Any] | InputRejected:
         if not isinstance(d["quote"], str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
         out["quote"] = truncate_quote(d["quote"], 60)
-    if d.get("pdf_build") is not None:                # the build on screen at drag time (pdf_build from the pick response)
+    if d.get("pdf_build") is not None:  # the build on screen at drag time (pdf_build from the pick response)
         if not valid_build_name(d["pdf_build"]):
             return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
         out["pdf_build"] = d["pdf_build"]
@@ -513,8 +543,9 @@ def parse_frac(fr: object) -> list[float] | InputRejected:
         nums.append(n)
     x, y, w, h = nums
     eps = 1e-6
-    if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < w <= 1 + eps and 0 < h <= 1 + eps
-            and x + w <= 1 + eps and y + h <= 1 + eps):
+    if not (
+        0 <= x <= 1 and 0 <= y <= 1 and 0 < w <= 1 + eps and 0 < h <= 1 + eps and x + w <= 1 + eps and y + h <= 1 + eps
+    ):
         return InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).", "frac_outside_page")
     return [x, y, w, h]
 
@@ -528,7 +559,10 @@ def parse_region(d: Json, facts: DocumentFacts) -> dict[str, Any] | InputRejecte
     """
     for k in ("file", "lo", "hi", "scope"):
         if d.get(k) is not None:
-            return InputRejected("보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (facts.key, k), "no_source_lines")
+            return InputRejected(
+                "보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (facts.key, k),
+                "no_source_lines",
+            )
     out: dict[str, Any] = {"pdf": str(facts.pdf), "name": facts.pdf.name, "kind": "region"}
     page = int_field(d.get("page"), "page")
     if isinstance(page, InputRejected):
@@ -589,6 +623,7 @@ def parse_add(d: Json, known: Collection[str], facts: DocumentFacts) -> AddReque
 class EditBody:
     """An edit body with every field checked except loc, which is checked against the pin's own document once the
     pin is known (parse_edit_place). request.place is still None."""
+
     loc: Json | None
     request: EditRequest
 
@@ -629,7 +664,7 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
-    kind_req = parse_kind_req(d.get("kind_req"))   # a note-level value that can be changed even on a closed pin
+    kind_req = parse_kind_req(d.get("kind_req"))  # a note-level value that can be changed even on a closed pin
     if isinstance(kind_req, InputRejected):
         return kind_req
     hints = parse_mention_hints(d.get("mentions"))
@@ -646,11 +681,21 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     if isinstance(base, InputRejected):
         return base
     moves = loc is not None or lo is not None or hi is not None
-    if not (note is not None or moves or scope is not None or kind is not None or note_append is not None
-            or kind_req is not None or assignee is not None):
-        return InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change")
-    return EditBody(loc, EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee,
-                                     tuple(hints)))
+    if not (
+        note is not None
+        or moves
+        or scope is not None
+        or kind is not None
+        or note_append is not None
+        or kind_req is not None
+        or assignee is not None
+    ):
+        return InputRejected(
+            "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change"
+        )
+    return EditBody(
+        loc, EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee, tuple(hints))
+    )
 
 
 def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Place | None | InputRejected:
@@ -660,8 +705,9 @@ def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Plac
     for a view-only pin, parse_loc for a line pin). pdf_build records which build frac's coordinates belong to, so a
     loc that re-places frac takes the one sent or the build on screen, and a loc without frac cannot change it."""
     request = body.request
-    if region and (request.lo is not None or request.hi is not None or request.scope is not None
-                   or request.kind is not None):
+    if region and (
+        request.lo is not None or request.hi is not None or request.scope is not None or request.kind is not None
+    ):
         return InputRejected(REGION_EDIT_REFUSAL, "no_source_lines")
     loc = body.loc
     if loc is None:
@@ -678,6 +724,7 @@ def parse_edit_place(body: EditBody, region: bool, facts: DocumentFacts) -> Plac
 
 class SourceRange(NamedTuple):
     """A validated range of a manuscript file: the file, its lines as read, and 1 <= lo <= hi <= len(lines)."""
+
     file: Path
     lines: list[str]
     lo: int
@@ -711,6 +758,7 @@ def parse_snippet(q: Query, facts: DocumentFacts) -> SourceRange | InputRejected
 class PickRequest(NamedTuple):
     """A validated selection: the page directory it is traced in, the page (1-based), the box (x0, y0, x1, y1) in points
     clamped to the page, the page size (width, height) in points, and the viewer's frac as sent (None if absent)."""
+
     pdir: Path
     page: int
     box: tuple[float, float, float, float]
@@ -749,8 +797,10 @@ def parse_pick(d: Json, facts: DocumentFacts) -> PickRequest | PickBuildGone | I
     x0, x1 = sorted(clamped[:2])
     y0, y1 = sorted(clamped[2:])
     frac = d.get("frac")
-    if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and
-                                 all(not isinstance(v, bool) and isinstance(v, (int, float))
-                                     and math.isfinite(v) for v in frac)):
+    if frac is not None and not (
+        isinstance(frac, list)
+        and len(frac) == 4
+        and all(not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v) for v in frac)
+    ):
         return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
     return PickRequest(pdir, page, (x0, y0, x1, y1), (pw, ph), frac)

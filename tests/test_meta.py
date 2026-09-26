@@ -10,6 +10,7 @@ open pins are counted per document, which document a request or a pin belongs to
 
 Run: uv run pytest -q tests/test_meta.py
 """
+
 import ast
 import json
 import os
@@ -28,17 +29,49 @@ from helpers import Base, ps, req
 
 PKG = Path(meta.__file__).parent
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (300).to_bytes(4, "big") + (150).to_bytes(4, "big") + b"\x08\x02\x00\x00\x00"
+PNG = (
+    b"\x89PNG\r\n\x1a\n"
+    + b"\x00\x00\x00\rIHDR"
+    + (300).to_bytes(4, "big")
+    + (150).to_bytes(4, "big")
+    + b"\x08\x02\x00\x00\x00"
+)
 AUX = "\\@writefile{toc}{\\contentsline {section}{\\numberline {1}Intro}{1}{section.1}}\n"
 # The light /api/meta body's keys, in order: the agent contract (docs/handbook/api.md).
-LIGHT_KEYS = ["pages", "built_at", "head", "main", "pins_md", "state_dir", "me", "label", "accent", "repo", "building",
-              "sync", "doc", "doc_name", "kind", "view_only", "multi", "stale_build", "src_age_s", "src_mtime",
-              "build_src_mtime", "pages_build", "pins_rev", "build_seq", "last_build", "build"]
+LIGHT_KEYS = [
+    "pages",
+    "built_at",
+    "head",
+    "main",
+    "pins_md",
+    "state_dir",
+    "me",
+    "label",
+    "accent",
+    "repo",
+    "building",
+    "sync",
+    "doc",
+    "doc_name",
+    "kind",
+    "view_only",
+    "multi",
+    "stale_build",
+    "src_age_s",
+    "src_mtime",
+    "build_src_mtime",
+    "pages_build",
+    "pins_rev",
+    "build_seq",
+    "last_build",
+    "build",
+]
 
 
 @dataclass
 class Paths:
     """The run paths a Doc reads (documents.RunPaths), fixed for one test."""
+
     src: Path
     main: Path
     state: Path
@@ -64,8 +97,15 @@ class Fixture(unittest.TestCase):
         self.ms = Doc("ms", "본문", "tex", self.src, self.src / "main.tex", paths=self.paths)
         self.rr = Doc("rr", "답변서", "tex", self.src / "rr", self.src / "rr" / "rr.tex", paths=self.paths)
         self.rv = Doc("rv", "리뷰", "pdf", self.src, self.src / "review.pdf", paths=self.paths)
-        self.settings = MetaSettings(state=self.state, pins_md=self.state / "pins.md", pins_jsonl=self.state / "pins.jsonl",
-                                     label="원고", accent="#1d4ed8", repo=None, dpi=150)
+        self.settings = MetaSettings(
+            state=self.state,
+            pins_md=self.state / "pins.md",
+            pins_jsonl=self.state / "pins.jsonl",
+            label="원고",
+            accent="#1d4ed8",
+            repo=None,
+            dpi=150,
+        )
 
     def tearDown(self):
         """Remove the temp folders."""
@@ -107,8 +147,13 @@ class OutlineLabels(Fixture):
         d = self.pages(self.ms, aux=AUX)
         self.ms.build.mkdir(parents=True)
         (self.ms.build / "main.aux").write_text(AUX.replace("Intro", "Stale"), encoding="utf-8")
-        self.assertEqual(meta.outline_labels(self.ms), {"build": d.name, "labels": [
-            {"number": "1", "title": "Intro", "page": "1", "level": "section", "anchor": "section.1"}]})
+        self.assertEqual(
+            meta.outline_labels(self.ms),
+            {
+                "build": d.name,
+                "labels": [{"number": "1", "title": "Intro", "page": "1", "level": "section", "anchor": "section.1"}],
+            },
+        )
 
     def test_no_labels_without_an_aux_or_before_any_build(self):
         """A build without .aux, and a document never built (the legacy pages folder), give no labels."""
@@ -143,7 +188,9 @@ class Meta(Fixture):
         self.pages(self.legacy)
         (self.state / "head.txt").write_text("abc1234\n", encoding="utf-8")
         mtime = os.stat(self.src / "main.tex").st_mtime
-        out = meta.meta(self.legacy, {"login": "local"}, self.settings, [self.legacy], {"state": "disabled"}, mtime + 10)
+        out = meta.meta(
+            self.legacy, {"login": "local"}, self.settings, [self.legacy], {"state": "disabled"}, mtime + 10
+        )
         self.assertEqual(list(out), LIGHT_KEYS)
         self.assertEqual(out["pages"], [{"name": "page-1.png", "pt_w": 144.0, "pt_h": 72.0}])
         self.assertEqual((out["head"], out["built_at"]), ("abc1234", "?"))
@@ -164,11 +211,13 @@ class Meta(Fixture):
 
     def test_pin_counts_in_order(self):
         """open, done (review excluded) and review, each counted once."""
-        self.assertEqual(list(meta.pin_counts(["open", "review", "done", "open"]).items()),
-                         [("n_open", 2), ("n_done", 1), ("n_review", 1)])
+        self.assertEqual(
+            list(meta.pin_counts(["open", "review", "done", "open"]).items()),
+            [("n_open", 2), ("n_done", 1), ("n_review", 1)],
+        )
 
     def test_pins_rev_follows_the_pins_file(self):
-        """"0" with no file; mtime_ns:size once written, changing when the file is replaced."""
+        """ "0" with no file; mtime_ns:size once written, changing when the file is replaced."""
         f = self.settings.pins_jsonl
         self.assertEqual(meta.pins_rev(f), "0")
         f.write_text("{}\n", encoding="utf-8")
@@ -241,7 +290,9 @@ class DocumentFactsReads(Fixture):
         self.assertIsNone(facts.pick_pages("pages-20250101000000"))
         self.assertEqual(facts.lines(self.src / "main.tex"), ["\\documentclass{article}"])
         self.assertEqual(facts.lines(self.src / "missing.tex"), [])
-        self.assertEqual((facts.key, facts.is_pdf, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex"))
+        self.assertEqual(
+            (facts.key, facts.is_pdf, facts.root, facts.pdf), ("ms", False, self.src, self.src / "main.tex")
+        )
 
 
 class ToSource(Fixture):
@@ -249,7 +300,9 @@ class ToSource(Fixture):
 
     def test_build_copy_path_maps_to_the_manuscript(self):
         """A path under the build copy becomes the same relative path under the build root."""
-        self.assertEqual(documents.to_source(self.rr, str(self.rr.build / "sec" / "a.tex")), self.src / "rr" / "sec" / "a.tex")
+        self.assertEqual(
+            documents.to_source(self.rr, str(self.rr.build / "sec" / "a.tex")), self.src / "rr" / "sec" / "a.tex"
+        )
 
     def test_moved_state_folder_falls_back_to_the_longest_existing_tail(self):
         """An old absolute build path whose tail is a real manuscript file maps to it; otherwise the path is unchanged."""
@@ -263,6 +316,7 @@ class ToSource(Fixture):
 # drive the module through its bindings; the tests above call the module on its own.
 
 # ---------------------------------------------------------------- light meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
+
 
 class LightMeta(Base):
     def test_light_meta_has_no_write_side_effect(self):
@@ -282,7 +336,7 @@ class LightMeta(Base):
         rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
         rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
-        self.assertEqual(rev1, rev2)      # unchanged if nothing changed
+        self.assertEqual(rev1, rev2)  # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
         m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
@@ -291,7 +345,7 @@ class LightMeta(Base):
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
         # must not change even outside the cache window (even after 2s)
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
+        ps._SRC_MTIME_CACHE[2] = 0.0  # force-expire the cache to check recomputation
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_ignores_diff_dir(self):
@@ -303,7 +357,7 @@ class LightMeta(Base):
         (ps.C.src / "diff").mkdir()
         (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
+        ps._SRC_MTIME_CACHE[2] = 0.0  # force-expire the cache to check recomputation
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_reacts_to_tex_change(self):
@@ -323,10 +377,10 @@ class LightMeta(Base):
         # bug: write_built_src_mtime() used to just take the 2-second-cached value — editing the
         # manuscript and rebuilding right away, within 2 seconds of the cache filling, wrongly recorded
         # the "pre-edit" mtime as the build-start time.
-        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)      # fill the cache
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)  # fill the cache
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)            # inside the cache window (within 2s) — the stale value
+        cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)  # inside the cache window (within 2s) — the stale value
         self.assertEqual(cached, m0)
         # bypass the cache and measure for real — a fresh value
         forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)
@@ -335,7 +389,11 @@ class LightMeta(Base):
     def test_write_built_src_mtime_uses_fresh_value(self):
         os.utime(self.main, (time.time() + 20, time.time() + 20))
         limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state)
-        self.assertAlmostEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True), delta=1.0)
+        self.assertAlmostEqual(
+            limn_build.read_built_src_mtime(ps.DOCS[0]),
+            limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True),
+            delta=1.0,
+        )
 
     def test_light_query_param_via_handler(self):
         out = self.talk(req("GET", "/api/meta?light=1"))
@@ -365,7 +423,6 @@ class InstanceMeta(Base):
         self.assertEqual(data["label"], "A-DEMO")
         self.assertEqual(data["accent"], "#1d4ed8")
         self.assertIn("repo", data)
-
 
 
 if __name__ == "__main__":

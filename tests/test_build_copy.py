@@ -5,6 +5,7 @@ reporting success, so a copy failure has to end the build before latexmk runs.
 
 Run: uv run pytest -q tests/test_build_copy.py
 """
+
 import os
 import tempfile
 import unittest

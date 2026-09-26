@@ -8,6 +8,7 @@ node --check runs on each of them (skipped without node, required where LIMN_TES
 
 Run: uv run pytest -q tests/test_viewer_files.py
 """
+
 import os
 import re
 import shutil
@@ -92,7 +93,7 @@ def script_errors(page: str, directory: Path = VIEWER) -> list[str] | None:
             if r.returncode == 0:
                 continue
             where = "inline script %d" % i
-            at = re.match(r".*?" + re.escape(path.name) + r":(\d+)", r.stderr.strip())   # node may print the real path
+            at = re.match(r".*?" + re.escape(path.name) + r":(\d+)", r.stderr.strip())  # node may print the real path
             if at and i == len(scripts) - 1:
                 where += " at " + part_line(int(at.group(1)), directory)
             errors.append("%s: %s" % (where, r.stderr.strip()))
@@ -116,8 +117,9 @@ class ViewerFiles(unittest.TestCase):
 
     def test_every_part_file_is_listed_exactly_once(self):
         """A file under css/ or js/ that the manifest forgets would silently never reach the page."""
-        on_disk = sorted(p.relative_to(VIEWER).as_posix() for d in ("css", "js") for p in (VIEWER / d).rglob("*")
-                         if p.is_file())
+        on_disk = sorted(
+            p.relative_to(VIEWER).as_posix() for d in ("css", "js") for p in (VIEWER / d).rglob("*") if p.is_file()
+        )
         listed = sorted(n for names in assemble.viewer_manifest(VIEWER).values() for n in names)
         self.assertEqual(listed, on_disk)
 
@@ -184,10 +186,13 @@ class ViewerFiles(unittest.TestCase):
         """A '#' comment (whole line or after a path) and blank lines carry no part, so the manifest can say what
         each part is for."""
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "parts.txt").write_text("# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n"
-                                               "__APP_JS__\njs/a.js\njs/b.js # last\n", encoding="utf-8")
-            self.assertEqual(assemble.viewer_manifest(Path(d)),
-                             {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.js", "js/b.js")})
+            (Path(d) / "parts.txt").write_text(
+                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.js\njs/b.js # last\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.js", "js/b.js")}
+            )
 
 
 class ViewerScriptParses(unittest.TestCase):
@@ -229,8 +234,13 @@ class ViewerScriptParses(unittest.TestCase):
     def test_the_served_service_worker_parses(self):
         """GET /sw.js serves viewer/sw.js as it is (ps.SW_JS), and node parses it as a classic script."""
         self.assertEqual(ps.SW_JS, (VIEWER / "sw.js").read_text(encoding="utf-8"))
-        r = subprocess.run([shutil.which("node"), "--check", str(VIEWER / "sw.js")], capture_output=True, text=True,
-                           timeout=30, check=False)
+        r = subprocess.run(
+            [shutil.which("node"), "--check", str(VIEWER / "sw.js")],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
         self.assertEqual(r.returncode, 0, r.stderr)
 
 

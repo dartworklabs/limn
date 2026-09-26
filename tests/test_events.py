@@ -5,6 +5,7 @@ test_v031.py; this file pins the module's own contracts and its import boundary.
 
 Run: uv run pytest -q tests/test_events.py
 """
+
 import ast
 import contextlib
 import io
@@ -65,16 +66,26 @@ class MakeEvent(unittest.TestCase):
         """Recipients lose the actor, 'local', empty logins and repeats; none left means no notice."""
         r = {"id": 3, "doc": "appx"}
         ev = notice("mention", r, ALICE, [BOB, ALICE["login"], "local", None, BOB])
-        self.assertEqual(ev, {"type": "mention", "pin": 3, "doc": "appx", "to": [BOB],
-                              "by": {"login": "alice@example.com", "name": "Alice Kim"}})
+        self.assertEqual(
+            ev,
+            {
+                "type": "mention",
+                "pin": 3,
+                "doc": "appx",
+                "to": [BOB],
+                "by": {"login": "alice@example.com", "name": "Alice Kim"},
+            },
+        )
         self.assertIsNone(notice("mention", r, ALICE, [ALICE["login"], "local"]))
         self.assertIsNone(notice("mention", r, ALICE, None))
 
     def test_who_and_doc_of_are_asked_only_for_a_notice(self):
         """With nobody to tell, neither lookup runs (a record without a doc never reaches doc_of)."""
+
         def boom(_):
             """A lookup that must not be called."""
             raise AssertionError("asked")
+
         self.assertIsNone(make_event("mention", {}, ALICE, [], boom, boom, "local"))
 
     def test_a_post_gives_msg_and_its_text_the_excerpt(self):
@@ -99,10 +110,12 @@ class MakeEvent(unittest.TestCase):
 class Since(unittest.TestCase):
     """events_since(): what one person's poll returns."""
 
-    ROWS = [{"seq": 1, "type": "mention", "to": [BOB], "by": {"login": "alice@example.com"}, "doc": "main"},
-            {"seq": 2, "type": "cleared", "to": [BOB], "by": {"login": "alice@example.com"}},
-            {"seq": 3, "type": "replied", "to": [BOB], "by": {"login": BOB}, "doc": "main"},
-            {"seq": 4, "type": "assigned", "to": [BOB, "c"], "by": {"login": "c"}, "doc": "gone"}]
+    ROWS = [
+        {"seq": 1, "type": "mention", "to": [BOB], "by": {"login": "alice@example.com"}, "doc": "main"},
+        {"seq": 2, "type": "cleared", "to": [BOB], "by": {"login": "alice@example.com"}},
+        {"seq": 3, "type": "replied", "to": [BOB], "by": {"login": BOB}, "doc": "main"},
+        {"seq": 4, "type": "assigned", "to": [BOB, "c"], "by": {"login": "c"}, "doc": "gone"},
+    ]
 
     def test_ev_seq_only_without_a_cursor(self):
         """No cursor: just the latest seq (0 for an empty log)."""
@@ -114,7 +127,7 @@ class Since(unittest.TestCase):
         got = events_since(self.ROWS, BOB, 0, {"main": "본문"})
         self.assertEqual([(e["seq"], e["doc_name"]) for e in got["events"]], [(1, "본문"), (4, "gone")])
         self.assertEqual([e["seq"] for e in events_since(self.ROWS, BOB, 1, {})["events"]], [4])
-        self.assertNotIn("doc_name", self.ROWS[0])                                  # the records are not changed
+        self.assertNotIn("doc_name", self.ROWS[0])  # the records are not changed
 
     def test_nobody_to_notify_gets_an_empty_list(self):
         """me None (local/agent, or no login) gets events: [] with the cursor."""
@@ -133,8 +146,13 @@ class Log(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.clock = [1000.0]
-        self.log = EventLog(Path(self.tmp.name) / "events.jsonl", threading.Lock(), {}, lambda: self.clock[0],
-                            lambda: "2026-09-26 10:00:00")
+        self.log = EventLog(
+            Path(self.tmp.name) / "events.jsonl",
+            threading.Lock(),
+            {},
+            lambda: self.clock[0],
+            lambda: "2026-09-26 10:00:00",
+        )
 
     def test_seq_continues_from_the_file_and_records_are_stamped(self):
         """Each record gets the next seq, the stamp and the clock (rounded to ms); Nones are skipped."""
@@ -142,8 +160,9 @@ class Log(unittest.TestCase):
         self.clock[0] = 1001.23456
         self.log.emit([{"type": "b"}, {"type": "c"}])
         rows, _ = self.log.read()
-        self.assertEqual([(e["seq"], e["type"], e["ts"]) for e in rows], [(1, "a", 1000.0), (2, "b", 1001.235),
-                                                                          (3, "c", 1001.235)])
+        self.assertEqual(
+            [(e["seq"], e["type"], e["ts"]) for e in rows], [(1, "a", 1000.0), (2, "b", 1001.235), (3, "c", 1001.235)]
+        )
         self.assertEqual(rows[0]["at"], "2026-09-26 10:00:00")
 
     def test_only_the_newest_keep_records_stay_and_seq_still_increases(self):
@@ -164,7 +183,7 @@ class Log(unittest.TestCase):
         self.log.path.write_text('not json\n{"seq": true}\n{"seq": 5, "type": "x"}\n[1]\n', encoding="utf-8")
         rows, sig = self.log.read()
         self.assertEqual([e["seq"] for e in rows], [5])
-        self.assertIs(self.log.read()[0][0], rows[0])                               # same file: the cached records
+        self.assertIs(self.log.read()[0][0], rows[0])  # same file: the cached records
         self.log.emit([{"type": "y"}])
         self.assertEqual([e["seq"] for e in self.log.read()[0]], [5, 6])
         self.assertNotEqual(self.log.read()[1], sig)

@@ -5,6 +5,7 @@ build's pull) at its end. This file pins each rule, the outcome records of the a
 
 Run: uv run pytest -q tests/test_pull.py
 """
+
 import ast
 import typing
 import unittest
@@ -62,9 +63,15 @@ class Records(unittest.TestCase):
             (Pulled(A, B), {"state": "ok", "reason": None, "head_before": A, "head_after": B}),
             (Pulled(None, B), {"state": "ok", "reason": None, "head_before": None, "head_after": B}),
             (UpToDate(A), {"state": "up_to_date", "reason": None, "head_before": A, "head_after": A}),
-            (PullSkipped("not_git", None), {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}),
+            (
+                PullSkipped("not_git", None),
+                {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None},
+            ),
             (PullSkipped("dirty", A), {"state": "skipped", "reason": "dirty", "head_before": A, "head_after": A}),
-            (PullFailed("fetch_timeout", A), {"state": "error", "reason": "fetch_timeout", "head_before": A, "head_after": A}),
+            (
+                PullFailed("fetch_timeout", A),
+                {"state": "error", "reason": "fetch_timeout", "head_before": A, "head_after": A},
+            ),
         ]
         for outcome, record in cases:
             with self.subTest(outcome=outcome):
@@ -122,15 +129,27 @@ class Watch(unittest.TestCase):
 
     def test_sync_state_per_outcome(self):
         """updated, current, blocked, error - one per outcome type."""
-        self.assertEqual([sync_state(o) for o in (Pulled(A, B), UpToDate(A), PullSkipped("diverged", A),
-                                                  PullFailed("status_failed", A))],
-                         ["updated", "current", "blocked", "error"])
+        self.assertEqual(
+            [
+                sync_state(o)
+                for o in (Pulled(A, B), UpToDate(A), PullSkipped("diverged", A), PullFailed("status_failed", A))
+            ],
+            ["updated", "current", "blocked", "error"],
+        )
 
     def test_after_pull_is_the_record_with_watch_state_and_time(self):
         """The pull's record, its state replaced by the watch's, checked_at last."""
         got = after_pull(PullSkipped("not_main", A), "2026-09-26T10:00:00+09:00")
-        self.assertEqual(got, {"state": "blocked", "reason": "not_main", "head_before": A, "head_after": A,
-                               "checked_at": "2026-09-26T10:00:00+09:00"})
+        self.assertEqual(
+            got,
+            {
+                "state": "blocked",
+                "reason": "not_main",
+                "head_before": A,
+                "head_after": A,
+                "checked_at": "2026-09-26T10:00:00+09:00",
+            },
+        )
         self.assertEqual(list(got), ["state", "reason", "head_before", "head_after", "checked_at"])
 
     def test_deferred_and_unexpected_are_merged_fields(self):

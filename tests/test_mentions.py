@@ -5,6 +5,7 @@ test_qa_021.py and test_v031.py; this file pins the rules themselves and the mod
 
 Run: uv run pytest -q tests/test_mentions.py
 """
+
 import ast
 import unittest
 from pathlib import Path
@@ -110,8 +111,11 @@ class Addressed(unittest.TestCase):
 
     def test_the_old_round_does_not_count_after_a_reopen(self):
         """A reply during review (before the reopen) is not part of the new round."""
-        r = {"kind_req": "question", "mentions": [], "thread": [
-            {"ev": "close"}, {"text": "during review", "mentions": [BL]}, {"ev": "reopen", "mentions": [B]}]}
+        r = {
+            "kind_req": "question",
+            "mentions": [],
+            "thread": [{"ev": "close"}, {"text": "during review", "mentions": [BL]}, {"ev": "reopen", "mentions": [B]}],
+        }
         self.assertEqual(thread_round(r), [{"ev": "reopen", "mentions": [B]}])
         self.assertEqual(addressed_to(r), [B])
         self.assertEqual(pin_mentions_all(r), [BL, B])
@@ -146,7 +150,7 @@ class NoteTagging(unittest.TestCase):
         self.assertEqual(note_mention_targets([B, BL], recent, A, 3, 100.0 + NOTE_MENTION_COOLDOWN_S - 1), [BL])
         self.assertEqual(note_mention_targets([B], recent, A, 3, 100.0 + NOTE_MENTION_COOLDOWN_S), [B])
         self.assertEqual(note_mention_targets([B], recent, "someone-else", 3, 101.0), [B])
-        self.assertEqual(note_mention_targets([B], [dict(recent[0], msg=1)], A, 3, 101.0), [B])   # a reply's mention
+        self.assertEqual(note_mention_targets([B], [dict(recent[0], msg=1)], A, 3, 101.0), [B])  # a reply's mention
         self.assertEqual(note_mention_targets([B], [dict(recent[0], ts=True)], A, 3, 101.0), [B])  # not a number
 
 

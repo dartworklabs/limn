@@ -9,6 +9,7 @@ outside the pin lock, an agent's confirm never touches the store, and the packag
 
 Run: uv run pytest -q tests/test_service.py
 """
+
 import ast
 import json
 import tempfile
@@ -115,12 +116,24 @@ class ServiceBase(unittest.TestCase):
     def context(self, **over):
         """A PinContext over this test's store and recorder; keyword arguments replace single collaborators."""
         fields = dict(
-            store=self.store, now=lambda: STAMP, epoch=lambda: T, hm=lambda: "10:00",
-            make_event=self.rec.make_event, emit_events=self.rec.emit, who=lambda a: {"login": a["login"]},
-            audit=self.rec.audit, known_people=lambda rows: self.people,
+            store=self.store,
+            now=lambda: STAMP,
+            epoch=lambda: T,
+            hm=lambda: "10:00",
+            make_event=self.rec.make_event,
+            emit_events=self.rec.emit,
+            who=lambda a: {"login": a["login"]},
+            audit=self.rec.audit,
+            known_people=lambda rows: self.people,
             note_tags=lambda note, old, rows, hints, actor, pid: NoteTags((), []),
-            role_of=lambda login: "editor", person_name=lambda login: self.people.get(login, {}).get("name", login),
-            locate=self.locate, stamp=lambda r: None, thread_max=3, trash_days=30, trash_checked=self.checked)
+            role_of=lambda login: "editor",
+            person_name=lambda login: self.people.get(login, {}).get("name", login),
+            locate=self.locate,
+            stamp=lambda r: None,
+            thread_max=3,
+            trash_days=30,
+            trash_checked=self.checked,
+        )
         fields.update(over)
         return PinContext(**fields)
 
@@ -131,8 +144,10 @@ class ServiceBase(unittest.TestCase):
 
     def add(self, actor=ALICE, note="n", lo=1, hi=2):
         """A new open line pin by actor in main.tex -> its id."""
-        place = LinePlace({"file": str(self.tex), "name": "main.tex", "lo": lo, "hi": hi, "page": 1},
-                          frozenset({"file", "lo", "hi", "page"}))
+        place = LinePlace(
+            {"file": str(self.tex), "name": "main.tex", "lo": lo, "hi": hi, "page": 1},
+            frozenset({"file", "lo", "hi", "page"}),
+        )
         return add_edit.add_pin(self.ctx, self.doc, AddRequest(place, note), actor).record["id"]
 
     def pins_bytes(self):
@@ -170,8 +185,22 @@ class ModuleBoundary(unittest.TestCase):
         """No run-argument object, server lock or server helper is named in the package."""
         for name, _, names in self.modules():
             with self.subTest(name):
-                self.assertFalse(names & {"C", "DOCS", "PIN_LOCK", "now_str", "pin_store", "transact", "THREAD_MAX",
-                                          "TRASH_DAYS", "_TRASH_CHECKED", "make_docs", "cur_doc"})
+                self.assertFalse(
+                    names
+                    & {
+                        "C",
+                        "DOCS",
+                        "PIN_LOCK",
+                        "now_str",
+                        "pin_store",
+                        "transact",
+                        "THREAD_MAX",
+                        "TRASH_DAYS",
+                        "_TRASH_CHECKED",
+                        "make_docs",
+                        "cur_doc",
+                    }
+                )
 
 
 class Actors(unittest.TestCase):
@@ -188,8 +217,10 @@ class Actors(unittest.TestCase):
     def test_typed_actor_keeps_a_picture_only_when_it_is_text(self):
         """An agent becomes Agent; a person Person with pic only for a non-empty string."""
         self.assertEqual(typed_actor({"login": "agent:ci", "name": "ci"}), Agent("agent:ci", "ci"))
-        self.assertEqual(typed_actor(dict(ALICE, pic="https://example.com/a.png")),
-                         Person("alice@example.com", "Alice Kim", "https://example.com/a.png"))
+        self.assertEqual(
+            typed_actor(dict(ALICE, pic="https://example.com/a.png")),
+            Person("alice@example.com", "Alice Kim", "https://example.com/a.png"),
+        )
         self.assertEqual(typed_actor(dict(ALICE, pic="")), Person("alice@example.com", "Alice Kim", None))
 
 
@@ -201,15 +232,26 @@ class AddAndEdit(ServiceBase):
         notices are emitted after the write, in one call."""
         tags = NoteTags(("bob@example.com",), ["bob@example.com"])
         self.ctx = self.context(note_tags=lambda *a: tags)
-        place = LinePlace({"file": str(self.tex), "name": "main.tex", "lo": 2, "hi": 3, "page": 1},
-                          frozenset({"file", "lo", "hi", "page"}))
+        place = LinePlace(
+            {"file": str(self.tex), "name": "main.tex", "lo": 2, "hi": 3, "page": 1},
+            frozenset({"file", "lo", "hi", "page"}),
+        )
         pin = add_edit.add_pin(self.ctx, self.doc, AddRequest(place, "hi @Bob", assignee="bob@example.com"), ALICE)
         self.assertIsInstance(pin, OpenPin)
         stored = self.pin(1)
-        self.assertEqual((stored["at"], stored["file_rel"], stored["pdf_build"], stored["doc"], stored["mentions"]),
-                         (STAMP, "main.tex", "pages", "main", ["bob@example.com"]))
-        self.assertEqual(self.rec.emitted, [[{"type": "mention", "pin": 1, "to": ["bob@example.com"]},
-                                             {"type": "assigned", "pin": 1, "to": ["bob@example.com"]}]])
+        self.assertEqual(
+            (stored["at"], stored["file_rel"], stored["pdf_build"], stored["doc"], stored["mentions"]),
+            (STAMP, "main.tex", "pages", "main", ["bob@example.com"]),
+        )
+        self.assertEqual(
+            self.rec.emitted,
+            [
+                [
+                    {"type": "mention", "pin": 1, "to": ["bob@example.com"]},
+                    {"type": "assigned", "pin": 1, "to": ["bob@example.com"]},
+                ]
+            ],
+        )
         self.assertEqual(self.add(), 2)
 
     def test_an_edit_refusal_writes_nothing_and_notifies_nobody(self):
@@ -227,8 +269,10 @@ class AddAndEdit(ServiceBase):
         pid = self.add()
         out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=0, note="new"), BOB)
         self.assertIsInstance(out, OpenPin)
-        self.assertEqual((self.pin(pid)["note"], self.pin(pid)["rev"], self.pin(pid)["edited_by"]["login"]),
-                         ("new", 1, "bob@example.com"))
+        self.assertEqual(
+            (self.pin(pid)["note"], self.pin(pid)["rev"], self.pin(pid)["edited_by"]["login"]),
+            ("new", 1, "bob@example.com"),
+        )
 
     def test_edit_of_a_missing_pin_is_a_named_miss(self):
         """No pin with the id: PinNotFound, nothing written."""
@@ -274,9 +318,11 @@ class Transitions(ServiceBase):
 
     def test_an_agent_confirm_never_loads_the_store(self):
         """AgentCannotConfirm comes back before the store is read: a store whose re-sync would fail is never asked."""
+
         def boom(rows):
             """A re-sync that must not run."""
             raise AssertionError("store touched")
+
         ctx = self.context(store=PinStore(PinFiles(self.state), self.lock, valid, boom, lambda rows: "", Refused))
         self.assertEqual(transitions.confirm_pin(ctx, 1, AGENT), AgentCannotConfirm())
 
@@ -319,15 +365,21 @@ class Trash(ServiceBase):
     def old_entry(self, pid, days_ago):
         """A Trash entry of pin pid dropped days_ago days before T (local time)."""
         import time as clock
-        return {"id": pid, "file": str(self.tex), "lo": 1, "hi": 1,
-                "dropped_at": clock.strftime("%Y-%m-%d %H:%M:%S", clock.localtime(T - days_ago * 86400))}
+
+        return {
+            "id": pid,
+            "file": str(self.tex),
+            "lo": 1,
+            "hi": 1,
+            "dropped_at": clock.strftime("%Y-%m-%d %H:%M:%S", clock.localtime(T - days_ago * 86400)),
+        }
 
     def test_expiry_is_counted_from_dropped_at(self):
         """An entry expires trash_days after dropped_at; one without a readable dropped_at never expires."""
         fresh, old, unknown = self.old_entry(1, 29), self.old_entry(2, 31), {"id": 3}
         self.assertEqual(trash.unexpired([fresh, old, unknown], 30, T), [fresh, unknown])
         self.assertIsNone(trash.expires_ts(unknown, 30))
-        self.assertFalse(trash.expired(unknown, 30, T + 10 ** 9))
+        self.assertFalse(trash.expired(unknown, 30, T + 10**9))
 
     def test_drop_moves_the_pin_to_the_trash_and_restore_brings_it_back(self):
         """drop takes the pin out of pins.jsonl into the Trash and tells its author; restore puts it back, removes it
@@ -369,7 +421,9 @@ class Trash(ServiceBase):
         trash.drop_pin(self.ctx, pid, ALICE)
         self.assertIsInstance(trash.purge_pin(self.ctx, pid, ALICE), TrashedPin)
         self.assertEqual(self.store.read_dropped()[0], [])
-        self.assertEqual(self.rec.emitted[-1], [{"type": "purged", "to": [], "pin": pid, "by": {"login": "alice@example.com"}}])
+        self.assertEqual(
+            self.rec.emitted[-1], [{"type": "purged", "to": [], "pin": pid, "by": {"login": "alice@example.com"}}]
+        )
         self.assertEqual(self.rec.audits, [("purged", "alice@example.com", {"pin": pid}, True)])
         self.assertEqual(trash.purge_pin(self.ctx, pid, ALICE), NotInTrash(pid))
         self.assertEqual(len(self.rec.audits), 1)
@@ -392,13 +446,17 @@ class Trash(ServiceBase):
 
 # ---------------------------------------------------------------- close reason · re-close no-op (docs/handbook/api.md §닫을 때 사유 남기기, §휴지통)
 
+
 class CloseReplyRef(Base):
     """§C: /close accepts optional {"reply","ref"} and stores them as close_reply/close_ref."""
 
     def test_close_with_reply_and_ref_is_stored(self):
         pid = self.add()
-        p = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR),
-                        *parse.parse_close_body({"reply": "제목을 고침", "ref": "PR #227"})))
+        p = record_of(
+            ps.set_done(
+                pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "제목을 고침", "ref": "PR #227"})
+            )
+        )
         self.assertEqual(p["close_reply"], "제목을 고침")
         self.assertEqual(p["close_ref"], "PR #227")
         self.assertTrue(p["done"])
@@ -468,7 +526,9 @@ class CloseIdempotent(Base):
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
-        closed_again = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"})))
+        closed_again = record_of(
+            ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"}))
+        )
         self.assertEqual(closed_again["close_reply"], "second")
         self.assertNotIn("close_ref", closed_again)
 
@@ -484,6 +544,7 @@ class CloseIdempotent(Base):
 
 
 # ---------------------------------------------------------------- in-progress indicator (docs/handbook/api.md §처리 중 표시 (claim))
+
 
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
@@ -502,7 +563,7 @@ class Claim(Base):
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
         ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        refused = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)          # answered 409 "claimed"
+        refused = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)  # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertEqual(refused.claimed_by["login"], "alice@x.com")
         self.assertIsNotNone(refused.claim_until)
@@ -524,13 +585,13 @@ class Claim(Base):
         self.assertEqual(ps.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
-        for bad in (0, -1, "120", 12.5, True, None):                  # 400 for a wrong type or a value below 1
+        for bad in (0, -1, "120", 12.5, True, None):  # 400 for a wrong type or a value below 1
             self.assertIsInstance(parse.parse_claim_body({"ttl_min": bad}), InputRejected)
         self.assertEqual(parse.parse_claim_body({}).ttl, parse.CLAIM_TTL_DEFAULT)
         self.assertEqual(parse.parse_claim_body({"ttl_min": 1}).ttl, 1)
         self.assertEqual(parse.parse_claim_body({"ttl_min": 120}).ttl, 120)
         self.assertEqual(parse.CLAIM_TTL_MAX, 120)
-        for over in (121, 480, 10_000):                                # above the cap (120, formerly 480) it gets clamped down (backward compat)
+        for over in (121, 480, 10_000):  # above the cap (120, formerly 480) it gets clamped down (backward compat)
             self.assertEqual(parse.parse_claim_body({"ttl_min": over}).ttl, 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
@@ -574,7 +635,7 @@ class Claim(Base):
         pid = self.add()
         ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
         md = ps.C.pins_md.read_text(encoding="utf-8")
-        self.assertIn("처리 중(Coauthor Kim)", md)                     # just the name when there's no ETA
+        self.assertIn("처리 중(Coauthor Kim)", md)  # just the name when there's no ETA
         self.assertNotIn("⏳", md)
         self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
 
@@ -618,14 +679,15 @@ class Claim(Base):
         self.assertFalse(body["ok"])
 
 
-
 class Who(unittest.TestCase):
     """who: an actor as notices and audit.jsonl record it."""
 
     def test_login_and_name_only_with_the_local_defaults(self):
         """A person keeps login and name (never pic or role); an empty actor is the headerless loopback agent."""
-        self.assertEqual(who({"login": "alice@example.com", "name": "Alice", "pic": "https://x", "role": "owner"}),
-                         {"login": "alice@example.com", "name": "Alice"})
+        self.assertEqual(
+            who({"login": "alice@example.com", "name": "Alice", "pic": "https://x", "role": "owner"}),
+            {"login": "alice@example.com", "name": "Alice"},
+        )
         self.assertEqual(who({}), {"login": "local", "name": ""})
         actor = {"login": "agent:ci", "name": "ci"}
         self.assertIsNot(who(actor), actor)

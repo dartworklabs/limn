@@ -7,6 +7,7 @@ them (revision_context), and the routes are driven through the handler.
 
 Run: uv run pytest tests/test_revisions.py
 """
+
 import errno
 import json
 import os
@@ -35,15 +36,21 @@ class ManuscriptRevisions(Base):
         self.secret = self.repo / "other" / "private.tex"
         self.secret.parent.mkdir()
         self.secret.write_text("private text\n", encoding="utf-8")
-        for cmd in (["git", "init", "--quiet"], ["git", "config", "user.email", "t@example.com"],
-                    ["git", "config", "user.name", "T"], ["git", "add", "ms/main.tex", "other/private.tex"],
-                    ["git", "commit", "--quiet", "-m", "first"]):
+        for cmd in (
+            ["git", "init", "--quiet"],
+            ["git", "config", "user.email", "t@example.com"],
+            ["git", "config", "user.name", "T"],
+            ["git", "add", "ms/main.tex", "other/private.tex"],
+            ["git", "commit", "--quiet", "-m", "first"],
+        ):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         self.first = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         self.main.write_text(TEX + "New manuscript sentence.\n", encoding="utf-8")
         self.secret.write_text("hidden change\n", encoding="utf-8")
-        for cmd in (["git", "add", "ms/main.tex", "other/private.tex"],
-                    ["git", "commit", "--quiet", "-m", "manuscript update"]):
+        for cmd in (
+            ["git", "add", "ms/main.tex", "other/private.tex"],
+            ["git", "commit", "--quiet", "-m", "manuscript update"],
+        ):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         self.latest = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
 
@@ -81,17 +88,20 @@ class ManuscriptRevisions(Base):
             path = self.repo / key / (key + ".tex")
             path.parent.mkdir()
             path.write_text("\\documentclass{article}\n" + key + "\n", encoding="utf-8")
-            subprocess.run(["git", "add", str(path.relative_to(self.repo))], cwd=self.repo,
-                           check=True, capture_output=True)
-            subprocess.run(["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo,
-                           check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", str(path.relative_to(self.repo))], cwd=self.repo, check=True, capture_output=True
+            )
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", key + " update"], cwd=self.repo, check=True, capture_output=True
+            )
             heads[key] = path
         docs = [Doc(k, k, src=self.repo, main=path, paths=ps.C) for k, path in heads.items()]
         for d in docs:
             history = revisions.revision_history(d)
             self.assertTrue(history["available"])
-            self.assertEqual(history["revisions"][0]["subject"],
-                             "manuscript update" if d.key == "ms" else d.key + " update")
+            self.assertEqual(
+                history["revisions"][0]["subject"], "manuscript update" if d.key == "ms" else d.key + " update"
+            )
         hl_head = revisions.revision_history(docs[1])["revisions"][0]["id"]
         self.assertEqual(ps.revision_diff(docs[0], hl_head), revisions.CommitNotRecent())
 
@@ -129,28 +139,44 @@ class ManuscriptRevisions(Base):
         for cmd in (["git", "add", "ms/escape.tex"], ["git", "commit", "-qm", "link"]):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
-        self.assertEqual(revisions.revision_snapshot(revision_spec(head), head, self.repo / "bad-snapshot"),
-                         revisions.StepFailed("unsafe_snapshot"))
+        self.assertEqual(
+            revisions.revision_snapshot(revision_spec(head), head, self.repo / "bad-snapshot"),
+            revisions.StepFailed("unsafe_snapshot"),
+        )
 
     def test_outline_uses_only_current_pdf_aux_and_balanced_tex_groups(self):
         current = ps.C.state / "pages-20260924010000"
         current.mkdir()
         (ps.C.state / "pages.cur").write_text(current.name)
         (current / "main.aux").write_text(
-            r"\@writefile{toc}{\contentsline {section}{\numberline {2}A \textbf{nested {title}} \& B}{iv}{section.2}}" + "\n" +
-            r"\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Use \texorpdfstring{$x^2$}{x squared}}{8}{subsection.2.1}}" + "\n")
+            r"\@writefile{toc}{\contentsline {section}{\numberline {2}A \textbf{nested {title}} \& B}{iv}{section.2}}"
+            + "\n"
+            + r"\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Use \texorpdfstring{$x^2$}{x squared}}{8}{subsection.2.1}}"
+            + "\n"
+        )
         ps.C.build.mkdir()
         (ps.C.build / "main.aux").write_text("wrong next build")
         data = limn_meta.outline_labels(ps.DOCS[0])
         self.assertEqual(data["build"], current.name)
-        self.assertEqual(data["labels"], [
-            {"number": "2", "title": "A nested title & B", "page": "iv", "level": "section", "anchor": "section.2"},
-            {"number": "2.1", "title": "Use x squared", "page": "8", "level": "subsection", "anchor": "subsection.2.1"},
-        ])
+        self.assertEqual(
+            data["labels"],
+            [
+                {"number": "2", "title": "A nested title & B", "page": "iv", "level": "section", "anchor": "section.2"},
+                {
+                    "number": "2.1",
+                    "title": "Use x squared",
+                    "page": "8",
+                    "level": "subsection",
+                    "anchor": "subsection.2.1",
+                },
+            ],
+        )
 
     def test_outline_missing_snapshot_does_not_read_mutable_build(self):
         ps.C.build.mkdir()
-        (ps.C.build / "main.aux").write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {9}Stale}{1}{section.9}}")
+        (ps.C.build / "main.aux").write_text(
+            r"\@writefile{toc}{\contentsline {section}{\numberline {9}Stale}{1}{section.9}}"
+        )
         self.assertEqual(limn_meta.outline_labels(ps.DOCS[0])["labels"], [])
 
     def _wait_revision(self):
@@ -159,7 +185,7 @@ class ManuscriptRevisions(Base):
             status = ps.revision_status(ps.DOCS[0], self.latest)
             if status["state"] != "running":
                 return status
-            time.sleep(.01)
+            time.sleep(0.01)
         self.fail("revision worker did not finish")
 
     def test_async_revision_http_deduplicates_caches_and_preserves_current_build(self):
@@ -169,12 +195,14 @@ class ManuscriptRevisions(Base):
         marker.write_text("pages-20260924000000")
         before = dict(ps.BUILD_STATE)
         calls = []
+
         def compile(spec, jobdir, timeout):
             calls.append(spec)
             entered.set()
             release.wait(3)
             (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4\nrevision")
             return {"state": "ready", "warnings": ["test warning"], "error": None, "reason": None}
+
         body = json.dumps({"commit": self.latest}).encode()
         request = req("POST", "/api/revision-build", body, {"Content-Type": "application/json"})
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
@@ -214,30 +242,55 @@ class ManuscriptRevisions(Base):
     def test_revision_requests_enforce_origin_allowlist_and_field_validation(self):
         body = json.dumps({"commit": self.latest}).encode()
         ps.C.allow = frozenset({"allowed@example.com"})
-        code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", body,
-            {"Content-Type": "application/json", "Tailscale-User-Login": "stranger@example.com"})))
+        code, _, _ = split_resp(
+            self.talk(
+                req(
+                    "POST",
+                    "/api/revision-build",
+                    body,
+                    {"Content-Type": "application/json", "Tailscale-User-Login": "stranger@example.com"},
+                )
+            )
+        )
         self.assertEqual(code, 403)
         ps.C.allow = frozenset()
-        code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", body,
-            {"Content-Type": "application/json", "Origin": "https://evil.example"})))
+        code, _, _ = split_resp(
+            self.talk(
+                req(
+                    "POST",
+                    "/api/revision-build",
+                    body,
+                    {"Content-Type": "application/json", "Origin": "https://evil.example"},
+                )
+            )
+        )
         self.assertEqual(code, 403)
         for bad in ({"commit": []}, {"commit": "HEAD"}, {"commit": self.latest, "command": "evil"}):
-            code, _, _ = split_resp(self.talk(req("POST", "/api/revision-build", json.dumps(bad).encode(),
-                {"Content-Type": "application/json"})))
+            code, _, _ = split_resp(
+                self.talk(
+                    req("POST", "/api/revision-build", json.dumps(bad).encode(), {"Content-Type": "application/json"})
+                )
+            )
             self.assertEqual(code, 400)
         self.assertEqual(split_resp(self.talk(req("GET", "/api/revision-build?commit=HEAD")))[0], 400)
 
     def test_revision_source_limits_and_gitlinks_are_rejected(self):
         spec = revision_spec(self.latest)
         with mock.patch.object(revisions, "REVISION_FILE_MAX", 1):
-            self.assertEqual(revisions.revision_snapshot(spec, self.latest, self.repo / "large"),
-                             revisions.StepFailed("snapshot_size"))
-        for cmd in (["git", "update-index", "--add", "--cacheinfo", "160000," + self.first + ",ms/sub"],
-                    ["git", "commit", "-qm", "add submodule"]):
+            self.assertEqual(
+                revisions.revision_snapshot(spec, self.latest, self.repo / "large"),
+                revisions.StepFailed("snapshot_size"),
+            )
+        for cmd in (
+            ["git", "update-index", "--add", "--cacheinfo", "160000," + self.first + ",ms/sub"],
+            ["git", "commit", "-qm", "add submodule"],
+        ):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
-        self.assertEqual(revisions.revision_snapshot(spec, head, self.repo / "submodule-snapshot"),
-                         revisions.StepFailed("unsafe_snapshot"))
+        self.assertEqual(
+            revisions.revision_snapshot(spec, head, self.repo / "submodule-snapshot"),
+            revisions.StepFailed("unsafe_snapshot"),
+        )
 
     def test_revision_jobs_are_bounded_and_cache_expires(self):
         with mock.patch.object(ps.REVISION_JOBS, "slots", threading.BoundedSemaphore(0)):
@@ -268,16 +321,21 @@ class ManuscriptRevisions(Base):
 
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
         with mock.patch.object(shutil, "which", return_value=None):
-            self.assertEqual(revisions.revision_sandbox(self.repo, Path("."), "latexmk", []),
-                             revisions.StepFailed("sandbox_tools"))
+            self.assertEqual(
+                revisions.revision_sandbox(self.repo, Path("."), "latexmk", []), revisions.StepFailed("sandbox_tools")
+            )
         with self.assertRaises(ValueError):
             revisions.revision_sandbox(self.repo, Path("."), "sh", [])
 
     def test_revision_exec_bounds_output_and_time(self):
-        self.assertEqual(revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 2, 100),
-                         revisions.StepFailed("size"))
-        self.assertEqual(revisions.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, .1),
-                         revisions.StepFailed("timeout"))
+        self.assertEqual(
+            revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 2, 100),
+            revisions.StepFailed("size"),
+        )
+        self.assertEqual(
+            revisions.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, 0.1),
+            revisions.StepFailed("timeout"),
+        )
 
     def test_revision_exec_keeps_its_answer_when_the_group_holds_only_exited_processes(self):
         """The cleanup kill of the command's process group is refused with EPERM on macOS when every member has
@@ -287,19 +345,27 @@ class ManuscriptRevisions(Base):
         answered 500 "Operation not permitted" under load (the ScopedViewer flake)."""
         eperm = PermissionError(errno.EPERM, "Operation not permitted")
         with mock.patch.object(revisions.os, "killpg", side_effect=eperm) as killpg:
-            self.assertEqual(revisions.revision_exec(["python3", "-c", "print('ok')"], self.repo, 10), (0, b"ok\n", b""))
-            self.assertEqual(revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 10, 100),
-                             revisions.StepFailed("size"))
+            self.assertEqual(
+                revisions.revision_exec(["python3", "-c", "print('ok')"], self.repo, 10), (0, b"ok\n", b"")
+            )
+            self.assertEqual(
+                revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 10, 100),
+                revisions.StepFailed("size"),
+            )
         self.assertEqual(killpg.call_count, 2)
 
     def test_outline_complex_titles_keep_alignment_and_http_build_identity(self):
         pages = ps.C.state / "pages"
         pages.mkdir()
         (pages / "main.aux").write_text(
-            r"\@writefile{toc}{\contentsline {section}{\numberline {1}Bad \unknown{macro}}{1}{section.1}}" + "\n" +
-            r"\@writefile{toc}{\contentsline {section}{\protect\numberline {2}A \{literal\} title}{2}{section.2}}" + "\n" +
-            r"\@writefile{toc}{\contentsline {section}{Unnumbered}{3}{section*.3}}" + "\n" +
-            r"\@writefile{lof}{\contentsline {figure}{\numberline {1}Not a section}{4}{figure.1}}")
+            r"\@writefile{toc}{\contentsline {section}{\numberline {1}Bad \unknown{macro}}{1}{section.1}}"
+            + "\n"
+            + r"\@writefile{toc}{\contentsline {section}{\protect\numberline {2}A \{literal\} title}{2}{section.2}}"
+            + "\n"
+            + r"\@writefile{toc}{\contentsline {section}{Unnumbered}{3}{section*.3}}"
+            + "\n"
+            + r"\@writefile{lof}{\contentsline {figure}{\numberline {1}Not a section}{4}{figure.1}}"
+        )
         code, _, raw = split_resp(self.talk(req("GET", "/api/outline-labels")))
         self.assertEqual(code, 200)
         data = json.loads(raw)
@@ -313,9 +379,11 @@ class ManuscriptRevisions(Base):
         pdf, aux = ps.C.build / "main.pdf", ps.C.build / "main.aux"
         pdf.write_bytes(b"%PDF-1.4")
         aux.write_text(r"\@writefile{toc}{\contentsline {section}{\numberline {1}Before}{1}{section.1}}")
+
         def render(cmd, **kwargs):
             Path(str(cmd[-1]) + "-1.png").write_bytes(b"png")
             return subprocess.CompletedProcess(cmd, 0)
+
         with mock.patch.object(subprocess, "run", side_effect=render):
             pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
         self.assertIsNone(error)
@@ -323,7 +391,9 @@ class ManuscriptRevisions(Base):
         aux.write_text("changed by a failed next build")
         self.assertEqual(limn_meta.outline_labels(ps.DOCS[0])["labels"][0]["title"], "Before")
 
-    @unittest.skipUnless(all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable")
+    @unittest.skipUnless(
+        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
+    )
     def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
         self.main.write_text("\\documentclass{article}\n\\begin{document}\n\\input{section}\n\\end{document}\n")
         section = self.src / "section.tex"

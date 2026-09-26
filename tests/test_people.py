@@ -5,6 +5,7 @@ this file pins the module's own contracts and its import boundary.
 
 Run: uv run pytest -q tests/test_people.py
 """
+
 import ast
 import json
 import os
@@ -48,8 +49,16 @@ class Records(unittest.TestCase):
 
     def test_only_entries_with_a_login_and_string_fields_are_kept(self):
         """Bad entries and documents of another shape are dropped, never raised."""
-        d = {"people": [{"login": "a", "name": "A"}, {"login": ""}, {"name": "x"}, {"login": "b", "name": 3}, "junk",
-                        {"login": "c", "pic": None}]}
+        d = {
+            "people": [
+                {"login": "a", "name": "A"},
+                {"login": ""},
+                {"name": "x"},
+                {"login": "b", "name": 3},
+                "junk",
+                {"login": "c", "pic": None},
+            ]
+        }
         self.assertEqual([x["login"] for x in valid_people(d)], ["a", "c"])
         self.assertEqual(valid_people([1]), [])
         self.assertEqual(valid_people({"people": None}), [])
@@ -59,9 +68,15 @@ class Records(unittest.TestCase):
     def test_stored_text_is_sorted_versioned_and_keeps_non_ascii(self):
         """{"version": 1, "people": [...]} by login, one-space indent, newline at the end."""
         text = people_text([{"login": "b", "name": "서준"}, {"login": "a", "name": "A"}])
-        self.assertEqual(text, json.dumps({"version": 1, "people": [{"login": "a", "name": "A"},
-                                                                    {"login": "b", "name": "서준"}]},
-                                          ensure_ascii=False, indent=1) + "\n")
+        self.assertEqual(
+            text,
+            json.dumps(
+                {"version": 1, "people": [{"login": "a", "name": "A"}, {"login": "b", "name": "서준"}]},
+                ensure_ascii=False,
+                indent=1,
+            )
+            + "\n",
+        )
 
     def test_a_missing_or_broken_file_reads_as_nobody(self):
         """load_people() of a missing or non-JSON file is []."""
@@ -78,16 +93,28 @@ class Known(unittest.TestCase):
     def test_people_and_pin_actors_without_agents(self):
         """people.json first (with last_seen), then author, *_by and thread posters; agents and bad actors skipped."""
         rows = [{"login": "a@x", "name": "A", "last_seen": "t1"}]
-        pins = [{"author": {"login": "b@x", "name": "B", "pic": "p"}, "closed_by": {"login": "local", "name": "로컬"},
-                 "done_by": {"login": "agent:bot", "name": "bot"}, "note": {"login": "n@x"},
-                 "thread": [{"by": {"login": "a@x", "name": "Other", "pic": "q"}}, {"by": {"login": ""}}]}]
-        self.assertEqual(known_people(rows, pins, agent), {
-            "a@x": {"login": "a@x", "name": "A", "last_seen": "t1", "pic": "q"},
-            "b@x": {"login": "b@x", "name": "B", "pic": "p"}})
+        pins = [
+            {
+                "author": {"login": "b@x", "name": "B", "pic": "p"},
+                "closed_by": {"login": "local", "name": "로컬"},
+                "done_by": {"login": "agent:bot", "name": "bot"},
+                "note": {"login": "n@x"},
+                "thread": [{"by": {"login": "a@x", "name": "Other", "pic": "q"}}, {"by": {"login": ""}}],
+            }
+        ]
+        self.assertEqual(
+            known_people(rows, pins, agent),
+            {
+                "a@x": {"login": "a@x", "name": "A", "last_seen": "t1", "pic": "q"},
+                "b@x": {"login": "b@x", "name": "B", "pic": "p"},
+            },
+        )
 
     def test_a_name_falls_back_to_the_login(self):
         """An actor without a name is shown by login."""
-        self.assertEqual(known_people([], [{"author": {"login": "z@x"}}], agent), {"z@x": {"login": "z@x", "name": "z@x"}})
+        self.assertEqual(
+            known_people([], [{"author": {"login": "z@x"}}], agent), {"z@x": {"login": "z@x", "name": "z@x"}}
+        )
 
 
 class Write(unittest.TestCase):
@@ -122,8 +149,11 @@ class Write(unittest.TestCase):
         self.assertFalse(record_person(self.book, actor, 100.0 + people.PEOPLE_TOUCH_S - 1, None, "editor"))
         self.assertTrue(record_person(self.book, {"login": "a@x", "name": "A2", "pic": "p"}, 101.0, None, "editor"))
         self.assertEqual((self.rows()[0]["name"], self.rows()[0]["pic"]), ("A2", "p"))
-        self.assertTrue(record_person(self.book, {"login": "a@x", "name": "A2", "pic": "p"},
-                                      101.0 + people.PEOPLE_TOUCH_S, None, "editor"))
+        self.assertTrue(
+            record_person(
+                self.book, {"login": "a@x", "name": "A2", "pic": "p"}, 101.0 + people.PEOPLE_TOUCH_S, None, "editor"
+            )
+        )
 
     def test_a_member_role_set_meanwhile_is_kept(self):
         """The file is re-read under the lock, so a role `limn member` wrote survives the visit."""

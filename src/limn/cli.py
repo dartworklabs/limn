@@ -8,6 +8,7 @@ instance's state directory through the state helpers in limn.access, with the au
 (cli_audit). server.py is imported only by the commands that need it, so
 `limn version` and the instance commands stay fast.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,7 @@ Instances (one systemd user unit limn@<name> per manuscript):
 """
 
 INSTANCE_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
-TOKEN_LINE_RE = re.compile(r"limn_[A-Za-z0-9_-]+")   # what a token file holds: access.TOKEN_PREFIX + token_urlsafe
+TOKEN_LINE_RE = re.compile(r"limn_[A-Za-z0-9_-]+")  # what a token file holds: access.TOKEN_PREFIX + token_urlsafe
 
 # One extra argparse option of split_target(): (flags, add_argument keyword arguments),
 # e.g. (("--name",), {"help": "..."}).
@@ -91,6 +92,7 @@ def run_instances(args: Sequence[str]) -> int:
 
 # ---------------------------------------------------------------- instance -> state dir (same rules as instances.sh)
 
+
 class CliError(Exception):
     """A refusal of `limn token` / `limn member` the user can act on; main() prints its message as one
     `limn: ...` line on stderr and exits with status 1."""
@@ -107,7 +109,7 @@ def env_get(path: Path, key: str) -> str | None:
         m = pat.match(line)
         if not m:
             continue
-        v = line[m.end():].rstrip()
+        v = line[m.end() :].rstrip()
         if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
             v = v[1:-1]
         val = v
@@ -149,8 +151,9 @@ def instance_state_dir(name: str) -> Path:
     return data_root / name
 
 
-def split_target(prog: str, argv: Sequence[str], npos: int,
-                 extra: Sequence[OptionSpec] | None = None) -> tuple[Path, list[str], argparse.Namespace]:
+def split_target(
+    prog: str, argv: Sequence[str], npos: int, extra: Sequence[OptionSpec] | None = None
+) -> tuple[Path, list[str], argparse.Namespace]:
     """Parses '<instance> <positionals...> [options]' or '--state-dir DIR <positionals...> [options]'
     -> (state dir, positionals, options namespace). The namespace's `instance` is the instance name, None for
     --state-dir (a plain `limn serve` has no instance, so no token file). extra adds options (OptionSpec).
@@ -179,6 +182,7 @@ def split_target(prog: str, argv: Sequence[str], npos: int,
 
 # ---------------------------------------------------------------- the agent token file (docs/adr/0007-agent-token-file.md)
 
+
 def token_file_path(name: str) -> Path:
     """Where agents on this machine read instance <name>'s token: <config dir>/<name>.token, next to <name>.env.
 
@@ -190,9 +194,10 @@ def token_file_path(name: str) -> Path:
 
 class SaveTarget(NamedTuple):
     """What is at a token file path before `limn token create --save` writes it (gathered by inspect_save_target)."""
-    occupied: bool         # something is already at the path - a dangling symlink too
-    repo: str | None       # the git work tree that would hold the file without ignoring it; None if there is none
-    unknown: str | None = None   # why git could not tell whether a work tree holds it; None when it could
+
+    occupied: bool  # something is already at the path - a dangling symlink too
+    repo: str | None  # the git work tree that would hold the file without ignoring it; None if there is none
+    unknown: str | None = None  # why git could not tell whether a work tree holds it; None when it could
 
 
 def save_refusal(target: SaveTarget, path: Path, force: bool) -> str | None:
@@ -200,15 +205,21 @@ def save_refusal(target: SaveTarget, path: Path, force: bool) -> str | None:
     refuses even with --force (a token never goes into a repository), and so does not being able to tell; an existing
     file needs --force."""
     if target.unknown:
-        return ("could not tell whether %s is inside a git work tree (%s) - a token file never goes into a repository. "
-                "Fix git, or set LIMN_CONFIG_DIR to a folder outside any repository" % (path.parent, target.unknown))
+        return (
+            "could not tell whether %s is inside a git work tree (%s) - a token file never goes into a repository. "
+            "Fix git, or set LIMN_CONFIG_DIR to a folder outside any repository" % (path.parent, target.unknown)
+        )
     if target.repo:
-        return ("%s would be inside the git work tree %s, which does not ignore it - a token file never goes into a "
-                "repository. Ignore it there (e.g. '*.token' in its .gitignore) or set LIMN_CONFIG_DIR to a folder "
-                "outside any repository" % (path, target.repo))
+        return (
+            "%s would be inside the git work tree %s, which does not ignore it - a token file never goes into a "
+            "repository. Ignore it there (e.g. '*.token' in its .gitignore) or set LIMN_CONFIG_DIR to a folder "
+            "outside any repository" % (path, target.repo)
+        )
     if target.occupied and not force:
-        return ("%s already exists - pass --force to replace it (the token in it stays valid until you revoke it: "
-                "limn token list, limn token revoke)" % path)
+        return (
+            "%s already exists - pass --force to replace it (the token in it stays valid until you revoke it: "
+            "limn token list, limn token revoke)" % path
+        )
     return None
 
 
@@ -232,8 +243,10 @@ def git_tree_holding(path: Path) -> tuple[str | None, str | None]:
 
     def git_in(*args: str) -> subprocess.CompletedProcess[str]:
         """One git command in the resolved folder, with the cleaned environment; never raises on git's status."""
-        return subprocess.run([git, "-C", str(folder.resolve()), *args], capture_output=True, text=True, env=env,
-                              timeout=30, check=False)
+        return subprocess.run(
+            [git, "-C", str(folder.resolve()), *args], capture_output=True, text=True, env=env, timeout=30, check=False
+        )
+
     top = git_in("rev-parse", "--show-toplevel")
     if top.returncode != 0:
         err = top.stderr.strip()
@@ -306,9 +319,12 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
     Every check runs before the token exists, and a failed write revokes the new token again, so a failure never
     leaves a valid token nobody holds. The token is printed only with --print."""
     from limn import access, server as ps
+
     if ns.instance is None:
-        raise CliError("--save needs an instance name: the token file is <config dir>/<instance>.token "
-                       "(see limn token path <instance>)")
+        raise CliError(
+            "--save needs an instance name: the token file is <config dir>/<instance>.token "
+            "(see limn token path <instance>)"
+        )
     path = token_file_path(ns.instance)
     previous = read_token_file(path) if ns.force else None
     refusal = save_refusal(inspect_save_target(path), path, ns.force)
@@ -321,23 +337,31 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
         try:
             access.token_revoke(state, entry["id"], ps.cli_audit(state))
         except (OSError, ValueError) as undo:
-            raise CliError("could not write %s: %s - and could not revoke the new token (%s), so it is still valid; "
-                           "revoke it: limn token revoke %s %s" % (path, e, undo, ns.instance, entry["id"])) from e
+            raise CliError(
+                "could not write %s: %s - and could not revoke the new token (%s), so it is still valid; "
+                "revoke it: limn token revoke %s %s" % (path, e, undo, ns.instance, entry["id"])
+            ) from e
         raise CliError("could not write %s: %s - the new token %s was revoked again" % (path, e, entry["id"])) from e
     if ns.print:
         print(plain)
         sys.stdout.flush()
-    print("limn: created token %s (name %s) in %s" % (entry["id"], entry["name"], state / "tokens.json"), file=sys.stderr)
-    print("limn: saved it to %s (mode 0600)%s. Agents on this machine send it with\n"
-          "        curl -H \"Authorization: Bearer $(cat %s)\" <base>/pins.md\n"
-          "      A running server accepts it on the next request." % (path, "" if ns.print else ", not printed", path),
-          file=sys.stderr)
+    print(
+        "limn: created token %s (name %s) in %s" % (entry["id"], entry["name"], state / "tokens.json"), file=sys.stderr
+    )
+    print(
+        "limn: saved it to %s (mode 0600)%s. Agents on this machine send it with\n"
+        '        curl -H "Authorization: Bearer $(cat %s)" <base>/pins.md\n'
+        "      A running server accepts it on the next request." % (path, "" if ns.print else ", not printed", path),
+        file=sys.stderr,
+    )
     if previous:
         old = [t for t in access.load_tokens(state) if t["hash"] == access.token_hash(previous)]
         if old:
-            print("limn: the token that was in the file (id %s, name %s) is still valid - revoke it if nothing else "
-                  "uses it: limn token revoke %s %s" % (old[0]["id"], old[0]["name"], ns.instance, old[0]["id"]),
-                  file=sys.stderr)
+            print(
+                "limn: the token that was in the file (id %s, name %s) is still valid - revoke it if nothing else "
+                "uses it: limn token revoke %s %s" % (old[0]["id"], old[0]["name"], ns.instance, old[0]["id"]),
+                file=sys.stderr,
+            )
     return 0
 
 
@@ -362,13 +386,25 @@ def cmd_token(argv: Sequence[str]) -> int:
     sub = argv[0] if argv else ""
     rest = argv[1:]
     from limn import access, server as ps
+
     if sub == "create":
-        state, _, ns = split_target("limn token create", rest, 0, [
-            (("--name",), {"help": "token name (default agent, agent-2, ...)"}),
-            (("--save",), {"action": "store_true",
-                           "help": "write the token to the instance's token file (limn token path) instead of printing it"}),
-            (("--force",), {"action": "store_true", "help": "with --save: replace an existing token file"}),
-            (("--print",), {"action": "store_true", "help": "with --save: print the token as well"})])
+        state, _, ns = split_target(
+            "limn token create",
+            rest,
+            0,
+            [
+                (("--name",), {"help": "token name (default agent, agent-2, ...)"}),
+                (
+                    ("--save",),
+                    {
+                        "action": "store_true",
+                        "help": "write the token to the instance's token file (limn token path) instead of printing it",
+                    },
+                ),
+                (("--force",), {"action": "store_true", "help": "with --save: replace an existing token file"}),
+                (("--print",), {"action": "store_true", "help": "with --save: print the token as well"}),
+            ],
+        )
         if ns.save:
             return create_saved_token(state, ns)
         if ns.force or ns.print:
@@ -376,15 +412,22 @@ def cmd_token(argv: Sequence[str]) -> int:
         entry, plain = access.token_create(state, ns.name, ps.cli_audit(state))
         print(plain)
         sys.stdout.flush()
-        print("limn: created token %s (name %s) in %s" % (entry["id"], entry["name"], state / "tokens.json"), file=sys.stderr)
-        print("limn: this is the only time the token is shown; only its hash is stored. Give it to the agent, e.g.\n"
-              "        export LIMN_TOKEN=<the token above>\n"
-              "        curl -s -H \"Authorization: Bearer $LIMN_TOKEN\" <base>/pins.md\n"
-              "      A running server accepts it on the next request.", file=sys.stderr)
+        print(
+            "limn: created token %s (name %s) in %s" % (entry["id"], entry["name"], state / "tokens.json"),
+            file=sys.stderr,
+        )
+        print(
+            "limn: this is the only time the token is shown; only its hash is stored. Give it to the agent, e.g.\n"
+            "        export LIMN_TOKEN=<the token above>\n"
+            '        curl -s -H "Authorization: Bearer $LIMN_TOKEN" <base>/pins.md\n'
+            "      A running server accepts it on the next request.",
+            file=sys.stderr,
+        )
         return 0
     if sub == "path":
-        ap = argparse.ArgumentParser(prog="limn token path",
-                                     description="Print the token file agents on this machine read (it is not read here)")
+        ap = argparse.ArgumentParser(
+            prog="limn token path", description="Print the token file agents on this machine read (it is not read here)"
+        )
         ap.add_argument("instance")
         print(token_file_path(ap.parse_args(rest).instance))
         return 0
@@ -407,8 +450,10 @@ def cmd_token(argv: Sequence[str]) -> int:
         revoked = access.token_revoke(state, pos[0], ps.cli_audit(state))
         if revoked is None:
             raise CliError("no token with id or name %r in %s" % (pos[0], state))
-        print("revoked token %s (name %s) — the running server refuses it from the next request"
-              % (revoked["id"], revoked["name"]))
+        print(
+            "revoked token %s (name %s) — the running server refuses it from the next request"
+            % (revoked["id"], revoked["name"])
+        )
         note = forget_saved_token(token_file_path(ns.instance), revoked, access.token_hash) if ns.instance else None
         if note:
             print(note)
@@ -425,11 +470,21 @@ def cmd_member(argv: Sequence[str]) -> int:
     sub = argv[0] if argv else ""
     rest = argv[1:]
     from limn import access, server as ps
+
     note = "the running server applies it from the next request"
     if sub == "add":
-        state, pos, ns = split_target("limn member add", rest, 1, [
-            (("--role",), {"default": access.DEFAULT_ROLE, "choices": access.ROLES, "help": "role (default editor)"}),
-            (("--name",), {"help": "display name (default: the part of the login before @)"})])
+        state, pos, ns = split_target(
+            "limn member add",
+            rest,
+            1,
+            [
+                (
+                    ("--role",),
+                    {"default": access.DEFAULT_ROLE, "choices": access.ROLES, "help": "role (default editor)"},
+                ),
+                (("--name",), {"help": "display name (default: the part of the login before @)"}),
+            ],
+        )
         e = access.member_add(state, pos[0], ns.role, ns.name, ps.cli_audit(state))
         print("added %s as %s (%s) — %s" % (e["login"], e["role"], e["name"], note))
         return 0
@@ -442,8 +497,10 @@ def cmd_member(argv: Sequence[str]) -> int:
         print("%-32s %-7s %-24s %s" % ("LOGIN", "ROLE", "NAME", "LAST SEEN"))
         for x in rows:
             role = access.role_value(x.get("role"))
-            print("%-32s %-7s %-24s %s" % (x["login"], role + ("" if "role" in x else "*"), x.get("name") or "",
-                                           x.get("last_seen") or "-"))
+            print(
+                "%-32s %-7s %-24s %s"
+                % (x["login"], role + ("" if "role" in x else "*"), x.get("name") or "", x.get("last_seen") or "-")
+            )
         if any("role" not in x for x in rows):
             print("* no role recorded — editor by default (set one with `limn member role <instance> <login> <role>`)")
         return 0
@@ -474,11 +531,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if cmd == "serve":
         from limn import server
+
         sys.argv = ["limn serve", *args[1:]]
         server.main()
         return 0
     if cmd == "migrate":
         from limn import migrate
+
         return migrate.main(args[1:])
     if cmd in ("token", "member"):
         try:

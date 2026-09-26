@@ -6,6 +6,7 @@
    names of the papers the app was first used on. The patterns are assembled from pieces so this
    file does not contain them literally.
 """
+
 import re
 import subprocess
 from pathlib import Path
@@ -18,20 +19,55 @@ def j(*parts):
     return "".join(parts)
 
 
-OLD_NAMES = re.compile("|".join([
-    j("pin", "-viewer"), j("pin", "_viewer"), j("pin", "_server"), j("pin", "-picker"), j("pin", "_picker"),
-    j("manuscript-", "pin"), j("핀 ", "뷰어"),
-]), re.I)
+OLD_NAMES = re.compile(
+    "|".join(
+        [
+            j("pin", "-viewer"),
+            j("pin", "_viewer"),
+            j("pin", "_server"),
+            j("pin", "-picker"),
+            j("pin", "_picker"),
+            j("manuscript-", "pin"),
+            j("핀 ", "뷰어"),
+        ]
+    ),
+    re.I,
+)
 
-PERSONAL = re.compile("|".join([
-    r"[A-Za-z0-9._%+-]+@(?:" + j("gm", "ail") + "|" + j("nav", "er") + "|" + j("da", "um") + "|" + j("hanm", "ail")
-    + "|" + j("jn", r"u\.ac") + r")\.",
-    j("tail", "8937"), j("ml", "-main"), j("ml", "-a6000"), j("168", r"\.131\."),
-    j("/home/", "won"), j("/Users/", "won"), j("google", "usercontent"),
-    j("won", "jun"), j("sang", "won"), j("상", "원"), j("원", "준"),
-    j("cp", "ptl"), r"(?<![A-Za-z])" + j("pp", "tl") + r"(?![A-Za-z])", j("bet", "lab"),
-    j("iTrans", "former"), j("lesth", "esia"),
-]), re.I)
+PERSONAL = re.compile(
+    "|".join(
+        [
+            r"[A-Za-z0-9._%+-]+@(?:"
+            + j("gm", "ail")
+            + "|"
+            + j("nav", "er")
+            + "|"
+            + j("da", "um")
+            + "|"
+            + j("hanm", "ail")
+            + "|"
+            + j("jn", r"u\.ac")
+            + r")\.",
+            j("tail", "8937"),
+            j("ml", "-main"),
+            j("ml", "-a6000"),
+            j("168", r"\.131\."),
+            j("/home/", "won"),
+            j("/Users/", "won"),
+            j("google", "usercontent"),
+            j("won", "jun"),
+            j("sang", "won"),
+            j("상", "원"),
+            j("원", "준"),
+            j("cp", "ptl"),
+            r"(?<![A-Za-z])" + j("pp", "tl") + r"(?![A-Za-z])",
+            j("bet", "lab"),
+            j("iTrans", "former"),
+            j("lesth", "esia"),
+        ]
+    ),
+    re.I,
+)
 
 ALLOWED_OLD_NAME_FILES = {"src/limn/migrate.py", "tests/test_migrate.py", "CHANGELOG.md"}
 HISTORY_READMES = {"README.md", "README.ko.md"}
@@ -39,8 +75,9 @@ HISTORY_HEADING = re.compile(r"^## (History|출처|이력)", re.M)
 
 
 def tracked_files():
-    out = subprocess.run(["git", "ls-files", "-co", "--exclude-standard"], cwd=ROOT, capture_output=True,
-                         text=True, check=True).stdout.split("\n")
+    out = subprocess.run(
+        ["git", "ls-files", "-co", "--exclude-standard"], cwd=ROOT, capture_output=True, text=True, check=True
+    ).stdout.split("\n")
     for rel in out:
         if not rel:
             continue
@@ -48,7 +85,7 @@ def tracked_files():
         if p.resolve() == SELF or not p.is_file():
             continue
         if rel.startswith("src/limn/vendor/") and rel.endswith(".mjs"):
-            continue                                  # minified third-party code
+            continue  # minified third-party code
         try:
             yield rel, p.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -60,8 +97,8 @@ def outside_history(text):
     m = HISTORY_HEADING.search(text)
     if not m:
         return text
-    nxt = re.search(r"^## ", text[m.end():], re.M)
-    return text[:m.start()] + (text[m.end() + nxt.start():] if nxt else "")
+    nxt = re.search(r"^## ", text[m.end() :], re.M)
+    return text[: m.start()] + (text[m.end() + nxt.start() :] if nxt else "")
 
 
 def hits(pattern, text):

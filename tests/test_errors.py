@@ -6,6 +6,7 @@ table (`reason:<code>` in src/limn/ui_en.json) and falls back to the server text
 
 Run: uv run pytest -q tests/test_errors.py
 """
+
 import ast
 import json
 import re
@@ -29,15 +30,25 @@ from test_access import BOB, AccessBase
 # answers, the refusal tables). Every static guard below reads all of them, keyed by file name; the two tables
 # (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
 PKG = Path(ps.__file__).parent
-SOURCES = {p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
-           for p in [Path(ps.__file__), PKG / "revisions.py", PKG / "scope.py", PKG / "documents.py", PKG / "locate.py",
-                     PKG / "access.py"]
-           + sorted((PKG / "web").glob("*.py"))}
+SOURCES = {
+    p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
+    for p in [
+        Path(ps.__file__),
+        PKG / "revisions.py",
+        PKG / "scope.py",
+        PKG / "documents.py",
+        PKG / "locate.py",
+        PKG / "access.py",
+    ]
+    + sorted((PKG / "web").glob("*.py"))
+}
 
 
 def parsed():
     """(file name, module tree) for every module in SOURCES."""
     return [(name, ast.parse(text)) for name, text in SOURCES.items()]
+
+
 HANGUL = re.compile(r"[가-힣]")
 CODE = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -100,7 +111,9 @@ def input_rejections(tree):
 def emitted_reasons():
     """Every reason code the server can put in an error body or error status: HTTPError reason= literals, the
     InputRejected reasons, the SCOPE_REJECTIONS and REVISION_FAILURES tables and error dict literals."""
-    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()} | {reason for _, reason in REVISION_FAILURES.values()}
+    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()} | {
+        reason for _, reason in REVISION_FAILURES.values()
+    }
     for _, tree in parsed():
         codes |= {c for _, r in http_error_calls(tree) + input_rejections(tree) for c in _codes(r)}
         for d in error_dicts(tree):
@@ -120,8 +133,9 @@ class EveryErrorHasAReason(unittest.TestCase):
         for name, tree in parsed():
             for line, reason in http_error_calls(tree):
                 if (isinstance(reason, ast.Name) and reason.id == "reason") or (
-                        isinstance(reason, ast.Attribute) and reason.attr == "reason"):
-                    continue                            # carried: SCOPE_REJECTIONS or InputRejected.reason
+                    isinstance(reason, ast.Attribute) and reason.attr == "reason"
+                ):
+                    continue  # carried: SCOPE_REJECTIONS or InputRejected.reason
                 codes = _codes(reason)
                 if not codes or not all(CODE.fullmatch(c) for c in codes):
                     missing.append("%s:%d" % (name, line))
@@ -141,8 +155,12 @@ class EveryErrorHasAReason(unittest.TestCase):
 
     def test_every_error_dict_names_a_reason_code(self):
         """Error bodies built as dicts (the pick refusals, the 500, the comparison worker's status) carry a reason."""
-        lines = ["%s:%d" % (name, d.lineno) for name, tree in parsed() for d in error_dicts(tree)
-                 if _dict_get(d, "reason") is None]
+        lines = [
+            "%s:%d" % (name, d.lineno)
+            for name, tree in parsed()
+            for d in error_dicts(tree)
+            if _dict_get(d, "reason") is None
+        ]
         self.assertEqual(lines, [])
 
     def test_the_scope_table_names_a_reason_for_every_refusal(self):
@@ -165,7 +183,7 @@ class EveryErrorHasAReason(unittest.TestCase):
     def test_http_error_requires_a_reason(self):
         """A refusal cannot be constructed without a reason (keyword-only, no default)."""
         with self.assertRaises(TypeError):
-            HTTPError(400, "x")          # noqa - the missing reason is the point
+            HTTPError(400, "x")  # noqa - the missing reason is the point
         self.assertEqual(HTTPError(400, "x", reason="bad").body, {"error": "x", "reason": "bad"})
 
 
@@ -183,7 +201,7 @@ class EnglishTable(unittest.TestCase):
 
     def test_no_english_message_for_a_reason_the_server_never_emits(self):
         """A reason:<code> key the server no longer emits is stale."""
-        keys = {k[len("reason:"):] for k in ps.UI_EN if k.startswith("reason:")}
+        keys = {k[len("reason:") :] for k in ps.UI_EN if k.startswith("reason:")}
         self.assertEqual(sorted(keys - emitted_reasons()), [])
 
 
@@ -195,8 +213,16 @@ class RefusalBodies(AccessBase):
         pid = self.add()
         self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "viewer"}])
         code, d = self.call("POST", "/api/pins/%d/close" % pid, {}, BOB)
-        self.assertEqual((code, d), (403, {"error": "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.",
-                                           "reason": "viewer_only"}))
+        self.assertEqual(
+            (code, d),
+            (
+                403,
+                {
+                    "error": "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.",
+                    "reason": "viewer_only",
+                },
+            ),
+        )
 
     def test_base_rev_conflict(self):
         """409 when base_rev is stale: error stays the code "conflict", the current pin comes along, reason repeats the code."""
@@ -207,9 +233,12 @@ class RefusalBodies(AccessBase):
 
     def test_validation_refusal(self):
         """400 for an over-long note: same text, reason note_too_long."""
-        code, d = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1,
-                                                 "note": "x" * (NOTE_MAX + 1)})
-        self.assertEqual((code, d), (400, {"error": "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, "reason": "note_too_long"}))
+        code, d = self.call(
+            "POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "x" * (NOTE_MAX + 1)}
+        )
+        self.assertEqual(
+            (code, d), (400, {"error": "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, "reason": "note_too_long"})
+        )
 
     def test_missing_pin_refusal(self):
         """404 for an unknown pin: same text, reason pin_not_found."""
@@ -223,7 +252,7 @@ class RefusalBodies(AccessBase):
         self.assertEqual((code, d), (404, {"error": "없는 경로입니다: /api/nope", "reason": "not_found"}))
         code, d = self.call("GET", "/api/pins", peer="10.0.0.5")
         self.assertEqual((code, d), (401, {"error": UNAUTHENTICATED, "reason": "unauthenticated"}))
-        ps.C.agent_loopback = False                         # 0.3.3 (ADR-0007): the local refusal names the token file
+        ps.C.agent_loopback = False  # 0.3.3 (ADR-0007): the local refusal names the token file
         code, d = self.call("GET", "/api/pins")
         self.assertEqual((code, d["reason"]), (401, "loopback_agent_off"))
         self.assertTrue(d["error"].startswith(UNAUTHENTICATED))
@@ -239,8 +268,10 @@ class RefusalBodies(AccessBase):
 
     def test_internal_error(self):
         """An unexpected exception is a 500 with the same text and reason internal."""
-        with mock.patch.object(ps, "overlaps_api", side_effect=RuntimeError("boom")), \
-                mock.patch.object(ps.traceback, "print_exc"):
+        with (
+            mock.patch.object(ps, "overlaps_api", side_effect=RuntimeError("boom")),
+            mock.patch.object(ps.traceback, "print_exc"),
+        ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)
         self.assertEqual((code, d), (500, {"error": "서버 내부 오류: boom", "reason": "internal"}))
 
@@ -250,9 +281,16 @@ class ErrText(unittest.TestCase):
 
     def run_js(self, lang, body):
         """Run the viewer's real tr/tl/trMsg/errText under node in lang and return the JSON of body."""
-        js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
-                        extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("trMsg"), extract_js_fn("errText"),
-                        "console.log(JSON.stringify(%s));" % body])
+        js = "\n".join(
+            [
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                extract_js_fn("tr"),
+                extract_js_fn("tl"),
+                extract_js_fn("trMsg"),
+                extract_js_fn("errText"),
+                "console.log(JSON.stringify(%s));" % body,
+            ]
+        )
         out = run_node(js)
         if out is None:
             self.skipTest("node not available")
@@ -260,15 +298,29 @@ class ErrText(unittest.TestCase):
 
     def test_english_uses_the_reason_and_falls_back_to_the_server_text(self):
         """en: the reason's English message; an unknown reason falls back to the server text through the table."""
-        out = self.run_js("en", "[errText({error:'핀 #9 이 없습니다.',reason:'pin_not_found'}),"
-                                "errText({error:'변경사항을 읽지 못했습니다.',reason:'no_such_code'}),"
-                                "errText({error:'서버 문구'}),errText(null),errText({reason:'conflict',error:'conflict'})]")
-        self.assertEqual(out, [ps.UI_EN["reason:pin_not_found"], ps.UI_EN["변경사항을 읽지 못했습니다."], "서버 문구", "",
-                               ps.UI_EN["reason:conflict"]])
+        out = self.run_js(
+            "en",
+            "[errText({error:'핀 #9 이 없습니다.',reason:'pin_not_found'}),"
+            "errText({error:'변경사항을 읽지 못했습니다.',reason:'no_such_code'}),"
+            "errText({error:'서버 문구'}),errText(null),errText({reason:'conflict',error:'conflict'})]",
+        )
+        self.assertEqual(
+            out,
+            [
+                ps.UI_EN["reason:pin_not_found"],
+                ps.UI_EN["변경사항을 읽지 못했습니다."],
+                "서버 문구",
+                "",
+                ps.UI_EN["reason:conflict"],
+            ],
+        )
 
     def test_korean_shows_the_server_text_unchanged(self):
         """ko: exactly the server's error text, whatever the reason."""
-        out = self.run_js("ko", "[errText({error:'핀 #9 이 없습니다.',reason:'pin_not_found'}),errText({error:'conflict',reason:'conflict'})]")
+        out = self.run_js(
+            "ko",
+            "[errText({error:'핀 #9 이 없습니다.',reason:'pin_not_found'}),errText({error:'conflict',reason:'conflict'})]",
+        )
         self.assertEqual(out, ["핀 #9 이 없습니다.", "conflict"])
 
 

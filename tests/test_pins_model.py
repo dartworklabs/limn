@@ -11,6 +11,7 @@ The legacy shapes below add what the suite does not write any more.
 
 Run: uv run pytest -q tests/test_pins_model.py
 """
+
 import json
 import unittest
 from pathlib import Path
@@ -34,35 +35,81 @@ AGENT = {"login": "local", "name": "로컬/에이전트"}
 # Record shapes older versions wrote or a hand edit can leave, each named for what it exercises.
 LEGACY = {
     "done without a review field (before review existed)": {
-        "file": "/ms/main.tex", "lo": 1, "hi": 2, "note": "n", "id": 1, "done": True},
+        "file": "/ms/main.tex",
+        "lo": 1,
+        "hi": 2,
+        "note": "n",
+        "id": 1,
+        "done": True,
+    },
     "no doc (before several documents)": {"file": "/ms/main.tex", "lo": 1, "hi": 2, "note": "n", "id": 2},
     "old frac_build instead of pdf_build": {
-        "file": "/ms/main.tex", "lo": 1, "hi": 2, "page": 1, "frac": [0.1, 0.2, 0.3, 0.4], "frac_build": "b1", "id": 3},
+        "file": "/ms/main.tex",
+        "lo": 1,
+        "hi": 2,
+        "page": 1,
+        "frac": [0.1, 0.2, 0.3, 0.4],
+        "frac_build": "b1",
+        "id": 3,
+    },
     "claim without claim_ts (before eta)": {
-        "id": 4, "claimed_by": BY, "claimed_at": "2026-09-22 10:00:00", "claim_until": 1790000000},
+        "id": 4,
+        "claimed_by": BY,
+        "claimed_at": "2026-09-22 10:00:00",
+        "claim_until": 1790000000,
+    },
     "string rev": {"id": 5, "rev": "3", "done": True, "review": True, "done_at": "2026-09-25 10:00:00"},
     "malformed claim_until": {"id": 6, "claimed_by": BY, "claim_until": "tomorrow", "claim_ts": 1.5, "eta_ts": None},
     "claim fields without claimed_by": {"id": 7, "claim_until": 1790000000.0, "eta_ts": 1790000100},
     "claimed_by that is not an object": {"id": 8, "claimed_by": "alice", "claim_until": 1790000000},
     "claim left on a closed pin (hand edit)": {"id": 9, "done": True, "claimed_by": BY, "claim_until": 1.0},
     "reopened pin keeping the last close's done_at/closed_by": {
-        "id": 10, "done": False, "done_at": "2026-09-25 10:00:00", "closed_by": AGENT,
-        "reopened_at": "2026-09-25 11:00:00", "reopened_by": BY},
+        "id": 10,
+        "done": False,
+        "done_at": "2026-09-25 10:00:00",
+        "closed_by": AGENT,
+        "reopened_at": "2026-09-25 11:00:00",
+        "reopened_by": BY,
+    },
     "0.2.2 reopen that kept changes": {
-        "id": 11, "done": False, "changes": [{"file": "/ms/main.tex", "lo": 1, "hi": 2}], "changes_at": "t"},
+        "id": 11,
+        "done": False,
+        "changes": [{"file": "/ms/main.tex", "lo": 1, "hi": 2}],
+        "changes_at": "t",
+    },
     "review false written out": {"id": 12, "done": True, "review": False, "done_at": "t", "closed_by": BY},
     "review that is not a boolean": {"id": 13, "done": True, "review": "yes"},
     "done that is truthy but not true": {"id": 14, "done": 1, "review": True},
     "confirmed_by without confirmed_at": {"id": 15, "done": True, "confirmed_by": BY},
     "close fields of the wrong kind": {
-        "id": 16, "done": True, "done_at": 17, "closed_by": "local", "close_reply": ["x"], "close_ref": None,
-        "changes": [1, 2], "changes_at": False},
+        "id": 16,
+        "done": True,
+        "done_at": 17,
+        "closed_by": "local",
+        "close_reply": ["x"],
+        "close_ref": None,
+        "changes": [1, 2],
+        "changes_at": False,
+    },
     "confirmation on an open pin (hand edit)": {"id": 17, "confirmed_by": BY, "confirmed_at": "t"},
     "unicode and floats as written": {"id": 18, "note": "수식 ∑ — é", "synced_at": 1.0, "score": 0.5e-7},
     "unknown future fields between known ones": {
-        "id": 19, "x_future": {"nested": [1, {"a": None}]}, "done": True, "y": True, "done_at": "t", "z": None},
-    "Trash copy": {"id": 20, "note": "n", "done": True, "done_at": "t", "closed_by": BY,
-                   "dropped_at": "2026-09-26 10:00:00", "dropped_by": BY},
+        "id": 19,
+        "x_future": {"nested": [1, {"a": None}]},
+        "done": True,
+        "y": True,
+        "done_at": "t",
+        "z": None,
+    },
+    "Trash copy": {
+        "id": 20,
+        "note": "n",
+        "done": True,
+        "done_at": "t",
+        "closed_by": BY,
+        "dropped_at": "2026-09-26 10:00:00",
+        "dropped_by": BY,
+    },
     "Trash copy with dropped_at in the middle": {"id": 21, "dropped_at": "t", "note": "n", "dropped_by": BY, "rev": 1},
     "Trash copy without dropped_by": {"id": 22, "dropped_at": "2026-09-26 10:00:00"},
     "Trash copy with an unreadable dropped_at": {"id": 23, "dropped_at": 5, "dropped_by": BY},
@@ -136,10 +183,21 @@ class Lifting(unittest.TestCase):
 
     def test_closed_pins_lift_the_close_and_never_a_claim(self):
         """A review pin holds the close; stray claim fields on a closed pin are kept as stored, not as a claim."""
-        record = {"id": 1, "done": True, "review": True, "done_at": "t", "closed_by": AGENT, "close_reply": "r",
-                  "close_ref": "c", "changes": [{"file": "/ms/a.tex", "lo": 1, "hi": 1}], "changes_at": "t"}
-        self.assertEqual(parse_pin(record), ReviewPin(Close("t", AGENT, "r", "c", record["changes"], "t"),
-                                                      {"id": 1, "done": True, "review": True}))
+        record = {
+            "id": 1,
+            "done": True,
+            "review": True,
+            "done_at": "t",
+            "closed_by": AGENT,
+            "close_reply": "r",
+            "close_ref": "c",
+            "changes": [{"file": "/ms/a.tex", "lo": 1, "hi": 1}],
+            "changes_at": "t",
+        }
+        self.assertEqual(
+            parse_pin(record),
+            ReviewPin(Close("t", AGENT, "r", "c", record["changes"], "t"), {"id": 1, "done": True, "review": True}),
+        )
         stray = parse_pin(LEGACY["claim left on a closed pin (hand edit)"])
         self.assertEqual(stray, DonePin(Close(), None, LEGACY["claim left on a closed pin (hand edit)"]))
 
@@ -158,7 +216,10 @@ class Lifting(unittest.TestCase):
 
     def test_an_open_pin_keeps_an_earlier_close_and_a_confirmation_as_plain_fields(self):
         """A reopened pin's done_at/closed_by and a hand-written confirmation are no close or confirmation of it."""
-        for name in ("reopened pin keeping the last close's done_at/closed_by", "confirmation on an open pin (hand edit)"):
+        for name in (
+            "reopened pin keeping the last close's done_at/closed_by",
+            "confirmation on an open pin (hand edit)",
+        ):
             with self.subTest(name):
                 self.assertEqual(parse_pin(LEGACY[name]), OpenPin(None, LEGACY[name]))
 
@@ -178,8 +239,10 @@ class BuiltInCode(unittest.TestCase):
     def test_a_built_state_writes_the_kept_fields_then_the_lifted_ones(self):
         """Without a stored order, kept fields come first in their own order, then the group in stored-key order."""
         pin = OpenPin(Claim(BY, "t", until=9), {"id": 1, "rev": 0})
-        self.assertEqual(list(pin.record.items()),
-                         [("id", 1), ("rev", 0), ("claimed_by", BY), ("claimed_at", "t"), ("claim_until", 9)])
+        self.assertEqual(
+            list(pin.record.items()),
+            [("id", 1), ("rev", 0), ("claimed_by", BY), ("claimed_at", "t"), ("claim_until", 9)],
+        )
 
     def test_a_state_whose_stored_done_or_review_names_another_state_is_a_defect(self):
         """done/review stay among the fields as stored, and they must name the state that holds them."""

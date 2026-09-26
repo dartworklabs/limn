@@ -7,6 +7,7 @@ on the files and cache they are handed.
 
 Run: uv run pytest -q tests/test_locate.py
 """
+
 import ast
 import json
 import os
@@ -24,8 +25,18 @@ from limn.pins import position
 from helpers import TEX, Base, add_pin, edit_pin, ps, req
 
 LOCATE_PY = Path(locate.__file__)
-SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK", "PIN_LOCK",
-                  "doc_by_key", "snapshot_pins"}
+SERVER_GLOBALS = {
+    "C",
+    "cur_doc",
+    "using_doc",
+    "DOCS",
+    "LEGACY_DOC",
+    "BUILD_STATE",
+    "BUILD_LOCK",
+    "PIN_LOCK",
+    "doc_by_key",
+    "snapshot_pins",
+}
 
 
 class NoServerState(unittest.TestCase):
@@ -77,13 +88,19 @@ class SyncAll(unittest.TestCase):
         self.assertEqual((rows[0]["lo"], rows[0]["sync"], rows[0]["rev"]), (3, "moved +1", 1))
         self.assertIs(rows[1], done)
         self.assertIs(rows[2], region)
-        self.assertEqual(pin["lo"], 2)                                  # the old record is not mutated
+        self.assertEqual(pin["lo"], 2)  # the old record is not mutated
 
     def test_nothing_changes_when_the_file_is_not_newer_or_not_found(self):
         """synced_at at the file's mtime: no change; a pin the locator cannot place: skipped."""
         mtime = os.stat(self.tex).st_mtime
-        pin = {"id": 1, "file": str(self.tex), "lo": 2, "hi": 2, "anchor": anchor_of(self.lines, 2, 2),
-               "synced_at": mtime}
+        pin = {
+            "id": 1,
+            "file": str(self.tex),
+            "lo": 2,
+            "hi": 2,
+            "anchor": anchor_of(self.lines, 2, 2),
+            "synced_at": mtime,
+        }
         rows = [pin]
         self.assertFalse(locate.sync_all(rows, self.locator))
         self.assertFalse(locate.sync_all([dict(pin, synced_at=0)], lambda r: None))
@@ -119,20 +136,26 @@ class Overlaps(unittest.TestCase):
 
     def setUp(self):
         """Pin 1 from before the move, pin 2 after it (same lines inside), a done pin and one in another file."""
-        self.rows = [{"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
-                     {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
-                     {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
-                     {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5}]
+        self.rows = [
+            {"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
+            {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
+            {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
+            {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5},
+        ]
 
     def test_pins_before_and_after_a_move_are_one_file(self):
         """The moved pin and the new one relate; the done pin has no entry; the other file relates to nothing."""
-        self.assertEqual(locate.overlaps_by_id(self.rows, self.locator),
-                         {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})
+        self.assertEqual(
+            locate.overlaps_by_id(self.rows, self.locator),
+            {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []},
+        )
 
     def test_a_range_is_compared_in_the_located_file(self):
         """A new selection of NEW meets the moved pin and the new one, not the done pin."""
-        self.assertEqual(locate.overlaps_for_range(str(self.NEW), 4, 5, self.rows, self.locator),
-                         [{"id": 1, "lo": 3, "hi": 9, "rel": "inside"}, {"id": 2, "lo": 4, "hi": 5, "rel": "equal"}])
+        self.assertEqual(
+            locate.overlaps_for_range(str(self.NEW), 4, 5, self.rows, self.locator),
+            [{"id": 1, "lo": 3, "hi": 9, "rel": "inside"}, {"id": 2, "lo": 4, "hi": 5, "rel": "equal"}],
+        )
 
     def test_overlaps_api_asks_the_contexts_overlaps(self):
         """GET /api/overlaps' body is {"overlaps": ctx.overlaps(file, lo, hi)} for the parsed range."""
@@ -142,6 +165,7 @@ class Overlaps(unittest.TestCase):
             """Records the question and answers one overlap."""
             asked.append((file, lo, hi))
             return [{"id": 7, "lo": lo, "hi": hi, "rel": "equal"}]
+
         ctx = locate.PickContext(Path("/ms"), (), Path("/state"), locate.TokenCache(), overlaps)
         rng = type("Range", (), {"file": self.NEW, "lines": ["a"] * 9, "lo": 2, "hi": 3})()
         self.assertEqual(locate.overlaps_api(rng, ctx), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]})
@@ -153,22 +177,23 @@ class Overlaps(unittest.TestCase):
 # Anchor re-sync on read and the est judgment of GET /api/pins. These classes load server.py (helpers.ps) and drive
 # the module through its bindings; the tests above call the module on its own.
 
+
 class Anchor(Base):
     def _shift(self, n):
         lines = TEX.splitlines()
-        lines[3:3] = ["inserted %d" % i for i in range(n)]      # n lines before L4
+        lines[3:3] = ["inserted %d" % i for i in range(n)]  # n lines before L4
         time.sleep(0.01)
         self.main.write_text("\n".join(lines) + "\n", encoding="utf-8")
         os.utime(self.main, (time.time() + 5, time.time() + 5))
 
     def test_trailing_comment_kept(self):
-        pid = self.add(8, 10)                     # two body lines + a trailing comment
+        pid = self.add(8, 10)  # two body lines + a trailing comment
         self._shift(3)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"], p["sync"]), (11, 13, "moved +3"))
 
     def test_leading_comment_kept(self):
-        pid = self.add(7, 10)                     # leading comment + body + trailing comment
+        pid = self.add(7, 10)  # leading comment + body + trailing comment
         self._shift(3)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"], p["sync"]), (10, 13, "moved +3"))
@@ -187,6 +212,7 @@ class Anchor(Base):
 
 # ---------------------------------------------------------------- location estimation (.est) — server-side judgment
 
+
 class Estimate(Base):
     """Design 1: est = (pin.pdf_build != current build) AND (the two builds' source fingerprints differ), or sync moved/lost.
     The judgment is made by the server and carried as est in GET /api/pins — it never uses the wall clock (browser timezone/edited_at)."""
@@ -194,8 +220,20 @@ class Estimate(Base):
     def _fake_build(self, name, src_hash, src_mtime=None):
         (ps.C.state / name).mkdir(exist_ok=True)
         ps.C.pages_ptr.write_text(name)
-        limn_build.finish_build(ps.DOCS[0], {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.1, "pages": 1,
-                         "build": name, "src_hash": src_hash}, src_mtime if src_mtime is not None else time.time())
+        limn_build.finish_build(
+            ps.DOCS[0],
+            {
+                "ok": True,
+                "state": "ok",
+                "errors": [],
+                "log": "",
+                "elapsed_s": 0.1,
+                "pages": 1,
+                "build": name,
+                "src_hash": src_hash,
+            },
+            src_mtime if src_mtime is not None else time.time(),
+        )
         return name
 
     def est_of(self, pid):
@@ -219,7 +257,7 @@ class Estimate(Base):
         pid = self.add()
         self._fake_build("pages-20260101000100", "h2")
         self.assertIs(self.est_of(pid), True)
-        edit_pin(pid, {"note": "메모만", "base_rev": 0}, dict(LOCAL_ACTOR))        # must-2(a)
+        edit_pin(pid, {"note": "메모만", "base_rev": 0}, dict(LOCAL_ACTOR))  # must-2(a)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note_append": "덧붙임"}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
@@ -229,22 +267,26 @@ class Estimate(Base):
         pid = self.add()
         self._fake_build("pages-20260101000100", "h2")
         p = self.pin(pid)
-        edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 0.5, 0.5]},
-                          "base_rev": p["rev"]}, dict(LOCAL_ACTOR))
+        edit_pin(
+            pid,
+            {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 0.5, 0.5]}, "base_rev": p["rev"]},
+            dict(LOCAL_ACTOR),
+        )
         self.assertIs(self.est_of(pid), False)
 
     def test_pin_on_stale_pdf_is_estimated_after_rebuild(self):
         # must-2(b): a pin placed on the old PDF after the manuscript was edited. Even if it was placed
         # later than the next build, it's caught by build identity.
         self._fake_build("pages-20260101000000", "h1")
-        pid = self.add()                                  # the screen shows the h1 build (the manuscript has already changed)
+        pid = self.add()  # the screen shows the h1 build (the manuscript has already changed)
         self._fake_build("pages-20260101000100", "h2")
         self.assertIs(self.est_of(pid), True)
 
     def test_unknown_pin_build_is_estimated(self):
         self._fake_build("pages-20260101000000", "h1")
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
-                         dict(LOCAL_ACTOR)).record["id"]            # a build not in history — treat unknown as estimated (conservative)
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"}, dict(LOCAL_ACTOR)
+        ).record["id"]  # a build not in history — treat unknown as estimated (conservative)
         self.assertIs(self.est_of(pid), True)
 
     def test_sync_moved_or_lost_is_estimated(self):
@@ -254,7 +296,7 @@ class Estimate(Base):
         time.sleep(0.02)
         self.main.write_text("new first line\n" + TEX, encoding="utf-8")
         os.utime(self.main, (time.time() + 5, time.time() + 5))
-        self.assertIs(self.est_of(pid), True)             # moved +1
+        self.assertIs(self.est_of(pid), True)  # moved +1
         self.assertEqual(self.pin(pid)["sync"], "moved +1")
 
     def test_same_source_falls_back_to_src_mtime_without_hash(self):
@@ -275,7 +317,7 @@ class Estimate(Base):
         self.assertTrue(position.pin_est(dict(old, edited_at="2026-09-22T11:00:00+09:00"), ctx))
         # the manuscript hasn't changed since
         self.assertFalse(position.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))
-        self.assertFalse(position.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # placed after the build
+        self.assertFalse(position.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))  # placed after the build
         # the legacy field name also takes the identity path
         self.assertTrue(position.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))
 
@@ -299,7 +341,7 @@ class Estimate(Base):
             (self.src / d / "x.tex").write_text("latexdiff", encoding="utf-8")
             (self.src / d / "y.pdf").write_bytes(b"%PDF")
         self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
-        os.utime(self.main, (time.time() + 10, time.time() + 10))                 # only the timestamp changed
+        os.utime(self.main, (time.time() + 10, time.time() + 10))  # only the timestamp changed
         self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
         self.main.write_text(TEX + "% x\n", encoding="utf-8")
         self.assertNotEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
@@ -308,8 +350,11 @@ class Estimate(Base):
         m0 = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m0["build_seq"], 0)
         self._fake_build("pages-20260101000000", "h1")
-        limn_build.finish_build(ps.DOCS[0], {"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom",
-                         "elapsed_s": 0.1}, None)
+        limn_build.finish_build(
+            ps.DOCS[0],
+            {"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom", "elapsed_s": 0.1},
+            None,
+        )
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
         self.assertEqual(m["last_build"]["state"], "fail")
@@ -323,9 +368,12 @@ class Estimate(Base):
 
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
         self._fake_build("pages-20260101000000", "h1")
-        limn_build.finish_build(ps.DOCS[0], {"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L",
-                         "elapsed_s": 0.1}, None)
-        ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")   # simulate a restart
+        limn_build.finish_build(
+            ps.DOCS[0],
+            {"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L", "elapsed_s": 0.1},
+            None,
+        )
+        ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
         st = limn_build.state_snapshot(ps.DOCS[0])
         self.assertEqual((st["state"], st["seq"]), ("ok_errors", 2))
@@ -336,7 +384,9 @@ class Estimate(Base):
         d = ps.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
-        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) + 1)
+        limn_build.write_built_src_mtime(
+            ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) + 1
+        )
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
         ent = limn_build.load_builds(ps.DOCS[0])["by"]["pages"]
         self.assertEqual(ent["src_hash"], limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
@@ -349,7 +399,9 @@ class Estimate(Base):
         d = ps.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
-        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) - 100)
+        limn_build.write_built_src_mtime(
+            ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) - 100
+        )
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
         self.assertIsNone(limn_build.load_builds(ps.DOCS[0])["by"]["pages"]["src_hash"])
 
@@ -364,24 +416,25 @@ class Estimate(Base):
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
         import shutil as _sh
+
         if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
         self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
-        time.sleep(1.1)                                      # build directory names are second-granularity
+        time.sleep(1.1)  # build directory names are second-granularity
         self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
-        self.main.write_text(TEX.replace("After table epsilonunique.", "After table epsilonunique longer."),
-                             encoding="utf-8")
+        self.main.write_text(
+            TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
+        )
         time.sleep(1.1)
         self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
-
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ here each rule's own contract is checked, and that the module stays pure.
 
 Run: uv run pytest -q tests/test_pins_position.py
 """
+
 import ast
 import time
 import unittest
@@ -17,8 +18,15 @@ from limn.pins import position
 from limn.pins.position import AnchorLost, EstContext, Followed
 
 POSITION_PY = Path(position.__file__)
-PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "datetime", "typing", "limn.mapping",
-                "limn.pins.lifecycle"}
+PURE_IMPORTS = {
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "datetime",
+    "typing",
+    "limn.mapping",
+    "limn.pins.lifecycle",
+}
 
 LINES = ["\\section{Intro}", "alpha line one", "beta line two", "", "gamma line four", "delta line five"]
 
@@ -64,7 +72,7 @@ class Estimation(unittest.TestCase):
         by = {"pages-1": {"src_hash": "h1"}, "pages-2": {"src_hash": "h1"}, "pages-0": {"src_hash": "h0"}}
         self.assertFalse(position.pin_est({"pdf_build": "pages-1"}, ctx(by=by)))
         self.assertTrue(position.pin_est({"pdf_build": "pages-0"}, ctx(by=by)))
-        self.assertTrue(position.pin_est({"pdf_build": "pages-9"}, ctx(by=by)))      # unknown build: unsure = dashed
+        self.assertTrue(position.pin_est({"pdf_build": "pages-9"}, ctx(by=by)))  # unknown build: unsure = dashed
 
     def test_legacy_frac_build_field_takes_the_identity_path(self):
         """frac_build means pdf_build (83b91a5); an empty pdf_build falls through to it."""
@@ -91,12 +99,14 @@ class Estimation(unittest.TestCase):
     def test_est_basis_fills_a_current_build_missing_from_history(self):
         """Before the history has the current build, it is judged by the recorded mtime; without one, by history."""
         c = position.est_basis("pages-2", {}, 50.0, 60.0)
-        self.assertEqual((c.by["pages-2"], c.built_src_mtime, c.built_at),
-                         ({"build": "pages-2", "src_mtime": 50.0, "src_hash": None}, 50.0, 60.0))
+        self.assertEqual(
+            (c.by["pages-2"], c.built_src_mtime, c.built_at),
+            ({"build": "pages-2", "src_mtime": 50.0, "src_hash": None}, 50.0, 60.0),
+        )
         self.assertEqual(position.est_basis("pages-2", {"pages-2": {"src_mtime": 7}}, None, None).built_src_mtime, 7.0)
         history = {"pages-1": {}}
         position.est_basis("pages-2", history, None, None)
-        self.assertEqual(history, {"pages-1": {}})                                   # the history read is not changed
+        self.assertEqual(history, {"pages-1": {}})  # the history read is not changed
 
     def test_epoch_reads_local_and_offset_times(self):
         """A local 'YYYY-MM-DD HH:MM:SS' is local time; an offset string is absolute; anything else is None."""
@@ -111,34 +121,52 @@ class Overlap(unittest.TestCase):
 
     def test_pairs_relate_inside_contains_partial_and_equal_ranges_by_id(self):
         """Nested, overlapping and equal ranges get their relationship on both sides; equal ranges: smaller id outer."""
-        rows = [{"id": 1, "file": "a", "lo": 1, "hi": 10}, {"id": 2, "file": "a", "lo": 3, "hi": 4},
-                {"id": 3, "file": "a", "lo": 9, "hi": 12}, {"id": 5, "file": "a", "lo": 3, "hi": 4}]
+        rows = [
+            {"id": 1, "file": "a", "lo": 1, "hi": 10},
+            {"id": 2, "file": "a", "lo": 3, "hi": 4},
+            {"id": 3, "file": "a", "lo": 9, "hi": 12},
+            {"id": 5, "file": "a", "lo": 3, "hi": 4},
+        ]
         rel = position.overlaps_by_id(rows, lambda r: r["file"])
-        self.assertEqual(rel[1], [{"id": 2, "rel": "contains"}, {"id": 3, "rel": "partial"}, {"id": 5, "rel": "contains"}])
+        self.assertEqual(
+            rel[1], [{"id": 2, "rel": "contains"}, {"id": 3, "rel": "partial"}, {"id": 5, "rel": "contains"}]
+        )
         self.assertEqual(rel[2], [{"id": 1, "rel": "inside"}, {"id": 5, "rel": "contains"}])
         self.assertEqual(rel[5], [{"id": 1, "rel": "inside"}, {"id": 2, "rel": "inside"}])
 
     def test_counts_pins_in_the_file_the_caller_locates(self):
         """Two pins whose stored paths differ (before and after a moved checkout) overlap when file_of says one file;
         done pins and view-only pins are left out, a view-only open pin still gets an (empty) entry."""
-        rows = [{"id": 1, "file": "/old/x.tex", "lo": 1, "hi": 5}, {"id": 2, "file": "/new/x.tex", "lo": 2, "hi": 3},
-                {"id": 3, "file": "/new/x.tex", "lo": 1, "hi": 5, "done": True}, {"id": 4, "page": 1}]
+        rows = [
+            {"id": 1, "file": "/old/x.tex", "lo": 1, "hi": 5},
+            {"id": 2, "file": "/new/x.tex", "lo": 2, "hi": 3},
+            {"id": 3, "file": "/new/x.tex", "lo": 1, "hi": 5, "done": True},
+            {"id": 4, "page": 1},
+        ]
         rel = position.overlaps_by_id(rows, lambda r: "x.tex")
         self.assertEqual(rel, {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})
         self.assertEqual(position.overlaps_by_id(rows, lambda r: r["file"]), {1: [], 2: [], 4: []})
 
     def test_selection_relation_names_equal_separately(self):
         """A new selection has no id, so an identical range is "equal"; the others are as between pins."""
-        self.assertEqual([position.selection_rel(*c) for c in ((4, 9, 4, 9), (5, 6, 4, 9), (3, 10, 4, 9), (8, 12, 4, 9))],
-                         ["equal", "inside", "contains", "partial"])
+        self.assertEqual(
+            [position.selection_rel(*c) for c in ((4, 9, 4, 9), (5, 6, 4, 9), (3, 10, 4, 9), (8, 12, 4, 9))],
+            ["equal", "inside", "contains", "partial"],
+        )
         self.assertIsNone(position.selection_rel(10, 12, 4, 9))
 
     def test_overlaps_for_range_lists_open_pins_of_that_file(self):
         """Only open line pins counted in the same file and overlapping the range, with their range and relation."""
-        rows = [{"id": 1, "file": "a", "lo": 4, "hi": 9}, {"id": 2, "file": "b", "lo": 4, "hi": 9},
-                {"id": 3, "file": "a", "lo": 4, "hi": 9, "done": True}, {"id": 4, "file": "a", "lo": 20, "hi": 21}]
-        self.assertEqual(position.overlaps_for_range("a", 4, 9, rows, lambda r: r["file"]),
-                         [{"id": 1, "lo": 4, "hi": 9, "rel": "equal"}])
+        rows = [
+            {"id": 1, "file": "a", "lo": 4, "hi": 9},
+            {"id": 2, "file": "b", "lo": 4, "hi": 9},
+            {"id": 3, "file": "a", "lo": 4, "hi": 9, "done": True},
+            {"id": 4, "file": "a", "lo": 20, "hi": 21},
+        ]
+        self.assertEqual(
+            position.overlaps_for_range("a", 4, 9, rows, lambda r: r["file"]),
+            [{"id": 1, "lo": 4, "hi": 9, "rel": "equal"}],
+        )
 
 
 class AnchorResync(unittest.TestCase):
@@ -146,8 +174,18 @@ class AnchorResync(unittest.TestCase):
 
     def pin(self, lo=2, hi=3, **extra):
         """An open pin on LINES lo..hi with its anchor, synced at mtime 100."""
-        return dict({"id": 1, "file": "/ms/main.tex", "lo": lo, "hi": hi, "anchor": anchor_of(LINES, lo, hi),
-                     "synced_at": 100.0, "rev": 2}, **extra)
+        return dict(
+            {
+                "id": 1,
+                "file": "/ms/main.tex",
+                "lo": lo,
+                "hi": hi,
+                "anchor": anchor_of(LINES, lo, hi),
+                "synced_at": 100.0,
+                "rev": 2,
+            },
+            **extra,
+        )
 
     def test_follow_anchor_after_lines_inserted_above(self):
         """Two lines inserted above: the range moves down by two, and says so."""
@@ -170,7 +208,9 @@ class AnchorResync(unittest.TestCase):
         r = self.pin(stale=True)
         edited = ["inserted"] + LINES
         new = position.resync(r, edited, [norm(t) for t in edited], 200.0, "/ms/main.tex")
-        self.assertEqual((new["lo"], new["hi"], new["sync"], new["rev"], new["synced_at"]), (3, 4, "moved +1", 3, 200.0))
+        self.assertEqual(
+            (new["lo"], new["hi"], new["sync"], new["rev"], new["synced_at"]), (3, 4, "moved +1", 3, 200.0)
+        )
         self.assertNotIn("stale", new)
         self.assertEqual(list(new), ["id", "file", "lo", "hi", "anchor", "synced_at", "rev", "sync"])
         self.assertEqual(r["lo"], 2)

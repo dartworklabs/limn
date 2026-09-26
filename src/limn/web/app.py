@@ -16,6 +16,7 @@ limn.access.Principal), not narrower views of them: server.py's members take tho
 module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Handler), so a missing or wrongly typed
 binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
 """
+
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
@@ -44,8 +45,8 @@ from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.web.errors import Messages
 from limn.web.parse import CloseChange, DocumentFacts, PickRequest, SourceRange
 
-Json: TypeAlias = dict[str, Any]          # a JSON object: request body, response payload, actor, stored pin record
-Query: TypeAlias = dict[str, list[str]]   # parse_qs() of the request's query string
+Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
+Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query string
 
 
 # The run settings the handler reads (C: origin_check, src, accent), a document a request acts on (key, is_pdf) and
@@ -59,11 +60,11 @@ class App(Protocol):
     """server.py as the handler sees it. Each member keeps the name, arguments and contract it has there."""
 
     C: Config
-    HTML: str                         # the viewer page (rebuilt by main() with the label and accent)
-    SW_JS: str                        # the service worker served as /sw.js
-    UI_EN: Messages                   # the viewer's ko -> en message table, for the refusal page
+    HTML: str  # the viewer page (rebuilt by main() with the label and accent)
+    SW_JS: str  # the service worker served as /sw.js
+    UI_EN: Messages  # the viewer's ko -> en message table, for the refusal page
     APP_NAME: str
-    DEFAULT_ROLE: str                 # the role of a person people.json gives none
+    DEFAULT_ROLE: str  # the role of a person people.json gives none
 
     # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
 
@@ -223,12 +224,21 @@ class App(Protocol):
 
     # ---- changes
 
-    def reply_pin(self, pid: int, text: str, actor: Json, hints: list[str] | None = None, reopen: bool | None = None,
-                  human: bool | None = None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
+    def reply_pin(
+        self,
+        pid: int,
+        text: str,
+        actor: Json,
+        hints: list[str] | None = None,
+        reopen: bool | None = None,
+        human: bool | None = None,
+    ) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
         """POST /api/pins/{id}/reply."""
         ...
 
-    def confirm_pin(self, pid: int, actor: Json) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
+    def confirm_pin(
+        self, pid: int, actor: Json
+    ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
         """POST /api/pins/{id}/confirm."""
         ...
 
@@ -244,13 +254,15 @@ class App(Protocol):
         """POST /api/pins/{id}/purge."""
         ...
 
-    def edit_pin(self, pid: int, request: EditRequest, actor: Json,
-                 region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
+    def edit_pin(
+        self, pid: int, request: EditRequest, actor: Json, region: bool = False
+    ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
         """POST /api/pins/{id}/edit."""
         ...
 
-    def claim_pin(self, pid: int, actor: Json, ttl_min: int,
-                  eta_min: int | None = None) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
+    def claim_pin(
+        self, pid: int, actor: Json, ttl_min: int, eta_min: int | None = None
+    ) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
         """POST /api/pins/{id}/claim."""
         ...
 
@@ -258,9 +270,18 @@ class App(Protocol):
         """POST /api/pins/{id}/unclaim."""
         ...
 
-    def set_done(self, pid: int, done: bool, actor: Json, reply: str | None = None, ref: str | None = None,
-                 review: bool | None = None, reason: str | None = None, hints: list[str] | None = None,
-                 changes: Sequence[CloseChange] | None = None) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+    def set_done(
+        self,
+        pid: int,
+        done: bool,
+        actor: Json,
+        reply: str | None = None,
+        ref: str | None = None,
+        review: bool | None = None,
+        reason: str | None = None,
+        hints: list[str] | None = None,
+        changes: Sequence[CloseChange] | None = None,
+    ) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
         """POST /api/pins/{id}/close (done) and /reopen."""
         ...
 

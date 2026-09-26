@@ -13,6 +13,7 @@ instance supplies - its pins, where a recorded path is now, the process's scope 
 timeout - comes in a RevisionContext made per request by the composition root (server.revision_context).
 git runs without a shell; only full SHA-1s that git itself listed, and git's own object ids, reach its arguments.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -63,23 +64,23 @@ from limn.store import find_pin
 Record: TypeAlias = Mapping[str, Any]
 Json: TypeAlias = dict[str, Any]
 
-GIT_TIMEOUT = 30                      # seconds - one git call (a history read, a diff, a --git-pull fetch)
+GIT_TIMEOUT = 30  # seconds - one git call (a history read, a diff, a --git-pull fetch)
 REVISION_ID_RE = re.compile(r"[0-9a-f]{40}")
-SCOPE_FILES_MAX = 60                  # a commit touching more manuscript files than this stays a whole-commit view
-SCOPE_BYTES_MAX = 16 * 1024 * 1024    # both sides of every changed file together
-SCOPE_CACHE_KEEP = 32                 # entries: counts, block key and the two patches, each cut at REVISION_DIFF_MAX + 1 bytes
-SCOPE_SLOTS = 2                       # scope computations (cache misses) reading git at once; more wait, then show whole
-SCOPE_SECONDS_MAX = 60                # reading one commit's files for scoping, all git calls together
+SCOPE_FILES_MAX = 60  # a commit touching more manuscript files than this stays a whole-commit view
+SCOPE_BYTES_MAX = 16 * 1024 * 1024  # both sides of every changed file together
+SCOPE_CACHE_KEEP = 32  # entries: counts, block key and the two patches, each cut at REVISION_DIFF_MAX + 1 bytes
+SCOPE_SLOTS = 2  # scope computations (cache misses) reading git at once; more wait, then show whole
+SCOPE_SECONDS_MAX = 60  # reading one commit's files for scoping, all git calls together
 REVISION_CACHE_VERSION = "latex-pdf-v1"
 REVISION_FILES_MAX = 4000
 REVISION_TREE_MAX = 256 * 1024 * 1024
 REVISION_FILE_MAX = 64 * 1024 * 1024
 REVISION_PDF_MAX = 32 * 1024 * 1024
 REVISION_CACHE_KEEP = 6
-REVISION_SCOPED_KEEP = 6              # pin-scoped comparisons, counted apart so they never evict whole-commit ones
-SCOPED_MARK = "scoped"                # empty file in a pin-scoped comparison's cache folder
+REVISION_SCOPED_KEEP = 6  # pin-scoped comparisons, counted apart so they never evict whole-commit ones
+SCOPED_MARK = "scoped"  # empty file in a pin-scoped comparison's cache folder
 REVISION_CACHE_TTL = 24 * 3600
-SCOPE_META = ("scope", "pin", "source", "hunks", "other")   # per-request fields; never stored in a (shared) status
+SCOPE_META = ("scope", "pin", "source", "hunks", "other")  # per-request fields; never stored in a (shared) status
 
 
 class RevisionDoc(Protocol):
@@ -112,6 +113,7 @@ class RevisionDoc(Protocol):
 
 
 # ---------------------------------------------------------------- outcomes
+
 
 @dataclass(frozen=True)
 class NoHistory:
@@ -179,8 +181,20 @@ PdfRefusal: TypeAlias = SpecRefusal | UnsafeCache | RevisionNotReady | RevisionP
 RevisionRefusal: TypeAlias = DiffRefusal | StartRefusal | PdfRefusal
 
 FailureKind: TypeAlias = Literal[
-    "tool_start", "timeout", "size", "snapshot_read", "unsafe_snapshot", "snapshot_size", "snapshot_timeout",
-    "snapshot_blob", "missing_main", "sandbox_tools", "sandbox_system", "diff_failed", "compile_failed", "invalid_pdf",
+    "tool_start",
+    "timeout",
+    "size",
+    "snapshot_read",
+    "unsafe_snapshot",
+    "snapshot_size",
+    "snapshot_timeout",
+    "snapshot_blob",
+    "missing_main",
+    "sandbox_tools",
+    "sandbox_system",
+    "diff_failed",
+    "compile_failed",
+    "invalid_pdf",
 ]
 
 
@@ -189,6 +203,7 @@ class StepFailed:
     """A step of a comparison build (or of reading a commit for it) failed. Every kind is handled the same way - the
     build records an "error" status - so one type carries the kind; limn.web.errors.REVISION_FAILURES gives each kind
     its text and API reason."""
+
     kind: FailureKind
 
 
@@ -256,38 +271,43 @@ class RevisionJobs:
 @dataclass(frozen=True)
 class RevisionContext:
     """What a revision service needs from the instance, made per request by the composition root."""
-    timeout: int                                           # --build-timeout; a comparison is bounded by min(180, it)
-    pins: Callable[[], list[Json]]                          # the pin records as the API shows them (read only for a pin request)
-    doc_of: Callable[[Record], str]                         # the document key a pin record belongs to
-    locate: Callable[[str, RevisionDoc], Path | None]       # where a recorded absolute path of document D is now, or None
+
+    timeout: int  # --build-timeout; a comparison is bounded by min(180, it)
+    pins: Callable[[], list[Json]]  # the pin records as the API shows them (read only for a pin request)
+    doc_of: Callable[[Record], str]  # the document key a pin record belongs to
+    locate: Callable[[str, RevisionDoc], Path | None]  # where a recorded absolute path of document D is now, or None
     cache: ScopeCache
     jobs: RevisionJobs
-    describe: Callable[[BuildFailure], tuple[str, str]]     # (message, API reason) a failed build records
+    describe: Callable[[BuildFailure], tuple[str, str]]  # (message, API reason) a failed build records
 
 
 class RevisionSpec(NamedTuple):
     """One comparison to build: repo, build root (source, relative to repo) and main (relative to it), the first parent
     base and the commit head, and key - the cache identity (revision_spec). For a pin that owns part of the commit,
     scope names the blocks the new side applies; meta carries the per-request status fields for a pin request."""
+
     repo: Path
     source: str
     main: Path
     base: str
     head: str
     key: str
-    paths: tuple[str, ...] = ()       # the manuscript pathspec (revision_scope) - a scoped build re-reads the commit with it
+    paths: tuple[str, ...] = ()  # the manuscript pathspec (revision_scope) - a scoped build re-reads the commit with it
     scope: tuple[ScopeItem, ...] = ()  # v0.3: the pin's blocks (scope_key); () = the whole commit
-    pin: int | None = None            # the pin that asked, when the request named one
-    meta: ScopeMeta | None = None     # additive status fields for a pin request: scope, pin, source, hunks, other
+    pin: int | None = None  # the pin that asked, when the request named one
+    meta: ScopeMeta | None = None  # additive status fields for a pin request: scope, pin, source, hunks, other
 
 
 # ---------------------------------------------------------------- history and the source diff
+
 
 def git(args: Sequence[str], cwd: Path | str, timeout: float = GIT_TIMEOUT) -> tuple[int | None, str, str]:
     """Run git without a shell. Never puts user input into the args. Returns (returncode, stdout, stderr).
     Timeout and exec failure are both distinguished by returncode=None."""
     try:
-        r = subprocess.run(["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            ["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True, check=False
+        )
         return r.returncode, r.stdout, r.stderr
     except (subprocess.TimeoutExpired, OSError):
         return None, "", ""
@@ -352,12 +372,23 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
     if commit not in {row["id"] for row in revisions}:
         return CommitNotRecent()
     cap = scope.REVISION_DIFF_MAX
-    cmd = ["git", "-C", str(repo), "show", "--format=", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3",
-           commit, "--"] + paths
+    cmd = [
+        "git",
+        "-C",
+        str(repo),
+        "show",
+        "--format=",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--unified=3",
+        commit,
+        "--",
+    ] + paths
     chunks: list[bytes] = []
     try:
         with subprocess.Popen(cmd, cwd=str(repo), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
-            assert proc.stdout is not None                # stdout=PIPE
+            assert proc.stdout is not None  # stdout=PIPE
             size = 0
             deadline = time.monotonic() + GIT_TIMEOUT
             try:
@@ -386,7 +417,7 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
         return DiffUnavailable()
     out: Json = {"id": commit, "diff": b"".join(chunks)[:cap].decode("utf-8", errors="replace"), "truncated": too_large}
     if pin is not None:
-        base, rows = revision_first_parent(repo, commit), ctx.pins()   # current paths (ADR-0006)
+        base, rows = revision_first_parent(repo, commit), ctx.pins()  # current paths (ADR-0006)
         if base:
             sc = revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, ctx)
         else:
@@ -399,6 +430,7 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
 
 
 # ---------------------------------------------------------------- the git edge of pin scoping
+
 
 def _blob(repo: Path, oid: str, budget: list[int]) -> bytes | None:
     """The bytes of one git blob, charged against budget[0] (bytes left for the whole commit, updated in place). None
@@ -418,8 +450,12 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
     over the scoping limits - the caller then shows the whole commit, exactly as before 0.3. git runs without a
     shell; only full SHA-1s from revision_history() and git's own object ids reach its arguments."""
     try:
-        ran = revision_exec(["git", "diff", "--raw", "-z", "-M", "--abbrev=40", "--no-ext-diff", base, head, "--"]
-                            + list(paths), repo, 30, 2 * 1024 * 1024)
+        ran = revision_exec(
+            ["git", "diff", "--raw", "-z", "-M", "--abbrev=40", "--no-ext-diff", base, head, "--"] + list(paths),
+            repo,
+            30,
+            2 * 1024 * 1024,
+        )
         if isinstance(ran, StepFailed) or ran[0] != 0:
             return None
         entries = parse_raw_entries(ran[1])
@@ -430,7 +466,7 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
         for old_path, new_path, old_oid, new_oid, modes, text in entries:
             if time.monotonic() > deadline:
                 return None
-            if not text:                          # symlink or submodule: never lines (the whole-commit snapshot refuses it)
+            if not text:  # symlink or submodule: never lines (the whole-commit snapshot refuses it)
                 files.append(FileChange(old_path, new_path, (), (), (), False, modes))
                 continue
             old = _blob(repo, old_oid, budget) if old_path is not None and old_oid != zero else b""
@@ -448,9 +484,22 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
                 blocks = [scope.Block(0, len(git_lines(old)), 0, len(git_lines(new)))]
             else:
                 # --inter-hunk-context=0: a diff.interHunkContext setting must not merge two pins' blocks into one
-                ran = revision_exec(["git", "diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-ext-diff",
-                                     "--no-textconv", old_oid, new_oid], repo, 30,
-                                    4 * scope.REVISION_DIFF_MAX + len(old) + len(new))
+                ran = revision_exec(
+                    [
+                        "git",
+                        "diff",
+                        "-U0",
+                        "--inter-hunk-context=0",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        old_oid,
+                        new_oid,
+                    ],
+                    repo,
+                    30,
+                    4 * scope.REVISION_DIFF_MAX + len(old) + len(new),
+                )
                 if isinstance(ran, StepFailed) or ran[0] != 0:
                     return None
                 blocks = parse_u0_blocks(ran[1])
@@ -478,8 +527,17 @@ def scope_pin_record(rows: list[Json], D: RevisionDoc, pid: int, doc_of: Callabl
     return r
 
 
-def revision_pin_scope(D: RevisionDoc, rows: list[Json], repo: Path, paths: Sequence[str], base: str, head: str,
-                       pid: int, revisions: Sequence[Record], ctx: RevisionContext) -> PinScope | PinNotInDoc:
+def revision_pin_scope(
+    D: RevisionDoc,
+    rows: list[Json],
+    repo: Path,
+    paths: Sequence[str],
+    base: str,
+    head: str,
+    pid: int,
+    revisions: Sequence[Record],
+    ctx: RevisionContext,
+) -> PinScope | PinNotInDoc:
     """How pin pid of document D sees commit head (compared with its first parent base). rows are the pin records,
     revisions the document's recent commits (revision_history); the recorded changes count only on the commit the
     pin's close_ref names. Their absolute paths are located by ctx.locate - the same rule as the pin's own file
@@ -495,6 +553,7 @@ def revision_pin_scope(D: RevisionDoc, rows: list[Json], repo: Path, paths: Sequ
         """A recorded change's path relative to the repository, located first; None if it cannot be placed."""
         path = ctx.locate(file, D)
         return _repo_rel(repo, str(path)) if path is not None else None
+
     changes = [RepoRange(repo_path(c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
     pin: PinFacts = pin_facts(r, _repo_rel(repo, r["file"]) if not is_region_pin(r) else None)
     key = (str(repo), base, head, json.dumps([pin, changes], default=str))
@@ -518,6 +577,7 @@ def revision_first_parent(repo: Path, commit: str) -> str | None:
 
 
 # ---------------------------------------------------------------- comparison PDFs - independent from the current manuscript build
+
 
 def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> RevisionSpec | SpecRefusal:
     """What to compare. With pin (v0.3) the new side is old + only that pin's blocks - unless the pin owns the whole
@@ -549,22 +609,30 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
             return sc
         meta = scope_meta(sc)
         if sc.mode == "pin":
-            blocks = sc.blocks                    # keyed by the block set, not the pin: pins on the same fix share it
+            blocks = sc.blocks  # keyed by the block set, not the pin: pins on the same fix share it
             identity += ["blocks", [list(b) for b in blocks]]
     key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
     return RevisionSpec(repo, source, main, base, commit, key, paths, blocks, pin, meta)
 
 
-def revision_exec(cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 1024 * 1024) -> tuple[int, bytes, bytes] | StepFailed:
+def revision_exec(
+    cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 1024 * 1024
+) -> tuple[int, bytes, bytes] | StepFailed:
     """Run cmd without a shell with both pipes and the lifetime bounded: (returncode, stdout, stderr), or the step
     failure - the tool could not start, it ran past timeout seconds, or its output passed limit bytes. The whole process
     group is killed on every exit."""
     try:
-        proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
     except OSError:
         return StepFailed("tool_start")
-    assert proc.stdout is not None and proc.stderr is not None      # stdout/stderr=PIPE
+    assert proc.stdout is not None and proc.stderr is not None  # stdout/stderr=PIPE
     buffers = {proc.stdout: bytearray(), proc.stderr: bytearray()}
     size, deadline = 0, time.monotonic() + timeout
     try:
@@ -583,7 +651,7 @@ def revision_exec(cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 10
                     size += len(chunk)
                     if size > limit:
                         return StepFailed("size")
-                    buffers[key.fileobj].extend(chunk)       # type: ignore[index]  # the keys are the two pipes
+                    buffers[key.fileobj].extend(chunk)  # type: ignore[index]  # the keys are the two pipes
             try:
                 rc = proc.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
@@ -624,11 +692,17 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
             name = rawname.decode("utf-8")
             if not name.startswith(prefix):
                 raise ValueError()
-            name = name[len(prefix):]
+            name = name[len(prefix) :]
             path = Path(name)
-            if (mode not in (b"100644", b"100755") or kind != b"blob" or path.is_absolute()
-                    or not name or any(p in (".", "..", ".git") for p in name.split("/"))
-                    or "\\" in name or any(ord(c) < 32 for c in name)):
+            if (
+                mode not in (b"100644", b"100755")
+                or kind != b"blob"
+                or path.is_absolute()
+                or not name
+                or any(p in (".", "..", ".git") for p in name.split("/"))
+                or "\\" in name
+                or any(ord(c) < 32 for c in name)
+            ):
                 raise ValueError()
             n = int(size)
         except (ValueError, UnicodeError):
@@ -642,8 +716,9 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
     for path, oid_text, n in entries:
         if time.monotonic() >= deadline:
             return StepFailed("snapshot_timeout")
-        ran = revision_exec(["git", "cat-file", "blob", oid_text], spec.repo,
-                            min(15, max(.01, deadline - time.monotonic())), n + 4096)
+        ran = revision_exec(
+            ["git", "cat-file", "blob", oid_text], spec.repo, min(15, max(0.01, deadline - time.monotonic())), n + 4096
+        )
         if isinstance(ran, StepFailed):
             return ran
         rc, data, _ = ran
@@ -695,17 +770,43 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) 
     if not exe.is_relative_to(Path("/usr")):
         return StepFailed("sandbox_system")
     cmd = [bwrap, "--unshare-all", "--die-with-parent", "--clearenv"]
-    for path in ("/usr", "/bin", "/lib", "/lib64", "/etc/fonts", "/etc/texmf", "/var/lib/texmf", "/var/cache/fontconfig"):
+    for path in (
+        "/usr",
+        "/bin",
+        "/lib",
+        "/lib64",
+        "/etc/fonts",
+        "/etc/texmf",
+        "/var/lib/texmf",
+        "/var/cache/fontconfig",
+    ):
         if Path(path).exists():
             cmd += ["--ro-bind", path, path]
-    cmd += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
-            "--bind", str(work), "/work", "--chdir", "/work/new/" + main_parent.as_posix()]
+    cmd += [
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--bind",
+        str(work),
+        "/work",
+        "--chdir",
+        "/work/new/" + main_parent.as_posix(),
+    ]
     # latexmk invokes the engine by name; use the installation's public binary directory,
     # not a symlink-resolved Perl script directory.
     texbin = str(Path(shutil.which("latexmk") or "/usr/bin/latexmk").parent)
-    for key, value in {"PATH": texbin + ":/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8",
-                       "TEXMFVAR": "/tmp/texmf-var", "TEXMFCONFIG": "/tmp/texmf-config",
-                       "openin_any": "p", "openout_any": "p"}.items():
+    for key, value in {
+        "PATH": texbin + ":/usr/bin:/bin",
+        "HOME": "/tmp",
+        "LANG": "C.UTF-8",
+        "TEXMFVAR": "/tmp/texmf-var",
+        "TEXMFCONFIG": "/tmp/texmf-config",
+        "openin_any": "p",
+        "openout_any": "p",
+    }.items():
         cmd += ["--setenv", key, value]
     return cmd + ["--", str(exe)] + args
 
@@ -715,12 +816,14 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Json | B
     snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, then
     latexmk with timeout seconds. Returns the "ready" status fields with warnings, or the first step that failed (a
     StepFailed as before 0.3, or a ScopeRefusal from the scope step); the worker records either."""
-    warnings = ["수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."]
+    warnings = [
+        "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
+    ]
     with tempfile.TemporaryDirectory(prefix="work-", dir=jobdir) as tmp:
         work = Path(tmp)
         failed: BuildFailure | None = revision_snapshot(spec, spec.base, work / "old")
         if failed is None:
-            if spec.scope:                        # v0.3: the new side is old + only the pin's blocks
+            if spec.scope:  # v0.3: the new side is old + only the pin's blocks
                 failed = revision_snapshot(spec, spec.base, work / "new") or revision_apply_scope(spec, work / "new")
             else:
                 failed = revision_snapshot(spec, spec.head, work / "new")
@@ -728,9 +831,19 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Json | B
             return failed
         main = spec.main.as_posix()
         head_label = spec.head[:8] + ("+scoped" if spec.scope else "")
-        args = ["--encoding=utf8", "--flatten", "--math-markup=off", "--add-to-config",
-                "ARRENV=tabularx;tabular;tabular[*]", "--label", spec.base[:8], "--label", head_label,
-                "/work/old/" + main, "/work/new/" + main]
+        args = [
+            "--encoding=utf8",
+            "--flatten",
+            "--math-markup=off",
+            "--add-to-config",
+            "ARRENV=tabularx;tabular;tabular[*]",
+            "--label",
+            spec.base[:8],
+            "--label",
+            head_label,
+            "/work/old/" + main,
+            "/work/new/" + main,
+        ]
         cmd = revision_sandbox(work, spec.main.parent, "latexdiff", args)
         if isinstance(cmd, StepFailed):
             return cmd
@@ -768,10 +881,16 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Json | B
         # Earlier latexmk passes normally contain unresolved citations. Report the final
         # engine log only, otherwise a successful BibTeX pass looks like a broken PDF.
         final_log = out / "pin_revision.log"
-        final_text = (final_log.read_text(encoding="utf-8", errors="replace")
-                      if final_log.is_file() and final_log.stat().st_size <= 8 * 1024 * 1024 else log)
-        warning_lines = [line.strip() for line in final_text.splitlines()
-                         if "Warning:" in line or "undefined" in line or "Missing character:" in line]
+        final_text = (
+            final_log.read_text(encoding="utf-8", errors="replace")
+            if final_log.is_file() and final_log.stat().st_size <= 8 * 1024 * 1024
+            else log
+        )
+        warning_lines = [
+            line.strip()
+            for line in final_text.splitlines()
+            if "Warning:" in line or "undefined" in line or "Missing character:" in line
+        ]
         warnings += list(dict.fromkeys(warning_lines))[:12]
         os.replace(pdf, jobdir / "revision.pdf")
     return {"state": "ready", "warnings": warnings, "error": None, "reason": None}
@@ -798,13 +917,19 @@ def revision_cached(spec: RevisionSpec, root: Path) -> Json:
     "idle" status; always with spec's identity and, for a pin request, its per-request fields. Reads files only;
     a corrupt, oversized, symlinked or expired entry is a miss."""
     path = root / spec.key
-    identity = dict({"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **(spec.meta or {}))
+    identity = dict(
+        {"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **(spec.meta or {})
+    )
     try:
         status = path / "status.json"
         if path.is_symlink() or status.is_symlink() or status.stat().st_size > 32768:
             raise ValueError()
         data = json.loads(status.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or data.get("state") not in ("ready", "error") or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL:
+        if (
+            not isinstance(data, dict)
+            or data.get("state") not in ("ready", "error")
+            or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL
+        ):
             raise ValueError()
         if data["state"] == "ready":
             pdf = path / "revision.pdf"
@@ -836,7 +961,7 @@ def revision_prune(root: Path, keep_key: str, running: Mapping[str, Json]) -> No
 def revision_status(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | StatusRefusal:
     """GET /api/revision-build: the running job's status or the cached one, re-authorising the commit (and pin) on
     every poll."""
-    spec = revision_spec(D, commit, pin, ctx)         # Reauthorize cache hits and poll requests too.
+    spec = revision_spec(D, commit, pin, ctx)  # Reauthorize cache hits and poll requests too.
     if not isinstance(spec, RevisionSpec):
         return spec
     with ctx.jobs.lock:
@@ -867,7 +992,11 @@ def revision_start(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCo
             return cached
         # A pin's subset that did not compile will not compile next time either (two SHA-1s, a fixed pipeline): answer
         # from the cache so the viewer falls back at once instead of spending a build slot again. Whole commits retry.
-        if spec.scope and cached["state"] == "error" and cached.get("reason") in ("compile_failed", "diff_failed", "scope_failed"):
+        if (
+            spec.scope
+            and cached["state"] == "error"
+            and cached.get("reason") in ("compile_failed", "diff_failed", "scope_failed")
+        ):
             return cached
         if not jobs.slots.acquire(blocking=False):
             return AllSlotsBusy()
@@ -913,9 +1042,14 @@ def revision_start(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCo
                     result = {"state": "error", "error": message, "reason": reason, "warnings": []}
             except Exception:
                 traceback.print_exc()
-                result = {"state": "error", "error": "비교 PDF를 만들지 못했습니다.", "reason": "build_failed", "warnings": []}
+                result = {
+                    "state": "error",
+                    "error": "비교 PDF를 만들지 못했습니다.",
+                    "reason": "build_failed",
+                    "warnings": [],
+                }
             try:
-                result = dict(running, **result)          # running carries no per-request pin fields (SCOPE_META)
+                result = dict(running, **result)  # running carries no per-request pin fields (SCOPE_META)
                 atomic_write(jobdir / "status.json", json.dumps(result, ensure_ascii=False))
             except OSError:
                 pass

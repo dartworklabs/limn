@@ -5,6 +5,7 @@ concurrent appends) is covered in test_v031.py; this file checks that the module
 
 Run: uv run pytest -q tests/test_audit.py
 """
+
 import ast
 import json
 import tempfile

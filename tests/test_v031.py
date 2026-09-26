@@ -9,6 +9,7 @@ Design notes live in docs/handbook/api.md §이벤트 (`events.jsonl`) and §감
 
 Run: uv run pytest -q tests/test_v031.py
 """
+
 import json
 import os
 import pwd
@@ -39,11 +40,23 @@ A_LOGIN, B_LOGIN, C_LOGIN = (h["Tailscale-User-Login"] for h in (ALICE, BOB, CAR
 
 def note_ev(by, to, pin, ts, **extra):
     """An events.jsonl mention record as a note save writes it (no `msg`: it did not come from a thread post)."""
-    return dict({"type": "mention", "pin": pin, "doc": "main", "to": list(to), "by": {"login": by, "name": by},
-                 "seq": 1, "at": "2026-09-26 10:00:00", "ts": ts}, **extra)
+    return dict(
+        {
+            "type": "mention",
+            "pin": pin,
+            "doc": "main",
+            "to": list(to),
+            "by": {"login": by, "name": by},
+            "seq": 1,
+            "at": "2026-09-26 10:00:00",
+            "ts": ts,
+        },
+        **extra,
+    )
 
 
 # ---------------------------------------------------------------- L3: the cooldown decision (pure)
+
 
 class NoteMentionCooldownRule(unittest.TestCase):
     """note_mention_targets() decides which newly tagged people a note save notifies, from the recent events and a clock
@@ -71,22 +84,28 @@ class NoteMentionCooldownRule(unittest.TestCase):
     def test_each_key_part_keeps_its_own_cooldown(self):
         """The key is (actor login, target login, pin id): changing any one of them is not suppressed."""
         recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
-        self.assertEqual(self.targets(recent, 1001.0, by=C_LOGIN), [B_LOGIN])            # another actor
-        self.assertEqual(self.targets(recent, 1001.0, pin=8), [B_LOGIN])                 # another pin
-        self.assertEqual(self.targets(recent, 1001.0, added=(B_LOGIN, C_LOGIN)), [C_LOGIN])   # another target
+        self.assertEqual(self.targets(recent, 1001.0, by=C_LOGIN), [B_LOGIN])  # another actor
+        self.assertEqual(self.targets(recent, 1001.0, pin=8), [B_LOGIN])  # another pin
+        self.assertEqual(self.targets(recent, 1001.0, added=(B_LOGIN, C_LOGIN)), [C_LOGIN])  # another target
 
     def test_reply_and_reopen_mentions_never_start_a_note_cooldown(self):
         """Mentions from thread posts (they carry `msg`) and other event types do not count - replies notify every time."""
-        recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0, msg=3),
-                  dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="assigned"),
-                  dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="replied")]
+        recent = [
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0, msg=3),
+            dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="assigned"),
+            dict(note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0), type="replied"),
+        ]
         self.assertEqual(self.targets(recent, 1001.0), [B_LOGIN])
 
     def test_records_without_a_usable_time_or_far_from_now_are_ignored(self):
         """A record the rule cannot place in time (missing, non-numeric, boolean) or more than the window away from now on
         either side (the clock stepped back) suppresses nothing."""
-        recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=None), note_ev(A_LOGIN, [B_LOGIN], 7, ts="1000"),
-                  note_ev(A_LOGIN, [B_LOGIN], 7, ts=True), note_ev(A_LOGIN, [B_LOGIN], 7, ts=5000.0)]
+        recent = [
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=None),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts="1000"),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=True),
+            note_ev(A_LOGIN, [B_LOGIN], 7, ts=5000.0),
+        ]
         self.assertEqual(self.targets(recent, 1001.0), [B_LOGIN])
 
     def test_a_record_rounded_just_past_now_still_counts(self):
@@ -95,6 +114,7 @@ class NoteMentionCooldownRule(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- L3: through the pin operations
+
 
 class NoteMentionCooldown(Base):
     """Toggling @Bob through note edits notifies Bob once per ten minutes per editor and pin; replies are unchanged."""
@@ -106,7 +126,7 @@ class NoteMentionCooldown(Base):
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
         self.A, self.B, self.C = (actor(h) for h in (ALICE, BOB, CAROL))
-        self.t0 = float(int(time.time()))                  # whole seconds: events.jsonl rounds ts to milliseconds
+        self.t0 = float(int(time.time()))  # whole seconds: events.jsonl rounds ts to milliseconds
 
     def mentions_to_bob(self):
         return [e for e in ps._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
@@ -122,10 +142,12 @@ class NoteMentionCooldown(Base):
     def test_toggling_a_tag_three_times_within_ten_minutes_sends_one_mention(self):
         """Issue #10 L3: pin with @Bob, then remove and re-add the tag three times - Bob hears of it once, not four times."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
-            pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
+            pid = add_pin(
+                {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A
+            ).record["id"]
             self.toggle(pid, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        self.assertEqual(find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])   # the note still tags him
+        self.assertEqual(find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])  # the note still tags him
 
     def test_the_tag_notifies_again_after_the_window(self):
         """Ten minutes after the last sent note mention, re-adding the tag is a new mention (fake clock)."""
@@ -139,7 +161,7 @@ class NoteMentionCooldown(Base):
         self.assertEqual(len(self.mentions_to_bob()), 1)
         with mock.patch.object(ps.time, "time", return_value=self.t0 + NOTE_MENTION_COOLDOWN_S):
             self.toggle(pid, self.A, times=2)
-        self.assertEqual(len(self.mentions_to_bob()), 2)                                  # one more, then quiet again
+        self.assertEqual(len(self.mentions_to_bob()), 2)  # one more, then quiet again
 
     def test_note_append_with_the_tag_is_under_the_same_cooldown(self):
         """note_append that writes @Bob again counts as a note edit: suppressed inside the window, sent after it."""
@@ -183,6 +205,7 @@ class NoteMentionCooldown(Base):
 
 # ---------------------------------------------------------------- L5: the append-only audit log
 
+
 def audit_rows(state=None):
     """Every line of <state>/audit.jsonl, parsed ([] if the file does not exist)."""
     p = Path(state or ps.C.state) / "audit.jsonl"
@@ -201,7 +224,9 @@ class AuditLogServer(AccessBase):
     def setUp(self):
         super().setUp()
         ps._EVENTS_CACHE.clear()
-        self.set_people([{"login": A_LOGIN, "name": "Alice Kim", "role": "owner"}, {"login": B_LOGIN, "name": "Bob Park"}])
+        self.set_people(
+            [{"login": A_LOGIN, "name": "Alice Kim", "role": "owner"}, {"login": B_LOGIN, "name": "Bob Park"}]
+        )
         self.add()
         self.add(8, 9)
 
@@ -209,15 +234,21 @@ class AuditLogServer(AccessBase):
         """Issue #10 L5: after EVENTS_KEEP + 1 other events the `cleared` record is gone from events.jsonl but kept in audit.jsonl."""
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual(code, 200, d)
-        self.assertEqual(ps._read_events()[0][-1]["type"], "cleared")                     # still written for compatibility
-        ps.emit_events([{"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
-                        for _ in range(EVENTS_KEEP + 1)])
+        self.assertEqual(ps._read_events()[0][-1]["type"], "cleared")  # still written for compatibility
+        ps.emit_events(
+            [
+                {"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
+                for _ in range(EVENTS_KEEP + 1)
+            ]
+        )
         self.assertNotIn("cleared", {e["type"] for e in ps._read_events()[0]})
         rows = audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual(set(rows[0]), {"at", "ts", "action", "by", "via", "details"})
-        self.assertEqual((rows[0]["action"], rows[0]["by"], rows[0]["via"]),
-                         ("cleared", {"login": A_LOGIN, "name": "Alice Kim"}, "http"))
+        self.assertEqual(
+            (rows[0]["action"], rows[0]["by"], rows[0]["via"]),
+            ("cleared", {"login": A_LOGIN, "name": "Alice Kim"}, "http"),
+        )
         self.assertEqual(rows[0]["details"], {"n": 2, "archive": d["archive"]})
         self.assertIsInstance(rows[0]["ts"], float)
 
@@ -226,8 +257,9 @@ class AuditLogServer(AccessBase):
         ps.drop_pin(1, dict(LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/1/purge", None, ALICE)
         self.assertEqual(code, 200, d)
-        self.assertEqual([(r["action"], r["by"]["login"], r["details"]) for r in audit_rows()],
-                         [("purged", A_LOGIN, {"pin": 1})])
+        self.assertEqual(
+            [(r["action"], r["by"]["login"], r["details"]) for r in audit_rows()], [("purged", A_LOGIN, {"pin": 1})]
+        )
 
     def test_refused_clear_and_purge_leave_no_audit_line(self):
         """Nothing that did not happen is audited: a clear without the phrase, a non-owner's clear or purge, a missing pin."""
@@ -278,7 +310,7 @@ class AuditLogServer(AccessBase):
 
     def test_a_failing_audit_write_warns_but_the_clear_still_happens(self):
         """The action has already been applied when the audit line is written; a write failure is a warning, not a 500."""
-        (ps.C.state / "audit.jsonl").mkdir()                                            # cannot be opened for writing
+        (ps.C.state / "audit.jsonl").mkdir()  # cannot be opened for writing
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual((code, d.get("cleared")), (200, 2), d)
         self.assertEqual(ps.snapshot_pins(), [])
@@ -290,6 +322,7 @@ class AuditLogServer(AccessBase):
         def write(k):
             for i in range(25):
                 append_audit(ps.C.state, audit_entry("purged", by, "http", {"pin": k * 100 + i}, time.time()))
+
         ts = [threading.Thread(target=write, args=(k,)) for k in range(4)]
         for t in ts:
             t.start()
@@ -305,10 +338,20 @@ class AuditEntryShape(unittest.TestCase):
     def test_entry_carries_the_given_time_actor_channel_and_details(self):
         """at is the local wall-clock string of `now`, ts the same instant in epoch seconds; by keeps only login and name."""
         now = 1790000000.25
-        e = audit_entry("token_created", {"login": "u", "name": "U", "pic": "https://x"}, "cli", {"id": "ab12cd34"}, now)
-        self.assertEqual(e, {"at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "ts": now,
-                             "action": "token_created", "by": {"login": "u", "name": "U"}, "via": "cli",
-                             "details": {"id": "ab12cd34"}})
+        e = audit_entry(
+            "token_created", {"login": "u", "name": "U", "pic": "https://x"}, "cli", {"id": "ab12cd34"}, now
+        )
+        self.assertEqual(
+            e,
+            {
+                "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+                "ts": now,
+                "action": "token_created",
+                "by": {"login": "u", "name": "U"},
+                "via": "cli",
+                "details": {"id": "ab12cd34"},
+            },
+        )
 
     def test_unknown_actions_and_channels_are_programming_errors(self):
         """Only the documented actions and channels can be written."""
@@ -323,6 +366,7 @@ class AuditLogCli(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+
         self.tmp = tempfile.TemporaryDirectory()
         self.state = Path(self.tmp.name) / "state"
 
@@ -331,8 +375,9 @@ class AuditLogCli(unittest.TestCase):
 
     def limn(self, *args):
         env = dict(os.environ, PYTHONPATH=str(SRC))
-        r = subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=env,
-                           check=False)
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=env, check=False
+        )
         self.assertEqual(r.returncode, 0, r.stderr)
         return r
 
@@ -341,8 +386,10 @@ class AuditLogCli(unittest.TestCase):
         plain = self.limn("token", "create", "--state-dir", str(self.state), "--name", "ci").stdout.strip()
         self.limn("token", "revoke", "--state-dir", str(self.state), "ci")
         rows = audit_rows(self.state)
-        self.assertEqual([(r["action"], r["via"], r["by"]["login"]) for r in rows],
-                         [("token_created", "cli", os_login()), ("token_revoked", "cli", os_login())])
+        self.assertEqual(
+            [(r["action"], r["via"], r["by"]["login"]) for r in rows],
+            [("token_created", "cli", os_login()), ("token_revoked", "cli", os_login())],
+        )
         self.assertEqual(rows[0]["details"]["name"], "ci")
         self.assertEqual(rows[0]["details"], rows[1]["details"])
         text = (self.state / "audit.jsonl").read_text(encoding="utf-8")
@@ -356,19 +403,26 @@ class AuditLogCli(unittest.TestCase):
         self.limn("member", "add", "--state-dir", str(self.state), "bob@example.com")
         self.limn("member", "role", "--state-dir", str(self.state), "bob@example.com", "owner")
         self.limn("member", "remove", "--state-dir", str(self.state), "bob@example.com")
-        self.assertEqual([(r["action"], r["details"]) for r in audit_rows(self.state)], [
-            ("member_added", {"login": "bob@example.com", "role": "editor"}),
-            ("member_role", {"login": "bob@example.com", "role": "owner", "previous_role": "editor"}),
-            ("member_removed", {"login": "bob@example.com", "previous_role": "owner"})])
+        self.assertEqual(
+            [(r["action"], r["details"]) for r in audit_rows(self.state)],
+            [
+                ("member_added", {"login": "bob@example.com", "role": "editor"}),
+                ("member_role", {"login": "bob@example.com", "role": "owner", "previous_role": "editor"}),
+                ("member_removed", {"login": "bob@example.com", "previous_role": "owner"}),
+            ],
+        )
 
     def test_changes_that_did_not_happen_are_not_audited(self):
         """Revoking an unknown token or changing an unknown member exits non-zero and writes nothing."""
         env = dict(os.environ, PYTHONPATH=str(SRC))
-        for args in (("token", "revoke", "--state-dir", str(self.state), "nope"),
-                     ("member", "role", "--state-dir", str(self.state), "nobody@example.com", "owner"),
-                     ("member", "add", "--state-dir", str(self.state), "bad login")):
-            r = subprocess.run([sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=env,
-                               check=False)
+        for args in (
+            ("token", "revoke", "--state-dir", str(self.state), "nope"),
+            ("member", "role", "--state-dir", str(self.state), "nobody@example.com", "owner"),
+            ("member", "add", "--state-dir", str(self.state), "bad login"),
+        ):
+            r = subprocess.run(
+                [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=60, env=env, check=False
+            )
             self.assertEqual(r.returncode, 1, (args, r.stdout, r.stderr))
         self.assertEqual(audit_rows(self.state), [])
 
@@ -376,9 +430,13 @@ class AuditLogCli(unittest.TestCase):
         """The state helpers themselves write the line, so any caller of them is audited."""
         e, _ = token_create(self.state, "bot")
         member_add(self.state, "carol@example.com", "viewer")
-        self.assertEqual([(r["action"], r["details"]) for r in audit_rows(self.state)],
-                         [("token_created", {"id": e["id"], "name": "bot"}),
-                          ("member_added", {"login": "carol@example.com", "role": "viewer"})])
+        self.assertEqual(
+            [(r["action"], r["details"]) for r in audit_rows(self.state)],
+            [
+                ("token_created", {"id": e["id"], "name": "bot"}),
+                ("member_added", {"login": "carol@example.com", "role": "viewer"}),
+            ],
+        )
 
 
 if __name__ == "__main__":

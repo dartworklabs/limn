@@ -12,6 +12,7 @@ as an argument; the list itself is the composition root's (server.DOCS). Documen
 read about a document from the disk, and to_source maps a SyncTeX path in a document's build copy back to the
 manuscript.
 """
+
 from __future__ import annotations
 
 import os
@@ -58,9 +59,22 @@ class RunPaths(Protocol):
 
 def fresh_build_state() -> dict[str, Any]:
     """A document's build state before its first build (what GET /api/build reports then)."""
-    return {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
-            "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
-            "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
+    return {
+        "state": "idle",
+        "phase": None,
+        "started_at": None,
+        "start_ts": None,
+        "last_s": None,
+        "pages": 0,
+        "errors": [],
+        "log_tail": "",
+        "built_at": None,
+        "seq": 0,
+        "finished_at": None,
+        "last": None,
+        "head": None,
+        "pull": None,
+    }
 
 
 class Doc:
@@ -74,11 +88,23 @@ class Doc:
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime
     memo (limn.build.BuildDoc)."""
 
-    def __init__(self, key: str, name: str, kind: str = "tex", src: Path | None = None, main: Path | None = None,
-                 legacy: bool = False, root: bool | None = None, lock: threading.Lock | None = None,
-                 bstate: dict[str, Any] | None = None, bstate_lock: threading.Lock | None = None,
-                 builds_lock: threading.Lock | None = None, mcache: list[Any] | None = None, *,
-                 paths: RunPaths) -> None:
+    def __init__(
+        self,
+        key: str,
+        name: str,
+        kind: str = "tex",
+        src: Path | None = None,
+        main: Path | None = None,
+        legacy: bool = False,
+        root: bool | None = None,
+        lock: threading.Lock | None = None,
+        bstate: dict[str, Any] | None = None,
+        bstate_lock: threading.Lock | None = None,
+        builds_lock: threading.Lock | None = None,
+        mcache: list[Any] | None = None,
+        *,
+        paths: RunPaths,
+    ) -> None:
         """A document; src/main are its build root and main file unless legacy (then the run paths' own)."""
         self.key, self.name, self.kind = key, name, kind
         self._src, self._main, self.legacy = src, main, legacy
@@ -153,6 +179,7 @@ class Doc:
 class DocNotFound:
     """No document of this instance has the key a request named. known lists the keys it serves, in order (the
     404 body's `docs`)."""
+
     key: str
     known: tuple[str, ...]
 
@@ -161,6 +188,7 @@ class DocNotFound:
 #
 # The list of documents is the composition root's (server.DOCS; the first is the default). Each lookup takes it as an
 # argument, so nothing here holds "the documents" or "the current document".
+
 
 def doc_by_key(docs: Sequence[Doc], key: object) -> Doc | None:
     """The document of docs whose key is `key`, or None."""
@@ -213,6 +241,7 @@ def request_doc(docs: Sequence[Doc], root: Path, key: str | None, file_hint: obj
 
 
 # ---------------------------------------------------------------- Source-text access
+
 
 def to_source(D: Doc, path: str) -> Path:
     """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path.

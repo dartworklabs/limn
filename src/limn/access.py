@@ -18,6 +18,7 @@ audit sink (AuditSink), which the CLI gets from the composition root. people.jso
 the people store's own (limn.people.valid_people, people_text), imported from there - one format for the running
 server's writes and `limn member`'s.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -48,36 +49,48 @@ from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
 IPNetwork: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
-HostEntry: TypeAlias = tuple[str, int | None]        # one --public-host: (lowercase name, port or None)
+HostEntry: TypeAlias = tuple[str, int | None]  # one --public-host: (lowercase name, port or None)
 T = TypeVar("T")
 
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
-AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
+AGENT_LOGIN_PREFIX = "agent:"  # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 
 AUTH_PROVIDERS = ("tailscale", "local", "trusted-proxy")
 ROLES = ("owner", "editor", "viewer", "agent")
-DEFAULT_ROLE = "editor"                      # a person without a role field - every v0.1 person
-VIEWER_POSTS = ("/api/pick", "/api/revision-build")   # computations a viewer may still run (no state change)
+DEFAULT_ROLE = "editor"  # a person without a role field - every v0.1 person
+VIEWER_POSTS = ("/api/pick", "/api/revision-build")  # computations a viewer may still run (no state change)
 TOKEN_PREFIX = "limn_"
 TOKEN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
 HEADER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 LOGIN_MAX = 200
 NAME_MAX = 100
-LOOPBACK_AGENT_DEPRECATION = ("a request from loopback without an identity header or token is treated as the agent - "
-                              "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
-                              "and turn it off with --no-agent-loopback (AGENT_LOOPBACK=0)")
-TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
-                      "보내세요(`limn token create <인스턴스>`).")
-OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
-OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")   # permanent delete from the Trash (v0.2.2): only the owner
+LOOPBACK_AGENT_DEPRECATION = (
+    "a request from loopback without an identity header or token is treated as the agent - "
+    "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
+    "and turn it off with --no-agent-loopback (AGENT_LOOPBACK=0)"
+)
+TAILNET_HEADERLESS = (
+    "신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
+    "보내세요(`limn token create <인스턴스>`)."
+)
+OWNER_POSTS = ("/api/clear",)  # bulk-destructive: only the owner (a person), and only with a confirmation
+OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")  # permanent delete from the Trash (v0.2.2): only the owner
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 DEFAULT_PORT = {"http": 80, "https": 443}
 # Headers a reverse proxy adds (tailscale serve sets X-Forwarded-For/-Host/-Proto). A local curl sends none of them.
-FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Real-IP",
-                     "Forwarded", "Via")
+FORWARDED_HEADERS = (
+    "X-Forwarded-For",
+    "X-Forwarded-Host",
+    "X-Forwarded-Proto",
+    "X-Forwarded-Port",
+    "X-Real-IP",
+    "Forwarded",
+    "Via",
+)
 
 
 # ---------------------------------------------------------------- what the composition root passes in
+
 
 @dataclass(frozen=True)
 class AccessSettings:
@@ -85,26 +98,28 @@ class AccessSettings:
 
     No field has a default: every caller states every option, so a field added later can never fall back silently to
     a permissive legacy value (such as agent_loopback=True) at a call site that did not think about it."""
-    auth: str                                # identity provider: one of AUTH_PROVIDERS
-    agent_loopback: bool                     # a headerless loopback request is the agent (deprecated)
-    tailnet_agent: bool                      # ...also one that came through tailscale serve (opt-in, deprecated)
-    trusted_proxies: tuple[IPNetwork, ...]   # peers whose identity headers --auth trusted-proxy trusts
-    proxy_user_header: str                   # the header carrying the user under --auth trusted-proxy
-    proxy_name_header: str                   # ...the display name
-    proxy_email_header: str | None           # ...the e-mail, the login when present (None = not configured)
-    members_only: bool                       # admit only logins in people.json or allow
-    allow: frozenset[str]                    # --allow: the logins admitted when set
-    local_user: str | None                   # the owner's login under --auth local (None = $USER, then "owner")
-    agent_token_file: Path | None            # where this machine's agents keep the token (ADR-0007); never read
+
+    auth: str  # identity provider: one of AUTH_PROVIDERS
+    agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
+    tailnet_agent: bool  # ...also one that came through tailscale serve (opt-in, deprecated)
+    trusted_proxies: tuple[IPNetwork, ...]  # peers whose identity headers --auth trusted-proxy trusts
+    proxy_user_header: str  # the header carrying the user under --auth trusted-proxy
+    proxy_name_header: str  # ...the display name
+    proxy_email_header: str | None  # ...the e-mail, the login when present (None = not configured)
+    members_only: bool  # admit only logins in people.json or allow
+    allow: frozenset[str]  # --allow: the logins admitted when set
+    local_user: str | None  # the owner's login under --auth local (None = $USER, then "owner")
+    agent_token_file: Path | None  # where this machine's agents keep the token (ADR-0007); never read
 
 
 @dataclass(frozen=True)
 class AccessLookups:
     """What identify() and admit() read at request time besides the request itself. Each call reads the current
     state, so `limn token revoke` and `limn member role` take effect on the next request without a restart."""
-    tokens: Callable[[], Sequence[Json]]      # the valid entries of tokens.json now
-    roles: Callable[[], Mapping[str, str]]    # {login: role} of everyone in people.json now
-    warn_loopback_agent: Callable[[], None]   # the loopback-agent deprecation warning (printed once per process)
+
+    tokens: Callable[[], Sequence[Json]]  # the valid entries of tokens.json now
+    roles: Callable[[], Mapping[str, str]]  # {login: role} of everyone in people.json now
+    warn_loopback_agent: Callable[[], None]  # the loopback-agent deprecation warning (printed once per process)
 
 
 class FileCache(Generic[T]):
@@ -164,6 +179,7 @@ class WarnOnce:
 
 # ---------------------------------------------------------------- identity headers and hosts
 
+
 def hdr_text(v: object) -> str:
     """A header value as printable text, at most 300 characters. tailscale sends non-ASCII values as RFC 2047
     (=?utf-8?q?...?=). If raw UTF-8 arrives instead, a latin-1 mis-decode is undone. A bad header is never an error."""
@@ -171,7 +187,7 @@ def hdr_text(v: object) -> str:
         return ""
     s = str(v).strip()
     if "=?" in s:
-        with contextlib.suppress(Exception):             # noqa: BLE001 — a single bad header must never drop the request
+        with contextlib.suppress(Exception):  # noqa: BLE001 — a single bad header must never drop the request
             s = str(make_header(decode_header(s)))
     else:
         with contextlib.suppress(UnicodeEncodeError, UnicodeDecodeError):
@@ -185,7 +201,10 @@ def actor_of(headers: Message) -> tuple[Json, bool]:
     login = hdr_text(headers.get("Tailscale-User-Login"))
     if not login:
         return dict(LOCAL_ACTOR), False
-    a: Json = {"login": login[:200], "name": (hdr_text(headers.get("Tailscale-User-Name")) or login.split("@")[0])[:100]}
+    a: Json = {
+        "login": login[:200],
+        "name": (hdr_text(headers.get("Tailscale-User-Name")) or login.split("@")[0])[:100],
+    }
     pic = hdr_text(headers.get("Tailscale-User-Profile-Pic"))
     if pic.startswith("https://") and len(pic) <= 1000:
         a["pic"] = pic
@@ -232,8 +251,12 @@ def parse_public_hosts(values: Sequence[object] | None) -> tuple[HostEntry, ...]
             if not item:
                 continue
             name, port = split_host(item)
-            if not name or not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", name) \
-                    or name in LOOPBACK or (port is not None and not 1 <= port <= 65535):
+            if (
+                not name
+                or not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", name)
+                or name in LOOPBACK
+                or (port is not None and not 1 <= port <= 65535)
+            ):
                 raise ValueError("--public-host takes a DNS name with an optional :port, got %r" % item)
             if all(h[0] != name for h in out):
                 out.append((name, port))
@@ -253,14 +276,14 @@ def origin_ok(origin: str, host: str | None, public_hosts: Sequence[HostEntry]) 
     A request with no Origin (curl/agent/same-origin GET) never reaches this function."""
     u = urlparse(origin.strip())
     if u.scheme not in ("http", "https") or not u.hostname:
-        return False                                   # includes a 'null' origin (sandboxed iframe/file://)
+        return False  # includes a 'null' origin (sandboxed iframe/file://)
     try:
         oport = u.port
     except ValueError:
         return False
     name = u.hostname.lower().rstrip(".")
     hname, hport = split_host(host or "")
-    if not hname or hname in LOOPBACK:                 # no Host at all (HTTP/1.0) is treated as loopback - the stricter side
+    if not hname or hname in LOOPBACK:  # no Host at all (HTTP/1.0) is treated as loopback - the stricter side
         return name in LOOPBACK
     if hname.endswith(".ts.net"):
         dflt = DEFAULT_PORT[u.scheme]
@@ -304,6 +327,7 @@ def came_through_proxy(headers: Message) -> bool:
 
 
 # ---------------------------------------------------------------- peers and startup options
+
 
 def _peer_ip(addr: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """The TCP peer's address as an IP (an IPv4-mapped IPv6 address as IPv4, a zone id dropped), or None if it is
@@ -356,9 +380,14 @@ def valid_login(login: object) -> bool:
     """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
     user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
     for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
-    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable()
-            and not any(c.isspace() for c in login)
-            and login != LOCAL_ACTOR["login"] and not login.startswith(AGENT_LOGIN_PREFIX))
+    return (
+        isinstance(login, str)
+        and 0 < len(login) <= LOGIN_MAX
+        and login.isprintable()
+        and not any(c.isspace() for c in login)
+        and login != LOCAL_ACTOR["login"]
+        and not login.startswith(AGENT_LOGIN_PREFIX)
+    )
 
 
 def local_owner_actor(local_user: str | None) -> Json:
@@ -400,12 +429,14 @@ def home_or_none() -> Path | None:
 
 # ---------------------------------------------------------------- the three checks
 
+
 class Principal(NamedTuple):
     """Who a request is, as identify() decided: what pins record, the role that decides what it may change, and how
     it was identified (admit() treats a header-vouched person differently from a token or the local owner)."""
-    actor: Json              # {login, name, pic?} - what pins record
-    role: str                # owner | editor | viewer | agent
-    via: str                 # header | token | loopback-agent | local-owner
+
+    actor: Json  # {login, name, pic?} - what pins record
+    role: str  # owner | editor | viewer | agent
+    via: str  # header | token | loopback-agent | local-owner
 
 
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:
@@ -457,8 +488,13 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
     raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
 
 
-def admit(p: Principal, host: str | None, headers: Message | None, settings: AccessSettings,
-          roles: Callable[[], Mapping[str, str]]) -> None:
+def admit(
+    p: Principal,
+    host: str | None,
+    headers: Message | None,
+    settings: AccessSettings,
+    roles: Callable[[], Mapping[str, str]],
+) -> None:
     """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
     admits logins in people.json (roles(), read only then) or --allow; otherwise --allow (if set) admits only its
     logins. Without either, everyone the provider identifies is admitted (and recorded in people.json as an editor on
@@ -470,15 +506,28 @@ def admit(p: Principal, host: str | None, headers: Message | None, settings: Acc
     if p.via == "header":
         if settings.members_only:
             if login not in settings.allow and login not in roles():
-                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
-                                page=("not-member", {"login": login}), reason="not_member")
+                raise HTTPError(
+                    403,
+                    "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
+                    page=("not-member", {"login": login}),
+                    reason="not_member",
+                )
         elif settings.allow and login not in settings.allow:
-            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}), reason="not_allowed")
+            raise HTTPError(
+                403,
+                "이 뷰어에 허용되지 않은 계정입니다: %s" % login,
+                page=("not-allowed", {"login": login}),
+                reason="not_allowed",
+            )
     elif p.via == "loopback-agent" and (settings.allow or settings.members_only):
         hname, _ = split_host(host or "")
         if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
-            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
-                            page=("no-identity", {}), reason="headerless")
+            raise HTTPError(
+                403,
+                "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
+                page=("no-identity", {}),
+                reason="headerless",
+            )
 
 
 def check_role(p: Principal, path: str, trash_days: int) -> None:
@@ -489,13 +538,23 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
     long the Trash keeps a pin. Other owner-only operations - members, tokens, settings - are CLI/file level. A refusal
     raises HTTPError 403 (viewer_only / confirm_by_human / owner_only)."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
-        raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only")
+        raise HTTPError(
+            403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only"
+        )
     if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
         raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
     if path in OWNER_POSTS and p.role != "owner":
-        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.", reason="owner_only")
+        raise HTTPError(
+            403,
+            "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.",
+            reason="owner_only",
+        )
     if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
-        raise HTTPError(403, "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % trash_days, reason="owner_only")
+        raise HTTPError(
+            403,
+            "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % trash_days,
+            reason="owner_only",
+        )
 
 
 # ---------------------------------------------------------------- agent API tokens (<state>/tokens.json, hashed at rest)
@@ -514,8 +573,11 @@ def token_hash(token: str) -> str:
 def _valid_tokens(d: object) -> list[Json]:
     """The token entries of a parsed tokens.json that have a non-empty string id, name and hash; the rest are skipped."""
     rows = d.get("tokens") if isinstance(d, dict) else None
-    return [t for t in rows or [] if isinstance(t, dict)
-            and all(isinstance(t.get(k), str) and t[k] for k in ("id", "name", "hash"))]
+    return [
+        t
+        for t in rows or []
+        if isinstance(t, dict) and all(isinstance(t.get(k), str) and t[k] for k in ("id", "name", "hash"))
+    ]
 
 
 def load_tokens(state: Path, strict: bool = False) -> list[Json]:
@@ -538,8 +600,11 @@ def load_tokens(state: Path, strict: bool = False) -> list[Json]:
 
 def _write_tokens(state: Path, rows: list[Json]) -> None:
     """Replace <state>/tokens.json with rows (atomically, mode 0600)."""
-    atomic_write(Path(state) / "tokens.json",
-                 json.dumps({"version": 1, "tokens": rows}, ensure_ascii=False, indent=1) + "\n", mode=0o600)
+    atomic_write(
+        Path(state) / "tokens.json",
+        json.dumps({"version": 1, "tokens": rows}, ensure_ascii=False, indent=1) + "\n",
+        mode=0o600,
+    )
 
 
 def now_str() -> str:
@@ -618,6 +683,7 @@ def bearer_of(headers: Message) -> str | None:
 
 # ---------------------------------------------------------------- people.json roles and members
 
+
 def role_value(v: object) -> str:
     """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
     if v is None:
@@ -670,8 +736,10 @@ def member_add(state: Path, login: str, role: str, name: str | None, audit: Audi
     """Adds login to people.json with role (name defaults to the part of the login before @) -> the new entry, and
     audits `member_added` {login, role}. Raises ValueError for an invalid login or role, or an existing member."""
     if not valid_login(login):
-        raise ValueError("invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
-                         % (login, LOGIN_MAX))
+        raise ValueError(
+            "invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
+            % (login, LOGIN_MAX)
+        )
     if role not in ROLES:
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     shown = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
@@ -683,8 +751,9 @@ def member_add(state: Path, login: str, role: str, name: str | None, audit: Audi
         entry = {"login": login, "name": shown, "role": role}
         rows.append(entry)
         return entry, ("member_added", {"login": login, "role": role})
+
     added = _people_update(state, fn, audit)
-    assert added is not None                      # fn always returns the new entry or raises
+    assert added is not None  # fn always returns the new entry or raises
     return added
 
 
@@ -701,6 +770,7 @@ def member_remove(state: Path, login: str, audit: AuditSink) -> Json | None:
             return None, None
         rows.remove(hit)
         return hit, ("member_removed", {"login": login, "previous_role": role_value(hit.get("role"))})
+
     return _people_update(state, fn, audit)
 
 
@@ -724,4 +794,5 @@ def member_set_role(state: Path, login: str, role: str, audit: AuditSink) -> Jso
         if before == role:
             return hit, None
         return hit, ("member_role", {"login": login, "role": role, "previous_role": before})
+
     return _people_update(state, fn, audit)

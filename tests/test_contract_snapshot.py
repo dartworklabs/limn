@@ -14,6 +14,7 @@ LIMN_RECORD_SNAPSHOT=1 uv run pytest -q tests/test_contract_snapshot.py - and th
 
 Run: uv run pytest -q tests/test_contract_snapshot.py
 """
+
 import json
 import os
 import time
@@ -28,7 +29,7 @@ from helpers import ps
 from test_access import ALICE, BOB, AccessBase
 
 SNAPSHOT = Path(__file__).parent / "data" / "contract_snapshot.json"
-T0 = 1790384400.0                                   # 2026-09-26 10:00:00 +09:00
+T0 = 1790384400.0  # 2026-09-26 10:00:00 +09:00
 ZONE = timezone(timedelta(hours=9))
 _STRFTIME = time.strftime
 
@@ -69,14 +70,17 @@ class ContractSnapshot(AccessBase):
         os.environ["TZ"] = "Asia/Seoul"
         time.tzset()
         self.addCleanup(self.restore_zone, zone)
-        for patcher in (mock.patch.object(ps, "now_str", return_value="2026-09-26 10:00:00"),
-                        mock.patch("time.time", return_value=T0), mock.patch("time.strftime", frozen_strftime),
-                        mock.patch.object(ps, "datetime", FrozenDateTime),
-                        mock.patch.object(limn_build, "datetime", FrozenDateTime),
-                        mock.patch.object(limn_people, "datetime", FrozenDateTime)):
+        for patcher in (
+            mock.patch.object(ps, "now_str", return_value="2026-09-26 10:00:00"),
+            mock.patch("time.time", return_value=T0),
+            mock.patch("time.strftime", frozen_strftime),
+            mock.patch.object(ps, "datetime", FrozenDateTime),
+            mock.patch.object(limn_build, "datetime", FrozenDateTime),
+            mock.patch.object(limn_people, "datetime", FrozenDateTime),
+        ):
             patcher.start()
             self.addCleanup(patcher.stop)
-        os.utime(self.main, (T0, T0))                # a synced pin records its file's mtime (synced_at)
+        os.utime(self.main, (T0, T0))  # a synced pin records its file's mtime (synced_at)
         self.roots = sorted({str(Path(self.tmp.name)), str(Path(self.tmp.name).resolve())}, key=len, reverse=True)
         self.seen = []
 
@@ -108,24 +112,54 @@ class ContractSnapshot(AccessBase):
     def test_the_pin_flow_answers_as_recorded(self):
         """Every answer and pins.md along the flow equal the recorded snapshot."""
         main = str(self.main)
-        a = self.step("person adds a fix pin", "POST", "/api/pin",
-                      {"file": main, "lo": 4, "hi": 5, "page": 1, "note": "tighten this sentence"}, ALICE)["id"]
-        b = self.step("person asks a question", "POST", "/api/pin",
-                      {"file": main, "lo": 8, "hi": 8, "page": 1, "note": "why this word?", "kind_req": "question",
-                       "quote": "betaunique"}, BOB)["id"]
-        c = self.step("agent adds a pin", "POST", "/api/pin",
-                      {"file": main, "lo": 12, "hi": 16, "page": 1, "note": "table caption"})["id"]
+        a = self.step(
+            "person adds a fix pin",
+            "POST",
+            "/api/pin",
+            {"file": main, "lo": 4, "hi": 5, "page": 1, "note": "tighten this sentence"},
+            ALICE,
+        )["id"]
+        b = self.step(
+            "person asks a question",
+            "POST",
+            "/api/pin",
+            {
+                "file": main,
+                "lo": 8,
+                "hi": 8,
+                "page": 1,
+                "note": "why this word?",
+                "kind_req": "question",
+                "quote": "betaunique",
+            },
+            BOB,
+        )["id"]
+        c = self.step(
+            "agent adds a pin",
+            "POST",
+            "/api/pin",
+            {"file": main, "lo": 12, "hi": 16, "page": 1, "note": "table caption"},
+        )["id"]
         self.step("agent claims", "POST", "/api/pins/%d/claim" % a, {"ttl_min": 30, "eta_min": 10})
         self.step("agent answers the question", "POST", "/api/pins/%d/reply" % b, {"text": "it is the defined term"})
-        self.step("agent closes with reply, ref and changes", "POST", "/api/pins/%d/close" % a,
-                  {"reply": "shortened", "ref": "PR #1 (abc1234)", "changes": [{"file": main, "lo": 4, "hi": 5}]})
+        self.step(
+            "agent closes with reply, ref and changes",
+            "POST",
+            "/api/pins/%d/close" % a,
+            {"reply": "shortened", "ref": "PR #1 (abc1234)", "changes": [{"file": main, "lo": 4, "hi": 5}]},
+        )
         self.step("agent may not confirm", "POST", "/api/pins/%d/confirm" % a, {})
         self.step("claim on a closed pin", "POST", "/api/pins/%d/claim" % a, {"ttl_min": 30})
         self.step("person confirms", "POST", "/api/pins/%d/confirm" % a, {}, ALICE)
         self.step("agent closes the third pin", "POST", "/api/pins/%d/close" % c, {"reply": "done"})
         self.step("person reopens it", "POST", "/api/pins/%d/reopen" % c, {"reason": "caption still long"}, BOB)
-        self.step("person edits the question", "POST", "/api/pins/%d/edit" % b,
-                  {"note": "why this word here?", "base_rev": self.pin(b)["rev"]}, BOB)
+        self.step(
+            "person edits the question",
+            "POST",
+            "/api/pins/%d/edit" % b,
+            {"note": "why this word here?", "base_rev": self.pin(b)["rev"]},
+            BOB,
+        )
         self.step("stale edit", "POST", "/api/pins/%d/edit" % b, {"note": "x", "base_rev": 1}, BOB)
         self.step("person drops the third pin", "POST", "/api/pins/%d/drop" % c, {}, ALICE)
         self.step("the Trash", "GET", "/api/pins/dropped")

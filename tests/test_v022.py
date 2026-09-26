@@ -13,6 +13,7 @@ An optional "reopen": true/false on the request overrides the rule ([Keep state]
 
 Run: uv run pytest -q tests/test_v022.py
 """
+
 import json
 import re
 import time
@@ -63,6 +64,7 @@ def rec_for(state, kind):
 
 # ---------------------------------------------------------------- 1. the reply rule
 
+
 class ReplyRule(unittest.TestCase):
     def test_every_row_of_the_rule_table(self):
         for st, kind, human, ment, ov, want in RULE_CASES:
@@ -71,9 +73,14 @@ class ReplyRule(unittest.TestCase):
 
     def test_viewer_mirrors_the_server_rule(self):
         # The one-line preview under the reply box must predict exactly what the server will do.
-        js = "\n".join([extract_js_fn("pinState"), extract_js_fn("replyReopens"),
-                        "const cases=%s;" % json.dumps([[rec_for(st, k), h, m, ov] for st, k, h, m, ov, _ in RULE_CASES]),
-                        "console.log(JSON.stringify(cases.map(c=>replyReopens(c[0],c[1],c[2],c[3]===null?undefined:c[3]))));"])
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("replyReopens"),
+                "const cases=%s;" % json.dumps([[rec_for(st, k), h, m, ov] for st, k, h, m, ov, _ in RULE_CASES]),
+                "console.log(JSON.stringify(cases.map(c=>replyReopens(c[0],c[1],c[2],c[3]===null?undefined:c[3]))));",
+            ]
+        )
         self.assertEqual(json.loads(run_node(js)), [w for *_, w in RULE_CASES])
 
 
@@ -87,7 +94,9 @@ class ReplyApi(AccessBase):
             ps.record_person(actor(h))
 
     def review_pin(self, kind="fix", author=A):
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author).record["id"]
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author
+        ).record["id"]
         ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
         self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
@@ -137,7 +146,9 @@ class ReplyApi(AccessBase):
 
     def test_reopening_reply_still_tells_everyone_involved(self):
         # A reply on a closed pin used to reach everyone tagged on the pin (replied); reopening must not silence them.
-        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A).record["id"]
+        pid = add_pin(
+            {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A
+        ).record["id"]
         ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침")
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
@@ -145,7 +156,7 @@ class ReplyApi(AccessBase):
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
         ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="다시 고침")
         n = len(self.events())
-        self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)                 # the author: only Carol hears of it
+        self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)  # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
 
     def test_tagging_only_yourself_is_not_tagging_a_person(self):
@@ -162,7 +173,7 @@ class ReplyApi(AccessBase):
 
     def test_agent_reply_never_reopens_by_rule(self):
         pid = self.review_pin()
-        code, d = self.reply(pid, {"text": "추가 설명: 식 (3) 도 같이 고쳤습니다"})            # headerless loopback agent
+        code, d = self.reply(pid, {"text": "추가 설명: 식 (3) 도 같이 고쳤습니다"})  # headerless loopback agent
         self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
         _, tok = token_create(ps.C.state, "bot")
         code, d = self.reply(pid, {"text": "토큰으로 단 답글"}, token=tok)
@@ -220,7 +231,7 @@ class ReplyApi(AccessBase):
     def test_reopened_pin_shows_in_open_table_with_reply_as_reason(self):
         pid = self.review_pin()
         md = ps.pins_md_text(ps.snapshot_pins())
-        self.assertNotRegex(md, r"\n\| %d · " % pid)                          # awaiting review: not in the open table
+        self.assertNotRegex(md, r"\n\| %d · " % pid)  # awaiting review: not in the open table
         self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
         md = ps.pins_md_text(ps.snapshot_pins())
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d · " % pid))
@@ -232,8 +243,9 @@ class ReplyApi(AccessBase):
         pid = self.review_pin()
         rows = ps.read_pins()[0]
         r = find_pin(rows, pid)
-        r["thread"] = r["thread"] + [{"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"}
-                                     for i in range(ps.THREAD_MAX)]
+        r["thread"] = r["thread"] + [
+            {"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"} for i in range(ps.THREAD_MAX)
+        ]
         ps.write_pins(rows)
         code, d = self.reply(pid, {"text": "다시"}, BOB)
         self.assertEqual((code, d["reopened"]), (200, True))
@@ -249,15 +261,16 @@ class ReplyApi(AccessBase):
         """reply_pin() returns the pin as it now stands (its state type); the reply's entry is the thread's last."""
         pid = self.review_pin()
         pin = ps.reply_pin(pid, "사람 답글", B)
-        self.assertIsInstance(pin, OpenPin)                               # a person's reply reopened it
+        self.assertIsInstance(pin, OpenPin)  # a person's reply reopened it
         self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
         pin = ps.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
-        self.assertIsInstance(pin, ReviewPin)                             # an agent's reply leaves it for review
+        self.assertIsInstance(pin, ReviewPin)  # an agent's reply leaves it for review
         self.assertNotIn("ev", pin.record["thread"][-1])
 
 
 # ---------------------------------------------------------------- 2. Trash
+
 
 class Trash(AccessBase):
     def setUp(self):
@@ -270,8 +283,17 @@ class Trash(AccessBase):
         return ps.read_jsonl(ps.C.dropped)[0]
 
     def put_dropped(self, pid, days_ago, **extra):
-        rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old %d" % pid,
-               "author": A, "dropped_by": B, **extra}
+        rec = {
+            "id": pid,
+            "file": str(self.main),
+            "lo": 4,
+            "hi": 5,
+            "page": 1,
+            "note": "old %d" % pid,
+            "author": A,
+            "dropped_by": B,
+            **extra,
+        }
         if days_ago is not None:
             rec["dropped_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days_ago * 86400))
         atomic_write(ps.C.dropped, dump_jsonl(self.dropped_file() + [rec]))
@@ -283,7 +305,7 @@ class Trash(AccessBase):
         self.put_dropped(70, 10)
         rec = ps.dropped_payload()[0]
         self.assertAlmostEqual(rec["expires_ts"], position.epoch(rec["dropped_at"]) + 30 * 86400, delta=1)
-        self.assertNotIn("expires_ts", ps.read_jsonl(ps.C.dropped)[0][0])   # computed, never stored
+        self.assertNotIn("expires_ts", ps.read_jsonl(ps.C.dropped)[0][0])  # computed, never stored
 
     def test_iso_timestamps_with_an_offset_expire_too(self):
         self.put_dropped(71, None, dropped_at="2026-01-01T10:00:00+09:00")
@@ -299,8 +321,9 @@ class Trash(AccessBase):
 
     def test_a_failing_purge_never_stops_the_server(self):
         from unittest import mock
+
         self.put_dropped(72, 40)
-        with mock.patch.object(limn_store, "atomic_write", side_effect=OSError("read-only")):   # the Trash writer's
+        with mock.patch.object(limn_store, "atomic_write", side_effect=OSError("read-only")):  # the Trash writer's
             self.assertEqual(ps.purge_trash(), 0)
 
     def test_someone_elses_delete_notifies_the_author(self):
@@ -309,8 +332,10 @@ class Trash(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
         self.assertEqual((code, d["ok"]), (200, True))
         evs = ps._read_events()[0][n:]
-        self.assertEqual([(e["type"], e["to"], e["by"]["login"], e["pin"]) for e in evs],
-                         [("dropped", ["alice@example.com"], "bob@example.com", pid)])
+        self.assertEqual(
+            [(e["type"], e["to"], e["by"]["login"], e["pin"]) for e in evs],
+            [("dropped", ["alice@example.com"], "bob@example.com", pid)],
+        )
         self.assertIn("dropped", NOTIFY_TYPES)
         m = self.call("GET", "/api/meta?light=1&ev=%d" % (evs[0]["seq"] - 1), headers=ALICE)[1]
         self.assertEqual([e["type"] for e in m["events"]], ["dropped"])
@@ -330,13 +355,13 @@ class Trash(AccessBase):
     def test_expired_pins_are_hidden_then_purged(self):
         self.put_dropped(50, 31)
         self.put_dropped(51, 29)
-        self.put_dropped(52, None)                            # no timestamp (hand-edited): kept, never guessed
+        self.put_dropped(52, None)  # no timestamp (hand-edited): kept, never guessed
         ids = sorted(r["id"] for r in ps.dropped_payload())
-        self.assertEqual(ids, [51, 52])                       # a read never shows an expired pin...
-        self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [50, 51, 52])   # ...and never writes
+        self.assertEqual(ids, [51, 52])  # a read never shows an expired pin...
+        self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [50, 51, 52])  # ...and never writes
         self.assertEqual(ps.purge_trash(), 1)
         self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [51, 52])
-        self.assertEqual(ps.purge_trash(now=time.time() + 2 * 86400), 1)   # two days later #51 is 31 days old
+        self.assertEqual(ps.purge_trash(now=time.time() + 2 * 86400), 1)  # two days later #51 is 31 days old
         self.assertEqual([r["id"] for r in self.dropped_file()], [52])
 
     def test_a_drop_purges_expired_pins(self):
@@ -364,16 +389,24 @@ class Trash(AccessBase):
         code, _ = self.call("POST", "/api/pins/%d/purge" % pid, None, ALICE)
         self.assertEqual(code, 404)
         nid = self.pin_id(ALICE)
-        self.assertGreater(nid, pid)                          # an id is never reused, even after a purge
+        self.assertGreater(nid, pid)  # an id is never reused, even after a purge
 
     def test_only_the_owner_may_delete_permanently(self):
-        self.set_people([{"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
-                         {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}])
+        self.set_people(
+            [
+                {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+                {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"},
+            ]
+        )
         pid = self.pin_id(BOB)
         self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
         _, tok = token_create(ps.C.state, "bot")
-        for who, kw in (("editor", {"headers": BOB}), ("viewer", {"headers": CAROL}), ("loopback agent", {}),
-                        ("token", {"token": tok})):
+        for who, kw in (
+            ("editor", {"headers": BOB}),
+            ("viewer", {"headers": CAROL}),
+            ("loopback agent", {}),
+            ("token", {"token": tok}),
+        ):
             with self.subTest(who=who):
                 code, _ = self.call("POST", "/api/pins/%d/purge" % pid, None, **kw)
                 self.assertEqual(code, 403)
@@ -395,6 +428,7 @@ class Trash(AccessBase):
 
 # ---------------------------------------------------------------- 3. viewer pure functions and markup
 
+
 class ViewerMarkup(unittest.TestCase):
     def test_no_reopen_button_anywhere(self):
         self.assertNotIn('data-act="rv-reopen"', ps.HTML)
@@ -402,22 +436,29 @@ class ViewerMarkup(unittest.TestCase):
         self.assertNotIn("openReply(id,'reopen')", ps.HTML)
 
     def test_dropped_section_left_the_list(self):
-        lst = ps.HTML[ps.HTML.index('<div id="list">'):ps.HTML.index('<div id="c-actions">')]
+        lst = ps.HTML[ps.HTML.index('<div id="list">') : ps.HTML.index('<div id="c-actions">')]
         self.assertNotIn("sec-dropped", lst)
         self.assertIn('<dialog id="trash"', ps.HTML)
-        more = ps.HTML[ps.HTML.index('<dialog id="more"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))]
+        more = ps.HTML[
+            ps.HTML.index('<dialog id="more"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))
+        ]
         self.assertIn('id="m-trash"', more)
         self.assertIn('data-act="trash-open"', more)
 
     def test_three_sections_share_one_header_component(self):
         for sec in ("open", "review", "done"):
             with self.subTest(section=sec):
-                m = re.search(r'<button class="sec-tg" id="%s-toggle" data-act="sec-toggle" data-sec="%s" aria-expanded="(true|false)" '
-                              r'aria-controls="[a-z-]+"' % (sec, sec), ps.HTML)
+                m = re.search(
+                    r'<button class="sec-tg" id="%s-toggle" data-act="sec-toggle" data-sec="%s" aria-expanded="(true|false)" '
+                    r'aria-controls="[a-z-]+"' % (sec, sec),
+                    ps.HTML,
+                )
                 self.assertIsNotNone(m, sec)
 
     def test_help_defines_pin_once(self):
-        help_ = ps.HTML[ps.HTML.index('<dialog id="help"'):ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="help"'))]
+        help_ = ps.HTML[
+            ps.HTML.index('<dialog id="help"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="help"'))
+        ]
         self.assertIn("<tr><td>핀</td><td>출력물의 한 자리 + 요청이나 질문 + 그 대화", help_)
         self.assertEqual(help_.count("<tr><td>핀</td>"), 1)
         en = ps.UI_EN["출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다"]
@@ -429,7 +470,10 @@ class ViewerMarkup(unittest.TestCase):
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
-        self.assertIn("actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]", extract_js_fn("notifyShow"))
+        self.assertIn(
+            "actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
+            extract_js_fn("notifyShow"),
+        )
         self.assertIn("e.action==='restore'", ps.SW_JS)
         self.assertIn("d.type==='restore-pin'", ps.HTML)
 
@@ -437,60 +481,136 @@ class ViewerMarkup(unittest.TestCase):
 class ViewerFunctions(unittest.TestCase):
     def setUp(self):
         import shutil
+
         if not shutil.which("node"):
             self.skipTest("node not available")
 
     def preview(self, lang, cases):
-        js = "\n".join([js_i18n(lang), "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
-                        extract_js_fn("peopleName"), extract_js_fn("pinState"), extract_js_fn("replyReopens"),
-                        extract_js_fn("replyPreview"), "const cases=%s;" % json.dumps(cases),
-                        "console.log(JSON.stringify(cases.map(c=>replyPreview(c[0],c[1],c[2],c[3]))));"])
+        js = "\n".join(
+            [
+                js_i18n(lang),
+                "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+                extract_js_fn("peopleName"),
+                extract_js_fn("pinState"),
+                extract_js_fn("replyReopens"),
+                extract_js_fn("replyPreview"),
+                "const cases=%s;" % json.dumps(cases),
+                "console.log(JSON.stringify(cases.map(c=>replyPreview(c[0],c[1],c[2],c[3]))));",
+            ]
+        )
         return json.loads(run_node(js))
 
     def test_preview_line_for_each_outcome(self):
-        rv, dn, op, q = rec_for("review", "fix"), rec_for("done", "fix"), rec_for("open", "fix"), rec_for("review", "question")
-        cases = [[rv, True, [], False], [dn, True, [], False], [rv, True, ["bob@example.com"], False],
-                 [rv, True, [], True], [q, True, [], False], [rv, False, [], False], [op, True, [], False]]
+        rv, dn, op, q = (
+            rec_for("review", "fix"),
+            rec_for("done", "fix"),
+            rec_for("open", "fix"),
+            rec_for("review", "question"),
+        )
+        cases = [
+            [rv, True, [], False],
+            [dn, True, [], False],
+            [rv, True, ["bob@example.com"], False],
+            [rv, True, [], True],
+            [q, True, [], False],
+            [rv, False, [], False],
+            [op, True, [], False],
+        ]
         ko = self.preview("ko", cases)
-        self.assertEqual([(x or {}).get("text") for x in ko], [
-            "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
-            "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다", "보내도 상태는 그대로입니다",
-            "답으로 남고 상태는 그대로입니다", "이 화면은 에이전트로 보내므로 상태는 그대로입니다", None])
+        self.assertEqual(
+            [(x or {}).get("text") for x in ko],
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다",
+                "보내도 상태는 그대로입니다",
+                "답으로 남고 상태는 그대로입니다",
+                "이 화면은 에이전트로 보내므로 상태는 그대로입니다",
+                None,
+            ],
+        )
         # the one override toggle: [상태 유지] where the rule reopens, [다시 열기] where it keeps a closed pin as it is
-        self.assertEqual([(x or {}).get("toggle") for x in ko], ["keep", "keep", "reopen", "keep", "reopen", "reopen", None])
-        flipped = self.preview("ko", [[rv, True, ["bob@example.com"], True], [q, True, [], True], [rv, False, [], True]])
-        self.assertEqual([x["text"] for x in flipped], ["보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
-                                                        "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "보내면 이 핀이 다시 열려 에이전트에게 갑니다"])
+        self.assertEqual(
+            [(x or {}).get("toggle") for x in ko], ["keep", "keep", "reopen", "keep", "reopen", "reopen", None]
+        )
+        flipped = self.preview(
+            "ko", [[rv, True, ["bob@example.com"], True], [q, True, [], True], [rv, False, [], True]]
+        )
+        self.assertEqual(
+            [x["text"] for x in flipped],
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+            ],
+        )
         en = self.preview("en", cases)
-        self.assertEqual([(x or {}).get("text") for x in en], [
-            "Sending will reopen this pin for the agent", "Sending will reopen this pin for the agent",
-            "Sending notifies Bob Park; state stays", "Sending keeps the state as it is",
-            "Recorded as an answer; state stays", "This screen posts as the agent; state stays", None])
+        self.assertEqual(
+            [(x or {}).get("text") for x in en],
+            [
+                "Sending will reopen this pin for the agent",
+                "Sending will reopen this pin for the agent",
+                "Sending notifies Bob Park; state stays",
+                "Sending keeps the state as it is",
+                "Recorded as an answer; state stays",
+                "This screen posts as the agent; state stays",
+                None,
+            ],
+        )
 
     def test_section_state_defaults_and_new_count(self):
-        js = "\n".join(["const SEC_DEFAULT={open:true,review:true,done:false};", extract_js_fn("secState"),
-                        extract_js_fn("secNewCount"), r"""
+        js = "\n".join(
+            [
+                "const SEC_DEFAULT={open:true,review:true,done:false};",
+                extract_js_fn("secState"),
+                extract_js_fn("secNewCount"),
+                r"""
             console.log(JSON.stringify([secState(undefined), secState({done:true}), secState({open:false,x:1,review:'no'}),
-              secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));"""])
-        self.assertEqual(json.loads(run_node(js)), [
-            {"open": True, "review": True, "done": False}, {"open": True, "review": True, "done": True},
-            {"open": False, "review": True, "done": False}, 2, 0, 0])
+              secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                {"open": True, "review": True, "done": False},
+                {"open": True, "review": True, "done": True},
+                {"open": False, "review": True, "done": False},
+                2,
+                0,
+                0,
+            ],
+        )
 
     def test_trash_days_left(self):
-        js = "\n".join(["const TRASH_DAYS=30;", extract_js_fn("trashDaysLeft"), r"""
+        js = "\n".join(
+            [
+                "const TRASH_DAYS=30;",
+                extract_js_fn("trashDaysLeft"),
+                r"""
             const now=new Date(2026,8,25,12,0).getTime();
             console.log(JSON.stringify([trashDaysLeft('2026-09-25 11:00:00',now), trashDaysLeft('2026-08-27 12:00:00',now),
-              trashDaysLeft('2026-08-20 12:00:00',now), trashDaysLeft('',now)]));"""])
-        self.assertEqual(json.loads(run_node(js)), [30, 1, 0, None])     # Aug 27 -> Sep 25 is 29 days: 1 left
+              trashDaysLeft('2026-08-20 12:00:00',now), trashDaysLeft('',now)]));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [30, 1, 0, None])  # Aug 27 -> Sep 25 is 29 days: 1 left
 
     def test_ref_to_a_deleted_pin_renders_as_deleted(self):
-        js = "\n".join([r"""
+        js = "\n".join(
+            [
+                r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             let PEOPLE=[], META=null; const DROPPED=[{id:12}];
             function findAnyPin(id){return id===3?{id:3}:null;}
-            """, extract_js_fn("mentionToks"), extract_js_fn("reEsc"), extract_js_fn("meLogin"), extract_js_fn("pinRefExists"),
-            extract_js_fn("pinRefGone"), extract_js_fn("fmtText"),
-            "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])]));"])
+            """,
+                extract_js_fn("mentionToks"),
+                extract_js_fn("reEsc"),
+                extract_js_fn("meLogin"),
+                extract_js_fn("pinRefExists"),
+                extract_js_fn("pinRefGone"),
+                extract_js_fn("fmtText"),
+                "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])]));",
+            ]
+        )
         out = json.loads(run_node(js))[0]
         self.assertIn('data-ref="3"', out)
         self.assertRegex(out, r'<span class="pin-ref gone"[^>]*data-ref="12"[^>]*>#12 <small>삭제된 핀</small></span>')
@@ -506,12 +626,28 @@ DEVICES = {
     "phone": {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True},
 }
 TXT = {
-    "ko": {"reopen": "보내면 이 핀이 다시 열려 에이전트에게 갑니다", "keep": "보내도 상태는 그대로입니다", "undo": "되돌리기",
-           "mention": "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다", "trash": "휴지통 1", "restore": "되살리기",
-           "purge": "영구 삭제", "new": "새 1", "gone": "삭제된 핀"},
-    "en": {"reopen": "Sending will reopen this pin for the agent", "keep": "Sending keeps the state as it is", "undo": "Undo",
-           "mention": "Sending notifies Bob Park; state stays", "trash": "Trash (1)", "restore": "Restore",
-           "purge": "Delete forever", "new": "new 1", "gone": "deleted pin"},
+    "ko": {
+        "reopen": "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+        "keep": "보내도 상태는 그대로입니다",
+        "undo": "되돌리기",
+        "mention": "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다",
+        "trash": "휴지통 1",
+        "restore": "되살리기",
+        "purge": "영구 삭제",
+        "new": "새 1",
+        "gone": "삭제된 핀",
+    },
+    "en": {
+        "reopen": "Sending will reopen this pin for the agent",
+        "keep": "Sending keeps the state as it is",
+        "undo": "Undo",
+        "mention": "Sending notifies Bob Park; state stays",
+        "trash": "Trash (1)",
+        "restore": "Restore",
+        "purge": "Delete forever",
+        "new": "new 1",
+        "gone": "deleted pin",
+    },
 }
 
 
@@ -522,7 +658,9 @@ class ViewerFlows(BrowserBase):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
-        self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record["id"]
+        self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record[
+            "id"
+        ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
         ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
@@ -573,8 +711,10 @@ class ViewerFlows(BrowserBase):
     def test_reply_reopens_with_preview_and_undo(self):
         def flow(page, device, lang):
             t = TXT[lang]
-            card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
-            acts = page.evaluate("[...document.querySelectorAll('%s .acts [data-act]')].map(e=>e.dataset.act)" % card.replace('"', '\\"'))
+            card = '#review-pins .pin[data-id="%d"]' % self.rv
+            acts = page.evaluate(
+                "[...document.querySelectorAll('%s .acts [data-act]')].map(e=>e.dataset.act)" % card.replace('"', '\\"')
+            )
             self.assertNotIn("rv-reopen", acts)
             self.assertIn("reply-open", acts)
             self.assertIn("confirm", acts)
@@ -590,7 +730,7 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             tst = self.toast(page, t["undo"])
             tst.wait_for(state="visible")
-            self.assertEqual(self.state(self.rv), "review")                     # nothing sent while undo is possible
+            self.assertEqual(self.state(self.rv), "review")  # nothing sent while undo is possible
             tst.get_by_role("button", name=t["undo"]).click()
             page.wait_for_selector(card + " textarea.r-text")
             self.assertEqual(page.input_value(card + " textarea.r-text"), "식 번호가 아직 틀립니다")
@@ -599,17 +739,18 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             tst = self.toast(page, t["undo"])
             tst.wait_for(state="visible")
-            tst.locator("button.btn-icon").click()                             # dismissing the toast sends at once
+            tst.locator("button.btn-icon").click()  # dismissing the toast sends at once
             self.wait_state(self.rv, "open")
             last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
+
         self.run_matrix(flow)
 
     def test_keep_state_sends_a_comment(self):
         def flow(page, device, lang):
             t = TXT[lang]
-            card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+            card = '#review-pins .pin[data-id="%d"]' % self.rv
             page.click(card + " .acts [data-act=reply-open]")
             page.fill(card + " textarea.r-text", "내일 다시 볼게요")
             page.click(card + " [data-act=reply-flip]")
@@ -622,20 +763,24 @@ class ViewerFlows(BrowserBase):
                 self.pump()
             last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
+
         self.run_matrix(flow)
 
     def test_mention_preview_keeps_state(self):
         page = self.page_for("desktop", "ko")
-        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
         page.click(card + " textarea.r-text")
         page.keyboard.type("@Bob Park 이 수정 괜찮나요")
         page.wait_for_timeout(100)
         self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), TXT["ko"]["mention"])
-        flip = page.locator(card + " [data-act=reply-flip]")                   # the rare override is [다시 열기] here
+        flip = page.locator(card + " [data-act=reply-flip]")  # the rare override is [다시 열기] here
         self.assertEqual((flip.inner_text(), flip.get_attribute("aria-checked")), ("다시 열기", "false"))
         flip.click()
-        self.assertEqual(page.inner_text(card + " .r-outcome .r-out-t"), "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다")
+        self.assertEqual(
+            page.inner_text(card + " .r-outcome .r-out-t"),
+            "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+        )
         page.click(card + " [data-act=reply-send]")
         self.toast(page, "되돌리기").locator("button.btn-icon").click()
         self.wait_state(self.rv, "open")
@@ -643,7 +788,7 @@ class ViewerFlows(BrowserBase):
     def test_done_row_offers_reply_not_reopen(self):
         def flow(page, device, lang):
             page.click("#done-toggle")
-            row = "#done-list .arc-row[data-id=\"%d\"]" % self.dn
+            row = '#done-list .arc-row[data-id="%d"]' % self.dn
             page.wait_for_selector(row)
             acts = page.evaluate("[...document.querySelectorAll('#done-list [data-act]')].map(e=>e.dataset.act)")
             self.assertNotIn("rv-reopen", acts)
@@ -654,11 +799,12 @@ class ViewerFlows(BrowserBase):
             page.click(row + " [data-act=reply-send]")
             self.toast(page, TXT[lang]["undo"]).locator("button.btn-icon").click()
             self.wait_state(self.dn, "open")
+
         self.run_matrix(flow)
 
     def test_hidden_page_sends_at_once_and_drops_the_undo(self):
         page = self.page_for("desktop", "ko")
-        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
         page.fill(card + " textarea.r-text", "숨기기 전에 보냄")
         page.click(card + " [data-act=reply-send]")
@@ -666,11 +812,11 @@ class ViewerFlows(BrowserBase):
         page.evaluate("window.dispatchEvent(new Event('pagehide'))")
         self.wait_state(self.rv, "open")
         page.wait_for_timeout(200)
-        self.assertEqual(self.toast(page, "되돌리기").count(), 0)             # an undo that could no longer work is gone
+        self.assertEqual(self.toast(page, "되돌리기").count(), 0)  # an undo that could no longer work is gone
 
     def test_newer_toasts_pushing_it_out_send_it(self):
         page = self.page_for("desktop", "ko")
-        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.click(card + " .acts [data-act=reply-open]")
         page.fill(card + " textarea.r-text", "밀려나면 보냄")
         page.click(card + " [data-act=reply-send]")
@@ -679,13 +825,13 @@ class ViewerFlows(BrowserBase):
 
     def test_outcome_line_follows_a_state_change_while_typing(self):
         page = self.page_for("desktop", "ko")
-        card = "#pins .pin[data-id=\"%d\"]" % self.open_id
+        card = '#pins .pin[data-id="%d"]' % self.open_id
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
-        self.assertFalse(page.is_visible(".r-outcome"))                       # open pin: a reply never changes it
-        ps.set_done(self.open_id, True, dict(LOCAL_ACTOR), reply="줄였습니다")   # the agent closes it meanwhile
+        self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
+        ps.set_done(self.open_id, True, dict(LOCAL_ACTOR), reply="줄였습니다")  # the agent closes it meanwhile
         page.evaluate("loadPins()")
-        page.wait_for_selector("#review-pins .pin[data-id=\"%d\"] .r-outcome:not([hidden])" % self.open_id)
+        page.wait_for_selector('#review-pins .pin[data-id="%d"] .r-outcome:not([hidden])' % self.open_id)
         self.assertEqual(page.inner_text(".r-outcome .r-out-t"), TXT["ko"]["reopen"])
         self.assertEqual(page.input_value("textarea.r-text"), "이 문장도 봐 주세요")
 
@@ -696,12 +842,12 @@ class ViewerFlows(BrowserBase):
                 page.click("#open-toggle")
                 self.assertFalse(page.is_visible("#pins"))
                 page.evaluate("revealCard(%d); jumpToCard(%d)" % (self.open_id, self.open_id))
-                page.wait_for_selector("#pins .pin[data-id=\"%d\"]" % self.open_id, state="visible")
+                page.wait_for_selector('#pins .pin[data-id="%d"]' % self.open_id, state="visible")
                 self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "true")
 
     def test_delete_toast_undo_restores(self):
         page = self.page_for("desktop", "ko")
-        page.click("#pins .pin[data-id=\"%d\"] [data-act=drop]" % self.open_id)
+        page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
         self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
         self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
@@ -720,7 +866,7 @@ class ViewerFlows(BrowserBase):
     def test_delete_undo_and_trash_restore(self):
         def flow(page, device, lang):
             t = TXT[lang]
-            page.click("#pins .pin[data-id=\"%d\"] [data-act=drop]" % self.open_id)
+            page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
             end = time.time() + 5
@@ -732,26 +878,36 @@ class ViewerFlows(BrowserBase):
             if device == "desktop":
                 self.assertEqual(page.inner_text("#trash-link").strip(), t["trash"])
             self.open_trash(page, device)
-            row = "#trash .arc-row[data-id=\"%d\"]" % self.open_id
+            row = '#trash .arc-row[data-id="%d"]' % self.open_id
             page.wait_for_selector(row)
-            self.assertFalse(page.locator(row + " [data-act=purge]").count())   # not the owner
-            if lang == "en":                                                     # the UI, not the Korean note a person wrote
+            self.assertFalse(page.locator(row + " [data-act=purge]").count())  # not the owner
+            if lang == "en":  # the UI, not the Korean note a person wrote
                 for sel in ("#trash-h", "#trash-note", row + " .arc-l1"):
                     self.english_only(page, sel)
             page.click(row + " [data-act=restore]")
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
             self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
+
         self.run_matrix(flow)
 
     def test_owner_deletes_forever_with_undo(self):
-        ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
-            {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
-            {"login": "bob@example.com", "name": "Bob Park"}]}), encoding="utf-8")
+        ps.C.people_file.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "people": [
+                        {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+                        {"login": "bob@example.com", "name": "Bob Park"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         ps.ROLES_CACHE = access.FileCache()
         ps.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
-        row = "#trash .arc-row[data-id=\"%d\"]" % self.open_id
+        row = '#trash .arc-row[data-id="%d"]' % self.open_id
         page.wait_for_selector(row + " [data-act=purge]")
         page.click(row + " [data-act=purge]")
         tst = self.toast(page, "되돌리기")
@@ -771,16 +927,18 @@ class ViewerFlows(BrowserBase):
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.page_for("desktop", lang)
-                ref = page.locator("#pins .pin[data-id=\"%d\"] .pin-ref.gone" % self.open_id)
+                ref = page.locator('#pins .pin[data-id="%d"] .pin-ref.gone' % self.open_id)
                 self.assertEqual(ref.inner_text().replace("\n", " "), "#%d %s" % (self.dn, TXT[lang]["gone"]))
                 ref.click()
-                page.wait_for_selector("#trash[open] .arc-row[data-id=\"%d\"]" % self.dn)
+                page.wait_for_selector('#trash[open] .arc-row[data-id="%d"]' % self.dn)
 
     # -- 3. Collapsible sections
 
     def test_sections_toggle_remember_and_count_new(self):
         def flow(page, device, lang):
-            heads = page.evaluate("[...document.querySelectorAll('.sec-tg')].map(b=>[b.id,b.getAttribute('aria-expanded')])")
+            heads = page.evaluate(
+                "[...document.querySelectorAll('.sec-tg')].map(b=>[b.id,b.getAttribute('aria-expanded')])"
+            )
             self.assertEqual(heads, [["open-toggle", "true"], ["review-toggle", "true"], ["done-toggle", "false"]])
             self.assertFalse(page.is_visible("#done-list"))
             page.click("#open-toggle")
@@ -797,14 +955,15 @@ class ViewerFlows(BrowserBase):
             self.assertEqual(page.inner_text("#open-toggle .sec-new"), TXT[lang]["new"])
             page.reload()
             page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=2&&META", timeout=20000)
-            page.evaluate("setSide(true)")                                   # compact: the sheet starts collapsed after a reload
-            self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "false")    # remembered
+            page.evaluate("setSide(true)")  # compact: the sheet starts collapsed after a reload
+            self.assertEqual(page.get_attribute("#open-toggle", "aria-expanded"), "false")  # remembered
             page.click("#open-toggle")
             self.assertTrue(page.is_visible("#pins"))
             self.assertFalse(page.is_visible("#open-toggle .sec-new"))
             if lang == "en":
                 for sel in ("#open-toggle", "#review-toggle", "#done-toggle"):
                     self.english_only(page, sel)
+
         self.run_matrix(flow)
 
 
@@ -814,6 +973,7 @@ if __name__ == "__main__":
 
 # ---------------------------------------------------------------- v0.2.2 follow-ups: cold deep links, lazy Trash expiry, styles
 
+
 class LazyTrashExpiry(AccessBase):
     """A long-running server drops expired Trash entries during normal reads, at most once an hour, never on a light poll."""
 
@@ -822,8 +982,15 @@ class LazyTrashExpiry(AccessBase):
         ps._TRASH_CHECKED[0] = 0.0
 
     def put_dropped(self, pid, dropped_epoch):
-        rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old",
-               "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch))}
+        rec = {
+            "id": pid,
+            "file": str(self.main),
+            "lo": 4,
+            "hi": 5,
+            "page": 1,
+            "note": "old",
+            "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch)),
+        }
         atomic_write(ps.C.dropped, dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
 
     def ids(self):
@@ -831,27 +998,29 @@ class LazyTrashExpiry(AccessBase):
 
     def test_hourly_purge_on_reads_with_a_fake_clock(self):
         from unittest import mock
+
         t0 = time.time()
         self.put_dropped(80, t0 - 31 * 86400)
         with mock.patch.object(ps.time, "time", return_value=t0):
-            self.assertEqual(self.call("GET", "/api/meta?light=1")[0], 200)      # a light poll never writes
+            self.assertEqual(self.call("GET", "/api/meta?light=1")[0], 200)  # a light poll never writes
             self.assertEqual(self.ids(), [80])
-            self.assertEqual(self.call("GET", "/api/pins")[0], 200)              # a normal read purges
+            self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # a normal read purges
             self.assertEqual(self.ids(), [])
             self.put_dropped(81, t0 - 31 * 86400)
-            self.call("GET", "/api/pins?all=1")                                  # within the hour: no second check
+            self.call("GET", "/api/pins?all=1")  # within the hour: no second check
             self.assertEqual(self.ids(), [81])
         with mock.patch.object(ps.time, "time", return_value=t0 + 3601):
-            self.call("GET", "/pins.md")                                         # an hour later: checked again
+            self.call("GET", "/pins.md")  # an hour later: checked again
             self.assertEqual(self.ids(), [])
 
     def test_an_entry_expiring_while_the_server_runs(self):
         from unittest import mock
+
         t0 = time.time()
         self.put_dropped(82, t0 - 29.99 * 86400)
         with mock.patch.object(ps.time, "time", return_value=t0):
             self.call("GET", "/api/pins")
-            self.assertEqual(self.ids(), [82])                                   # not yet 30 days old
+            self.assertEqual(self.ids(), [82])  # not yet 30 days old
         with mock.patch.object(ps.time, "time", return_value=t0 + 2 * 3600):
             self.call("GET", "/api/pins")
             self.assertEqual(self.ids(), [])
@@ -875,6 +1044,7 @@ class ColdDeepLink(BrowserBase):
     def setUp(self):
         super().setUp()
         from test_i18n import _png
+
         src = ps.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
         ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C))
@@ -888,11 +1058,21 @@ class ColdDeepLink(BrowserBase):
             (D.dir / "head.txt").write_text("abc1234")
         ms, hl = ps.DOCS
         for lo in range(4, 30, 2):
-            add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A).record["id"]
+            add_pin(
+                {"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A
+            ).record["id"]
         for lo in range(4, 24, 2):
-            add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A, doc=hl).record["id"]
-        self.target = add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A, doc=hl).record["id"]
-        self.gone = add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl).record["id"]
+            add_pin(
+                {"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo},
+                A,
+                doc=hl,
+            ).record["id"]
+        self.target = add_pin(
+            {"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A, doc=hl
+        ).record["id"]
+        self.gone = add_pin(
+            {"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl
+        ).record["id"]
         ps.drop_pin(self.gone, B)
         self.addCleanup(ps.set_docs, None)
 
@@ -909,18 +1089,24 @@ class ColdDeepLink(BrowserBase):
         return page
 
     def assert_card_shown(self, page, pid, device):
-        page.wait_for_function("DOC==='hl'&&OPEN_CARDS.has(%d)&&!!document.querySelector('.pin[data-id=\"%d\"]')" % (pid, pid), timeout=8000)
-        if device == "desktop":                                                  # the card is scrolled into the panel
-            page.wait_for_function("""(()=>{const c=document.querySelector('.pin[data-id="%d"]').getBoundingClientRect(),
-                l=document.getElementById('list').getBoundingClientRect(); return c.height>0&&c.top>=l.top-1&&c.bottom<=l.bottom+1;})()""" % pid,
-                timeout=5000)
+        page.wait_for_function(
+            "DOC==='hl'&&OPEN_CARDS.has(%d)&&!!document.querySelector('.pin[data-id=\"%d\"]')" % (pid, pid),
+            timeout=8000,
+        )
+        if device == "desktop":  # the card is scrolled into the panel
+            page.wait_for_function(
+                """(()=>{const c=document.querySelector('.pin[data-id="%d"]').getBoundingClientRect(),
+                l=document.getElementById('list').getBoundingClientRect(); return c.height>0&&c.top>=l.top-1&&c.bottom<=l.bottom+1;})()"""
+                % pid,
+                timeout=5000,
+            )
 
     def test_cold_link_opens_the_pin_in_another_document(self):
         for device in ("desktop", "phone"):
             with self.subTest(device=device):
                 page = self.cold("#doc=hl&pin=%d" % self.target, device)
                 self.assert_card_shown(page, self.target, device)
-                self.assertEqual(page.evaluate("location.hash"), "#doc=hl")      # the one-shot pin= is consumed
+                self.assertEqual(page.evaluate("location.hash"), "#doc=hl")  # the one-shot pin= is consumed
 
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
@@ -934,6 +1120,7 @@ class ColdDeepLink(BrowserBase):
 
 
 # ---------------------------------------------------------------- review of PR #11: what the preview says is what happens
+
 
 class AgentAsPerson(AccessBase):
     """An agent without a token that sends as a person (--auth local headerless curl, or a person-logged-in machine
@@ -956,15 +1143,18 @@ class AgentAsPerson(AccessBase):
     def test_the_instruction_is_in_pins_md_skill_and_api(self):
         md = ps.pins_md_text(ps.snapshot_pins()).splitlines()
         i = md.index(md_render.TOKEN_GUIDANCE)
-        self.assertEqual(md[i + 1], md_render.REPLY_GUIDANCE)                          # additive line after the token line
+        self.assertEqual(md[i + 1], md_render.REPLY_GUIDANCE)  # additive line after the token line
         self.assertIn('`"reopen":false`', md_render.REPLY_GUIDANCE)
         self.assertIn("토큰 없이", md_render.REPLY_GUIDANCE)
-        for f, needle in ((ROOT / "skill" / "SKILL.md", '"reopen": false'), (ROOT / "skill" / "SKILL.ko.md", '"reopen": false'),
-                          (ROOT / "docs" / "handbook" / "api.md", '"reopen": false')):
+        for f, needle in (
+            (ROOT / "skill" / "SKILL.md", '"reopen": false'),
+            (ROOT / "skill" / "SKILL.ko.md", '"reopen": false'),
+            (ROOT / "docs" / "handbook" / "api.md", '"reopen": false'),
+        ):
             text = f.read_text(encoding="utf-8")
             self.assertIn(needle, text, f.name)
             j = text.index(needle)
-            self.assertIn('"review": true', text[max(0, j - 800):j + 800], f.name)   # next to the review:true note
+            self.assertIn('"review": true', text[max(0, j - 800) : j + 800], f.name)  # next to the review:true note
 
 
 class TrashClockStart(Base):
@@ -977,60 +1167,115 @@ class TrashClockStart(Base):
 class ViewerFunctions2(unittest.TestCase):
     def setUp(self):
         import shutil
+
         if not shutil.which("node"):
             self.skipTest("node not available")
 
     def js(self, lang, script):
-        return json.loads(run_node("\n".join([js_i18n(lang),
-            "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
-            extract_js_fn("peopleName"), extract_js_fn("pinState"), extract_js_fn("replyReopens"), extract_js_fn("replyPreview"),
-            extract_js_fn("replyPlaceholder"), extract_js_fn("replyServerNote"), script])))
+        return json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        js_i18n(lang),
+                        "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+                        extract_js_fn("peopleName"),
+                        extract_js_fn("pinState"),
+                        extract_js_fn("replyReopens"),
+                        extract_js_fn("replyPreview"),
+                        extract_js_fn("replyPlaceholder"),
+                        extract_js_fn("replyServerNote"),
+                        script,
+                    ]
+                )
+            )
+        )
 
     def test_override_on_still_names_who_is_notified(self):
         rv, q = rec_for("review", "fix"), rec_for("review", "question")
-        out = self.js("ko", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text, replyPreview(%s,true,['carol@example.com'],true).text]));"
-                      % (json.dumps(rv), json.dumps(q)))
-        self.assertEqual(out, ["보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
-                               "보내면 이 핀이 다시 열려 에이전트에게 가고, Carol Lee에게 알림이 갑니다"])
-        en = self.js("en", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text]));" % json.dumps(rv))
+        out = self.js(
+            "ko",
+            "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text, replyPreview(%s,true,['carol@example.com'],true).text]));"
+            % (json.dumps(rv), json.dumps(q)),
+        )
+        self.assertEqual(
+            out,
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Carol Lee에게 알림이 갑니다",
+            ],
+        )
+        en = self.js(
+            "en", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text]));" % json.dumps(rv)
+        )
         self.assertEqual(en, ["Sending reopens this pin for the agent and notifies Bob Park"])
 
     def test_placeholder_follows_the_outcome(self):
         rv, q, op = rec_for("review", "fix"), rec_for("review", "question"), rec_for("open", "fix")
-        out = self.js("ko", "console.log(JSON.stringify([replyPlaceholder(%s,true,false),replyPlaceholder(%s,true,true),"
-                      "replyPlaceholder(%s,true,false),replyPlaceholder(%s,false,false),replyPlaceholder(%s,true,false)]));"
-                      % tuple(json.dumps(x) for x in (rv, rv, q, rv, op)))
+        out = self.js(
+            "ko",
+            "console.log(JSON.stringify([replyPlaceholder(%s,true,false),replyPlaceholder(%s,true,true),"
+            "replyPlaceholder(%s,true,false),replyPlaceholder(%s,false,false),replyPlaceholder(%s,true,false)]));"
+            % tuple(json.dumps(x) for x in (rv, rv, q, rv, op)),
+        )
         reopen = "무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)"
         plain = "답글 (⌘/Ctrl+Enter 보내기)"
         self.assertEqual(out, [reopen, plain, plain, plain, plain])
 
     def test_post_send_note_says_what_the_server_did(self):
-        out = self.js("ko", r"""console.log(JSON.stringify([
+        out = self.js(
+            "ko",
+            r"""console.log(JSON.stringify([
             replyServerNote(7,true,{ok:true,reopened:true,state:'open'}),
             replyServerNote(7,true,{ok:true,reopened:false,state:'open'}),
             replyServerNote(7,false,{ok:true,reopened:true,state:'open'}),
-            replyServerNote(7,false,{ok:true,reopened:false,state:'done'})]));""")
-        self.assertEqual(out, [None, "#7 은 그사이 이미 열려 있어 답글로만 남았습니다",
-                               "#7 은 그사이 닫혀서 이 답글이 다시 열었습니다", None])
+            replyServerNote(7,false,{ok:true,reopened:false,state:'done'})]));""",
+        )
+        self.assertEqual(
+            out,
+            [
+                None,
+                "#7 은 그사이 이미 열려 있어 답글로만 남았습니다",
+                "#7 은 그사이 닫혀서 이 답글이 다시 열었습니다",
+                None,
+            ],
+        )
 
     def test_trash_row_shows_who_and_separates_the_times(self):
         """A Trash row shows who deleted it and separates the relative time from the days left."""
-        js = "\n".join([js_i18n("ko"), js_icons(), r"""
+        js = "\n".join(
+            [
+                js_i18n("ko"),
+                js_icons(),
+                r"""
             const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}
-            const TRASH_DAYS=30;""", extract_js_fn("rng"), extract_js_fn("multiDoc"), extract_js_fn("pdoc"), extract_js_fn("isRegion"),
-            extract_js_fn("locCopy"), extract_js_fn("docChip"), extract_js_fn("arcLoc"), extract_js_fn("arcLine"),
-            extract_js_fn("trashDaysLeft"), extract_js_fn("isOwner"), extract_js_fn("isViewer"), extract_js_fn("droppedCard"), r"""
+            const TRASH_DAYS=30;""",
+                extract_js_fn("rng"),
+                extract_js_fn("multiDoc"),
+                extract_js_fn("pdoc"),
+                extract_js_fn("isRegion"),
+                extract_js_fn("locCopy"),
+                extract_js_fn("docChip"),
+                extract_js_fn("arcLoc"),
+                extract_js_fn("arcLine"),
+                extract_js_fn("trashDaysLeft"),
+                extract_js_fn("isOwner"),
+                extract_js_fn("isViewer"),
+                extract_js_fn("droppedCard"),
+                r"""
             const h=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60});
-            console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));"""])
+            console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));""",
+            ]
+        )
         text = json.loads(run_node(js))[0]
         self.assertIn("7시간 전|·|Bob Park 삭제|·|30일 뒤 지워짐", text)
 
 
 class PreviewEqualsServer(BrowserBase):
     """The real input pipeline: text + autocomplete state -> the outcome line -> the request body -> the server decision."""
+
     WHO = ALICE
     LEE = {"login": "sl@example.com", "name": "Robin Lee"}
     PARK = {"login": "sp@example.com", "name": "Robin Park"}
@@ -1041,12 +1286,14 @@ class PreviewEqualsServer(BrowserBase):
             ps.record_person(p)
         self.pins = []
         for i in range(5):
-            pid = add_pin({"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A).record["id"]
+            pid = add_pin(
+                {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
+            ).record["id"]
             ps.set_done(pid, True, dict(LOCAL_ACTOR), reply="고침 %d" % i)
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
-        card = "#review-pins .pin[data-id=\"%d\"]" % pid
+        card = '#review-pins .pin[data-id="%d"]' % pid
         page.evaluate("OPEN_CARDS.add(%d); drawPins()" % pid)
         page.click(card + " .acts [data-act=reply-open]")
         ta = card + " textarea.r-text"
@@ -1069,11 +1316,13 @@ class PreviewEqualsServer(BrowserBase):
 
     def test_preview_matches_the_server_for_ambiguous_partial_and_edited_names(self):
         page = self.open(0)
-        cases = [("Robin Lee", "@Robin Lee 확인 부탁"),              # autocompleted, kept
-                 ("Robin Lee", "@Robin 확인 부탁"),                  # autocompleted, then edited down to the ambiguous first word
-                 (None, "@Robin Park 봐 주세요"),                      # typed in full, no autocomplete
-                 ("Robin Park", "@Robin 이것도요"),                  # picked Park, edited to the first word
-                 (None, "@Robin 누구든 봐 주세요")]                    # ambiguous, never picked
+        cases = [
+            ("Robin Lee", "@Robin Lee 확인 부탁"),  # autocompleted, kept
+            ("Robin Lee", "@Robin 확인 부탁"),  # autocompleted, then edited down to the ambiguous first word
+            (None, "@Robin Park 봐 주세요"),  # typed in full, no autocomplete
+            ("Robin Park", "@Robin 이것도요"),  # picked Park, edited to the first word
+            (None, "@Robin 누구든 봐 주세요"),
+        ]  # ambiguous, never picked
         for pid, (pick, text) in zip(self.pins, cases, strict=True):
             with self.subTest(pick=pick, text=text):
                 preview, reopened, notified = self.run_case(page, pid, pick, text)
@@ -1095,7 +1344,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         ps.set_done(self.rv, True, dict(LOCAL_ACTOR), reply="고침")
 
     def box(self, page):
-        card = "#review-pins .pin[data-id=\"%d\"]" % self.rv
+        card = '#review-pins .pin[data-id="%d"]' % self.rv
         page.evaluate("OPEN_CARDS.add(%d); drawPins()" % self.rv)
         page.click(card + " .acts [data-act=reply-open]")
         return card
@@ -1106,7 +1355,9 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.fill(card + " textarea.r-text", "키보드로 보냄")
         page.focus(card + " textarea.r-text")
         page.keyboard.press("Control+Enter")
-        page.wait_for_function("document.activeElement&&document.activeElement.closest('.toast')&&document.activeElement.textContent==='되돌리기'")
+        page.wait_for_function(
+            "document.activeElement&&document.activeElement.closest('.toast')&&document.activeElement.textContent==='되돌리기'"
+        )
         page.keyboard.press("Enter")
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
@@ -1150,7 +1401,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
         self.assertNotIn("act=restore", page.evaluate("location.href"))
-        ps.drop_pin(pid, A)                                                        # dropped again elsewhere
+        ps.drop_pin(pid, A)  # dropped again elsewhere
         page.reload()
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)&&META" % keep, timeout=20000)
         page.wait_for_timeout(800)
@@ -1161,7 +1412,7 @@ class TrashOfAnotherDocument(ColdDeepLink):
     def test_opening_the_trash_at_another_documents_pin_keeps_the_list_filter(self):
         page = self.cold("#doc=ms", "desktop")
         page.evaluate("openTrash(%d)" % self.gone)
-        page.wait_for_selector("#trash .arc-row[data-id=\"%d\"]" % self.gone)
+        page.wait_for_selector('#trash .arc-row[data-id="%d"]' % self.gone)
         self.assertFalse(page.evaluate("SHOW_ALL"))
         page.click("#trash [data-act=trash-close]")
         self.assertFalse(page.evaluate("SHOW_ALL"))

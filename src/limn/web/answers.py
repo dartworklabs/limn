@@ -7,6 +7,7 @@ contract (docs/handbook/api.md) and are kept word for word. A record goes out th
 which places the pin's file on this machine), and a state name comes from `state_of` (server.py's pin_state()).
 Nothing here reads files, the clock or the request.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -65,8 +66,11 @@ def accepted(value: T | InputRejected) -> T:
 def pick_build_gone() -> Body:
     """POST /api/pick naming a page directory that is gone (limn.web.parse.PickBuildGone): a 200 whose error tells the
     viewer to pick again on the new PDF, with pdf_build_gone set."""
-    return {"error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
-            "reason": "pdf_build_gone", "pdf_build_gone": True}
+    return {
+        "error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
+        "reason": "pdf_build_gone",
+        "pdf_build_gone": True,
+    }
 
 
 def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive, show: Show) -> Body:
@@ -80,8 +84,9 @@ def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyL
             raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
 
 
-def claim_answer(result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int, eta: int | None,
-                 show: Show) -> Body:
+def claim_answer(
+    result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int, eta: int | None, show: Show
+) -> Body:
     """POST /api/pins/{id}/claim: the pin and the ttl/eta actually applied (clamped values), or a 409."""
     match result:
         case OpenPin(record=record):
@@ -93,7 +98,7 @@ def claim_answer(result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound
         case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
             raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts, reason="claimed")
     if eta is not None:
-        out["eta_min_applied"] = eta              # the clamped value, if sent above the ceiling (240)
+        out["eta_min_applied"] = eta  # the clamped value, if sent above the ceiling (240)
     return out
 
 
@@ -108,23 +113,31 @@ def unclaim_answer(result: OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFo
             return {"ok": False, "pin": None}
 
 
-def reply_answer(result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, show: Show,
-                 state_of: StateOf) -> Body:
+def reply_answer(
+    result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound, show: Show, state_of: StateOf
+) -> Body:
     """POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
     match result:
         case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
             msg = record["thread"][-1]
-            return {"ok": True, "pin": show(record), "msg": msg, "state": state_of(record),
-                    "reopened": msg.get("ev") == "reopen"}
+            return {
+                "ok": True,
+                "pin": show(record),
+                "msg": msg,
+                "state": state_of(record),
+                "reopened": msg.get("ev") == "reopen",
+            }
         case ThreadFull(limit=limit):
-            raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit,
-                            reason="full")
+            raise HTTPError(
+                409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit, reason="full"
+            )
         case PinNotFound():
             return {"ok": False, "pin": None, "msg": None, "state": None, "reopened": False}
 
 
-def state_answer(result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound, show: Show,
-                 state_of: StateOf) -> Body:
+def state_answer(
+    result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound, show: Show, state_of: StateOf
+) -> Body:
     """POST /api/pins/{id}/close and /reopen: the pin as it stands now and its state, or ok:false."""
     match result:
         case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
@@ -165,12 +178,19 @@ def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFoun
         case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
             raise HTTPError(409, "conflict", pin=show(record), reason="conflict")
         case NoteTooLong(length=length, limit=limit):
-            raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit), reason="note_too_long")
+            raise HTTPError(
+                400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit), reason="note_too_long"
+            )
         case PinOutsideTree():
-            raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.",
-                            reason="pin_outside_manuscript")
+            raise HTTPError(
+                400,
+                "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.",
+                reason="pin_outside_manuscript",
+            )
         case RangeOutsideFile(lines=lines, lo=lo, hi=hi):
-            raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi), reason="range_outside_file")
+            raise HTTPError(
+                400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi), reason="range_outside_file"
+            )
 
 
 def revision_refused(result: RevisionRefusal) -> NoReturn:

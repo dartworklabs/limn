@@ -9,16 +9,29 @@ The title conversion is deliberately conservative - a display conversion of a fe
 evaluator. A title it cannot convert keeps a placeholder row with empty number and title, so the viewer can never
 shift every later number onto the wrong entry by index.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
 
 TOC_LEVELS = ("part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph")
-LABELS_MAX = 200                   # rows kept from one .aux
-ANCHOR_MAX = 200                   # characters kept of a hyperref anchor
-PAGE_MAX = 40                      # characters kept of a raw page label when the title cannot be converted
-_WRAPPERS = {"textbf", "textit", "texttt", "textrm", "textsf", "textsc", "emph", "mbox", "ensuremath", "mathrm", "mathbf"}
+LABELS_MAX = 200  # rows kept from one .aux
+ANCHOR_MAX = 200  # characters kept of a hyperref anchor
+PAGE_MAX = 40  # characters kept of a raw page label when the title cannot be converted
+_WRAPPERS = {
+    "textbf",
+    "textit",
+    "texttt",
+    "textrm",
+    "textsf",
+    "textsc",
+    "emph",
+    "mbox",
+    "ensuremath",
+    "mathrm",
+    "mathbf",
+}
 
 
 def tex_group(text: str, pos: int) -> tuple[str, int] | None:
@@ -129,8 +142,13 @@ def toc_labels(source: str) -> list[dict[str, Any]]:
             number, pos = group
             title = title[pos:]
         try:
-            row = {"number": tex_plain(number), "title": tex_plain(title), "page": tex_plain(page),
-                   "level": level, "anchor": anchor[:ANCHOR_MAX]}
+            row = {
+                "number": tex_plain(number),
+                "title": tex_plain(title),
+                "page": tex_plain(page),
+                "level": level,
+                "anchor": anchor[:ANCHOR_MAX],
+            }
         except ValueError:
             # Keep a placeholder so consumers cannot shift all subsequent numbers by index.
             row = {"number": "", "title": "", "page": page[:PAGE_MAX], "level": level, "anchor": anchor[:ANCHOR_MAX]}

@@ -7,6 +7,7 @@ refusal is a returned value of the ScopeRefusal set.
 
 Run: uv run pytest -q tests/test_scope.py
 """
+
 import ast
 import subprocess
 import sys
@@ -56,10 +57,13 @@ class Boundaries(unittest.TestCase):
 
     def test_revisions_loads_without_server_or_the_http_layer(self):
         """limn.revisions answers with values; the HTTP layer imports it, never the other way round."""
-        self.assertFalse({n for n in imports_of(PKG / "revisions.py") if n.startswith("limn.web") or n == "limn.server"})
+        self.assertFalse(
+            {n for n in imports_of(PKG / "revisions.py") if n.startswith("limn.web") or n == "limn.server"}
+        )
         code = "import sys, limn.revisions; print(sorted(m for m in sys.modules if m.startswith('limn.web') or 'server' in m))"
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False,
-                           cwd=str(PKG.parent))
+        r = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False, cwd=str(PKG.parent)
+        )
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "[]"), r.stderr)
 
 
@@ -69,8 +73,10 @@ class Refusals(unittest.TestCase):
     def test_refusal_set_names_one_type_per_case(self):
         """Five cases, each a frozen dataclass without data (they differ in their answer, not their data)."""
         kinds = typing.get_args(scope.ScopeRefusal)
-        self.assertEqual({k.__name__ for k in kinds},
-                         {"PinNotInDoc", "ScopeUnreadable", "ScopeMismatch", "UnsafePath", "ScopeUnwritable"})
+        self.assertEqual(
+            {k.__name__ for k in kinds},
+            {"PinNotInDoc", "ScopeUnreadable", "ScopeMismatch", "UnsafePath", "ScopeUnwritable"},
+        )
         for k in kinds:
             self.assertEqual(k(), k())
         self.assertIn(scope.PinNotInDoc, typing.get_args(revisions.DiffRefusal))

@@ -10,6 +10,7 @@ No stored field is added or changes meaning: this is read-side resolution only.
 
 Run: uv run pytest -q tests/test_moved_paths.py
 """
+
 import os
 import shutil
 import subprocess
@@ -25,11 +26,17 @@ from helpers import add_pin, ps
 from test_access import AccessBase
 from test_v03 import ScopedRepo
 
-MS_MAIN = "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n" + "".join(
-    "Body sentence %d.\n" % i for i in range(4, 30)) + "\\end{document}\n"
+MS_MAIN = (
+    "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n"
+    + "".join("Body sentence %d.\n" % i for i in range(4, 30))
+    + "\\end{document}\n"
+)
 SUB = "".join("Sub-file sentence %d about the ms appendix.\n" % i for i in range(1, 25))
-RR_MAIN = "\\documentclass{article}\n\\begin{document}\n" + "".join(
-    "Reply sentence %d to the reviewer.\n" % i for i in range(3, 30)) + "\\end{document}\n"
+RR_MAIN = (
+    "\\documentclass{article}\n\\begin{document}\n"
+    + "".join("Reply sentence %d to the reviewer.\n" % i for i in range(3, 30))
+    + "\\end{document}\n"
+)
 
 
 class ScopedTailRule(unittest.TestCase):
@@ -42,14 +49,14 @@ class ScopedTailRule(unittest.TestCase):
     def test_a_tail_of_another_document_is_never_picked(self):
         """The shorter tail response/main.tex belongs to another document: with the pin's folder as scope it is skipped."""
         f = "/old/paper/manuscript/response/main.tex"
-        self.assertEqual(self.rel(f, {"response/main.tex"}, ""), "response/main.tex")        # 0.3.2: whole root
+        self.assertEqual(self.rel(f, {"response/main.tex"}, ""), "response/main.tex")  # 0.3.2: whole root
         self.assertIsNone(self.rel(f, {"response/main.tex"}, "manuscript"))
 
     def test_a_renamed_document_folder_is_followed(self):
         """Tails are joined to the document folder, so a folder renamed with its --doc spec is found again."""
         f = "/old/paper/response/main.tex"
         self.assertEqual(self.rel(f, {"main.tex", "reply/main.tex"}, "reply"), "reply/main.tex")
-        self.assertEqual(self.rel(f, {"main.tex", "reply/main.tex"}, ""), "main.tex")        # 0.3.2: another document
+        self.assertEqual(self.rel(f, {"main.tex", "reply/main.tex"}, ""), "main.tex")  # 0.3.2: another document
 
     def test_the_longest_tail_under_the_scope_wins(self):
         """Within the scope the order is ADR-0006's: longest existing tail first."""
@@ -82,13 +89,25 @@ class MultiDocMoved(AccessBase):
         (self.old / "response" / "main.tex").write_text(RR_MAIN, encoding="utf-8")
         self.serve(self.old, "response/main.tex")
         ms, rr = ps.DOCS
-        self.p_ms = add_pin({"file": str(self.old / "manuscript" / "response" / "main.tex"), "lo": 5, "hi": 6,
-                             "note": "ms appendix", "doc": "ms"}, dict(LOCAL_ACTOR), doc=ms).record["id"]
-        self.p_rr = add_pin({"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7,
-                             "note": "reply", "doc": "rr"}, dict(LOCAL_ACTOR), doc=rr).record["id"]
+        self.p_ms = add_pin(
+            {
+                "file": str(self.old / "manuscript" / "response" / "main.tex"),
+                "lo": 5,
+                "hi": 6,
+                "note": "ms appendix",
+                "doc": "ms",
+            },
+            dict(LOCAL_ACTOR),
+            doc=ms,
+        ).record["id"]
+        self.p_rr = add_pin(
+            {"file": str(self.old / "response" / "main.tex"), "lo": 6, "hi": 7, "note": "reply", "doc": "rr"},
+            dict(LOCAL_ACTOR),
+            doc=rr,
+        ).record["id"]
         rows = ps.read_pins()[0]
         for r in rows:
-            r.pop("file_rel", None)                  # as 0.3.1 wrote them: absolute file only
+            r.pop("file_rel", None)  # as 0.3.1 wrote them: absolute file only
         ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
         self.addCleanup(ps.set_docs, None)
 
@@ -168,11 +187,13 @@ class ChangesAfterAClone(ScopedRepo):
 
     def test_a_change_whose_path_matches_nothing_is_dropped(self):
         """A recorded path with no tail under the new root is not guessed: the pin's hunks are inferred, as before."""
+
         def fn(rows):
             """Point alpha's recorded changes at a path that exists nowhere."""
             r = next(r for r in rows if r["id"] == self.p1)
             r["changes"] = [dict(c, file="/nowhere/else/other.tex") for c in r["changes"]]
             return None, True
+
         ps.transact(fn)
         self.clone()
         code, d = self.diff(self.fix, self.p1)

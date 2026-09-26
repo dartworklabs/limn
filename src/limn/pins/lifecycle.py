@@ -4,6 +4,7 @@ Every function here is pure. Time arrives as the already-formatted string the st
 in server.py), and actors arrive parsed. An outcome the caller must answer is a returned value in the
 annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -40,12 +41,14 @@ class AgentCannotConfirm:
 @dataclass(frozen=True)
 class PinStillOpen:
     """An open pin has nothing to confirm; the pin travels along for the 409 body."""
+
     pin: OpenPin
 
 
 @dataclass(frozen=True)
 class AlreadyDone:
     """The pin is already done; confirming it again changes nothing and is not an error."""
+
     pin: DonePin
 
 
@@ -89,6 +92,7 @@ class CloseRequest:
 
     review None leaves the choice to the closer: an agent's close awaits review, a person's is done at once.
     """
+
     reply: str | None = None
     ref: str | None = None
     changes: tuple[Record, ...] = ()
@@ -98,6 +102,7 @@ class CloseRequest:
 @dataclass(frozen=True)
 class PinClosed:
     """The fact that an open pin was closed: by whom, when, with which reply, ref and changes, and whether it awaits review."""
+
     by: Actor
     at: str
     reply: str | None
@@ -109,6 +114,7 @@ class PinClosed:
 @dataclass(frozen=True)
 class AlreadyClosed:
     """The pin was closed before; closing again changes nothing, so the first closer and reply stay on record."""
+
     pin: ReviewPin | DonePin
 
 
@@ -139,13 +145,16 @@ def evolve_close(pin: Pin, event: PinClosed) -> ReviewPin | DonePin:
         record["changes_at"] = event.at
     if event.review:
         record["review"] = True
-    record["thread"] = [*thread_of(pin.record),
-                        thread_message(pin.record.get("thread"), author(event.by), event.at, event.reply or "",
-                                       ev="close", ref=event.ref)]
+    record["thread"] = [
+        *thread_of(pin.record),
+        thread_message(
+            pin.record.get("thread"), author(event.by), event.at, event.reply or "", ev="close", ref=event.ref
+        ),
+    ]
     for key in CLAIM_FIELDS:
         record.pop(key, None)
     record["rev"] = next_rev(pin.record)
-    if record.get("review") is True:                 # parse_pin()'s rule, done now true
+    if record.get("review") is True:  # parse_pin()'s rule, done now true
         return ReviewPin.from_record(record)
     return DonePin.from_record(record)
 
@@ -153,6 +162,7 @@ def evolve_close(pin: Pin, event: PinClosed) -> ReviewPin | DonePin:
 @dataclass(frozen=True)
 class PinReopened:
     """The fact that a pin was reopened: by whom, when, why, whom the reason tags, and whether it had been closed."""
+
     by: Actor
     at: str
     reason: str | None
@@ -176,9 +186,17 @@ def evolve_reopen(pin: Pin, event: PinReopened) -> OpenPin:
     for key in CLOSE_FIELDS:
         record.pop(key, None)
     if event.was_closed:
-        record["thread"] = [*thread_of(pin.record),
-                            thread_message(pin.record.get("thread"), author(event.by), event.at, event.reason or "",
-                                           ev="reopen", mentions=event.mentions)]
+        record["thread"] = [
+            *thread_of(pin.record),
+            thread_message(
+                pin.record.get("thread"),
+                author(event.by),
+                event.at,
+                event.reason or "",
+                ev="reopen",
+                mentions=event.mentions,
+            ),
+        ]
     return OpenPin.from_record(record)
 
 
@@ -191,6 +209,7 @@ def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
 @dataclass(frozen=True)
 class Replied:
     """The fact of a plain reply: by whom, when, the text, and whom it @-tags."""
+
     by: Actor
     at: str
     text: str
@@ -200,6 +219,7 @@ class Replied:
 @dataclass(frozen=True)
 class ThreadFull:
     """The thread already holds as many replies as a pin may have; the conversation continues on a new pin."""
+
     limit: int
 
 
@@ -223,8 +243,9 @@ def reopens_on_reply(pin: Pin, human: bool, mentioned: Sequence[str], reopen: bo
             return not mentioned
 
 
-def decide_reply(pin: Pin, by: Actor, at: str, text: str, mentions: tuple[str, ...], reopens: bool,
-                 limit: int) -> PinReopened | Replied | ThreadFull:
+def decide_reply(
+    pin: Pin, by: Actor, at: str, text: str, mentions: tuple[str, ...], reopens: bool, limit: int
+) -> PinReopened | Replied | ThreadFull:
     """What a reply does: reopen the pin with the reply as the reason, refuse when the thread is full, or add a reply.
 
     A reopening reply is not counted against the limit - it is recorded as a state-transition entry, like a close.
@@ -239,9 +260,10 @@ def decide_reply(pin: Pin, by: Actor, at: str, text: str, mentions: tuple[str, .
 def evolve_reply(pin: PinT, event: Replied) -> PinT:
     """Apply a plain reply: one thread entry with its mentions, and rev bumped. The pin keeps its state."""
     record = dict(pin.record)
-    record["thread"] = [*thread_of(pin.record),
-                        thread_message(pin.record.get("thread"), author(event.by), event.at, event.text,
-                                       mentions=event.mentions)]
+    record["thread"] = [
+        *thread_of(pin.record),
+        thread_message(pin.record.get("thread"), author(event.by), event.at, event.text, mentions=event.mentions),
+    ]
     record["rev"] = next_rev(pin.record)
     return type(pin).from_record(record)
 
@@ -254,6 +276,7 @@ def replies_of(record: Record) -> list[Any]:
 @dataclass(frozen=True)
 class ClaimRequest:
     """A validated claim body: minutes until the marker lapses, and the optional estimate of the work."""
+
     ttl_min: int
     eta_min: int | None = None
 
@@ -261,12 +284,14 @@ class ClaimRequest:
 @dataclass(frozen=True)
 class ClaimClosedPin:
     """A closed pin cannot be claimed; the pin travels along for the 409 body."""
+
     pin: ReviewPin | DonePin
 
 
 @dataclass(frozen=True)
 class ClaimedByOther:
     """Someone else holds a live claim; the 409 body tells who, until when, and their estimate."""
+
     claimed_by: Any
     claim_until: Any
     eta_ts: Any
@@ -275,6 +300,7 @@ class ClaimedByOther:
 @dataclass(frozen=True)
 class NotClaimed:
     """Unclaiming a pin that had no claim changes nothing; the pin is shown with any stray claim field cleared."""
+
     pin: Pin
 
 
@@ -284,8 +310,9 @@ def claim_holds(record: Record, now: float) -> bool:
     return _is_num(until) and float(until) > now
 
 
-def claim(pin: Pin, by: Actor, now: float, at: str, request: ClaimRequest,
-          legacy_start: float | None) -> OpenPin | ClaimClosedPin | ClaimedByOther:
+def claim(
+    pin: Pin, by: Actor, now: float, at: str, request: ClaimRequest, legacy_start: float | None
+) -> OpenPin | ClaimClosedPin | ClaimedByOther:
     """Place or extend the in-progress marker on an open pin; a closed pin is refused.
 
     now is epoch seconds and at the same moment as the store's time string. legacy_start is the epoch of an old
@@ -298,8 +325,9 @@ def claim(pin: Pin, by: Actor, now: float, at: str, request: ClaimRequest,
             return ClaimClosedPin(pin)
 
 
-def claim_open(pin: OpenPin, by: Actor, now: float, at: str, request: ClaimRequest,
-               legacy_start: float | None) -> OpenPin | ClaimedByOther:
+def claim_open(
+    pin: OpenPin, by: Actor, now: float, at: str, request: ClaimRequest, legacy_start: float | None
+) -> OpenPin | ClaimedByOther:
     """An open pin's claim rule: another identity's live claim refuses; the same identity extends; otherwise a new claim.
 
     An extension keeps the start (claimed_at/claim_ts) and re-measures claim_until from now; eta_ts is reset only when
@@ -343,12 +371,14 @@ def unclaim(pin: Pin) -> OpenPin | NotClaimed:
 @dataclass(frozen=True)
 class NotInTrash:
     """The Trash has no unexpired copy of this pin id."""
+
     pid: int
 
 
 @dataclass(frozen=True)
 class AlreadyLive:
     """A pin with this id is live again (restored before, or never deleted); restoring would duplicate it."""
+
     pid: int
 
 
@@ -405,8 +435,15 @@ def thread_of(record: Record) -> list[Any]:
     return list(thread) if isinstance(thread, list) else []
 
 
-def thread_message(thread: Sequence[Any] | None, by: dict[str, str], at: str, text: str = "", ev: str | None = None,
-                   ref: str | None = None, mentions: Sequence[str] | None = None) -> dict[str, Any]:
+def thread_message(
+    thread: Sequence[Any] | None,
+    by: dict[str, str],
+    at: str,
+    text: str = "",
+    ev: str | None = None,
+    ref: str | None = None,
+    mentions: Sequence[str] | None = None,
+) -> dict[str, Any]:
     """The next thread entry: its id is one past the largest integer id already there (ids are never reused).
 
     ev marks a state-transition record (close, reopen, confirm); ref and mentions are kept only when given.

@@ -7,6 +7,7 @@ limn.people.known_people(). A note save notifies the people it newly tags, at mo
 
 Pure: no files, no clock, no HTTP, no server. Every fact (the people, the records, the time) comes in as an argument.
 """
+
 from __future__ import annotations
 
 from collections import Counter
@@ -18,7 +19,7 @@ from limn.pins.edit import ASSIGNEE_AGENT
 # A pin record, a thread post or an events.jsonl record as read from JSON.
 Row: TypeAlias = Mapping[str, Any]
 
-NOTE_MENTION_COOLDOWN_S = 600      # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
+NOTE_MENTION_COOLDOWN_S = 600  # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
 
 
 def thread_round(r: Row) -> list[Any]:
@@ -46,8 +47,9 @@ def mention_tokens(people: Mapping[str, Row]) -> list[tuple[str, set[str]]]:
     return sorted(toks.items(), key=lambda kv: -len(kv[0]))
 
 
-def resolve_mentions(text: object, people: Mapping[str, Row], hints: Iterable[str] | None = None,
-                     exclude: str | None = None) -> list[str]:
+def resolve_mentions(
+    text: object, people: Mapping[str, Row], hints: Iterable[str] | None = None, exclude: str | None = None
+) -> list[str]:
     """Resolves '@name' to a login (post text is left unchanged). Skipped if the character before '@' is
     alphanumeric (an email address); treated as a different word if an ASCII letter immediately follows a
     name ending in an ASCII letter (@Alicex). A Korean particle attached right after ('@서준님') is fine.
@@ -58,8 +60,9 @@ def resolve_mentions(text: object, people: Mapping[str, Row], hints: Iterable[st
     return list(dict.fromkeys(mention_hits(text, people, hints, exclude)))
 
 
-def mention_hits(text: object, people: Mapping[str, Row], hints: Iterable[str] | None = None,
-                 exclude: str | None = None) -> list[str]:
+def mention_hits(
+    text: object, people: Mapping[str, Row], hints: Iterable[str] | None = None, exclude: str | None = None
+) -> list[str]:
     """Every resolved '@name' occurrence in text, in order and with repeats (resolve_mentions() is its de-duplicated
     form). Counting occurrences is what tells a note edit that *adds* another '@Bob' apart from one that only
     fixes a typo next to an existing '@Bob' (note_tags)."""
@@ -71,11 +74,11 @@ def mention_hits(text: object, people: Mapping[str, Row], hints: Iterable[str] |
     for i, ch in enumerate(text):
         if ch != "@" or (i > 0 and (text[i - 1].isalnum() or text[i - 1] in "._-")):
             continue
-        rest = low[i + 1:]
+        rest = low[i + 1 :]
         for tok, logins in toks:
             if not rest.startswith(tok):
                 continue
-            nxt = rest[len(tok):len(tok) + 1]
+            nxt = rest[len(tok) : len(tok) + 1]
             if nxt and tok[-1].isascii() and tok[-1].isalnum() and nxt.isascii() and (nxt.isalnum() or nxt == "_"):
                 continue
             pick = logins if len(logins) == 1 else logins & hint_set
@@ -114,7 +117,7 @@ def addressed_to(r: Row) -> list[str]:
     handles those instead (observed: a fix pin that FYI-tagged someone was picked up as '→ @name' and an agent
     skipped it forever). A closed-then-reopened pin doesn't count posts from the old round (thread_round)."""
     a = r.get("assignee")
-    if a:                                   # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
+    if a:  # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
         return [] if a == ASSIGNEE_AGENT else [a]
     if r.get("kind_req") != "question":
         return []
@@ -132,8 +135,14 @@ def fyi_mentions_to(r: Row) -> list[str]:
     return round_mentions(r)
 
 
-def note_mention_targets(added: Sequence[str], recent: Iterable[Row], by: str | None, pin: object, now: float,
-                         window: float = NOTE_MENTION_COOLDOWN_S) -> list[str]:
+def note_mention_targets(
+    added: Sequence[str],
+    recent: Iterable[Row],
+    by: str | None,
+    pin: object,
+    now: float,
+    window: float = NOTE_MENTION_COOLDOWN_S,
+) -> list[str]:
     """Which of `added` (people a note save newly tags, in order) get a mention event - the cooldown of issue #10 L3.
 
     A person is left out when `by` already sent them a note mention about the same pin in the last `window` seconds
@@ -159,12 +168,14 @@ def note_mention_targets(added: Sequence[str], recent: Iterable[Row], by: str | 
 
 class NoteTags(NamedTuple):
     """What a note save means for @-tags: the note's resolved tags (the pin's mentions) and whom to notify now."""
+
     mentions: tuple[str, ...]
     notify: list[str]
 
 
-def tag_note(note: str, old_note: str, people: Mapping[str, Row], hints: Sequence[str] | None,
-             me: str | None) -> NoteTags:
+def tag_note(
+    note: str, old_note: str, people: Mapping[str, Row], hints: Sequence[str] | None, me: str | None
+) -> NoteTags:
     """The saved note's @-tags and the people this save newly tags, before the cooldown.
 
     mentions is the note's resolved tags (first-seen order, without `me`); notify is everyone whose '@name' occurs more

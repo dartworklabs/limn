@@ -13,6 +13,7 @@ whose stored value is not of the expected kind is not lifted - it stays among `f
 state reads as if it were absent. The transitions in lifecycle.py and edit.py still build the next record field by
 field, because the stored order is part of the byte contract, and parse it into the next state at once.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -57,6 +58,7 @@ class Claim:
     are claim_ts, claim_until and eta_ts in epoch seconds, as stored (an int stays an int). A claim written before
     claim_ts existed has no start, and one without a usable claim_until has lapsed.
     """
+
     by: Signature
     at: str | None = None
     start: float | None = None
@@ -68,9 +70,13 @@ class Claim:
         return self.until is not None and self.until > now
 
 
-CLAIM_SHAPES: Shapes = {"claimed_by": ("by", _is_signature), "claimed_at": ("at", _is_text),
-                        "claim_ts": ("start", _is_epoch), "claim_until": ("until", _is_epoch),
-                        "eta_ts": ("eta", _is_epoch)}
+CLAIM_SHAPES: Shapes = {
+    "claimed_by": ("by", _is_signature),
+    "claimed_at": ("at", _is_text),
+    "claim_ts": ("start", _is_epoch),
+    "claim_until": ("until", _is_epoch),
+    "eta_ts": ("eta", _is_epoch),
+}
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,7 @@ class Close:
     Every part may be missing: a close from before a field existed lacks it, and reply, ref and changes are optional
     in a close request. changes_at is the done_at of the close that recorded the changes (api.md §핀 단위 변경 보기).
     """
+
     at: str | None = None
     by: Signature | None = None
     reply: str | None = None
@@ -88,14 +95,20 @@ class Close:
     changes_at: str | None = None
 
 
-CLOSE_SHAPES: Shapes = {"done_at": ("at", _is_text), "closed_by": ("by", _is_signature),
-                        "close_reply": ("reply", _is_text), "close_ref": ("ref", _is_text),
-                        "changes": ("changes", _is_changes), "changes_at": ("changes_at", _is_text)}
+CLOSE_SHAPES: Shapes = {
+    "done_at": ("at", _is_text),
+    "closed_by": ("by", _is_signature),
+    "close_reply": ("reply", _is_text),
+    "close_ref": ("ref", _is_text),
+    "changes": ("changes", _is_changes),
+    "changes_at": ("changes_at", _is_text),
+}
 
 
 @dataclass(frozen=True)
 class Confirmation:
     """The person who confirmed a pin that awaited review, and when (confirmed_by, confirmed_at)."""
+
     by: Signature
     at: str
 
@@ -106,6 +119,7 @@ CONFIRMATION_SHAPES: Shapes = {"confirmed_by": ("by", _is_signature), "confirmed
 @dataclass(frozen=True)
 class Dropped:
     """Who deleted a pin into the Trash, and when (dropped_by, dropped_at); dropped_at also dates the copy's expiry."""
+
     at: str
     by: Signature
 
@@ -152,10 +166,13 @@ def _check(state: object, fields: Record, lifted: Record) -> None:
     """Guard a state built from trusted data: its stored done/review must name this very state, and a lifted field
     must not also sit among the kept ones (writing the record back would have to pick one). A violation is a defect."""
     if state_of(fields) is not type(state):
-        raise ValueError("%s cannot hold done=%r, review=%r" % (type(state).__name__, fields.get("done"),
-                                                                 fields.get("review")))
+        raise ValueError(
+            "%s cannot hold done=%r, review=%r" % (type(state).__name__, fields.get("done"), fields.get("review"))
+        )
     if lifted.keys() & fields.keys():
-        raise ValueError("%s lifts %s but also keeps it" % (type(state).__name__, sorted(lifted.keys() & fields.keys())))
+        raise ValueError(
+            "%s lifts %s but also keeps it" % (type(state).__name__, sorted(lifted.keys() & fields.keys()))
+        )
 
 
 @dataclass(frozen=True)
@@ -165,6 +182,7 @@ class OpenPin:
     A pin reopened after a close keeps that close's done_at/closed_by among its fields - the history of an earlier
     close, not a close of this pin; claim fields without a claimed_by object are kept there too and are no claim.
     """
+
     state: ClassVar[StateName] = "open"
     claim: Claim | None
     fields: Record
@@ -190,6 +208,7 @@ class OpenPin:
 class ReviewPin:
     """Closed by an agent and waiting for a person to confirm it: done and review are both true. It has a close and
     no claim; a confirmation comes only with the move to done."""
+
     state: ClassVar[StateName] = "review"
     close: Close
     fields: Record
@@ -215,6 +234,7 @@ class ReviewPin:
 class DonePin:
     """Closed for good: done without review. It has a close, a confirmation when a person confirmed it out of review,
     and no claim. A legacy done record with no review field is done too."""
+
     state: ClassVar[StateName] = "done"
     close: Close
     confirmation: Confirmation | None
@@ -223,8 +243,9 @@ class DonePin:
 
     def __post_init__(self) -> None:
         """Reject stored done/review that do not say done, or a close or confirmation field held twice."""
-        _check(self, self.fields, {**_stored(self.close, CLOSE_SHAPES),
-                                   **_stored(self.confirmation, CONFIRMATION_SHAPES)})
+        _check(
+            self, self.fields, {**_stored(self.close, CLOSE_SHAPES), **_stored(self.confirmation, CONFIRMATION_SHAPES)}
+        )
 
     @classmethod
     def from_record(cls, record: Record) -> DonePin:
@@ -238,8 +259,11 @@ class DonePin:
     @property
     def record(self) -> dict[str, Any]:
         """The pin as stored: a new dict in stored field order, close and confirmation written back where they were."""
-        return _render(self.fields, self.order, {**_stored(self.close, CLOSE_SHAPES),
-                                                 **_stored(self.confirmation, CONFIRMATION_SHAPES)})
+        return _render(
+            self.fields,
+            self.order,
+            {**_stored(self.close, CLOSE_SHAPES), **_stored(self.confirmation, CONFIRMATION_SHAPES)},
+        )
 
 
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin
@@ -268,6 +292,7 @@ class TrashedPin:
 
     dropped is lifted only whole (dropped_at a string and dropped_by an object), as drop() always writes it.
     """
+
     pin: Pin
     dropped: Dropped | None
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
@@ -293,6 +318,7 @@ class TrashedPin:
 @dataclass(frozen=True)
 class Person:
     """A human actor as stored in pins: login, display name, and an optional avatar URL for thread entries."""
+
     login: str
     name: str
     pic: str | None = None
@@ -301,6 +327,7 @@ class Person:
 @dataclass(frozen=True)
 class Agent:
     """A non-human actor: a headerless loopback request or an API-token principal."""
+
     login: str
     name: str
 
@@ -312,10 +339,16 @@ def is_region_pin(record: object) -> bool:
     """Is this a pin on a view-only PDF document - no file, but a pdf path? Told purely by the record's shape: even if the
     current configuration no longer has that document, the record is not broken (treating it as broken would delete
     the pin on the next write)."""
-    return isinstance(record, dict) and record.get("file") is None and isinstance(record.get("pdf"), str) and bool(record["pdf"])
+    return (
+        isinstance(record, dict)
+        and record.get("file") is None
+        and isinstance(record.get("pdf"), str)
+        and bool(record["pdf"])
+    )
 
 
 @dataclass(frozen=True)
 class PinNotFound:
     """No pin with this id is in the store; the API answers ok:false rather than an error."""
+
     pid: int

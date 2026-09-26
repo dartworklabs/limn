@@ -4,6 +4,7 @@ The handler parses the body (limn.web.parse.parse_add, parse_edit and parse_edit
 the disk and the clock know under the pin lock, and leave the rules and the record to limn.pins.edit. Each returns an
 outcome value that the HTTP layer answers (limn.web.answers.add_answer, edit_answer).
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -54,8 +55,7 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, An
             return _add_region_pin(ctx, place, request, actor, D)
 
 
-def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor: Mapping[str, Any],
-                  D: Doc) -> OpenPin:
+def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor: Mapping[str, Any], D: Doc) -> OpenPin:
     """Append a new line pin to document D under the pin lock and emit its notices.
 
     The file's lines are read before the lock (as always); under it the shell takes the time, the next id (pins.seq),
@@ -72,25 +72,38 @@ def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor:
         at = ctx.now()
         pid = ctx.store.next_id(rows)
         tags = ctx.note_tags(request.note, "", rows, request.hints, actor, pid)
-        anchoring = Anchoring(anchor_of(lines, place.fields["lo"], place.fields["hi"]),
-                              f.stat().st_mtime if f.exists() else 0)
+        anchoring = Anchoring(
+            anchor_of(lines, place.fields["lo"], place.fields["hi"]), f.stat().st_mtime if f.exists() else 0
+        )
         # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation): the
         # viewer echoes pdf_build from the pick response; a call without it (agent curl) takes the current build.
-        pin = new_line_pin(place, request, pid, at, actor, tags.mentions, anchoring, build.cur_pages(D).name, D.key,
-                           located(ctx.locate({"file": place.fields["file"]})))
+        pin = new_line_pin(
+            place,
+            request,
+            pid,
+            at,
+            actor,
+            tags.mentions,
+            anchoring,
+            build.cur_pages(D).name,
+            D.key,
+            located(ctx.locate({"file": place.fields["file"]})),
+        )
         rows.append(dict(pin.record))
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
         return pin, True
+
     with ctx.store.lock:
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
 
 
-def _add_region_pin(ctx: PinContext, place: RegionPlace, request: AddRequest, actor: Mapping[str, Any],
-                    D: Doc) -> OpenPin:
+def _add_region_pin(
+    ctx: PinContext, place: RegionPlace, request: AddRequest, actor: Mapping[str, Any], D: Doc
+) -> OpenPin:
     """Append a new pin on view-only document D under the pin lock and emit its notices: {doc, pdf, name, page, frac,
     kind: 'region', quote?, note, pdf_build}, built by limn.pins.edit.new_region_pin(). No lines, no anchor."""
     evs: list[Event | None] = []
@@ -106,14 +119,16 @@ def _add_region_pin(ctx: PinContext, place: RegionPlace, request: AddRequest, ac
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
             evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
         return pin, True
+
     with ctx.store.lock:
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
 
 
-def edit_pin(ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str, Any],
-             region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
+def edit_pin(
+    ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str, Any], region: bool = False
+) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
     request is the parsed body with its loc already placed against the pin's own document (limn.web.parse.parse_edit
@@ -146,11 +161,20 @@ def edit_pin(ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str
         if span is not None and where is not None:
             f = where.path
             anchoring = Anchoring(anchor_of(tex_lines(f), *span), f.stat().st_mtime if f.exists() else 0)
-        tags = None if event.note is None else ctx.note_tags(event.note, str(r.get("note") or ""), rows,
-                                                             request.hints, actor, pid)
+        tags = (
+            None
+            if event.note is None
+            else ctx.note_tags(event.note, str(r.get("note") or ""), rows, request.hints, actor, pid)
+        )
         assigns = request.assignee not in (None, ASSIGNEE_AGENT) and r.get("assignee") != request.assignee
-        edited = _with_edit(pin, event, located(where), anchoring, None if tags is None else tags.mentions,
-                            ctx.person_name(request.assignee) if assigns and request.assignee is not None else None)
+        edited = _with_edit(
+            pin,
+            event,
+            located(where),
+            anchoring,
+            None if tags is None else tags.mentions,
+            ctx.person_name(request.assignee) if assigns and request.assignee is not None else None,
+        )
         r.clear()
         r.update(edited.record)
         if tags is not None:
@@ -158,14 +182,21 @@ def edit_pin(ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str
         if assigns:
             evs.append(ctx.make_event("assigned", r, actor, [request.assignee], text=r.get("note")))
         return edited, True
+
     with ctx.store.lock:
         out = ctx.store.transact(fn)[1]
         ctx.emit_events(evs)
     return out
 
 
-def _with_edit(pin: Pin, event: PinEdited, where: Located | None, anchoring: Anchoring | None,
-               mentions: Sequence[str] | None, assignee_name: str | None) -> Pin:
+def _with_edit(
+    pin: Pin,
+    event: PinEdited,
+    where: Located | None,
+    anchoring: Anchoring | None,
+    mentions: Sequence[str] | None,
+    assignee_name: str | None,
+) -> Pin:
     """evolve_edit() on a pin of any state: an edit keeps the state, so each state goes in as its own type."""
     match pin:
         case OpenPin():

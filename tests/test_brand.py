@@ -7,6 +7,7 @@ the instance accent, with PNG fallbacks drawn at runtime by limn.mark from the s
 
 Run: uv run pytest -q tests/test_brand.py
 """
+
 import json
 import os
 import re
@@ -30,11 +31,11 @@ def decode_png(data: bytes):
     assert data[:8] == b"\x89PNG\r\n\x1a\n"
     pos, chunks = 8, {}
     while pos < len(data):
-        n, tag = struct.unpack(">I4s", data[pos:pos + 8])
+        n, tag = struct.unpack(">I4s", data[pos : pos + 8])
         chunks.setdefault(tag, b"")
-        chunks[tag] += data[pos + 8:pos + 8 + n]
-        crc = struct.unpack(">I", data[pos + 8 + n:pos + 12 + n])[0]
-        assert crc == zlib.crc32(tag + data[pos + 8:pos + 8 + n]) & 0xffffffff, tag
+        chunks[tag] += data[pos + 8 : pos + 8 + n]
+        crc = struct.unpack(">I", data[pos + 8 + n : pos + 12 + n])[0]
+        assert crc == zlib.crc32(tag + data[pos + 8 : pos + 8 + n]) & 0xFFFFFFFF, tag
         pos += 12 + n
     w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", chunks[b"IHDR"])
     assert (depth, ctype, interlace) == (8, 6, 0)
@@ -42,9 +43,9 @@ def decode_png(data: bytes):
     stride = 1 + 4 * w
     rows = []
     for y in range(h):
-        line = raw[y * stride:(y + 1) * stride]
+        line = raw[y * stride : (y + 1) * stride]
         assert line[0] == 0
-        rows.append([tuple(line[1 + 4 * x:5 + 4 * x]) for x in range(w)])
+        rows.append([tuple(line[1 + 4 * x : 5 + 4 * x]) for x in range(w)])
     assert b"IEND" in chunks
     return w, h, rows
 
@@ -56,7 +57,7 @@ def at(rows, size, u, v):
 
 def rgb(hexcolour):
     """'#1d4ed8' -> (29, 78, 216)."""
-    return tuple(int(hexcolour[i:i + 2], 16) for i in (1, 3, 5))
+    return tuple(int(hexcolour[i : i + 2], 16) for i in (1, 3, 5))
 
 
 class MarkRaster(unittest.TestCase):
@@ -77,7 +78,7 @@ class MarkRaster(unittest.TestCase):
         self.assertEqual(at(rows, size, *mark.DOT[:2]), (255, 255, 255, 255))
         line_y = mark.LINE_Y
         self.assertEqual(at(rows, size, 15, line_y), (255, 255, 255, 255))
-        self.assertEqual(at(rows, size, 8, 20.5), rgb(ACCENT) + (255,))     # below the corner: tile, not glyph
+        self.assertEqual(at(rows, size, 8, 20.5), rgb(ACCENT) + (255,))  # below the corner: tile, not glyph
 
     def test_favicon_corners_are_round_and_the_touch_icon_is_square(self):
         """The favicon tile has transparent round corners; the apple-touch-icon is a full square (iOS rounds it)."""
@@ -90,10 +91,10 @@ class MarkRaster(unittest.TestCase):
         """At 16px the dot and the line are still separate white marks on the tile (no smear into one blob)."""
         size = 16
         _, _, rows = decode_png(mark.png(size, ACCENT))
-        light = lambda p: p[0] > 200 and p[1] > 200 and p[2] > 200          # noqa: E731
+        light = lambda p: p[0] > 200 and p[1] > 200 and p[2] > 200  # noqa: E731
         self.assertTrue(light(at(rows, size, *mark.DOT[:2])))
         self.assertTrue(light(at(rows, size, 15, mark.LINE_Y)))
-        self.assertFalse(light(at(rows, size, 15, 9)))                    # right of the dot, above the line: tile
+        self.assertFalse(light(at(rows, size, 15, 9)))  # right of the dot, above the line: tile
         whites = sum(light(p) for row in rows for p in row)
         self.assertTrue(12 <= whites <= 60, whites)
 
@@ -105,7 +106,7 @@ class MarkRaster(unittest.TestCase):
 
     def test_same_input_same_bytes(self):
         """Deterministic, so a cached response never differs from a fresh one."""
-        self.assertEqual(mark.png.__wrapped__(32, "#047857"), mark.png.__wrapped__(32, "#047857"))   # past the cache
+        self.assertEqual(mark.png.__wrapped__(32, "#047857"), mark.png.__wrapped__(32, "#047857"))  # past the cache
         self.assertNotEqual(mark.png(32, "#047857"), mark.png(32, ACCENT))
 
 
@@ -141,18 +142,19 @@ class MarkMarkup(unittest.TestCase):
         css = re.sub(r"/\*.*?\*/", "", viewer_text("__APP_CSS__"), flags=re.S)
         rules = [r for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if "limn-mark" in r]
         self.assertEqual(len(rules), 9, rules)
-        self.assertFalse([r for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if re.search(r"\.mark(?![\w-])", r)
-                          and "limn-mark" in r])
+        self.assertFalse(
+            [r for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if re.search(r"\.mark(?![\w-])", r) and "limn-mark" in r]
+        )
 
     def test_viewer_places_the_mark_by_the_label_and_in_the_help_header(self):
         """Top bar (next to the label), the [더보기] label chip and the help dialog header each have the mark once."""
         out = ps.build_html("A-DEMO", ACCENT)
-        ident = out[out.index('id="paper-identity"'):out.index('id="doc-select-wrap"')]
+        ident = out[out.index('id="paper-identity"') : out.index('id="doc-select-wrap"')]
         self.assertIn('<svg class="limn-mark"', ident)
         self.assertIn("<span>A-DEMO</span>", ident)
-        help_h = out[out.index('<h2 id="help-h"'):out.index("</h2>", out.index('<h2 id="help-h"'))]
+        help_h = out[out.index('<h2 id="help-h"') : out.index("</h2>", out.index('<h2 id="help-h"'))]
         self.assertIn('<svg class="limn-mark"', help_h)
-        label = out[out.index('<span id="more-label"'):out.index("</span>", out.index('<span id="more-label"') + 30)]
+        label = out[out.index('<span id="more-label"') : out.index("</span>", out.index('<span id="more-label"') + 30)]
         self.assertIn('<svg class="limn-mark"', label)
         self.assertEqual(out.count('<svg class="limn-mark"'), 3)
         self.assertNotIn("__LIMN_MARK__", out)
@@ -160,7 +162,7 @@ class MarkMarkup(unittest.TestCase):
     def test_favicon_links_svg_first_class_with_png_fallbacks(self):
         """The page links the SVG favicon plus 32px PNG and apple-touch-icon fallbacks, cache-keyed by the accent."""
         out = ps.build_html("A-DEMO", ACCENT)
-        head = out[:out.index("</head>")]
+        head = out[: out.index("</head>")]
         self.assertIn('<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?c=1d4ed8">', head)
         self.assertRegex(head, r'<link rel="icon" type="image/svg\+xml" href="data:image/svg\+xml,[^"]+">')
         self.assertIn('<link rel="apple-touch-icon" href="/apple-touch-icon.png?c=1d4ed8">', head)
@@ -228,8 +230,14 @@ class MarkInTheBrowser(unittest.TestCase):
         self.addCleanup(context.close)
         page = context.new_page()
         page.add_init_script("localStorage.setItem('pinPrefs', %s)" % json.dumps(json.dumps({"theme": theme})))
-        page.route("**/*", lambda route: route.fulfill(content_type="text/html", body=self.html)
-                   if route.request.url.startswith("http://viewer.test/") else route.abort())
+        page.route(
+            "**/*",
+            lambda route: (
+                route.fulfill(content_type="text/html", body=self.html)
+                if route.request.url.startswith("http://viewer.test/")
+                else route.abort()
+            ),
+        )
         page.goto("http://viewer.test/")
         page.evaluate("document.body.classList.add('lay-wide')")
         return page
@@ -239,7 +247,9 @@ class MarkInTheBrowser(unittest.TestCase):
         for theme in ("light", "dark"):
             with self.subTest(theme=theme):
                 page = self.page(theme)
-                box = page.eval_on_selector("#paper-identity-mark svg", "e=>{const r=e.getBoundingClientRect();return [r.width,r.height]}")
+                box = page.eval_on_selector(
+                    "#paper-identity-mark svg", "e=>{const r=e.getBoundingClientRect();return [r.width,r.height]}"
+                )
                 self.assertEqual(box, [16, 16])
                 fills = page.evaluate("""()=>{const f=s=>getComputedStyle(document.querySelector(s)).fill;
                   const fg=getComputedStyle(document.querySelector('#help')).color;

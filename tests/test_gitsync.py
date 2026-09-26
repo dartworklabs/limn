@@ -7,6 +7,7 @@ AutomaticMainSync).
 
 Run: uv run pytest -q tests/test_gitsync.py
 """
+
 import ast
 import contextlib
 import inspect
@@ -55,8 +56,9 @@ class ModuleBoundary(unittest.TestCase):
         of every pull step, whose arguments hold no request input."""
         src = inspect.getsource(revisions.git)
         # The call is read from the AST, not the source text, so the check does not depend on the call's layout.
-        runs = [n for n in ast.walk(ast.parse(src))
-                if isinstance(n, ast.Call) and ast.unparse(n.func) == "subprocess.run"]
+        runs = [
+            n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and ast.unparse(n.func) == "subprocess.run"
+        ]
         self.assertEqual(len(runs), 1)
         self.assertTrue(ast.unparse(runs[0].args[0]).startswith("['git']"))
         self.assertNotIn("shell", {k.arg for k in runs[0].keywords})
@@ -208,9 +210,14 @@ class ScriptedGit:
         return self.answers[command]
 
 
-SCRIPT = {"rev-parse --show-toplevel": (0, "/repo\n", ""), "rev-parse HEAD": (0, A + "\n", ""),
-          "fetch --quiet": (0, "", ""), "rev-parse --abbrev-ref @{u}": (0, "origin/main\n", ""),
-          "status --porcelain --untracked-files=no": (0, "", ""), "merge --ff-only @{u}": (0, "", "")}
+SCRIPT = {
+    "rev-parse --show-toplevel": (0, "/repo\n", ""),
+    "rev-parse HEAD": (0, A + "\n", ""),
+    "fetch --quiet": (0, "", ""),
+    "rev-parse --abbrev-ref @{u}": (0, "origin/main\n", ""),
+    "status --porcelain --untracked-files=no": (0, "", ""),
+    "merge --ff-only @{u}": (0, "", ""),
+}
 
 
 class ScriptedPull(unittest.TestCase):
@@ -251,7 +258,7 @@ class SharedPull(unittest.TestCase):
     def test_one_document_pulls_every_time_and_records_nothing(self):
         """Unshared: each call runs the pull; the share is untouched."""
         share, runs = PullShare(), []
-        run = lambda: runs.append(1) or UpToDate(A)                # noqa: E731
+        run = lambda: runs.append(1) or UpToDate(A)  # noqa: E731
         self.assertEqual(repo_pull(share, False, run, FakeClock()), repo_pull(share, False, run, FakeClock()))
         self.assertEqual(len(runs), 2)
         self.assertIsNone(share.last)
@@ -259,7 +266,7 @@ class SharedPull(unittest.TestCase):
     def test_several_documents_reuse_a_recent_pull(self):
         """Within the window the last outcome is reused with shared=True; after it, a new pull runs."""
         share, runs, clock = PullShare(), [], FakeClock()
-        run = lambda: runs.append(1) or Pulled(A, B)                # noqa: E731
+        run = lambda: runs.append(1) or Pulled(A, B)  # noqa: E731
         first = repo_pull(share, True, run, clock)
         self.assertEqual(first, {"state": "ok", "reason": None, "head_before": A, "head_after": B})
         clock.now += gitsync.PULL_SHARE_S - 1
@@ -301,8 +308,9 @@ class Watch(unittest.TestCase):
 
     def once(self, watch, outcome, share=None, enabled=True):
         """One round with a pull that returns `outcome`, a fixed stamp and clock; builds are recorded, not run."""
-        return watch.once(self.docs, enabled, lambda: outcome, share or PullShare(), self.started.append,
-                          lambda: "T", FakeClock(5.0))
+        return watch.once(
+            self.docs, enabled, lambda: outcome, share or PullShare(), self.started.append, lambda: "T", FakeClock(5.0)
+        )
 
     def test_disabled_without_git_pull(self):
         """Without --git-pull the status and a round are just "disabled"; nothing is pulled."""
@@ -315,9 +323,11 @@ class Watch(unittest.TestCase):
         watch, share = SyncWatch(), PullShare()
         out = self.once(watch, UpToDate(B), share)
         self.assertEqual(self.started, [self.ms])
-        self.assertEqual(out, {"state": "updating", "reason": None, "head_before": B, "head_after": B, "checked_at": "T"})
+        self.assertEqual(
+            out, {"state": "updating", "reason": None, "head_before": B, "head_after": B, "checked_at": "T"}
+        )
         self.assertEqual((share.last, share.at), (UpToDate(B), 5.0))
-        self.assertEqual(watch.status(self.docs, True)["state"], "updating")      # ms is still behind
+        self.assertEqual(watch.status(self.docs, True)["state"], "updating")  # ms is still behind
 
     def test_fast_forward_rebuilds_every_latex_document(self):
         """After Pulled every LaTeX document is rebuilt, the view-only PDF never."""
@@ -346,7 +356,7 @@ class Watch(unittest.TestCase):
         self.assertFalse(self.ms.lock.locked())
 
     def test_status_settles_when_every_document_reached_the_commit(self):
-        """"updating" becomes "current" once each LaTeX document's head.txt names the pulled commit."""
+        """ "updating" becomes "current" once each LaTeX document's head.txt names the pulled commit."""
         watch = SyncWatch()
         self.once(watch, UpToDate(B))
         (self.ms.dir / "head.txt").write_text("bbbbbbb", encoding="utf-8")
@@ -368,12 +378,15 @@ class Watch(unittest.TestCase):
             """Stop after this round, then fail."""
             stop.set()
             raise RuntimeError("boom")
+
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             watch.watch(stop, 60, crash, lambda: "T")
         self.assertIn("RuntimeError: boom", err.getvalue())
-        self.assertEqual(watch.record, {"state": "error", "reason": "unexpected", "checked_at": "T",
-                                        "head_before": None, "head_after": None})
+        self.assertEqual(
+            watch.record,
+            {"state": "error", "reason": "unexpected", "checked_at": "T", "head_before": None, "head_after": None},
+        )
 
     def test_deferred_round_retries_soon(self):
         """A deferred round waits min(DEFERRED_RETRY_S, every) before the next, not the full interval."""
@@ -385,6 +398,7 @@ class Watch(unittest.TestCase):
             if len(rounds) == 2:
                 stop.set()
             return {"state": "deferred"}
+
         watch.watch(stop, 0.05, deferred_then_stop, lambda: "T")
         self.assertEqual(len(rounds), 2)
 
@@ -407,7 +421,9 @@ class GitPullBuildIntegration(Base):
         res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
-        self.assertEqual(res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
+        self.assertEqual(
+            res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}
+        )
         self.assertEqual(res.get("head"), ps.C.state.joinpath("head.txt").read_text().strip())
         snap = limn_build.state_snapshot(ps.DOCS[0])
         self.assertEqual(snap.get("pull"), res["pull"])
@@ -440,7 +456,11 @@ class GitPullBuildIntegration(Base):
         ps._SRC_MTIME_CACHE[2] = 0.0
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
-        self.assertAlmostEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True), delta=1.0)
+        self.assertAlmostEqual(
+            limn_build.read_built_src_mtime(ps.DOCS[0]),
+            limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True),
+            delta=1.0,
+        )
 
     def test_edit_after_copy_phase_still_marks_stale(self):
         # even when using the post-pull mtime (or the copy-start time when there's no pull), editing the
@@ -459,8 +479,10 @@ class GitPullBuildIntegration(Base):
         def fake_pull():
             return {"state": "up_to_date", "head_before": "aaa1111", "head_after": "aaa1111"}
 
-        with mock.patch.object(ps, "repo_pull", side_effect=fake_pull), \
-             mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run):
+        with (
+            mock.patch.object(ps, "repo_pull", side_effect=fake_pull),
+            mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run),
+        ):
             res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
         ps._SRC_MTIME_CACHE[2] = 0.0
@@ -474,13 +496,17 @@ class AutomaticMainSync(Base):
 
     def test_new_head_schedules_each_tex_document_once(self):
         """A fast-forward starts one build per LaTeX document (never the view-only PDF), pulling main only."""
-        docs = [Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C),
-                Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C),
-                Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C)]
+        docs = [
+            Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C),
+            Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C),
+            Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C),
+        ]
         ps.set_docs(docs)
         ps.C.git_pull = True
-        with mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull, \
-             mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
+        with (
+            mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
+            mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build,
+        ):
             out = ps.sync_main_once()
         git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
         self.assertEqual(build.call_count, 2)
@@ -490,8 +516,10 @@ class AutomaticMainSync(Base):
         """Nothing new upstream, but the PDF was built from another commit: it is rebuilt (a restart after a move)."""
         ps.C.git_pull = True
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
-        with mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)), \
-             mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
+        with (
+            mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
+            mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build,
+        ):
             out = ps.sync_main_once()
         build.assert_called_once()
         self.assertEqual(out["state"], "updating")
@@ -499,8 +527,10 @@ class AutomaticMainSync(Base):
     def test_dirty_checkout_is_visible_and_never_rebuilt(self):
         """A refused pull is shown as blocked with its reason in GET /api/meta's sync, and builds nothing."""
         ps.C.git_pull = True
-        with mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)), \
-             mock.patch.object(ps, "build_async") as build:
+        with (
+            mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
+            mock.patch.object(ps, "build_async") as build,
+        ):
             out = ps.sync_main_once()
         build.assert_not_called()
         self.assertEqual(out["state"], "blocked")
@@ -524,7 +554,6 @@ class AutomaticMainSync(Base):
             ps.DOCS[0].bstate["state"] = "fail"
         status = ps.sync_status()
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
-
 
 
 if __name__ == "__main__":

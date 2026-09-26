@@ -10,6 +10,7 @@ new version = old version + only the pin's hunks, with a single toggle back to t
 
 Run: uv run pytest -q tests/test_v03.py
 """
+
 import json
 import os
 import random
@@ -60,19 +61,28 @@ Gamma paragraph talks about cherries.
 \\end{document}
 """
 # One commit touching three pins: alpha grows by a line (shifting everything below by +1), beta is rewritten, gamma is deleted.
-NEW = OLD.replace("Alpha paragraph talks about apples.\n", "Alpha paragraph talks about apples and pears.\nA second alpha sentence.\n") \
-         .replace("Beta paragraph talks about bananas.", "Beta paragraph talks about blueberries.") \
-         .replace("Gamma paragraph talks about cherries.\n", "")
+NEW = (
+    OLD.replace(
+        "Alpha paragraph talks about apples.\n",
+        "Alpha paragraph talks about apples and pears.\nA second alpha sentence.\n",
+    )
+    .replace("Beta paragraph talks about bananas.", "Beta paragraph talks about blueberries.")
+    .replace("Gamma paragraph talks about cherries.\n", "")
+)
 # The -U0 hunks git prints for OLD -> NEW (checked against real git in GitBlocks below).
-U0 = (b"@@ -4 +4,2 @@\n-Alpha paragraph talks about apples.\n+Alpha paragraph talks about apples and pears.\n+A second alpha sentence.\n"
-      b"@@ -11 +12 @@\n-Beta paragraph talks about bananas.\n+Beta paragraph talks about blueberries.\n"
-      b"@@ -18 +18,0 @@\n-Gamma paragraph talks about cherries.\n")
+U0 = (
+    b"@@ -4 +4,2 @@\n-Alpha paragraph talks about apples.\n+Alpha paragraph talks about apples and pears.\n+A second alpha sentence.\n"
+    b"@@ -11 +12 @@\n-Beta paragraph talks about bananas.\n+Beta paragraph talks about blueberries.\n"
+    b"@@ -18 +18,0 @@\n-Gamma paragraph talks about cherries.\n"
+)
 A_BLK, B_BLK, C_BLK = (3, 1, 3, 2), (10, 1, 11, 1), (17, 1, 18, 0)
 
 
 def fc(old=OLD, new=NEW, patch=U0, old_path="ms/main.tex", new_path="ms/main.tex"):
     o, n = old.encode(), new.encode()
-    return scoping.FileChange(old_path, new_path, scoping.git_lines(o), scoping.git_lines(n), tuple(scoping.parse_u0_blocks(patch)), False)
+    return scoping.FileChange(
+        old_path, new_path, scoping.git_lines(o), scoping.git_lines(n), tuple(scoping.parse_u0_blocks(patch)), False
+    )
 
 
 def anchored(lo, hi, text=OLD, **extra):
@@ -84,10 +94,13 @@ def anchored(lo, hi, text=OLD, **extra):
 def minimal_pdf(label: str = "") -> bytes:
     """A valid one-page PDF (pdf.js renders it) - browser tests stand in for latexdiff/latexmk, which CI does not have."""
     stream = b"BT /F1 24 Tf 72 700 Td (" + label.encode("ascii") + b") Tj ET"
-    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-            b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
     out, offs = bytearray(b"%PDF-1.4\n"), []
     for i, o in enumerate(objs, 1):
         offs.append(len(out))
@@ -99,6 +112,7 @@ def minimal_pdf(label: str = "") -> bytes:
 
 
 # ---------------------------------------------------------------- 1. hunks: parsing, attribution, rendering, applying
+
 
 class BlockParsing(unittest.TestCase):
     """Reading git's -U0 output into blocks (pure)."""
@@ -114,7 +128,7 @@ class BlockParsing(unittest.TestCase):
         self.assertEqual([tuple(b) for b in scoping.parse_u0_blocks(U0)], [A_BLK, B_BLK, C_BLK])
         # pure insertion after old line 5: the old span is empty and sits before old index 5
         self.assertEqual(tuple(scoping.parse_u0_blocks(b"@@ -5,0 +6,2 @@\n+x\n+y\n")[0]), (5, 0, 5, 2))
-        self.assertEqual(tuple(scoping.parse_u0_blocks(b"@@ -0,0 +1,3 @@\n+a\n+b\n+c\n")[0]), (0, 0, 0, 3))   # new file
+        self.assertEqual(tuple(scoping.parse_u0_blocks(b"@@ -0,0 +1,3 @@\n+a\n+b\n+c\n")[0]), (0, 0, 0, 3))  # new file
         self.assertEqual(scoping.parse_u0_blocks(b"diff --git a/x b/x\nBinary files a/x and b/x differ\n"), [])
 
     def test_touch_range_covers_the_lines_around_an_insertion_or_deletion_point(self):
@@ -173,7 +187,9 @@ class Attribution(unittest.TestCase):
     def test_raw_range_is_used_when_there_is_no_anchor(self):
         """Without an anchor the recorded range is read on the new side, or the old side for a stale pin."""
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 12, "hi": 12}), ("inferred", [B_BLK]))
-        self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 11, "hi": 11, "stale": True}), ("inferred", [B_BLK]))
+        self.assertEqual(
+            self.blocks_for({"id": 1, "file": "/x", "lo": 11, "hi": 11, "stale": True}), ("inferred", [B_BLK])
+        )
         self.assertEqual(self.blocks_for({"id": 1, "file": "/x", "lo": 7, "hi": 8}), ("none", []))
 
     def test_deleted_lines_are_attributed_through_the_old_side(self):
@@ -200,15 +216,18 @@ class Attribution(unittest.TestCase):
         self.assertEqual(self.blocks_for(pin, changes=[scoping.RepoRange("ms/main.tex", 12, 12)]), ("changes", [B_BLK]))
         # the line after a deletion names the deletion
         self.assertEqual(self.blocks_for(pin, changes=[("ms/main.tex", 19, 19)]), ("changes", [C_BLK]))
-        self.assertEqual(self.blocks_for(pin, changes=[("ms/main.tex", 4, 5), ("ms/main.tex", 12, 12)]),
-                         ("changes", [A_BLK, B_BLK]))
+        self.assertEqual(
+            self.blocks_for(pin, changes=[("ms/main.tex", 4, 5), ("ms/main.tex", 12, 12)]), ("changes", [A_BLK, B_BLK])
+        )
         # ranges that hit nothing in this commit (a different commit, a wrong file) fall back to inference
         self.assertEqual(self.blocks_for(pin, changes=[("ms/main.tex", 7, 8)]), ("inferred", [A_BLK]))
         self.assertEqual(self.blocks_for(pin, changes=[("ms/x.tex", 4, 5)]), ("inferred", [A_BLK]))
 
     def test_a_region_pin_or_a_pin_without_lines_gets_nothing(self):
         """A view-only PDF pin has no lines, so it is never attributed (whole commit)."""
-        self.assertEqual(self.blocks_for({"id": 1, "pdf": "/x.pdf", "page": 1, "frac": [0, 0, 1, 1]}, rel=None), ("none", []))
+        self.assertEqual(
+            self.blocks_for({"id": 1, "pdf": "/x.pdf", "page": 1, "frac": [0, 0, 1, 1]}, rel=None), ("none", [])
+        )
 
 
 class ScopedPatch(unittest.TestCase):
@@ -222,11 +241,21 @@ class ScopedPatch(unittest.TestCase):
         big = "".join("줄 %d 한국어 문장입니다\n" % i for i in range(20000))
         f = fc(big, big.replace("줄 5 ", "줄 5! "), b"@@ -6 +6 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
         files = [f, fc()]
-        sc = scoping.pin_scope(files, scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"), [scoping.RepoRange("ms/main.tex", 12, 12)])
+        sc = scoping.pin_scope(
+            files,
+            scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"),
+            [scoping.RepoRange("ms/main.tex", 12, 12)],
+        )
         out = scoping.scope_payload(sc)
         self.assertEqual((out["mode"], out["truncated"], out["other_truncated"]), ("pin", False, False))
-        f = fc(big, big.replace("\n", " x\n"), b"@@ -1,20000 +1,20000 @@\n", old_path="ms/big.tex", new_path="ms/big.tex")
-        sc = scoping.pin_scope([f, fc()], scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"), [scoping.RepoRange("ms/main.tex", 12, 12)])
+        f = fc(
+            big, big.replace("\n", " x\n"), b"@@ -1,20000 +1,20000 @@\n", old_path="ms/big.tex", new_path="ms/big.tex"
+        )
+        sc = scoping.pin_scope(
+            [f, fc()],
+            scoping.pin_facts({"id": 1, "file": "/x", "lo": 2, "hi": 2}, "ms/main.tex"),
+            [scoping.RepoRange("ms/main.tex", 12, 12)],
+        )
         out = scoping.scope_payload(sc)
         self.assertTrue(out["other_truncated"])
         self.assertLessEqual(len(out["other_diff"].encode()), scoping.REVISION_DIFF_MAX)
@@ -235,9 +264,12 @@ class ScopedPatch(unittest.TestCase):
         """The pin's hunk shows the commit's real new-side numbers (so highlighting works) and none of another pin's lines."""
         text, n = scoping.scoped_patch(self.files, {(0, 1)}, True)
         self.assertEqual(n, 1)
-        self.assertEqual(text, "diff --git a/ms/main.tex b/ms/main.tex\n--- a/ms/main.tex\n+++ b/ms/main.tex\n"
-                               "@@ -8,7 +9,7 @@\n Filler three.\n Filler four.\n \n-Beta paragraph talks about bananas.\n"
-                               "+Beta paragraph talks about blueberries.\n \n Filler five.\n Filler six.\n")
+        self.assertEqual(
+            text,
+            "diff --git a/ms/main.tex b/ms/main.tex\n--- a/ms/main.tex\n+++ b/ms/main.tex\n"
+            "@@ -8,7 +9,7 @@\n Filler three.\n Filler four.\n \n-Beta paragraph talks about bananas.\n"
+            "+Beta paragraph talks about blueberries.\n \n Filler five.\n Filler six.\n",
+        )
         other, n_other = scoping.scoped_patch(self.files, {(0, 1)}, False)
         self.assertEqual(n_other, 2)
         self.assertIn("+A second alpha sentence.", other)
@@ -251,37 +283,53 @@ class ScopedPatch(unittest.TestCase):
         patch = b"@@ -3 +3 @@\n-l3\n+L3\n@@ -5 +5 @@\n-l5\n+L5\n@@ -7 +7 @@\n-l7\n+L7\n"
         files = [fc(old, new, patch)]
         text, n = scoping.scoped_patch(files, {(0, 0), (0, 2)}, True)
-        self.assertEqual(n, 2)                                     # l5 (someone else's) splits them
+        self.assertEqual(n, 2)  # l5 (someone else's) splits them
         self.assertNotIn("l5", text)
         self.assertNotIn("L5", text)
         self.assertIn("@@ -1,4 +1,4 @@\n l1\n l2\n-l3\n+L3\n l4\n", text)
         self.assertIn("@@ -6,5 +6,5 @@\n l6\n-l7\n+L7\n l8\n l9\n l10\n", text)
         text, n = scoping.scoped_patch(files, {(0, 0), (0, 1)}, True)
-        self.assertEqual(n, 2)                                     # two changed spots, shown in one hunk
+        self.assertEqual(n, 2)  # two changed spots, shown in one hunk
         self.assertEqual(text.count("@@ -"), 1)
         self.assertIn("@@ -1,6 +1,6 @@\n l1\n l2\n-l3\n+L3\n l4\n-l5\n+L5\n l6\n", text)
 
     def test_missing_final_newline_is_marked_like_git(self):
         """A last line without a newline gets git's marker in both - and + forms."""
-        files = [fc("a\nb", "a\nc", b"@@ -2 +2 @@\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n")]
+        files = [
+            fc("a\nb", "a\nc", b"@@ -2 +2 @@\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n")
+        ]
         text, _ = scoping.scoped_patch(files, {(0, 0)}, True)
         self.assertTrue(text.endswith("-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"), text)
 
     def test_file_headers_name_new_deleted_and_renamed_files_like_git(self):
         """Scoped patches keep git's file headers so the viewer's file list and names still work."""
-        files = [fc("", "x\n", b"@@ -0,0 +1 @@\n+x\n", old_path=None, new_path="ms/n.tex"),
-                 fc("y\n", "", b"@@ -1 +0,0 @@\n-y\n", old_path="ms/d.tex", new_path=None),
-                 fc(OLD, NEW, U0, old_path="ms/a.tex", new_path="ms/b.tex")]
+        files = [
+            fc("", "x\n", b"@@ -0,0 +1 @@\n+x\n", old_path=None, new_path="ms/n.tex"),
+            fc("y\n", "", b"@@ -1 +0,0 @@\n-y\n", old_path="ms/d.tex", new_path=None),
+            fc(OLD, NEW, U0, old_path="ms/a.tex", new_path="ms/b.tex"),
+        ]
         text, n = scoping.scoped_patch(files, {(0, 0), (1, 0), (2, 0)}, True)
-        self.assertIn("diff --git a/ms/n.tex b/ms/n.tex\nnew file mode 100644\n--- /dev/null\n+++ b/ms/n.tex\n@@ -0,0 +1,1 @@\n+x\n", text)
-        self.assertIn("diff --git a/ms/d.tex b/ms/d.tex\ndeleted file mode 100644\n--- a/ms/d.tex\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-y\n", text)
-        self.assertIn("diff --git a/ms/a.tex b/ms/b.tex\nrename from ms/a.tex\nrename to ms/b.tex\n--- a/ms/a.tex\n+++ b/ms/b.tex\n", text)
+        self.assertIn(
+            "diff --git a/ms/n.tex b/ms/n.tex\nnew file mode 100644\n--- /dev/null\n+++ b/ms/n.tex\n@@ -0,0 +1,1 @@\n+x\n",
+            text,
+        )
+        self.assertIn(
+            "diff --git a/ms/d.tex b/ms/d.tex\ndeleted file mode 100644\n--- a/ms/d.tex\n+++ /dev/null\n@@ -1,1 +0,0 @@\n-y\n",
+            text,
+        )
+        self.assertIn(
+            "diff --git a/ms/a.tex b/ms/b.tex\nrename from ms/a.tex\nrename to ms/b.tex\n--- a/ms/a.tex\n+++ b/ms/b.tex\n",
+            text,
+        )
         self.assertEqual(n, 3)
 
     def test_rename_only_and_binary_files_count_as_other_places(self):
         """A pure rename or a binary file is never the pin's; it is one of the "other changes"."""
-        files = [fc(), scoping.FileChange("ms/fig.tex", "ms/fig2.tex", (), (), (), False),
-                 scoping.FileChange("ms/x.bib", "ms/x.bib", (), (), (), True)]
+        files = [
+            fc(),
+            scoping.FileChange("ms/fig.tex", "ms/fig2.tex", (), (), (), False),
+            scoping.FileChange("ms/x.bib", "ms/x.bib", (), (), (), True),
+        ]
         text, n = scoping.scoped_patch(files, {(0, 0), (0, 1), (0, 2)}, False)
         self.assertEqual(n, 2)
         self.assertIn("rename from ms/fig.tex", text)
@@ -298,10 +346,14 @@ class ScopeDecisions(unittest.TestCase):
         good = {"file": "/m/main.tex", "lo": 3, "hi": 4}
         X, Y = "a" * 40, "b" * 40
         revs = [{"id": Y, "subject": "fix B (#8)"}, {"id": X, "subject": "fix A (#7)"}]
-        pin = {"done_at": "2026-09-25 10:00:00", "changes_at": "2026-09-25 10:00:00", "close_ref": "PR #7 (%s)" % X[:7],
-               "changes": [good, {"file": 3, "lo": 1, "hi": 1}]}
+        pin = {
+            "done_at": "2026-09-25 10:00:00",
+            "changes_at": "2026-09-25 10:00:00",
+            "close_ref": "PR #7 (%s)" % X[:7],
+            "changes": [good, {"file": 3, "lo": 1, "hi": 1}],
+        }
         self.assertEqual(scoping.recorded_changes(pin, X, revs), (good,))
-        self.assertEqual(scoping.recorded_changes(pin, Y, revs), ())                      # another commit: inference decides
+        self.assertEqual(scoping.recorded_changes(pin, Y, revs), ())  # another commit: inference decides
         # the squash commit by PR
         self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7"), X, revs), (good,))
         self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7 (cccc111)"), X, revs), (good,))
@@ -313,30 +365,50 @@ class ScopeDecisions(unittest.TestCase):
     def test_ref_commit_matches_the_viewers_match_revision(self):
         """The server binds changes with the same rule the viewer uses to pick the commit (matchRevision): hash prefix
         first, then the PR number in the subject. Both implementations answer every case alike."""
-        revs = [{"id": "0a569cc" + "1" * 33, "subject": "Clarify experimental questions (#238)"},
-                {"id": "2cb7240" + "2" * 33, "subject": "Resolve manuscript viewer pins 19–41 (#236)"},
-                {"id": "f47c6bf" + "3" * 33, "subject": "manuscript: 원고 핀 12건 반영 (#235)"},
-                {"id": "1d422a6" + "4" * 33, "subject": "Merge pull request #203 from example-lab/docs"}]
-        refs = ["PR #235 (f47c6bf)", "paper PR #236; code PR #75", "paper PR #236", "#203", "PR #999", "", "abcdef1",
-                "커밋f47c6bf", "PR #236 (deadbee)", None]
+        revs = [
+            {"id": "0a569cc" + "1" * 33, "subject": "Clarify experimental questions (#238)"},
+            {"id": "2cb7240" + "2" * 33, "subject": "Resolve manuscript viewer pins 19–41 (#236)"},
+            {"id": "f47c6bf" + "3" * 33, "subject": "manuscript: 원고 핀 12건 반영 (#235)"},
+            {"id": "1d422a6" + "4" * 33, "subject": "Merge pull request #203 from example-lab/docs"},
+        ]
+        refs = [
+            "PR #235 (f47c6bf)",
+            "paper PR #236; code PR #75",
+            "paper PR #236",
+            "#203",
+            "PR #999",
+            "",
+            "abcdef1",
+            "커밋f47c6bf",
+            "PR #236 (deadbee)",
+            None,
+        ]
         py = [scoping.ref_commit(r, revs) for r in refs]
-        self.assertEqual([x and x[:7] for x in py], ["f47c6bf", "2cb7240", "2cb7240", "1d422a6", None, None, None,
-                                                     "f47c6bf", "2cb7240", None])
+        self.assertEqual(
+            [x and x[:7] for x in py],
+            ["f47c6bf", "2cb7240", "2cb7240", "1d422a6", None, None, None, "f47c6bf", "2cb7240", None],
+        )
         if shutil.which("node"):
-            js = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(%s.map(r=>{const m=matchRevision(r,%s);"
-                          "return m&&m.id;})));" % (json.dumps(refs), json.dumps(revs)))
+            js = run_node(
+                extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(%s.map(r=>{const m=matchRevision(r,%s);"
+                "return m&&m.id;})));" % (json.dumps(refs), json.dumps(revs))
+            )
             self.assertEqual(json.loads(js), py)
 
     def test_raw_entries_of_symlinks_and_submodules_have_no_blocks(self):
         """Review m6: --raw modes 120000 (symlink) and 160000 (submodule) are never read as text; the whole-commit
         snapshot rejects them, so the pin view must not turn them into editable blocks either."""
         z = "0" * 40
-        raw = (b":100644 120000 " + (b"1" * 40) + b" " + (b"2" * 40) + b" T\0ms/sec.tex\0"
-               b":000000 160000 " + z.encode() + b" " + (b"3" * 40) + b" A\0ms/sub\0"
-               b":100644 100644 " + (b"4" * 40) + b" " + (b"5" * 40) + b" R087\0ms/a.tex\0ms/b.tex\0")
+        raw = (
+            b":100644 120000 " + (b"1" * 40) + b" " + (b"2" * 40) + b" T\0ms/sec.tex\0"
+            b":000000 160000 " + z.encode() + b" " + (b"3" * 40) + b" A\0ms/sub\0"
+            b":100644 100644 " + (b"4" * 40) + b" " + (b"5" * 40) + b" R087\0ms/a.tex\0ms/b.tex\0"
+        )
         got = scoping.parse_raw_entries(raw)
-        self.assertEqual([(e.old_path, e.new_path, e.text) for e in got],
-                         [("ms/sec.tex", "ms/sec.tex", False), (None, "ms/sub", False), ("ms/a.tex", "ms/b.tex", True)])
+        self.assertEqual(
+            [(e.old_path, e.new_path, e.text) for e in got],
+            [("ms/sec.tex", "ms/sec.tex", False), (None, "ms/sub", False), ("ms/a.tex", "ms/b.tex", True)],
+        )
         self.assertEqual(got[0].modes, ("100644", "120000"))
 
     def test_scope_writes_apply_only_the_scope_under_the_build_root(self):
@@ -344,34 +416,60 @@ class ScopeDecisions(unittest.TestCase):
         f = fc(old_path="ms/main.tex", new_path="ms/main.tex")
         outside = fc(old_path="other/x.tex", new_path="other/x.tex")
         gone = scoping.FileChange("ms/old.tex", None, (b"x\n",), (), (scoping.Block(0, 1, 0, 0),), False)
-        scope = [("ms/main.tex", "ms/main.tex") + B_BLK, ("other/x.tex", "other/x.tex") + A_BLK, ("ms/old.tex", "") + (0, 1, 0, 0)]
+        scope = [
+            ("ms/main.tex", "ms/main.tex") + B_BLK,
+            ("other/x.tex", "other/x.tex") + A_BLK,
+            ("ms/old.tex", "") + (0, 1, 0, 0),
+        ]
         writes = scoping.plan_scope_writes([f, outside, gone], scope, "ms")
-        self.assertEqual(writes, [scoping.ScopeWrite("main.tex", OLD.replace("bananas", "blueberries").encode()),
-                                  scoping.ScopeWrite("old.tex", None)])
-        self.assertEqual(scoping.plan_scope_writes([f], [("ms/main.tex", "ms/main.tex") + A_BLK], ".")[0].rel, "ms/main.tex")
+        self.assertEqual(
+            writes,
+            [
+                scoping.ScopeWrite("main.tex", OLD.replace("bananas", "blueberries").encode()),
+                scoping.ScopeWrite("old.tex", None),
+            ],
+        )
+        self.assertEqual(
+            scoping.plan_scope_writes([f], [("ms/main.tex", "ms/main.tex") + A_BLK], ".")[0].rel, "ms/main.tex"
+        )
 
     def test_scope_writes_refuse_unreadable_unsafe_and_missing_blocks(self):
         """Each refusal is its own returned value: no files, a path that could leave the snapshot, a block not found again."""
         f = fc()
-        cases = ((None, [("ms/main.tex", "ms/main.tex") + A_BLK], scoping.ScopeUnreadable()),
-                 ([f], [("ms/main.tex", "ms/main.tex") + (0, 1, 0, 1)], scoping.ScopeMismatch()))
+        cases = (
+            (None, [("ms/main.tex", "ms/main.tex") + A_BLK], scoping.ScopeUnreadable()),
+            ([f], [("ms/main.tex", "ms/main.tex") + (0, 1, 0, 1)], scoping.ScopeMismatch()),
+        )
         for files, scope, refusal in cases:
             with self.subTest(refusal=refusal):
                 self.assertEqual(scoping.plan_scope_writes(files, scope, "ms"), refusal)
         for bad in ("ms/../x.tex", "ms/.git/config", "ms/a\\b.tex", "ms/\x01.tex"):
             with self.subTest(path=bad):
-                self.assertEqual(scoping.plan_scope_writes([f._replace(old_path=bad, new_path=bad)], [(bad, bad) + A_BLK], "ms"),
-                                 scoping.UnsafePath())
+                self.assertEqual(
+                    scoping.plan_scope_writes([f._replace(old_path=bad, new_path=bad)], [(bad, bad) + A_BLK], "ms"),
+                    scoping.UnsafePath(),
+                )
 
     def test_every_rejection_maps_to_one_status_and_body(self):
         """The one SCOPE_REJECTIONS table: status, Korean message and API reason per refusal type (agent contract), one
         row for every member of limn.scope.ScopeRefusal. The 404 gained its reason in 0.3.4 (every refusal names one,
         tests/test_errors.py); its text is unchanged."""
-        want = {scoping.PinNotInDoc: (404, {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}),
-                scoping.ScopeUnreadable: (422, {"error": "이 핀의 변경만 골라 적용하지 못했습니다.", "reason": "scope_failed"}),
-                scoping.ScopeMismatch: (422, {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"}),
-                scoping.UnsafePath: (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"}),
-                scoping.ScopeUnwritable: (422, {"error": "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "reason": "scope_failed"})}
+        want = {
+            scoping.PinNotInDoc: (404, {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}),
+            scoping.ScopeUnreadable: (
+                422,
+                {"error": "이 핀의 변경만 골라 적용하지 못했습니다.", "reason": "scope_failed"},
+            ),
+            scoping.ScopeMismatch: (
+                422,
+                {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"},
+            ),
+            scoping.UnsafePath: (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"}),
+            scoping.ScopeUnwritable: (
+                422,
+                {"error": "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "reason": "scope_failed"},
+            ),
+        }
         self.assertEqual(set(SCOPE_REJECTIONS), set(want))
         self.assertEqual(set(SCOPE_REJECTIONS), set(typing.get_args(scoping.ScopeRefusal)))
         for kind, (code, body) in want.items():
@@ -381,11 +479,17 @@ class ScopeDecisions(unittest.TestCase):
     def test_scope_meta_and_payload_have_their_documented_keys(self):
         """ScopeMeta has the five status fields; the payload adds the patches only in mode pin."""
         sc = scoping.pin_scope([fc()], scoping.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
-        self.assertEqual(scoping.scope_meta(sc), {"scope": "pin", "pin": 7, "source": "inferred", "hunks": 1, "other": 2})
-        self.assertEqual(sorted(scoping.scope_payload(sc)), ["diff", "hunks", "mode", "other", "other_diff", "other_truncated",
-                                                        "pin", "source", "truncated"])
+        self.assertEqual(
+            scoping.scope_meta(sc), {"scope": "pin", "pin": 7, "source": "inferred", "hunks": 1, "other": 2}
+        )
+        self.assertEqual(
+            sorted(scoping.scope_payload(sc)),
+            ["diff", "hunks", "mode", "other", "other_diff", "other_truncated", "pin", "source", "truncated"],
+        )
         whole = scoping.pin_scope(None, scoping.pin_facts(dict(anchored(4, 4), id=7), "ms/main.tex"), [])
-        self.assertEqual(scoping.scope_payload(whole), {"pin": 7, "mode": "commit", "source": "none", "hunks": 0, "other": 0})
+        self.assertEqual(
+            scoping.scope_payload(whole), {"pin": 7, "mode": "commit", "source": "none", "hunks": 0, "other": 0}
+        )
 
 
 class ApplyBlocks(unittest.TestCase):
@@ -397,7 +501,9 @@ class ApplyBlocks(unittest.TestCase):
         self.assertEqual(scoping.apply_blocks(f, {0, 1, 2}), NEW.encode())
         self.assertEqual(scoping.apply_blocks(f, set()), OLD.encode())
         self.assertEqual(scoping.apply_blocks(f, {1}), OLD.replace("bananas", "blueberries").encode())
-        self.assertEqual(scoping.apply_blocks(f, {2}), OLD.replace("Gamma paragraph talks about cherries.\n", "").encode())
+        self.assertEqual(
+            scoping.apply_blocks(f, {2}), OLD.replace("Gamma paragraph talks about cherries.\n", "").encode()
+        )
 
     def test_apply_keeps_a_missing_final_newline(self):
         """Applying a block to a file without a final newline reproduces the new bytes exactly."""
@@ -415,18 +521,24 @@ class GitBlocks(unittest.TestCase):
             a.write_bytes(old)
             b.write_bytes(new)
             # --no-index exits 1 when the files differ, which is the normal case here
-            r = subprocess.run(["git", "diff", "--no-index", "--no-color", "-U0", str(a), str(b)], capture_output=True, check=False)
+            r = subprocess.run(
+                ["git", "diff", "--no-index", "--no-color", "-U0", str(a), str(b)], capture_output=True, check=False
+            )
             return r.stdout
 
     def git_apply(self, old: bytes, patch: str) -> bytes:
         with tempfile.TemporaryDirectory() as d:
             Path(d, "m.tex").write_bytes(old)
-            subprocess.run(["git", "apply", "--unidiff-zero", "-"], cwd=d, input=patch.encode(), check=True, capture_output=True)
+            subprocess.run(
+                ["git", "apply", "--unidiff-zero", "-"], cwd=d, input=patch.encode(), check=True, capture_output=True
+            )
             return Path(d, "m.tex").read_bytes()
 
     def test_fixture_blocks_match_what_git_prints(self):
         """The hand-written fixture hunks are what real git prints for OLD -> NEW."""
-        self.assertEqual([tuple(b) for b in scoping.parse_u0_blocks(self.u0(OLD.encode(), NEW.encode()))], [A_BLK, B_BLK, C_BLK])
+        self.assertEqual(
+            [tuple(b) for b in scoping.parse_u0_blocks(self.u0(OLD.encode(), NEW.encode()))], [A_BLK, B_BLK, C_BLK]
+        )
 
     def test_random_edits_round_trip_through_apply_and_git_apply(self):
         """Seeded property check: any subset applies as defined, and git apply of its scoped patch gives the same bytes."""
@@ -446,7 +558,14 @@ class GitBlocks(unittest.TestCase):
             o, n = "".join(old).encode(), "".join(new).encode()
             if rnd.random() < 0.3 and n.endswith(b"\n"):
                 n = n[:-1]
-            f = scoping.FileChange("m.tex", "m.tex", scoping.git_lines(o), scoping.git_lines(n), tuple(scoping.parse_u0_blocks(self.u0(o, n))), False)
+            f = scoping.FileChange(
+                "m.tex",
+                "m.tex",
+                scoping.git_lines(o),
+                scoping.git_lines(n),
+                tuple(scoping.parse_u0_blocks(self.u0(o, n))),
+                False,
+            )
             self.assertEqual(scoping.apply_blocks(f, set(range(len(f.blocks)))), n)
             self.assertEqual(scoping.apply_blocks(f, set()), o)
             if f.blocks:
@@ -455,7 +574,7 @@ class GitBlocks(unittest.TestCase):
                 want, pos = [], 0
                 for k, b in enumerate(f.blocks):
                     if k in chosen:
-                        want += f.old[pos:b.old_lo] + f.new[b.new_lo:b.new_lo + b.new_n]
+                        want += f.old[pos : b.old_lo] + f.new[b.new_lo : b.new_lo + b.new_n]
                         pos = b.old_lo + b.old_n
                 self.assertEqual(scoping.apply_blocks(f, chosen), b"".join(want + list(f.old[pos:])))
                 # and the scoped patch of those blocks, applied by git to old, gives exactly that
@@ -465,6 +584,7 @@ class GitBlocks(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- 2. the close contract: optional `changes`
+
 
 class CloseChanges(AccessBase):
     """The optional `changes` on POST /api/pins/{id}/close: validation, storage, reopen, pins.md."""
@@ -480,10 +600,21 @@ class CloseChanges(AccessBase):
 
     def test_valid_changes_are_stored_as_absolute_paths_and_exposed(self):
         """A valid changes list is stored resolved and absolute on the first close and appears in the pins API."""
-        code, d = self.close({"reply": "fixed", "ref": "abc1234", "changes": [
-            {"file": "main.tex", "lo": 4, "hi": 5}, {"file": str(self.src / "sec" / "a.tex"), "lo": 7, "hi": 7}]})
+        code, d = self.close(
+            {
+                "reply": "fixed",
+                "ref": "abc1234",
+                "changes": [
+                    {"file": "main.tex", "lo": 4, "hi": 5},
+                    {"file": str(self.src / "sec" / "a.tex"), "lo": 7, "hi": 7},
+                ],
+            }
+        )
         self.assertEqual(code, 200, d)
-        want = [{"file": str(self.main.resolve()), "lo": 4, "hi": 5}, {"file": str((self.src / "sec" / "a.tex").resolve()), "lo": 7, "hi": 7}]
+        want = [
+            {"file": str(self.main.resolve()), "lo": 4, "hi": 5},
+            {"file": str((self.src / "sec" / "a.tex").resolve()), "lo": 7, "hi": 7},
+        ]
         self.assertEqual(d["pin"]["changes"], want)
         code, d = self.call("GET", "/api/pins/%d" % self.pid)
         self.assertEqual(d["pin"]["changes"], want)
@@ -493,17 +624,32 @@ class CloseChanges(AccessBase):
 
     def test_invalid_changes_are_rejected_with_400_and_change_nothing(self):
         """Each malformed changes item or list is a 400 and leaves the pin open (boundary validation)."""
-        bad = [{"file": "main.tex", "lo": 5, "hi": 4}, {"file": "main.tex", "lo": 0, "hi": 1}, {"file": "main.tex", "lo": 1.5, "hi": 2},
-               {"file": "main.tex", "lo": True, "hi": 2}, {"file": "main.tex", "lo": "1", "hi": 2}, {"file": "main.tex", "lo": 1},
-               {"file": "", "lo": 1, "hi": 1}, {"file": 3, "lo": 1, "hi": 1}, {"file": "../outside.tex", "lo": 1, "hi": 1},
-               {"file": "/etc/passwd", "lo": 1, "hi": 1}, {"file": "main.tex", "lo": 1, "hi": 1, "extra": 1},
-               {"file": "main.tex", "lo": 1, "hi": 10 ** 7}, {"file": "a\x00b", "lo": 1, "hi": 1}, "main.tex:1-2"]
+        bad = [
+            {"file": "main.tex", "lo": 5, "hi": 4},
+            {"file": "main.tex", "lo": 0, "hi": 1},
+            {"file": "main.tex", "lo": 1.5, "hi": 2},
+            {"file": "main.tex", "lo": True, "hi": 2},
+            {"file": "main.tex", "lo": "1", "hi": 2},
+            {"file": "main.tex", "lo": 1},
+            {"file": "", "lo": 1, "hi": 1},
+            {"file": 3, "lo": 1, "hi": 1},
+            {"file": "../outside.tex", "lo": 1, "hi": 1},
+            {"file": "/etc/passwd", "lo": 1, "hi": 1},
+            {"file": "main.tex", "lo": 1, "hi": 1, "extra": 1},
+            {"file": "main.tex", "lo": 1, "hi": 10**7},
+            {"file": "a\x00b", "lo": 1, "hi": 1},
+            "main.tex:1-2",
+        ]
         for item in bad:
             with self.subTest(item=item):
                 code, d = self.close({"changes": [item]})
                 self.assertEqual(code, 400, d)
                 self.assertFalse(self.pin(self.pid).get("done"))
-        for whole in ({"file": "main.tex", "lo": 1, "hi": 1}, "x", [{"file": "main.tex", "lo": 1, "hi": 1}] * (parse.CLOSE_CHANGES_MAX + 1)):
+        for whole in (
+            {"file": "main.tex", "lo": 1, "hi": 1},
+            "x",
+            [{"file": "main.tex", "lo": 1, "hi": 1}] * (parse.CLOSE_CHANGES_MAX + 1),
+        ):
             with self.subTest(whole=str(whole)[:40]):
                 code, d = self.close({"changes": whole})
                 self.assertEqual(code, 400, d)
@@ -539,14 +685,32 @@ class CloseChanges(AccessBase):
         # help but are optional
         text = ps.pins_md_text(ps.snapshot_pins())
         line = next(ln for ln in text.splitlines() if ln.startswith("처리한 핀은 닫는다"))
-        self.assertTrue(line.startswith('처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl'), line)
-        self.assertIn('"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' + "' http://127.0.0.1:18999/api/pins/N/close`", line)
-        self.assertIn('(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)' + " · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고", line)
+        self.assertTrue(
+            line.startswith(
+                "처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl"
+            ),
+            line,
+        )
+        self.assertIn(
+            '"ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}'
+            + "' http://127.0.0.1:18999/api/pins/N/close`",
+            line,
+        )
+        self.assertIn(
+            "(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다)"
+            + " · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · '질문' 핀은 원고를 고치지 말고",
+            line,
+        )
         self.assertNotIn("스쿼시하지", line)
-        self.assertTrue(line.endswith("에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403"))
+        self.assertTrue(
+            line.endswith(
+                "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403"
+            )
+        )
 
 
 # ---------------------------------------------------------------- 3. the pin-scoped source diff and comparison PDF (server)
+
 
 class ScopedRepo(AccessBase):
     """A git repo whose second commit fixes three pins at once (alpha: recorded `changes`; beta and gamma: inferred),
@@ -567,8 +731,11 @@ class ScopedRepo(AccessBase):
         self.p3 = self.add(lo=18, hi=18, note="gamma")
         self.write(NEW)
         self.fix = self.commit("fix three pins")
-        self.call("POST", "/api/pins/%d/close" % self.p1,
-                  {"ref": self.fix[:8], "changes": [{"file": "main.tex", "lo": 4, "hi": 5}]})
+        self.call(
+            "POST",
+            "/api/pins/%d/close" % self.p1,
+            {"ref": self.fix[:8], "changes": [{"file": "main.tex", "lo": 4, "hi": 5}]},
+        )
         self.call("POST", "/api/pins/%d/close" % self.p2, {"ref": self.fix[:8]})
         self.call("POST", "/api/pins/%d/close" % self.p3, {"ref": self.fix[:8]})
         self.p4 = self.add(lo=8, hi=8, note="filler")
@@ -606,9 +773,11 @@ class ScopedSourceDiff(ScopedRepo):
 
     def test_each_pin_sees_only_its_hunks_and_the_rest_folded(self):
         """The issue #9 case over HTTP: each of three pins in one commit gets only its hunk; the rest is in other_diff."""
-        want = {self.p1: ("changes", "apples and pears", ("blueberries", "Gamma")),
-                self.p2: ("inferred", "blueberries", ("pears", "Gamma")),
-                self.p3: ("inferred", "Gamma", ("pears", "blueberries"))}
+        want = {
+            self.p1: ("changes", "apples and pears", ("blueberries", "Gamma")),
+            self.p2: ("inferred", "blueberries", ("pears", "Gamma")),
+            self.p3: ("inferred", "Gamma", ("pears", "blueberries")),
+        }
         for pid, (source, mine, others) in want.items():
             with self.subTest(pin=pid):
                 code, d = self.diff(self.fix, pid)
@@ -619,7 +788,7 @@ class ScopedSourceDiff(ScopedRepo):
                 for o in others:
                     self.assertNotIn(o, s["diff"])
                     self.assertIn(o, s["other_diff"])
-                self.assertIn("pears", d["diff"])                  # the whole-commit diff is still there, unchanged
+                self.assertIn("pears", d["diff"])  # the whole-commit diff is still there, unchanged
                 self.assertIn("blueberries", d["diff"])
 
     def test_scoped_hunk_header_keeps_the_commits_line_numbers(self):
@@ -663,7 +832,11 @@ class ScopedSourceDiff(ScopedRepo):
         """A rename with an edit is attributed to a pin naming either file name; the other file's change stays other."""
         part = self.src / "part.tex"
         part.write_text("".join("Part line %d.\n" % i for i in range(1, 21)), encoding="utf-8")
-        self.write(NEW.replace("Filler two.", "Filler two, reworded.").replace("\\end{document}", "\\input{part}\n\\end{document}"))
+        self.write(
+            NEW.replace("Filler two.", "Filler two, reworded.").replace(
+                "\\end{document}", "\\input{part}\n\\end{document}"
+            )
+        )
         self.commit("add a part")
         old_pin = self.add(lo=12, hi=12, note="part twelve")
         rows = ps.snapshot_pins()
@@ -681,12 +854,15 @@ class ScopedSourceDiff(ScopedRepo):
         find_pin(rows, new_pin)["file"] = str(chapter)
         ps.write_pins(rows)
         ps.set_done(new_pin, True, dict(LOCAL_ACTOR), ref=mv[:8])
-        for pid in (old_pin, new_pin):              # the pin may name the file before or after the rename
+        for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
                 d = self.diff_ok(mv, pid)
                 s = d["scope"]
                 self.assertEqual((s["mode"], s["hunks"], s["other"]), ("pin", 1, 1))
-                self.assertIn("diff --git a/ms/part.tex b/ms/chapter.tex\nrename from ms/part.tex\nrename to ms/chapter.tex\n", s["diff"])
+                self.assertIn(
+                    "diff --git a/ms/part.tex b/ms/chapter.tex\nrename from ms/part.tex\nrename to ms/chapter.tex\n",
+                    s["diff"],
+                )
                 self.assertIn("+Part line twelve.", s["diff"])
                 self.assertNotIn("input", s["diff"])
                 self.assertIn("+\\input{chapter}", s["other_diff"])
@@ -704,15 +880,25 @@ class SquashMergedPins(AccessBase):
             self.skipTest("git not available")
         self.repo = self.src.parent
         self.main.write_text(OLD, encoding="utf-8")
-        for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T"),
-                     ("add", "ms"), ("commit", "--quiet", "-m", "first")):
+        for args in (
+            ("init", "--quiet"),
+            ("config", "user.email", "t@example.com"),
+            ("config", "user.name", "T"),
+            ("add", "ms"),
+            ("commit", "--quiet", "-m", "first"),
+        ):
             subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True)
-        self.pins = [self.add(lo=4, hi=4, note="alpha"), self.add(lo=11, hi=11, note="beta"),
-                     self.add(lo=18, hi=18, note="gamma")]
-        new = (OLD.replace("Alpha paragraph talks about apples.", "Alpha paragraph talks about pears.")
-                  .replace("Filler five.\n", "Filler five.\nBeta follow-up sentence.\n")
-                  .replace("Filler seven.", "Filler 7.")
-                  .replace("Gamma paragraph talks about cherries.", "Gamma paragraph talks about plums."))
+        self.pins = [
+            self.add(lo=4, hi=4, note="alpha"),
+            self.add(lo=11, hi=11, note="beta"),
+            self.add(lo=18, hi=18, note="gamma"),
+        ]
+        new = (
+            OLD.replace("Alpha paragraph talks about apples.", "Alpha paragraph talks about pears.")
+            .replace("Filler five.\n", "Filler five.\nBeta follow-up sentence.\n")
+            .replace("Filler seven.", "Filler 7.")
+            .replace("Gamma paragraph talks about cherries.", "Gamma paragraph talks about plums.")
+        )
         self.main.write_text(new, encoding="utf-8")
         t = time.time() + 5
         os.utime(self.main, (t, t))
@@ -721,21 +907,28 @@ class SquashMergedPins(AccessBase):
         self.squash = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         self.ref = "PR #7 (%s)" % self.squash[:7]
         lines = new.split("\n")
-        self.new_lines = {"alpha": lines.index("Alpha paragraph talks about pears.") + 1,
-                          "beta": lines.index("Beta follow-up sentence.") + 1,
-                          "gamma": lines.index("Gamma paragraph talks about plums.") + 1}
+        self.new_lines = {
+            "alpha": lines.index("Alpha paragraph talks about pears.") + 1,
+            "beta": lines.index("Beta follow-up sentence.") + 1,
+            "gamma": lines.index("Gamma paragraph talks about plums.") + 1,
+        }
         self.assertEqual(self.new_lines, {"alpha": 4, "beta": 14, "gamma": 19})
         for pid, key in zip(self.pins, ("alpha", "beta", "gamma"), strict=True):
             n = self.new_lines[key]
-            code, d = self.call("POST", "/api/pins/%d/close" % pid, {
-                "reply": key, "ref": self.ref, "changes": [{"file": "main.tex", "lo": n, "hi": n}]})
+            code, d = self.call(
+                "POST",
+                "/api/pins/%d/close" % pid,
+                {"reply": key, "ref": self.ref, "changes": [{"file": "main.tex", "lo": n, "hi": n}]},
+            )
             self.assertEqual(code, 200, d)
 
     def test_each_pin_sees_its_own_change_in_the_squash_commit(self):
         """Owner workflow: squash commit of 3 pins, closed after the merge with changes in its numbers - each sees its own change."""
-        want = {"alpha": ("+Alpha paragraph talks about pears.", ("follow-up", "plums", "Filler 7"))
-                , "beta": ("+Beta follow-up sentence.", ("pears", "plums", "Filler 7")),
-                "gamma": ("+Gamma paragraph talks about plums.", ("pears", "follow-up", "Filler 7"))}
+        want = {
+            "alpha": ("+Alpha paragraph talks about pears.", ("follow-up", "plums", "Filler 7")),
+            "beta": ("+Beta follow-up sentence.", ("pears", "plums", "Filler 7")),
+            "gamma": ("+Gamma paragraph talks about plums.", ("pears", "follow-up", "Filler 7")),
+        }
         for pid, key in zip(self.pins, ("alpha", "beta", "gamma"), strict=True):
             with self.subTest(pin=key):
                 code, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, pid))
@@ -765,8 +958,10 @@ class SquashMergedPins(AccessBase):
         if not shutil.which("node"):
             self.skipTest("node not available")
         revs = revision_history(ps.DOCS[0])["revisions"]
-        out = run_node(extract_js_fn("matchRevision") + "\nconsole.log(JSON.stringify(matchRevision(%s,%s)));"
-                       % (json.dumps(self.ref), json.dumps(revs)))
+        out = run_node(
+            extract_js_fn("matchRevision")
+            + "\nconsole.log(JSON.stringify(matchRevision(%s,%s)));" % (json.dumps(self.ref), json.dumps(revs))
+        )
         self.assertEqual(json.loads(out)["id"], self.squash)
 
 
@@ -793,12 +988,16 @@ class ScopedErrorBodies(ScopedRepo):
                 self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=abc" % (route, self.fix)), (400, self.PIN_MSG))
                 self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=0" % (route, self.fix)), (400, self.PIN_MSG))
                 self.assertEqual(self.raw("GET", "/api/%s?commit=%s&pin=999" % (route, self.fix)), (404, self.NOT_HERE))
-        for body, want in (({"commit": self.fix, "pin": "2"}, (400, self.PIN_MSG)),
-                           ({"commit": self.fix, "pin": True}, (400, self.PIN_MSG)),
-                           ({"commit": self.fix, "pin": 0}, (400, self.PIN_MSG)),
-                           ({"commit": self.fix, "pin": 999}, (404, self.NOT_HERE)),
-                           ({"commit": self.fix, "pins": 1},
-                            (400, {"error": "허용되지 않는 비교 PDF 요청 필드입니다.", "reason": "unknown_fields"}))):
+        for body, want in (
+            ({"commit": self.fix, "pin": "2"}, (400, self.PIN_MSG)),
+            ({"commit": self.fix, "pin": True}, (400, self.PIN_MSG)),
+            ({"commit": self.fix, "pin": 0}, (400, self.PIN_MSG)),
+            ({"commit": self.fix, "pin": 999}, (404, self.NOT_HERE)),
+            (
+                {"commit": self.fix, "pins": 1},
+                (400, {"error": "허용되지 않는 비교 PDF 요청 필드입니다.", "reason": "unknown_fields"}),
+            ),
+        ):
             with self.subTest(body=body):
                 self.assertEqual(self.raw("POST", "/api/revision-build", body), want)
 
@@ -806,18 +1005,36 @@ class ScopedErrorBodies(ScopedRepo):
         """Each rejection of the close body's `changes` keeps its status and message, and names the offending item."""
         pid = self.add(lo=2, hi=2, note="for the bodies")
         ok = {"file": "main.tex", "lo": 1, "hi": 1}
-        cases = (("x", "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.", "bad_changes"),
-                 ([ok] * 51, "changes 는 50개 이하여야 합니다.", "too_many_changes"),
-                 ([ok, {"file": "main.tex", "lo": 1}], "changes[1] 는 file·lo·hi 세 필드만 가진 객체여야 합니다.", "bad_changes"),
-                 ([{"file": " ", "lo": 1, "hi": 1}], "changes[0].file 은 비어 있지 않은 경로 문자열이어야 합니다.", "bad_changes"),
-                 ([{"file": "main.tex", "lo": 3, "hi": 2}], "changes[0] 의 lo·hi 는 1 ≤ lo ≤ hi ≤ 1000000 인 정수여야 합니다.",
-                  "bad_changes"),
-                 ([{"file": "../x.tex", "lo": 1, "hi": 1}], "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
-                  "change_outside_manuscript"))
+        cases = (
+            ("x", 'changes 는 [{"file", "lo", "hi"}] 목록이어야 합니다.', "bad_changes"),
+            ([ok] * 51, "changes 는 50개 이하여야 합니다.", "too_many_changes"),
+            (
+                [ok, {"file": "main.tex", "lo": 1}],
+                "changes[1] 는 file·lo·hi 세 필드만 가진 객체여야 합니다.",
+                "bad_changes",
+            ),
+            (
+                [{"file": " ", "lo": 1, "hi": 1}],
+                "changes[0].file 은 비어 있지 않은 경로 문자열이어야 합니다.",
+                "bad_changes",
+            ),
+            (
+                [{"file": "main.tex", "lo": 3, "hi": 2}],
+                "changes[0] 의 lo·hi 는 1 ≤ lo ≤ hi ≤ 1000000 인 정수여야 합니다.",
+                "bad_changes",
+            ),
+            (
+                [{"file": "../x.tex", "lo": 1, "hi": 1}],
+                "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
+                "change_outside_manuscript",
+            ),
+        )
         for changes, msg, reason in cases:
             with self.subTest(msg=msg):
-                self.assertEqual(self.raw("POST", "/api/pins/%d/close" % pid, {"changes": changes}),
-                                 (400, {"error": msg, "reason": reason}))
+                self.assertEqual(
+                    self.raw("POST", "/api/pins/%d/close" % pid, {"changes": changes}),
+                    (400, {"error": msg, "reason": reason}),
+                )
         self.assertFalse(self.pin(pid).get("done"))
 
     def build_status(self, pid):
@@ -834,10 +1051,12 @@ class ScopedErrorBodies(ScopedRepo):
     def test_scoped_build_failures_keep_their_status_bodies(self):
         """When the pin's blocks cannot be re-read, do not all come back, or name an unsafe path, the build status says
         so with the same error text and reason as before."""
-        revision_spec(self.fix, self.p2)          # warm the scope cache: the spec is not re-read below
+        revision_spec(self.fix, self.p2)  # warm the scope cache: the spec is not re-read below
         real = revisions.revision_changes
-        cases = (("unreadable", lambda *a: None, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
-                 ("mismatch", lambda *a: [], "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"))
+        cases = (
+            ("unreadable", lambda *a: None, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
+            ("mismatch", lambda *a: [], "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
+        )
         for name, fake, msg, reason in cases:
             with self.subTest(case=name), mock.patch.object(revisions, "revision_changes", side_effect=fake):
                 st = self.build_status(self.p2)
@@ -846,10 +1065,15 @@ class ScopedErrorBodies(ScopedRepo):
         spec = revision_spec(self.fix, self.p2)
         bad = ("ms/../evil.tex", "ms/../evil.tex", 0, 1, 0, 1)
         evil = scoping.FileChange(bad[0], bad[1], (b"x\n",), (b"y\n",), (scoping.Block(0, 1, 0, 1),), False)
-        with mock.patch.object(revisions, "revision_spec", return_value=spec._replace(scope=(bad,))), \
-                mock.patch.object(revisions, "revision_changes", return_value=[evil]):
+        with (
+            mock.patch.object(revisions, "revision_spec", return_value=spec._replace(scope=(bad,))),
+            mock.patch.object(revisions, "revision_changes", return_value=[evil]),
+        ):
             st = self.build_status(self.p2)
-        self.assertEqual((st["state"], st["error"], st["reason"]), ("error", "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"))
+        self.assertEqual(
+            (st["state"], st["error"], st["reason"]),
+            ("error", "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
+        )
         self.assertFalse((self.repo / "evil.tex").exists())
         self.assertIs(revisions.revision_changes, real)
 
@@ -863,7 +1087,7 @@ class ScopedPdf(ScopedRepo):
         s1, s2 = revision_spec(self.fix, self.p1), revision_spec(self.fix, self.p2)
         self.assertEqual(whole.scope, ())
         self.assertEqual(len({whole.key, s1.key, s2.key}), 3)
-        self.assertEqual(s1.key, revision_spec(self.fix, self.p1).key)     # stable
+        self.assertEqual(s1.key, revision_spec(self.fix, self.p1).key)  # stable
         # a pin whose commit is entirely its own shares the whole-commit comparison (and its cache)
         self.assertEqual(revision_spec(self.solo, self.p4).key, revision_spec(self.solo).key)
         # the recorded change set is part of the identity: a different set is a different comparison
@@ -879,7 +1103,7 @@ class ScopedPdf(ScopedRepo):
         rows = ps.snapshot_pins()
         r = find_pin(rows, self.p1)
         self.assertEqual(r["changes_at"], r["done_at"])
-        r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]     # beta's line
+        r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]  # beta's line
         r["done_at"] = "2026-09-26 09:00:00"
         ps.write_pins(rows)
         d = self.diff_ok(self.fix, self.p1)
@@ -887,15 +1111,20 @@ class ScopedPdf(ScopedRepo):
 
     def test_status_without_pin_never_carries_another_requests_pin_fields(self):
         """Review finding: pin fields are per request; a shared whole-commit status must not leak them to pin-less requests."""
+
         def compile(spec, jobdir, timeout):
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
             return {"state": "ready", "warnings": [], "error": None, "reason": None}
+
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
             # shares the whole key
             code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})
             self.assertEqual((d["scope"], d["pin"]), ("commit", self.p4))
             end = time.time() + 10
-            while time.time() < end and self.call("GET", "/api/revision-build?commit=%s" % self.solo)[1]["state"] == "running":
+            while (
+                time.time() < end
+                and self.call("GET", "/api/revision-build?commit=%s" % self.solo)[1]["state"] == "running"
+            ):
                 time.sleep(0.05)
         for path in ("/api/revision-build?commit=%s" % self.solo,):
             code, d = self.call("GET", path)
@@ -913,15 +1142,20 @@ class ScopedPdf(ScopedRepo):
         def fail(spec, jobdir, timeout):
             calls.append(spec.scope)
             return revisions.StepFailed("compile_failed")
+
         with mock.patch.object(revisions, "revision_compile", side_effect=fail):
             for _ in range(2):
                 self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
                 end = time.time() + 10
-                while time.time() < end and self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))[1]["state"] == "running":
+                while (
+                    time.time() < end
+                    and self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))[1]["state"]
+                    == "running"
+                ):
                     time.sleep(0.05)
             code, d = self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
             self.assertEqual((d["state"], d["reason"], d["scope"]), ("error", "compile_failed", "pin"))
-        self.assertEqual(len(calls), 1)                   # built once; the whole commit still retries (0.2.2 behaviour)
+        self.assertEqual(len(calls), 1)  # built once; the whole commit still retries (0.2.2 behaviour)
 
     def test_build_routes_accept_pin_and_report_scope_fields(self):
         """POST/GET revision-build and revision-pdf take pin and report scope, pin, hunks and other."""
@@ -931,12 +1165,17 @@ class ScopedPdf(ScopedRepo):
             seen.append(spec.scope)
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
             return {"state": "ready", "warnings": [], "error": None, "reason": None}
+
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
             code, d = self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
             self.assertIn(code, (200, 202), d)
             self.assertEqual((d["scope"], d["pin"], d["hunks"], d["other"]), ("pin", self.p2, 1, 2))
             end = time.time() + 10
-            while time.time() < end and self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))[1]["state"] == "running":
+            while (
+                time.time() < end
+                and self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))[1]["state"]
+                == "running"
+            ):
                 time.sleep(0.05)
             code, d = self.call("GET", "/api/revision-build?commit=%s&pin=%d" % (self.fix, self.p2))
             self.assertEqual((d["state"], d["scope"]), ("ready", "pin"))
@@ -947,12 +1186,18 @@ class ScopedPdf(ScopedRepo):
             code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})
             self.assertEqual(d["scope"], "commit")
         self.assertEqual(len(seen[0]), 1)
-        for bad in ({"commit": self.fix, "pin": "2"}, {"commit": self.fix, "pin": True}, {"commit": self.fix, "pin": 999},
-                    {"commit": self.fix, "pins": 1}):
+        for bad in (
+            {"commit": self.fix, "pin": "2"},
+            {"commit": self.fix, "pin": True},
+            {"commit": self.fix, "pin": 999},
+            {"commit": self.fix, "pins": 1},
+        ):
             with self.subTest(bad=bad):
                 self.assertIn(self.call("POST", "/api/revision-build", bad)[0], (400, 404))
 
-    @unittest.skipUnless(all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable")
+    @unittest.skipUnless(
+        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
+    )
     def test_real_scoped_build_marks_only_the_pins_change(self):
         """With TeX: the sandboxed scoped PDF shows the pin's change and none of the others; the checkout is untouched."""
         dest = self.repo / "job-beta"
@@ -962,8 +1207,8 @@ class ScopedPdf(ScopedRepo):
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("blueberries", text)
         self.assertIn("bananas", text)
-        self.assertNotIn("pears", text)                    # alpha's change is not applied
-        self.assertIn("cherries", text)                    # gamma is still there, unmarked
+        self.assertNotIn("pears", text)  # alpha's change is not applied
+        self.assertIn("cherries", text)  # gamma is still there, unmarked
         self.assertNotIn("second alpha", text)
         whole = self.repo / "job-whole"
         whole.mkdir()
@@ -971,22 +1216,31 @@ class ScopedPdf(ScopedRepo):
         self.assertIn("pears", subprocess.check_output(["pdftotext", str(whole / "revision.pdf"), "-"], text=True))
         self.assertEqual(self.main.read_text(encoding="utf-8"), NEW.replace("Filler two.", "Filler two, reworded."))
 
-    @unittest.skipUnless(all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk")), "TeX sandbox tools unavailable")
+    @unittest.skipUnless(
+        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk")), "TeX sandbox tools unavailable"
+    )
     def test_scoped_build_is_an_error_when_the_subset_does_not_compile(self):
         """With TeX: half of an environment fix alone does not compile; the error lets the viewer fall back."""
         # one commit opens an environment for one pin and closes it for another: each half alone does not compile
         base = NEW.replace("Filler two.", "Filler two, reworded.")
-        self.write(base.replace("Filler one.", "\\begin{itemize}\\item Filler one.").replace("Filler eight.", "Filler eight.\\end{itemize}"))
+        self.write(
+            base.replace("Filler one.", "\\begin{itemize}\\item Filler one.").replace(
+                "Filler eight.", "Filler eight.\\end{itemize}"
+            )
+        )
         both = self.commit("wrap the fillers in a list")
         opener = self.add(lo=7, hi=7, note="open")
-        ps.set_done(opener, True, dict(LOCAL_ACTOR), ref=both[:8],
-                    changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),))
+        ps.set_done(
+            opener, True, dict(LOCAL_ACTOR), ref=both[:8], changes=(parse.CloseChange(str(self.main.resolve()), 7, 7),)
+        )
         spec = revision_spec(both, opener)
         self.assertEqual(len(spec.scope), 1)
         dest = self.repo / "job-half"
         dest.mkdir()
-        self.assertIn(revisions.revision_compile(spec, dest, 60),
-                      (revisions.StepFailed("compile_failed"), revisions.StepFailed("diff_failed")))
+        self.assertIn(
+            revisions.revision_compile(spec, dest, 60),
+            (revisions.StepFailed("compile_failed"), revisions.StepFailed("diff_failed")),
+        )
         whole = self.repo / "job-both"
         whole.mkdir()
         self.assertEqual(revisions.revision_compile(revision_spec(both), whole, 60)["state"], "ready")
@@ -1039,8 +1293,11 @@ class ReviewRegressions(AccessBase):
         x = self.DOC.replace("Line 10 of", "Line TEN of")
         self.write(x)
         X = self.commit("fix A")
-        code, d = self.call("POST", "/api/pins/%d/close" % pa, {"ref": "PR #1 (%s)" % X[:7],
-                                                                "changes": [{"file": "main.tex", "lo": 12, "hi": 12}]})
+        code, d = self.call(
+            "POST",
+            "/api/pins/%d/close" % pa,
+            {"ref": "PR #1 (%s)" % X[:7], "changes": [{"file": "main.tex", "lo": 12, "hi": 12}]},
+        )
         self.assertEqual(code, 200, d)
         Y = self.commit_y(x)
         self.assertEqual(self.scope(X, pa)["source"], "changes")
@@ -1065,6 +1322,7 @@ class ReviewRegressions(AccessBase):
                 calls["n"] += 1
                 return revisions.StepFailed("timeout")
             return real(cmd, *a, **k)
+
         with mock.patch.object(revisions, "revision_exec", flaky):
             first = self.scope(X, pa)["mode"]
         self.assertEqual((first, self.scope(X, pa)["mode"]), ("commit", "pin"))
@@ -1079,7 +1337,9 @@ class ReviewRegressions(AccessBase):
         self.write("".join((("b" * 199 + "\n") if i % 2 else ("a" * 199 + "\n")) for i in range(n)), big)
         self.write(self.DOC.replace("Line 3 of", "Line THREE of"))
         X = self.commit("big change + A")
-        self.call("POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]})
+        self.call(
+            "POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]}
+        )
         s = self.scope(X, pa)
         self.assertEqual((s["mode"], s["other_truncated"]), ("pin", True))
         sc = next(iter(ps.SCOPE_CACHE.values()))
@@ -1101,13 +1361,18 @@ class ReviewRegressions(AccessBase):
             with lock:
                 now[0] -= 1
             return real(*a, **k)
+
         repo, paths = revisions.revision_scope(ps.DOCS[0])
         revs = revision_history(ps.DOCS[0])["revisions"]
         rows = ps.read_pins()[0]
         with mock.patch.object(revisions, "revision_changes", side_effect=slow):
-            ts = [threading.Thread(target=revisions.revision_pin_scope,
-                                   args=(ps.DOCS[0], rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()))
-                  for pid in pins]
+            ts = [
+                threading.Thread(
+                    target=revisions.revision_pin_scope,
+                    args=(ps.DOCS[0], rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()),
+                )
+                for pid in pins
+            ]
             for t in ts:
                 t.start()
             for t in ts:
@@ -1132,7 +1397,7 @@ class ReviewRegressions(AccessBase):
             d.mkdir()
             if d in scoped:
                 (d / revisions.SCOPED_MARK).write_text("")
-            t = time.time() - 1000 + (i if d in whole else 500 + i)       # every scoped entry is newer
+            t = time.time() - 1000 + (i if d in whole else 500 + i)  # every scoped entry is newer
             os.utime(d, (t, t))
         revisions.revision_prune(root, "f" * 64, ps.REVISION_JOBS.active)
         self.assertTrue(all(d.exists() for d in whole))
@@ -1145,8 +1410,12 @@ class ReviewRegressions(AccessBase):
         dest.mkdir()
         (dest / "main.tex").write_text("x")
         spec = revisions.RevisionSpec(self.repo, "ms", Path("main.tex"), "a" * 40, "b" * 40, "k" * 64)
-        with mock.patch.object(revisions, "revision_changes", return_value=[]), \
-                mock.patch.object(revisions, "plan_scope_writes", return_value=[scoping.ScopeWrite("main.tex/x.tex", b"x")]):
+        with (
+            mock.patch.object(revisions, "revision_changes", return_value=[]),
+            mock.patch.object(
+                revisions, "plan_scope_writes", return_value=[scoping.ScopeWrite("main.tex/x.tex", b"x")]
+            ),
+        ):
             refused = revisions.revision_apply_scope(spec, dest)
         self.assertEqual(refused, scoping.ScopeUnwritable())
         err = scope_http_error(refused)
@@ -1164,8 +1433,10 @@ class ReviewRegressions(AccessBase):
         os.symlink("/etc/hostname", sec)
         self.write(self.main.read_text().replace("Line 3 of", "Line THREE of"))
         X = self.commit("typechange sec + A")
-        code, d = self.call("POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]})
-        self.assertEqual(code, 200, d)          # (a changes item naming sec.tex resolves outside the folder: 400)
+        code, d = self.call(
+            "POST", "/api/pins/%d/close" % pa, {"ref": X[:8], "changes": [{"file": "main.tex", "lo": 5, "hi": 5}]}
+        )
+        self.assertEqual(code, 200, d)  # (a changes item naming sec.tex resolves outside the folder: 400)
         s = self.scope(X, pa)
         self.assertEqual((s["mode"], s["source"], s["hunks"], s["other"]), ("pin", "changes", 1, 1))
         self.assertIn("new mode 120000", s["other_diff"])
@@ -1184,10 +1455,20 @@ DEVICES = {
     "fold": {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True},
     "phone": {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True},
 }
-TXT = {"ko": {"other": "이 커밋의 다른 변경 2곳", "whole": "커밋 전체 비교", "only": "핀 #%d의 변경만",
-              "fallback": "커밋 전체를 비교합니다"},
-       "en": {"other": "2 other changes in this commit", "whole": "Whole commit", "only": "Only pin #%d's changes",
-              "fallback": "comparing the whole commit"}}
+TXT = {
+    "ko": {
+        "other": "이 커밋의 다른 변경 2곳",
+        "whole": "커밋 전체 비교",
+        "only": "핀 #%d의 변경만",
+        "fallback": "커밋 전체를 비교합니다",
+    },
+    "en": {
+        "other": "2 other changes in this commit",
+        "whole": "Whole commit",
+        "only": "Only pin #%d's changes",
+        "fallback": "comparing the whole commit",
+    },
+}
 
 
 class ScopedViewer(BrowserBase):
@@ -1211,7 +1492,14 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(LOCAL_ACTOR)
-        ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5),))
+        ps.set_done(
+            self.p1,
+            True,
+            loc,
+            reply="alpha",
+            ref=self.fix[:8],
+            changes=(parse.CloseChange(str(self.main.resolve()), 4, 5),),
+        )
         ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
         ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
@@ -1247,19 +1535,27 @@ class ScopedViewer(BrowserBase):
     def open_change(self, device, lang, pid):
         page = self._page = self.open(0, lang=lang, **DEVICES[device])
         page.evaluate("showChange(%d)" % pid)
-        page.wait_for_function("REVISION_SOURCE_COMMIT&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000)
+        page.wait_for_function(
+            "REVISION_SOURCE_COMMIT&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
+        )
         page.wait_for_timeout(150)
         return page
 
     def visible(self, page, sel):
-        return page.evaluate("(()=>{const e=document.querySelector(%s);return !!e&&!e.closest('[hidden]')&&e.getClientRects().length>0;})()" % json.dumps(sel))
+        return page.evaluate(
+            "(()=>{const e=document.querySelector(%s);return !!e&&!e.closest('[hidden]')&&e.getClientRects().length>0;})()"
+            % json.dumps(sel)
+        )
 
     def fits(self, page, sel, device):
-        box = page.evaluate("(()=>{const r=document.querySelector(%s).getBoundingClientRect();return [r.left,r.right,r.height,innerWidth];})()" % json.dumps(sel))
+        box = page.evaluate(
+            "(()=>{const r=document.querySelector(%s).getBoundingClientRect();return [r.left,r.right,r.height,innerWidth];})()"
+            % json.dumps(sel)
+        )
         self.assertGreaterEqual(box[0], 0, sel)
         self.assertLessEqual(box[1], box[3] + 0.5, sel)
         if device != "desktop":
-            self.assertGreaterEqual(box[2], 44, sel)            # touch target
+            self.assertGreaterEqual(box[2], 44, sel)  # touch target
 
     def english_only(self, page, sel):
         text = page.inner_text(sel)
@@ -1314,13 +1610,17 @@ class ScopedViewer(BrowserBase):
         page.click(whole)
         page.wait_for_function("document.getElementById('revision-whole').getAttribute('aria-pressed')==='true'")
         self.wait_pdf(page)
-        page.wait_for_function("!/%s/.test(document.getElementById('revision-status').textContent)" % re.escape(t["only"] % self.p2))
+        page.wait_for_function(
+            "!/%s/.test(document.getElementById('revision-status').textContent)" % re.escape(t["only"] % self.p2)
+        )
         self.assertEqual(self.builds[-1], (self.fix, ()))
         page.click(whole)
         self.wait_pdf(page)
         self.assertEqual(page.get_attribute(whole, "aria-pressed"), "false")
-        page.wait_for_function("document.getElementById('revision-status').textContent.includes(%s)" % json.dumps(t["only"] % self.p2))
-        self.assertEqual(len(self.builds), 2)                    # both comparisons are cached; toggling back builds nothing
+        page.wait_for_function(
+            "document.getElementById('revision-status').textContent.includes(%s)" % json.dumps(t["only"] % self.p2)
+        )
+        self.assertEqual(len(self.builds), 2)  # both comparisons are cached; toggling back builds nothing
         # the approximate-page note stays
         self.assertTrue(self.visible(page, "#revision-pin"))
         if lang == "en":
@@ -1365,7 +1665,7 @@ class ScopedViewer(BrowserBase):
         page = self.open_change("desktop", "ko", self.p2)
         urls = []
         page.on("request", lambda r: urls.append(r.url))
-        page.select_option("#revision-select", self.solo)          # another commit: the list opens its PDF
+        page.select_option("#revision-select", self.solo)  # another commit: the list opens its PDF
         self.wait_pdf(page)
         self.assertFalse(self.visible(page, "#revision-whole"))
         self.assertEqual(self.builds[-1], (self.solo, ()))
@@ -1376,14 +1676,17 @@ class ScopedViewer(BrowserBase):
         seen = [u for u in urls if "/api/revision-" in u and self.solo in u]
         self.assertTrue(seen)
         self.assertFalse([u for u in seen if "pin=" in u], seen)
-        page.select_option("#revision-select", self.fix)           # back to the pin's own commit: scoped again
+        page.select_option("#revision-select", self.fix)  # back to the pin's own commit: scoped again
         self.wait_pdf(page)
         page.wait_for_function("!document.getElementById('revision-whole').hidden", timeout=15000)
         self.assertEqual(self.builds[-1][0], self.fix)
         self.assertEqual(len(self.builds[-1][1]), 1)
         page.click("#revision-source-tab")
-        page.wait_for_function("REVISION_SOURCE_COMMIT===%s&&!document.getElementById('revision-other-toggle').hidden"
-                               % json.dumps(self.fix), timeout=15000)
+        page.wait_for_function(
+            "REVISION_SOURCE_COMMIT===%s&&!document.getElementById('revision-other-toggle').hidden"
+            % json.dumps(self.fix),
+            timeout=15000,
+        )
         self.assertNotIn("pears", page.inner_text("#revision-diff"))
 
     def test_other_changes_start_folded_for_the_next_pin(self):
@@ -1405,8 +1708,14 @@ from test_access import BOB, CAROL, configure, reset_access  # noqa: E402
 def load_v022():
     """The server module exactly as released in v0.2.2 (from git), or None in a shallow clone."""
     import importlib.util
-    r = subprocess.run(["git", "show", "v0.2.2:src/limn/server.py"], cwd=Path(__file__).resolve().parent.parent,
-                       capture_output=True, timeout=30, check=False)
+
+    r = subprocess.run(
+        ["git", "show", "v0.2.2:src/limn/server.py"],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
     if r.returncode != 0 or b"def reply_reopens" not in r.stdout:
         return None
     d = Path(tempfile.mkdtemp(prefix="limn-v022-"))
@@ -1421,17 +1730,25 @@ def load_v022():
 # A person's reply that reopens a closed pin (docs/handbook/api.md §답글이 핀을 다시 여는 규칙 (0.2.2)). Each case:
 # (pin author, assignee, who closes it (None = the agent), expected events as (type, recipients, actor)).
 REOPEN_CASES = {
-    "author is not the replier, agent closed": (BOB, None, None, [
-        ("review_requested", ["bob@example.com"], "local"), ("reopened", ["bob@example.com"], "alice@example.com")]),
-    "author is the replier, agent closed": (ALICE, None, None, [
-        ("review_requested", ["alice@example.com"], "local")]),
-    "assigned to a person, agent closed": (BOB, "carol@example.com", None, [
-        ("assigned", ["carol@example.com"], "bob@example.com"), ("review_requested", ["bob@example.com"], "local"),
-        ("reopened", ["bob@example.com"], "alice@example.com")]),
-    "closed by a person": (BOB, None, CAROL, [
-        ("reopened", ["bob@example.com"], "alice@example.com")]),
-    "closed by the replier": (BOB, None, ALICE, [
-        ("reopened", ["bob@example.com"], "alice@example.com")]),
+    "author is not the replier, agent closed": (
+        BOB,
+        None,
+        None,
+        [("review_requested", ["bob@example.com"], "local"), ("reopened", ["bob@example.com"], "alice@example.com")],
+    ),
+    "author is the replier, agent closed": (ALICE, None, None, [("review_requested", ["alice@example.com"], "local")]),
+    "assigned to a person, agent closed": (
+        BOB,
+        "carol@example.com",
+        None,
+        [
+            ("assigned", ["carol@example.com"], "bob@example.com"),
+            ("review_requested", ["bob@example.com"], "local"),
+            ("reopened", ["bob@example.com"], "alice@example.com"),
+        ],
+    ),
+    "closed by a person": (BOB, None, CAROL, [("reopened", ["bob@example.com"], "alice@example.com")]),
+    "closed by the replier": (BOB, None, ALICE, [("reopened", ["bob@example.com"], "alice@example.com")]),
 }
 
 
@@ -1446,8 +1763,12 @@ class ReplyReopenEvents(unittest.TestCase):
         src = tmp / "ms"
         src.mkdir()
         main = src / "main.tex"
-        main.write_text("\\documentclass{article}\n\\begin{document}\n" + "".join("Line %d.\n" % i for i in range(3, 30))
-                        + "\\end{document}\n", encoding="utf-8")
+        main.write_text(
+            "\\documentclass{article}\n\\begin{document}\n"
+            + "".join("Line %d.\n" % i for i in range(3, 30))
+            + "\\end{document}\n",
+            encoding="utf-8",
+        )
         state = tmp / "state"
         state.mkdir()
         configure(mod, src, main, state)
@@ -1462,8 +1783,9 @@ class ReplyReopenEvents(unittest.TestCase):
                 h["Origin"] = "http://127.0.0.1:18999"
             code, _, out = split_resp(talk_to(mod, req(method, path, raw, h)))
             return code, json.loads(out)
+
         for h in (ALICE, BOB, CAROL):
-            call("GET", "/api/meta", headers=h)                     # people.json knows all three
+            call("GET", "/api/meta", headers=h)  # people.json knows all three
         body = {"file": str(main), "lo": 4, "hi": 5, "page": 1, "note": "고쳐 주세요"}
         if assignee:
             body["assignee"] = assignee
@@ -1491,19 +1813,31 @@ class ReplyReopenEvents(unittest.TestCase):
             self.skipTest("v0.2.2 is not in this clone's history (shallow checkout)")
         for name, (author, assignee, closer, _) in REOPEN_CASES.items():
             with self.subTest(case=name):
-                self.assertEqual(self.run_case(ps, author, assignee, closer), self.run_case(v022, author, assignee, closer))
+                self.assertEqual(
+                    self.run_case(ps, author, assignee, closer), self.run_case(v022, author, assignee, closer)
+                )
 
 
 class ViewerTrashControls(BrowserBase):
     """A viewer can open the Trash and read it, but sees no [되살리기]/[영구 삭제] (the server refuses both with 403 anyway)."""
+
     WHO = CAROL
 
     def setUp(self):
         super().setUp()
         ps.record_person(A)
-        ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
-            {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
-            {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
+        ps.C.people_file.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "people": [
+                        {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
+                        {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
         self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         ps.drop_pin(self.gone, A)
@@ -1516,11 +1850,15 @@ class ViewerTrashControls(BrowserBase):
                     page = self.open(1, lang=lang, **DEVICES[device])
                     page.wait_for_function("DROPPED.length===1", timeout=10000)
                     page.evaluate("openTrash()")
-                    page.wait_for_selector("#trash-list .arc-row[data-id=\"%d\"]" % self.gone)
-                    row = "#trash-list .arc-row[data-id=\"%d\"]" % self.gone
-                    self.assertIn("지운 핀", page.inner_text(row))            # reading stays
-                    shown = page.evaluate("[...document.querySelectorAll('#trash [data-act]')].filter(e=>e.getClientRects().length)"
-                                          ".map(e=>e.dataset.act)")
+                    page.wait_for_selector('#trash-list .arc-row[data-id="%d"]' % self.gone)
+                    row = '#trash-list .arc-row[data-id="%d"]' % self.gone
+                    self.assertIn("지운 핀", page.inner_text(row))  # reading stays
+                    shown = page.evaluate(
+                        "[...document.querySelectorAll('#trash [data-act]')].filter(e=>e.getClientRects().length)"
+                        ".map(e=>e.dataset.act)"
+                    )
                     self.assertFalse({"restore", "purge"} & set(shown), shown)
-                    self.assertEqual(page.locator(row + " .b-restore").count() + page.locator(row + " .b-purge").count(), 0)
+                    self.assertEqual(
+                        page.locator(row + " .b-restore").count() + page.locator(row + " .b-purge").count(), 0
+                    )
                     page.evaluate("document.getElementById('trash').close()")
