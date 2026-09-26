@@ -51,7 +51,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 | 비교 PDF(0.2.2부터 있던 코드) | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
 | 예상 밖 예외 | `500` | `internal` |
 
-코드와 문장의 짝은 HTTP 층 `src/limn/web/`(처리기·요청 파서·결과마다의 응답·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 `src/limn/server.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
+코드와 문장의 짝은 HTTP 층 `src/limn/web/`(처리기·요청 파서·결과마다의 응답·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 `src/limn/access.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
@@ -170,7 +170,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/render.py`](../../src/limn/pins/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/guidance.py`](../../src/limn/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 토큰 파일이 있는지와 홈 폴더는 `server.py` 가 읽어 값으로 넘긴다.
+실행 정본은 [`src/limn/access.py`](../../src/limn/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/render.py`](../../src/limn/pins/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/guidance.py`](../../src/limn/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -466,6 +466,8 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 @태그는 뷰어 안에서만 사람을 부른다. GitHub, Telegram, 메일 같은 바깥 알림은 보내지 않는다. 대신 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
 
+실행 정본은 세 모듈이다. [`src/limn/people.py`](../../src/limn/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`)를, [`src/limn/mentions.py`](../../src/limn/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/events.py`](../../src/limn/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
+
 ### 사람 목록
 
 `<state_dir>/people.json` 은 `{"version":1,"people":[{login,name,pic?,first_seen,last_seen,role?}]}` 모양이다. @태그 후보이자 0.2.0부터는 멤버 명단이다.
@@ -538,7 +540,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ## 감사 기록 (`audit.jsonl`)
 
-`<state_dir>/audit.jsonl` 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다(0.3.1, 이슈 #10 L5). `events.jsonl` 은 최근 5000건만 남겨서, 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려났다. 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
+`<state_dir>/audit.jsonl` 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다(0.3.1, 이슈 #10 L5). 실행 정본은 [`src/limn/audit.py`](../../src/limn/audit.py) 의 `audit_entry`·`append_audit`·`os_actor` 다. `events.jsonl` 은 최근 5000건만 남겨서, 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려났다. 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
 
 ```json
 {"at": "2026-09-26 10:12:03", "ts": 1790392323.412, "action": "cleared", "by": {"login": "alice@example.com", "name": "Alice Kim"}, "via": "http", "details": {"n": 42, "archive": "pins_260926_101203.jsonl.bak"}}

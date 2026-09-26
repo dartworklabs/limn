@@ -118,7 +118,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 예전 표시였던 '일치 93%'·'글자 일치 100%'는 뜻을 알 수 없었다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `pick`, `score_range`, `token_weights`다.
+실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `score_range`·`by_text`(순수 계산)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다.
 
 ## 범위 사다리
 
@@ -170,7 +170,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > 예외는 그 범위가 방금 자신이 고친 곳일 때다. 앞선 핀을 처리하면서 그 문장 자체를 갈아엎은 경우가 그렇다. 이때는 원문을 확인하고 닫아도 된다([SKILL.ko.md](../../skill/SKILL.ko.md) §규칙).
 
-실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`(순수 계산)와 [`src/limn/server.py`](../../src/limn/server.py)의 `sync_all`(파일을 읽고 레코드를 고치는 쪽)이다.
+실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `follow_anchor`·`resync`(순수 계산: 핀 하나를 지금 줄과 맞춰 바뀐 레코드 사본을 돌려준다), 그리고 [`src/limn/locate.py`](../../src/limn/locate.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 레코드로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
 
 ## 저장소 안전성
 
@@ -282,7 +282,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > `tailscale` 방식에서 같은 머신의 로컬 프로세스는 헤더를 붙여 사람을, 헤더를 빼서 에이전트를 흉내 낼 수 있다. 헤더는 루프백 피어에서 오면 믿기 때문이다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, `--no-agent-loopback`으로 헤더 없는 에이전트를 끄고, `--members-only`나 역할로 좁힌다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `identify`, `admit`, `check_role`, `is_agent`, `actor_of`, `record_person`, `who`, `LOCAL_ACTOR`다.
+실행 정본은 [`src/limn/access.py`](../../src/limn/access.py)의 `identify`, `admit`, `check_role`, `actor_of`, `LOCAL_ACTOR`와 [`src/limn/server.py`](../../src/limn/server.py)의 `is_agent`, `record_person`, `who`다.
 
 ## 여러 문서
 

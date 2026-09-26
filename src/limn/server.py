@@ -26,33 +26,25 @@ Python 3.10 standard library only.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import errno
-import fcntl
 import hashlib
-import hmac
 import html
 import ipaddress
 import json
 import os
-import pwd
 import re
-import secrets
 import shutil
 import socket
-import struct
 import subprocess
 import sys
 import threading
 import time
 import traceback
-from collections import Counter
 from datetime import datetime
-from email.header import decode_header, make_header
 from pathlib import Path
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Collection
 from typing import NamedTuple
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
@@ -61,10 +53,10 @@ from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest,
     CloseRequest, NotClaimed, NotInTrash, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds,
     confirm, confirmer, decide_close, decide_reopen, decide_reply, drop, evolve_close, evolve_reopen, evolve_reply,
-    find_trashed, next_rev, reopen_request, reopens_on_reply, restore, unclaim,
+    find_trashed, reopen_request, reopens_on_reply, restore, unclaim,
 )
 from limn.pins.edit import (  # noqa: E402 - after the path bootstrap above
-    ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, PDF_QUOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
+    ASSIGNEE_AGENT, KIND_REQS, NOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
     LinePlace, Located, PinEdited, RegionPlace, decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
 )
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
@@ -72,28 +64,49 @@ from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
 )
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write, file_in_tree  # noqa: E402 - after the path bootstrap above
+from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
+from limn import events, people  # noqa: E402 - after the path bootstrap above
+from limn.audit import AUDIT_FILE, append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
+from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
+from limn.mentions import (  # noqa: E402 - after the path bootstrap above
+    NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
+    resolve_mentions, tag_note, thread_round,
+)
+from limn.people import is_actor as _is_actor, people_text, valid_people as _valid_people  # noqa: E402
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
+from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound,
+    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts,
 )
+from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
+from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
 # The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
 # document (web/app.py); they are limn.build's own functions, bound here without a shell.
-from limn.build import build_pdf, cur_pages, state_snapshot as build_state_snapshot  # noqa: E402,F401
+from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as build_state_snapshot  # noqa: E402,F401
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
-    anchor_holds, anchor_offset, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
-    truncate_quote,
+    anchor_of, truncate_quote,
 )
+from limn import locate  # noqa: E402 - after the path bootstrap above
+from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
+from limn.pins import position  # noqa: E402 - after the path bootstrap above
+from limn.pins.position import epoch as _epoch, pin_est  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
-from limn.guidance import UNAUTHENTICATED, loopback_refused_text, shell_path  # noqa: E402 - after the path bootstrap above
-# pins.md's renderer; server.py builds its input (pins_md_input). flat is also the events' excerpt rule (_excerpt).
-from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
-    DocHeading, PinFacts, PinsMdInput, flat as _flat, pins_md_text as render_pins_md_text,
+from limn import access  # noqa: E402 - after the path bootstrap above
+from limn.access import (  # noqa: E402 - after the path bootstrap above
+    AGENT_LOGIN_PREFIX, AUTH_PROVIDERS, DEFAULT_ROLE, HEADER_NAME_RE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
+    file_present, home_or_none, is_loopback_bind, load_tokens, local_owner_actor, parse_networks, parse_public_hosts,
+    roles_of, valid_login,
 )
-from limn.web.answers import CONFIRM_BY_HUMAN  # noqa: E402 - after the path bootstrap above
+# hdr_text is an App member (web/app.py): the handler quotes a refused Host/Origin/document key through it.
+from limn.access import hdr_text  # noqa: E402,F401 - after the path bootstrap above
+from limn.guidance import shell_path  # noqa: E402 - after the path bootstrap above
+# pins.md's renderer; server.py builds its input (pins_md_input).
+from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
+    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text,
+)
 from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
 
@@ -135,12 +148,10 @@ def load_ui_messages() -> dict:
 
 UI_EN = load_ui_messages()
 
-TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
-VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
 VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 
 # Viewer icons - Lucide (ISC, vendor/lucide/README.md). Only the <svg> inner elements of the icons in use are
@@ -222,13 +233,9 @@ THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 # body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
 # The value that hands a pin to the agent, ASSIGNEE_AGENT = "agent", lives with the edit rules in limn.pins.edit.
 # @-tags (docs/handbook/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
-PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
-EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
-NOTE_MENTION_COOLDOWN_S = 600      # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
+# Their limits live with their rules: PEOPLE_TOUCH_S in limn.people, EVENTS_KEEP and the notice types in limn.events,
+# NOTE_MENTION_COOLDOWN_S in limn.mentions.
 TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
-LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
-AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 # Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
 # The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
 LABEL_MAX = 40
@@ -320,11 +327,11 @@ class Cfg:
 
     @property
     def people_file(self) -> Path:
-        return self.state / "people.json"
+        return self.state / people.PEOPLE_FILE
 
     @property
     def events_file(self) -> Path:
-        return self.state / "events.jsonl"
+        return self.state / events.EVENTS_FILE
 
     @property
     def tokens_file(self) -> Path:
@@ -466,29 +473,18 @@ def build_html(label: str, accent: str) -> str:
 # The build - page directories, build state, the LaTeX build, history, fingerprint - lives in limn/build.py and
 # takes the document and the settings it needs as arguments (docs/handbook/build-sync.md). Callers here pass the
 # document they act on and the run settings; only the tracked build (build_all/build_async) is wired here, because
-# it binds the instance's BuildConfig, --git-pull and the view-only render.
+# it binds the instance's BuildConfig, --git-pull and the view-only render. The PDF.js directory the viewer's vector
+# renderer is served from is bound here too; the name check of a file in it is limn.files.vendor_file.
 
 def default_pdfjs_dir() -> Path:
     """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
     return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
-def vendor_file(name: str):
-    """The file GET /vendor/pdfjs/<name> serves. Accepts only a single (.mjs) name component and never points outside the directory.
-
-    The name pattern already filters out '/', '..', and '%', but resolve() adds a second check against
-    escaping via symlinks and the like."""
-    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
-        return None
-    base = C.pdfjs_dir or default_pdfjs_dir()
-    try:
-        base = base.resolve()
-        f = (base / name).resolve()
-    except (OSError, RuntimeError):
-        return None
-    if f.parent != base or not f.is_file():
-        return None
-    return f
+def vendor_file(name: str) -> Path | None:
+    """The file GET /vendor/pdfjs/<name> serves from this instance's PDF.js directory (--pdfjs-dir, else the bundled
+    one), or None (limn.files.vendor_file: a single .mjs name that stays inside the directory)."""
+    return find_vendor_file(C.pdfjs_dir or default_pdfjs_dir(), name)
 
 
 # ---------------------------------------------------------------- Build
@@ -532,9 +528,9 @@ def build_async(D: Doc) -> dict:
 
 
 def _build_tracked(D: Doc) -> dict:
-    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (_render_pdf_doc)
+    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
     (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
-    step = (lambda: _render_pdf_doc(D)) if D.is_pdf else (lambda: _build(D))
+    step = (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
     return build.run_tracked(D, C.state, step, now_str())
 
 
@@ -594,125 +590,7 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None):
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
 
-# ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
-
-def _tex_group(text: str, pos: int):
-    while pos < len(text) and text[pos].isspace():
-        pos += 1
-    if pos >= len(text) or text[pos] != "{":
-        return None
-    start, depth = pos + 1, 1
-    pos += 1
-    while pos < len(text):
-        if text[pos] == "\\":
-            pos += 2
-            continue
-        if text[pos] == "{":
-            depth += 1
-        elif text[pos] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:pos], pos + 1
-        pos += 1
-    return None
-
-
-def _tex_plain(text: str, depth: int = 0) -> str:
-    """Conservative display conversion, never a TeX evaluator; unsupported macros omit a label."""
-    if depth > 12 or len(text) > 4000:
-        raise ValueError("complex title")
-    out, i = [], 0
-    wrappers = {"textbf", "textit", "texttt", "textrm", "textsf", "textsc", "emph", "mbox", "ensuremath", "mathrm", "mathbf"}
-    while i < len(text):
-        c = text[i]
-        if c == "{":
-            group = _tex_group(text, i)
-            if not group:
-                raise ValueError("unbalanced title")
-            value, i = group
-            out.append(_tex_plain(value, depth + 1))
-        elif c == "\\":
-            match = re.match(r"\\([A-Za-z@]+|.)", text[i:])
-            if not match:
-                raise ValueError("bad macro")
-            macro = match[1]
-            i += len(match[0])
-            if macro in ("protect", "relax", "ignorespaces"):
-                continue
-            if macro in ("&", "%", "#", "_", "$", "{", "}"):
-                out.append(macro)
-            elif macro in (" ", ",", ";", "quad", "qquad", "enspace"):
-                out.append(" ")
-            elif macro in wrappers or macro == "texorpdfstring":
-                first = _tex_group(text, i)
-                if not first:
-                    raise ValueError("missing macro group")
-                value, i = first
-                if macro == "texorpdfstring":
-                    second = _tex_group(text, i)
-                    if not second:
-                        raise ValueError("missing PDF title")
-                    value, i = second
-                out.append(_tex_plain(value, depth + 1))
-            else:
-                raise ValueError("unsupported title macro")
-        elif c in "$^_}":
-            raise ValueError("unsupported math title")
-        else:
-            out.append(" " if c == "~" else c)
-            i += 1
-    return " ".join("".join(out).replace("---", "—").replace("--", "–").split())
-
-
-def outline_labels(D: Doc) -> dict:
-    pages = build.cur_pages(D)
-    result = {"build": pages.name, "labels": []}
-    if D.is_pdf:
-        return result
-    aux = pages / (D.main.stem + ".aux")
-    try:
-        if aux.is_symlink() or aux.stat().st_size > 4 * 1024 * 1024:
-            return result
-        source = aux.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return result
-    for match in re.finditer(r"\\@writefile\s*\{toc\}", source):
-        outer = _tex_group(source, match.end())
-        if not outer:
-            continue
-        line = outer[0]
-        marker = re.match(r"\s*\\contentsline\s*", line)
-        if not marker:
-            continue
-        groups, pos = [], marker.end()
-        for _ in range(4):
-            group = _tex_group(line, pos)
-            if not group:
-                break
-            value, pos = group
-            groups.append(value)
-        if len(groups) < 3 or groups[0] not in ("part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"):
-            continue
-        level, title, page = groups[:3]
-        number, anchor = "", groups[3] if len(groups) > 3 else ""
-        numberline = re.match(r"\s*(?:\\protect\s*)?\\numberline\s*", title)
-        if numberline:
-            group = _tex_group(title, numberline.end())
-            if not group:
-                continue
-            number, pos = group
-            title = title[pos:]
-        try:
-            row = {"number": _tex_plain(number), "title": _tex_plain(title), "page": _tex_plain(page),
-                   "level": level, "anchor": anchor[:200]}
-        except ValueError:
-            # Keep a placeholder so consumers cannot shift all subsequent numbers by index.
-            row = {"number": "", "title": "", "page": page[:40], "level": level, "anchor": anchor[:200]}
-        result["labels"].append(row)
-        if len(result["labels"]) >= 200:
-            break
-    return result
-
+# ---------------------------------------------------------------- --git-pull: the pull itself and the remote-main watch
 
 def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
@@ -891,60 +769,8 @@ def _build(D: Doc) -> dict:
 
 # ---------------------------------------------------------------- View-only PDF documents
 #
-# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
-# (mtime/size), the page images are re-rendered - since it goes through the same build path
-# (_build_tracked -> history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
-
-def pdf_signature(D: Doc):
-    try:
-        st = D.main.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
-
-
-def _render_pdf_doc(D: Doc) -> dict:
-    """The 'build' for view-only document D - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
-    t0 = time.time()
-    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
-    sig = pdf_signature(D)
-    if sig is None:
-        res["log"] = "PDF 가 없습니다: %s" % D.main
-        return res
-    try:
-        res["src_hash"] = build.doc_fingerprint(D, C.state)
-    except OSError:
-        res["src_hash"] = None
-    newdir, err = build.render_pages(D, D.main, [], C.dpi)
-    if newdir is None:
-        res["log"] = err
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
-            atomic_write(D.dir / "pdf_sig.txt", sig)
-        except OSError:
-            pass
-        return res
-    res["head"] = build.commit_pages(D, newdir)
-    try:
-        atomic_write(D.dir / "pdf_sig.txt", sig)
-    except OSError:
-        pass
-    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
-               elapsed_s=round(time.time() - t0, 1))
-    return res
-
-
-def pdf_changed(D: Doc) -> bool:
-    """Has the view-only PDF changed since the page images were last rendered (or have they never been rendered)?"""
-    sig = pdf_signature(D)
-    if sig is None:
-        return False
-    try:
-        done = (D.dir / "pdf_sig.txt").read_text().strip()
-    except OSError:
-        done = ""
-    return sig != done
-
+# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild; when that PDF file changes, its page images are
+# re-rendered through the same tracked build as a LaTeX rebuild (limn.build.render_pdf_doc, pdf_changed).
 
 def refresh_pdf_doc(D: Doc) -> bool:
     """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
@@ -954,26 +780,11 @@ def refresh_pdf_doc(D: Doc) -> bool:
     return not r.get("busy")
 
 
-# ---------------------------------------------------------------- Meta
-
-def png_size(path: Path) -> tuple:
-    with path.open("rb") as fh:
-        return struct.unpack(">II", fh.read(24)[16:24])
-
-
-def page_list(pdir: Path, dpi: int | None = None) -> list:
-    """The page images of page directory pdir as {name, pt_w, pt_h}: sizes in points at the dpi they were rendered at
-    (default: this instance's). An unreadable image is left out."""
-    dpi = C.dpi if dpi is None else dpi
-    pages = []
-    for p in sorted(pdir.glob("page-*.png")):
-        try:
-            w, h = png_size(p)
-        except (OSError, struct.error):
-            continue
-        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
-    return pages
-
+# ---------------------------------------------------------------- Documents and meta
+#
+# The document list (DOCS, the first is the default) is this composition root's. The lookups over it are
+# limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
+# list and the run settings as arguments, bound here.
 
 _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
@@ -992,298 +803,38 @@ def multi_doc() -> bool:
     return len(DOCS) > 1
 
 
-def doc_by_key(key):
-    return next((d for d in DOCS if d.key == key), None)
+def doc_by_key(key) -> Doc | None:
+    """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
+    return documents.doc_by_key(DOCS, key)
 
 
 def pin_doc_key(r: dict) -> str:
-    """The document key a pin belongs to. Legacy records without a doc field are read as the first document (no migration write)."""
-    k = r.get("doc")
-    return k if isinstance(k, str) and k else DOCS[0].key
+    """The document key a pin belongs to; a legacy record without a doc field is the first document's
+    (limn.documents.pin_doc_key)."""
+    return documents.pin_doc_key(r, DOCS)
 
 
-def doc_for_file(path) -> Doc:
-    """Which LaTeX document a request that only gave file (agent curl) belongs to. The document whose build root most deeply contains it, or the first document if none."""
-    try:
-        p = Path(path) if os.path.isabs(str(path)) else C.src / str(path)
-        p = p.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return DOCS[0]
-    best, depth = None, -1
-    for d in DOCS:
-        if d.is_pdf:
-            continue
-        try:
-            p.relative_to(d.src.resolve())
-        except (ValueError, OSError, RuntimeError):
-            continue
-        n = len(d.src.resolve().parts)
-        if n > depth:
-            best, depth = d, n
-    return best or DOCS[0]
-
-
-def pins_rev() -> str:
-    try:
-        st = C.pins_jsonl.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return "0"
-
-
-def doc_brief(D: Doc) -> dict:
-    """A summary of one document - used by /api/docs and (with multiple documents) /api/meta's docs. Never writes (called from polling)."""
-    b = build.state_snapshot(D)
-    stale = (not D.is_pdf) and build.source_newer(D, C.state) > 2
-    pdir = build.cur_pages(D)
-    n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
-    return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
-            "main": D.main.name, "stale_build": stale, "src_mtime": build.src_mtime(D, C.state),
-            "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
-            "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
-            "pages_build": pdir.name, "n_pages": n_pages}
+def meta_settings() -> MetaSettings:
+    """The run settings GET /api/meta reads, made per request like pin_store(), so a test (or main()) that changes C is
+    seen at once."""
+    return MetaSettings(state=C.state, pins_md=C.pins_md, pins_jsonl=C.pins_jsonl, label=C.label, accent=C.accent,
+                        repo=C.repo, dpi=C.dpi)
 
 
 def docs_payload() -> dict:
     """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
     rows, _ = read_pins()
-    counts: dict = {}
-    for r in rows:
-        if not r.get("done"):
-            k = pin_doc_key(r)
-            counts[k] = counts.get(k, 0) + 1
-    known = {d.key for d in DOCS}
-    return {"docs": [dict(doc_brief(d), n_open=counts.get(d.key, 0)) for d in DOCS],
-            "default": DOCS[0].key, "multi": multi_doc(),
-            "other_open": sum(v for k, v in counts.items() if k not in known)}
+    return meta_reads.docs_payload(DOCS, rows, pin_doc_key, C.state)
 
 
 def meta(D: Doc, actor: dict, light: bool = False) -> dict:
-    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer; with light (polling)
-    the pin counts are left out, and with them the sync write of snapshot_pins()."""
-
-    def read(f):
-        try:
-            return (D.dir / f).read_text().strip()
-        except OSError:
-            return "?"
-    bstate = build.state_snapshot(D)
-    sm = build.src_mtime(D, C.state)
-    newer = 0.0 if D.is_pdf else build.source_newer(D, C.state)     # view-only: the server re-renders on its own when the PDF changes
-    out = {"pages": page_list(build.cur_pages(D)), "built_at": read("built_at.txt"), "head": read("head.txt"),
-           "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-           "label": C.label, "accent": C.accent, "repo": C.repo,
-           "building": D.lock.locked(), "sync": sync_status(),
-           "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
-           # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
-           "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
-           "src_mtime": sm, "build_src_mtime": build.read_built_src_mtime(D),
-           "pages_build": build.cur_pages(D).name,
-           "pins_rev": pins_rev(),
-           # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
-           "build_seq": bstate.get("seq", 0),
-           "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
-           "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
-    if multi_doc():                       # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
-        out["docs"] = [doc_brief(d) for d in DOCS]
-        out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"])
+    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
+    light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
+    out = meta_reads.meta(D, actor, meta_settings(), DOCS, sync_status(), time.time())
     if light:                             # polling only - skips the sync write in snapshot_pins()
         return out
-    rows = snapshot_pins()
-    states = [pin_state(r) for r in rows]
-    out["n_open"] = states.count("open")
-    out["n_done"] = states.count("done")          # done only - awaiting review (done=true, review=true) is n_review
-    out["n_review"] = states.count("review")
+    out.update(meta_reads.pin_counts([pin_state(r) for r in snapshot_pins()]))
     return out
-
-
-# ---------------------------------------------------------------- Source-text access
-
-def tex_lines(path: Path) -> list:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
-
-
-def to_source(D: Doc, path: str) -> Path:
-    """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path."""
-    p = Path(path)
-    for base in (D.build, D.build.resolve()):
-        try:
-            return D.src / p.relative_to(base)
-        except ValueError:
-            pass
-    try:
-        return D.src / p.resolve().relative_to(D.build.resolve())
-    except (ValueError, OSError):
-        pass
-    # If the state directory was moved or cloned, synctex points at the old build path. If the path's tail
-    # matches a real file inside the manuscript tree, fall back to that (longest tail wins; never reads outside the tree).
-    parts = p.parts
-    for k in range(1, len(parts)):
-        cand = D.src.joinpath(*parts[k:])
-        if cand.is_file():
-            return cand
-    return p
-
-
-# ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
-
-def synctex_edit(pdf: Path, page: int, x: float, y: float):
-    try:
-        out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
-                             capture_output=True, text=True, timeout=10, check=False).stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    inp = line = None
-    for ln in out.splitlines():
-        if ln.startswith("Input:"):
-            inp = ln[6:].strip()
-        elif ln.startswith("Line:"):
-            try:
-                line = int(ln[5:].strip())
-            except ValueError:
-                pass
-        if inp and line:
-            return inp, line
-    return None
-
-
-def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float):
-    w, h = x1 - x0, y1 - y0
-    nx = max(2, min(5, int(w / 40) + 2))
-    ny = max(2, min(6, int(h / 14) + 2))
-    hits = []
-    for i in range(nx):
-        for j in range(ny):
-            r = synctex_edit(pdf, page, x0 + w * (i + 0.5) / nx, y0 + h * (j + 0.5) / ny)
-            if r:
-                hits.append(r)
-    if not hits:
-        return None
-    best = max({f for f, _ in hits}, key=lambda f: sum(1 for g, _ in hits if g == f))
-    ls = densest(sorted(ln for f, ln in hits if f == best))
-    return best, ls[0], ls[-1]
-
-
-# ---------------------------------------------------------------- Reverse mapping 2: rendered text
-
-def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> str:
-    """Pulls out the characters actually printed inside the selection rectangle (1px = 1pt since -r 72)."""
-    try:
-        return subprocess.run(
-            ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
-             "-x", str(int(x0)), "-y", str(int(y0)),
-             "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(pdf), "-"],
-            capture_output=True, text=True, timeout=15, check=False).stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return ""
-
-
-_DF_CACHE: dict = {}
-_DF_LOCK = threading.Lock()
-
-
-def file_key(path: Path) -> tuple:
-    try:
-        st = path.stat()
-        return (str(path), st.st_mtime_ns, st.st_size)
-    except OSError:
-        return (str(path), 0, 0)
-
-
-def token_weights(text: str, lines: list, key: tuple) -> list:
-    """Weights the region text's word tokens by rarity.
-
-    Without weighting, common words like "target"/"data"/"training" dominate the score, so a selection that
-    actually picked the Nomenclature can come out scoring high overlap with a body paragraph too (observed).
-    The rarer a token, the more power it has to pin down a location. The cache key is (path, mtime_ns,
-    size) - id(lines) gets reused once the list is garbage-collected and can pick up another file's frequencies."""
-    with _DF_LOCK:
-        df = _DF_CACHE.get(key)
-    if df is None:
-        df = {}
-        for ln in lines:
-            for t in set(TOKEN_RE.findall(ln)):
-                df[t] = df.get(t, 0) + 1
-        with _DF_LOCK:
-            _DF_CACHE.clear()
-            _DF_CACHE[key] = df
-    n = max(1, len(lines))
-    out = []
-    for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
-        freq = df.get(t, 0)
-        if freq > n * 0.05:            # a word scattered across the whole manuscript can't pin down a location
-            continue
-        out.append((t, 1.0 / (1.0 + freq)))
-    return out
-
-
-# ---------------------------------------------------------------- Block expansion and the range ladder
-
-# ---------------------------------------------------------------- Anchors and re-syncing
-
-def sync_all(rows: list) -> bool:
-    """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1.
-
-    The pin's file is the one pin_location() finds (ADR-0006). When that is not the stored `file` (a moved checkout),
-    synced_at was measured on another file, so the mtime shortcut is taken only if the anchor still holds at lo
-    (anchor_holds); a re-match then writes the located path into `file`, so lines, synced_at and file describe one file
-    again. `file_rel` is never added here, and an anchor is never backfilled from a file the record does not name."""
-    changed = False
-    cache: dict = {}
-    for r in rows:
-        if r.get("done") or not r.get("file"):         # a view-only PDF's pin has no lines - nothing to re-match
-            continue
-        loc = pin_location(r, C.src)                 # ADR-0006: a moved checkout is followed; outside the tree is never read
-        if loc is None:
-            continue
-        f = loc.path
-        try:
-            if not f.is_file():
-                continue
-        except OSError:
-            continue
-        if f not in cache:
-            ls = tex_lines(f)
-            cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
-        lines, nlines, mtime = cache[f]
-        moved = str(f) != r["file"]                  # measured on another file than the stored one (ADR-0006)
-        if "anchor" not in r:                        # backfill a legacy pin saved without an anchor, once
-            if moved:
-                continue                             # never from a file the record does not name (it may be a guess)
-            r["anchor"] = anchor_of(lines, r["lo"], r["hi"])
-            r["synced_at"] = mtime
-            changed = True
-            continue
-        if not r["anchor"]:                          # a pin that selected only blank lines has no anchor to follow
-            continue
-        if r.get("synced_at", 0) >= mtime and (not moved or anchor_holds(r["anchor"], r["lo"], nlines)):
-            continue
-        before = (r["lo"], r["hi"], bool(r.get("stale")))
-        anc = r["anchor"]
-        ho, to = anchor_offset(anc.get("head_off")), anchor_offset(anc.get("tail_off"))   # 0 for a legacy anchor
-        span = r["hi"] - r["lo"]
-        head = find_line(nlines, anc.get("head", ""), r["lo"] + ho)
-        if head is None:
-            r["stale"], r["sync"] = True, "lost"
-        else:
-            n = max(1, len(lines))
-            lo = max(1, head - ho)
-            tail = find_line(nlines, anc.get("tail", ""), r["hi"] - to + (lo - r["lo"]))
-            hi = tail + to if tail is not None and tail >= head else lo + span
-            hi = max(lo, min(n, hi))
-            r["sync"] = "ok" if (lo, hi) == (r["lo"], r["hi"]) else "moved %+d" % (lo - r["lo"])
-            r["lo"], r["hi"] = lo, hi
-            r.pop("stale", None)
-        if (r["lo"], r["hi"], bool(r.get("stale"))) != before:
-            r["rev"] = next_rev(r)
-        if moved:
-            r["file"] = str(f)                       # the new numbers describe this file
-        r["synced_at"] = mtime
-        changed = True
-    return changed
 
 
 # ---------------------------------------------------------------- Pin store
@@ -1368,11 +919,6 @@ def _is_num(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def _is_actor(v) -> bool:
-    """author/*_by must be a {login,name,pic?} string dict - the UI calls name.trim()."""
-    return isinstance(v, dict) and all(v.get(k) is None or isinstance(v[k], str) for k in ("login", "name", "pic"))
-
-
 def _is_str_list(v) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
@@ -1395,74 +941,27 @@ def _valid_thread(th) -> bool:
     return True
 
 
-class PinLocation(NamedTuple):
-    """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
-    rel: str                 # POSIX path relative to the manuscript root (--manuscript)
-    path: Path               # root / rel - the absolute path the API returns as `file`
-
-
-def _within(p: Path, root: Path) -> bool:
-    """Does p, symlinks resolved, lie inside root (also resolved)? False when either cannot be resolved."""
-    try:
-        p.resolve().relative_to(root.resolve())
-        return True
-    except (ValueError, OSError, RuntimeError):
-        return False
-
-
-def doc_scope(D: Doc | None, root: Path) -> str:
-    """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
-    record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
-    document's pins come from its own build, which copies only that folder, so nothing of D lies outside it. '' when
-    D is None (a record whose document is no longer configured - the whole root, as in 0.3.2) or D.src is not under
-    root."""
-    if D is None:
-        return ""
-    try:
-        rel = D.src.resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        return ""
-    return "" if rel == "." else rel
-
-
-def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> PinLocation | None:
-    """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
-    (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
-    in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
-
-    Only file metadata is read (resolve, is_file) - under root, apart from resolving the stored path itself as 0.3.0's
-    in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
-    through GET /api/pins. The result is checked once more after resolving symlinks, so a link inside the tree cannot
-    lead outside (a tail through such a link is skipped for the next one)."""
-    if not isinstance(file, str) or not file:
-        return None
-    try:
-        under = Path(file).resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        under = None
-    scope = doc_scope(doc, root) if under is None else ""         # only a moved record needs its document folder
-    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
-    if rel is None:
-        return None
-    path = root / rel
-    return PinLocation(rel, path) if _within(path, root) else None
-
-
 def pin_location(r: dict, root: Path) -> PinLocation | None:
-    """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
-    the pin's own document folder), or None: a view-only PDF pin, or a file the rule cannot place inside root."""
-    return locate_file(r.get("file"), r.get("file_rel"), root, doc_by_key(pin_doc_key(r)))
+    """Where line pin r's file is under the manuscript root on this machine now (limn.locate.pin_location, the tail
+    guess limited to the folder of the pin's own document), or None."""
+    return locate.pin_location(r, root, doc_by_key(pin_doc_key(r)))
 
 
 def stamp_location(r: dict, root: Path) -> PinLocation | None:
-    """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `file_rel` the
-    path relative to root. Only for a write to this very pin (create, edit, restore) - other writes keep the stored
-    record, so there is no write migration. A pin that cannot be located, or a view-only PDF pin, is left as it is.
-    Mutates r and returns its location (or None)."""
-    loc = pin_location(r, root)
-    if loc is not None:
-        r["file"], r["file_rel"] = str(loc.path), loc.rel
-    return loc
+    """Records in r where its file is now (limn.locate.stamp_location, the pin's own document). Mutates r."""
+    return locate.stamp_location(r, root, doc_by_key(pin_doc_key(r)))
+
+
+def pin_locator() -> locate.Locator:
+    """pin_location() bound to this instance's manuscript root, read now."""
+    root = C.src
+    return lambda r: pin_location(r, root)
+
+
+def sync_all(rows: list) -> bool:
+    """The store's re-sync (PinStore.sync): stored pins' lines follow their anchors in the .tex files as this instance
+    finds them now (limn.locate.sync_all)."""
+    return locate.sync_all(rows, pin_locator())
 
 
 def pin_store() -> PinStore:
@@ -1520,84 +1019,10 @@ def public(r: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- Location estimation (.est) — a computed field the server judges
+# ---------------------------------------------------------------- Computed fields of GET /api/pins
 #
-# A mark is fixed to frac (the ratio relative to the page) at the moment the pin was placed. If those
-# coordinates might no longer match the PDF currently on screen, it's "estimated" (dashed). The judgment
-# is made by build identity: estimated if the build the pin was placed on screen with (pdf_build) differs
-# from the current build and the two builds' manuscript fingerprints differ. Also estimated if anchor line
-# matching moved or lost the pin. The wall clock is never used - browser timezone, a note-only edited_at,
-# and a pin placed on a stale PDF were all wrong across the board.
-
-def pin_build(r: dict):
-    """The name of the build a pin's coordinates belong to. frac_build is the legacy field name with the same meaning (83b91a5)."""
-    for k in ("pdf_build", "frac_build"):
-        v = r.get(k)
-        if isinstance(v, str) and v:
-            return v
-    return None
-
-
-def _epoch(s):
-    """'YYYY-MM-DD HH:MM:SS' (server local time, the shape now_str writes) or ISO+offset -> epoch seconds. Resolved server-side only."""
-    if not isinstance(s, str) or not s.strip():
-        return None
-    try:
-        dt = datetime.fromisoformat(s.strip().replace(" ", "T", 1))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.astimezone()          # this value was written in server local time - read back on the same machine
-    return dt.timestamp()
-
-
-def est_context(D: Doc) -> dict:
-    """Judgment material of document D for one request (its history read once)."""
-    h = build.load_builds(D)
-    cur = build.cur_pages(D).name
-    by = dict(h["by"])
-    if cur not in by:                                 # before seed_builds() (tests / a rare race) - judge with what's known
-        by[cur] = {"build": cur, "src_mtime": build.read_built_src_mtime(D), "src_hash": None}
-    bsm = build.read_built_src_mtime(D)
-    if bsm is None and _is_num(by[cur].get("src_mtime")):
-        bsm = float(by[cur]["src_mtime"])
-    return {"cur": cur, "by": by, "built_at": _epoch(build.read_built_at(D)), "bsm": bsm}
-
-
-def same_source(a, b) -> bool:
-    """Were two builds made from the same manuscript? By hash if both have one, otherwise by src_mtime at start.
-    False (treated as different) if neither is known - rendering it as "exact location" while actually unsure would be worse."""
-    if not a or not b:
-        return False
-    if a.get("src_hash") and b.get("src_hash"):
-        return a["src_hash"] == b["src_hash"]
-    ma, mb = a.get("src_mtime"), b.get("src_mtime")
-    return _is_num(ma) and _is_num(mb) and abs(float(ma) - float(mb)) < 0.01
-
-
-def legacy_est(r: dict, ctx: dict) -> bool:
-    """Fallback heuristic for a legacy pin without pdf_build (the old viewer's rule, redone server-side with epoch numbers): estimated if
-    the pin was placed before the current PDF, and the manuscript that produced the current PDF (src_mtime at start) changed after the pin.
-
-    The only reference time is when it was placed (at) - using edited_at would turn off estimation just from
-    editing the note (confirmed by independent verification). An edit that re-places frac (loc) now records
-    pdf_build, so it no longer falls through to this heuristic."""
-    ba, pa = ctx["built_at"], _epoch(r.get("at"))
-    if ba is None or pa is None or pa >= ba:
-        return False
-    return ctx["bsm"] is not None and ctx["bsm"] > pa
-
-
-def pin_est(r: dict, ctx: dict) -> bool:
-    sync = r.get("sync")
-    if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
-        return True                                   # moved +-N / lost - the anchor shifted or was lost
-    b = pin_build(r)
-    if b is None:
-        return legacy_est(r, ctx)
-    if b == ctx["cur"]:
-        return False
-    return not same_source(ctx["by"].get(b), ctx["by"].get(ctx["cur"]))
+# Location estimation (est) is limn.pins.position.pin_est over the document's builds as limn.locate.est_context reads
+# them; overlap (rel) is overlaps_by_id below. Neither is stored.
 
 
 def pin_state(r: dict) -> str:
@@ -1658,83 +1083,25 @@ def dropped_payload(now: float = None) -> list:
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored
+#
+# The rule is limn.pins.position (overlaps_by_id, selection_rel, overlaps_for_range); here it is bound to where this
+# instance finds each pin's file now.
 
-def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
-    """a's relationship to b. None if they don't overlap."""
-    if a_hi < b_lo or b_hi < a_lo:
-        return None
-    if b_lo <= a_lo and a_hi <= b_hi:
-        return "contains" if (a_lo, a_hi) == (b_lo, b_hi) else "inside"
-    if a_lo <= b_lo and b_hi <= a_hi:
-        return "contains"
-    return "partial"
+def pin_file(r: dict) -> str:
+    """The file an open line pin's overlaps are counted in: where pin_location() places it now, else its stored file
+    (pins made before and after a move of the checkout are one file)."""
+    return locate.located_file(r, pin_locator())
 
 
 def overlaps_by_id(rows: list) -> dict:
-    """Computes the relationship for every pair of open pins on the same file (never stored). {id: [{"id","rel"}, ...]}.
-
-    When two ranges are exactly equal, the one with the smaller id is treated as the outer one (contains) -
-    since neither is truly nested inside the other, a single deterministic rule is needed."""
-    out: dict = {}
-    by_file: dict = {}
-    for r in rows:
-        if r.get("done"):
-            continue
-        out.setdefault(r["id"], [])
-        if not r.get("file"):                          # a view-only PDF's pin - no line-range overlap
-            continue
-        loc = pin_location(r, C.src)                   # pins made before and after a move of the checkout are one file
-        by_file.setdefault(str(loc.path) if loc else r.get("file"), []).append(r)
-    for group in by_file.values():
-        for i, a in enumerate(group):
-            for b in group[i + 1:]:
-                if (a["lo"], a["hi"]) == (b["lo"], b["hi"]):
-                    outer, inner = (a, b) if a["id"] < b["id"] else (b, a)
-                    out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
-                    out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
-                    continue
-                rel_a = _range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # does a fall inside b?
-                if rel_a == "inside":
-                    out[a["id"]].append({"id": b["id"], "rel": "inside"})
-                    out[b["id"]].append({"id": a["id"], "rel": "contains"})
-                elif rel_a == "contains":
-                    out[a["id"]].append({"id": b["id"], "rel": "contains"})
-                    out[b["id"]].append({"id": a["id"], "rel": "inside"})
-                elif rel_a == "partial":
-                    out[a["id"]].append({"id": b["id"], "rel": "partial"})
-                    out[b["id"]].append({"id": a["id"], "rel": "partial"})
-    return out
-
-
-def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int):
-    """The relationship between a not-yet-saved selection (lo..hi) and a saved pin (b_lo..b_hi) - from the selection's point of view.
-
-    equal (same range - the most common duplicate: placing a pin on the same paragraph/environment twice) -
-    inside (selection is inside the pin) - contains (selection wraps the pin) - partial (overlapping) -
-    None (no overlap). Same rule as the viewer's overlapsFor() (the browser recomputes this on every range
-    change without a server round trip - a regression test compares the two implementations)."""
-    if (lo, hi) == (b_lo, b_hi):
-        return "equal"
-    return _range_rel(lo, hi, b_lo, b_hi)
+    """The relationship of every pair of open line pins on the same file (position.overlaps_by_id), never stored."""
+    return position.overlaps_by_id(rows, pin_file)
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
-    """The overlap relationships between the (not-yet-saved) range pick chose and that file's open pins. Nothing is saved.
-
-    Between saved pins (overlaps_by_id), equal ranges are split into inner/outer by id, but a new selection
-    has no id yet, so an identical range is reported separately as 'equal' - the viewer surfaces all four
-    relationships via a banner with wording that spells out the relationship."""
-    out = []
-    for r in snapshot_pins():
-        if r.get("done") or not r.get("file"):
-            continue
-        loc = pin_location(r, C.src)
-        if (str(loc.path) if loc else r.get("file")) != file:
-            continue
-        rel = selection_rel(lo, hi, r["lo"], r["hi"])
-        if rel:
-            out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
-    return out
+    """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
+    (position.overlaps_for_range). Nothing is saved."""
+    return position.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_file)
 
 
 def josa(n, cons: str, vowel: str) -> str:
@@ -1806,72 +1173,14 @@ def _person_name(login: str) -> str:
 
 
 def request_doc(key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
-    """The document key names (limn.web.parse.parse_doc_key checked it). With no key, the document holding file_hint
-    (agent curl names only a file), else the first document. An unknown key is DocNotFound with the keys this instance
-    serves (answered 404) - silently falling back to the first document would attach the pin to the wrong document."""
-    if not key:
-        if file_hint and multi_doc():
-            return doc_for_file(file_hint)
-        return DOCS[0]
-    D = doc_by_key(key)
-    if D is None:
-        return DocNotFound(key, tuple(d.key for d in DOCS))
-    return D
-
-
-class DocumentFacts:
-    """limn.web.parse.DocumentFacts for document D: what the location parsers read from this machine's disk - the
-    manuscript tree root, a file's lines, the pages of a build of D (sized at dpi). Made per request by
-    document_facts(); every method reads at call time."""
-
-    def __init__(self, D: Doc, root: Path, dpi: int) -> None:
-        """Bind the document, the manuscript root and the dpi the page images were rendered at."""
-        self._doc, self._root, self._dpi = D, root, dpi
-
-    @property
-    def key(self) -> str:
-        """The document key."""
-        return self._doc.key
-
-    @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document."""
-        return self._doc.is_pdf
-
-    @property
-    def pdf(self) -> Path:
-        """The document's main file (a view-only document's PDF)."""
-        return self._doc.main
-
-    @property
-    def root(self) -> Path:
-        """The manuscript tree."""
-        return self._root
-
-    def lines(self, path: Path) -> list:
-        """The file's lines (tex_lines: [] when unreadable)."""
-        return tex_lines(path)
-
-    def page_count(self, name: str | None) -> int:
-        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.build.pages_dir_for)."""
-        return len(page_list(build.pages_dir_for(self._doc, name), self._dpi))
-
-    def current_build(self) -> str:
-        """The name of D's page directory on screen."""
-        return build.cur_pages(self._doc).name
-
-    def pick_pages(self, name: str | None) -> tuple | None:
-        """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
-        when name is a page directory of D that is gone."""
-        if name is not None and not (self._doc.dir / name).is_dir():
-            return None
-        pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
-        return pdir, [(p["pt_w"], p["pt_h"]) for p in page_list(pdir, self._dpi)]
+    """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
+    key it does not serve (limn.documents.request_doc)."""
+    return documents.request_doc(DOCS, C.src, key, file_hint)
 
 
 def document_facts(D: Doc) -> DocumentFacts:
-    """The parsing facts of document D with this instance's manuscript root and dpi - made per request like
-    pin_store(), so a test (or main()) that changes C is seen at once."""
+    """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root and dpi -
+    made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
     return DocumentFacts(D, C.src, C.dpi)
 
 
@@ -2019,20 +1328,6 @@ def thread_replies(r: dict) -> list:
     return [m for m in th if isinstance(m, dict) and not m.get("ev")]
 
 
-def thread_round(r: dict) -> list:
-    """The thread of the currently open round - posts after the last close (ev=close). Everything, if never closed.
-    For a reopened pin, starts from (and includes) the reopen reason (ev=reopen) - this is the part an agent
-    needs to read when fixing it again. That only applies if the last reopen is after the last close -
-    otherwise (still under review, not yet reopened), it's simply everything after the last close. Without
-    this distinction, a reply posted during review (between close and reopen) leaked into the new round after
-    reopening as a defect (e.g. that reply's @-tags incorrectly ended up in the new round's addressed_to)."""
-    th = r.get("thread") if isinstance(r.get("thread"), list) else []
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
-    start = last_reopen if last_reopen > last_close else last_close + 1
-    return [m for m in th[start:] if isinstance(m, dict)]
-
-
 def pin_reopened_in_round(r: dict) -> bool:
     """Has it been reopened since it was last completed (last close) - drives pins.md's "reopened" marker (§Pending review).
     This is effectively the same condition as thread_round() starting the current round from the reopen,
@@ -2047,408 +1342,88 @@ def pin_reopened_in_round(r: dict) -> bool:
 
 # ---------------------------------------------------------------- People, @-tags, events (docs/handbook/api.md §@태그·사람·이벤트)
 #
-# people.json = tailnet people who have opened (or done something in) this viewer {login,name,pic,first_seen,last_seen}.
-# Local/agent is never recorded. @-tag candidates are people.json union the authors/actors left on pins. Post text
-# keeps '@name' as-is; only the resolved login is recorded in mentions. events.jsonl = an append-only record for a
-# future external notification integration (GitHub/Telegram/email) to read. For now it's write-only - nothing is sent.
-# Both files are written to a temp file under a lock and then os.replace'd (atomic) - readers only ever see the old file or the new one.
+# people.json (limn/people.py), the @-tag rules (limn/mentions.py) and events.jsonl (limn/events.py) take their paths,
+# locks, caches and clock as arguments. The process's ones are made here, once, and bound per call by people_book()
+# and event_log(); the functions below keep the names the pin services, the handler (web/app.py) and the tests call.
 
 PEOPLE_LOCK = threading.Lock()
 EVENTS_LOCK = threading.Lock()
-_PEOPLE_SEEN: dict = {}            # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
+_PEOPLE_SEEN: people.SeenMemo = {}    # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
+_EVENTS_CACHE: events.ReadCache = {}  # events.jsonl as last read, keyed by its mtime/size
 
 
-def _valid_people(d) -> list:
-    rows = d.get("people") if isinstance(d, dict) else None
-    return [x for x in (rows or []) if isinstance(x, dict) and isinstance(x.get("login"), str) and x["login"]
-            and _is_actor(x)]
+def people_book() -> people.PeopleBook:
+    """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock and last-written memo.
+    Made per call, like pin_store(), so a test or main() that changes C.state is seen at once."""
+    return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN)
 
 
 def load_people() -> list:
-    try:
-        d = json.loads(C.people_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    return _valid_people(d)
-
-
-def people_text(rows: list) -> str:
-    rows.sort(key=lambda x: x["login"])
-    return json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n"
-
-
-@contextlib.contextmanager
-def store_lock(state: Path, name: str):
-    """Cross-process lock around one read-modify-write of a state file. The running server (record_person) and
-    `limn member` / `limn token` may write the same file at once; a thread lock alone would let one of them
-    overwrite the other's change with stale data. The lock file (.<name>.lock) stays in the state dir."""
-    fd = os.open(str(Path(state) / (".%s.lock" % name)), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)                                     # closing the descriptor releases the lock
+    """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing or unreadable."""
+    return people.load_people(C.people_file)
 
 
 def record_person(actor: dict, now: float = None, role: str = None) -> bool:
-    """Records a tailnet person into people.json (only written for a new person, a name/picture change, or when last_seen is stale past PEOPLE_TOUCH_S).
-    Local/agent is never recorded. The request continues even if the write fails (only a warning). Returns True if it wrote.
-
-    A person's `role` (set with `limn member`) is kept as-is. A person seen for the first time gets no role field (= editor)
-    unless `role` is given (the local owner is recorded as owner)."""
+    """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
+    last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
+    continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
+    no role field (= DEFAULT_ROLE) unless `role` is given (the local owner is recorded as owner)."""
     login = (actor or {}).get("login")
     if not login or is_agent(actor):
         return False
-    now = time.time() if now is None else now
-    name, pic = actor.get("name") or login, actor.get("pic")
-    key = (str(C.people_file), login)
-    seen = _PEOPLE_SEEN.get(key)
-    if seen and seen[0] == name and seen[1] == pic and now - seen[2] < PEOPLE_TOUCH_S:
-        return False
-    with PEOPLE_LOCK:
-        try:
-            with store_lock(C.state, "people"):
-                rows = load_people()                  # re-read under the lock - `limn member` may have just changed it
-                stamp = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                cur = next((x for x in rows if x["login"] == login), None)
-                if cur is None:
-                    cur = {"login": login, "first_seen": stamp}
-                    if role and role != DEFAULT_ROLE:
-                        cur["role"] = role
-                    rows.append(cur)
-                cur["name"] = name
-                if pic:
-                    cur["pic"] = pic
-                cur["last_seen"] = stamp
-                atomic_write(C.people_file, people_text(rows), mode=0o600)
-        except OSError as e:
-            print("warning: failed to write people.json: %s" % e, file=sys.stderr)
-            return False
-        _PEOPLE_SEEN[key] = (name, pic, now)
-    return True
+    return people.record_person(people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
 
 
 def known_people(rows: list = None) -> dict:
-    """@-tag candidates {login: {login,name,pic?,last_seen?}} - from people.json plus authors/actors/thread posters on pins. Local is excluded."""
-    out: dict = {}
-    def add(a, seen=None):
-        if not isinstance(a, dict) or not isinstance(a.get("login"), str) or not a["login"] or is_agent(a):
-            return
-        cur = out.setdefault(a["login"], {"login": a["login"], "name": a.get("name") or a["login"]})
-        if a.get("pic") and not cur.get("pic"):
-            cur["pic"] = a["pic"]
-        if seen:
-            cur["last_seen"] = seen
-    for x in load_people():
-        add(x, x.get("last_seen"))
-    for r in rows if rows is not None else read_pins()[0]:
-        for k, v in r.items():
-            if k == "author" or k.endswith("_by"):
-                add(v)
-        for m in r.get("thread") or []:
-            add(m.get("by"))
-    return out
+    """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (rows, or the
+    stored pins when None), agents excluded (limn.people.known_people)."""
+    ppl = load_people()
+    return people.known_people(ppl, rows if rows is not None else read_pins()[0], is_agent)
 
 
-def _mention_tokens(people: dict) -> list:
-    """(text, {login...}) - longest first. Full name, login, the part of the login before @, and the first word of the name (multiple logins if they collide)."""
-    toks: dict = {}
-    for login, p in people.items():
-        name = str(p.get("name") or "")
-        for t in {name, login, login.split("@")[0]} | ({name.split()[0]} if len(name.split()) > 1 else set()):
-            if len(t) >= 2:
-                toks.setdefault(t.lower(), set()).add(login)
-    return sorted(toks.items(), key=lambda kv: -len(kv[0]))
-
-
-def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -> list:
-    """Resolves '@name' to a login (post text is left unchanged). Skipped if the character before '@' is
-    alphanumeric (an email address); treated as a different word if an ASCII letter immediately follows a
-    name ending in an ASCII letter (@Alicex). A Korean particle attached right after ('@서준님') is fine.
-    When a token matches multiple people (same first word of the name), only those in the viewer-selected
-    hints are included. Returned in first-seen order, no duplicates. `exclude` (usually the author's own
-    login) is removed from the result - so self-@-tagging never turns into "a pin that called someone" /
-    "I was called" (observed: a self-mention was picked up as addressed)."""
-    return list(dict.fromkeys(mention_hits(text, people, hints, exclude)))
-
-
-def mention_hits(text: str, people: dict, hints=None, exclude: str = None) -> list:
-    """Every resolved '@name' occurrence in text, in order and with repeats (resolve_mentions() is its de-duplicated
-    form). Counting occurrences is what tells a note edit that *adds* another '@Bob' apart from one that only
-    fixes a typo next to an existing '@Bob' (note_tags)."""
-    text = str(text or "")
-    if "@" not in text or not people:
-        return []
-    low, toks, hints = text.lower(), _mention_tokens(people), set(hints or ())
-    found = []
-    for i, ch in enumerate(text):
-        if ch != "@" or (i > 0 and (text[i - 1].isalnum() or text[i - 1] in "._-")):
-            continue
-        rest = low[i + 1:]
-        for tok, logins in toks:
-            if not rest.startswith(tok):
-                continue
-            nxt = rest[len(tok):len(tok) + 1]
-            if nxt and tok[-1].isascii() and tok[-1].isalnum() and nxt.isascii() and (nxt.isalnum() or nxt == "_"):
-                continue
-            pick = logins if len(logins) == 1 else logins & hints
-            for lg in sorted(pick):
-                if lg != exclude:
-                    found.append(lg)
-            if pick:
-                break
-    return found
-
-
-def pin_mentions_all(r: dict) -> list:
-    """Every person called out on this pin (note + the entire thread)."""
-    out = list(r.get("mentions") or [])
-    for m in r.get("thread") or []:
-        for lg in m.get("mentions") or []:
-            if lg not in out:
-                out.append(lg)
-    return out
-
-
-def _round_mentions(r: dict) -> list:
-    """The note's @-tags plus @-tags in the current round's (thread_round) thread posts - shared material for addressed_to/fyi_mentions_to."""
-    out = list(r.get("mentions") or [])
-    for m in thread_round(r):
-        for lg in m.get("mentions") or []:
-            if lg not in out:
-                out.append(lg)
-    return out
-
-
-def addressed_to(r: dict) -> list:
-    """Is this a pin that **asked** a person something - only meaningful for a question pin (kind_req=question). pins.md marks it
-    '→ @name', and an agent skips it (unless the requesting user says otherwise). A fix pin's @-tags are just
-    for reference, not something a person must answer to close it, so they don't go here - fyi_mentions_to()
-    handles those instead (observed: a fix pin that FYI-tagged someone was picked up as '→ @name' and an agent
-    skipped it forever). A closed-then-reopened pin doesn't count posts from the old round (thread_round)."""
-    a = r.get("assignee")
-    if a:                                   # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
-        return [] if a == ASSIGNEE_AGENT else [a]
-    if r.get("kind_req") != "question":
-        return []
-    return _round_mentions(r)
-
-
-def fyi_mentions_to(r: dict) -> list:
-    """People called for reference on a fix pin (kind_req != question) - never skipped, only shown in pins.md as '참고 @name'.
-    The opposite of addressed_to() (non-question pins). On a pin with an assignee, every @-tag other than the assignee is FYI."""
-    if r.get("assignee"):
-        to = addressed_to(r)
-        return [lg for lg in _round_mentions(r) if lg not in to]
-    if r.get("kind_req") == "question":
-        return []
-    return _round_mentions(r)
-
-
-def _excerpt(s, n: int = 140) -> str:
-    return _flat(s, n)
+def event_log() -> events.EventLog:
+    """events.jsonl of the current run (limn.events.EventLog) with the process's lock and read cache, stamped by
+    time.time() and now_str() - looked up when the value is made, so a test that freezes either reaches the records."""
+    return events.EventLog(C.events_file, EVENTS_LOCK, _EVENTS_CACHE, time.time, now_str)
 
 
 def make_event(typ: str, r: dict, actor: dict, to, msg: dict = None, text: str = None) -> dict:
-    """One events.jsonl line (seq/at are filled in by emit_events). The actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
-    me = (actor or {}).get("login")
-    to = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != LOCAL_ACTOR["login"]]
-    if not to:
-        return None
-    ev = {"type": typ, "pin": r.get("id"), "doc": pin_doc_key(r), "to": to, "by": who(actor)}
-    if r.get("kind_req"):
-        ev["kind_req"] = r["kind_req"]
-    if msg is not None:
-        ev["msg"] = msg.get("id")
-    ex = _excerpt(text if text is not None else (msg or {}).get("text", ""))
-    if ex:
-        ev["excerpt"] = ex
-    return ev
+    """One events.jsonl line about pin r by actor (limn.events.make_event; seq/at are filled in by emit_events). The
+    actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
+    return events.make_event(typ, r, actor, to, who, pin_doc_key, LOCAL_ACTOR["login"], msg, text)
 
 
-def emit_events(events: list) -> None:
-    """Appends events to the end of events.jsonl (lock + full atomic replace, leaving the earlier part untouched - append-only). seq starts from the file's last seq+1.
-    Only called after the pin write has committed (prevents phantom events). A failure is just a warning - the pin change already went through."""
-    events = [e for e in events or [] if e]
-    if not events:
-        return
-    with EVENTS_LOCK:
-        rows, _ = _read_events()
-        seq = max((e.get("seq", 0) for e in rows), default=0)
-        now = time.time()
-        for e in events:
-            seq += 1
-            e.update(seq=seq, at=now_str(), ts=round(now, 3))
-        rows = (rows + events)[-EVENTS_KEEP:]
-        try:
-            atomic_write(C.events_file, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in rows))
-        except OSError as e:
-            print("warning: failed to write events.jsonl: %s" % e, file=sys.stderr)
-
-
-_EVENTS_CACHE: dict = {}
+def emit_events(evs: list) -> None:
+    """Appends notices to events.jsonl, keeping the newest EVENTS_KEEP (limn.events.EventLog.emit). Only called after
+    the pin write has committed (prevents phantom events); a failure is just a warning."""
+    event_log().emit(evs, EVENTS_KEEP)
 
 
 def _read_events() -> tuple:
-    """(event list, file signature). Since polling reads this often, the cache is used when mtime/size are unchanged."""
-    try:
-        st = C.events_file.stat()
-    except OSError:
-        return [], None
-    sig = (str(C.events_file), st.st_mtime_ns, st.st_size)
-    c = _EVENTS_CACHE.get("v")
-    if c and c[0] == sig:
-        return list(c[1]), sig
-    rows = []
-    for line in C.events_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(e, dict) and _is_int(e.get("seq")):
-            rows.append(e)
-    _EVENTS_CACHE["v"] = (sig, rows)
-    return list(rows), sig
-
-
-def note_mention_targets(added: Sequence[str], recent: Sequence[dict], by: str | None, pin: object, now: float,
-                         window: float = NOTE_MENTION_COOLDOWN_S) -> list[str]:
-    """Which of `added` (people a note save newly tags, in order) get a mention event - the cooldown of issue #10 L3.
-
-    A person is left out when `by` already sent them a note mention about the same pin in the last `window` seconds
-    before `now`: toggling '@Bob' off and on through note edits would otherwise notify Bob on every edit. The key is
-    (actor login, target login, pin id). Only note mentions count - `mention` records without `msg`; replies and reopen
-    reasons carry their thread message id and keep notifying every time, since they leave a visible entry. A suppressed
-    mention is never written, so the window runs from the last one sent. A record counts when its `ts` lies less than
-    `window` from `now` on either side - events.jsonl rounds ts to milliseconds, so the last mention can read as a
-    moment ahead of the next save, and after the clock steps back a far-future record must not silence anyone for
-    longer than the window. Records without a numeric ts are ignored. Pure: `recent` (events.jsonl records) and `now`
-    (epoch seconds) come from the caller."""
-    cooled: set = set()
-    for e in recent:
-        if e.get("type") != "mention" or "msg" in e or e.get("pin") != pin:
-            continue
-        if (e.get("by") or {}).get("login") != by:
-            continue
-        ts = e.get("ts")
-        if _is_num(ts) and abs(now - ts) < window:
-            cooled.update(e.get("to") or [])
-    return [lg for lg in added if lg not in cooled]
-
-
-class NoteTags(NamedTuple):
-    """What a note save means for @-tags: the note's resolved tags (the pin's mentions) and whom to notify now."""
-    mentions: tuple[str, ...]
-    notify: list[str]
+    """(event list, file signature) of events.jsonl, cached by mtime/size (limn.events.EventLog.read)."""
+    return event_log().read()
 
 
 def note_tags(note: str, old_note: str, rows: list, hints, actor: dict, pid: object) -> NoteTags:
     """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
 
-    Everyone this save or edit explicitly @-tags is notified: a person whose '@name' occurs more often in the new note
-    than in old_note (the note before this edit; empty for a new pin). A typo fix next to an existing '@Bob' notifies
-    nobody, while an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged
-    him - unless this actor's note already notified him about this pin within NOTE_MENTION_COOLDOWN_S
-    (note_mention_targets, which reads events.jsonl). Runs inside transact(): the caller emits the event under the
-    same PIN_LOCK, so the next save sees it."""
-    ppl = known_people(rows)
+    Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
+    new pin) is notified - unless this actor's note already notified them about this pin within
+    NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
+    inside transact(): the caller emits the event under the same PIN_LOCK, so the next save sees it."""
     me = (actor or {}).get("login")
-    hits = mention_hits(note or "", ppl, hints, exclude=me)
-    before = Counter(mention_hits(old_note or "", ppl, hints, exclude=me))
-    new = list(dict.fromkeys(hits))
-    counts = Counter(hits)
-    added = [lg for lg in new if counts[lg] > before[lg]]
-    if added:
-        added = note_mention_targets(added, _read_events()[0], me, pid, time.time())
-    return NoteTags(tuple(new), added)
-
-
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
-EVENTS_SINCE_MAX = 20
+    tags = tag_note(note, old_note, known_people(rows), hints, me)
+    if not tags.notify:
+        return tags
+    return tags._replace(notify=note_mention_targets(tags.notify, _read_events()[0], me, pid, time.time()))
 
 
 def events_since(actor: dict, cursor: int | None) -> dict:
-    """Notification material carried in /api/meta polling (docs/handbook/api.md §브라우저 알림 커서). Always includes ev_seq (the latest event number), and if
-    the parsed ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
+    """Notification material carried in /api/meta polling (limn.events.events_since): ev_seq always, and with a cursor
+    the events after it addressed to the requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
-    out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
-    if cursor is None:
-        return out
     me = (actor or {}).get("login")
-    if not me or is_agent(actor):
-        out["events"] = []
-        return out
-    names = {d.key: d.name for d in DOCS}
-    evs = [dict(e, doc_name=names.get(e.get("doc"), e.get("doc"))) for e in rows
-           if e.get("seq", 0) > cursor and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
-           and (e.get("by") or {}).get("login") != me]
-    out["events"] = evs[-EVENTS_SINCE_MAX:]
-    return out
-
-
-# ---------------------------------------------------------------- Audit log (<state>/audit.jsonl, docs/handbook/api.md §감사 기록 (`audit.jsonl`))
-#
-# events.jsonl keeps only the newest EVENTS_KEEP records, so ordinary notification traffic pushed out the record of who
-# cleared every pin (issue #10 L5). Destructive and owner actions are therefore also written here, one JSON object per
-# line, appended under a cross-process lock and never rewritten or truncated by Limn. The HTTP handler records clear and
-# purge (via "http"); the state helpers behind `limn token` / `limn member` record theirs as the OS account (via "cli").
-# The existing events (`cleared`, `purged`) are still written for compatibility. Old servers never open this file.
-
-AUDIT_FILE = "audit.jsonl"
-AUDIT_ACTIONS = ("cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role")
-AUDIT_VIA = ("http", "cli")
-
-
-def audit_entry(action: str, by: dict, via: str, details: dict, now: float) -> dict:
-    """One audit.jsonl line: {at, ts, action, by, via, details}.
-
-    at is the local wall-clock string of `now` (the shape now_str() writes), ts the same instant in epoch seconds; by
-    keeps only {login, name} of the principal (name falls back to login). Raises ValueError for an action or via
-    outside AUDIT_ACTIONS / AUDIT_VIA - a programming error, never a request error. Pure: the caller passes the clock."""
-    if action not in AUDIT_ACTIONS:
-        raise ValueError("unknown audit action %r" % action)
-    if via not in AUDIT_VIA:
-        raise ValueError("unknown audit channel %r" % via)
-    login = (by or {}).get("login")
-    return {"at": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S"), "ts": round(now, 3),
-            "action": action, "by": {"login": login, "name": (by or {}).get("name") or login}, "via": via,
-            "details": dict(details)}
-
-
-def append_audit(state: Path, entry: dict) -> bool:
-    """Appends entry as one line to <state>/audit.jsonl under the cross-process lock (.audit.lock), then fsyncs.
-
-    The file is opened O_APPEND, so earlier bytes are never rewritten - not even a line that does not parse - and it
-    is created, or narrowed if it already exists, with mode 0600. It is never opened through a symlink. The action it
-    records has already happened when this runs, so a failure only warns on stderr and returns False; callers do not
-    undo or fail the action. Returns True once the line is on disk."""
-    line = memoryview((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
-    path = Path(state) / AUDIT_FILE
-    try:
-        with store_lock(state, "audit"):
-            fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-            try:
-                os.fchmod(fd, 0o600)
-                while line:
-                    line = line[os.write(fd, line):]
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-    except OSError as e:
-        print("warning: failed to write %s: %s" % (path, e), file=sys.stderr)
-        return False
-    return True
-
-
-def os_actor() -> dict:
-    """The local account running this process as an audit `by` {login, name}: who ran `limn token` / `limn member` on
-    the server machine. Read from the password database by uid, not from $USER; "uid:<n>" if the uid has no entry."""
-    uid = os.getuid()
-    try:
-        name = pwd.getpwuid(uid).pw_name
-    except KeyError:
-        name = "uid:%d" % uid
-    return {"login": name, "name": name}
+    return events.events_since(rows, None if not me or is_agent(actor) else me, cursor, {d.key: d.name for d in DOCS})
 
 
 # Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
@@ -2910,133 +1885,34 @@ def existing_token_file_shown(f: Path | None) -> str | None:
     return shell_path(f, home_or_none()) if file_present(f) else None
 
 
-def file_present(p: Path | None) -> bool:
-    """Whether p exists - False too when that cannot be told: Path.exists() raises PermissionError in a folder this
-    process may not search, and a token-file hint must never fail a pin write or turn a 401 into a 500."""
-    if p is None:
-        return False
-    try:
-        return p.exists()
-    except OSError:
-        return False
-
-
-def home_or_none() -> Path | None:
-    """This account's home folder, or None when neither $HOME nor the password database names one."""
-    try:
-        return Path.home()
-    except (RuntimeError, KeyError):
-        return None
 
 
 # ---------------------------------------------------------------- Selection resolution
+#
+# Resolving a drag to source lines, the snippet and the overlaps of a range are limn/locate.py's; they take the
+# document and the instance's settings as arguments. These are the App members the handler calls (web/app.py),
+# bound to this instance's run settings, token-weight cache and pins.
 
-def pick(D: Doc, request) -> dict:
-    """Dragged region -> source line range + range ladder, for document D and a selection parsed by
-    limn.web.parse.parse_pick (page directory, page, box and page size in points, the viewer's frac).
-
-    Pits the SyncTeX candidate and the text candidate against each other on equal footing. Treating either
-    as a conditional fallback leaves no way to catch SyncTeX being silently wrong (inside minipage/tabular).
-
-    The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
-    finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
-    against that build's PDF and returned as pdf_build in the response - the viewer carries that value
-    through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
-    pdir, page, (x0, y0, x1, y1), (pw, ph), frac = request
-    pdf = build.cur_pdf(D, pdir)
-    rtext = region_text(pdf, page, x0, y0, x1, y1)
-    if D.is_pdf:
-        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
-    sy = by_synctex(pdf, page, x0, y0, x1, y1)
-
-    src = to_source(D, sy[0]) if sy else D.main
-    if src.suffix in (".bbl", ".bib"):
-        return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
-                         % src.suffix, "reason": "generated_file"}
-    found = file_in_tree(str(src), C.src)
-    if not isinstance(found, Path):
-        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
-                "reason": "synctex_outside"}
-    src = found
-
-    lines = tex_lines(src)
-    if not lines:
-        return {"error": "원문 파일을 읽지 못했습니다: %s" % src, "reason": "source_unreadable"}
-    tw = token_weights(rtext, lines, file_key(src))
-
-    cands = []
-    if sy:
-        cands.append(("synctex", sy[1], sy[2], score_range(tw, lines, sy[1], sy[2])))
-    alt = by_text(tw, lines, sy[1] if sy else None)
-    if alt:
-        cands.append(("text", alt[0], alt[1], alt[2]))
-    if not cands:
-        return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
-                "reason": "no_source_here"}
-
-    # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
-    cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
-    via, raw_lo, raw_hi, best = cands[0]
-    warn = ""
-    if tw and best < 0.3:
-        warn = "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요." % (best * 100)
-
-    lad = compute_levels(lines, raw_lo, raw_hi, C.envs)
-    lo, hi = lad["lo"], lad["hi"]
-    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
-        # If both expand into the same block, the two paths haven't actually diverged - don't warn.
-        if not (lo <= cands[1][1] <= hi):
-            warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
-
-    if build.source_newer(D, C.state, pdir.name) > 2:
-        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
-        warn = stale_note + (" " + warn if warn else "")
-    bstate = build.state_snapshot(D)
-    if bstate["state"] == "running" and bstate["phase"] == "latex":
-        warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
-
-    quote = truncate_quote(norm(rtext), 60)
-    return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
-            "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
-            "score": round(best, 2), "warn": warn, "n_lines": len(lines),
-            "snippet": snippet(lines, lo, hi), "frac": frac, "quote": quote,
-            "levels": lad["levels"], "default_level": lad["default_level"],
-            "overlaps": overlaps_for_range(str(src), lo, hi), "pdf_build": pdir.name}
+TOKEN_CACHE = locate.TokenCache()             # the process's word-frequency cache for the last file weighed
 
 
-def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, rtext: str) -> dict:
-    """pick for a view-only document - returns only page/region and the region's text (pdftotext), no SyncTeX.
-    If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
-    x0, y0, x1, y1 = box
-    pw, ph = size
-    if frac is None:
-        frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
-    text = norm(rtext)
-    warn = ""
-    if not text:
-        warn = "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요."
-    bstate = build.state_snapshot(D)
-    if bstate["state"] == "running":
-        warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
-    return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
-            "pdf": D.rel_path(), "name": D.main.name, "quote": truncate_quote(text, PDF_QUOTE_MAX),
-            "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
+def pick_context() -> locate.PickContext:
+    """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the
+    process's token-weight cache and the overlaps of a range with the stored pins."""
+    return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def snippet_api(rng, levels: bool) -> dict:
-    """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by limn.web.parse.parse_snippet:
-    the file, its lines as read, lo and hi), and with levels the range ladder around them."""
-    f, lines, lo, hi = rng
-    out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
-           "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
-    if levels:
-        lad = compute_levels(lines, lo, hi, C.envs)
-        out["levels"] = lad["levels"]
-        out["default_level"] = lad["default_level"]
-    return out
+def pick(D: Doc, request: locate.Selection) -> dict:
+    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
+    return locate.pick(D, request, pick_context())
 
 
-def overlaps_api(rng) -> dict:
+def snippet_api(rng: locate.SourceLines, levels: bool) -> dict:
+    """GET /api/snippet: a parsed range's lines, with levels the range ladder under --float-envs (limn.locate.snippet_api)."""
+    return locate.snippet_api(rng, levels, C.envs)
+
+
+def overlaps_api(rng: locate.SourceLines) -> dict:
     """GET /api/overlaps — asks about a not-yet-saved selection's overlap using only file/range (kept for agent/legacy-viewer compatibility).
 
     The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
@@ -3046,607 +1922,90 @@ def overlaps_api(rng) -> dict:
     return {"overlaps": overlaps_for_range(str(rng.file), rng.lo, rng.hi)}
 
 
-# ---------------------------------------------------------------- Identity (tailscale serve headers)
-
-def hdr_text(v) -> str:
-    """tailscale carries non-ASCII values as RFC 2047 (=?utf-8?q?...?=). If raw UTF-8 arrives instead, undoes a latin-1 mis-decode."""
-    if not v:
-        return ""
-    v = str(v).strip()
-    if "=?" in v:
-        try:
-            v = str(make_header(decode_header(v)))
-        except Exception:                                # noqa: BLE001 — a single bad header must never drop the request
-            pass
-    else:
-        try:
-            v = v.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-    return "".join(ch for ch in v if ch.isprintable())[:300]
-
-
-def actor_of(headers) -> tuple:
-    """(actor, whether it came from a header) from the Tailscale-User-* headers. identify() only calls this for a
-    loopback peer under --auth tailscale - tailscale serve connects from loopback; any other peer's headers are ignored."""
-    login = hdr_text(headers.get("Tailscale-User-Login"))
-    if not login:
-        return dict(LOCAL_ACTOR), False
-    a = {"login": login[:200], "name": (hdr_text(headers.get("Tailscale-User-Name")) or login.split("@")[0])[:100]}
-    pic = hdr_text(headers.get("Tailscale-User-Profile-Pic"))
-    if pic.startswith("https://") and len(pic) <= 1000:
-        a["pic"] = pic
-    return a, True
-
-
-LOOPBACK = ("127.0.0.1", "localhost", "::1")
-
-
-def split_host(v: str) -> tuple:
-    """'name:port' / '[::1]:port' -> (lowercase name, port or None). ('', None) if malformed."""
-    v = (v or "").strip().lower()
-    if v.startswith("["):
-        name, _, rest = v[1:].partition("]")
-        port = rest[1:] if rest.startswith(":") else ""
-    else:
-        name, _, port = v.partition(":")
-    if port and not re.fullmatch(r"[0-9]{1,5}", port):
-        return "", None
-    return name.rstrip("."), (int(port) if port else None)
-
-
-def host_ok(host: str) -> bool:
-    """For a loopback name, the port is never checked - forwarding via SSH -L to a different local port can
-    make Host something like 'localhost:9000', different from the actual server port. A DNS-rebinding
-    attack's Host is never a loopback name (an external domain resolving to 127.0.0.1 doesn't turn the Host
-    header itself into 'localhost'), so leaving the port out here doesn't weaken that defense. Cross-origin
-    (CSRF) defense is origin_ok's job."""
-    name, _ = split_host(host)
-    if name in LOOPBACK:
-        return True
-    return name.endswith(".ts.net") or public_host(name) is not None
-
-
-def public_host(name: str):
-    """The (name, port) entry of --public-host matching this Host/Origin name, or None."""
-    return next((h for h in C.public_hosts if h[0] == name), None) if name else None
-
-
-def parse_public_hosts(values) -> tuple:
-    """--public-host values (repeatable, each a comma list of NAME or NAME:PORT) -> ((name, port or None), ...). Raises ValueError."""
-    out = []
-    for v in values or []:
-        for item in str(v).split(","):
-            item = item.strip()
-            if not item:
-                continue
-            name, port = split_host(item)
-            if not name or not re.fullmatch(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", name) \
-                    or name in LOOPBACK or (port is not None and not 1 <= port <= 65535):
-                raise ValueError("--public-host takes a DNS name with an optional :port, got %r" % item)
-            if all(h[0] != name for h in out):
-                out.append((name, port))
-    return tuple(out)
-
-
-DEFAULT_PORT = {"http": 80, "https": 443}
-
-
-def origin_ok(origin: str, host) -> bool:
-    """Is Origin on the same side as the Host this request arrived on? The rule branches on the kind of Host.
-
-    - Host is loopback: Origin must also be loopback. The port is never checked - forwarding via SSH -L
-      makes the browser's Origin/Host port differ from the server's bind port (observed: an 18110->18106
-      POST got a 403). There is no legitimate path for a *.ts.net Origin to arrive with a loopback Host
-      (tailscale serve preserves Host, confirmed in SKILL.md) - accepting one would let another tailnet's
-      public Funnel page CSRF the local user's browser (observed: 200).
-    - Host is *.ts.net: Origin must match that host's name and port (a missing port falls back to the scheme default).
-    - Host is a --public-host name: Origin must be https://<that name> on the configured port (443 if none was given).
-    A request with no Origin (curl/agent/same-origin GET) never reaches this function."""
-    u = urlparse(origin.strip())
-    if u.scheme not in ("http", "https") or not u.hostname:
-        return False                                   # includes a 'null' origin (sandboxed iframe/file://)
-    try:
-        oport = u.port
-    except ValueError:
-        return False
-    name = u.hostname.lower().rstrip(".")
-    hname, hport = split_host(host or "")
-    if not hname or hname in LOOPBACK:                 # no Host at all (HTTP/1.0) is treated as loopback - the stricter side
-        return name in LOOPBACK
-    if hname.endswith(".ts.net"):
-        dflt = DEFAULT_PORT[u.scheme]
-        return name == hname and (oport or dflt) == (hport or dflt)
-    ph = public_host(hname)
-    if ph is not None:
-        return u.scheme == "https" and name == ph[0] and (oport or 443) == (ph[1] or 443)
-    return False
-
-
-def remote_base_for(host_raw: str) -> str:
-    """The base URL used in GET /pins.md's guidance line (§P0c-B). If Host is *.ts.net, 'https://<Host as-is,
-    including port>'; if it's a --public-host name, 'https://<name>[:<configured port>]'; otherwise (loopback/no
-    Host) the loopback URL as before. Since _check_origin() has already validated Host by this point, only the
-    kind needs to be distinguished here."""
-    name, _ = split_host(host_raw or "")
-    if name.endswith(".ts.net"):
-        return "https://%s" % host_raw.strip()
-    ph = public_host(name)
-    if ph is not None:
-        return "https://%s%s" % (ph[0], ":%d" % ph[1] if ph[1] and ph[1] != 443 else "")
-    return "http://127.0.0.1:%d" % C.port
-
-
-# ---------------------------------------------------------------- Access control (docs/adr/0002-access-control.md, v0.2)
+# ---------------------------------------------------------------- Access control wiring (limn/access.py, docs/adr/0002-access-control.md)
 #
-# Who is this request (identify: one identity provider per instance, plus agent API tokens that every provider
-# accepts), may it use this instance at all (admit: --allow / --members-only), and may it change things
-# (check_role: viewer / agent / editor / owner from people.json). The handler runs all three before dispatching.
-# tokens.json and people.json are re-read when they change on disk (stat key), so `limn token` / `limn member`
-# edits take effect on the next request, without a restart.
+# Who a request is (identify), whether it may use this instance (admit), what it may change (check_role) and the
+# Host/Origin rules live in limn/access.py, which never reads C. Here the composition root binds them to this instance:
+# the settings value from C (made per call like build_config(), so a test or main() that changes C is seen at once),
+# the file-backed lookups, and the resources this process owns for them - one cache per file (tokens.json and
+# people.json are re-read when they change on disk, so `limn token` / `limn member` edits take effect on the next
+# request without a restart) and the one-time loopback-agent warning. The refusals raise HTTPError (fail closed).
 
-AUTH_PROVIDERS = ("tailscale", "local", "trusted-proxy")
-ROLES = ("owner", "editor", "viewer", "agent")
-DEFAULT_ROLE = "editor"                      # a person without a role field - every v0.1 person
-VIEWER_POSTS = ("/api/pick", "/api/revision-build")   # computations a viewer may still run (no state change)
-TOKEN_PREFIX = "limn_"
-TOKEN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
-HEADER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
-LOGIN_MAX = 200
-NAME_MAX = 100
-LOOPBACK_AGENT_DEPRECATION = ("a request from loopback without an identity header or token is treated as the agent - "
-                              "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
-                              "and turn it off with --no-agent-loopback (AGENT_LOOPBACK=0)")
-TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
-                      "보내세요(`limn token create <인스턴스>`).")
-OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
-OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")   # permanent delete from the Trash (v0.2.2): only the owner
+TOKENS_CACHE: access.FileCache[list] = access.FileCache()   # tokens.json's valid entries as this process last read them
+ROLES_CACHE: access.FileCache[dict] = access.FileCache()    # {login: role} of people.json as this process last read it
+LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
+# How `limn member` reads and writes people.json: the people store's own format (load_people, record_person).
+PEOPLE_FORMAT = access.PeopleFormat(valid_rows=_valid_people, text=people_text)
 
 
-class Principal(NamedTuple):
-    actor: dict              # {login, name, pic?} - what pins record
-    role: str                # owner | editor | viewer | agent
-    via: str                 # header | token | loopback-agent | local-owner
-
-
-def _stat_key(p: Path):
-    try:
-        st = p.stat()
-    except FileNotFoundError:
-        return None
-    except OSError:
-        return "unreadable"
-    return (st.st_ino, st.st_mtime_ns, st.st_size)
-
-
-# -------- agent API tokens (<state>/tokens.json, hashed at rest)
-
-def token_hash(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def _valid_tokens(d) -> list:
-    rows = d.get("tokens") if isinstance(d, dict) else None
-    return [t for t in rows or [] if isinstance(t, dict)
-            and all(isinstance(t.get(k), str) and t[k] for k in ("id", "name", "hash"))]
-
-
-def load_tokens(state: Path, strict: bool = False) -> list:
-    """The token entries of <state>/tokens.json ([] if absent). strict=True (the CLI, before rewriting the file)
-    raises ValueError on an unreadable or malformed file instead of treating it as empty."""
-    p = Path(state) / "tokens.json"
-    try:
-        d = json.loads(p.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    except (OSError, ValueError) as e:
-        if strict:
-            raise ValueError("cannot read %s: %s" % (p, e)) from e
-        print("warning: cannot read %s (%s) - no agent token is accepted until it is fixed" % (p, e), file=sys.stderr)
-        return []
-    if strict and not (isinstance(d, dict) and isinstance(d.get("tokens"), list)):
-        raise ValueError("%s is not a Limn token file" % p)
-    return _valid_tokens(d)
-
-
-def _write_tokens(state: Path, rows: list) -> None:
-    atomic_write(Path(state) / "tokens.json",
-                 json.dumps({"version": 1, "tokens": rows}, ensure_ascii=False, indent=1) + "\n", mode=0o600)
-
-
-def token_create(state: Path, name: str | None = None) -> tuple:
-    """Creates a token -> (entry, plaintext). Only the hash is stored; the plaintext is returned once and never again.
-    Appends a `token_created` audit line {id, name} as the OS account (os_actor, via "cli") - never the token or its
-    hash. Raises ValueError for a bad or taken name, or an unreadable tokens.json (nothing is written then)."""
-    state = Path(state)
-    if name is not None and not TOKEN_NAME_RE.fullmatch(name):
-        raise ValueError("token name must match [A-Za-z0-9][A-Za-z0-9._-]{0,39}: %r" % name)
-    state.mkdir(parents=True, exist_ok=True)
-    with store_lock(state, "tokens"):
-        rows = load_tokens(state, strict=True)
-        names = {t["name"] for t in rows}
-        if name is None:
-            name, n = "agent", 1
-            while name in names:
-                n += 1
-                name = "agent-%d" % n
-        elif name in names:
-            raise ValueError("a token named %r already exists (revoke it first, or pick another --name)" % name)
-        ids = {t["id"] for t in rows}
-        tid = secrets.token_hex(4)
-        while tid in ids:
-            tid = secrets.token_hex(4)
-        plain = TOKEN_PREFIX + secrets.token_urlsafe(32)
-        entry = {"id": tid, "name": name, "hash": token_hash(plain), "created": now_str()}
-        _write_tokens(state, rows + [entry])
-        append_audit(state, audit_entry("token_created", os_actor(), "cli", {"id": tid, "name": name}, time.time()))
-    return entry, plain
-
-
-def token_revoke(state: Path, ref: str) -> dict | None:
-    """Removes the token whose id or name is ref -> the removed entry, or None if there is none. A removal appends a
-    `token_revoked` audit line {id, name} as the OS account (via "cli"); None writes nothing."""
-    state = Path(state)
-    if not (state / "tokens.json").exists():
-        return None
-    with store_lock(state, "tokens"):
-        rows = load_tokens(state, strict=True)
-        hit = [t for t in rows if t["id"] == ref] or [t for t in rows if t["name"] == ref]
-        if not hit:
-            return None
-        _write_tokens(state, [t for t in rows if t is not hit[0]])
-        append_audit(state, audit_entry("token_revoked", os_actor(), "cli", {"id": hit[0]["id"], "name": hit[0]["name"]},
-                                        time.time()))
-    return hit[0]
-
-
-_TOKENS_CACHE = {"key": None, "rows": []}
-_TOKENS_CACHE_LOCK = threading.Lock()
+def access_settings() -> access.AccessSettings:
+    """The access options of this run (C) as the value identify() and admit() read."""
+    return access.AccessSettings(
+        auth=C.auth, agent_loopback=C.agent_loopback, tailnet_agent=C.tailnet_agent, trusted_proxies=C.trusted_proxies,
+        proxy_user_header=C.proxy_user_header, proxy_name_header=C.proxy_name_header,
+        proxy_email_header=C.proxy_email_header, members_only=C.members_only, allow=C.allow, local_user=C.local_user,
+        agent_token_file=C.agent_token_file)
 
 
 def current_tokens() -> list:
     """tokens.json as the server sees it now - re-read whenever its inode/mtime/size changes (revocation needs no restart)."""
-    p = C.tokens_file
-    key = (str(p), _stat_key(p))
-    with _TOKENS_CACHE_LOCK:
-        if _TOKENS_CACHE["key"] != key:
-            _TOKENS_CACHE["rows"] = load_tokens(C.state) if key[1] is not None else []
-            _TOKENS_CACHE["key"] = key
-        return _TOKENS_CACHE["rows"]
-
-
-def token_lookup(token: str):
-    """The token entry whose hash matches, or None. Compares every entry in constant time (hmac.compare_digest)."""
-    h = token_hash(token)
-    hit = None
-    for t in current_tokens():
-        if hmac.compare_digest(t["hash"].encode("utf-8"), h.encode("utf-8")):
-            hit = t
-    return hit
-
-
-def bearer_of(headers):
-    """The token of an `Authorization: Bearer <token>` header, None when there is no Bearer header. Other schemes
-    are not Limn's and are ignored. An empty or repeated Bearer header is a 401 - it is never read as "no token"."""
-    vals = headers.get_all("Authorization") or []
-    bearer = [v for v in vals if v.strip().split(" ", 1)[0].lower() == "bearer"]
-    if not bearer:
-        return None
-    parts = bearer[0].strip().split(None, 1)
-    if len(bearer) > 1 or len(parts) != 2 or not parts[1].strip():
-        raise HTTPError(401, "Authorization: Bearer 헤더가 올바르지 않습니다.", reason="bad_bearer")
-    return parts[1].strip()
-
-
-# -------- people.json roles and members
-
-_ROLES_CACHE = {"key": None, "roles": {}}
-_ROLES_CACHE_LOCK = threading.Lock()
-
-
-def role_value(v) -> str:
-    """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
-    if v is None:
-        return DEFAULT_ROLE
-    return v if v in ROLES else "viewer"
+    return TOKENS_CACHE.get(C.tokens_file, lambda: load_tokens(C.state), [])
 
 
 def people_roles() -> dict:
     """{login: role} for everyone in people.json, re-read whenever the file changes - so `limn member role` and
     `limn member remove` take effect on the running server's next request."""
-    key = (str(C.people_file), _stat_key(C.people_file))
-    with _ROLES_CACHE_LOCK:
-        if _ROLES_CACHE["key"] != key:
-            _ROLES_CACHE["roles"] = {x["login"]: role_value(x.get("role")) for x in load_people()} if key[1] else {}
-            _ROLES_CACHE["key"] = key
-        return _ROLES_CACHE["roles"]
+    return ROLES_CACHE.get(C.people_file, lambda: roles_of(load_people()), {})
 
 
 def role_of(login: str) -> str:
+    """The people.json role of login; editor for someone people.json does not list."""
     return people_roles().get(login, DEFAULT_ROLE)
 
 
-def valid_login(login) -> bool:
-    """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
-    user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
-    for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
-    return (isinstance(login, str) and 0 < len(login) <= LOGIN_MAX and login.isprintable()
-            and not any(c.isspace() for c in login)
-            and login != LOCAL_ACTOR["login"] and not login.startswith(AGENT_LOGIN_PREFIX))
+def access_lookups() -> access.AccessLookups:
+    """The file-backed facts identify() reads at request time, over this process's caches and warning."""
+    return access.AccessLookups(tokens=current_tokens, roles=people_roles, warn_loopback_agent=LOOPBACK_WARNING)
 
 
-def load_people_file(state: Path) -> list:
-    """people.json for the CLI: [] if absent, ValueError if it exists but cannot be read (never overwrite what we could not read)."""
-    p = Path(state) / "people.json"
-    try:
-        d = json.loads(p.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return []
-    except (OSError, ValueError) as e:
-        raise ValueError("cannot read %s: %s" % (p, e)) from e
-    if not isinstance(d, dict) or not isinstance(d.get("people"), list):
-        raise ValueError("%s is not a Limn people file" % p)
-    return _valid_people(d)
+def identify(headers, peer) -> access.Principal:
+    """Who this request is (limn.access.identify under this run's settings); raises HTTPError 401/403."""
+    return access.identify(headers, peer, access_settings(), access_lookups())
 
 
-def _people_update(state: Path, fn: Callable[[list], tuple]):
-    """Read-modify-write of <state>/people.json under the same cross-process lock the server uses.
-
-    fn(rows) edits rows in place and returns (result, audit) where audit is (action, details) for a membership change
-    or None. After people.json is written, the change is appended to audit.jsonl as the OS account (via "cli") while
-    the lock is still held, so audit lines follow the order of the changes. Returns result; ValueError from fn
-    propagates before anything is written."""
-    state = Path(state)
-    state.mkdir(parents=True, exist_ok=True)
-    with store_lock(state, "people"):
-        rows = load_people_file(state)
-        out, audit = fn(rows)
-        atomic_write(state / "people.json", people_text(rows), mode=0o600)
-        if audit is not None:
-            append_audit(state, audit_entry(audit[0], os_actor(), "cli", audit[1], time.time()))
-    return out
+def admit(p: access.Principal, host, headers=None) -> None:
+    """May this principal use the instance at all (limn.access.admit); raises HTTPError 403."""
+    access.admit(p, host, headers, access_settings(), people_roles)
 
 
-def member_add(state: Path, login: str, role: str = DEFAULT_ROLE, name: str | None = None) -> dict:
-    """Adds login to people.json with role (name defaults to the part of the login before @) -> the new entry, and
-    audits `member_added` {login, role}. Raises ValueError for an invalid login or role, or an existing member."""
-    if not valid_login(login):
-        raise ValueError("invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
-                         % (login, LOGIN_MAX))
-    if role not in ROLES:
-        raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
-    name = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
-
-    def fn(rows):
-        """The _people_update step: appends the entry -> (entry, member_added audit); ValueError if already a member."""
-        if any(x["login"] == login for x in rows):
-            raise ValueError("%s is already a member - change the role with `limn member role`" % login)
-        entry = {"login": login, "name": name, "role": role}
-        rows.append(entry)
-        return entry, ("member_added", {"login": login, "role": role})
-    return _people_update(state, fn)
+def check_role(p: access.Principal, path: str) -> None:
+    """The role rule for a POST to path (limn.access.check_role; the owner-only purge refusal quotes TRASH_DAYS);
+    raises HTTPError 403."""
+    access.check_role(p, path, TRASH_DAYS)
 
 
-def member_remove(state: Path, login: str) -> dict | None:
-    """Removes login from people.json -> the removed entry, or None if it was not a member (or there is no file).
-    A removal audits `member_removed` {login, previous_role}."""
-    if not (Path(state) / "people.json").exists():
-        return None
-
-    def fn(rows):
-        """The _people_update step: drops the entry -> (entry, member_removed audit), or (None, None) if absent."""
-        hit = next((x for x in rows if x["login"] == login), None)
-        if hit is None:
-            return None, None
-        rows.remove(hit)
-        return hit, ("member_removed", {"login": login, "previous_role": role_value(hit.get("role"))})
-    return _people_update(state, fn)
+def host_ok(host: str) -> bool:
+    """Is Host a loopback name, *.ts.net or one of this run's --public-host names (limn.access.host_ok)?"""
+    return access.host_ok(host, C.public_hosts)
 
 
-def member_set_role(state: Path, login: str, role: str) -> dict | None:
-    """Sets login's role in people.json -> the updated entry, or None if it is not a member (or there is no file).
-    A change of the effective role audits `member_role` {login, role, previous_role}; setting the role it already has
-    writes the field but no audit line. Raises ValueError for an unknown role."""
-    if role not in ROLES:
-        raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
-    if not (Path(state) / "people.json").exists():
-        return None
-
-    def fn(rows):
-        """The _people_update step: sets the role -> (entry, member_role audit or None when the role is unchanged),
-        or (None, None) if absent."""
-        hit = next((x for x in rows if x["login"] == login), None)
-        if hit is None:
-            return None, None
-        before = role_value(hit.get("role"))
-        hit["role"] = role
-        if before == role:
-            return hit, None
-        return hit, ("member_role", {"login": login, "role": role, "previous_role": before})
-    return _people_update(state, fn)
+def origin_ok(origin: str, host) -> bool:
+    """Is Origin on the same side as the Host the request arrived on (limn.access.origin_ok)?"""
+    return access.origin_ok(origin, host, C.public_hosts)
 
 
-# -------- identity providers
-
-def _peer_ip(addr):
-    try:
-        ip = ipaddress.ip_address(str(addr).split("%", 1)[0])
-    except ValueError:
-        return None
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return ip
+def remote_base_for(host_raw: str) -> str:
+    """The base URL of GET /pins.md's guidance for this Host (limn.access.remote_base_for, loopback on C.port)."""
+    return access.remote_base_for(host_raw, C.public_hosts, C.port)
 
 
-def peer_is_loopback(addr) -> bool:
-    ip = _peer_ip(addr)
-    return bool(ip is not None and ip.is_loopback)
-
-
-def peer_is_trusted_proxy(addr) -> bool:
-    ip = _peer_ip(addr)
-    return ip is not None and any(ip in n for n in C.trusted_proxies)
-
-
-def parse_networks(spec: str) -> tuple:
-    """'127.0.0.1,::1,10.0.0.0/8' -> ip_network tuple. Raises ValueError."""
-    out = []
-    for item in (spec or "").split(","):
-        item = item.strip()
-        if item:
-            try:
-                out.append(ipaddress.ip_network(item, strict=False))
-            except ValueError:
-                raise ValueError("--trusted-proxies takes IP addresses or CIDR ranges, got %r" % item) from None
-    if not out:
-        raise ValueError("--trusted-proxies is empty")
-    return tuple(out)
-
-
-def is_loopback_bind(addr: str) -> bool:
-    """Is a --bind address loopback? Raises ValueError for anything but an IP address or 'localhost'."""
-    if addr == "localhost":
-        return True
-    return ipaddress.ip_address(addr).is_loopback
-
-
-def local_owner_actor() -> dict:
-    login = C.local_user or os.environ.get("USER") or "owner"
-    return {"login": login, "name": login}
-
-
-def proxy_actor(headers):
-    """The person an authenticating proxy vouches for, or None without the user header. With --proxy-email-header
-    the e-mail (when present) is the login, so people.json / --allow can list e-mail addresses."""
-    user = hdr_text(headers.get(C.proxy_user_header))
-    if not user:
-        return None
-    email = hdr_text(headers.get(C.proxy_email_header)) if C.proxy_email_header else ""
-    login = (email or user)[:LOGIN_MAX]
-    name = (hdr_text(headers.get(C.proxy_name_header)) or user.split("@")[0])[:NAME_MAX]
-    return {"login": login, "name": name}
-
-
-_LOOPBACK_WARN_LOCK = threading.Lock()
-_LOOPBACK_WARNED = [False]
-
-
-def warn_loopback_agent_once() -> None:
-    """The deprecation warning on the first headerless loopback agent request (and never again - no per-request log)."""
-    with _LOOPBACK_WARN_LOCK:
-        if _LOOPBACK_WARNED[0]:
-            return
-        _LOOPBACK_WARNED[0] = True
-    print("warning: " + LOOPBACK_AGENT_DEPRECATION, file=sys.stderr)
-    sys.stderr.flush()
-
-
-def identify(headers, peer) -> Principal:
-    """Who is this request? A valid `Authorization: Bearer` token wins under every provider; an invalid or revoked
-    one is a 401 and never falls back to another identity. Otherwise the provider decides (C.auth):
-
-    - tailscale: Tailscale-User-* headers, trusted only from a loopback peer (tailscale serve). A loopback request
-      without them is the agent (LOCAL_ACTOR) while C.agent_loopback is on - the v0.1 behaviour, deprecated.
-    - local: a loopback request is the owner (a person). Tailscale headers are ignored.
-    - trusted-proxy: the configured user header, trusted only from a --trusted-proxies peer.
-    Anything else is a 401."""
-    tok = bearer_of(headers)
-    if tok is not None:
-        t = token_lookup(tok)
-        if t is None:
-            raise HTTPError(401, "토큰이 올바르지 않거나 폐기되었습니다.", reason="bad_token")
-        return Principal({"login": AGENT_LOGIN_PREFIX + t["name"], "name": t["name"]}, "agent", "token")
-    loop = peer_is_loopback(peer)
-    if C.auth == "local":
-        if loop and came_through_proxy(headers):
-            # every local request is the owner - one that came through a proxy is someone else (v0.2.1 hardening)
-            raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}), reason="headerless")
-        if loop:
-            return Principal(local_owner_actor(), "owner", "local-owner")
-        raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-    if C.auth == "trusted-proxy":
-        a = proxy_actor(headers) if peer_is_trusted_proxy(peer) else None
-        if a is None or not valid_login(a["login"]):
-            raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-        return Principal(a, role_of(a["login"]), "header")
-    if loop:
-        a, via = actor_of(headers)
-        if via:
-            if not valid_login(a["login"]):
-                raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-            return Principal(a, role_of(a["login"]), "header")
-        if C.agent_loopback:
-            if came_through_proxy(headers) and not C.tailnet_agent:
-                # tailscale serve connects from loopback too. Without identity headers such a request is a tagged
-                # device (or anything else behind the proxy) - never the local agent (v0.2.1).
-                raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}), reason="headerless")
-            warn_loopback_agent_once()
-            return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
-        if not came_through_proxy(headers):
-            # An agent on this machine with the loopback agent off (ADR-0007): say where its token file is.
-            f = C.agent_token_file
-            raise HTTPError(401, loopback_refused_text(f, file_present(f), home_or_none()), reason="loopback_agent_off")
-    raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
-
-
-# Headers a reverse proxy adds (tailscale serve sets X-Forwarded-For/-Host/-Proto). A local curl sends none of them.
-FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Real-IP",
-                     "Forwarded", "Via")
-
-
-def host_is_loopback(host) -> bool:
-    """Did the request name this machine (a loopback Host, or none at all as in HTTP/1.0)?"""
-    name, _ = split_host(host or "")
-    return not host or not str(host).strip() or name in LOOPBACK
-
-
-def came_through_proxy(headers) -> bool:
-    """Did this loopback request come through a reverse proxy such as tailscale serve? Host alone cannot tell:
-    tailscale serve picks the route from the TLS server name and passes the client's Host through unchanged, so a
-    tagged device can send 'Host: localhost'. It does set X-Forwarded-For/-Host/-Proto itself (overwriting what the
-    client sent), so any forwarding header - or a non-loopback Host - marks a proxied request. A local agent's curl
-    sends neither. Limit: a raw TCP forwarder that adds no header (tailscale serve --tcp/--tls-terminated-tcp,
-    ssh -L/-R, a plain port forward) is indistinguishable from a local request - use tokens and --no-agent-loopback there."""
-    if not host_is_loopback(headers.get("Host")):
-        return True
-    return any(headers.get(h) is not None for h in FORWARDED_HEADERS)
-
-
-def admit(p: Principal, host, headers=None) -> None:
-    """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
-    admits logins in people.json or --allow; otherwise --allow (if set) admits only its logins. Without either,
-    everyone the provider identifies is admitted (and recorded in people.json as an editor on first visit).
-    Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged device) never
-    gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a list is
-    configured, as in v0.1."""
-    login = p.actor.get("login")
-    if p.via == "header":
-        if C.members_only:
-            if login not in C.allow and login not in people_roles():
-                raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
-                                page=("not-member", {"login": login}), reason="not_member")
-        elif C.allow and login not in C.allow:
-            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}), reason="not_allowed")
-    elif p.via == "loopback-agent" and (C.allow or C.members_only):
-        hname, _ = split_host(host or "")
-        if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
-            raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
-                            page=("no-identity", {}), reason="headerless")
-
-
-def check_role(p: Principal, path: str) -> None:
-    """Role rule for state-changing (POST) requests, applied once in the handler before dispatch. A viewer may only
-    run computations (/api/pick, /api/revision-build); an agent may do everything but confirm; editor and owner may
-    do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
-    delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call. Other owner-only operations - members, tokens, settings - are CLI/file level."""
-    if p.role == "viewer" and path not in VIEWER_POSTS:
-        raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only")
-    if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
-        raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
-    if path in OWNER_POSTS and p.role != "owner":
-        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.", reason="owner_only")
-    if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
-        raise HTTPError(403, "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % TRASH_DAYS, reason="owner_only")
+def cli_audit(state: Path) -> access.AuditSink:
+    """The audit sink of `limn token` / `limn member` on state: each change becomes an audit.jsonl line as the OS
+    account running the command (os_actor), via "cli", stamped when it is recorded."""
+    def record(action: str, details: dict) -> bool:
+        """Append one audit line for action with details (append_audit: a failed write only warns)."""
+        return append_audit(state, audit_entry(action, os_actor(), "cli", details, time.time()))
+    return record
 
 
 # ---------------------------------------------------------------- Viewer
@@ -3829,9 +2188,9 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
     if D.root:
         build.migrate_pages(D)
     build.seed_builds(D, C.state)
-    need = D.is_pdf and (pdf_changed(D) or not page_list(build.cur_pages(D)))
+    need = D.is_pdf and (pdf_changed(D) or not build.page_list(build.cur_pages(D), C.dpi))
     if not D.is_pdf:
-        need = not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D))
+        need = not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi)
     if not need:
         return {"state": "skip"}
     return build_all(D) if wait else build_async(D)
@@ -3918,7 +2277,7 @@ def access_log_lines() -> list:
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated loopback agent."""
     parts = [C.auth]
     if C.auth == "local":
-        parts.append("owner %s" % local_owner_actor()["login"])
+        parts.append("owner %s" % local_owner_actor(C.local_user)["login"])
     if C.auth == "trusted-proxy":
         parts.append("proxies %s" % ",".join(str(n) for n in C.trusted_proxies))
         parts.append("user header %s" % C.proxy_user_header)
@@ -4130,7 +2489,7 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
         D = DOCS[0]
         build.migrate_pages(D)
         build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
-        if not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
+        if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
             r = build_all(D)
             if r.get("state") == "fail":
                 return StartupRefused("Build failed:\n" + r.get("log", ""))

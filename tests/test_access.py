@@ -23,6 +23,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn import access
+from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.pins import render as md_render
 from test_server import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 
@@ -44,9 +46,39 @@ def reset_access(mod=ps):
     for k, v in ACCESS_DEFAULTS.items():
         setattr(mod.C, k, v)
     mod.C.allow = frozenset()
-    mod._LOOPBACK_WARNED[0] = False
-    mod._TOKENS_CACHE.update(key=None, rows=[])
-    mod._ROLES_CACHE.update(key=None, roles={})
+    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)   # a fresh process: warns again
+    mod.TOKENS_CACHE = access.FileCache()
+    mod.ROLES_CACHE = access.FileCache()
+
+
+def token_create(state, name=None, mod=ps):
+    """`limn token create` on state as the CLI runs it: limn.access with mod's audit sink -> (entry, plaintext)."""
+    return access.token_create(state, name, mod.cli_audit(state))
+
+
+def token_revoke(state, ref, mod=ps):
+    """`limn token revoke` on state as the CLI runs it -> the removed entry, or None."""
+    return access.token_revoke(state, ref, mod.cli_audit(state))
+
+
+def member_add(state, login, role=access.DEFAULT_ROLE, name=None, mod=ps):
+    """`limn member add` on state as the CLI runs it: mod's people.json format and audit sink -> the new entry."""
+    return access.member_add(state, login, role, name, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+
+
+def member_remove(state, login, mod=ps):
+    """`limn member remove` on state as the CLI runs it -> the removed entry, or None."""
+    return access.member_remove(state, login, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+
+
+def member_set_role(state, login, role, mod=ps):
+    """`limn member role` on state as the CLI runs it -> the updated entry, or None."""
+    return access.member_set_role(state, login, role, mod.PEOPLE_FORMAT, mod.cli_audit(state))
+
+
+def load_people_file(state, mod=ps):
+    """people.json as `limn member list` reads it (strict: ValueError for an unreadable file)."""
+    return access.load_people_file(state, mod.PEOPLE_FORMAT)
 
 
 def talk_to(mod, raw: bytes, peer: str = "127.0.0.1") -> bytes:
@@ -190,16 +222,16 @@ class LocalProvider(AccessBase):
 
     def test_non_loopback_is_401_and_agents_use_tokens(self):
         self.assertEqual(self.call("GET", "/api/pins", peer="10.0.0.5")[0], 401)
-        _, tok = ps.token_create(ps.C.state, "bot")
+        _, tok = token_create(ps.C.state, "bot")
         code, d = self.call("GET", "/api/meta?light=1", token=tok)
         self.assertEqual((code, d["me"]["login"], d["me"]["role"]), (200, "agent:bot", "agent"))
 
     def test_default_owner_login_from_user(self):
         ps.C.local_user = None
         with mock.patch.dict(os.environ, {"USER": "dana"}):
-            self.assertEqual(ps.local_owner_actor()["login"], "dana")
+            self.assertEqual(access.local_owner_actor(ps.C.local_user)["login"], "dana")
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(ps.local_owner_actor()["login"], "owner")
+            self.assertEqual(access.local_owner_actor(ps.C.local_user)["login"], "owner")
 
 
 class TrustedProxyProvider(AccessBase):
@@ -243,7 +275,7 @@ class TrustedProxyProvider(AccessBase):
         self.assertEqual(self.call("GET", "/api/pins", headers={"X-Forwarded-User": "eve@example.com"}, peer="10.0.0.1")[0], 403)
 
     def test_tokens_work_from_anywhere(self):
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         code, d = self.call("GET", "/api/meta?light=1", token=tok, peer="203.0.113.9")
         self.assertEqual((code, d["me"]["login"]), (200, "agent:ci"))
 
@@ -314,8 +346,8 @@ class StartupRules(AccessBase):
 
     def test_auth_line_counts_tokens_and_members_only(self):
         ps.C.state = Path(self.tmp.name) / "state"
-        ps.token_create(ps.C.state, "a")
-        ps.token_create(ps.C.state, "b")
+        token_create(ps.C.state, "a")
+        token_create(ps.C.state, "b")
         log = self.configure("--auth", "local", "--local-user", "alice", "--members-only")
         self.assertEqual(log[0], "auth        local · owner alice · tokens 2 · loopback agent off · members-only on")
 
@@ -324,8 +356,8 @@ class StartupRules(AccessBase):
 
 class Tokens(AccessBase):
     def test_store_hashes_at_rest_0600_and_lists(self):
-        e1, t1 = ps.token_create(ps.C.state)
-        e2, t2 = ps.token_create(ps.C.state)
+        e1, t1 = token_create(ps.C.state)
+        e2, t2 = token_create(ps.C.state)
         self.assertEqual((e1["name"], e2["name"]), ("agent", "agent-2"))
         self.assertTrue(t1.startswith("limn_") and len(t1) > 40)
         raw = ps.C.tokens_file.read_text(encoding="utf-8")
@@ -334,22 +366,22 @@ class Tokens(AccessBase):
         self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
         d = json.loads(raw)
         self.assertEqual(d["version"], 1)
-        self.assertEqual([t["hash"] for t in d["tokens"]], [ps.token_hash(t1), ps.token_hash(t2)])
+        self.assertEqual([t["hash"] for t in d["tokens"]], [access.token_hash(t1), access.token_hash(t2)])
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{8}", t["id"]) and re.fullmatch(r"sha256:[0-9a-f]{64}", t["hash"])
                             and re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", t["created"]) for t in d["tokens"]))
         self.assertEqual([t["name"] for t in ps.load_tokens(ps.C.state)], ["agent", "agent-2"])
         with self.assertRaises(ValueError):
-            ps.token_create(ps.C.state, "agent")                      # names are unique
+            token_create(ps.C.state, "agent")                      # names are unique
         with self.assertRaises(ValueError):
-            ps.token_create(ps.C.state, "bad name")
-        self.assertEqual(ps.token_revoke(ps.C.state, e1["id"])["name"], "agent")   # by id
-        self.assertEqual(ps.token_revoke(ps.C.state, "agent-2")["id"], e2["id"])   # by name
-        self.assertIsNone(ps.token_revoke(ps.C.state, "agent-2"))
+            token_create(ps.C.state, "bad name")
+        self.assertEqual(token_revoke(ps.C.state, e1["id"])["name"], "agent")   # by id
+        self.assertEqual(token_revoke(ps.C.state, "agent-2")["id"], e2["id"])   # by name
+        self.assertIsNone(token_revoke(ps.C.state, "agent-2"))
         self.assertEqual(ps.load_tokens(ps.C.state), [])
         self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
 
     def test_token_principal_is_an_agent(self):
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         code, d = self.call("GET", "/api/meta?light=1", token=tok, headers=ALICE)   # a valid token wins over headers
         self.assertEqual(d["me"], {"login": "agent:ci", "name": "ci", "role": "agent"})
         pid = self.pin_id(token=tok)
@@ -367,13 +399,13 @@ class Tokens(AccessBase):
         self.assertFalse(ps.is_agent({"login": "alice@example.com"}))
 
     def test_revoked_token_is_401_without_restart(self):
-        e, tok = ps.token_create(ps.C.state, "ci")
+        e, tok = token_create(ps.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
-        ps.token_revoke(ps.C.state, e["id"])
+        token_revoke(ps.C.state, e["id"])
         code, d = self.call("GET", "/api/pins", token=tok)
         self.assertEqual(code, 401)
         self.assertIn("error", d)
-        _, tok2 = ps.token_create(ps.C.state, "ci")                     # a new token is accepted without restart too
+        _, tok2 = token_create(ps.C.state, "ci")                     # a new token is accepted without restart too
         self.assertEqual(self.call("GET", "/api/pins", token=tok2)[0], 200)
 
     def test_invalid_token_never_falls_back(self):
@@ -387,13 +419,13 @@ class Tokens(AccessBase):
 
     def test_token_file_is_reread_when_it_changes(self):
         self.assertEqual(ps.current_tokens(), [])
-        _, tok = ps.token_create(ps.C.state, "ci")
-        self.assertEqual(ps.token_lookup(tok)["name"], "ci")
+        _, tok = token_create(ps.C.state, "ci")
+        self.assertEqual(access.token_lookup(tok, ps.current_tokens())["name"], "ci")
         ps.C.tokens_file.write_text("{broken", encoding="utf-8")        # unreadable -> no token accepted (fail closed)
         with mock.patch.object(ps.sys, "stderr", io.StringIO()):
-            self.assertIsNone(ps.token_lookup(tok))
+            self.assertIsNone(access.token_lookup(tok, ps.current_tokens()))
         with self.assertRaises(ValueError):                            # and the CLI refuses to overwrite it
-            ps.token_create(ps.C.state, "x")
+            token_create(ps.C.state, "x")
 
     def cli(self, *args, env=None):
         e = dict(os.environ, PYTHONPATH=str(SRC))
@@ -518,15 +550,15 @@ class Roles(AccessBase):
         ps.set_done(rid, True, dict(ps.LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
-        self.assertEqual(d["error"], ps.CONFIRM_BY_HUMAN)
+        self.assertEqual(d["error"], CONFIRM_BY_HUMAN)
 
     def test_role_changes_apply_without_restart(self):
         self.call("GET", "/", headers=BOB)                              # auto-added, no role
         pid = self.add()
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "a"}, BOB)[0], 200)
-        ps.member_set_role(ps.C.state, "bob@example.com", "viewer")
+        member_set_role(ps.C.state, "bob@example.com", "viewer")
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "b"}, BOB)[0], 403)
-        ps.member_set_role(ps.C.state, "bob@example.com", "editor")
+        member_set_role(ps.C.state, "bob@example.com", "editor")
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "c"}, BOB)[0], 200)
 
     def test_unknown_role_value_is_viewer(self):
@@ -551,27 +583,27 @@ class Roles(AccessBase):
         self.assertEqual(d["me"]["role"], "editor")
 
     def test_member_store_add_list_remove_role(self):
-        e = ps.member_add(ps.C.state, "alice@example.com", "viewer")
+        e = member_add(ps.C.state, "alice@example.com", "viewer")
         self.assertEqual(e, {"login": "alice@example.com", "name": "alice", "role": "viewer"})
-        ps.member_add(ps.C.state, "bob@example.com", name="Bob Park")
+        member_add(ps.C.state, "bob@example.com", name="Bob Park")
         with self.assertRaises(ValueError):
-            ps.member_add(ps.C.state, "bob@example.com")
+            member_add(ps.C.state, "bob@example.com")
         for bad in ("", "local", "agent:x", " a"):
             with self.assertRaises(ValueError):
-                ps.member_add(ps.C.state, bad)
+                member_add(ps.C.state, bad)
         with self.assertRaises(ValueError):
-            ps.member_add(ps.C.state, "carol@example.com", "admin")
-        self.assertEqual([(p["login"], p["role"]) for p in ps.load_people_file(ps.C.state)],
+            member_add(ps.C.state, "carol@example.com", "admin")
+        self.assertEqual([(p["login"], p["role"]) for p in load_people_file(ps.C.state)],
                          [("alice@example.com", "viewer"), ("bob@example.com", "editor")])
-        self.assertEqual(ps.member_set_role(ps.C.state, "alice@example.com", "owner")["role"], "owner")
-        self.assertIsNone(ps.member_set_role(ps.C.state, "nobody@example.com", "owner"))
-        self.assertEqual(ps.member_remove(ps.C.state, "bob@example.com")["login"], "bob@example.com")
-        self.assertIsNone(ps.member_remove(ps.C.state, "bob@example.com"))
+        self.assertEqual(member_set_role(ps.C.state, "alice@example.com", "owner")["role"], "owner")
+        self.assertIsNone(member_set_role(ps.C.state, "nobody@example.com", "owner"))
+        self.assertEqual(member_remove(ps.C.state, "bob@example.com")["login"], "bob@example.com")
+        self.assertIsNone(member_remove(ps.C.state, "bob@example.com"))
         d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
         self.assertEqual(d, {"version": 1, "people": [{"login": "alice@example.com", "name": "alice", "role": "owner"}]})
         ps.C.people_file.write_text("{broken", encoding="utf-8")
         with self.assertRaises(ValueError):                            # never overwrite a file we could not read
-            ps.member_add(ps.C.state, "dan@example.com")
+            member_add(ps.C.state, "dan@example.com")
         self.assertEqual(ps.C.people_file.read_text(encoding="utf-8"), "{broken")
 
     def test_member_cli(self):
@@ -624,15 +656,15 @@ class Admission(AccessBase):
         self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])   # not recorded
         ps.C.allow = frozenset({"carol@example.com"})                  # --allow logins are admitted too
         self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)
-        ps.member_add(ps.C.state, "bob@example.com")                   # a new member is admitted on the next request
+        member_add(ps.C.state, "bob@example.com")                   # a new member is admitted on the next request
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
-        ps.member_remove(ps.C.state, "bob@example.com")
+        member_remove(ps.C.state, "bob@example.com")
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
 
     def test_members_only_keeps_agents(self):
         ps.C.members_only = True
         self.assertEqual(self.call("GET", "/api/pins")[0], 200)          # loopback agent
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
         code, _ = self.call("GET", "/api/pins", headers={"Host": "box.tail1234.ts.net"})   # tagged device
         self.assertEqual(code, 403)
@@ -688,7 +720,7 @@ class PublicHost(AccessBase):
         code, _ = self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4},
                             dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"))
         self.assertEqual(code, 403)
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(ps.remote_base_for("limn.example.com"), "https://limn.example.com")
         self.assertEqual(ps.remote_base_for("alt.example.com:8443"), "https://alt.example.com:8443")
         code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"}, token=tok)
@@ -814,7 +846,7 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
                            finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
     mod.set_docs(None)
     mod.init_seq()
-    if hasattr(mod, "_TOKENS_CACHE"):
+    if hasattr(mod, "TOKENS_CACHE"):
         reset_access(mod)
 
 
@@ -958,7 +990,7 @@ class Migration(AccessBase):
         for p in people:                                                 # a real person keeps today's rights
             code, _ = get(ps, "/api/pins", {"Tailscale-User-Login": p["login"]})
             self.assertEqual(code, 200, p["login"])
-            self.assertEqual(ps.role_of(p["login"]), ps.role_value(p.get("role")))
+            self.assertEqual(ps.role_of(p["login"]), access.role_value(p.get("role")))
 
 
 if __name__ == "__main__":

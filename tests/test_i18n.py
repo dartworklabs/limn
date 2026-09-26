@@ -22,6 +22,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
+from limn import access
+from limn import locate
 from limn.scope import ScopeUnreadable
 from limn.web import parse
 from limn.web.errors import scope_http_error
@@ -295,9 +297,9 @@ class ComposedMessages(unittest.TestCase):
 
 
 def pick_warning_sentences():
-    """The Korean sentences pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
+    """The Korean sentences limn.locate's pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
     import ast
-    tree = ast.parse(Path(ps.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(locate.__file__).read_text(encoding="utf-8"))
     out = set()
     for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("pick", "_pick_region")):
         for asg in (n for n in ast.walk(fn) if isinstance(n, ast.Assign)):
@@ -461,7 +463,7 @@ class EnglishChrome(unittest.TestCase):
         agent = dict(ps.LOCAL_ACTOR)
         for who in (ALICE, BOB, SEOJUN):
             ps.record_person(who)
-        ps.member_add(C.state, VERA["login"], "viewer", VERA["name"])
+        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.PEOPLE_FORMAT, ps.cli_audit(C.state))
         ms, rr = ps.DOCS
 
         def add(lo, hi, note, actor, **kw):

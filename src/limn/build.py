@@ -14,8 +14,8 @@ lock, build-state dict and lock, history lock and src_mtime memo - belong to the
 passes (server.Doc); this module creates none of them.
 
 What stays with the caller: which document and settings (server.py binds them per request), the --git-pull
-step (it coordinates every document of the repository, so it is passed in as `pull`), and the view-only PDF
-"build" (passed in as the compile step).
+step (it coordinates every document of the repository, so it is passed in as `pull`), and which compile step a
+tracked build runs - compile_tex for LaTeX, render_pdf_doc (the view-only PDF "build") for a PDF document.
 """
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import threading
@@ -193,6 +194,27 @@ def build_pdf(D: BuildDoc, name: object) -> Path | None:
         return None
     f = pdir / D.pdf_name
     return f if f.is_file() else None
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    """(width, height) in pixels from a PNG's IHDR chunk (bytes 16-24). Raises OSError when the file cannot be read and
+    struct.error when it is shorter than a PNG header."""
+    with path.open("rb") as fh:
+        w, h = struct.unpack(">II", fh.read(24)[16:24])
+    return w, h
+
+
+def page_list(pdir: Path, dpi: int) -> list[dict[str, Any]]:
+    """The page images of page directory pdir in name order as {name, pt_w, pt_h}: sizes in points at the dpi they
+    were rendered at. An unreadable image is left out; a missing directory has no pages."""
+    pages = []
+    for p in sorted(pdir.glob("page-*.png")):
+        try:
+            w, h = png_size(p)
+        except (OSError, struct.error):
+            continue
+        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
+    return pages
 
 
 def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
@@ -595,6 +617,67 @@ def commit_pages(D: BuildDoc, newdir: Path) -> str:
         head_short = "-"
     atomic_write(D.dir / "head.txt", head_short)
     return head_short
+
+
+# ---------------------------------------------------------------- View-only PDF documents
+#
+# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
+# (mtime/size), the page images are re-rendered - since it goes through the same tracked build (run_tracked ->
+# history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
+
+def pdf_signature(D: BuildDoc) -> str | None:
+    """"<mtime_ns>:<size>" of view-only document D's PDF, or None when it cannot be read (missing)."""
+    try:
+        st = D.main.stat()
+        return "%d:%d" % (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildResult:
+    """The 'build' of view-only document D - renders its PDF into page images at cfg.dpi. No LaTeX, SyncTeX, or pull.
+    The PDF's signature is recorded (pdf_sig.txt) after a render, successful or not, so a PDF that fails to render is
+    retried only when the file changes, never on every poll. A missing PDF is a fail result naming it."""
+    t0 = time.time()
+    res: BuildResult = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
+    sig = pdf_signature(D)
+    if sig is None:
+        res["log"] = "PDF 가 없습니다: %s" % D.main
+        return res
+    try:
+        res["src_hash"] = doc_fingerprint(D, cfg.state)
+    except OSError:
+        res["src_hash"] = None
+    newdir, err = render_pages(D, D.main, [], cfg.dpi)
+    if newdir is None:
+        res["log"] = err
+        res["elapsed_s"] = round(time.time() - t0, 1)
+        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
+            atomic_write(D.dir / "pdf_sig.txt", sig)
+        except OSError:
+            pass
+        return res
+    res["head"] = commit_pages(D, newdir)
+    try:
+        atomic_write(D.dir / "pdf_sig.txt", sig)
+    except OSError:
+        pass
+    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
+               elapsed_s=round(time.time() - t0, 1))
+    return res
+
+
+def pdf_changed(D: BuildDoc) -> bool:
+    """Has view-only document D's PDF changed since its page images were last rendered (or have they never been
+    rendered)? False when the PDF is missing - there is nothing to render."""
+    sig = pdf_signature(D)
+    if sig is None:
+        return False
+    try:
+        done = (D.dir / "pdf_sig.txt").read_text().strip()
+    except OSError:
+        done = ""
+    return sig != done
 
 
 # ---------------------------------------------------------------- Build history (builds.json)

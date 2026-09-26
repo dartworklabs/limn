@@ -4,8 +4,9 @@
 Instance management lives in the bash script instances.sh next to this file. This module hands it
 the paths it needs (interpreter, server, unit template, the limn executable) and the version via
 environment variables, then execs bash. `limn token` and `limn member` are Python: they edit the
-instance's state directory through the store helpers in server.py (the server stays one module).
-server.py is imported only by the commands that need it, so `limn version` and the instance commands stay fast.
+instance's state directory through the state helpers in limn.access, with the audit sink and the people.json format
+that server.py wires (cli_audit, PEOPLE_FORMAT). server.py is imported only by the commands that need it, so
+`limn version` and the instance commands stay fast.
 """
 from __future__ import annotations
 
@@ -47,7 +48,7 @@ Instances (one systemd user unit limn@<name> per manuscript):
 """
 
 INSTANCE_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
-TOKEN_LINE_RE = re.compile(r"limn_[A-Za-z0-9_-]+")   # what a token file holds: server.TOKEN_PREFIX + token_urlsafe
+TOKEN_LINE_RE = re.compile(r"limn_[A-Za-z0-9_-]+")   # what a token file holds: access.TOKEN_PREFIX + token_urlsafe
 
 # One extra argparse option of split_target(): (flags, add_argument keyword arguments),
 # e.g. (("--name",), {"help": "..."}).
@@ -304,7 +305,7 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
 
     Every check runs before the token exists, and a failed write revokes the new token again, so a failure never
     leaves a valid token nobody holds. The token is printed only with --print."""
-    from limn import server as ps
+    from limn import access, server as ps
     if ns.instance is None:
         raise CliError("--save needs an instance name: the token file is <config dir>/<instance>.token "
                        "(see limn token path <instance>)")
@@ -313,12 +314,12 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
     refusal = save_refusal(inspect_save_target(path), path, ns.force)
     if refusal:
         raise CliError(refusal)
-    entry, plain = ps.token_create(state, ns.name)
+    entry, plain = access.token_create(state, ns.name, ps.cli_audit(state))
     try:
         write_token_file(path, plain, replace=ns.force)
     except OSError as e:
         try:
-            ps.token_revoke(state, entry["id"])
+            access.token_revoke(state, entry["id"], ps.cli_audit(state))
         except (OSError, ValueError) as undo:
             raise CliError("could not write %s: %s - and could not revoke the new token (%s), so it is still valid; "
                            "revoke it: limn token revoke %s %s" % (path, e, undo, ns.instance, entry["id"])) from e
@@ -332,7 +333,7 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
           "      A running server accepts it on the next request." % (path, "" if ns.print else ", not printed", path),
           file=sys.stderr)
     if previous:
-        old = [t for t in ps.load_tokens(state) if t["hash"] == ps.token_hash(previous)]
+        old = [t for t in access.load_tokens(state) if t["hash"] == access.token_hash(previous)]
         if old:
             print("limn: the token that was in the file (id %s, name %s) is still valid - revoke it if nothing else "
                   "uses it: limn token revoke %s %s" % (old[0]["id"], old[0]["name"], ns.instance, old[0]["id"]),
@@ -355,11 +356,12 @@ def forget_saved_token(path: Path, revoked: Mapping[str, Any], token_hash: Calla
 
 
 def cmd_token(argv: Sequence[str]) -> int:
-    """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the store helpers in
-    server.py and, for an instance, its token file (ADR-0007). Refusals raise CliError; main() prints them."""
+    """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the state helpers in
+    limn.access (audited through server.cli_audit) and, for an instance, its token file (ADR-0007). Refusals raise
+    CliError; main() prints them."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    from limn import server as ps
+    from limn import access, server as ps
     if sub == "create":
         state, _, ns = split_target("limn token create", rest, 0, [
             (("--name",), {"help": "token name (default agent, agent-2, ...)"}),
@@ -371,7 +373,7 @@ def cmd_token(argv: Sequence[str]) -> int:
             return create_saved_token(state, ns)
         if ns.force or ns.print:
             raise CliError("--force and --print only go with --save")
-        entry, plain = ps.token_create(state, ns.name)
+        entry, plain = access.token_create(state, ns.name, ps.cli_audit(state))
         print(plain)
         sys.stdout.flush()
         print("limn: created token %s (name %s) in %s" % (entry["id"], entry["name"], state / "tokens.json"), file=sys.stderr)
@@ -388,7 +390,7 @@ def cmd_token(argv: Sequence[str]) -> int:
         return 0
     if sub == "list":
         state, _, ns = split_target("limn token list", rest, 0)
-        rows = ps.load_tokens(state, strict=True)
+        rows = access.load_tokens(state, strict=True)
         if not rows:
             print("no tokens in %s" % state)
             return 0
@@ -396,17 +398,18 @@ def cmd_token(argv: Sequence[str]) -> int:
         for t in rows:
             print("%-10s %-24s %s" % (t["id"], t["name"], t.get("created", "")))
         saved = read_token_file(token_file_path(ns.instance)) if ns.instance else None
-        held = [t for t in rows if saved is not None and t["hash"] == ps.token_hash(saved)]
+        held = [t for t in rows if saved is not None and t["hash"] == access.token_hash(saved)]
         if held:
             print("token file %s holds %s (name %s)" % (token_file_path(ns.instance), held[0]["id"], held[0]["name"]))
         return 0
     if sub in ("revoke", "rm"):
         state, pos, ns = split_target("limn token revoke", rest, 1)
-        t = ps.token_revoke(state, pos[0])
-        if t is None:
+        revoked = access.token_revoke(state, pos[0], ps.cli_audit(state))
+        if revoked is None:
             raise CliError("no token with id or name %r in %s" % (pos[0], state))
-        print("revoked token %s (name %s) — the running server refuses it from the next request" % (t["id"], t["name"]))
-        note = forget_saved_token(token_file_path(ns.instance), t, ps.token_hash) if ns.instance else None
+        print("revoked token %s (name %s) — the running server refuses it from the next request"
+              % (revoked["id"], revoked["name"]))
+        note = forget_saved_token(token_file_path(ns.instance), revoked, access.token_hash) if ns.instance else None
         if note:
             print(note)
         return 0
@@ -414,30 +417,31 @@ def cmd_token(argv: Sequence[str]) -> int:
 
 
 def cmd_member(argv: Sequence[str]) -> int:
-    """`limn member add|list|remove|role ...` -> exit status. Edits <state>/people.json through the store helpers in
-    server.py; a running server applies the change from its next request. A missing member or an unknown subcommand
+    """`limn member add|list|remove|role ...` -> exit status. Edits <state>/people.json through the state helpers in
+    limn.access, in server.py's people.json format and audit sink; a running server applies the change from its next
+    request. A missing member or an unknown subcommand
     raises CliError; an invalid login or role, an existing member, or an unreadable people.json raises ValueError
     from the store helpers; main() prints both."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    from limn import server as ps
+    from limn import access, server as ps
     note = "the running server applies it from the next request"
     if sub == "add":
         state, pos, ns = split_target("limn member add", rest, 1, [
-            (("--role",), {"default": ps.DEFAULT_ROLE, "choices": ps.ROLES, "help": "role (default editor)"}),
+            (("--role",), {"default": access.DEFAULT_ROLE, "choices": access.ROLES, "help": "role (default editor)"}),
             (("--name",), {"help": "display name (default: the part of the login before @)"})])
-        e = ps.member_add(state, pos[0], ns.role, ns.name)
+        e = access.member_add(state, pos[0], ns.role, ns.name, ps.PEOPLE_FORMAT, ps.cli_audit(state))
         print("added %s as %s (%s) — %s" % (e["login"], e["role"], e["name"], note))
         return 0
     if sub in ("list", "ls"):
         state, _, _ = split_target("limn member list", rest, 0)
-        rows = ps.load_people_file(state)
+        rows = access.load_people_file(state, ps.PEOPLE_FORMAT)
         if not rows:
             print("no members in %s" % state)
             return 0
         print("%-32s %-7s %-24s %s" % ("LOGIN", "ROLE", "NAME", "LAST SEEN"))
         for x in rows:
-            role = ps.role_value(x.get("role"))
+            role = access.role_value(x.get("role"))
             print("%-32s %-7s %-24s %s" % (x["login"], role + ("" if "role" in x else "*"), x.get("name") or "",
                                            x.get("last_seen") or "-"))
         if any("role" not in x for x in rows):
@@ -445,13 +449,13 @@ def cmd_member(argv: Sequence[str]) -> int:
         return 0
     if sub in ("remove", "rm"):
         state, pos, _ = split_target("limn member remove", rest, 1)
-        if ps.member_remove(state, pos[0]) is None:
+        if access.member_remove(state, pos[0], ps.PEOPLE_FORMAT, ps.cli_audit(state)) is None:
             raise CliError("%s is not in %s" % (pos[0], state / "people.json"))
         print("removed %s — %s" % (pos[0], note))
         return 0
     if sub == "role":
         state, pos, _ = split_target("limn member role", rest, 2)
-        changed = ps.member_set_role(state, pos[0], pos[1])
+        changed = access.member_set_role(state, pos[0], pos[1], ps.PEOPLE_FORMAT, ps.cli_audit(state))
         if changed is None:
             raise CliError("%s is not in %s (add it with `limn member add`)" % (pos[0], state / "people.json"))
         print("%s is now %s — %s" % (changed["login"], changed["role"], note))
