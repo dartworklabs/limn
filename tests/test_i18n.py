@@ -400,7 +400,7 @@ class EnglishChrome(unittest.TestCase):
 
         def add(lo, hi, note, actor, **kw):
             d = dict(file=str(C.main), lo=lo, hi=hi, page=1 + lo // 20, note=note, **kw)
-            return ps.add_pin(d, actor)
+            return ps.add_pin(d, actor).record["id"]
         with ps.using_doc(ms):
             claimed = add(4, 5, "Tighten this sentence", ALICE)
             ps.claim_pin(claimed, agent, *ps.clean_claim_body({"eta_min": 10}))
@@ -418,7 +418,7 @@ class EnglishChrome(unittest.TestCase):
             dropped = add(28, 29, "Wrong spot", ALICE)
             ps.drop_pin(dropped, ALICE)
         with ps.using_doc(rr):
-            ps.add_pin(dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE)
+            ps.add_pin(dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE).record["id"]
 
         def age(rows):               # threads and pins from yesterday and a few hours ago, so relative times show
             for i, r in enumerate(rows):

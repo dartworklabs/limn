@@ -79,13 +79,13 @@ class ReplyApi(AccessBase):
             ps.record_person(actor(h))
 
     def review_pin(self, kind="fix", author=A):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author)
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author).record["id"]
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="줄였습니다", ref="PR #9")
         self.assertEqual(ps.pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
         ps.set_done(pid, True, A, reply="고침")
         self.assertEqual(ps.pin_state(self.pin(pid)), "done")
         return pid
@@ -129,7 +129,7 @@ class ReplyApi(AccessBase):
 
     def test_reopening_reply_still_tells_everyone_involved(self):
         # A reply on a closed pin used to reach everyone tagged on the pin (replied); reopening must not silence them.
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A).record["id"]
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침")
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
@@ -146,7 +146,7 @@ class ReplyApi(AccessBase):
         self.assertEqual((d["reopened"], d["state"]), (True, "open"))
 
     def test_reply_on_open_pin_never_changes_state(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
         for body in ({"text": "이유 없이"}, {"text": "강제로", "reopen": True}):
             code, d = self.reply(pid, body, BOB)
             self.assertEqual((code, d["reopened"], d["state"]), (200, False, "open"))
@@ -514,10 +514,10 @@ class ViewerFlows(BrowserBase):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
-        self.open_id = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A)
-        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A)
+        self.open_id = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record["id"]
+        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
         ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="식 번호를 고쳤습니다", ref="PR #9")
-        self.dn = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A)
+        self.dn = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
         ps.set_done(self.dn, True, A, reply="고침")
 
     def state(self, pid):
@@ -783,7 +783,7 @@ class ViewerFlows(BrowserBase):
             self.assertEqual(page.get_attribute("#review-toggle", "aria-expanded"), "false")
             page.keyboard.press(" ")
             self.assertEqual(page.get_attribute("#review-toggle", "aria-expanded"), "true")
-            ps.add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "새 핀"}, B)
+            ps.add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "새 핀"}, B).record["id"]
             page.evaluate("loadPins()")
             page.wait_for_selector("#open-toggle .sec-new:not([hidden])")
             self.assertEqual(page.inner_text("#open-toggle .sec-new"), TXT[lang]["new"])
@@ -881,12 +881,12 @@ class ColdDeepLink(BrowserBase):
         ms, hl = ps.DOCS
         with ps.using_doc(ms):
             for lo in range(4, 30, 2):
-                ps.add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A)
+                ps.add_pin({"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A).record["id"]
         with ps.using_doc(hl):
             for lo in range(4, 24, 2):
-                ps.add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A)
-            self.target = ps.add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A)
-            self.gone = ps.add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A)
+                ps.add_pin({"file": str(src / "hl.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "하이라이트 %d" % lo}, A).record["id"]
+            self.target = ps.add_pin({"file": str(src / "hl.tex"), "lo": 30, "hi": 31, "page": 2, "note": "여기로 와야 함"}, A).record["id"]
+            self.gone = ps.add_pin({"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A).record["id"]
         ps.drop_pin(self.gone, B)
         self.addCleanup(ps.set_docs, None)
 
@@ -937,7 +937,7 @@ class AgentAsPerson(AccessBase):
         super().setUp()
         ps.C.auth = "local"
         ps.C.agent_loopback = False
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침")
         self.pid = pid
 
@@ -1035,7 +1035,7 @@ class PreviewEqualsServer(BrowserBase):
             ps.record_person(p)
         self.pins = []
         for i in range(5):
-            pid = ps.add_pin({"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A)
+            pid = ps.add_pin({"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A).record["id"]
             ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="고침 %d" % i)
             self.pins.append(pid)
 
@@ -1085,7 +1085,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
     def setUp(self):
         super().setUp()
         ps.record_person(A)
-        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A)
+        self.rv = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
         ps.set_done(self.rv, True, dict(ps.LOCAL_ACTOR), reply="고침")
 
     def box(self, page):
@@ -1134,8 +1134,8 @@ class RestoreLinkRunsOnce(BrowserBase):
 
     def test_reload_does_not_restore_again(self):
         ps.record_person(A)
-        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A)
-        keep = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A)
+        pid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
+        keep = ps.add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
         ps.drop_pin(pid, B)
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)

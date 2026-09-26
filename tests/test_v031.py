@@ -115,7 +115,7 @@ class NoteMentionCooldown(Base):
     def test_toggling_a_tag_three_times_within_ten_minutes_sends_one_mention(self):
         """Issue #10 L3: pin with @Bob, then remove and re-add the tag three times - Bob hears of it once, not four times."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
-            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A)
+            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
             self.toggle(pid, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
         self.assertEqual(ps.find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])   # the note still tags him
@@ -137,7 +137,7 @@ class NoteMentionCooldown(Base):
     def test_note_append_with_the_tag_is_under_the_same_cooldown(self):
         """note_append that writes @Bob again counts as a note edit: suppressed inside the window, sent after it."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
-            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A)
+            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
             ps.edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
         with mock.patch.object(ps.time, "time", return_value=self.t0 + ps.NOTE_MENTION_COOLDOWN_S + 5):
@@ -147,7 +147,7 @@ class NoteMentionCooldown(Base):
     def test_another_editor_or_pin_has_its_own_cooldown(self):
         """Carol tagging Bob on the same pin, or Alice tagging him on another pin, still notifies Bob."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
-            p1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 하나"}, self.A)
+            p1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 하나"}, self.A).record["id"]
             self.edit_note(p1, "없음", self.C)
             self.edit_note(p1, "@Bob Park 둘", self.C)
             p2 = self.add(lo=8, hi=9, actor=self.A)
@@ -158,7 +158,7 @@ class NoteMentionCooldown(Base):
     def test_replies_and_reopen_reasons_still_notify_every_time(self):
         """Explicit messages are not rate-limited: every reply or reopen reason that tags Bob is a mention."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
-            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A)
+            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
             ps.reply_pin(pid, "@Bob Park 하나", self.A)
             ps.reply_pin(pid, "@Bob Park 둘", self.A)
             ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
