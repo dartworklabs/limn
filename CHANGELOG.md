@@ -2,13 +2,23 @@
 
 ## Unreleased
 
-One server fix; the HTTP API and `pins.md` are unchanged.
+Server and viewer fixes; the HTTP API and `pins.md` are unchanged.
 
 - **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
   and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
   they were made before the record had its `doc`; a notice about a pin in the second document opened the first one.
   They now carry the pin's document, like every other notice. Region pins, single-document instances and the other
   fields are unchanged; records already written are left as they are.
+- **No '등록된 사람이 아님' while a name is still being typed (fix).** The 2026-09-25 QA fix that holds the warning
+  for the `@word` under the caret had stopped running: a later edit left its statement at the end of a `//` comment in
+  `mentionPreview`. It runs again, and a test now fails when a viewer `//` comment ends in code.
+- **The viewer reads @-tags exactly as the server does (fix).** The preview line, the reply outcome and the assignee
+  choice now find the same people the server records ([viewer.md](docs/handbook/viewer.md) §@태그). A person whose name
+  or first word equals their login's local part (`Bob`, `bob@example.com`; `@Alice` for `alice@example.com`) was shown
+  as nobody, and an `@` right after a non-ASCII letter (`é@rlee`) was shown - and rendered in cards - as a tag the
+  server skips. The assignee row resolved the note with every login ever picked in the field instead of the hints the
+  save sends, so a pick edited down to a shared first word saved a pin handed to someone its note did not tag. A shared
+  corpus (tests/test_mentions_parity.py) now runs through both resolvers.
 
 ## 0.3.5 — unreleased
 
