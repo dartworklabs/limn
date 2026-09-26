@@ -301,6 +301,8 @@ def forget_saved_token(path: Path, revoked: dict, token_hash) -> str | None:
 
 
 def cmd_token(argv: list) -> int:
+    """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the store helpers in
+    server.py and, for an instance, its token file (ADR-0007). Refusals raise CliError; main() prints them."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
     ps = server_module()
@@ -400,6 +402,9 @@ def cmd_member(argv: list) -> int:
 
 
 def main(argv: list | None = None) -> int:
+    """The `limn` entry point -> exit status. serve, version, migrate, token and member run here in Python; every
+    other command execs instances.sh (so this returns only for those). A CliError, bad value, OS or subprocess error
+    of `token` / `member` is one `limn: ...` line on stderr and status 1."""
     args = list(sys.argv[1:] if argv is None else argv)
     cmd = args[0] if args else ""
     if cmd in ("version", "--version", "-V"):

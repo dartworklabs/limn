@@ -7096,6 +7096,8 @@ class Server6(Server):
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """The `limn serve` argument parser. Defaults that come from the environment (LIMN_AGENT_TOKEN_FILE) are read
+    when the parser is built, i.e. at startup in main()."""
     ap = argparse.ArgumentParser(prog="limn serve", description=__doc__.splitlines()[0])
     ap.add_argument("--version", action="version", version="%s %s" % (APP_NAME, app_version()))
     ap.add_argument("--manuscript", required=True, help="LaTeX source root directory")

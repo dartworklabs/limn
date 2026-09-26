@@ -428,6 +428,8 @@ class Tokens(AccessBase):
         self.assertIn("no config found", r.stderr)
 
     def test_cli_env_parsing_matches_instances_sh(self):
+        """cli.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
+        checked against the shell function itself with whatever bash is first on PATH (3.2 on stock macOS)."""
         from importlib import import_module
         sys.path.insert(0, str(SRC))
         try:
