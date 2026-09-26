@@ -282,7 +282,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > `tailscale` 방식에서 같은 머신의 로컬 프로세스는 헤더를 붙여 사람을, 헤더를 빼서 에이전트를 흉내 낼 수 있다. 헤더는 루프백 피어에서 오면 믿기 때문이다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, `--no-agent-loopback`으로 헤더 없는 에이전트를 끄고, `--members-only`나 역할로 좁힌다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `identify`, `admit`, `check_role`, `is_agent`, `actor_of`, `record_person`, `who`, `LOCAL_ACTOR`다.
+실행 정본은 [`src/limn/access.py`](../../src/limn/access.py)의 `identify`, `admit`, `check_role`, `actor_of`, `LOCAL_ACTOR`와 [`src/limn/server.py`](../../src/limn/server.py)의 `is_agent`, `record_person`, `who`다.
 
 ## 여러 문서
 
