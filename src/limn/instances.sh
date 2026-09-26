@@ -39,7 +39,8 @@
 #   limn remove <name>                     stops and disables the unit, unserves it, deletes the config (= port reservation).
 #                                          does not delete the state dir
 #   limn run <name>                        (unit-only) reads the config and execs into the server
-#   limn token create|list|revoke <name> … agent API tokens; limn member add|list|remove|role <name> … roles
+#   limn token create|path|list|revoke <name> … agent API tokens (create --save writes <config dir>/<name>.token);
+#                                          limn member add|list|remove|role <name> … roles
 #                                          (Python, see limn help — they edit the instance's state dir)
 #
 # Access control (v0.2, docs/handbook/instances.md §설정 키): AUTH, AGENT_LOOPBACK, TAILNET_AGENT, BIND, PUBLIC_HOSTS,
@@ -88,10 +89,41 @@ LOCAL_OFFSET="${LIMN_LOCAL_OFFSET:-100}"
 DOCS_MAX=12
 DOC_NAME_MAX=40
 # Passed in by the CLI: the installed limn's Python, server, unit template, executable, and version.
-PYTHON="${LIMN_PYTHON:-}"
-if [[ -z "$PYTHON" ]]; then
-    if [[ -x /usr/bin/python3 ]]; then PYTHON=/usr/bin/python3; else PYTHON=$(command -v python3 || true); fi
-fi
+# The server needs Python >= 3.10 (pyproject requires-python). The CLI passes the interpreter it runs on, which
+# satisfies that by construction; run directly (tests, a checkout), the first python3 / python3.1x on PATH that does
+# is used. macOS ships a /usr/bin/python3 3.9, so the first python3 found is not good enough by itself.
+PY_MIN_MAJOR=3 PY_MIN_MINOR=10
+python_ok() { # python_ok <interpreter> — is it Python >= PY_MIN_MAJOR.PY_MIN_MINOR?
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (int(sys.argv[1]), int(sys.argv[2])) else 1)' \
+        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" > /dev/null 2>&1
+}
+# find_python — prints the interpreter to use; fails (with the reason on stderr) when there is none. LIMN_PYTHON is
+# an explicit choice, so a too-old one is an error rather than silently replaced.
+find_python() {
+    local c p
+    if [[ -n "${LIMN_PYTHON:-}" ]]; then
+        python_ok "$LIMN_PYTHON" && {
+            printf '%s' "$LIMN_PYTHON"
+            return 0
+        }
+        printf 'LIMN_PYTHON=%s is not Python >= %s.%s (or does not run) — point it at a newer interpreter, or unset it\n' \
+            "$LIMN_PYTHON" "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+        return 1
+    fi
+    for c in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        p=$(command -v "$c" 2> /dev/null) || continue
+        python_ok "$p" && {
+            printf '%s' "$p"
+            return 0
+        }
+    done
+    printf 'no Python >= %s.%s found (python3, python3.1x on PATH) — run limn through its installed command, or put a newer python3 first on PATH\n' \
+        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+    return 1
+}
+PYTHON=$(find_python 2> /dev/null) || PYTHON=""
+PYTHON_WHY="" # why there is none - main() stops with it, except for help
+[[ -n "$PYTHON" ]] || PYTHON_WHY=$(find_python 2>&1 > /dev/null)
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="${LIMN_SERVER:-$_HERE/server.py}"
 UNIT_TEMPLATE="${LIMN_UNIT_TEMPLATE:-$_HERE/systemd/limn@.service}"
@@ -584,14 +616,150 @@ ensure_conf_link() { # if only the repo source exists, link it into home
     mkdir -p "$CONFIG_DIR" && ln -s "$(src_of "$n")" "$(conf_of "$n")"
 }
 
-http_code() { # http_code <local port> — only pokes a read-only route
-    curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$1/api/meta?light=1" 2> /dev/null || true
+# ── the agent token file (docs/adr/0007-agent-token-file.md) ──
+# Agents on this machine read an instance's token from <config dir>/<name>.token (mode 0600, written by
+# `limn token create <name> --save`). This script sends it too when it asks a running instance over HTTP, so
+# status checks keep working once the instance refuses headerless requests (AGENT_LOOPBACK=0). Never in SOURCE_DIR.
+token_file_of() { printf '%s/%s.token' "$CONFIG_DIR" "$1"; }
+
+# token_of <name> — prints the instance's token from its token file, if that file is safe to use. No file: nothing,
+# status 1. A file that is a symlink or not a regular file, belongs to another account, is open to group/others, or
+# is not a single `limn_…` line is not used either: a warning says why and how to fix it.
+token_of() {
+    local f perm mode owner tok re='^limn_[A-Za-z0-9_-]+$'
+    f=$(token_file_of "$1")
+    [[ -e "$f" || -L "$f" ]] || return 1
+    if [[ -L "$f" || ! -f "$f" ]]; then
+        warn "$f is not a regular file — not using it (recreate it: limn token create $1 --save --force)"
+        return 1
+    fi
+    perm=$(stat_fmt '%a %u' '%Lp %u' "$f") || perm=""
+    read -r mode owner <<< "$perm"
+    if [[ ! "$mode" =~ ^[0-7]+$ || "$owner" != "$(id -u)" ]]; then
+        warn "$f does not belong to this account — not using it"
+        return 1
+    fi
+    if ((8#$mode & 8#077)); then
+        warn "$f is open to group or others (mode $mode) — not using it; fix it: chmod 600 $f"
+        return 1
+    fi
+    tok=$(< "$f") || tok=""
+    if [[ ! "$tok" =~ $re ]]; then
+        warn "$f does not hold one limn_… token line — not using it (recreate it: limn token create $1 --save --force)"
+        return 1
+    fi
+    printf '%s' "$tok"
 }
-wait_ready() { # wait_ready <name> <port>
-    local i code
+
+# shell_path <path> — the path as an agent's shell should see it: ~/… under $HOME (the tilde still expands inside
+# $(cat …)), else as is. For text people paste, never for this script's own file access.
+# The server's shell_path() follows the same rule: ~/ only for a plain rest under a non-empty $HOME, else quoted.
+shell_path() {
+    local rest re='^[A-Za-z0-9._/-]+$'
+    if [[ -n "${HOME:-}" && "$1" == "$HOME"/* ]]; then
+        rest=${1#"$HOME"/}
+        if [[ "$rest" =~ $re ]]; then
+            # The tilde is literal text for the reader's shell, not an expansion here.
+            # shellcheck disable=SC2088
+            printf '~/%s' "$rest"
+            return
+        fi
+    fi
+    printf '%q' "$1"
+}
+
+# own_listener <port> — is every socket listening on <port> this account's (and is there one)? The token goes only to
+# our own server: while an instance is down another account could listen on its port (ports are predictable, they
+# are in the ledger) and read the Authorization header. Linux: the uid column of /proc/net/tcp and tcp6
+# (LIMN_PROC_NET points elsewhere in tests). Elsewhere (macOS): lsof, split into this account's listeners and
+# anyone else's. Neither available: no.
+own_listener() {
+    local port=$1 uid net=${LIMN_PROC_NET:-/proc/net}
+    uid=$(id -u)
+    if [[ -r "$net/tcp" ]]; then
+        "$PYTHON" -c 'import sys
+port, uid, owners = int(sys.argv[1]), sys.argv[2], set()
+for name in sys.argv[3:]:
+    try:
+        rows = open(name).read().splitlines()[1:]
+    except OSError:
+        continue
+    for row in rows:
+        c = row.split()
+        if len(c) > 7 and c[3] == "0A" and int(c[1].rsplit(":", 1)[1], 16) == port:
+            owners.add(c[7])
+sys.exit(0 if owners == {uid} else 1)' "$port" "$uid" "$net/tcp" "$net/tcp6" 2> /dev/null
+        return
+    fi
+    command -v lsof > /dev/null 2>&1 || return 1
+    [[ -n "$(lsof -nP -a -u "$uid" -iTCP:"$port" -sTCP:LISTEN -t 2> /dev/null)" ]] \
+        && [[ -z "$(lsof -nP -a -u "^$uid" -iTCP:"$port" -sTCP:LISTEN -t 2> /dev/null)" ]]
+}
+
+# probe_auth <name> <port> — how a check of <port> authenticates, as "<how> [token]": sent (the token file's token
+# goes with it), withheld (a usable token, but the port is not held by this account - see own_listener), unusable
+# (a token file token_of refused, with its warning), or none (no token file).
+probe_auth() {
+    local tok f
+    f=$(token_file_of "$1")
+    if tok=$(token_of "$1"); then
+        if own_listener "$2"; then printf 'sent %s' "$tok"; else printf 'withheld'; fi
+    elif [[ -e "$f" || -L "$f" ]]; then
+        printf 'unusable'
+    else
+        printf 'none'
+    fi
+}
+
+# probe_code <local port> [token] — HTTP code of a read-only route. The token goes to curl on stdin (-H @-), never
+# on its command line, where other accounts could read it (ps).
+probe_code() {
+    local url="http://127.0.0.1:$1/api/meta?light=1"
+    if [[ -n "${2:-}" ]]; then
+        curl -s -o /dev/null -m 5 -w '%{http_code}' -H @- "$url" 2> /dev/null <<< "Authorization: Bearer $2" || true
+    else
+        curl -s -o /dev/null -m 5 -w '%{http_code}' "$url" 2> /dev/null || true
+    fi
+}
+http_code() { # http_code <name> <local port> — probe_code, with the token file's token when probe_auth sends it
+    local how tok=""
+    read -r how tok <<< "$(probe_auth "$1" "$2")"
+    probe_code "$2" "$tok"
+}
+# refused_hint <name> <how: sent|withheld|unusable|none> — what a 401 from the instance's port means, and the fix.
+refused_hint() {
+    local f
+    f=$(token_file_of "$1")
+    case "$2" in
+        sent) printf 'the token in %s was refused (revoked?) — make a new one: limn token create %s --save --force' "$f" "$1" ;;
+        withheld) printf 'no process of this account listens on the port, so the token was not sent — is the instance down, or another account on its port?' ;;
+        unusable) printf 'the token file %s is not usable (see the warning) — chmod 600 it, or replace it: limn token create %s --save --force' "$f" "$1" ;;
+        *) printf 'it refuses requests without a token (AGENT_LOOPBACK=0, or AUTH other than tailscale) and there is no token file — limn token create %s --save' "$1" ;;
+    esac
+}
+# wait_ready <name> <port> — 0 once it answers 200; 2 if the unit failed; 3 on a 401 (it is up but refuses this
+# check: no usable token file, or a revoked one - waiting would not change that); 1 when LIMN_WAIT runs out.
+# READY_HOW tells the caller how the last check authenticated (for refused_hint). The token file is read once; the
+# token goes with a check only while this account holds the port (own_listener), which a starting unit may not yet.
+wait_ready() {
+    local i code tok="" t f
+    f=$(token_file_of "$1")
+    if tok=$(token_of "$1"); then
+        READY_HOW=withheld
+    else
+        tok=""
+        READY_HOW=none
+        [[ -e "$f" || -L "$f" ]] && READY_HOW=unusable
+    fi
     for ((i = 0; i < WAIT_S; i++)); do
-        code=$(http_code "$2")
+        t=""
+        if [[ -n "$tok" ]] && own_listener "$2"; then
+            t=$tok
+            READY_HOW=sent
+        fi
+        code=$(probe_code "$2" "$t")
         [[ "$code" == 200 ]] && return 0
+        [[ "$code" == 401 ]] && return 3
         if [[ "$(sysu is-active "$(unit_of "$1")" 2> /dev/null)" == failed ]]; then
             return 2
         fi
@@ -704,8 +872,11 @@ git_commit_time() {
     [[ -n "$t" ]] || return 1
     printf '%s' "$t"
 }
-# file_mtime <file> — modification time (unix epoch). Tries both GNU (stat -c) and BSD/macOS (stat -f).
-file_mtime() { stat -c %Y "$1" 2> /dev/null || stat -f %m "$1" 2> /dev/null; }
+# stat_fmt <GNU format> <BSD format> <file> — one stat(1) field on GNU (Linux: stat -c) or BSD/macOS (stat -f). BSD
+# stat rejects -c, so the GNU form fails there and the BSD form runs; on GNU the -c form succeeds for any existing file.
+stat_fmt() { stat -c "$1" "$3" 2> /dev/null || stat -f "$2" "$3" 2> /dev/null; }
+# file_mtime <file> — modification time (unix epoch).
+file_mtime() { stat_fmt %Y %m "$1"; }
 
 # detect_main_for_round <round dir> — uses detect_main as-is, but if there are multiple candidates
 # (e.g. a leftover prior manuscript with its own \documentclass still sitting in the same round
@@ -825,6 +996,10 @@ cmd_run() {
         printf '%s\n' "$PYTHON" "$SERVER" "${args[@]}"
         return 0
     fi
+    # Where agents on this machine keep the token (ADR-0007). An environment variable, not a flag, so a config
+    # without access keys still yields exactly the v0.1 argv. The server only checks whether the file exists.
+    LIMN_AGENT_TOKEN_FILE=$(token_file_of "$n")
+    export LIMN_AGENT_TOKEN_FILE
     exec "$PYTHON" "$SERVER" "${args[@]}"
 }
 
@@ -840,6 +1015,7 @@ start_instance() { # start_instance <name> <serve 0|1>
     case $rc in
         0) say "127.0.0.1:$C_PORT 200" ;;
         2) die "the unit failed: journalctl --user -u $(unit_of "$n") -n 50" ;;
+        3) warn "127.0.0.1:$C_PORT is up but answers 401: $(refused_hint "$n" "$READY_HOW")" ;;
         *) warn "not 200 yet (may still be building) — limn status $n" ;;
     esac
     if [[ "$serve" == 1 ]]; then
@@ -1003,6 +1179,23 @@ cmd_stop() {
     say "$(unit_of "$n") stopped and disabled (config, port reservation, and serve entry stay as-is — turn back on: limn start $n)"
 }
 
+# with_timeout <seconds> <command...> — runs the command, killed after the given seconds: GNU timeout (Linux),
+# gtimeout (Homebrew coreutils), or perl's alarm (every macOS has perl) — macOS has no timeout(1). Without any of
+# them the command runs unbounded.
+with_timeout() {
+    local s=$1
+    shift
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$s" "$@"
+    elif command -v gtimeout > /dev/null 2>&1; then
+        gtimeout "$s" "$@"
+    elif command -v perl > /dev/null 2>&1; then
+        perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"
+    else
+        "$@"
+    fi
+}
+
 # update — reinstalls the installed limn via uv tool and restarts instances that are running. Never
 # touches state dirs. To roll back, reinstall the previous tag (limn update --ref v<previous version>).
 # A running server is already loaded into memory, so it doesn't die during the install — it switches
@@ -1011,7 +1204,7 @@ latest_tag() { # the highest v* tag on the remote. Prints nothing on failure.
     local url=${REPO#git+}
     command -v git > /dev/null 2>&1 || return 0
     GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" \
-        timeout 30 git ls-remote --tags --refs "$url" 'v*' 2> /dev/null \
+        with_timeout 30 git ls-remote --tags --refs "$url" 'v*' 2> /dev/null \
         | awk '{ sub("refs/tags/", "", $2); print $2 }' | sort -V | tail -1
 }
 cmd_update() {
@@ -1075,7 +1268,13 @@ cmd_update() {
             warn "restart failed: $(unit_of "$n")"
             continue
         }
-        if wait_ready "$n" "$C_PORT"; then say "  $n restarted → 200"; else warn "  $n restarted but not responding — limn status $n"; fi
+        local rc=0
+        wait_ready "$n" "$C_PORT" || rc=$?
+        case $rc in
+            0) say "  $n restarted → 200" ;;
+            3) warn "  $n restarted → 401: $(refused_hint "$n" "$READY_HOW")" ;;
+            *) warn "  $n restarted but not responding — limn status $n" ;;
+        esac
     done
 }
 
@@ -1087,7 +1286,7 @@ cmd_list() {
         state=$(sysu is-active "$(unit_of "$n")" 2> /dev/null)
         [[ -n "$state" ]] || state="?"
         code=""
-        [[ "$state" == active ]] && code=$(http_code "$C_PORT")
+        [[ "$state" == active ]] && code=$(http_code "$n" "$C_PORT")
         [[ -n "$code" && "$code" != 200 ]] && state="$state/$code"
         printf '%-14s %-16s %-6s %-6s %-9s %-5s %-4s %s\n' "$n" "${C_LABEL:--}" "$C_PORT" "$C_TS_PORT" \
             "$state" "$(open_pins "$C_STATE_DIR")" "$(doc_count "$C_DOCS")" "$C_MANUSCRIPT"
@@ -1114,7 +1313,21 @@ cmd_status() {
         say ""
         say "[$n] ${C_LABEL:-}"
         say "  unit         $unit  $(sysu is-active "$unit" 2> /dev/null) / $(sysu is-enabled "$unit" 2> /dev/null)  pid=$(sysu show -p MainPID --value "$unit" 2> /dev/null)"
-        say "  local        http://127.0.0.1:$C_PORT/  → $(http_code "$C_PORT")"
+        local how tok="" code f
+        f=$(token_file_of "$n")
+        read -r how tok <<< "$(probe_auth "$n" "$C_PORT")"
+        code=$(probe_code "$C_PORT" "$tok")
+        if [[ "$code" == 401 ]]; then
+            say "  local        http://127.0.0.1:$C_PORT/  → 401 ($(refused_hint "$n" "$how"))"
+        else
+            say "  local        http://127.0.0.1:$C_PORT/  → $code"
+        fi
+        case "$how" in
+            sent) say "  token file   $f (sent with the check above)" ;;
+            withheld) say "  token file   $f (not sent: no process of this account listens on 127.0.0.1:$C_PORT)" ;;
+            unusable) say "  token file   $f (not usable, see the warning)" ;;
+            *) say "  token file   none — agents here use a token file once the owner runs: limn token create $n --save" ;;
+        esac
         say "  tailnet      $(url_of "$C_TS_PORT")  (serve: $(ts_proxy_of "$C_TS_PORT" | grep . || echo none))"
         if [[ -n "$C_DOCS" ]]; then
             say "  manuscript   $C_MANUSCRIPT"
@@ -1147,9 +1360,10 @@ cmd_snippet() {
     local n=${1:-}
     need_name "$n"
     load "$n" || die "no config found: $n"
-    local url origin
+    local url origin tokfile
     url=$(url_of "$C_TS_PORT")
     url=${url%/}
+    tokfile=$(shell_path "$(token_file_of "$n")")
     origin=$(git -C "$C_MANUSCRIPT" remote get-url origin 2> /dev/null || echo '(manuscript dir is not a git repo)')
     local doclist=""
     if [[ -n "$C_DOCS" ]]; then
@@ -1160,9 +1374,13 @@ cmd_snippet() {
 ## Limn manuscript instance (${C_LABEL:-$n})
 
 - Viewer: $url/ — co-authors drag on the PDF to leave pins marking where to fix things.$doclist
-- Pin list: \`curl -s $url/pins.md\` (on the same machine: \`curl -s http://127.0.0.1:$C_PORT/pins.md\`)
-- Agent token: send \`-H "Authorization: Bearer \$LIMN_TOKEN"\` with every request (the owner creates it with \`limn token create $n\`).
-  Through the tailnet address it is required unless the machine is signed in as a person: a request with neither gets 403.
+- Every request carries this instance's agent token:
+  - on the machine that serves it: \`-H "Authorization: Bearer \$(cat $tokfile)"\` — the file the owner writes once with
+    \`limn token create $n --save\`. Never print that file or copy it into a repository.
+  - from another machine: \`-H "Authorization: Bearer \$LIMN_TOKEN"\` with a token the owner creates (\`limn token create $n\`)
+    and hands over. Through the tailnet address it is required unless the machine is signed in as a person: a request with neither gets 403.
+- Pin list: \`curl -s -H "Authorization: Bearer \$(cat $tokfile)" http://127.0.0.1:$C_PORT/pins.md\` on the serving machine,
+  \`curl -s -H "Authorization: Bearer \$LIMN_TOKEN" $url/pins.md\` from elsewhere.
 - **Check this first**: does the repo (manuscript path) at the top of pins.md match \`git remote get-url origin\` for this checkout?
   If not, this is the viewer for a different paper — don't act on it. This viewer's manuscript repo: \`$origin\`
 - Division of labor: whoever was asked handles **all** open pins. Skip pins claimed (⏳) by the other side.
@@ -1199,7 +1417,13 @@ doc_restart_or_hint() {
     if [[ "$restart" == 1 ]]; then
         sysu restart "$(unit_of "$n")" || die "restart failed: journalctl --user -u $(unit_of "$n")"
         load "$n" || die "could not re-read the config: $n"
-        if wait_ready "$n" "$C_PORT"; then say "restarted → 127.0.0.1:$C_PORT 200"; else warn "not responding after restart — limn status $n"; fi
+        local rc=0
+        wait_ready "$n" "$C_PORT" || rc=$?
+        case $rc in
+            0) say "restarted → 127.0.0.1:$C_PORT 200" ;;
+            3) warn "restarted → 127.0.0.1:$C_PORT answers 401: $(refused_hint "$n" "$READY_HOW")" ;;
+            *) warn "not responding after restart — limn status $n" ;;
+        esac
     else
         say "a restart is required: limn stop $n && limn start $n (or --restart)"
     fi
@@ -1359,6 +1583,10 @@ usage() { sed -n '/^# Usage:/,/^# Security rules/p' "${BASH_SOURCE[0]}" | sed -e
 main() {
     local c=${1:-}
     [[ $# -gt 0 ]] && shift
+    case "$c" in
+        -h | --help | help | "") ;;
+        *) [[ -n "$PYTHON" ]] || die "$PYTHON_WHY" ;;
+    esac
     case "$c" in
         add) cmd_add "$@" ;;
         start) cmd_start "$@" ;;

@@ -35,7 +35,7 @@ CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Ca
 ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
                        trusted_proxies=ps.Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
                        proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
-                       members_only=False, local_user=None, insecure=False)
+                       members_only=False, local_user=None, insecure=False, agent_token_file=None)
 
 
 def reset_access(mod=ps):
@@ -428,6 +428,8 @@ class Tokens(AccessBase):
         self.assertIn("no config found", r.stderr)
 
     def test_cli_env_parsing_matches_instances_sh(self):
+        """cli.env_get reads a config line exactly as instances.sh's env_get does (last line wins, whitespace, quotes),
+        checked against the shell function itself with whatever bash is first on PATH (3.2 on stock macOS)."""
         from importlib import import_module
         sys.path.insert(0, str(SRC))
         try:
@@ -442,7 +444,8 @@ class Tokens(AccessBase):
         self.assertIsNone(cli.env_get(f, "NOPE"))
         bash = shutil.which("bash")
         if bash:                                                       # the same answer as instances.sh's env_get
-            script = 'source <(sed -n "/^env_get()/,/^}/p" "$1"); env_get "$2" STATE_DIR'
+            # eval, not `source <(...)`: bash 3.2 (macOS /bin/bash) sources nothing from a process substitution
+            script = 'eval "$(sed -n "/^env_get()/,/^}/p" "$1")"; env_get "$2" STATE_DIR'
             out = subprocess.run([bash, "-c", script, "x", str(SRC / "limn" / "instances.sh"), str(f)],
                                  capture_output=True, text=True, timeout=30, check=False).stdout.strip()
             self.assertEqual(out, "/a b")

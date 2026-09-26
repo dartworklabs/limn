@@ -28,7 +28,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생 |
 | 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
 | 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 레이아웃 테스트까지 돌리려면 먼저 `uv run playwright install chromium` |
-| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다 |
+| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업(0.3.3)이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다 |
 | 보장 범위 | 테스트가 고정한 동작만 보장한다. CI의 테스트 작업은 전체 이력(`fetch-depth: 0`)을 받아, 옛 릴리스를 `git show` 로 불러 비교하는 테스트(v0.1.0 이관, v0.2.2 이벤트 대조)도 돈다. 얕은 클론에서는 건너뛴다. CI에는 TeX(`latexmk`)와 Poppler가 없어서 실제 빌드가 필요한 테스트는 CI에서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다 |
 
 테스트 파일마다 맡은 범위가 다르다.
@@ -48,6 +48,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 빌드 첫 단계인 원고 복사가 실패하면(`rsync` 비정상 종료) 사본을 컴파일하지 않고 빌드를 실패로 끝내는지 |
 | [`tests/test_v03.py`](../../tests/test_v03.py) | 0.3(이슈 #9, [ADR-0005](../adr/0005-pin-scoped-changes.md)): hunk 블록 파싱과 귀속(겹침, 줄 밀림을 거친 대응, 한 커밋의 핀 셋, 이름 바꾸기, 지운 범위, 기록한 `changes` 가 추정을 이기는 순서), 핀 hunk의 실제 줄 번호와 맥락, 합성 적용(실제 git으로 만든 무작위 편집 왕복·`git apply` 대조), `changes` 검사·저장·다시 열기, `pins.md` 닫기 줄, 핀 단위 소스 diff·비교 PDF HTTP와 캐시 키, 실제 격리 빌드(TeX가 있을 때만, CI는 건너뜀), 뷰어(데스크톱 1400×850·폴드 842×758·폰 384×832 × 한국어·영어: 다른 변경 접기·펴기, [커밋 전체 비교] 토글, 컴파일 실패 시 커밋 전체로 넘어감), 순수 판단의 직접 테스트(`ScopeDecisions`: `changes_at` 규칙, 합성 판에 쓸 파일, 거부 이유 표), 새 거부마다의 상태 코드·본문(`ScopedErrorBodies`), 스쿼시 커밋 하나가 핀 셋을 고치고 머지 뒤 `changes`·`PR #N (해시)`로 닫는 흐름, 다시 여는 답글의 이벤트가 0.2.2와 같은지(v0.2.2 모듈과 대조, 얕은 클론이면 건너뜀), viewer 휴지통에 [되살리기]·[영구 삭제]가 없는지(브라우저) |
 | [`tests/test_v031.py`](../../tests/test_v031.py) | 0.3.1(이슈 #10): 메모 mention 재알림 간격의 순수 판단(`note_mention_targets`: 키 세 부분, 10분 경계, 답글 mention 제외, 시각 없는·먼 기록)과 핀 조작을 거친 흐름(가짜 시계로 태그 껐다 켜기 세 번 = 알림 하나, 10분 뒤 다시, `note_append`, 답글·다시 연 이유는 매번), `audit.jsonl`(`EVENTS_KEEP`+1건 회전 뒤에도 `cleared` 가 남음, 영구 삭제, 거부된 요청은 적지 않음, 권한 0600, 덧붙이기만, 쓰기 실패는 경고, 스레드 동시 쓰기, `limn token`·`limn member` 가 OS 계정으로 적고 토큰 원문·해시는 적지 않음) |
+| [`tests/test_token_file.py`](../../tests/test_token_file.py) | 0.3.3([ADR-0007](../adr/0007-agent-token-file.md)): `limn token create --save`(파일 `0600`·폴더 `0700`, 토큰을 찍지 않음, `--print`·`--force`, 기존 파일·git 작업 트리·인스턴스 없음 거부는 토큰을 만들기 전에, 쓰기 실패면 새 토큰을 폐기), `limn token path`, `token list` 가 파일의 토큰을 밝힘, `token revoke` 가 그 토큰의 파일만 지움. 서버: 파일이 생기면 `pins.md` 인증 안내 줄에 구절 하나(토큰은 없음, 원격 `GET /pins.md` 에는 없음, 파일을 읽지 않음), loopback 에이전트를 끈 인스턴스의 헤더 없는 로컬 요청 `401` 메시지, 프록시를 거친 요청은 옛 문구, 폐기된 토큰 `401`, `LIMN_AGENT_TOKEN_FILE`. 인스턴스 관리자와 실제 서버(보기 전용 PDF, TeX 없이): loopback 에이전트 켬·끔에서 `limn status`·`start` 가 토큰 파일을 curl 표준 입력으로 보냄(명령줄에 없음), `401` 안내, 심링크·남의 권한·형식이 틀린 파일 거부 |
 | [`tests/test_v032.py`](../../tests/test_v032.py) | 0.3.2(이슈 #7, [ADR-0006](../adr/0006-relative-pin-paths.md)): 핀 파일 위치의 순수 판단(`pin_rel_path`: 원고 안의 `file` 우선, 꼬리가 맞는 `file_rel`, 넓힌 원고 폴더의 더 긴 꼬리, 가장 긴 꼬리, `..`·절대·빈 값 거부), 두 서버 실행 사이에 원고 폴더를 옮긴 흐름(응답의 지금 `file`·`rel_path`, `pins.md` 하위 폴더와 인용, anchor 줄 맞춤, `lo`/`hi` 수정, 겹침, 휴지통·되살리기, 그대로 옮긴 뒤 읽기는 다시 쓰지 않음, mtime 이 오래된 다른 내용의 사본도 다시 맞춤, 옛 체크아웃으로 돌아가면 그 줄로 돌아감, 옮긴 파일에서 anchor 를 채우지 않음, 넘친 `note_append` 의 `400` 은 아무것도 바꾸지 않음), 클론한 저장소에서 핀 단위 [변경 보기], 원고 밖으로 남아야 하는 경우(꼬리가 맞지 않음, `..`·절대 `file_rel`, 바깥을 가리키는 심볼릭 링크 — 바깥 줄이 새지 않는지), v0.3.0·v0.3.1 모듈이 이 상태를 읽고 그 버전의 위치 다시 잡기가 낡은 `file_rel` 을 이기는지(얕은 클론이면 건너뜀) |
 | [`tests/test_v022.py`](../../tests/test_v022.py) | 0.2.2(이슈 #8): 답글 규칙표의 모든 행(서버 `reply_reopens`와 뷰어 `replyReopens`가 같은지), 답글 API(`reopen`·`reopened`·`state`, 이벤트, `pins.md`의 다시 연 이유), 휴지통(작성자 알림, 30일 숨김·삭제, 소유자 전용 영구 삭제), 뷰어 순수 함수(결과 한 줄, 구획 상태, 남은 날, 삭제된 `#N`), 브라우저 흐름을 데스크톱 1400×850·폴드 842×758(터치)·폰 384×832(터치) × 한국어·영어로(답글·되돌리기·상태 유지, 완료 행 답글, 삭제·휴지통 되살리기, 소유자 영구 삭제, 구획 머리의 접기·기억·`새 N`) |
 
@@ -61,9 +62,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | --- | --- |
 | 측정 대상 | `limn add`·`start`·`stop`·`update`·`list`·`status`·`url`·`snippet`·`doc`·`remove`·`run`의 동작과 출력 |
 | 적용 조건 | [`src/limn/instances.sh`](../../src/limn/instances.sh), [`src/limn/cli.py`](../../src/limn/cli.py), systemd 유닛 템플릿을 바꿀 때. CI는 항상 돌린다 |
-| 실행 | `bash tests/test_instances.sh` |
-| 합격 기준 | 스크립트가 0으로 끝난다 |
-| 보장 범위 | systemctl·tailscale·ss·uv를 가짜로 바꿔 호스트를 건드리지 않고 확인한다. 실제 systemd·tailscale과의 상호작용은 보장하지 않는다 |
+| 실행 | `bash tests/test_instances.sh`. 파이썬은 `LIMN_TEST_PYTHON`, 그다음 PATH의 3.10 이상 `python3`·`python3.1x`, 그다음 이 체크아웃의 `.venv`를 쓴다(macOS의 `/usr/bin/python3`은 3.9라 건너뛴다) |
+| 합격 기준 | 스크립트가 0으로 끝난다. CI는 Linux(bash 5)와 macOS(`/bin/bash` 3.2, BSD 명령) 두 곳에서 돌린다 |
+| 보장 범위 | systemctl·tailscale·ss·uv를 가짜로 바꿔 호스트를 건드리지 않고 확인한다. 실제 systemd·tailscale과의 상호작용은 보장하지 않는다. BSD `stat`은 가짜 명령으로도 한 번 흉내 낸다(§15). 토큰 파일과 실제 서버의 상호작용은 [`tests/test_token_file.py`](../../tests/test_token_file.py)가 맡는다 |
 
 ## 3. 설치 스모크
 

@@ -45,6 +45,7 @@ ADR(Architecture Decision Record)은 되돌리기 어렵거나 대가가 있는 
 | [0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
 | [0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기] | 확정·구현 (0.3.0) |
 | [0006](../adr/0006-relative-pin-paths.md) | 핀의 상대 경로 `file_rel`과 옮긴 원고 | 확정·구현 (0.3.2) |
+| [0007](../adr/0007-agent-token-file.md) | 서버 머신 에이전트의 토큰 파일 | 확정 (2026-09-26) |
 
 ## PR과 기여 조건
 

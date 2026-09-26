@@ -25,12 +25,23 @@ no() {
 }
 chk() { if eval "$2"; then ok "$1"; else no "$1  [$2]"; fi; }
 
-# The real interpreter (resolved before HOME is redirected — some python3 shims depend on HOME).
-PY=$(python3 -c "import sys; print(sys.executable)" 2> /dev/null || true)
+# The real interpreter (resolved before HOME is redirected — some python3 shims depend on HOME). limn needs
+# Python >= 3.10, and macOS's /usr/bin/python3 is 3.9, so the first python3 is not enough: LIMN_TEST_PYTHON, then
+# python3 / python3.1x on PATH, then this checkout's .venv (uv sync).
+py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' > /dev/null 2>&1; }
+PY=""
+for c in "${LIMN_TEST_PYTHON:-}" python3 python3.14 python3.13 python3.12 python3.11 python3.10 "$ROOT/.venv/bin/python"; do
+    [[ -n "$c" ]] || continue
+    c=$(command -v "$c" 2> /dev/null) || continue
+    py_ok "$c" || continue
+    PY=$("$c" -c "import sys; print(sys.executable)") && break
+done
 if [[ -z "$PY" ]]; then
-    printf '  · python3 not found — skipping (runs fine in CI)\n'
+    printf '  · no Python >= 3.10 found (set LIMN_TEST_PYTHON, or uv sync) — skipping (runs fine in CI)\n'
     exit 0
 fi
+# mode_of <file> — octal permission bits on GNU (Linux) and BSD (macOS) stat alike.
+mode_of() { stat -c %a "$1" 2> /dev/null || stat -f %Lp "$1"; }
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 mkdir -p "$T/bin"
@@ -129,8 +140,10 @@ chk "wraps values containing # in quotes too" "grep -qx 'ACCENT=\"#1f77b4\"' '$e
 chk "--git-pull → GIT_PULL=1" "grep -qx 'GIT_PULL=1' '$env_a'"
 chk "the default state dir is DATA_ROOT/<name>" "grep -qx 'STATE_DIR=$T/data/paper-a' '$env_a'"
 chk "without LIMN_LEDGER_GEN the shared ledger file is left untouched" "cmp -s '$LIMN_LEDGER' '$T/ledger.orig'"
-chk "prints the AGENTS.md snippet" "grep -q 'curl -s https://box.tail0000.ts.net:18008/pins.md' <<< \"\$out\" && grep -q 'git remote get-url origin' <<< \"\$out\" && grep -q '⏳' <<< \"\$out\""
+chk "prints the AGENTS.md snippet" "grep -qF 'https://box.tail0000.ts.net:18008/pins.md' <<< \"\$out\" && grep -q 'git remote get-url origin' <<< \"\$out\" && grep -q '⏳' <<< \"\$out\""
 chk "the snippet tells remote agents to send a token" "grep -qF 'Authorization: Bearer \$LIMN_TOKEN' <<< \"\$out\" && grep -q 'limn token create' <<< \"\$out\""
+chk "the snippet tells agents on this machine to send the token file (ADR-0007), never a token" \
+    "grep -qF 'Authorization: Bearer \$(cat $T/config/paper-a.token)' <<< \"\$out\" && grep -qF 'limn token create paper-a --save' <<< \"\$out\" && ! grep -q 'limn_' <<< \"\$out\""
 chk "--no-start doesn't touch the unit or serve" "! grep -qE 'systemctl .*(enable|start)|tailscale serve --' '$STUB_LOG'"
 
 out=$("$PV" add paper-b --manuscript "$ms" --no-start 2>&1)
@@ -546,7 +559,7 @@ echo "── 14. limn token / limn member resolve the instance's state dir ─�
 tok=$("$PV" token create v01 --name ci 2> "$T/tok.err")
 chk "token create prints the token on stdout only" "[[ \"\$tok\" == limn_* && \$(wc -l <<< \"\$tok\") -eq 1 ]]"
 chk "the token lands in STATE_DIR from the config, hashed and 0600" \
-    "[[ -f '$T/data/v01/tokens.json' && \$(stat -c %a '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
+    "[[ -f '$T/data/v01/tokens.json' && \$(mode_of '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
 chk "token list shows the name, never the token" "'$PV' token list v01 | grep -q ' ci ' && ! '$PV' token list v01 | grep -qF \"\$tok\""
 chk "token revoke by name" "'$PV' token revoke v01 ci >/dev/null && ! grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
 chk "token on an unknown instance fails" "! '$PV' token list nope >/dev/null 2>&1"
@@ -556,6 +569,65 @@ chk "member remove" "'$PV' member remove v01 alice@example.com >/dev/null && ! g
 chk "--state-dir instead of an instance" "'$PV' member add --state-dir '$T/data/plain' bob@example.com >/dev/null && grep -q bob@example.com '$T/data/plain/people.json'"
 "$PV" help > "$T/help.out" 2>&1
 chk "limn help lists token and member" "grep -q 'limn token create' '$T/help.out' && grep -q 'limn member add' '$T/help.out' && grep -q -- '--auth' '$T/help.out'"
+
+echo "── 15. token file (ADR-0007): path, run's LIMN_AGENT_TOKEN_FILE, status with BSD stat ──"
+chk "token path prints <config dir>/<name>.token" "[[ \$('$PV' token path v01) == '$T/config/v01.token' ]]"
+printf '%s\n' 'import os, sys' \
+    'print("token-file=" + os.environ.get("LIMN_AGENT_TOKEN_FILE", "(unset)"))' \
+    'print("argv=" + " ".join(sys.argv[1:]))' > "$T/fake-server.py"
+out=$(LIMN_SERVER="$T/fake-server.py" "$PV" run v01 2>&1)
+chk "run hands the server the token file path in LIMN_AGENT_TOKEN_FILE" "grep -qx 'token-file=$T/config/v01.token' <<< \"\$out\""
+chk "...and adds no flag for it (a v0.1 config keeps the v0.1 argv)" "! grep -q -- '--agent-token-file' <<< \"\$out\""
+# A BSD/macOS-style stat (no -c; -f takes %Lp %u %m) in front of the real one: the token file checks must still work.
+mkdir -p "$T/bsd"
+cat > "$T/bsd/stat" << 'STUB'
+#!/usr/bin/env bash
+[[ "$1" == -f ]] || { echo "stat: illegal option -- ${1#-}" >&2; exit 1; }
+exec "$PY" -c 'import os, sys
+st = os.stat(sys.argv[2])
+print(sys.argv[1].replace("%Lp", "%o" % (st.st_mode & 0o7777)).replace("%u", str(st.st_uid)).replace("%m", str(int(st.st_mtime))))' "$2" "$3"
+STUB
+chmod +x "$T/bsd/stat"
+tokf="$T/config/v01.token"
+"$PV" token create v01 --name local --save > /dev/null 2>&1
+chk "token create --save writes the token file 0600" "[[ \$(mode_of '$tokf') == 600 ]]"
+out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
+chk "status accepts a 0600 token file (BSD stat), and sends it to no one: nothing of ours listens on the port" \
+    "grep -q 'not sent: no process of this account listens' <<< \"\$out\" && ! grep -q 'not using it' <<< \"\$out\""
+chmod 640 "$tokf"
+out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
+chk "status refuses a token file open to the group (BSD stat)" "grep -q 'open to group or others (mode 640)' <<< \"\$out\" && grep -q 'chmod 600' <<< \"\$out\""
+chmod 600 "$tokf"
+out=$(PATH="$T/bsd:$PATH" "$PV" token revoke v01 local 2>&1)
+chk "revoking the saved token removes its file" "[[ ! -e '$tokf' ]] && grep -q 'removed' <<< \"\$out\""
+
+echo "── 16. portability: Python >= 3.10, timeout without GNU coreutils ──"
+mkdir -p "$T/py39" "$T/pynew"
+printf '#!/bin/sh\n# a Python 3.9: too old for limn\nexit 1\n' > "$T/py39/python3"
+chmod +x "$T/py39/python3"
+ln -s "$(command -v dirname)" "$T/py39/dirname"
+ln -s "$(command -v sed)" "$T/py39/sed" # for `help`
+ln -s "$PY" "$T/pynew/python3.12"
+IM="$ROOT/src/limn/instances.sh"
+out=$(env -u LIMN_PYTHON LIMN_PRINT_ARGV=1 PATH="$T/py39:$T/pynew:$PATH" bash "$IM" run v01 2>&1)
+chosen=$(sed -n 1p <<< "$out")
+chk "run directly: skips a python3 older than 3.10 for a newer python3.1x on PATH" "[[ '$chosen' != '$T/py39/python3' && -x '$chosen' ]] && py_ok '$chosen'"
+out=$(env -u LIMN_PYTHON PATH="$T/py39" "$BASH" "$IM" list 2>&1)
+chk "run directly with only an old python3: stops with a clear message" "grep -q 'no Python >= 3.10 found' <<< \"\$out\""
+out=$(LIMN_PYTHON="$T/py39/python3" PATH="$T/pynew:$PATH" bash "$IM" list 2>&1)
+chk "an explicit LIMN_PYTHON that is too old is an error, not silently replaced" "grep -qF 'LIMN_PYTHON=$T/py39/python3 is not Python >= 3.10' <<< \"\$out\""
+chk "help still works without a Python" "env -u LIMN_PYTHON PATH='$T/py39' '$BASH' '$IM' help | grep -q 'limn add'"
+# with_timeout: no timeout(1)/gtimeout (stock macOS) -> perl's alarm still bounds the command.
+if command -v perl > /dev/null 2>&1; then
+    mkdir -p "$T/notimeout"
+    ln -s "$(command -v perl)" "$T/notimeout/perl"
+    ln -s "$(command -v sleep)" "$T/notimeout/sleep"
+    sed -n '/^with_timeout()/,/^}/p' "$IM" > "$T/with_timeout.sh"
+    chk "with_timeout without timeout(1) still stops a hung command (perl alarm)" \
+        "PATH='$T/notimeout' '$BASH' -c '. \"\$1\"; type with_timeout > /dev/null && s=\$SECONDS && { with_timeout 1 sleep 5 2> /dev/null; rc=\$?; (( rc != 0 && SECONDS - s < 4 )); }' x '$T/with_timeout.sh' 2> /dev/null"
+    chk "with_timeout without timeout(1) passes a quick command's status through" \
+        "PATH='$T/notimeout' '$BASH' -c '. \"\$1\"; with_timeout 5 sleep 0' x '$T/with_timeout.sh'"
+fi
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

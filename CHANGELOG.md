@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.3 — unreleased
+
+Agents on the machine that serves an instance get a standard place for their token, so the instance can turn off
+the deprecated headerless loopback agent (decision record [ADR-0007](docs/adr/0007-agent-token-file.md)); the
+instance manager also runs on macOS semantics ([issue #12](https://github.com/dartworklabs/limn/issues/12)). The
+`pins.md` format and the HTTP API change only by addition: one clause at the end of the agent-auth line once a token
+file exists, and a hint after the existing text of one `401`. The state directory is unchanged.
+
+- **Token file.** `limn token create <instance> --save` writes the new token to `~/.config/limn/<instance>.token`
+  (the instance config folder, `LIMN_CONFIG_DIR`; never the `LIMN_SOURCE_DIR` copy): mode 0600, a missing folder
+  made 0700, the token not printed unless `--print`. It refuses an existing file (`--force` replaces it atomically and
+  names the replaced token if it is still valid) and a folder inside a git work tree that does not ignore the file
+  (even with `--force`). Every refusal comes before the token exists; a failed write revokes the new token.
+  `limn token path <instance>` prints the path, `limn token list` says which token the file holds, and
+  `limn token revoke` removes the file when it held the revoked token.
+- **Server (additive).** `--agent-token-file` (default `LIMN_AGENT_TOKEN_FILE`, which `limn run` sets; no new argv, so
+  a config without access keys still runs the v0.1 argv) tells the server where the file is. It only checks that the
+  file exists, never reads it. Then pins.md's agent-auth line ends with
+  `` 이 기기의 에이전트는 토큰 파일을 붙인다: `curl -H "Authorization: Bearer $(cat ~/.config/limn/<instance>.token)" …`… ``
+  (not for a remote `GET /pins.md`), and with the loopback agent off a headerless local request gets `401` whose
+  text is the old message followed by where the token file is (a proxied request keeps the old text).
+- **Instance manager.** `limn status`, `list`, and the waits in `start`, `update` and `doc … --restart` send the
+  token file (on curl's stdin, never its command line), so they keep working with `AGENT_LOOPBACK=0` - and only when
+  every listener on the port is this account's (`/proc/net/tcp` on Linux, `lsof` on macOS), so another account holding
+  the port while the instance is down never receives it. A `401` is
+  reported with the command that fixes it and ends the wait at once instead of running out `LIMN_WAIT`. A token
+  file that is a symlink, belongs to another account, is open to group/others, or is not one token line is not used
+  (a warning says why). `limn snippet` tells agents on the serving machine to use the token file.
+- **macOS.** `instances.sh` checks that its Python is >= 3.10 (`LIMN_PYTHON` too old is an error; run directly it
+  takes the first new-enough `python3`/`python3.1x`, not macOS's 3.9 `/usr/bin/python3`), reads `stat` fields on
+  GNU or BSD, and bounds `limn update`'s tag lookup without `timeout(1)` (`gtimeout` or `perl`). The tests follow:
+  `test_instances.sh` picks a Python >= 3.10 and a portable `stat`, and `test_cli_env_parsing_matches_instances_sh`
+  no longer relies on `source <(…)`, which sources nothing in macOS's bash 3.2. CI gains a `macos` job (Python
+  tests without TeX/Chromium, the instance manager under `/bin/bash` 3.2).
+- **Rollout per instance:** install 0.3.3, `limn token create <instance> --name <name> --save`, switch the paper
+  repository's AGENTS.md to `limn snippet <instance>`, then `AGENT_LOOPBACK=0` and restart.
+- Rolling back to 0.3.2 is safe: it neither sets nor reads `LIMN_AGENT_TOKEN_FILE` and ignores token files; with
+  `AGENT_LOOPBACK=0` its `limn status` shows `401` again and its start wait runs out `LIMN_WAIT`, while the server and
+  token-using agents behave the same.
+
 ## 0.3.2 — unreleased
 
 Pins follow a moved manuscript ([issue #7](https://github.com/dartworklabs/limn/issues/7), decision record
