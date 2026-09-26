@@ -19,7 +19,7 @@ import time
 import unittest
 from pathlib import Path
 
-from limn import access
+from limn import access, startup
 from limn.pins.model import OpenPin, ReviewPin
 from limn.pins import position
 from limn.pins import render as md_render
@@ -875,7 +875,7 @@ class ColdDeepLink(BrowserBase):
         from test_i18n import _png
         src = ps.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.set_docs(ps.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src))
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C))
         for D in ps.DOCS:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)

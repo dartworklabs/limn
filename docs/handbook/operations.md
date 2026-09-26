@@ -52,7 +52,7 @@ limn serve \
   [--version]
 ```
 
-실행 인자의 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `main` 함수 안 argparse 정의다.
+실행 인자의 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 argparse 정의(`serve_parser`)다. 인자 조합을 받아들일지와 거절 문구는 [`src/limn/startup.py`](../../src/limn/startup.py)가 정한다.
 
 | 인자 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |

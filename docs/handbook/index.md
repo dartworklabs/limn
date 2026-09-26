@@ -63,7 +63,10 @@ catalog_schema: 1
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`. 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
 | `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기(`handler.py`), 요청 본문·쿼리 파서(`parse.py`), 핀 조작 결과마다의 응답(`answers.py`), 오류 형식·거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
 | `src/limn/access.py` | 접근 제어: 신원·입장·역할·Host/Origin 판단, `tokens.json`·`people.json` 캐시, `limn token`·`limn member`의 상태 도우미(`people.json` 형식은 `people.py`의 것). 토큰 파일 안내 문구는 위의 `guidance.py` | 신원 방식·토큰·역할·Host/Origin 규칙 변경(보안 경계, architecture.md §멈춤 신호) | api.md §인증, architecture.md 불변식 1, operations.md, verification.md |
-| `src/limn/server.py` | main과 처리기 연결: 실행 인자, `Handler`를 이 모듈의 서비스에 묶음(`web/app.py`의 `App`이 그 목록), 접근 제어 연결(`access_settings`·`access_lookups`, 두 캐시의 주인) | 인자 추가나 변경, `App`에 든 서비스의 이름·인자 변경 | operations.md, architecture.md |
+| `src/limn/startup.py` | `limn serve` 시작 규칙: 접근 설정 판단(`access_options`, 보안 경계)과 시작 로그, `--port` 확인, `--doc` 해석·메인 파일·상태 폴더, `people.json` 권한 조이기, 라벨·색, 시작 요약 줄. 거절은 `StartupRefused` 값 | 시작 거절·바인드 규칙·요약 줄 변경(바인드 규칙은 architecture.md §멈춤 신호) | architecture.md 불변식 1, operations.md, verification.md |
+| `src/limn/args.py` | `limn serve` 명령줄 파서(`serve_parser`): 옵션·기본값·도움말 | 인자 추가나 변경 | operations.md, instances.md |
+| `src/limn/config.py` | 실행 설정의 타입 `Cfg`(필드와 상태 파일 경로)와 강조색 표 | 실행 설정 추가나 변경 | architecture.md |
+| `src/limn/server.py` | 조립 지점: `main()` → `start()`가 시작 단계를 차례로 부르고 `limn/startup.py`의 답을 실행 설정 `C`에 적용, `Handler`를 이 모듈의 서비스에 묶음(`web/app.py`의 `App`이 그 목록), 접근 제어 연결(`access_settings`·`access_lookups`, 두 캐시의 주인) | 시작 단계의 순서 변경, `App`에 든 서비스의 이름·인자 변경 | operations.md, architecture.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
 | `src/limn/instances.sh`, `src/limn/cli.py`, `src/limn/systemd/*` | 인스턴스 관리자와 limn 명령 | 명령·설정 키·유닛 템플릿 변경 | instances.md, operations.md |
 | `src/limn/migrate.py` | 옛 설치에서 옮기기 | 이전 절차 변경 | instances.md |

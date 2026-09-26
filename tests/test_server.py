@@ -32,7 +32,8 @@ from limn.pins import render as md_render
 from limn.store import PinStore
 from limn.viewer import assemble as viewer_assemble
 from limn.events import NOTIFY_TYPES
-from limn import revisions
+from limn import config, revisions, startup
+from limn.documents import DOCS_MAX
 from limn import scope as scoping
 from limn.web import answers, parse
 from limn.web.errors import InputRejected
@@ -230,7 +231,7 @@ class Base(unittest.TestCase):
         C.git_pull = False
         ps.SYNC_WATCH = gitsync.SyncWatch()        # a fresh remote-main watch status ("checking")
         C.pdfjs_dir = None
-        C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
+        C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                               finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
         ps.set_docs(None)                          # start as a single document (no --doc) — clears the list left over from multi-doc tests
@@ -2767,7 +2768,7 @@ class ManuscriptRevisions(Base):
             self.assertEqual(ps.revision_status(ps.DOCS[0], self.latest)["state"], "idle")
 
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
-        with mock.patch.object(ps.shutil, "which", return_value=None):
+        with mock.patch.object(shutil, "which", return_value=None):
             self.assertEqual(revisions.revision_sandbox(self.repo, Path("."), "latexmk", []),
                              revisions.StepFailed("sandbox_tools"))
         with self.assertRaises(ValueError):
@@ -2816,7 +2817,7 @@ class ManuscriptRevisions(Base):
         def render(cmd, **kwargs):
             Path(str(cmd[-1]) + "-1.png").write_bytes(b"png")
             return subprocess.CompletedProcess(cmd, 0)
-        with mock.patch.object(ps.subprocess, "run", side_effect=render):
+        with mock.patch.object(subprocess, "run", side_effect=render):
             pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
         self.assertIsNone(error)
         (ps.C.state / "pages.cur").write_text(pages.name)
@@ -3946,21 +3947,21 @@ class PinNumberJump(unittest.TestCase):
 
 class RepoNameFromUrl(unittest.TestCase):
     def test_https_url(self):
-        self.assertEqual(ps.repo_name_from_url("https://github.com/example-lab/paper-a.git"),
+        self.assertEqual(startup.repo_name_from_url("https://github.com/example-lab/paper-a.git"),
                          "paper-a")
 
     def test_ssh_url_with_path(self):
-        self.assertEqual(ps.repo_name_from_url("git@github.com:example-lab/paper-a.git"),
+        self.assertEqual(startup.repo_name_from_url("git@github.com:example-lab/paper-a.git"),
                          "paper-a")
 
     def test_scp_style_without_slash(self):
-        self.assertEqual(ps.repo_name_from_url("git@host:reponame.git"), "reponame")
+        self.assertEqual(startup.repo_name_from_url("git@host:reponame.git"), "reponame")
 
     def test_no_git_suffix(self):
-        self.assertEqual(ps.repo_name_from_url("https://github.com/org/name"), "name")
+        self.assertEqual(startup.repo_name_from_url("https://github.com/org/name"), "name")
 
     def test_trailing_slash(self):
-        self.assertEqual(ps.repo_name_from_url("https://github.com/org/name/"), "name")
+        self.assertEqual(startup.repo_name_from_url("https://github.com/org/name/"), "name")
 
 
 class DefaultLabel(unittest.TestCase):
@@ -3974,20 +3975,20 @@ class DefaultLabel(unittest.TestCase):
     def test_uses_repo_name_when_remote_given(self):
         src = self.root / "some-checkout-dir"
         src.mkdir()
-        self.assertEqual(ps.default_label(src, "git@github.com:example-lab/paper-a.git"),
+        self.assertEqual(startup.default_label(src, "git@github.com:example-lab/paper-a.git"),
                          "paper-a")
 
     def test_falls_back_to_folder_name_without_remote(self):
         src = self.root / "my-manuscript"
         src.mkdir()
-        self.assertEqual(ps.default_label(src, None), "my-manuscript")
+        self.assertEqual(startup.default_label(src, None), "my-manuscript")
 
     def test_git_remote_url_none_when_not_a_repo(self):
         if not shutil.which("git"):
             self.skipTest("git not available")
         src = self.root / "plain-dir"
         src.mkdir()
-        self.assertIsNone(ps.git_remote_url(src))
+        self.assertIsNone(startup.git_remote_url(src))
 
     def test_git_remote_url_reads_origin(self):
         if not shutil.which("git"):
@@ -3997,8 +3998,8 @@ class DefaultLabel(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=src, check=True)
         subprocess.run(["git", "remote", "add", "origin", "git@example.com:org/paper-x.git"],
                        cwd=src, check=True)
-        self.assertEqual(ps.git_remote_url(src), "git@example.com:org/paper-x.git")
-        self.assertEqual(ps.default_label(src, ps.git_remote_url(src)), "paper-x")
+        self.assertEqual(startup.git_remote_url(src), "git@example.com:org/paper-x.git")
+        self.assertEqual(startup.default_label(src, startup.git_remote_url(src)), "paper-x")
 
 
 class StartupRefusals(unittest.TestCase):
@@ -4020,58 +4021,58 @@ class StartupRefusals(unittest.TestCase):
         """No or several top-level .tex files, and no free port, are refusals with the message main() prints."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            refused = ps.detect_main(root)
+            refused = startup.detect_main(root)
             self.assertEqual(refused, ps.StartupRefused("%s: found none top-level .tex files under %s. Specify one with "
                                                         "--main.\n  (none)" % (ps.APP_NAME, root)))
             (root / "a.tex").write_text("\\documentclass{article}\n")
-            self.assertEqual(ps.detect_main(root), root / "a.tex")
+            self.assertEqual(startup.detect_main(root), root / "a.tex")
             (root / "b.tex").write_text("\\documentclass{article}\n")
-            self.assertTrue(ps.detect_main(root).message.endswith("\n  - a.tex\n  - b.tex"))
-        with mock.patch.object(ps.socket, "socket") as sock:
+            self.assertTrue(startup.detect_main(root).message.endswith("\n  - a.tex\n  - b.tex"))
+        with mock.patch.object(startup.socket, "socket") as sock:
             sock.return_value.__enter__.return_value.connect_ex.return_value = 0      # every port answers: all taken
-            self.assertEqual(ps.free_port(18300, 18302),
+            self.assertEqual(startup.free_port(18300, 18302),
                              ps.StartupRefused("No free port in the 18300-18302 range. Specify one with --port."))
 
 
 class LabelValidation(unittest.TestCase):
     def test_strips_and_collapses_whitespace(self):
-        self.assertEqual(ps.clean_label("  A-DEMO  "), "A-DEMO")
-        self.assertEqual(ps.clean_label("A\nDEMO"), "A DEMO")
+        self.assertEqual(startup.clean_label("  A-DEMO  "), "A-DEMO")
+        self.assertEqual(startup.clean_label("A\nDEMO"), "A DEMO")
 
     def test_empty_becomes_default_placeholder(self):
-        self.assertEqual(ps.clean_label(""), "원고")
-        self.assertEqual(ps.clean_label(None), "원고")
+        self.assertEqual(startup.clean_label(""), "원고")
+        self.assertEqual(startup.clean_label(None), "원고")
 
     def test_over_length_is_refused(self):
         """An explicit --label over LABEL_MAX refuses to start (main() prints the message and exits)."""
-        refused = ps.clean_label("x" * (ps.LABEL_MAX + 1))
+        refused = startup.clean_label("x" * (startup.LABEL_MAX + 1))
         self.assertIsInstance(refused, ps.StartupRefused)
-        self.assertTrue(refused.message.startswith("--label must be %d characters or fewer" % ps.LABEL_MAX))
+        self.assertTrue(refused.message.startswith("--label must be %d characters or fewer" % startup.LABEL_MAX))
 
     def test_exactly_max_length_ok(self):
-        v = "x" * ps.LABEL_MAX
-        self.assertEqual(ps.clean_label(v), v)
+        v = "x" * startup.LABEL_MAX
+        self.assertEqual(startup.clean_label(v), v)
 
 
 class AccentValidation(unittest.TestCase):
     def test_valid_format(self):
-        self.assertTrue(ps.valid_accent("#1d4ed8"))
-        self.assertTrue(ps.valid_accent("#AABBCC"))
+        self.assertTrue(startup.valid_accent("#1d4ed8"))
+        self.assertTrue(startup.valid_accent("#AABBCC"))
 
     def test_invalid_formats_rejected(self):
         for bad in ("1d4ed8", "#1d4ed", "#1d4ed8ff", "#gggggg", "red", "", None):
-            self.assertFalse(ps.valid_accent(bad))
+            self.assertFalse(startup.valid_accent(bad))
 
     def test_pick_accent_is_deterministic_for_same_label(self):
-        a = ps.pick_accent("A-DEMO")
-        b = ps.pick_accent("A-DEMO")
+        a = startup.pick_accent("A-DEMO")
+        b = startup.pick_accent("A-DEMO")
         self.assertEqual(a, b)
-        self.assertIn(a, ps.ACCENT_PALETTE)
+        self.assertIn(a, config.ACCENT_PALETTE)
 
     def test_pick_accent_differs_for_different_labels_usually(self):
         # the palette has 8 colors so a 100% guarantee isn't possible, but if a handful of different
         # labels all cluster onto the same color, the hash distribution is broken.
-        colors = {ps.pick_accent(lbl) for lbl in ("A-DEMO", "paper-b", "grant-2026", "thesis")}
+        colors = {startup.pick_accent(lbl) for lbl in ("A-DEMO", "paper-b", "grant-2026", "thesis")}
         self.assertGreater(len(colors), 1)
 
 
@@ -4233,27 +4234,27 @@ class DocArgs(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_simple_tex_uses_its_folder_as_build_root(self):
-        d = ps.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
+        d = startup.parse_doc_arg("rr=답변서:sub/rr/rr.tex", self.ms)
         self.assertEqual((d["key"], d["name"], d["kind"]), ("rr", "답변서", "tex"))
         self.assertEqual(d["src"], (self.ms / "sub" / "rr").resolve())
         self.assertEqual(d["main"], (self.ms / "sub" / "rr" / "rr.tex").resolve())
 
     def test_extended_form_sets_build_root_separately(self):
-        d = ps.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
+        d = startup.parse_doc_arg("ms=본문:manuscript::2nd/m.tex", self.ms)
         self.assertEqual(d["src"], (self.ms / "manuscript").resolve())
         self.assertEqual(d["main"], (self.ms / "manuscript" / "2nd" / "m.tex").resolve())
-        doc = ps.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms)[0]
+        doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, ps.C)[0]
         self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
         ps.C.state = Path(self.tmp.name) / "st"
         self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk runs from the folder that holds the main file
 
     def test_pdf_is_view_only(self):
-        d = ps.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
+        d = startup.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
         self.assertEqual(d["kind"], "pdf")
         self.assertEqual(d["name"], "리뷰어 코멘트")                  # a space inside the name is kept as-is
 
     def test_absolute_path_inside_manuscript_is_accepted(self):
-        d = ps.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
+        d = startup.parse_doc_arg("rr=답변서:%s" % (self.ms / "sub" / "rr" / "rr.tex"), self.ms)
         self.assertEqual(d["kind"], "tex")
 
     def test_rejects_bad_specs(self):
@@ -4273,16 +4274,16 @@ class DocArgs(unittest.TestCase):
                "ms=본문:nope::2nd/m.tex"]              # no build root
         for spec in bad:
             with self.assertRaises(ValueError, msg=spec):
-                ps.parse_doc_arg(spec, self.ms)
+                startup.parse_doc_arg(spec, self.ms)
 
     def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
         with self.assertRaises(ValueError):
-            ps.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms)
-        docs = ps.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms)
+            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C)
+        docs = startup.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms, ps.C)
         self.assertEqual([d.root for d in docs], [True, False, False])    # only the LaTeX document keyed main is placed at the state-folder root
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
         with self.assertRaises(ValueError):
-            ps.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(ps.DOCS_MAX + 1)], self.ms)
+            startup.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(DOCS_MAX + 1)], self.ms, ps.C)
 
 
 class MultiDoc(Base):
@@ -4295,7 +4296,7 @@ class MultiDoc(Base):
         self.rr.write_text(TEX, encoding="utf-8")
         self.pdf = self.src / "review.pdf"
         self.pdf.write_bytes(MINI_PDF)
-        self.docs = ps.make_docs(["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src)
+        self.docs = startup.make_docs(["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src, ps.C)
         ps.set_docs(self.docs)
         self.ms, self.rrd, self.rv = self.docs
 

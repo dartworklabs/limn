@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import mapping
+from limn import access, config, mapping, startup
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
 from test_access import ALICE, BOB, CAROL, AccessBase, member_add, reset_access, talk_to, token_create
@@ -267,7 +267,7 @@ class PrincipalMatrix(AccessBase):
         self.assertEqual(self.call("GET", "/pins.md")[0], 200)                  # a real local agent is still fine
 
     def test_public_host_headerless_is_refused(self):
-        ps.C.public_hosts = ps.parse_public_hosts(["limn.example.com"])
+        ps.C.public_hosts = access.parse_public_hosts(["limn.example.com"])
         self.expect(self.run_ops(headers={"Host": "limn.example.com"}), **self.REFUSED_403)
 
     def test_tailnet_headerless_opt_in_is_the_agent_again(self):
@@ -283,7 +283,7 @@ class PrincipalMatrix(AccessBase):
 
     def test_trusted_proxy_peer_and_non_peer(self):
         ps.C.auth, ps.C.agent_loopback = "trusted-proxy", False
-        ps.C.trusted_proxies = ps.parse_networks("10.0.0.1")
+        ps.C.trusted_proxies = access.parse_networks("10.0.0.1")
         h = {"X-Forwarded-User": "bob@example.com"}
         self.expect(self.run_ops(headers=h, peer="10.0.0.1"), **self.EDITOR)
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
@@ -336,12 +336,12 @@ class ProxyHardening(AccessBase):
         os.chmod(ps.C.people_file, 0o666)
         err = io.StringIO()
         with mock.patch.object(ps.sys, "stderr", err):
-            ps.tighten_state_perms()
-            ps.tighten_state_perms()
+            startup.tighten_state_perms(ps.C.people_file)
+            startup.tighten_state_perms(ps.C.people_file)
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())   # logged once
         os.chmod(ps.C.people_file, 0o644)                                              # only writable-by-others is changed
-        ps.tighten_state_perms()
+        startup.tighten_state_perms(ps.C.people_file)
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)
 
 
@@ -426,7 +426,7 @@ class MemberCli(unittest.TestCase):
             r = cli("member", "add", "--state-dir", str(self.state), bad)
             self.assertNotEqual(r.returncode, 0, bad)
             self.assertIn("invalid login", r.stderr)
-            self.assertFalse(ps.valid_login(bad), bad)
+            self.assertFalse(access.valid_login(bad), bad)
         r = cli("member", "add", "--state-dir", str(self.state), "alice@example.com")
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -573,7 +573,7 @@ class BrowserBase(unittest.TestCase):
         C.port, C.dpi, C.timeout = 18999, 150, 60
         C.envs = tuple(ps.DEFAULT_ENVS.split(","))
         C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", ps.ACCENT_PALETTE[0], None
+        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
         reset_access()
         ps._PEOPLE_SEEN.clear()
         ps.set_docs(None)

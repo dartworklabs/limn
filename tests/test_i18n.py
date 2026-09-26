@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access
+from limn import access, config, startup
 from limn import locate
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
@@ -446,8 +446,8 @@ class EnglishChrome(unittest.TestCase):
         C.port, C.dpi, C.timeout = 18999, 150, 60
         C.envs = tuple(ps.DEFAULT_ENVS.split(","))
         C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", ps.ACCENT_PALETTE[0], None
-        ps.set_docs(ps.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src))
+        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C))
         ps.init_seq()
         page = _png(1275, 1650)            # a letter page at 150 dpi
         for D in ps.DOCS:

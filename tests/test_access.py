@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import access
+from limn import access, config
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.pins import render as md_render
 from test_server import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
@@ -238,7 +238,7 @@ class TrustedProxyProvider(AccessBase):
     def setUp(self):
         super().setUp()
         ps.C.auth, ps.C.agent_loopback = "trusted-proxy", False
-        ps.C.trusted_proxies = ps.parse_networks("10.0.0.1,192.168.5.0/24")
+        ps.C.trusted_proxies = access.parse_networks("10.0.0.1,192.168.5.0/24")
 
     def test_header_trusted_from_configured_proxy(self):
         h = {"X-Forwarded-User": "alice", "X-Forwarded-Preferred-Username": "Alice K"}
@@ -685,15 +685,15 @@ class Admission(AccessBase):
 class PublicHost(AccessBase):
     def setUp(self):
         super().setUp()
-        ps.C.public_hosts = ps.parse_public_hosts(["limn.example.com", "alt.example.com:8443"])
+        ps.C.public_hosts = access.parse_public_hosts(["limn.example.com", "alt.example.com:8443"])
 
     def test_parse(self):
         self.assertEqual(ps.C.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
-        self.assertEqual(ps.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
+        self.assertEqual(access.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
                          (("a.example.com", None), ("b.example.com", 9000)))
         for bad in ("https://x.example.com", "x.example.com/p", "localhost", "a b", "x.example.com:99999"):
             with self.assertRaises(ValueError):
-                ps.parse_public_hosts([bad])
+                access.parse_public_hosts([bad])
 
     def test_host_and_origin_rules(self):
         self.assertTrue(ps.host_ok("limn.example.com"))
@@ -841,7 +841,7 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
     C.envs = tuple(mod.DEFAULT_ENVS.split(","))
     C.allow = frozenset()
     C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
-    C.label, C.accent, C.repo = "원고", mod.ACCENT_PALETTE[0], None
+    C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
     mod.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
                            finished_at=None, last=None, errors=[], log_tail="", head=None, pull=None)
     mod.set_docs(None)
