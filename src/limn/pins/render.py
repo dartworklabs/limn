@@ -16,7 +16,7 @@ from typing import Any
 
 from limn.guidance import token_file_curl
 from limn.mapping import flat
-from limn.pins.lifecycle import claim_holds
+from limn.pins.lifecycle import claim_holds, has_ev
 from limn.pins.model import OpenPin, Record, ReviewPin, is_region_pin, state_of
 from limn.pins.shapes import is_int, is_num
 
@@ -275,7 +275,7 @@ THREAD_MD_CHARS = 200  # character count for one of those posts - the full text 
 def thread_md(r: Record, facts: PinFacts) -> str:
     """The current round's thread (facts.round), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
     Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
-    msgs = [m for m in facts.round if m.get("ev") != "close" and (m.get("text") or not m.get("ev"))]
+    msgs = [m for m in facts.round if not has_ev(m, "close") and (m.get("text") or not m.get("ev"))]
     if not msgs:
         return ""
     shown = msgs[-THREAD_MD_SHOW:]
@@ -284,9 +284,9 @@ def thread_md(r: Record, facts: PinFacts) -> str:
         name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
         label = (
             "다시 연 이유(%s)" % name
-            if m.get("ev") == "reopen"
+            if has_ev(m, "reopen")
             else "담당 바꿈(%s)" % name
-            if m.get("ev") == "assign"
+            if has_ev(m, "assign")
             else name
         )
         parts.append("%s: %s" % (label, flat(m.get("text"), THREAD_MD_CHARS)))

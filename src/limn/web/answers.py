@@ -25,6 +25,7 @@ from limn.pins.lifecycle import (
     NotInTrash,
     PinStillOpen,
     ThreadFull,
+    has_ev,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
 from limn.revisions import (
@@ -125,7 +126,7 @@ def reply_answer(
                 "pin": show(record),
                 "msg": msg,
                 "state": state_of(record),
-                "reopened": msg.get("ev") == "reopen",
+                "reopened": has_ev(msg, "reopen"),
             }
         case ThreadFull(limit=limit):
             raise HTTPError(

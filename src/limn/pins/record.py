@@ -21,14 +21,11 @@ from collections.abc import Callable
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
-from limn.pins.edit import KIND_REQS
+from limn.pins.edit import is_kind_req
+from limn.pins.lifecycle import THREAD_EVENTS
 from limn.pins.model import is_region_pin
 from limn.pins.shapes import is_int, is_num
 from limn.scope import valid_changes
-
-# The marks a thread entry may carry (ev): the close, reopen and confirm transitions (limn.pins.lifecycle) and an
-# assignee change (limn.pins.edit). A reply has none.
-THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 
 
 def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]) -> bool:
@@ -68,7 +65,7 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
     if r.get("changes") is not None and not valid_changes(r["changes"]):
         return False
     # The new fields (kind_req/thread/mentions/review) are all optional. The viewer renders them as-is, so a malformed shape is treated as a broken line.
-    if r.get("kind_req") is not None and r["kind_req"] not in KIND_REQS:
+    if r.get("kind_req") is not None and not is_kind_req(r["kind_req"]):
         return False
     if r.get("mentions") is not None and not _is_str_list(r["mentions"]):
         return False

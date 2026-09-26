@@ -112,6 +112,21 @@ class Fields(unittest.TestCase):
         )
         self.assertEqual(parse.num_field(2, "x0"), 2.0)
 
+    def test_closed_sets_come_back_narrowed_or_refused(self):
+        """kind_req and scope: a member of the set comes back as is (typed as its Literal), None when absent, and
+        anything else is the contract's 400 naming the whole set."""
+        self.assertEqual(parse.parse_kind_req("question"), "question")
+        self.assertIsNone(parse.parse_kind_req(None))
+        self.assertEqual(
+            parse.parse_kind_req("Question"), InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req")
+        )
+        self.assertEqual(parse.parse_scope("env2"), "env2")
+        self.assertIsNone(parse.parse_scope(None))
+        self.assertEqual(
+            parse.parse_scope(["raw"]),
+            InputRejected("scope 는 raw|para|env|env2|env3|lines 중 하나입니다.", "bad_scope"),
+        )
+
     def test_thread_text_is_cleaned_then_checked(self):
         """Newlines are normalised and control characters dropped before the length and emptiness checks."""
         self.assertEqual(parse.parse_thread_text("a\r\nb\x00\x1b[1m\tc "), "a\nb[1m\tc")

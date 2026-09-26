@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeAlias, TypeVar, cast, get_args
 
 from limn.pins.model import (
     Actor,
@@ -28,6 +28,11 @@ from limn.pins.model import (
 from limn.pins.shapes import is_int
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
+
+# The mark a thread entry may carry (ev): the close, reopen and confirm transitions here and an assignee change
+# (limn.pins.edit). A reply has none. limn.pins.record accepts no other stored value.
+ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
+THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
 
 # The in-progress marker's fields (docs/handbook/api.md §처리 중 표시); a close clears them.
 CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
@@ -447,7 +452,7 @@ def thread_message(
     by: dict[str, str],
     at: str,
     text: str = "",
-    ev: str | None = None,
+    ev: ThreadEv | None = None,
     ref: str | None = None,
     mentions: Sequence[str] | None = None,
 ) -> dict[str, Any]:
@@ -472,9 +477,15 @@ def round_marks(record: Record) -> tuple[int, int]:
     entry, -1 for none. The one scan behind a pin's current round - limn.mentions.thread_round() and
     pin_reopened_in_round() both read it, so the round and pins.md's "reopened" marker cannot disagree."""
     th = thread_of(record)
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    last_close = max((i for i, m in enumerate(th) if has_ev(m, "close")), default=-1)
+    last_reopen = max((i for i, m in enumerate(th) if has_ev(m, "reopen")), default=-1)
     return last_close, last_reopen
+
+
+def has_ev(entry: object, ev: ThreadEv) -> bool:
+    """Is this thread entry (as stored: anything a thread list holds) a JSON object marked ev? Readers ask this
+    rather than compare `entry.get("ev")` to a string, so a misspelt mark is a type error."""
+    return isinstance(entry, dict) and entry.get("ev") == ev
 
 
 def pin_reopened_in_round(record: Record) -> bool:

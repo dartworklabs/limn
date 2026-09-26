@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 
 from limn.access import AGENT_LOGIN_PREFIX, LOCAL_ACTOR
+from limn.audit import AuditAction
+from limn.events import EventType
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.model import Actor, Agent, Person
@@ -28,7 +30,7 @@ class MakeEvent(Protocol):
 
     def __call__(
         self,
-        typ: str,
+        typ: EventType,
         r: Mapping[str, Any],
         actor: Mapping[str, Any],
         to: Iterable[str | None] | None,
@@ -74,7 +76,7 @@ class PinContext:
     make_event: MakeEvent
     emit_events: Callable[[list[Event | None]], None]
     who: Callable[[Mapping[str, Any]], Json]  # an actor as notices and audit.jsonl record it
-    audit: Callable[[str, Json, Json], object]
+    audit: Callable[[AuditAction, Json, Json], object]
     known_people: Callable[[list[Row]], Mapping[str, Json]]  # @-tag candidates: people.json plus the people on rows
     note_tags: NoteTagger
     role_of: Callable[[str], str]  # a login's people.json role

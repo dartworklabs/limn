@@ -76,7 +76,7 @@ from limn.access import (
     roles_of,
 )
 from limn.args import serve_parser
-from limn.audit import append_audit, audit_entry, os_actor
+from limn.audit import AuditAction, append_audit, audit_action, audit_entry, os_actor
 from limn.build import (
     BuildConfig,
     BuildResult,
@@ -92,7 +92,7 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.events import EVENTS_KEEP
+from limn.events import EVENTS_KEEP, EventType
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
 from limn.locate import PinLocation, est_context, locate_file
@@ -675,7 +675,7 @@ def pin_context() -> PinContext:
     )
 
 
-def http_audit(action: str, by: Json, details: Json) -> bool:
+def http_audit(action: AuditAction, by: Json, details: Json) -> bool:
     """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
     return append_audit(C.state, audit_entry(action, by, "http", details, time.time()))
 
@@ -749,7 +749,7 @@ def event_log() -> events.EventLog:
 
 
 def make_event(
-    typ: str,
+    typ: EventType,
     r: Mapping[str, Any],
     actor: Mapping[str, Any],
     to: Iterable[str | None] | None,
@@ -1103,7 +1103,7 @@ def cli_audit(state: Path) -> access.AuditSink:
 
     def record(action: str, details: Json) -> bool:
         """Append one audit line for action with details (append_audit: a failed write only warns)."""
-        return append_audit(state, audit_entry(action, os_actor(), "cli", details, time.time()))
+        return append_audit(state, audit_entry(audit_action(action), os_actor(), "cli", details, time.time()))
 
     return record
 

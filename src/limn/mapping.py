@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from limn.pins.shapes import is_int
 
@@ -27,6 +27,9 @@ ENV_TOK_RE = re.compile(r"\\(begin|end)\{([^{}]+)\}")
 TokenWeights: TypeAlias = Sequence[tuple[str, float]]
 # One rung of the range ladder: level, lo, hi, label, n, snippet, and env/merged when present (compute_levels()).
 Level: TypeAlias = dict[str, Any]
+# What block expansion found around a selection (expand_block()): a float environment (FLOAT_KINDS), another listed
+# environment, the paragraph - or nothing, for an empty file. compute_levels() answers it as the pick's `kind`.
+BlockKind: TypeAlias = Literal["float", "block", "paragraph", "none"]
 
 
 # ---------------------------------------------------------------- Line text
@@ -118,7 +121,7 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 SECTION_RE = re.compile(r"\s*\\(part|chapter|section|subsection|subsubsection|paragraph)\*?[\[{]")
 
 
-def expand_block(lines: Sequence[str], lo: int, hi: int, envs: Sequence[str]) -> tuple[int, int, str]:
+def expand_block(lines: Sequence[str], lo: int, hi: int, envs: Sequence[str]) -> tuple[int, int, BlockKind]:
     """Expands the selected lines to the enclosing environment named in envs (--float-envs) or paragraph boundary. Used to determine the default level.
 
     An environment must be closed by a \\end of the same name - without matching the name, the selection

@@ -31,11 +31,16 @@ from limn.pins.edit import (
     LOCAL_LOGIN,
     NOTE_MAX,
     PDF_QUOTE_MAX,
+    SCOPES,
     AddRequest,
     EditRequest,
+    KindReq,
     LinePlace,
     Place,
     RegionPlace,
+    Scope,
+    is_kind_req,
+    is_scope,
 )
 from limn.pins.shapes import is_int
 from limn.revisions import REVISION_ID_RE
@@ -59,7 +64,6 @@ CLAIM_TTL_FLOOR = 30  # if only eta_min is given, the lock is min(ceiling, max(t
 # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
 THREAD_TEXT_MAX = 1000
 MENTION_MAX = 10  # cap on mention hints per post
-SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = (
     "file",
     "name",
@@ -162,12 +166,21 @@ def parse_note(v: object) -> str | InputRejected:
     return v
 
 
-def parse_kind_req(v: object) -> str | None | InputRejected:
+def parse_kind_req(v: object) -> KindReq | None | InputRejected:
     """Pin kind - 'fix' (fix request) | 'question'. None if absent (= fix, same as a legacy pin)."""
     if v is None:
         return None
-    if not isinstance(v, str) or v not in KIND_REQS:
+    if not isinstance(v, str) or not is_kind_req(v):
         return InputRejected("kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS), "bad_kind_req")
+    return v
+
+
+def parse_scope(v: object) -> Scope | None | InputRejected:
+    """A line pin's range-ladder rung (SCOPES), or None when absent."""
+    if v is None:
+        return None
+    if not is_scope(v):
+        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
     return v
 
 
@@ -512,9 +525,10 @@ def parse_loc(d: Json, facts: DocumentFacts) -> dict[str, Any] | InputRejected:
             return bad
         out["frac"] = nums
     if d.get("scope") is not None:
-        if d["scope"] not in SCOPES:
-            return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
-        out["scope"] = d["scope"]
+        scope = parse_scope(d["scope"])
+        if isinstance(scope, InputRejected):
+            return scope
+        out["scope"] = scope
     if d.get("quote") is not None:
         if not isinstance(d["quote"], str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
@@ -654,9 +668,9 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     hi = int_field(d["hi"], "hi") if d.get("hi") is not None else None
     if isinstance(hi, InputRejected):
         return hi
-    scope = d.get("scope")
-    if scope is not None and scope not in SCOPES:
-        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
+    scope = parse_scope(d.get("scope"))
+    if isinstance(scope, InputRejected):
+        return scope
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")

@@ -25,7 +25,7 @@ import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias, get_args
 
 from limn.files import atomic_write
 from limn.mapping import flat
@@ -40,8 +40,11 @@ ReadCache: TypeAlias = dict[str, tuple[Signature, list[Row]]]
 
 EVENTS_FILE = "events.jsonl"
 EVENTS_KEEP = 5000  # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
+# The notices make_event() builds - every one of them reaches a viewer's poll (events_since). The audit notices
+# `cleared` and `purged` are written by the Trash service directly and are never notified.
+EventType: TypeAlias = Literal["mention", "review_requested", "replied", "reopened", "assigned", "dropped"]
+NOTIFY_TYPES: tuple[EventType, ...] = get_args(EventType)
+EVENT_TYPES = NOTIFY_TYPES
 EVENTS_SINCE_MAX = 20
 EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.mapping.flat)
 
@@ -50,7 +53,7 @@ EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.mapping.flat)
 
 
 def make_event(
-    typ: str,
+    typ: EventType,
     r: Mapping[str, Any],
     actor: Mapping[str, Any],
     to: Iterable[str | None] | None,

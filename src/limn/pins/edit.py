@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
 from limn.pins.lifecycle import PinT, author, next_rev, signature, thread_message, thread_of
 from limn.pins.model import Actor, DonePin, OpenPin, Pin, Record, ReviewPin
@@ -22,7 +22,12 @@ LOCAL_LOGIN = "local"
 # A pin's note, in characters: the limit a new or replaced note must fit, and a note_append merged into it.
 NOTE_MAX = 4000
 # kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
-KIND_REQS = ("fix", "question")
+KindReq: TypeAlias = Literal["fix", "question"]
+KIND_REQS: tuple[KindReq, ...] = get_args(KindReq)
+# scope: which rung of the range ladder a line pin was placed at (limn.mapping.compute_levels: raw drag, paragraph,
+# the innermost environment and up to two outer ones, or plain lines).
+Scope: TypeAlias = Literal["raw", "para", "env", "env2", "env3", "lines"]
+SCOPES: tuple[Scope, ...] = get_args(Scope)
 # The region text a view-only PDF pin keeps as its quote - longer than a line pin's 60 characters, since the text is
 # all an agent has to find the place by.
 PDF_QUOTE_MAX = 160
@@ -30,6 +35,16 @@ PDF_QUOTE_MAX = 160
 LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "frac", "scope", "quote")
 # The fields a view-only PDF pin's new region may set; a region without a quote drops the old one.
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build")
+
+
+def is_kind_req(v: object) -> TypeGuard[KindReq]:
+    """Is v one of KIND_REQS? The check a request parser and the stored-record check share."""
+    return v in KIND_REQS
+
+
+def is_scope(v: object) -> TypeGuard[Scope]:
+    """Is v one of SCOPES? The check the add and edit parsers share."""
+    return v in SCOPES
 
 
 @dataclass(frozen=True)
@@ -69,9 +84,9 @@ class EditRequest:
     place: Place | None = None
     lo: int | None = None
     hi: int | None = None
-    scope: str | None = None
+    scope: Scope | None = None
     kind: str | None = None
-    kind_req: str | None = None
+    kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
 
@@ -144,9 +159,9 @@ class PinEdited:
     place: Place | None
     lines: tuple[int, int] | None
     range_changed: bool
-    scope: str | None
+    scope: Scope | None
     kind: str | None
-    kind_req: str | None
+    kind_req: KindReq | None
     assignee: str | None
 
     def span(self) -> tuple[int, int] | None:
@@ -311,7 +326,7 @@ class AddRequest:
 
     place: Place
     note: str
-    kind_req: str | None = None
+    kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
 
