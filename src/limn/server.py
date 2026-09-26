@@ -73,6 +73,7 @@ from limn.mentions import (  # noqa: E402,F401 - pin_mentions_all, resolve_menti
 from limn.people import is_actor as _is_actor  # noqa: E402
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
+from limn import gitsync  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
     DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts,
@@ -533,16 +534,6 @@ def _build_tracked(D: Doc) -> dict:
     return build.run_tracked(D, C.state, step, now_str())
 
 
-# ---------------------------------------------------------------- --git-pull (§P0c-E)
-#
-# Fast-forwards the manuscript repo to the remote main before the rebuild's copy step. A co-author merging a
-# PR wasn't reflected on the server-side checkout - the viewer kept showing the old manuscript. Even on
-# failure (dirty tree, diverged, no upstream), the build itself continues with the current checkout - a
-# pull is nice to have, not a build prerequisite.
-
-# git runs through limn.revisions.git (no shell; imported above as _git), with its 30-second timeout per call.
-
-
 # ---------------------------------------------------------------- Manuscript history, pin-scoped changes, comparison PDFs
 #
 # The revision services are limn/revisions.py (the git edge and the comparison builds) and limn/scope.py (the pure
@@ -589,194 +580,44 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None):
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
 
-# ---------------------------------------------------------------- --git-pull: the pull itself and the remote-main watch
+# ---------------------------------------------------------------- --git-pull and the remote-main watch (§P0c-E)
+#
+# Fast-forwards the manuscript repo to the remote main before the rebuild's copy step, and watches remote main while
+# the server runs. A co-author merging a PR wasn't reflected on the server-side checkout - the viewer kept showing the
+# old manuscript. Even on failure (dirty tree, diverged, no upstream), the build itself continues with the current
+# checkout - a pull is nice to have, not a build prerequisite.
+#
+# The pull and the watch are limn/gitsync.py (the git calls, locks and watch loop) over limn/pull.py (what git's
+# answers mean and what the watch does next). The process's one pull share and watch status are made here; the
+# bindings below hand them the manuscript folder, the documents, --git-pull, the git runner (limn.revisions.git
+# imported above as _git: no shell, 30 seconds per call), the clock and the build starter, read per call so a test (or
+# main()) that changes C or rebinds build_async is seen at once. prepare() starts the watch thread.
 
-def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
-    """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
-
-    Order: locate the repo root (skipped:not_git if not found) -> fetch (error on failure) -> check
-    upstream (skipped:no_upstream if none) -> check for a dirty tree (skipped:dirty if dirty) -> --ff-only
-    merge (skipped:diverged if diverged). At any step, a timeout or exec failure on the git call itself is error."""
-    rc, top, _ = _git(["-C", str(manuscript), "rev-parse", "--show-toplevel"], manuscript)
-    if rc != 0 or not top.strip():
-        return {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}
-    root = top.strip()
-
-    rc, before, _ = _git(["-C", root, "rev-parse", "HEAD"], root)
-    head_before = before.strip() if rc == 0 else None
-
-    rc, _out, _err = _git(["-C", root, "fetch", "--quiet"], root)
-    if rc != 0:
-        reason = "fetch_timeout" if rc is None else "fetch_failed"
-        return {"state": "error", "reason": reason, "head_before": head_before, "head_after": head_before}
-
-    rc, upstream, _err = _git(["-C", root, "rev-parse", "--abbrev-ref", "@{u}"], root)
-    if rc != 0:
-        return {"state": "skipped", "reason": "no_upstream", "head_before": head_before, "head_after": head_before}
-    if main_only:
-        rc, branch, _err = _git(["-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"], root)
-        if rc != 0 or branch.strip() != "main" or not upstream.strip().endswith("/main"):
-            return {"state": "skipped", "reason": "not_main", "head_before": head_before, "head_after": head_before}
-
-    rc, dirty, _err = _git(["-C", root, "status", "--porcelain", "--untracked-files=no"], root)
-    if rc != 0:
-        return {"state": "error", "reason": "status_failed", "head_before": head_before, "head_after": head_before}
-    if dirty.strip():
-        return {"state": "skipped", "reason": "dirty", "head_before": head_before, "head_after": head_before}
-
-    rc, _out, _err = _git(["-C", root, "merge", "--ff-only", "@{u}"], root)
-    if rc != 0:
-        return {"state": "skipped", "reason": "diverged", "head_before": head_before, "head_after": head_before}
-
-    rc, after, _err = _git(["-C", root, "rev-parse", "HEAD"], root)
-    head_after = after.strip() if rc == 0 else head_before
-    state = "up_to_date" if head_after == head_before else "ok"
-    return {"state": state, "reason": None, "head_before": head_before, "head_after": head_after}
-
-
-_PULL_LOCK = threading.Lock()
-_PULL_LAST = {"at": 0.0, "res": None}
-PULL_SHARE_S = 20                  # seconds - if another document already pulled within this window, reuse its result
-SYNC_EVERY_S = 60                  # interval for checking remote main. Checked even when no browser is open.
-_SYNC_LOCK = threading.Lock()
-_SYNC_STATE = {"state": "checking", "reason": None, "checked_at": None,
-               "head_before": None, "head_after": None}
-
-
-def sync_status() -> dict:
-    if not C.git_pull:
-        return {"state": "disabled"}
-    with _SYNC_LOCK:
-        state = dict(_SYNC_STATE)
-    if state.get("state") != "updating" or not state.get("head_after"):
-        return state
-    head = state["head_after"]
-    pending = False
-    failed = False
-    for D in list(DOCS):
-        if D.is_pdf:
-            continue
-        if D.lock.locked():
-            pending = True
-            continue
-        try:
-            built = (D.dir / "head.txt").read_text(encoding="utf-8").strip()
-        except OSError:
-            built = ""
-        if not built or built == "-" or not head.startswith(built):
-            pending = True
-            with D.bstate_lock:
-                failed |= D.bstate.get("state") == "fail"
-    if not pending or failed:
-        with _SYNC_LOCK:
-            if _SYNC_STATE.get("state") == "updating" and _SYNC_STATE.get("head_after") == head:
-                _SYNC_STATE.update(state="error" if failed else "current",
-                                   reason="build_failed" if failed else None)
-            return dict(_SYNC_STATE)
-    return state
-
-
-def sync_main_once() -> dict:
-    """Check remote main and rebuild the PDF only for documents that changed. Also called on --no-build startup.
-
-    If any document is currently building, this round is deferred. While updating the Git checkout, every
-    document lock is held, so a fast-forward never happens while another build is mid-copy of the source.
-    """
-    if not C.git_pull:
-        return {"state": "disabled"}
-    held = []
-    for D in list(DOCS):
-        if D.is_pdf:
-            continue
-        if not D.lock.acquire(blocking=False):
-            for lock in reversed(held):
-                lock.release()
-            out = {"state": "deferred", "reason": "building",
-                   "checked_at": datetime.now().astimezone().isoformat(timespec="seconds")}
-            with _SYNC_LOCK:
-                _SYNC_STATE.update(out)
-            return out
-        held.append(D.lock)
-    try:
-        with _PULL_LOCK:
-            pull = git_pull_phase(C.src, main_only=True)
-            _PULL_LAST.update(at=time.time(), res=pull)
-    finally:
-        for lock in reversed(held):
-            lock.release()
-
-    state = {"ok": "updated", "up_to_date": "current",
-             "skipped": "blocked", "error": "error"}.get(pull["state"], "error")
-    out = dict(pull, state=state, checked_at=datetime.now().astimezone().isoformat(timespec="seconds"))
-    with _SYNC_LOCK:
-        _SYNC_STATE.clear()
-        _SYNC_STATE.update(out)
-    if state in ("updated", "current"):
-        head = pull.get("head_after") or ""
-        for D in list(DOCS):
-            if D.is_pdf:
-                continue
-            try:
-                built = (D.dir / "head.txt").read_text(encoding="utf-8").strip()
-            except OSError:
-                built = ""
-            if state == "updated" or not built or built == "-" or not head.startswith(built):
-                build_async(D)
-                out["state"] = "updating"
-        if out["state"] == "updating":
-            with _SYNC_LOCK:
-                _SYNC_STATE["state"] = "updating"
-    return out
-
-
-def watch_main(stop: threading.Event, every: float = SYNC_EVERY_S) -> None:
-    """Syncs right after startup and then periodically. The watch thread survives even if an error occurs."""
-    while not stop.is_set():
-        try:
-            result = sync_main_once()
-        except Exception:                         # noqa: BLE001 — the next round will retry
-            traceback.print_exc(file=sys.stderr)
-            with _SYNC_LOCK:
-                _SYNC_STATE.update(state="error", reason="unexpected",
-                                   checked_at=datetime.now().astimezone().isoformat(timespec="seconds"))
-            result = {"state": "error"}
-        if stop.wait(min(3.0, every) if result.get("state") == "deferred" else every):
-            break
+PULL_SHARE = gitsync.PullShare()              # the process's one pull per repository and its last result
+SYNC_WATCH = gitsync.SyncWatch()              # the remote-main watch status GET /api/meta shows as `sync`
 
 
 def repo_pull() -> dict:
-    """--git-pull operates per repo. A single document pulls once per build (as before). With multiple
-    documents, a single lock serializes them, and if another document's build already pulled within
-    PULL_SHARE_S, that result is reused (shared=True) instead of pulling again - so rebuilding two
-    documents at once never collides on git fetch/merge (.git/index.lock conflicts), and the tree
-    never changes mid-copy for one of them."""
-    if not multi_doc():
-        return git_pull_phase(C.src)
-    with _PULL_LOCK:
-        last = _PULL_LAST["res"]
-        if last is not None and time.time() - _PULL_LAST["at"] < PULL_SHARE_S:
-            return dict(last, shared=True)
-        res = git_pull_phase(C.src)
-        _PULL_LAST.update(at=time.time(), res=res)
-        return res
+    """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several
+    share one pull per repository within limn.gitsync.PULL_SHARE_S."""
+    return gitsync.repo_pull(PULL_SHARE, multi_doc(), lambda: gitsync.pull(C.src, main_only=False, git=_git), time.time)
+
+
+def sync_status() -> dict:
+    """GET /api/meta's `sync` - the remote-main watch status (limn.gitsync.SyncWatch.status)."""
+    return SYNC_WATCH.status(DOCS, C.git_pull)
+
+
+def sync_main_once() -> dict:
+    """One remote-main round (limn.gitsync.SyncWatch.once): pull main, then start the builds of the documents the
+    pull left behind. The watch thread runs it, and a --no-build startup through it."""
+    return SYNC_WATCH.once(DOCS, C.git_pull, lambda: gitsync.pull(C.src, main_only=True, git=_git), PULL_SHARE,
+                           build_async, gitsync.local_stamp, time.time)
 
 
 def _build(D: Doc) -> dict:
     """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
     return build.compile_tex(D, build_config(), repo_pull if C.git_pull else None)
-
-
-# ---------------------------------------------------------------- View-only PDF documents
-#
-# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild; when that PDF file changes, its page images are
-# re-rendered through the same tracked build as a LaTeX rebuild (limn.build.render_pdf_doc, pdf_changed).
-
-def refresh_pdf_doc(D: Doc) -> bool:
-    """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
-    if not D.is_pdf or not pdf_changed(D):
-        return False
-    r = build_async(D)
-    return not r.get("busy")
 
 
 # ---------------------------------------------------------------- Documents and meta
@@ -1735,7 +1576,7 @@ def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
         for D in list(DOCS):
             if D.is_pdf:
                 try:
-                    refresh_pdf_doc(D)
+                    build.refresh_pdf_doc(D, build_async)
                 except Exception:                     # noqa: BLE001 — the watch thread must never die
                     traceback.print_exc(file=sys.stderr)
 
@@ -2035,7 +1876,8 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
                                            "" if r.get("state") == "skip" else "  (build started)"))
         threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
     if C.git_pull:
-        threading.Thread(target=watch_main, args=(threading.Event(),), daemon=True).start()
+        threading.Thread(target=SYNC_WATCH.watch, daemon=True,
+                         args=(threading.Event(), gitsync.SYNC_EVERY_S, sync_main_once, gitsync.local_stamp)).start()
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
     tighten_state_perms()
