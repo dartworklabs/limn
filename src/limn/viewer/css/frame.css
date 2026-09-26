@@ -1,0 +1,91 @@
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+/* Viewer role (people.json role viewer, v0.2.1): the server refuses every change anyway; the screen stops offering it.
+   Reading stays - view/jump, threads, the archive, the composer's location and source lines. */
+body.role-viewer :is([data-act=edit],[data-act=drop],[data-act=close],[data-act=confirm],
+  [data-act=reply-open],[data-act=reply-flip],[data-act=restore],[data-act=purge],[data-act=unclaim],[data-act=rebuild],[data-act=overlap-append],[data-act=overlap-separate],
+  [data-act=kind],[data-act=e-kind],[data-act=assign-new],[data-act=assign-edit],[data-act=esave]),
+body.role-viewer :is(#btn-save,#note,#c-kind,#c-assign,#c-qhint,#note-mentions){display:none!important}
+body:not(.role-viewer) #c-viewer{display:none}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+body{margin:0;background:var(--background);color:var(--foreground);font:var(--text-lg)/1.55 var(--font-sans);
+  display:flex;height:100vh;height:calc(100dvh - var(--kb,0px));overflow:hidden}
+/* A sideways swipe never turns into the browser's back/forward navigation - it left Limn and lost the draft (input review 2026-09-26). */
+html,body{overscroll-behavior-x:none}
+/* PDF area: blocks the browser's pinch zoom and passes through only scrolling - a two-finger gesture is handled by the app's own zoom (docs/handbook/viewer.md §PDF 영역 전용 확대). */
+/* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
+#main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
+#left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh 44px;min-width:240px;min-height:0;touch-action:pan-x pan-y}
+#pdf-body{flex:1;display:flex;min-height:0;min-width:0}
+#pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+#doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:var(--doc-nav-h);padding:0 var(--space-4);
+  background:var(--sidebar);border-bottom:1px solid var(--border);font-size:var(--text-base)}
+body:not(.lay-narrow) #doc-nav{display:flex}
+#doc-nav .nav-sp{flex:1}
+#paper-identity{display:inline-flex;align-items:center;gap:var(--space-2);flex:0 1 auto;min-width:0;max-width:180px;margin-right:var(--space-3);padding-right:var(--space-3);
+  border-right:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:600;white-space:nowrap}
+#paper-identity-mark{display:grid;place-items:center;width:16px;height:16px}
+/* The Limn mark (docs/handbook/viewer.md §마크와 파비콘): one stroke from the pin's dot into the source line, inline SVG from
+   limn.mark with classes only (limn-mark*: .mark is the pin box on the PDF, which marks() removes and redraws). The tile takes the instance colour (--brand) and the glyph the colour on it; the help
+   header draws it monochrome in the dialog's own colours, so it follows the theme. */
+.limn-mark{display:block;flex:none;width:16px;height:16px}
+.limn-mark-tile{fill:var(--brand)}
+.limn-mark-dot{fill:var(--brand-foreground)}
+.limn-mark-line{fill:none;stroke:var(--brand-foreground)}
+#help-h{display:flex;align-items:center;gap:var(--space-2)}
+#help-h .limn-mark{width:20px;height:20px}
+#help-h .limn-mark-tile{fill:var(--popover-foreground)}
+#help-h .limn-mark-dot{fill:var(--popover)}
+#help-h .limn-mark-line{stroke:var(--popover)}
+#more-label .limn-mark{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:var(--space-1)}
+#paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
+body.lay-narrow #paper-identity{display:none}
+#doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}
+#doc-links{display:none;align-items:stretch;min-width:0;height:100%;gap:var(--space-5);margin-right:var(--space-3);overflow-x:auto}
+#doc-links button{flex:none}
+body.docs-multi:not(.lay-narrow) #doc-links{display:flex}
+#doc-links button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm);white-space:nowrap}
+#doc-links button[aria-current=page]{color:var(--foreground);font-weight:600}
+#doc-links button[aria-current=page]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#doc-links button:hover,#doc-links button:focus-visible{color:var(--foreground)}
+#doc-links .doc-link-count{font-size:var(--text-xs);color:var(--subtle-foreground);margin-left:var(--space-1)}
+#doc-links button[aria-current=page] .doc-link-count{color:var(--muted-foreground)}   /* label-colored text measured 2.8 contrast in dark (QA) - the current document's underline bar already carries the label color */
+#doc-select-wrap label{color:var(--muted-foreground);font-size:var(--text-sm)}
+#doc-select{max-width:230px;min-width:120px;background:var(--sidebar);border:0;font-weight:600;padding:4px 20px 4px 2px}
+#view-switch{padding-left:0}
+body.docs-multi #view-switch{border-left:1px solid var(--border);padding-left:var(--space-3)}
+#view-switch{display:inline-flex;align-items:stretch;gap:var(--space-4);height:100%;flex:none}
+#view-switch button{position:relative;border:0;border-radius:0;background:transparent;color:var(--muted-foreground);padding:0 2px;font-size:var(--text-sm)}
+#view-switch button[aria-pressed=true]{color:var(--foreground);font-weight:600}
+#view-switch button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--brand)}
+#outline{display:block;flex:none;width:var(--outline-width);min-width:var(--outline-width);overflow:auto;padding:var(--space-3) var(--space-2);
+  background:var(--sidebar);font-size:var(--text-sm)}
+body.outline-collapsed #outline{display:none}
+body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,body.outline-collapsed .outline-title{display:none}
+.outline-head{display:flex;align-items:center;min-height:32px;gap:var(--space-2);padding:0 var(--space-2) var(--space-2)}
+#outline .outline-title{font-weight:600}
+#nav-toc-toggle{display:inline-flex;flex:none;align-self:center;width:32px;height:32px;padding:0;color:var(--muted-foreground)}
+#nav-toc-toggle[aria-expanded=true]{background:var(--accent);color:var(--foreground)}
+#outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
+#outline .outline-empty{color:var(--muted-foreground);padding:var(--space-2)}
+#outline-items button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--space-1);width:100%;text-align:left;
+  background:transparent;border:0;color:var(--muted-foreground);padding:var(--space-2) var(--space-1);font-size:var(--text-sm)}
+#outline-items button .ol-name{overflow-wrap:anywhere}
+#outline-items button.ol-depth-0 .ol-name,#outline-items button.ol-depth-0 .ol-no{font-weight:600;color:var(--foreground)}
+#outline-items button .ol-page{color:var(--subtle-foreground);white-space:nowrap;font-size:var(--text-xs)}
+#outline-items button.ol-depth-1{padding-left:var(--space-4)}
+#outline-items button.ol-depth-2{padding-left:var(--space-5)}
+#outline-items button.ol-depth-3,#outline-items button.ol-depth-4{padding-left:var(--space-6)}
+#outline-items button.ol-active{background:var(--accent);color:var(--foreground)}
+#outline-items button:hover,#outline-items button:focus-visible{background:var(--accent);color:var(--foreground)}
+#outline-items button:is(.ol-active,:hover,:focus-visible) .ol-page{color:var(--muted-foreground)}   /* the faint page number measured 3.8 contrast on --accent here (QA) */
+#outline-grip{position:relative;z-index:6;width:6px;flex:none;cursor:col-resize;touch-action:none;background:var(--border)}
+#outline-grip::after{content:'';position:absolute;inset:0 -9px}
+#outline-grip:hover,#outline-grip.on,#outline-grip:focus-visible{background:var(--border-strong)}
+body.outline-collapsed #outline-grip,body.lay-narrow #outline,body.lay-narrow #outline-grip{display:none}
+#section-strip{display:flex;align-items:center;gap:var(--space-2);height:38px;flex:none;padding:0 var(--space-4);background:var(--muted);
+  border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--muted-foreground)}
+#section-current{color:var(--foreground);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#section-page{margin-left:auto;white-space:nowrap}
+body.revision-open #section-strip{display:none}
+body.lay-narrow #section-strip{display:none}
