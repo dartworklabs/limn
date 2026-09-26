@@ -36,7 +36,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 4,540 | 설정, 문서 목록(`DOCS`), 빌드 연결(`build_all`·`build_async`: `BuildConfig`·`--git-pull`·보기 전용 그리기를 묶는다)과 `--git-pull`·원격 main 감시, 원고 이력·비교 PDF 서비스를 이 인스턴스에 묶는 연결(`revision_context`), 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 조립 지점(`main()` → `start()`: 접근 설정·실행 설정과 문서·저장소와 빌드·요약·서버, 시작 거절은 `StartupRefused` 값이고 `sys.exit`은 `main()`에만 있다). 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 4,217 | 설정, 문서 목록(`DOCS`), 빌드 연결(`build_all`·`build_async`: `BuildConfig`·`--git-pull`·보기 전용 그리기를 묶는다)과 `--git-pull`·원격 main 감시, 원고 이력·비교 PDF 서비스를 이 인스턴스에 묶는 연결(`revision_context`), 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), `pins.md` 렌더가 읽는 값의 조립(`pins_md_input`: 실행 설정·문서와 빌드 도장·시계·토큰 파일·`people.json`·핀마다의 파일 위치와 긴 줄 길이·겹침 배지·@태그·스레드 회차), 사람·이벤트, 감사 기록, 접근 제어(신원·Host/Origin 판단·역할), 뷰어 조립, HTTP 처리기를 이 모듈의 서비스에 묶는 연결, 조립 지점(`main()` → `start()`: 접근 설정·실행 설정과 문서·저장소와 빌드·요약·서버, 시작 거절은 `StartupRefused` 값이고 `sys.exit`은 `main()`에만 있다). 요청 파서는 2026-09-26부터 `web/parse.py`에 있고, 서비스는 파싱된 값을 받는다. 파서가 원고와 맞춰 보는 사실(파일의 줄, 빌드의 쪽)은 `document_facts()`가 문서마다 건넨다 |
 | [`src/limn/web/`](../../src/limn/web/handler.py) | 1,905 | HTTP 층(2026-09-26 옮김): 처리기와 서버 클래스·본문 읽기와 한도·GET/POST 경로 분기(`handler.py`), 요청 본문·쿼리의 파서(`parse.py`: 값이나 `InputRejected`를 돌려주고 처리기가 400으로 답한다), 핀 조작과 원고 이력 결과마다의 응답(`answers.py`), `HTTPError`·`InputRejected`·핀 단위 변경 거절 표·비교 PDF 실패 문구 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`의 `App` 프로토콜). `server.py`를 가져오지 않는다 (`tests/test_web.py`가 검사) |
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/revisions.py`](../../src/limn/revisions.py) | 936 | 원고 이력의 git 쪽(2026-09-26 옮김): 최근 커밋, 한 커밋의 소스 diff(핀 단위 포함), 비교 PDF 빌드(스냅숏·격리 실행·캐시·작업 스레드). 문서와 `RevisionContext`(핀 목록, 옮긴 경로 찾기, 프로세스의 범위 캐시와 작업 목록, 실패 문구)를 인자로 받고, 거절과 실패를 값으로 돌려준다. `C`·`cur_doc()`·서버·HTTP 층을 모른다 (`tests/test_scope.py`가 검사) |
@@ -44,7 +44,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/documents.py`](../../src/limn/documents.py) | 147 | 문서(`Doc`, 2026-09-26 옮김): 문서마다 빌드 루트·메인·상태 폴더와 빌드 잠금·상태를 갖고, 실행 경로는 만들 때 받은 `RunPaths`(조립 지점의 `C`)에서 읽는다. 문서 키 규칙과 조회 결과 값(`DocNotFound`)도 여기 있다. `C`·`cur_doc()`을 모른다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 75 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다. 요청이나 SyncTeX가 가리키는 경로가 원고 트리 안의 파일인지 보는 규칙 하나(`file_in_tree`, 거절은 이유별 값)도 여기 있다 |
 | [`src/limn/store.py`](../../src/limn/store.py) | 236 | 핀 저장소 `PinStore`: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통(`pins.dropped.jsonl`) 쓰기, 손상 줄의 원본 보존, 핀 번호(`pins.seq`), clear 보관. 서버를 가져오지 않는다. 파일 위치(`PinFiles`)·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외를 `server.pin_store()`가 호출마다 인자로 넘긴다 (`tests/test_store.py`가 import를 검사) |
-| [`src/limn/pins/`](../../src/limn/pins/model.py) | 1,061 | 핀 도메인의 순수 코드: 상태 타입과 그 상태에만 있는 필드(`Claim`·`Close`·`Confirmation`·`Dropped`), 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
+| [`src/limn/pins/`](../../src/limn/pins/model.py) | 1,500 | 핀 도메인의 순수 코드: 상태 타입과 그 상태에만 있는 필드(`Claim`·`Close`·`Confirmation`·`Dropped`), 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`), `pins.md` 렌더(`render.py`, 2026-09-26 옮김: 입력 값 `PinsMdInput` → 문자열). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사, `render.py`가 가져오는 `guidance.py`·`mapping.py`까지) |
+| [`src/limn/guidance.py`](../../src/limn/guidance.py) | 49 | 에이전트가 읽는 토큰 파일 문구(2026-09-26 옮김): 401 문구 `UNAUTHENTICATED`, 셸 경로 `shell_path`, 토큰 파일 curl 형태, 헤더 없는 로컬 요청을 막을 때의 401 문구. `pins.md` 인증 줄과 접근 검사가 같이 쓴다. 문자열만 다루고, 파일이 있는지와 홈 폴더는 부르는 쪽이 넘긴다 |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/mark.py`](../../src/limn/mark.py) | 125 | Limn 마크(점에서 시작해 줄로 이어지는 한 획)의 기하 하나와 세 모양: 뷰어 인라인 SVG, 파비콘 SVG, 표준 라이브러리만으로 그리는 PNG. 순수하다 (`tests/test_brand.py`) |
 | [`src/limn/viewer/`](../../src/limn/viewer/parts.txt) | 4,123 | 뷰어 화면: `index.html`(175), 스타일 조각 `css/` 10개(902), 스크립트 조각 `js/` 35개(2,985), 조각 순서 `parts.txt`(61). 서버가 시작할 때 `parts.txt` 순서대로 조각을 이어 `index.html`에 끼우고 한 장의 HTML로 내보낸다. 빌드 단계·모듈 로더는 없다 ([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때) |
@@ -97,9 +98,10 @@ src/limn/
 │   ├── model.py         상태별 타입, 명령 값, 예상 실패
 │   ├── lifecycle.py     열기·닫기·확인·다시 열기·claim 전이 함수
 │   ├── edit.py          편집 판단(거절은 값), 새 핀 레코드
-│   └── render.py        pins.md 렌더링 (입력 → 문자열)
+│   └── render.py        pins.md 렌더링 (입력 → 문자열, 2026-09-26 옮김)
 ├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
 ├── mark.py              Limn 마크의 SVG·PNG — 순수 (0.3.4)
+├── guidance.py          토큰 파일 안내 문구 — 순수 (pins.md 인증 줄과 401이 같이 쓴다, 2026-09-26)
 ├── store.py             핀 저장소: 잠금 아래 쓰기 순서·원자적 쓰기·손상 레코드 보존 (부수효과, 2026-09-26 옮김)
 ├── build.py             원고 복사·latexmk·pdftoppm·쪽 디렉토리·빌드 이력·원고 지문 (부수효과, 2026-09-26 옮김)
 ├── files.py             원자적 파일 교체 (모든 저장 쓰기가 공유, 2026-09-26 옮김)

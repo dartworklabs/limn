@@ -170,7 +170,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, `loopback_refused_text` 다.
+실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/render.py`](../../src/limn/pins/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/guidance.py`](../../src/limn/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 토큰 파일이 있는지와 홈 폴더는 `server.py` 가 읽어 값으로 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 
