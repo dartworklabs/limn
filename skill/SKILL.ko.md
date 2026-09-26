@@ -147,6 +147,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 - 이미 닫힌 핀을 다시 닫으면 아무것도 안 바뀐다(`reply` 도 버려진다). 사유를 고치려면 `/reopen` 뒤 다시 `/close`.
 - `close`·`drop` 이 claim 을 지운다. 처리를 포기하거나 넘길 때만 `/unclaim`.
 - 메모·범위를 고칠 때는 `GET /api/pins` 의 `rev` 를 `/edit` 의 `base_rev` 로 보낸다. `409 conflict` 면 응답의 최신 `pin` 을 보고 다시 보낸다. 덧붙이기만 하면 `note_append`(`base_rev` 불필요).
+- 오류 응답은 늘 `{"error": "<한국어 문장>", "reason": "<코드>"}` 다. 분기는 안정 코드 `reason`(`viewer_only`·`conflict`·`pin_not_found` 등 영문 소문자)으로 하고, 문장은 사람이 읽는 것이다. 코드 목록은 `docs/handbook/api.md` §오류 응답.
 - 원고를 고쳤으면 그 문서의 PDF 를 재빌드한다(`POST /api/rebuild?async=1&doc=<키>`, 단일 문서는 `doc` 생략). 옛 PDF 위의 pick 은 줄 번호가 어긋난다. 보기 전용 문서는 재빌드가 없다.
 
 ## 사용자에게 뷰어 띄워 주기

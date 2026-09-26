@@ -39,7 +39,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_cli.py`](../../tests/test_cli.py) | `limn` 명령 표면: version, serve 전달, 도움말 |
 | [`tests/test_migrate.py`](../../tests/test_migrate.py) | 옛 설치에서 옮기기 (systemctl 스텁) |
 | [`tests/test_access.py`](../../tests/test_access.py) | 접근 제어: 신원 방식, 토큰, 역할별 허용 범위, 바인드 규칙, 0.1 상태 디렉터리 호환 |
-| [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저), 계약 문자열은 번역하지 않는지 |
+| [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저, 흔한 거절의 오류 알림 포함), 계약 문자열은 번역하지 않는지 |
+| [`tests/test_errors.py`](../../tests/test_errors.py) | 모든 오류 본문에 안정 코드 `reason` 이 있는지(`HTTPError` 는 `reason` 없이 만들 수 없고, 오류 사전 글자에도 있다), 흔한 거절의 한국어 `error` 문장·상태가 그대로인지, 서버가 내는 코드마다 영어 문장이 있고 낡은 문장이 없는지, 뷰어 `errText()` 가 영어에서는 코드로·한국어에서는 서버 문장 그대로 보이는지 |
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
 | [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
 | [`tests/test_pins_lifecycle.py`](../../tests/test_pins_lifecycle.py) | `limn.pins`가 순수한지(import 검사), 레코드가 `pin_state()`와 같은 규칙으로 상태 타입이 되는지, 확인·닫기·다시 열기·답글·claim·휴지통 전이가 상태마다 맞는 결과를 돌려주고 필드 순서·모르는 필드·입력 레코드를 지키는지, 스레드 id 규칙 |

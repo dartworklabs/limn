@@ -147,6 +147,7 @@ After the number, the number cell carries short plain-word markers joined by ` �
 - Closing an already closed pin changes nothing (the `reply` is discarded as well). To change the reason, `/reopen` and then `/close` again.
 - `close` and `drop` clear the claim. Call `/unclaim` only when you give up a pin or hand it over.
 - To edit a pin's note or range, send the `rev` from `GET /api/pins` as `base_rev` to `/edit`. On `409 conflict`, look at the latest `pin` in the response and resend. To only append, use `note_append` (no `base_rev` needed).
+- Every error response is `{"error": "<Korean text>", "reason": "<code>"}`. Branch on `reason`, a stable snake_case code (`viewer_only`, `conflict`, `pin_not_found`, …); the text is for people. The codes are listed in `docs/handbook/api.md` §오류 응답.
 - After editing the manuscript, rebuild that document's PDF (`POST /api/rebuild?async=1&doc=<key>`; omit `doc` for a single document). Picks on an old PDF map to wrong line numbers. View-only documents have no rebuild.
 
 ## Starting a viewer for the user
