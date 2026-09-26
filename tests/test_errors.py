@@ -19,13 +19,14 @@ from limn.web.errors import REVISION_FAILURES, SCOPE_REJECTIONS, InputRejected, 
 from test_access import BOB, AccessBase
 from test_server import extract_js_fn, ps, run_node
 
-# The modules that build error bodies or statuses: server.py, the revision services moved out of it (limn/revisions.py:
-# the comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values) and the
-# HTTP layer (limn/web: the handler, the parsers, the answers, the refusal tables). Every static guard below reads all
-# of them, keyed by file name; the two tables (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
+# The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
+# comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
+# the 200 error bodies of a pick that cannot be traced to a source line) and the HTTP layer (limn/web: the handler,
+# the parsers, the answers, the refusal tables). Every static guard below reads all of them, keyed by file name; the
+# two tables (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
 PKG = Path(ps.__file__).parent
 SOURCES = {p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
-           for p in [Path(ps.__file__), PKG / "revisions.py", PKG / "scope.py", PKG / "documents.py"]
+           for p in [Path(ps.__file__), PKG / "revisions.py", PKG / "scope.py", PKG / "documents.py", PKG / "locate.py"]
            + sorted((PKG / "web").glob("*.py"))}
 
 

@@ -18,7 +18,9 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
-PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model", "limn.pins.lifecycle"}
+# datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
+PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model", "limn.pins.lifecycle",
+                "datetime", "limn.mapping"}
 ALICE = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AT = "2026-09-26 10:00:00"
 

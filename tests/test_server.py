@@ -19,10 +19,12 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build as limn_build
+from limn import locate, mapping
 from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
+from limn.pins import position
 from limn.store import PinStore
 from limn import revisions
 from limn import scope as scoping
@@ -887,14 +889,14 @@ class Anchor(Base):
 class Ladder(Base):
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
+        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
         para = find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
 
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
+        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
         para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 
@@ -1116,10 +1118,10 @@ class Estimate(Base):
 
     def test_same_source_falls_back_to_src_mtime_without_hash(self):
         a = {"src_hash": None, "src_mtime": 100.0}
-        self.assertTrue(ps.same_source(a, {"src_hash": None, "src_mtime": 100.0}))
-        self.assertFalse(ps.same_source(a, {"src_hash": None, "src_mtime": 101.0}))
-        self.assertFalse(ps.same_source(a, None))
-        self.assertFalse(ps.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
+        self.assertTrue(position.same_source(a, {"src_hash": None, "src_mtime": 100.0}))
+        self.assertFalse(position.same_source(a, {"src_hash": None, "src_mtime": 101.0}))
+        self.assertFalse(position.same_source(a, None))
+        self.assertFalse(position.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
 
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
@@ -1355,11 +1357,11 @@ class Overlaps(Base):
         self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
 
     def test_selection_rel_all_four_relations(self):
-        self.assertEqual(ps.selection_rel(4, 9, 4, 9), "equal")
-        self.assertEqual(ps.selection_rel(5, 6, 4, 9), "inside")
-        self.assertEqual(ps.selection_rel(3, 10, 4, 9), "contains")
-        self.assertEqual(ps.selection_rel(8, 12, 4, 9), "partial")
-        self.assertIsNone(ps.selection_rel(10, 12, 4, 9))
+        self.assertEqual(position.selection_rel(4, 9, 4, 9), "equal")
+        self.assertEqual(position.selection_rel(5, 6, 4, 9), "inside")
+        self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
+        self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
+        self.assertIsNone(position.selection_rel(10, 12, 4, 9))
 
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         import shutil as _sh
@@ -1760,7 +1762,7 @@ class FrontendLogic(unittest.TestCase):
         js = "\n".join([extract_js_fn("selRel"),
                         "console.log(JSON.stringify(%s.map(c=>selRel(c[0],c[1],c[2],c[3]))));" % json.dumps(cases)])
         got = json.loads(run_node(js))
-        self.assertEqual(got, [ps.selection_rel(*c) for c in cases])
+        self.assertEqual(got, [position.selection_rel(*c) for c in cases])
 
     def test_overlaps_for_filters_by_file_and_skips_done(self):
         js = "\n".join([extract_js_fn("selRel"), extract_js_fn("overlapsFor"), r"""
@@ -4519,8 +4521,8 @@ class MultiDoc(Base):
 
     def test_view_only_pick_returns_region_without_synctex(self):
         self.fake_pages(self.rv)
-        with mock.patch.object(ps, "region_text", return_value="Reviewer   one\n comment"), \
-                mock.patch.object(ps, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")):
+        with mock.patch.object(locate, "region_text", return_value="Reviewer   one\n comment"), \
+                mock.patch.object(locate, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")):
             code, _, body = split_resp(self.talk(jreq("POST", "/api/pick", {"doc": "rv", "page": 1, "x0": 10, "y0": 20,
                                                                             "x1": 110, "y1": 60})))
         self.assertEqual(code, 200)

@@ -40,9 +40,9 @@ catalog_schema: 1
 | --- | --- | --- | --- |
 | `src/limn/server.py` | 핀 조작·상태 계산 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`) | 상태·전이·레코드 필드 변경 | domain.md, api.md, architecture.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
-| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드 | 상태·전이·거절 규칙 변경 | domain.md, code-style-roadmap.md |
+| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드, 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화) | 상태·전이·거절 규칙, 추정·겹침·줄 맞춤 규칙 변경 | domain.md, build-sync.md §위치 추정 (`est`), code-style-roadmap.md |
 | `src/limn/mapping.py` | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
-| `src/limn/server.py` | 역변환 실행 구역: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 저장된 핀 재동기화(`sync_all`) | 역변환 경로·재동기화 변경 | domain.md, build-sync.md |
+| `src/limn/locate.py` | 핀 위치의 부수효과 쪽: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 핀 파일 찾기(`pin_location`), 저장된 핀 재동기화(`sync_all`), 빌드 이력 읽기(`est_context`), 선택 해석(`pick`). 문서와 설정을 인자로 받는다 | 역변환 경로·재동기화·핀 파일 위치 변경 | domain.md, build-sync.md, api.md §핀 파일의 위치 |
 | `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |
 | `src/limn/server.py` | 빌드 셸·git pull·원격 main 감시·보기 전용 PDF·meta 구역: 요청의 문서로 빌드를 부르고 동기화 | 폴링·추정·동기화 규칙 변경 | build-sync.md |
 | `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 경로가 원고 트리 안의 파일인지 보는 규칙(`file_in_tree`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
