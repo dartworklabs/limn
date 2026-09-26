@@ -18,7 +18,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 from urllib.parse import ParseResult, parse_qs, urlparse
 
 from limn.mark import png as mark_png
@@ -27,7 +27,8 @@ from limn.pins.model import TrashedPin
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
-from limn.web.errors import HTTPError, ScopeRefusal, error_page_html, page_lang, scope_http_error
+from limn.documents import DocNotFound
+from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
 
@@ -169,16 +170,13 @@ class Handler(BaseHTTPRequestHandler):
         self._json(e.body, e.code)
 
     def _run(self, fn: Callable[[], None]) -> None:
-        """Runs one request handler and turns its refusal into the response: HTTPError as is, ScopeRejected through
-        the SCOPE_REJECTIONS table (one table for every pin-scoping refusal), a dropped connection silently, anything
-        else as a 500 with the traceback on stderr. A browser opening / gets an HTML page instead of JSON."""
+        """Runs one request handler and turns its refusal into the response: HTTPError as is (the answers raise it for
+        every refused outcome), a dropped connection silently, anything else as a 500 with the traceback on stderr. A
+        browser opening / gets an HTML page instead of JSON."""
         try:
             fn()
         except HTTPError as err:
             self._refuse(err)
-        except self.app.ScopeRejected as err:
-            # cast: App types ScopeRejected as an Exception class; its instances carry .reason (App's contract)
-            self._refuse(scope_http_error(cast(ScopeRefusal, err)))
         except (BrokenPipeError, ConnectionResetError, socket.timeout):
             self.close_connection = True
         except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
@@ -208,24 +206,32 @@ class Handler(BaseHTTPRequestHandler):
     def _request_doc(self, q: Query, body: Json | None = None, file_hint: object = None) -> Document:
         """The document a request names: ?doc= or the body's doc, parsed here (400 bad_doc or doc_mismatch), then found
         by the server (the first document, or the one holding file_hint, when neither names one; 404 unknown_doc)."""
-        return self.app.request_doc(accepted(parse.parse_doc_key(q, body)), file_hint)
+        return self._found(self.app.request_doc(accepted(parse.parse_doc_key(q, body)), file_hint))
+
+    def _found(self, found: Document | DocNotFound) -> Document:
+        """The document a lookup found, or the 404 for a key this instance does not serve, listing the keys it does."""
+        if isinstance(found, DocNotFound):
+            raise HTTPError(404, "없는 문서입니다: %s" % self.app.hdr_text(found.key)[:40], docs=list(found.known),
+                            reason="unknown_doc")
+        return found
 
     def _get_revision(self, path: str, D: Document, q: Query) -> None:
         """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
         optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
-        and refusals (HTTPError, ScopeRejected) propagate to _run."""
+        and every refusal is answered through answers.revision_answer (HTTPError to _run)."""
         app = self.app
         commit, pin = accepted(parse.parse_revision_query(q))
         if path == "/api/revision-diff":
-            return self._json(app.revision_diff(D, commit, pin))
+            return self._json(answers.revision_answer(app.revision_diff(D, commit, pin)))
         if path == "/api/revision-build":
-            return self._json(app.revision_status(D, commit, pin))
-        return self._send(200, app.revision_pdf(D, commit, pin), "application/pdf", cache="private, max-age=600")
+            return self._json(answers.revision_answer(app.revision_status(D, commit, pin)))
+        return self._send(200, answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)), "application/pdf",
+                          cache="private, max-age=600")
 
     def _get_doc(self, actor: Json, path: str, q: Query) -> None:
         """GET routes that act on the request's document (?doc=, bound by using_doc in _get): the viewer page, people,
         pins and pins.md, meta, snippets, builds and the revision routes. Returns after sending one response; refusals
-        propagate to _run as HTTPError (or ScopeRejected from the revision routes)."""
+        propagate to _run as HTTPError."""
         app = self.app
         if path == "/":
             self._record(actor)                   # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
@@ -383,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
             D = app.cur_doc()
             want = d.get("doc")
             if isinstance(want, str) and want != D.key:
-                D = app.request_doc(want)         # the body's doc wins, as it always has: "" names the first document
+                D = self._found(app.request_doc(want))   # the body's doc wins, as it always has: "" names the first document
             request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
@@ -393,7 +399,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(dict(app.clear_pins(actor), ok=True))
         if path == "/api/revision-build":
             commit, pin = accepted(parse.parse_revision_build(d))
-            result = app.revision_start(app.cur_doc(), commit, pin)
+            result = answers.revision_answer(app.revision_start(app.cur_doc(), commit, pin))
             return self._json(result, 202 if result["state"] == "running" else 200)
         if path == "/api/rebuild":
             if app.cur_doc().is_pdf:

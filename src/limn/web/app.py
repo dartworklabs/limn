@@ -25,7 +25,9 @@ from limn.pins.lifecycle import (
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed,
     NotInTrash, PinStillOpen, ThreadFull,
 )
+from limn.documents import DocNotFound
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
+from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.web.errors import Messages
 from limn.web.parse import CloseChange, DocumentFacts, PickRequest, SourceRange
 
@@ -97,7 +99,6 @@ class App(Protocol):
     CLEAR_CONFIRM: str                # the phrase POST /api/clear must carry
     PAGE_FILE_RE: re.Pattern[str]     # a page image name GET /pages/<name> serves
     VENDOR_MIME: Mapping[str, str]    # suffix -> Content-Type of a file vendor_file() returns
-    ScopeRejected: type[Exception]    # the pin-scoping refusal; instances carry .reason (limn.web.errors.ScopeRefusal)
 
     # ---- request guard: Host/Origin, identity, admission, roles (the security boundary stays in server.py)
 
@@ -135,9 +136,9 @@ class App(Protocol):
 
     # ---- the request's document
 
-    def request_doc(self, key: str | None, file_hint: object = None) -> Document:
+    def request_doc(self, key: str | None, file_hint: object = None) -> Document | DocNotFound:
         """The document key names (parsed by limn.web.parse.parse_doc_key), or - with none - the one holding
-        file_hint, else the first; raises HTTPError 404 for an unknown key."""
+        file_hint, else the first; DocNotFound for a key the instance does not serve."""
         ...
 
     def document_facts(self, D: Document) -> DocumentFacts:
@@ -195,16 +196,16 @@ class App(Protocol):
         """GET /api/revisions."""
         ...
 
-    def revision_diff(self, D: Document, commit: str, pin: int | None = None) -> Json:
-        """GET /api/revision-diff; raises HTTPError or ScopeRejected."""
+    def revision_diff(self, D: Document, commit: str, pin: int | None = None) -> Json | DiffRefusal:
+        """GET /api/revision-diff for a commit id the parser checked."""
         ...
 
-    def revision_status(self, D: Document, commit: str, pin: int | None = None) -> Json:
+    def revision_status(self, D: Document, commit: str, pin: int | None = None) -> Json | StatusRefusal:
         """GET /api/revision-build."""
         ...
 
-    def revision_pdf(self, D: Document, commit: str, pin: int | None = None) -> bytes:
-        """GET /api/revision-pdf; raises HTTPError when there is none."""
+    def revision_pdf(self, D: Document, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
+        """GET /api/revision-pdf."""
         ...
 
     def outline_labels(self, D: Document) -> Json:
@@ -322,7 +323,7 @@ class App(Protocol):
         """POST /api/pick: a dragged region -> source lines."""
         ...
 
-    def revision_start(self, D: Document, commit: object, pin: int | None = None) -> Json:
+    def revision_start(self, D: Document, commit: str, pin: int | None = None) -> Json | StartRefusal:
         """POST /api/revision-build."""
         ...
 
