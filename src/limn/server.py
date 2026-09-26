@@ -63,9 +63,10 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    AgentCannotConfirm, AlreadyDone, PinStillOpen, confirm, confirmer, thread_message,
+    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinStillOpen, confirm, confirmer,
+    decide_close, decide_reopen, evolve_close, evolve_reopen, next_rev, reopen_request, thread_message,
 )
-from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, parse_pin  # noqa: E402
+from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, parse_pin  # noqa: E402
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
@@ -3243,7 +3244,7 @@ def sync_all(rows: list) -> bool:
             r["lo"], r["hi"] = lo, hi
             r.pop("stale", None)
         if (r["lo"], r["hi"], bool(r.get("stale"))) != before:
-            r["rev"] = int(r.get("rev") or 0) + 1
+            r["rev"] = next_rev(r)
         if moved:
             r["file"] = str(f)                       # the new numbers describe this file
         r["synced_at"] = mtime
@@ -4271,7 +4272,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> dict:
         _set_assignee(r, assignee, actor, evs, record=True)
         r["edited_at"] = now_str()
         r["edited_by"] = who(actor)
-        r["rev"] = int(r.get("rev") or 0) + 1
+        r["rev"] = next_rev(r)
         return public(r), True
     with PIN_LOCK:
         out = transact(fn)[1]
@@ -4806,19 +4807,20 @@ def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None, human=N
         persons = [lg for lg in ment if role_of(lg) != "agent"]     # tagging an agent-role account is not asking a person
         if reply_reopens(r, human, persons, reopen):
             before = pin_mentions_all(r)
-            msg = _reopen(r, rows, actor, text, hints, evs)
+            _reopen(r, rows, actor, text, hints, evs)
+            msg = r["thread"][-1]                  # reply_reopens() is false for an open pin, so a reopen entry was added
             # _reopen told the author (reopened) and everyone this reply tags (mention). Everyone else tagged on the pin
             # earlier would have heard of a plain reply (replied) - reopening must not silence them.
             author = (r.get("author") or {}).get("login")
             evs.append(make_event("replied", r, actor, [lg for lg in sorted(before) if lg != author and lg not in (msg.get("mentions") or [])],
                                   msg=msg))
-            r["rev"] = int(r.get("rev") or 0) + 1
+            r["rev"] = next_rev(r)
             return (public(r), msg), True
         if len(thread_replies(r)) >= THREAD_MAX:
             raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % THREAD_MAX)
         before = pin_mentions_all(r)
         msg = _thread_append(r, actor, text, mentions=ment)
-        r["rev"] = int(r.get("rev") or 0) + 1
+        r["rev"] = next_rev(r)
         # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
         # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
         evs.append(make_event("mention", r, actor, ment, msg=msg))
@@ -4849,83 +4851,81 @@ def clean_review_flag(d: dict):
 
 def set_done(pid: int, done: bool, actor: dict, reply: str | None = None, ref: str | None = None,
              review: bool | None = None, reason: str | None = None, hints=None, changes: Changes | None = None):
-    """Open/close. `reply`/`ref` (already validated by clean_close_body) are only used when closing, and only recorded on the first close.
+    """Close (done=True) or reopen (done=False) - the single entry POST /close and /reopen and older callers use.
 
-    Re-closing an already-closed pin changes nothing (§P0b-보완 D) - this prevents a second close from
-    overwriting done_at/closed_by and erasing who closed it first (observed defect). rev also stays
-    unchanged. To leave a new reply, the pin must be reopened and closed again - so a reopen clears the old
-    close_reply/close_ref (the next close fills them in fresh).
+    `reply`/`ref`/`changes` (already validated by clean_close_body/clean_close_changes) and `review` belong to a
+    close; `reason` and `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
+    """
+    if done:
+        return close_pin(pid, actor, CloseRequest(reply, ref, tuple(c.record() for c in changes or ()), review))
+    return reopen_pin(pid, actor, reason, hints)
 
-    Awaiting review (§Pending review): if an agent (no identity header) closes it, review=true is left on, so it
-    isn't done until a person [confirms] it - out of 42 observed cases, an author reopened an agent-closed
-    pin twice (#28, #42) with no record that a person had ever looked at the result. If a tailnet person
-    closes it, that person is the reviewer, so it's done right away. If the body supplies review, that's
-    followed instead - a remote agent closing via a tailnet address arrives with a person's identity, so it
-    sends review=true. Reopening clears the review/confirm record, and if the pin had been closed, the
-    reopen reason (reason) is recorded in the thread.
 
-    changes (v0.3, validated by clean_close_changes) are stored on the first close with changes_at = done_at, which
-    ties them to that close (docs/adr/0005-pin-scoped-changes.md); a reopen clears both."""
+def close_pin(pid: int, actor: dict, request: CloseRequest) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+    """Close pin pid under the pin lock, then tell the author when it now awaits review (docs/handbook/api.md §닫기).
+
+    Re-closing a closed pin changes nothing (AlreadyClosed) - a second close must not overwrite done_at/closed_by
+    and erase who closed it first (observed defect). An agent's close awaits review unless the request says:
+    out of 42 observed cases an author reopened an agent-closed pin twice with no record that a person had looked.
+    A person with the agent role closes into review because the handler sets request.review for them.
+    """
     evs = []
 
     def fn(rows):
-        """The transact() step: applies the close or reopen to pin pid in rows. Returns (public pin or None, whether
-        rows changed); an already closed pin is returned unchanged."""
         r = find_pin(rows, pid)
         if r is None:
-            return None, False
-        if done:
-            if r.get("done"):
-                return public(r), False           # already closed - changes nothing (rev unchanged too)
-            r["done"] = True
-            r["done_at"] = now_str()
-            r["closed_by"] = who(actor)
-            if reply:
-                r["close_reply"] = reply
-            if ref:
-                r["close_ref"] = ref
-            if changes:
-                r["changes"] = [c.record() for c in changes]   # v0.3 (docs/adr/0005)
-                r["changes_at"] = r["done_at"]    # ties the set to this close (a 0.2.2 re-close after a rollback would not)
-            if review if review is not None else is_agent(actor):
-                r["review"] = True
-            msg = _thread_append(r, actor, reply or "", ev="close", ref=ref)   # the close reason also goes in the thread - one unified line of history
-            if r.get("review"):
-                evs.append(make_event("review_requested", r, actor, [(r.get("author") or {}).get("login")], msg=msg))
-            _clear_claim(r)                       # closing also clears the in-progress claim (§P0c-C)
-        else:
-            _reopen(r, rows, actor, reason, hints, evs)
-        r["rev"] = int(r.get("rev") or 0) + 1
-        return public(r), True
+            return PinNotFound(pid), False
+        pin = parse_pin(r)
+        event = decide_close(pin, typed_actor(actor), now_str(), request)
+        if isinstance(event, AlreadyClosed):
+            return event, False
+        closed = evolve_close(pin, event)
+        r.clear()
+        r.update(closed.record)
+        if isinstance(closed, ReviewPin):
+            evs.append(make_event("review_requested", r, actor, [(r.get("author") or {}).get("login")],
+                                  msg=r["thread"][-1]))
+        return closed, True
     with PIN_LOCK:
         out = transact(fn)[1]
         emit_events(evs)
     return out
 
 
-def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list):
-    """Reopens r in place (inside transact): clears the review/confirm record and the old close reason so the next
-    close fills them in fresh, and - if the pin was closed - records the reason in the thread (ev=reopen) and queues a
-    mention for everyone it @-tags and reopened for the author. Shared by POST /reopen and a reopening reply.
-    Returns the thread message, or None for an already open pin (nothing is recorded then)."""
-    was_done = bool(r.get("done"))
-    r["done"] = False
-    r["reopened_at"] = now_str()
-    r["reopened_by"] = who(actor)
-    r.pop("close_reply", None)
-    r.pop("close_ref", None)
-    r.pop("changes", None)                        # v0.3: the recorded lines belong to that close
-    r.pop("changes_at", None)
-    for k in ("review", "confirmed_by", "confirmed_at"):
-        r.pop(k, None)
-    if not was_done:
-        return None
-    ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login"))
-    msg = _thread_append(r, actor, reason or "", ev="reopen", mentions=ment)
-    evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
-    evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
-                                                 if lg not in ment], msg=msg))
-    return msg
+def reopen_pin(pid: int, actor: dict, reason: str | None, hints) -> OpenPin | PinNotFound:
+    """Reopen pin pid under the pin lock; a closed pin records the reason and notifies (see _reopen). rev goes up
+    even for a pin that was already open, as before."""
+    evs = []
+
+    def fn(rows):
+        r = find_pin(rows, pid)
+        if r is None:
+            return PinNotFound(pid), False
+        opened = _reopen(r, rows, actor, reason, hints, evs, request=True)
+        return opened, True
+    with PIN_LOCK:
+        out = transact(fn)[1]
+        emit_events(evs)
+    return out
+
+
+def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list, request: bool = False) -> OpenPin:
+    """Reopens r in place (inside transact) by limn.pins.lifecycle's rule, and - if the pin was closed - queues a
+    mention for everyone the reason @-tags and reopened for the author. Shared by POST /reopen (request=True, which
+    also bumps rev) and a reopening reply (which bumps rev once for the reply itself). Returns the reopened pin."""
+    pin = parse_pin(r)
+    ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login")) \
+        if not isinstance(pin, OpenPin) else []
+    event = decide_reopen(pin, typed_actor(actor), now_str(), reason, tuple(ment))
+    opened = reopen_request(pin, event) if request else evolve_reopen(pin, event)
+    r.clear()
+    r.update(opened.record)
+    if event.was_closed:
+        msg = r["thread"][-1]
+        evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
+        evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
+                                                     if lg not in ment], msg=msg))
+    return opened
 
 
 def typed_actor(actor: dict) -> Actor:
@@ -5078,7 +5078,6 @@ def claim_active(r: dict) -> bool:
     return _is_num(cu) and float(cu) > time.time()
 
 
-CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
 
 
 def _clear_claim(r: dict) -> None:
@@ -5152,7 +5151,7 @@ def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
         r["claim_until"] = now + ttl_min * 60
         if eta_min is not None:
             r["eta_ts"] = now + eta_min * 60
-        r["rev"] = int(r.get("rev") or 0) + 1
+        r["rev"] = next_rev(r)
         return public(r), True
     return transact(fn)[1]
 
@@ -5167,7 +5166,7 @@ def unclaim_pin(pid: int, actor: dict):
         had = "claimed_by" in r
         _clear_claim(r)
         if had:
-            r["rev"] = int(r.get("rev") or 0) + 1
+            r["rev"] = next_rev(r)
         return public(r), had
     return transact(fn)[1]
 
@@ -5199,7 +5198,7 @@ def _restore(rows: list, pid: int, actor: dict):
     rec.pop("dropped_by", None)
     rec["restored_at"] = now_str()
     rec["restored_by"] = who(actor)
-    rec["rev"] = int(rec.get("rev") or 0) + 1
+    rec["rev"] = next_rev(rec)
     sync_all([rec])
     stamp_location(rec, C.src)                       # ADR-0006: a restored pin records where its file is now
     rows.append(rec)
@@ -6442,6 +6441,16 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _state_reply(self, result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound) -> None:
+        """Answer POST /api/pins/{id}/close and /reopen: the pin as it stands now and its state, or ok:false."""
+        match result:
+            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
+                return self._json({"ok": True, "pin": public(record), "state": pin_state(record)})
+            case AlreadyClosed(pin=ReviewPin(record=record) | DonePin(record=record)):
+                return self._json({"ok": True, "pin": public(record), "state": pin_state(record)})
+            case PinNotFound():
+                return self._json({"ok": False, "pin": None, "state": None})
+
     def _confirm_reply(self, result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound) -> None:
         """Answer POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract."""
         match result:
@@ -6747,9 +6756,8 @@ class Handler(BaseHTTPRequestHandler):
                     review = True                 # a person with the agent role closes into review like any agent
             else:                                 # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
                 reason = clean_thread_text(d.get("reason"), "reason", required=False)
-            pin = set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
-                           hints=clean_mention_hints(d.get("mentions")), changes=changes)
-            return self._json({"ok": pin is not None, "pin": pin, "state": pin_state(pin) if pin else None})
+            return self._state_reply(set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
+                                              hints=clean_mention_hints(d.get("mentions")), changes=changes))
         if path == "/api/pick":
             return self._json(pick(d))
         if path == "/api/pin":
