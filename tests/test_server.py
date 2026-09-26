@@ -4103,6 +4103,38 @@ class DefaultLabel(unittest.TestCase):
         self.assertEqual(ps.default_label(src, ps.git_remote_url(src)), "paper-x")
 
 
+class StartupRefusals(unittest.TestCase):
+    """A startup step that cannot go on returns a StartupRefused; main() is the one place the process exits (R3)."""
+
+    def test_only_main_exits(self):
+        """No function of server.py but main() calls sys.exit: every other step hands its refusal back."""
+        import ast
+        tree = ast.parse(Path(ps.__file__).read_text(encoding="utf-8"))
+        callers = set()
+        for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
+            for call in (c for c in ast.walk(fn) if isinstance(c, ast.Call)):
+                f = call.func
+                if isinstance(f, ast.Attribute) and f.attr == "exit" and getattr(f.value, "id", None) == "sys":
+                    callers.add(fn.name)
+        self.assertEqual(callers, {"main"})
+
+    def test_main_file_and_port_refusals_are_values(self):
+        """No or several top-level .tex files, and no free port, are refusals with the message main() prints."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            refused = ps.detect_main(root)
+            self.assertEqual(refused, ps.StartupRefused("%s: found none top-level .tex files under %s. Specify one with "
+                                                        "--main.\n  (none)" % (ps.APP_NAME, root)))
+            (root / "a.tex").write_text("\\documentclass{article}\n")
+            self.assertEqual(ps.detect_main(root), root / "a.tex")
+            (root / "b.tex").write_text("\\documentclass{article}\n")
+            self.assertTrue(ps.detect_main(root).message.endswith("\n  - a.tex\n  - b.tex"))
+        with mock.patch.object(ps.socket, "socket") as sock:
+            sock.return_value.__enter__.return_value.connect_ex.return_value = 0      # every port answers: all taken
+            self.assertEqual(ps.free_port(18300, 18302),
+                             ps.StartupRefused("No free port in the 18300-18302 range. Specify one with --port."))
+
+
 class LabelValidation(unittest.TestCase):
     def test_strips_and_collapses_whitespace(self):
         self.assertEqual(ps.clean_label("  A-DEMO  "), "A-DEMO")
@@ -4112,9 +4144,11 @@ class LabelValidation(unittest.TestCase):
         self.assertEqual(ps.clean_label(""), "원고")
         self.assertEqual(ps.clean_label(None), "원고")
 
-    def test_over_length_exits(self):
-        with self.assertRaises(SystemExit):
-            ps.clean_label("x" * (ps.LABEL_MAX + 1))
+    def test_over_length_is_refused(self):
+        """An explicit --label over LABEL_MAX refuses to start (main() prints the message and exits)."""
+        refused = ps.clean_label("x" * (ps.LABEL_MAX + 1))
+        self.assertIsInstance(refused, ps.StartupRefused)
+        self.assertTrue(refused.message.startswith("--label must be %d characters or fewer" % ps.LABEL_MAX))
 
     def test_exactly_max_length_ok(self):
         v = "x" * ps.LABEL_MAX
