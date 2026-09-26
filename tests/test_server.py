@@ -2880,6 +2880,19 @@ class ManuscriptRevisions(Base):
         self.assertEqual(revisions.revision_exec(["python3", "-c", "import time; time.sleep(20)"], self.repo, .1),
                          revisions.StepFailed("timeout"))
 
+    def test_revision_exec_keeps_its_answer_when_the_group_holds_only_exited_processes(self):
+        """The cleanup kill of the command's process group is refused with EPERM on macOS when every member has
+        exited but is not reaped yet (checked: os.killpg of a group whose leader is a zombie raises PermissionError
+        there, where Linux delivers or answers ESRCH). The command's result - its output, or its own refusal - is
+        still what revision_exec gives. Before the fix the PermissionError escaped, and GET /api/revision-diff?pin=
+        answered 500 "Operation not permitted" under load (the ScopedViewer flake)."""
+        eperm = PermissionError(errno.EPERM, "Operation not permitted")
+        with mock.patch.object(revisions.os, "killpg", side_effect=eperm) as killpg:
+            self.assertEqual(revisions.revision_exec(["python3", "-c", "print('ok')"], self.repo, 10), (0, b"ok\n", b""))
+            self.assertEqual(revisions.revision_exec(["python3", "-c", "print('x' * 10000)"], self.repo, 10, 100),
+                             revisions.StepFailed("size"))
+        self.assertEqual(killpg.call_count, 2)
+
     def test_outline_complex_titles_keep_alignment_and_http_build_identity(self):
         pages = ps.C.state / "pages"
         pages.mkdir()
