@@ -199,7 +199,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 **되살리기는 두 파일 사이에서 핀을 잃지 않는다.** `restore`는 `pins.jsonl` 쓰기가 성공한 뒤에만 삭제 기록에서 핀을 뺀다. 중간에 죽으면 최악의 결과는 '양쪽에 다 있음'이다. 이것은 복구할 수 있다. 순서를 거꾸로 하면 '양쪽에 다 없음'이 될 수 있다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `PIN_LOCK`, `transact`, `atomic_write`, `read_pins`, `valid_rec`, `next_id`, `render_pins_md`, `restore_pin`이다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
+실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `PIN_LOCK`, `transact`, `read_pins`, `valid_rec`, `next_id`, `render_pins_md`, `restore_pin`과 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`)다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
 
 ## 작성자 귀속
 
