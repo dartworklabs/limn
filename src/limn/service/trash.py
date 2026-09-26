@@ -9,8 +9,6 @@ Every write of the Trash happens under the pin store's lock. The irreversible op
 notice, an audit.jsonl line and a log line; the audit line is appended outside the lock (it flocks and fsyncs).
 """
 
-from __future__ import annotations
-
 import sys
 from collections.abc import Mapping, Sequence
 from typing import Any

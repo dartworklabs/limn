@@ -19,8 +19,6 @@ parsed line the store trusts (valid), the anchor re-sync of rows against the .te
 renderer (render). It creates no lock and holds no state of its own, so a store value is cheap to make per call.
 """
 
-from __future__ import annotations
-
 import json
 import shutil
 import sys

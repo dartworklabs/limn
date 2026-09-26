@@ -5,8 +5,6 @@ in server.py), and actors arrive parsed. An outcome the caller must answer is a 
 annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, TypeVar, cast, get_args

@@ -14,8 +14,6 @@ Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). Read
 and where a pin's file is now is limn.locate's job; it passes the facts in and applies what comes back.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime

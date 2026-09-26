@@ -7,8 +7,6 @@ this machine's token file, and what other parts decide about each pin (where its
 is addressed to, its current thread round) - arrives as values in PinsMdInput, built by server.pins_md_input().
 """
 
-from __future__ import annotations
-
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass

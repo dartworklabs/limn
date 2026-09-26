@@ -5,8 +5,6 @@ it's a signal, not a lock: nothing stops closing or force-claiming a pin another
 Neither shell sends a notice.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import Any
 

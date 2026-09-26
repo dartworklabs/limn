@@ -7,8 +7,6 @@ once. Pure: strings and paths in, strings out - whether the file exists and wher
 system; tests/test_access_module.py checks the imports.
 """
 
-from __future__ import annotations
-
 import re
 import shlex
 from pathlib import PurePath

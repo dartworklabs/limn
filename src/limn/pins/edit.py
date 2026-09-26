@@ -6,8 +6,6 @@ values. It also builds the notices (events.jsonl) from the record that comes bac
 a returned value in the annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, TypeGuard, get_args

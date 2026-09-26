@@ -10,8 +10,6 @@ evaluator. A title it cannot convert keeps a placeholder row with empty number a
 shift every later number onto the wrong entry by index.
 """
 
-from __future__ import annotations
-
 import re
 from typing import Any
 

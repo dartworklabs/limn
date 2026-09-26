@@ -11,8 +11,6 @@ value - the --git-pull sync status, the pins as read, which document a pin belon
 the agent contract; a change here must keep every body byte-identical.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path

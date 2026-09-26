@@ -5,8 +5,6 @@ record in place only when the rule accepts (so the saved line keeps its field or
 write committed. Every outcome goes back unchanged for the HTTP layer to answer.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol
 

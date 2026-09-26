@@ -8,8 +8,6 @@ which places the pin's file on this machine), and a state name comes from `state
 Nothing here reads files, the clock or the request.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any, NoReturn, TypeAlias, TypeVar
 

@@ -6,8 +6,6 @@ lookups, where a pin's file is under the manuscript root, and the settings value
 run settings and a frozen clock or a patched setting in a test reaches them.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias

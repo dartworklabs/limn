@@ -9,8 +9,6 @@ instance's state directory through the state helpers in limn.access, with the au
 `limn version` and the instance commands stay fast.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 import re

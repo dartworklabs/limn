@@ -153,7 +153,7 @@ class Independence(unittest.TestCase):
         tree = ast.parse(Path(assemble.__file__).read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual(modules, {"__future__", "json", "re", "collections.abc", "pathlib", "typing"})
+        self.assertEqual(modules, {"json", "re", "collections.abc", "pathlib", "typing"})
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
 

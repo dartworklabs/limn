@@ -15,8 +15,6 @@ Pure. Two shapes it checks are owned by modules that are not: a document key (li
 recorded actor (limn.people.is_actor). The composition root passes both in (server.valid_rec).
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard

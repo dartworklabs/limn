@@ -11,8 +11,6 @@ refusal is a returned value of the ScopeRefusal set; limn.web.errors.SCOPE_REJEC
 each into a status, a Korean message and an API reason.
 """
 
-from __future__ import annotations
-
 import re
 from collections.abc import Callable, Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass

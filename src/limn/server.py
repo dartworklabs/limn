@@ -24,8 +24,6 @@ change. Binding anything but loopback requires `trusted-proxy` or an explicit
 Python 3.10 standard library only.
 """
 
-from __future__ import annotations
-
 import argparse
 import dataclasses
 import html

@@ -13,8 +13,6 @@ of a document's builds (read at most once per document, only for documents with 
 computed over all rows, when a Trash entry expires, and the clock.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, TypeAlias
 

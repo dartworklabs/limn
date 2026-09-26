@@ -11,8 +11,6 @@ says where each pin's file is now (the overlaps count each pin in that file). No
 the server's run settings or imports the server (coding rule R5); the composition root (server.py) binds these.
 """
 
-from __future__ import annotations
-
 import contextlib
 import re
 import subprocess

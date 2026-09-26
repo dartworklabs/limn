@@ -12,8 +12,6 @@ file, that a page is in the build. They read those facts through DocumentFacts, 
 a named path against the tree (limn.files.file_in_tree and the close's `changes`).
 """
 
-from __future__ import annotations
-
 import math
 import os
 import re

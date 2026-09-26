@@ -8,8 +8,6 @@ limn.people.known_people(). A note save notifies the people it newly tags, at mo
 Pure: no files, no clock, no HTTP, no server. Every fact (the people, the records, the time) comes in as an argument.
 """
 
-from __future__ import annotations
-
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, TypeAlias

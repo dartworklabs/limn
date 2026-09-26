@@ -8,10 +8,6 @@ limn/locate.py, which calls into this module (and into limn.pins.position for th
 themselves are described in docs/handbook/domain.md.
 """
 
-# Lazy annotations to match server.py's style, not for an older interpreter: Limn needs Python >= 3.10 (server.py
-# uses `match`), and instances.sh refuses an older one before it starts the server.
-from __future__ import annotations
-
 import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, TypeAlias

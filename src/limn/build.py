@@ -18,8 +18,6 @@ step (it coordinates every document of the repository, so it is passed in as `pu
 tracked build runs - compile_tex for LaTeX, render_pdf_doc (the view-only PDF "build") for a PDF document.
 """
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import json

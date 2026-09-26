@@ -17,8 +17,6 @@ Two parts:
 The module knows no run arguments, no HTTP and no server.
 """
 
-from __future__ import annotations
-
 import json
 import sys
 import threading

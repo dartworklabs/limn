@@ -10,8 +10,6 @@ audit_entry() builds a line from values the caller passes (the clock included); 
 the file. The module knows no run arguments, no HTTP and no server: the state directory comes in as an argument.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import pwd

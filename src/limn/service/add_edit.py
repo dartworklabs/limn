@@ -5,8 +5,6 @@ the disk and the clock know under the pin lock, and leave the rules and the reco
 outcome value that the HTTP layer answers (limn.web.answers.add_answer, edit_answer).
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
