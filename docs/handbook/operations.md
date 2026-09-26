@@ -60,7 +60,7 @@ limn serve \
 | `--main` | 아니오 | 자동 탐지 | 빌드할 최상위 `.tex` 파일명. 생략하면 `--manuscript` 안에서 `\documentclass`를 포함한 `.tex` 파일을 찾는다. 후보가 0개나 2개 이상이면 후보 목록을 출력하고 에러로 끝난다. 추측하지 않는다. `--doc`과 함께 쓰면 기동에 실패한다 |
 | `--doc` | 아니오 | 없음(= 단일 문서) | 뷰어에서 고를 문서. 여러 번 줄 수 있고 첫 문서가 기본이다. 형식과 규칙은 아래 '여러 문서' 절 |
 | `--port` | 아니오 | 자동 선택 | 생략하면 `127.0.0.1`의 18300–18399에서 비어 있는 첫 포트를 골라 쓰고, 고른 포트를 기동 로그에 출력한다. 그 대역이 다 차 있으면 `--port`를 달라며 멈춘다. 절차는 아래 '포트 충돌 회피' 절 |
-| `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>` | `<slug>`는 `<원고 폴더 이름>-<원고 절대경로의 SHA-1 앞 8자>`다. 같은 머신에서 원고 A와 B를 동시에 열어도 상태가 섞이지 않게 하려는 것이다(여러 원고·여러 worktree에 안전). 상시(systemd) 인스턴스는 `limn add`가 대신 `~/.local/share/limn/<이름>`을 기본으로 쓴다([instances.md](instances.md)) |
+| `--state-dir` | 아니오 | `${XDG_DATA_HOME:-~/.local/share}/limn/serve/<slug>` | `<slug>`는 `<원고 폴더 이름>-<원고 절대경로의 SHA-1 앞 8자>`다. 같은 머신에서 원고 A와 B를 동시에 열어도 상태가 섞이지 않게 하려는 것이다(여러 원고·여러 worktree에 안전). 상시(systemd) 인스턴스는 `limn add`가 대신 `~/.local/share/limn/<이름>`을 기본으로 쓴다([instances.md](instances.md)). 원고 안을 가리키면 아래 '상태 파일 배치' 절의 규칙을 따른다 |
 | `--dpi` | 아니오 | `150` | 페이지 PNG 렌더 해상도. 뷰어는 PDF를 벡터로 그리므로(아래 '뷰어 사용법' 절) PNG는 첫 화면과 폴백에만 쓴다 |
 | `--float-envs` | 아니오 | `figure,table,algorithm,equation,align,itemize,enumerate,minipage` | 기본 범위 단계를 '환경'으로 둘 `\begin{...}` 이름 목록. 범위 사다리 자체는 모든 환경을 본다([domain.md](domain.md) §범위 사다리) |
 | `--build-timeout` | 아니오 | `900` | `latexmk` 빌드 타임아웃(초). 넘으면 프로세스 그룹째 종료하고 `fail`로 판정한다 |
@@ -356,6 +356,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 ## 상태 파일 배치
 
 상태 폴더(`<state_dir>`)는 핀, 빌드 산출물, 로그를 담는다. 원고 체크아웃은 건드리지 않는다.
+
+상태 폴더는 원고 밖에 두는 것이 기본이다(기본값과 `limn add` 의 자리 모두 원고 밖이다). `--state-dir` 이 `--manuscript` 안을 가리켜도 서버는 뜨지만 세 가지가 달라진다.
+
+- **원고 트리에서 빠진다.** 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 폴더 이름이 점으로 시작하지 않아도 상태 폴더 아래 파일을 트리 밖으로 보고 `400 file_outside_manuscript`·`change_outside_manuscript` 로 거절한다. 심볼릭 링크를 풀어 판단하므로 원고 안의 평범한 이름이 상태 폴더를 가리켜도 같다([api.md](api.md) §요청 형식과 경계). 그렇지 않으면 `viewer` 도 스니펫으로 `people.json`·`tokens.json`(해시)·`audit.jsonl`·`events.jsonl` 을 읽을 수 있다.
+- **빌드 사본과 원고 감시에서 빠진다.** 빌드는 원고를 사본으로 복사할 때 상태 폴더를 빼고(그 안의 `build/` 가 빌드마다 한 단계씩 제 안에 복사되지 않게), 원고 지문·`src_mtime` 도 그 폴더를 보지 않는다([build-sync.md](build-sync.md) §원고 변화 감지).
+- **기동 때 stderr에 경고가 한 줄 찍힌다.** 상태 폴더가 원고와 함께 버전 관리나 파일 동기화로 옮겨지지 않게 `.gitignore` 에 넣거나 원고 밖으로 옮기라는 뜻이다. 상태 폴더가 띄울 문서의 메인 파일을 품으면(`--state-dir` 이 `--manuscript` 자신이거나 `--doc` 문서의 폴더면) 그 문서에는 핀을 걸 파일이 남지 않으므로 기동을 거절한다.
 
 ### 단일 문서
 

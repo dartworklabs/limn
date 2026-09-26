@@ -168,6 +168,7 @@ pull이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한�
   - 점(`.`)으로 시작하는 디렉토리
   - 빌드 산출물 디렉토리(`build/`·`out/`)
   - **빌드 rsync가 빼는 디렉토리(`diff/`·`diff_temporary/`)**
+  - 원고 안에 둔 상태 폴더(`--state-dir`, [operations.md](operations.md) §상태 파일 배치). 빌드 사본도 이 폴더를 복사하지 않는다
   - 메인 PDF(`<main>.pdf`)
 
   값은 2초 캐시하고, `force=True` 로 캐시를 건너뛸 수 있다. 빌드 지문(§위치 추정 (`est`))도 같은 파일 목록을 본다.
