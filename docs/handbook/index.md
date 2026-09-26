@@ -38,9 +38,10 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 핀 조작·상태 계산 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`) | 상태·전이·레코드 필드 변경 | domain.md, api.md, architecture.md |
+| `src/limn/server.py` | 핀 조작·상태 계산 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`), `pins.md` 렌더 입력 조립(`pins_md_input`) | 상태·전이·레코드 필드 변경, 렌더가 읽는 값 변경 | domain.md, api.md, architecture.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
-| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드 | 상태·전이·거절 규칙 변경 | domain.md, code-style-roadmap.md |
+| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드, `pins.md` 렌더(`render.py`: 입력 값 → 문자열) | 상태·전이·거절 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, api.md §pins.md 형식, code-style-roadmap.md |
+| `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
 | `src/limn/mapping.py` | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
 | `src/limn/server.py` | 역변환 실행 구역: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 저장된 핀 재동기화(`sync_all`) | 역변환 경로·재동기화 변경 | domain.md, build-sync.md |
 | `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리와 쪽 목록, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |

@@ -24,6 +24,7 @@ from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
+from limn.pins import render as md_render
 from limn.store import PinStore
 from limn import revisions
 from limn import scope as scoping
@@ -1559,7 +1560,7 @@ class PinsMdV2(Base):
         # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
                           "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
+        self.assertEqual(md_render.range_label(self.pin(pid)), "env:x\\|y")
         md = ps.C.pins_md.read_text(encoding="utf-8")
         for line in md.splitlines():
             if "env:x" in line:
@@ -1583,7 +1584,7 @@ class PinsMdV2(Base):
         self.assertIn("env:x\\|y z", rows[0])
         self.assertIn("a\\|b ⏎ c", rows[0])
         self.assertIn("k\\|1 k2", rows[1])
-        self.assertEqual(ps.md_cell("a|b\r\nc"), "a\\|b c")
+        self.assertEqual(md_render.md_cell("a|b\r\nc"), "a\\|b c")
 
     def test_legend_absent_when_no_symbols(self):
         self.add(4, 5)
@@ -5172,11 +5173,11 @@ class ClaimEta(Base):
     def test_pins_md_claim_text(self):
         now = 1_790_000_000.0
         r = {"claimed_by": {"name": "Kim"}}
-        self.assertEqual(ps.claim_md(dict(r), now), "처리 중(Kim)")
+        self.assertEqual(md_render.claim_md(dict(r), now), "처리 중(Kim)")
         for left_s, want in ((14 * 60 + 10, "약 15분"), (3 * 60, "약 5분"), (15 * 60, "약 15분"), (16 * 60, "약 20분"),
                              (-60, "예상 초과")):
-            self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
-        self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+            self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
         ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -5232,7 +5233,7 @@ class FrontendClaimEta(unittest.TestCase):
 
     def test_js_ceil5_matches_server(self):
         out = self.run_info("console.log(JSON.stringify([0,0.2,5,5.01,14.9,23].map(ceil5)));")
-        self.assertEqual(out, [ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
+        self.assertEqual(out, [md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
 
     def test_card_uses_claim_tag_and_ticker(self):
         self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
