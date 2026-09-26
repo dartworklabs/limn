@@ -9,10 +9,10 @@
 1. **관련 규칙 읽기.** [index.md](index.md) 목록에서 작업과 관련된 topic만 골라 읽는다. 구조를 건드리면 [architecture.md](architecture.md), 핀 규칙이면 [domain.md](domain.md), 화면이면 [viewer.md](viewer.md)다.
 2. **설계.** 새 기능이나 동작 변경이면 요구사항·범위·비범위를 먼저 정리한다. 무엇을 만들지 합의되기 전에는 구현하지 않는다.
 3. **계획.** 설계가 승인되면 검증 지점이 붙은 작업 단위로 나눈다.
-4. **구현.** 우리 코딩 스킬(`code-implement`, 테스트는 `code-testing`, 신뢰 경계는 `code-security`)을 따른다. 기존 코드의 관례와 스킬이 부딪히면 **스킬이 우선**이다. 적용 순서는 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
+4. **구현.** 우리 코딩 스킬(`code-implement`, 테스트는 `code-testing`, 신뢰 경계는 `code-security`)을 따른다. 기존 코드의 관례와 스킬이 부딪히면 **스킬이 우선**이다. 이 저장소에서 규칙이 지켜지는 모양과 예는 [code-style-roadmap.md](code-style-roadmap.md)에 있다.
 5. **위반 검사.** 구현 중이나 직후에 diff가 [architecture.md](architecture.md) §멈춤 신호에 걸리는지 본다. 걸리면 멈추고 설계 판단을 받는다.
 6. **검수.** [verification.md](verification.md)의 해당 게이트를 돌리고, 설계 의도대로 됐는지 확인한다. 테스트 녹색만으로 합격이 아니다.
-7. **문서 동기화.** 시스템의 현재 상태가 바뀌었으면 해당 Handbook topic을 같은 PR에서 고친다. 무엇을 고칠지는 [index.md](index.md)의 "read or update when" 열이 알려 준다.
+7. **문서 동기화.** 시스템의 현재 상태가 바뀌었으면 해당 Handbook topic을 같은 PR에서 고친다(§문서 동기화).
 8. **머지와 릴리스.** CI가 녹색이고 리뷰가 끝나면 `main`에 머지한다. 릴리스는 §릴리스를 따른다.
 
 > **핵심**
@@ -28,24 +28,31 @@
 | 운영 중인 인스턴스가 망가졌다 (긴급) | 먼저 `limn update --ref <이전 태그>`로 되돌린다 ([instances.md](instances.md) §업데이트와 되돌리기). 원인을 고치는 변경은 기본 경로로 들어온다 |
 | 문서만 고친다 | 설계 단계는 없다. [verification.md](verification.md) §1을 돌린다. 일부 테스트가 문서 문장을 확인하기 때문이다 |
 
+## 문서 동기화
+
+시스템의 현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 PR에서 고친다. 무엇을 고칠지는 [index.md](index.md)의 "read or update when" 열이 알려 준다. 경로의 책임이 바뀌었으면 [index.md](index.md) §파일 지도의 행도 함께 고친다.
+
+> **핵심**
+>
+> topic은 **지금의 상태와 규칙을 현재형으로** 쓴다. 날짜, 옮기기 전후의 수치, PR마다의 진행 기록, 모듈별 줄 수는 topic에 넣지 않는다. 그런 기록이 필요하면 성격에 맞는 곳에 둔다.
+>
+> - 이번 변경의 범위·측정값·차등 비교 결과: PR 설명
+> - 사용자에게 보이는 변경: [CHANGELOG.md](../../CHANGELOG.md)
+> - 되돌리기 어려운 결정과 그 이유: `docs/adr/`의 새 ADR
+> - 그 밖의 경위: git 이력
+
+규칙의 근거가 과거의 결함이면 날짜 없이 결함 자체를 적는다(예: "잠금 없이 핀 30개를 동시에 저장하면 2개만 남았다"). [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)가 topic 산문의 ISO 날짜와 깨진 `§절 제목` 참조를 잡는다.
+
 ## ADR을 쓰는 때
 
 ADR(Architecture Decision Record)은 되돌리기 어렵거나 대가가 있는 결정을, 그 이유와 버린 대안과 함께 남기는 짧은 기록이다. `docs/adr/`에 번호순으로 둔다.
 
-- 새 ADR은 `제안` 상태로 시작한다. 승인되면 `확정`이 되고, 확정된 ADR의 본문은 고치지 않는다. 결정이 바뀌면 새 ADR을 쓰고 옛 ADR의 상태 행만 "ADR-NNNN으로 대체"로 바꾼다.
+- 새 ADR은 `제안` 상태로 쓴다. 리뷰 중에는 고칠 수 있고, 머지할 때 `확정`으로 올린다. 그때부터 ADR은 동결된다.
+- 확정된 ADR 파일은 고치지 않는다. 제목·본문·헤더 행 모두이고, 오타 수정·용어 바꾸기·링크 정리 같은 저장소 전역 정리도 `docs/adr/`는 건너뛴다.
+- 결정이 바뀌면 새 ADR을 쓴다. 대체·부분 대체·명료화 관계는 **새 ADR의 헤더**(`관련:` 행)에 적고, 옛 ADR에는 해석이나 표시를 덧붙이지 않는다.
 - ADR은 이유를 보존하는 기록이지 현재값의 정본이 아니다. 현재값은 [purpose.md](purpose.md) §진실 소스가 가리키는 곳에 있다.
 
-현재 ADR:
-
-| 번호 | 제목 | 상태 |
-| --- | --- | --- |
-| [0001](../adr/0001-blueprint.md) | Limn 청사진 결정 | 확정 (2026-09-26) |
-| [0002](../adr/0002-access-control.md) | 접근 제어·협업 경계·동기화 | v0.2 확정·구현, 이후 제안 |
-| [0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
-| [0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
-| [0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기] | 확정·구현 (0.3.0) |
-| [0006](../adr/0006-relative-pin-paths.md) | 핀의 상대 경로 `file_rel`과 옮긴 원고 | 확정·구현 (0.3.2) |
-| [0007](../adr/0007-agent-token-file.md) | 서버 머신 에이전트의 토큰 파일 | 확정 (2026-09-26) |
+ADR 목록과 상태는 [index.md](index.md) §결정 기록 한 곳에 둔다. 새 ADR을 머지하면 그 표에 행을 더한다.
 
 ## PR과 기여 조건
 

@@ -79,7 +79,7 @@ the HTTP API are a stable contract — they do not change with the UI language.
 | | |
 |---|---|
 | [skill/SKILL.md](skill/SKILL.md) | agent procedure (install it as a skill in your agent runtime) |
-| [docs/handbook/](docs/handbook/index.md) | the System Handbook (Korean): purpose, architecture, pin domain, viewer, build and sync, HTTP API and `pins.md` format, operations, instances, verification, workflow, coding roadmap |
+| [docs/handbook/](docs/handbook/index.md) | the System Handbook (Korean): purpose, architecture, pin domain, viewer, build and sync, HTTP API and `pins.md` format, operations, instances, verification, workflow, coding rules |
 | [docs/adr/](docs/adr/) | architecture decision records |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 

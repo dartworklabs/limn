@@ -1,4 +1,4 @@
-"""Adding a pin and editing one in place (docs/handbook/api.md §핀 만들기, §핀 고치기).
+"""Adding a pin and editing one in place (docs/handbook/api.md §핀 만들기와 상태 바꾸기, §핀 수정).
 
 The handler parses the body (limn.web.parse.parse_add, parse_edit and parse_edit_place); these shells read what only
 the disk and the clock know under the pin lock, and leave the rules and the record to limn.pins.edit. Each returns an

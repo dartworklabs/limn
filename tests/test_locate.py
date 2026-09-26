@@ -40,7 +40,7 @@ SERVER_GLOBALS = {
 
 
 class NoServerState(unittest.TestCase):
-    """The moved services must not reach the server's run arguments, document list or pins (roadmap stage 6)."""
+    """The location services must not reach the server's run arguments, document list or pins (coding rule R5)."""
 
     def test_reads_no_server_global(self):
         """No name the server keeps as hidden state appears in the module."""

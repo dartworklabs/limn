@@ -213,7 +213,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다 |
-| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다. 예전에는 `public` 이었다). 이름이 이 모양이 아니거나 파일이 없으면 `404` |
+| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다). 이름이 이 모양이 아니거나 파일이 없으면 `404` |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`). 뷰어는 `?v=<버전>` 을 붙여 캐시를 가른다. 이름 한 칸의 `.mjs` 만 받는다. 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖을 가리키는 심볼릭 링크, `.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 모두 `404` 다. PDF.js는 패키지 안 `src/limn/vendor/pdfjs/` 에 들어 있고 기본으로 이것을 준다. `--pdfjs-dir`([operations.md](operations.md) §실행 인자)로 디렉토리를 바꿀 수 있다. 출처·버전은 [`src/limn/vendor/pdfjs/README.md`](../../src/limn/vendor/pdfjs/README.md). Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
@@ -478,7 +478,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 사람과, 쓰기 요청을 보낸 사람을 적는다. `limn member add` 로 더한 사람도 있다. 에이전트(토큰 포함)는 적지 않는다.
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
 - 같은 값이면 10분에 한 번만 다시 쓴다. `/api/meta?light=1` 폴링은 쓰지 않는다.
-- 파일이 있는데 쓸 수 없으면(§역할) 방문을 기록하지 않고 파일도 건드리지 않는다. 예전에는 빈 명단으로 읽고 방문자 한 명만 담아 덮어써서 소유자를 포함한 모든 역할이 지워졌다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
+- 파일이 있는데 쓸 수 없으면(§역할) 방문을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
 
 ### @이름 풀기
