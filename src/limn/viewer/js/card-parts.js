@@ -88,19 +88,24 @@ function msgText(m){return fmtText(m.text,m.mentions);}
 // Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md §@태그).
 // Text goes through esc() first, and names/numbers are found and wrapped within that already-escaped text - so text a
 // person wrote never leaks as HTML. Names are matched with the same candidates as the server's resolve_mentions() (full
-// name/login/the part of the login before @/the first word of the name), longest first, case-insensitive. Skipped if the
-// character before '@' is alphanumeric (an email address); a name ending in an ASCII letter followed by an ASCII letter
+// name/login/the part of the login before @/the first word of the name), longest first, case-insensitive. Skipped when
+// '@' follows a word (mentionAfterWord - an email address); a name ending in an ASCII letter followed by an ASCII letter
 // (@Alicex) is a different word. An unresolved '@word' stays plain text - it must never look like it called someone.
 function peopleName(login){const x=PEOPLE.find(p=>p.login===login); return x?x.name:login;}
 function mentionToks(logins){const out=[]; (logins||[]).forEach(lg=>{const x=PEOPLE.find(p=>p.login===lg),nm=String((x&&x.name)||'');
-    const w=nm.split(/\s+/).filter(Boolean); [nm,lg,String(lg).split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach((t,k)=>{if(t&&t.length>=2)out.push({t:esc(t),lg,k});});});
+    const w=nm.split(/\s+/).filter(Boolean); [nm,lg,String(lg).split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach((t,k)=>{if([...t].length>=2)out.push({t:esc(t),lg,k});});});
   return out.sort((a,b)=>b.t.length-a.t.length||a.k-b.k);}   // for a tie in text length, full name > login > first word
+// Whether the '@' at text[i] continues a word, so it is no tag - the server's rule: the character before it is a letter or
+// digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That character
+// is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
+function mentionAfterWord(text,i){if(i<=0)return false; const lo=text.charCodeAt(i-1),hi=i>1?text.charCodeAt(i-2):0;
+  const c=lo>=0xDC00&&lo<=0xDFFF&&hi>=0xD800&&hi<=0xDBFF?text.slice(i-2,i):text[i-1]; return /^[\p{L}\p{N}._-]$/u.test(c);}
 function reEsc(t){return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
 function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!=='local'?me.login:null;}
 function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hit=[],me=meLogin();
   if(toks.length){const re=new RegExp('@('+toks.map(x=>reEsc(x.t)).join('|')+')','gi');
     // First swapped for placeholders (\u0001number\u0002) - so that after a long name is wrapped, a short name never re-wraps inside it.
-    h=h.replace(re,(m,t,off,all)=>{const prev=off>0?all[off-1]:''; if(prev&&/[0-9A-Za-z가-힣._-]/.test(prev))return m;
+    h=h.replace(re,(m,t,off,all)=>{if(mentionAfterWord(all,off))return m;
       const nx=all.charAt(off+m.length); if(/[A-Za-z0-9]$/.test(t)&&/[A-Za-z0-9_]/.test(nx))return m;
       const tk=toks.find(x=>x.t.toLowerCase()===t.toLowerCase()); if(!tk)return m; hit.push({m,lg:tk.lg}); return '\u0001'+(hit.length-1)+'\u0002';});}
   // '#12' - a link to that pin if it exists. An escape like '&#39;' (preceded by &) and '#12;' are left untouched.

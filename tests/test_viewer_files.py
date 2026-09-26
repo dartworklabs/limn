@@ -20,15 +20,9 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import PKG, ps
+from helpers import VIEWER, ps, viewer_text
 
-VIEWER = PKG / "viewer"
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
-
-
-def viewer_text(marker: str, directory: Path = VIEWER) -> str:
-    """The text the server puts at marker: the manifest's parts for it, joined in order (what test_brand reads)."""
-    return "".join((directory / n).read_text(encoding="utf-8") for n in assemble.viewer_manifest(directory)[marker])
 
 
 class _InlineScripts(HTMLParser):
@@ -129,6 +123,23 @@ class ViewerFiles(unittest.TestCase):
         for names in assemble.viewer_manifest(VIEWER).values():
             for name in names:
                 self.assertTrue((VIEWER / name).read_text(encoding="utf-8").endswith("\n"), name)
+
+    def test_no_line_comment_swallows_a_statement(self):
+        """A '//' comment never ends in code: a statement pasted after a trailing comment parses fine and silently
+        never runs. That happened in mentionPreview (1486de0 put '// the same hints...' in front of
+        'r.bad=mentionBadSettled(...);'). The check is a heuristic over each JS part and the served service worker: a
+        comment (after a line start or whitespace, so 'https://' inside a string is not one) must not hold a minified
+        assignment from a call (`a.b=f(`) or end in a call closed with ';' (`f(x);`). Prose in comments puts spaces
+        around '=' and before '(' (`T (a release ...);`), so a hit is code."""
+        code = re.compile(r"[\w$\])]=[\w$.]+\(|[\w$\]]\((?:[^()]|\([^()]*\))*\)\s*;\s*$")
+        names = list(assemble.viewer_manifest(VIEWER)["__APP_JS__"]) + ["sw.js"]
+        hits = []
+        for name in names:
+            for n, line in enumerate((VIEWER / name).read_text(encoding="utf-8").splitlines(), 1):
+                m = re.search(r"(?:^|\s)//(.*)$", line)
+                if m and code.search(m.group(1)):
+                    hits.append("%s:%d: %s" % (name, n, m.group(0).strip()))
+        self.assertEqual(hits, [])
 
     def test_each_marker_appears_once_in_the_page_and_never_in_the_parts(self):
         """A marker inside CSS or JS would be replaced twice or leak into the page."""

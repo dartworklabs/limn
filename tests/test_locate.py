@@ -1,7 +1,7 @@
 """limn.locate - the effectful half of the position rules, driven by the arguments it is given (coding rule R5).
 
 Re-sync and estimation are pinned through server.py at the end of this file (Anchor, Estimate); picking and overlaps
-through the server in test_server.py (Overlaps), test_v032.py and test_moved_paths.py. The classes above call the
+through the server in test_server.py (OverlapRoutes), test_v032.py and test_moved_paths.py. The classes above call the
 module directly, with no server and no run arguments: it must not read them, and its re-sync and token weights work
 on the files and cache they are handed.
 
@@ -40,7 +40,7 @@ SERVER_GLOBALS = {
 
 
 class NoServerState(unittest.TestCase):
-    """The moved services must not reach the server's run arguments, document list or pins (roadmap stage 6)."""
+    """The location services must not reach the server's run arguments, document list or pins (coding rule R5)."""
 
     def test_reads_no_server_global(self):
         """No name the server keeps as hidden state appears in the module."""
@@ -170,6 +170,23 @@ class Overlaps(unittest.TestCase):
         rng = type("Range", (), {"file": self.NEW, "lines": ["a"] * 9, "lo": 2, "hi": 3})()
         self.assertEqual(locate.overlaps_api(rng, ctx), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]})
         self.assertEqual(asked, [(str(self.NEW), 2, 3)])
+
+
+class DotPaths(unittest.TestCase):
+    """locate_file keeps the tree rule of limn.files.file_in_tree: a path under a dot-named part is not in the tree."""
+
+    def test_a_recorded_path_under_a_dot_folder_is_not_located(self):
+        """A stored pin or change path into .git - as recorded, through file_rel, or by the tail guess of a moved
+        checkout - is not located, so its lines are never read into a re-sync or a comparison; main.tex still is."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / ".git").mkdir()
+            (root / ".git" / "config").write_text("[remote]\n", encoding="utf-8")
+            (root / "main.tex").write_text("x\n", encoding="utf-8")
+            self.assertIsNone(locate.locate_file(str(root / ".git" / "config"), None, root, None))
+            self.assertIsNone(locate.locate_file("/old/place/.git/config", ".git/config", root, None))
+            self.assertIsNone(locate.locate_file("/old/place/.git/config", None, root, None))
+            self.assertEqual(locate.locate_file("/old/place/main.tex", None, root, None).rel, "main.tex")
 
 
 # ---------------------------------------------------------------- through server.py's wiring

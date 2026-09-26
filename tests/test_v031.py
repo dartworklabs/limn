@@ -30,8 +30,7 @@ from limn.mentions import NOTE_MENTION_COOLDOWN_S, note_mention_targets
 from limn.store import find_pin
 
 from helpers import Base, add_pin, edit_pin, ps
-from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
-from test_qa_021 import CLEAR_BODY, actor
+from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, AccessBase, actor, member_add, token_create
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

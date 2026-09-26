@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn.build import valid_build_name
-from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
+from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree, tree_part
 from limn.mapping import norm, truncate_quote
 from limn.pins.edit import (
     ASSIGNEE_AGENT,
@@ -300,8 +300,9 @@ class CloseChange(NamedTuple):
 
 def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None | InputRejected:
     """The close body's optional `changes`: [{file, lo, hi}] - the new-side lines the agent changed for this pin. file is
-    a path inside root (the manuscript folder), absolute or relative to it (the pins.md location column); the result
-    carries it resolved and absolute, like a pin's file. Absent or [] -> None (the pre-0.3 close). A refusal names the
+    a path in the tree root (the manuscript folder; limn.files.tree_part, so never under a dot-named part such as .env),
+    absolute or relative to it (the pins.md location column), and need not exist; the result carries it resolved and
+    absolute, like a pin's file. Absent or [] -> None (the pre-0.3 close). A refusal names the
     offending item - the messages are part of the agent contract."""
     if v is None:
         return None
@@ -321,14 +322,12 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
             return InputRejected(
                 "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes"
             )
-        try:
-            path = (Path(f) if os.path.isabs(f) else base / f).resolve()
-            path.relative_to(base)
-        except (ValueError, OSError, RuntimeError):
+        rel = tree_part(Path(f) if os.path.isabs(f) else base / f, base)
+        if rel is None:
             return InputRejected(
                 "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, "change_outside_manuscript"
             )
-        out.append(CloseChange(str(path), lo, hi))
+        out.append(CloseChange(str(base / rel), lo, hi))
     return tuple(out) or None
 
 

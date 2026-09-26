@@ -30,6 +30,22 @@ What the server does defend against:
 - Forged identity headers: they are ignored unless the TCP peer is loopback (`tailscale`) or a configured proxy
   (`trusted-proxy`).
 - Path traversal: static files are limited to the vendored PDF.js files by name.
+- Reading files that are not manuscript: every route that takes a file name (`/api/snippet`, `/api/overlaps`, a new
+  pin, an edit's `loc`, a close's `changes`) accepts only files under `--manuscript`, symlinks resolved, and never one
+  under a dot-named part of it (`.git`, `.env`, `.ssh`, `.latexmkrc`, …): those hold repository and machine secrets,
+  not manuscript text, and a `viewer` could otherwise read `.git/config` through a snippet. The refusal is the one for
+  a file outside the manuscript (`400 file_outside_manuscript` / `change_outside_manuscript`).
+- An unusable `people.json` fails closed. If it exists but cannot be read or is not a Limn people file (truncated,
+  empty, invalid JSON, wrong shape, no read permission), every person identified by a header is a `viewer`,
+  `--members-only` admits no one from it (only `--allow` logins, which do not depend on the file), and the server never
+  rewrites it — it used to read such a file as empty and replace it with the one visitor, erasing every role including
+  the owner's. One warning goes to stderr; once the file is fixed (content or permissions) the roles apply again on the
+  next request, without a restart. Tokens and the `--auth local` owner do not read the file and are unaffected. Keeping
+  the roles of an earlier good read was rejected: the result would depend on the process's history, and an unreadable
+  `tokens.json` likewise accepts no token.
+- Clickjacking: every response carries `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
+  (no other CSP directive, so the viewer's inline scripts are unaffected). Page images and PDFs are
+  `Cache-Control: private`, never kept by a shared cache.
 - Requests that arrive through `tailscale serve` without identity headers (a `*.ts.net` or `--public-host` Host, e.g.
   tagged devices) are refused (`403`) since v0.2.1 — only a request that names this machine (a loopback Host) and
   carries no proxy header (`X-Forwarded-For/-Host/-Proto/-Port`, `X-Real-IP`, `Forwarded`, `Via`) can be the
@@ -65,6 +81,22 @@ forward — is indistinguishable from a local request, so whoever reaches it is 
 `--auth local`, the owner). The supported path, `limn add`/`limn start`, only uses `tailscale serve --https`. If you
 forward the port any other way, give agents tokens and set `AGENT_LOOPBACK=0` (`--no-agent-loopback`), and do not use
 `--auth local`.
+
+## The manuscript repository is trusted code
+
+Limn builds the manuscript with the rights of the account that runs the server. The main build runs
+`latexmk -pdf -synctex=1 -interaction=nonstopmode` in a copy of the manuscript **without** `-norc` and without a
+sandbox, so a `latexmkrc` / `.latexmkrc` in the repository (Perl) runs as that account, and TeX runs with your
+distribution's default shell-escape setting. Whoever can push to the manuscript repository can therefore run code on
+the server: with `--git-pull`, a push to the remote `main` is fetched and built within about a minute, with no one
+pressing rebuild. Only point Limn at repositories whose pushers you trust, and run it under an account that holds
+nothing else worth taking (other repositories' credentials, unrelated token files).
+
+Comparison builds (`/api/revision-build`) are different: they compile past commits inside a `bwrap` sandbox with
+`latexmk -norc -no-shell-escape`, with no home directory, source repository or network. Running the main build the
+same way (`-norc`, a sandbox) may become an opt-in later; this is a possibility, not a promise, and nothing changes
+today — some manuscripts rely on their `latexmkrc`. The details are in
+[build-sync.md](docs/handbook/build-sync.md) (Korean).
 
 ## Reporting a vulnerability
 

@@ -1,4 +1,4 @@
-"""Replying to, closing, reopening and confirming a pin (docs/handbook/api.md §스레드, §닫기, §검토 대기).
+"""Replying to, closing, reopening and confirming a pin (docs/handbook/api.md §스레드 (답글), §닫을 때 사유 남기기, §검토 대기).
 
 Each shell loads the pin under the pin lock (PinStore.transact), asks limn.pins.lifecycle what happens, rewrites the
 record in place only when the rule accepts (so the saved line keeps its field order) and emits the notices after the
@@ -158,7 +158,7 @@ def set_done(
 def close_pin(
     ctx: PinContext, pid: int, actor: Mapping[str, Any], request: CloseRequest
 ) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """Close pin pid under the pin lock, then tell the author when it now awaits review (docs/handbook/api.md §닫기).
+    """Close pin pid under the pin lock, then tell the author when it now awaits review (docs/handbook/api.md §닫을 때 사유 남기기).
 
     Re-closing a closed pin changes nothing (AlreadyClosed) - a second close must not overwrite done_at/closed_by
     and erase who closed it first (observed defect). An agent's close awaits review unless the request says:

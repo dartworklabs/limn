@@ -7,17 +7,14 @@ contract (pins.md, API) is not translated.
 
 import importlib.util
 import json
-import os
 import re
 import shutil
 import socket
-import struct
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
-import zlib
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -29,7 +26,9 @@ from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
 
-from helpers import add_pin, shut_wr
+from helpers import add_pin, blank_png, shut_wr
+from helpers_access import ALICE_ACTOR
+from helpers_browser import ChromiumTestCase
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"
@@ -202,33 +201,14 @@ class Wiring(unittest.TestCase):
         self.assertIn("case 'lang':switchLang();break;", ps.HTML)
 
 
-class BrowserLanguage(unittest.TestCase):
+class BrowserLanguage(ChromiumTestCase):
     """Real Chromium: ?lang=en switches the chrome to English, ko keeps Korean."""
 
     @classmethod
     def setUpClass(cls):
-        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            if required:
-                raise
-            raise unittest.SkipTest("Playwright unavailable") from None
-        cls.pw = sync_playwright().start()
-        exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-        try:
-            cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
-        except Exception as e:  # no bundled or system browser
-            cls.pw.stop()
-            if required:
-                raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
+        """Start Chromium and build the viewer page (boot() off) once for the class."""
+        super().setUpClass()
         cls.html = ps.build_html("A-DEMO", "#2563eb").replace("\nboot();", "\n")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.pw.stop()
 
     def open(self, query, locale):
         context = self.browser.new_context(locale=locale)
@@ -421,28 +401,13 @@ class PickWarnings(unittest.TestCase):
         self.assertEqual(self.run_js("ko", "warnText(%s)" % json.dumps(warn, ensure_ascii=False)), warn)
 
 
-def _png(w, h):
-    """A white 8-bit grayscale PNG (the viewer only needs real page images and their size)."""
-
-    def chunk(tag, data):
-        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-
-    raw = b"".join(b"\x00" + b"\xff" * w for _ in range(h))
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(raw, 9))
-        + chunk(b"IEND", b"")
-    )
-
-
 TEX = (
     "\\documentclass{article}\n\\begin{document}\n"
     + "".join("Line %d of the demo manuscript.\n" % i for i in range(3, 40))
     + "\\end{document}\n"
 )
-ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
-BOB = {"login": "bob@example.com", "name": "Bob Lee"}
+# Bob Lee, not the Bob Park of helpers_access: the tests below assert on this name.
+BOB_LEE = {"login": "bob@example.com", "name": "Bob Lee"}
 SEOJUN = {"login": "seojun@example.com", "name": "김서준"}
 VERA = {"login": "vera@example.com", "name": "Vera Park"}  # a view-only member: her changes are refused (403)
 # User content in the fixture: document tab names, a note, a reply and a person's name in Korean. Everything
@@ -471,7 +436,7 @@ def chrome_hangul(found):
     return bad
 
 
-class EnglishChrome(unittest.TestCase):
+class EnglishChrome(ChromiumTestCase):
     """The real viewer against a real (in-process) server, in English: no Hangul left in the chrome.
 
     Requests are routed from Chromium straight into the request handler over a socketpair (no port is opened),
@@ -480,22 +445,8 @@ class EnglishChrome(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            if required:
-                raise
-            raise unittest.SkipTest("Playwright unavailable") from None
-        cls.pw = sync_playwright().start()
-        exe = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-        try:
-            cls.browser = cls.pw.chromium.launch(executable_path=exe or None, args=["--no-sandbox"])
-        except Exception as e:  # no bundled or system browser
-            cls.pw.stop()
-            if required:
-                raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
+        """Start Chromium, write the demo state (people, pins in every state, two documents) and serve its page."""
+        super().setUpClass()
         cls.tmp = tempfile.TemporaryDirectory()
         cls.saved_html = ps.HTML
         cls.make_state(Path(cls.tmp.name))
@@ -503,11 +454,11 @@ class EnglishChrome(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """Put the server copy's page and document list back, remove the state, close Chromium."""
         ps.HTML = cls.saved_html
         ps.set_docs(None)
         cls.tmp.cleanup()
-        cls.browser.close()
-        cls.pw.stop()
+        super().tearDownClass()
 
     @classmethod
     def make_state(cls, root):
@@ -526,7 +477,7 @@ class EnglishChrome(unittest.TestCase):
         C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
         ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C))
         ps.init_seq()
-        page = _png(1275, 1650)  # a letter page at 150 dpi
+        page = blank_png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.DOCS:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True)
@@ -536,7 +487,7 @@ class EnglishChrome(unittest.TestCase):
             (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
             (D.dir / "head.txt").write_text("abc1234")
         agent = dict(LOCAL_ACTOR)
-        for who in (ALICE, BOB, SEOJUN):
+        for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
             ps.record_person(who)
         access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.cli_audit(C.state))
         ms, rr = ps.DOCS
@@ -545,23 +496,23 @@ class EnglishChrome(unittest.TestCase):
             d = dict(file=str(C.main), lo=lo, hi=hi, page=1 + lo // 20, note=note, **kw)
             return add_pin(d, actor, ps).record["id"]
 
-        claimed = add(4, 5, "Tighten this sentence", ALICE)
+        claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
         ps.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-        ps.reply_pin(korean, "Working on it", ALICE)
-        add(12, 16, "Is this the right table? @Bob Lee", ALICE, kind_req="question", mentions=[BOB["login"]])
-        add(4, 5, "Same spot again", BOB)
-        add(20, 21, "Ask Bob about the wording", ALICE, assignee=BOB["login"])
+        ps.reply_pin(korean, "Working on it", ALICE_ACTOR)
+        add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])
+        add(4, 5, "Same spot again", BOB_LEE)
+        add(20, 21, "Ask Bob about the wording", ALICE_ACTOR, assignee=BOB_LEE["login"])
         add(22, 23, "Agent note", agent)
-        for author in (ALICE, BOB):
+        for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
             ps.set_done(pid, True, agent, reply="표 설명을 줄였습니다", ref="PR #7")
-        done = add(26, 27, "Fix the unit", ALICE)
-        ps.set_done(done, True, ALICE)
-        dropped = add(28, 29, "Wrong spot", ALICE)
-        ps.drop_pin(dropped, ALICE)
+        done = add(26, 27, "Fix the unit", ALICE_ACTOR)
+        ps.set_done(done, True, ALICE_ACTOR)
+        dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
+        ps.drop_pin(dropped, ALICE_ACTOR)
         add_pin(
-            dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE, ps, doc=rr
+            dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE_ACTOR, ps, doc=rr
         ).record["id"]
 
         def age(rows):  # threads and pins from yesterday and a few hours ago, so relative times show
@@ -603,7 +554,7 @@ class EnglishChrome(unittest.TestCase):
         canned = getattr(self, "canned", {}).get(u.path)
         if canned:
             return route.fulfill(status=canned[0], content_type="application/json", body=json.dumps(canned[1]))
-        who = getattr(self, "who", ALICE)
+        who = getattr(self, "who", ALICE_ACTOR)
         body = req.post_data_buffer or b""
         h = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": who["login"], "Tailscale-User-Name": who["name"]}
         if req.headers.get("content-type"):
@@ -681,7 +632,7 @@ class EnglishChrome(unittest.TestCase):
         pid = page.evaluate("PINS.find(p=>p.note==='Tighten this sentence').id")
         scope = scope_http_error(ScopeUnreadable())  # built by the worker; no git in this fixture
         self.canned = {"/api/revision-build": (scope.code, scope.body)}
-        self.addCleanup(lambda: (setattr(self, "canned", {}), setattr(self, "who", ALICE)))
+        self.addCleanup(lambda: (setattr(self, "canned", {}), setattr(self, "who", ALICE_ACTOR)))
         cases = (
             (
                 "viewer_only",
@@ -689,18 +640,23 @@ class EnglishChrome(unittest.TestCase):
                 VERA,
                 "closePin(%d)" % pid,
             ),  # 403: a view-only member presses [완료]
-            ("conflict", "conflict", ALICE, "undoAppend(%d,'x',999)" % pid),  # 409: undo with a stale base_rev
+            ("conflict", "conflict", ALICE_ACTOR, "undoAppend(%d,'x',999)" % pid),  # 409: undo with a stale base_rev
             (
                 "note_append_too_long",
                 "덧붙일 메모가 너무 깁니다(2000자 이하).",
-                ALICE,
+                ALICE_ACTOR,
                 "appendToPin(%d,'x'.repeat(2001))" % pid,
             ),  # 400: validation
-            ("pin_not_found", "핀 #999999 이 없습니다.", ALICE, "undoAppend(999999,'x',0)"),  # 404: the pin is gone
+            (
+                "pin_not_found",
+                "핀 #999999 이 없습니다.",
+                ALICE_ACTOR,
+                "undoAppend(999999,'x',0)",
+            ),  # 404: the pin is gone
             (
                 "scope_failed",
                 scope.body["error"],
-                ALICE,  # 422: pin-scoped comparison
+                ALICE_ACTOR,  # 422: pin-scoped comparison
                 "api('/api/revision-build',{method:'POST',body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
                 ".catch(()=>{})" % pid,
             ),

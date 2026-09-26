@@ -20,8 +20,8 @@ import unittest
 from limn.access import LOCAL_ACTOR
 
 from helpers import add_pin, extract_js_fn, ps, run_node
-from test_access import ALICE
-from test_qa_021 import BrowserBase, actor
+from helpers_access import ALICE, actor
+from helpers_browser import BrowserBase
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}

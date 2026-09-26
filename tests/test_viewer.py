@@ -11,7 +11,6 @@ Run: uv run pytest tests/test_viewer.py
 """
 
 import json
-import os
 import re
 import shutil
 import unittest
@@ -20,7 +19,8 @@ from pathlib import Path
 from limn.pins import position, render as md_render
 from limn.viewer import assemble as viewer_assemble
 
-from helpers import DOCS_DIR, PKG, SKILL_KO, SKILL_MD, extract_js_fn, js_icons, js_thread, ps, run_node
+from helpers import DOCS_DIR, PKG, SKILL_KO, SKILL_MD, extract_js_fn, js_esc, js_icons, js_thread, ps, run_node
+from helpers_browser import ChromiumTestCase
 
 # ---------------------------------------------------------------- frontend pure logic (run the real source under node)
 #
@@ -1009,8 +1009,8 @@ class FrontendMobileLogic(unittest.TestCase):
     def test_card_accordion_summary_is_first_note_line(self):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; let EDIT=null, PINS=[];
             const OPEN_CARDS=new Set([2]);
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
@@ -1543,7 +1543,7 @@ class FrontendSemanticAudit(unittest.TestCase):
             self.skipTest("node not available")
         js = "\n".join(
             [
-                "const esc=t=>String(t==null?'':t);",
+                js_esc(),
                 extract_js_fn("relTime"),
                 extract_js_fn("relSpan"),
                 r"""
@@ -2070,8 +2070,8 @@ class FrontendArchive(unittest.TestCase):
     def run_rows(self, script: str):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={loc:'l',reply:'y',restore:'s',purge:'u',n:'n',change:'c'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             """,
@@ -2153,8 +2153,8 @@ class FrontendArchive(unittest.TestCase):
         js = "\n".join(
             [
                 js_icons(),
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const els={}; function el(id,ctl){return els[id]=els[id]||{id,innerHTML:'',hidden:false,attrs:{'aria-controls':ctl},
               setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k];}};}
             el('done-toggle','done-list'); el('done-list');
@@ -2544,7 +2544,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertEqual(data["pinCallsAfterSecondResolve"], 1)
 
 
-class FrontendResponsiveBrowser(unittest.TestCase):
+class FrontendResponsiveBrowser(ChromiumTestCase):
     """Real Chromium layout and keyboard regression; API/PDF rendering is outside this oracle.
 
     Run with: uv run pytest tests/test_viewer.py -k FrontendResponsiveBrowser. Uses $LIMN_CHROMIUM, a system
@@ -2554,28 +2554,9 @@ class FrontendResponsiveBrowser(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        required = os.environ.get("LIMN_TEST_REQUIRE_BROWSER") == "1"
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            if required:
-                raise
-            raise unittest.SkipTest("Playwright unavailable") from None
-        chrome = os.environ.get("LIMN_CHROMIUM") or shutil.which("google-chrome") or shutil.which("chromium")
-        cls.pw = sync_playwright().start()
-        try:
-            cls.browser = cls.pw.chromium.launch(executable_path=chrome or None, args=["--no-sandbox"])
-        except Exception as e:
-            cls.pw.stop()
-            if required:
-                raise
-            raise unittest.SkipTest("Chromium unavailable: %s" % e) from e
+        """Start Chromium and build the viewer page (boot() off) once for the class."""
+        super().setUpClass()
         cls.html = ps.build_html("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.pw.stop()
 
     def open_viewer(self, width, touch=False, preferences=None):
         context = self.browser.new_context(viewport={"width": width, "height": 900}, is_mobile=touch, has_touch=touch)
@@ -2740,8 +2721,8 @@ class FrontendThread(unittest.TestCase):
     def run_js(self, script, layout="wide"):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             function who(a){return (a&&(a.name||a.login))||'';} function avatar(){return '<i class="av"></i>';}
             let LAYOUT='%s', REPLY=null, META=null; const THREAD_OPEN=new Set();
             """
@@ -2820,8 +2801,8 @@ class FrontendReview(unittest.TestCase):
     def test_review_card_suggests_author_and_offers_confirm_and_reply(self):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
             let EDIT=null, PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}};
             const OPEN_CARDS=new Set();
@@ -2845,7 +2826,7 @@ class FrontendReview(unittest.TestCase):
             const base={id:3,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n',done:true,review:true,state:'review',
               closed_by:{login:'local',name:'로컬/에이전트'},thread:[{id:1,by:{name:'로컬/에이전트'},at:'2026-09-24 10:00:00',text:'고침',ev:'close'}]};
             const mine=card(Object.assign({},base,{author:{login:'bob@example.com',name:'Bob Park'}}));
-            const other=card(Object.assign({},base,{author:{login:'w@x',name:'Wendy Kim'}}));
+            const other=card(Object.assign({},base,{author:{login:'w@example.com',name:'Wendy Kim'}}));
             const open=card({id:4,file:'/m.tex',name:'m.tex',lo:1,hi:2,page:1,note:'n'});
             console.log(JSON.stringify([/class="pin card review/.test(mine),/내 확인 차례/.test(mine),/b-confirm btn-soft/.test(mine),
               /Wendy Kim님 확인 필요/.test(other),/class="btn-sm b-confirm"/.test(other),!/rv-reopen/.test(other)&&/data-act="reply-open"/.test(other),
@@ -3002,15 +2983,15 @@ class FrontendMentions(unittest.TestCase):
     def run_js(self, script):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-            let PEOPLE=[{login:'w@x',name:'Wendy Kim'},{login:'wo@x',name:'Wendy'},{login:'s@x',name:'Bob Park'},{login:'k@x',name:'김<b>'}];
-            let META={me:{login:'s@x',name:'Bob Park'}};
+            let PEOPLE=[{login:'w@example.com',name:'Wendy Kim'},{login:'wo@example.com',name:'Wendy'},{login:'s@example.com',name:'Bob Park'},{login:'k@example.com',name:'김<b>'}];
+            let META={me:{login:'s@example.com',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
             function tr(s){return s;}
             function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
-            """
+            """,
             ]
             + [
                 extract_js_fn(n)
@@ -3026,9 +3007,14 @@ class FrontendMentions(unittest.TestCase):
                     "mentionQuery",
                     "mentionMatches",
                     "mentionHints",
+                    "mentionAfterWord",
+                    "mentionTokens",
                     "mentionScan",
                     "defaultAssignee",
                     "assignPeople",
+                    "assignSeg",
+                    "renderAssignNew",
+                    "renderAssignEdit",
                 )
             ]
             + [script]
@@ -3037,7 +3023,7 @@ class FrontendMentions(unittest.TestCase):
 
     def test_highlight_does_not_double_wrap_and_escapes(self):
         out = self.run_js(r"""
-            console.log(JSON.stringify([fmtText('@Wendy Kim 와 @Wendy <i>',['w@x','wo@x']), fmtText('@김<b> 안녕',['k@x']),
+            console.log(JSON.stringify([fmtText('@Wendy Kim 와 @Wendy <i>',['w@example.com','wo@example.com']), fmtText('@김<b> 안녕',['k@example.com']),
               fmtText('@Bob Park',[])]));""")
 
         def tip(name):
@@ -3058,8 +3044,8 @@ class FrontendMentions(unittest.TestCase):
         # author feedback (2026-09-24): couldn't tell a real mention from plain text. Only a resolved tag
         # becomes a token; being mentioned gets .me; an unresolved '@word' stays plain text.
         out = self.run_js(r"""
-            console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@x']), fmtText('mail a@Bob Park',['s@x']),
-              fmtText('@Bob Parkx',['s@x']), fmtText('@bob park',['s@x'])]));""")
+            console.log(JSON.stringify([fmtText('@Bob Park 봐 주세요 @홍길동',['s@example.com']), fmtText('mail a@Bob Park',['s@example.com']),
+              fmtText('@Bob Parkx',['s@example.com']), fmtText('@bob park',['s@example.com'])]));""")
         self.assertEqual(
             out[0],
             '<span class="mention me" data-tip="나를 부름 — 이 핀 알림이 나에게 옵니다">@Bob Park</span> 봐 주세요 @홍길동',
@@ -3067,6 +3053,16 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(out[1], "mail a@Bob Park")  # something shaped like an email address is not a mention
         self.assertNotIn("mention", out[2])  # letters right after a name make it a different word
         self.assertIn('class="mention me"', out[3])  # case-insensitive (same as the server)
+
+    def test_highlight_skips_an_at_that_follows_any_letter(self):
+        """fmtText() wraps only the '@name' the server resolves: an '@' right after a letter of any script ('é', '김',
+        an astral '𠀀' written as two UTF-16 units) continues a word, as in resolve_mentions(). It used to check only
+        ASCII and Hangul, so 'é@Wendy Kim' rendered as a tag the server never recorded."""
+        out = self.run_js(r"""
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login;
+            console.log(JSON.stringify(['é@Wendy Kim','김@Wendy Kim','𠀀@Wendy Kim','😀@Wendy Kim','(@Wendy Kim)']
+              .map(t=>(fmtText(t,[W]).match(/class="mention"/g)||[]).length)));""")
+        self.assertEqual(out, [0, 0, 0, 1, 1])
 
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
         out = self.run_js(r"""
@@ -3084,13 +3080,15 @@ class FrontendMentions(unittest.TestCase):
     def test_scan_lists_who_gets_notified_and_unresolved_words(self):
         out = self.run_js(r"""
             console.log(JSON.stringify([mentionScan('@Bob Park 와 @홍길동 그리고 @Wendy Kim',new Set()), mentionScan('a@b.com',new Set()),
-              mentionScan('@Wendy 봐',new Set(['wo@x']))]));""")
-        self.assertEqual(out[0], {"hit": ["s@x", "w@x"], "bad": ["홍길동"], "first": "s@x"})
+              mentionScan('@Wendy 봐',new Set(['wo@example.com']))]));""")
+        self.assertEqual(
+            out[0], {"hit": ["s@example.com", "w@example.com"], "bad": ["홍길동"], "first": "s@example.com"}
+        )
         self.assertEqual(out[1], {"hit": [], "bad": [], "first": None})
-        self.assertEqual(out[2]["hit"][0], "wo@x")
+        self.assertEqual(out[2]["hit"][0], "wo@example.com")
 
     def test_default_assignee_rules(self):
-        # if the note starts with a resolved @-mention, that person; otherwise the first @-mention on a question pin; otherwise the agent. I (s@x) can't be chosen.
+        # if the note starts with a resolved @-mention, that person; otherwise the first @-mention on a question pin; otherwise the agent. I (s@example.com) can't be chosen.
         out = self.run_js(r"""
             console.log(JSON.stringify([
               defaultAssignee('@Wendy Kim 확인 부탁','fix',new Set()),
@@ -3102,8 +3100,39 @@ class FrontendMentions(unittest.TestCase):
               defaultAssignee('@홍길동 확인','fix',new Set()),
               defaultAssignee('그냥 메모','question',new Set()),
               assignPeople('@Bob Park @Wendy Kim 봐 주세요',new Set()),
-              assignPeople('메모',new Set(),'k@x')]));""")
-        self.assertEqual(out, ["w@x", "w@x", "agent", "w@x", "agent", "w@x", "agent", "agent", ["w@x"], ["k@x"]])
+              assignPeople('메모',new Set(),'k@example.com')]));""")
+        self.assertEqual(
+            out,
+            [
+                "w@example.com",
+                "w@example.com",
+                "agent",
+                "w@example.com",
+                "agent",
+                "w@example.com",
+                "agent",
+                "agent",
+                ["w@example.com"],
+                ["k@example.com"],
+            ],
+        )
+
+    def test_assignee_choice_reads_the_hints_the_request_carries(self):
+        """The composer and edit assignee rows resolve the note with mentionHints() - the hints the save sends - not
+        with every login ever picked in the field. Picking '@Wendy Kim' and then editing it down to the shared first
+        word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
+        agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
+        out = self.run_js(r"""
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:''});
+            const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
+            function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
+            let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
+            const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
+            let EDIT={el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'};
+            renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
+            note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
+            console.log(JSON.stringify([edited,[ASSIGN_NEW.v===W,cbox.hidden]]));""")
+        self.assertEqual(out, [["agent", True, True], [True, False]])
 
     def test_assign_controls_in_composer_edit_and_card(self):
         h = ps.HTML
@@ -3136,18 +3165,18 @@ class FrontendMentions(unittest.TestCase):
     def test_query_matches_and_hints(self):
         out = self.run_js(r"""
             const ta=(v,pos)=>({value:v,selectionStart:pos==null?v.length:pos,selectionEnd:pos==null?v.length:pos});
-            const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch'))];
-            const m=mentionMatches('wen',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
-            const t=ta('@Wendy Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
-            console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
-              mentionsMe({addressed:['s@x']}),mentionsMe({addressed:['w@x']}),mentionsMe({mentions:['s@x'],thread:[{mentions:['s@x']}]})]));""")
+            const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch')),mentionQuery(ta('é@Won')),mentionQuery(ta('(@Won'))];
+            const m=mentionMatches('wen',PEOPLE,'s@example.com').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@example.com').map(p=>p.login);
+            const t=ta('@Wendy Kim 봐 주세요'); t._mentions=new Set(['w@example.com','s@example.com']);
+            console.log(JSON.stringify([q,m,mine.includes('s@example.com'),mentionHints(t),
+              mentionsMe({addressed:['s@example.com']}),mentionsMe({addressed:['w@example.com']}),mentionsMe({mentions:['s@example.com'],thread:[{mentions:['s@example.com']}]})]));""")
         self.assertEqual(
             out,
             [
-                [{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None],
-                ["wo@x", "w@x"],
+                [{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None, None, {"start": 1, "q": "Won"}],
+                ["wo@example.com", "w@example.com"],
                 False,
-                ["w@x"],
+                ["w@example.com"],
                 True,
                 False,
                 False,
@@ -3229,6 +3258,20 @@ class FrontendMentionPopPlacement(unittest.TestCase):
             self.assertIn(sel, fn)
 
 
+# The viewer functions mentionPreview() reaches (besides esc/ic/tr and the DOM), pulled from the served page.
+MENTION_PREVIEW_FNS = (
+    "peopleName",
+    "mentionAfterWord",
+    "mentionTokens",
+    "meLogin",
+    "mentionQuery",
+    "mentionHints",
+    "mentionBadSettled",
+    "mentionScan",
+    "mentionPreview",
+)
+
+
 class FrontendMentionTypingNotFlagged(unittest.TestCase):
     """A '@word' still being typed isn't flagged as '등록된 사람이 아님' right away (QA 2026-09-25 — a warning showed up while typing @Sa)."""
 
@@ -3247,6 +3290,34 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
               mentionBadSettled(['Sa'],'@Sa 또 @Sa',{start:7,q:'Sa'})]));   // 같은 말이 앞에 이미 있으면 알린다"""
         )
         self.assertEqual(json.loads(run_node(js)), [[], ["Sa"], ["홍길동"], ["Sa"]])
+
+    def test_preview_holds_the_warning_while_the_caret_ends_the_word(self):
+        """mentionPreview() itself applies mentionBadSettled(): with the caret at the end of '@Sa' in the focused field the
+        preview row stays hidden; once focus leaves, the same text shows '@Sa' as '등록된 사람이 아님'. A finished '@홍길동'
+        before the caret is flagged either way.
+
+        Regression: the call was pasted onto the end of a '//' comment in mentionPreview (1486de0), so it never ran and
+        the warning showed while the name was still being typed."""
+        js = "\n".join(
+            [
+                js_esc(),
+                r"""
+            let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
+            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
+            const document={activeElement:null};
+            function field(v){const box={hidden:true,innerHTML:'',classList:{contains:c=>c==='m-preview'}};
+              return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
+            function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
+              const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
+            """,
+            ]
+            + [extract_js_fn(n) for n in MENTION_PREVIEW_FNS]
+            + [
+                r"""
+            console.log(JSON.stringify([show('@Sa',true), show('@Sa',false), show('@홍길동 @Sa',true), show('@Sa 봐',true)]));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [None, ["@Sa"], ["@홍길동"], ["@Sa"]])
 
     def test_list_highlight_is_a_flat_full_width_row(self):
         css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
@@ -3347,7 +3418,7 @@ class FrontendNotify(unittest.TestCase):
             function who(a){return (a&&(a.name||a.login))||'';}
             const store={}; const localStorage={getItem:k=>k in store?store[k]:null,setItem:(k,v)=>{store[k]=String(v);}};
             let NOTIFY=true; function notifyOn(){return NOTIFY;}
-            let META={me:{login:'w@x',name:'Wendy Kim'},label:'DEMO-B'}; const SHOWN=[];
+            let META={me:{login:'w@example.com',name:'Wendy Kim'},label:'DEMO-B'}; const SHOWN=[];
             function notifyShow(e){SHOWN.push([e.pin,e.type]);}
             """,
             ]
@@ -3367,11 +3438,11 @@ class FrontendNotify(unittest.TestCase):
 
     def test_trigger_selection_self_suppression_and_dedupe(self):
         js = self.harness(r"""
-            const me={login:'w@x'}, S={login:'s@x',name:'Bob Park'};
-            const evs=[{seq:1,type:'replied',pin:5,to:['w@x'],by:S},{seq:2,type:'mention',pin:5,to:['w@x'],by:S},
-              {seq:3,type:'review_requested',pin:6,to:['w@x'],by:{login:'local'}},{seq:4,type:'replied',pin:7,to:['s@x'],by:S},
-              {seq:5,type:'mention',pin:8,to:['w@x'],by:{login:'w@x'}},{seq:6,type:'confirmed',pin:9,to:['w@x'],by:S},
-              {seq:7,type:'reopened',pin:6,to:['w@x'],by:S}];
+            const me={login:'w@example.com'}, S={login:'s@example.com',name:'Bob Park'};
+            const evs=[{seq:1,type:'replied',pin:5,to:['w@example.com'],by:S},{seq:2,type:'mention',pin:5,to:['w@example.com'],by:S},
+              {seq:3,type:'review_requested',pin:6,to:['w@example.com'],by:{login:'local'}},{seq:4,type:'replied',pin:7,to:['s@example.com'],by:S},
+              {seq:5,type:'mention',pin:8,to:['w@example.com'],by:{login:'w@example.com'}},{seq:6,type:'confirmed',pin:9,to:['w@example.com'],by:S},
+              {seq:7,type:'reopened',pin:6,to:['w@example.com'],by:S}];
             const a=pickNotifications(evs,me,0).map(e=>[e.pin,e.type]);
             const b=pickNotifications(evs,me,2).map(e=>[e.pin,e.type]);
             const c=pickNotifications(evs,{login:'local'},0);
@@ -3386,14 +3457,14 @@ class FrontendNotify(unittest.TestCase):
 
     def test_cursor_prevents_refire_across_reloads_and_tabs(self):
         js = self.harness(r"""
-            const S={login:'s@x',name:'S'};
+            const S={login:'s@example.com',name:'S'};
             notifyHandle({ev_seq:4});                                   // 처음 켠 브라우저 — 지난 이벤트는 건너뛴다
             const c0=notifyCursor(), q=notifyQuery();
-            const d={ev_seq:6,events:[{seq:5,type:'mention',pin:1,to:['w@x'],by:S},{seq:6,type:'replied',pin:2,to:['w@x'],by:S}]};
+            const d={ev_seq:6,events:[{seq:5,type:'mention',pin:1,to:['w@example.com'],by:S},{seq:6,type:'replied',pin:2,to:['w@example.com'],by:S}]};
             notifyHandle(d);                                            // 탭 A
             notifyHandle(d);                                            // 탭 B 가 같은 응답을 늦게 받음(같은 localStorage)
             notifyHandle({ev_seq:6,events:[]});                         // 새로고침 뒤
-            NOTIFY=false; notifyHandle({ev_seq:9,events:[{seq:9,type:'mention',pin:3,to:['w@x'],by:S}]});
+            NOTIFY=false; notifyHandle({ev_seq:9,events:[{seq:9,type:'mention',pin:3,to:['w@example.com'],by:S}]});
             console.log(JSON.stringify([c0,q,SHOWN,notifyCursor(),notifyQuery()]));
             """)
         self.assertEqual(json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"]], 6, ""])

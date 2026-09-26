@@ -68,15 +68,21 @@ from helpers import (
     shut_wr,
     split_resp,
 )
+from helpers_access import BOB_ACTOR
 
 
 class Smuggling(Base):
     def test_403_body_is_not_parsed_as_next_request(self):
         pid = self.add()
-        ps.C.allow = frozenset({"ok@x.com"})
+        ps.C.allow = frozenset({"ok@example.com"})
         inner = req("POST", "/api/pins/%d/close" % pid)
         out = self.talk(
-            req("POST", "/api/pin", inner, {"Tailscale-User-Login": "evil@x.com", "Content-Type": "application/json"})
+            req(
+                "POST",
+                "/api/pin",
+                inner,
+                {"Tailscale-User-Login": "evil@example.com", "Content-Type": "application/json"},
+            )
         )
         self.assertIn(b" 403 ", out)
         self.assertEqual(out.count(b"HTTP/1.1 "), 1, out)
@@ -85,7 +91,7 @@ class Smuggling(Base):
     def test_get_body_is_drained(self):
         pid = self.add()
         inner = req("POST", "/api/pins/%d/close" % pid)
-        out = self.talk(req("GET", "/api/meta", inner, {"Tailscale-User-Login": "bob@x.com"}))
+        out = self.talk(req("GET", "/api/meta", inner, {"Tailscale-User-Login": "bob@example.com"}))
         self.assertEqual(out.count(b"HTTP/1.1 "), 1, out)
         self.assertIn(b" 200 ", out)
         self.assertFalse(self.pin(pid).get("done"))
@@ -146,7 +152,7 @@ class CrossOrigin(Base):
                 headers={
                     "Host": "box.tail1234.ts.net",
                     "Origin": "https://box.tail1234.ts.net",
-                    "Tailscale-User-Login": "bob@x.com",
+                    "Tailscale-User-Login": "bob@example.com",
                 },
             )
         )
@@ -273,20 +279,20 @@ class CrossOrigin(Base):
     def test_no_origin_check_switch(self):
         ps.C.origin_check = False
         out = self.talk(
-            req("GET", "/api/meta", headers={"Host": "box.example.com", "Tailscale-User-Login": "ok@x.com"})
+            req("GET", "/api/meta", headers={"Host": "box.example.com", "Tailscale-User-Login": "ok@example.com"})
         )
         self.assertIn(b" 200 ", out)
         # v0.2.1: an unexpected Host is accepted, but a headerless request under it is not the loopback agent
         self.assertIn(b" 403 ", self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com"})))
 
     def test_allow_rejects_headerless_tailnet_request(self):
-        ps.C.allow = frozenset({"ok@x.com"})
+        ps.C.allow = frozenset({"ok@example.com"})
         out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net"}))  # tag-device shape
         self.assertIn(b" 403 ", out)
         out = self.talk(req("GET", "/api/meta"))  # loopback curl
         self.assertIn(b" 200 ", out)
         out = self.talk(
-            req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net", "Tailscale-User-Login": "ok@x.com"})
+            req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net", "Tailscale-User-Login": "ok@example.com"})
         )
         self.assertIn(b" 200 ", out)
 
@@ -475,7 +481,7 @@ class PdfRoute(Base):
 # ---------------------------------------------------------------- overlaps and note_append (docs/handbook/api.md §겹친 핀과 덧붙이기)
 
 
-class Overlaps(Base):
+class OverlapRoutes(Base):
     def test_inside_and_contains_pair(self):
         # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
         p1 = self.add(4, 9, note="outer")
@@ -622,7 +628,7 @@ class RemotePinsMd(Base):
                 "/pins.md",
                 headers={
                     "Host": "x.tail1234.ts.net:18004",
-                    "Tailscale-User-Login": "ok@x.com",
+                    "Tailscale-User-Login": "ok@example.com",
                     "X-Forwarded-For": "100.64.0.9",
                 },
             )
@@ -957,7 +963,6 @@ class MultiDoc(Base):
         code, _, body = split_resp(self.talk(jreq("GET", "/api/pins?doc=rr")))
         self.assertEqual([p["doc"] for p in json.loads(body)], ["rr"])
 
-    BOB = {"login": "bob@example.com", "name": "Bob Park"}
     WENDY = {"login": "wendy@example.com", "name": "Wendy Kim"}
 
     def _notices(self, since=0):
@@ -982,7 +987,7 @@ class MultiDoc(Base):
                 "note": "@Wendy Kim 이 정의 확인",
                 "assignee": self.WENDY["login"],
             },
-            dict(self.BOB),
+            dict(BOB_ACTOR),
         )
         self.assertEqual(pin.record["doc"], "rr")
         self.assertEqual(self._notices(), [("mention", "rr"), ("assigned", "rr")])
@@ -993,11 +998,11 @@ class MultiDoc(Base):
         ps._EVENTS_CACHE.clear()
         ps.record_person(dict(self.WENDY))
         pid = add_pin(
-            {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(self.BOB)
+            {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(BOB_ACTOR)
         ).record["id"]
         n = len(ps._read_events()[0])
         edit = {"base_rev": 0, "note": "@Wendy Kim 정의 확인", "assignee": self.WENDY["login"]}
-        self.assertEqual(edit_pin(pid, edit, dict(self.BOB)).record["doc"], "rr")
+        self.assertEqual(edit_pin(pid, edit, dict(BOB_ACTOR)).record["doc"], "rr")
         self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reply" % pid, {"text": "봤어요"})))[0], 200)
         self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/close" % pid, {"reply": "고침"})))[0], 200)
         self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reopen" % pid, {"reason": "아직"})))[0], 200)
@@ -1196,8 +1201,8 @@ class MultiDoc(Base):
 # the agent supplies an estimate (eta_min), and the screen shows it rounded up to the nearest 5 minutes,
 # as '약 15분 · 20:40쯤'. The claim lock remains only a safety net, capped at 120 minutes.
 class ClaimEta(Base):
-    A = {"login": "alice@x.com", "name": "Wendy"}
-    B = {"login": "bob@x.com", "name": "Bob"}
+    A = {"login": "alice@example.com", "name": "Wendy"}
+    B = {"login": "bob@example.com", "name": "Bob"}
 
     def test_body_validation_and_derived_ttl(self):
         self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
@@ -1254,7 +1259,7 @@ class ClaimEta(Base):
             find_pin(rows, pid)["claim_until"] = time.time() - 1
             ps.write_pins(rows)
         p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
-        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+        self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
         self.assertNotIn("eta_ts", p)  # doesn't inherit someone else's old estimate
 
     def test_close_drop_unclaim_clear_all_claim_fields(self):
@@ -1884,7 +1889,9 @@ class MentionsPeopleEvents(Base):
         return d
 
     def test_resolve_mentions_rules(self):
-        ppl = self.people(({"login": "wlee@x.com", "name": "Wendy Lee"}, {"login": "sy@x.com", "name": "박서준"}))
+        ppl = self.people(
+            ({"login": "wlee@example.com", "name": "Wendy Lee"}, {"login": "sy@example.com", "name": "박서준"})
+        )
         R = mentions.resolve_mentions
         self.assertEqual(R("@Bob Park 확인 부탁", ppl), [self.S["login"]])
         self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])  # case-insensitive, Korean particle attached
@@ -1894,7 +1901,7 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])
         self.assertEqual(R("메일 bob@example.com 로", ppl), [])  # an email address is not a mention
         self.assertEqual(R("@Bobx", ppl), [])  # letters right after an English name = a different word
-        self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
+        self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@example.com", self.W["login"]])
         self.assertEqual(R("@nobody", ppl), [])
 
     def test_people_json_records_humans_only_and_throttles(self):
@@ -2057,7 +2064,7 @@ class MentionsPeopleEvents(Base):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
         base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
-        for bad in ("nobody@x.com", "local", 3, ""):
+        for bad in ("nobody@example.com", "local", 3, ""):
             code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
             self.assertEqual(code, 400, bad)
             self.assertTrue("assignee" in d["error"] or "담당" in d["error"], d)

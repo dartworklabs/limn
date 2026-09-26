@@ -22,7 +22,7 @@ from typing import Any, NamedTuple, Protocol, TypeAlias, cast
 
 from limn import build
 from limn.documents import Doc, to_source
-from limn.files import file_in_tree, tex_lines
+from limn.files import file_in_tree, tex_lines, tree_part
 from limn.mapping import (
     TokenWeights,
     by_text,
@@ -202,12 +202,9 @@ class BuildRoot(Protocol):
 
 
 def _within(p: Path, root: Path) -> bool:
-    """Does p, symlinks resolved, lie inside root (also resolved)? False when either cannot be resolved."""
-    try:
-        p.resolve().relative_to(root.resolve())
-        return True
-    except (ValueError, OSError, RuntimeError):
-        return False
+    """Does p, symlinks resolved, belong to the tree root (limn.files.tree_part: inside root and under no dot-named
+    part such as .git)? False when either cannot be resolved."""
+    return tree_part(p, root) is not None
 
 
 def doc_scope(D: BuildRoot | None, root: Path) -> str:
@@ -232,8 +229,10 @@ def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | Non
 
     Only file metadata is read (resolve, is_file) - under root, apart from resolving the stored path itself as 0.3.0's
     in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
-    through GET /api/pins. The result is checked once more after resolving symlinks, so a link inside the tree cannot
-    lead outside (a tail through such a link is skipped for the next one)."""
+    through GET /api/pins. The result is checked once more after resolving symlinks against the tree rule
+    (limn.files.tree_part), so a link inside the tree cannot lead outside, and a path under a dot-named part (.git,
+    .env) is never located - a pin recorded there before that rule is outside the tree (a tail through such a link or
+    part is skipped for the next one)."""
     if not isinstance(file, str) or not file:
         return None
     try:
