@@ -26,16 +26,13 @@ Python 3.10 standard library only.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import errno
-import fcntl
 import hashlib
 import hmac
 import html
 import ipaddress
 import json
 import os
-import pwd
 import re
 import secrets
 import shutil
@@ -45,11 +42,10 @@ import sys
 import threading
 import time
 import traceback
-from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
 from pathlib import Path
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection
 from typing import NamedTuple
 from urllib.parse import quote, urlparse
 
@@ -71,7 +67,15 @@ from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
 )
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write, file_in_tree, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
+from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
+from limn import events, people  # noqa: E402 - after the path bootstrap above
+from limn.audit import AUDIT_FILE, append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
+from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
+from limn.mentions import (  # noqa: E402 - after the path bootstrap above
+    NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
+    resolve_mentions, tag_note, thread_round,
+)
+from limn.people import is_actor as _is_actor, people_text, valid_people as _valid_people  # noqa: E402
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
@@ -91,9 +95,9 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
 )
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn.guidance import UNAUTHENTICATED, loopback_refused_text, shell_path  # noqa: E402 - after the path bootstrap above
-# pins.md's renderer; server.py builds its input (pins_md_input). flat is also the events' excerpt rule (_excerpt).
+# pins.md's renderer; server.py builds its input (pins_md_input).
 from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
-    DocHeading, PinFacts, PinsMdInput, flat as _flat, pins_md_text as render_pins_md_text,
+    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text,
 )
 from limn.web.answers import CONFIRM_BY_HUMAN  # noqa: E402 - after the path bootstrap above
 from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
@@ -223,10 +227,8 @@ THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 # body text made the skip rule ambiguous (A-DEMO #43: a fix-request pin's "@Seojun please check" was meant for a person).
 # The value that hands a pin to the agent, ASSIGNEE_AGENT = "agent", lives with the edit rules in limn.pins.edit.
 # @-tags (docs/handbook/api.md §@태그·사람·이벤트). Only invoked inside the viewer - no external notification is sent, it's just recorded in events.jsonl.
-PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
-EVENTS_KEEP = 5000                 # number of recent events kept in events.jsonl. seq only increases (consumers follow along by seq)
-NOTE_MENTION_COOLDOWN_S = 600      # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
-EVENT_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
+# Their limits live with their rules: PEOPLE_TOUCH_S in limn.people, EVENTS_KEEP and the notice types in limn.events,
+# NOTE_MENTION_COOLDOWN_S in limn.mentions.
 TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
@@ -321,11 +323,11 @@ class Cfg:
 
     @property
     def people_file(self) -> Path:
-        return self.state / "people.json"
+        return self.state / people.PEOPLE_FILE
 
     @property
     def events_file(self) -> Path:
-        return self.state / "events.jsonl"
+        return self.state / events.EVENTS_FILE
 
     @property
     def tokens_file(self) -> Path:
@@ -1071,11 +1073,6 @@ def _is_num(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def _is_actor(v) -> bool:
-    """author/*_by must be a {login,name,pic?} string dict - the UI calls name.trim()."""
-    return isinstance(v, dict) and all(v.get(k) is None or isinstance(v[k], str) for k in ("login", "name", "pic"))
-
-
 def _is_str_list(v) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
@@ -1664,20 +1661,6 @@ def thread_replies(r: dict) -> list:
     return [m for m in th if isinstance(m, dict) and not m.get("ev")]
 
 
-def thread_round(r: dict) -> list:
-    """The thread of the currently open round - posts after the last close (ev=close). Everything, if never closed.
-    For a reopened pin, starts from (and includes) the reopen reason (ev=reopen) - this is the part an agent
-    needs to read when fixing it again. That only applies if the last reopen is after the last close -
-    otherwise (still under review, not yet reopened), it's simply everything after the last close. Without
-    this distinction, a reply posted during review (between close and reopen) leaked into the new round after
-    reopening as a defect (e.g. that reply's @-tags incorrectly ended up in the new round's addressed_to)."""
-    th = r.get("thread") if isinstance(r.get("thread"), list) else []
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
-    start = last_reopen if last_reopen > last_close else last_close + 1
-    return [m for m in th[start:] if isinstance(m, dict)]
-
-
 def pin_reopened_in_round(r: dict) -> bool:
     """Has it been reopened since it was last completed (last close) - drives pins.md's "reopened" marker (§Pending review).
     This is effectively the same condition as thread_round() starting the current round from the reopen,
@@ -1692,408 +1675,88 @@ def pin_reopened_in_round(r: dict) -> bool:
 
 # ---------------------------------------------------------------- People, @-tags, events (docs/handbook/api.md §@태그·사람·이벤트)
 #
-# people.json = tailnet people who have opened (or done something in) this viewer {login,name,pic,first_seen,last_seen}.
-# Local/agent is never recorded. @-tag candidates are people.json union the authors/actors left on pins. Post text
-# keeps '@name' as-is; only the resolved login is recorded in mentions. events.jsonl = an append-only record for a
-# future external notification integration (GitHub/Telegram/email) to read. For now it's write-only - nothing is sent.
-# Both files are written to a temp file under a lock and then os.replace'd (atomic) - readers only ever see the old file or the new one.
+# people.json (limn/people.py), the @-tag rules (limn/mentions.py) and events.jsonl (limn/events.py) take their paths,
+# locks, caches and clock as arguments. The process's ones are made here, once, and bound per call by people_book()
+# and event_log(); the functions below keep the names the pin services, the handler (web/app.py) and the tests call.
 
 PEOPLE_LOCK = threading.Lock()
 EVENTS_LOCK = threading.Lock()
-_PEOPLE_SEEN: dict = {}            # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
+_PEOPLE_SEEN: people.SeenMemo = {}    # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
+_EVENTS_CACHE: events.ReadCache = {}  # events.jsonl as last read, keyed by its mtime/size
 
 
-def _valid_people(d) -> list:
-    rows = d.get("people") if isinstance(d, dict) else None
-    return [x for x in (rows or []) if isinstance(x, dict) and isinstance(x.get("login"), str) and x["login"]
-            and _is_actor(x)]
+def people_book() -> people.PeopleBook:
+    """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock and last-written memo.
+    Made per call, like pin_store(), so a test or main() that changes C.state is seen at once."""
+    return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN)
 
 
 def load_people() -> list:
-    try:
-        d = json.loads(C.people_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    return _valid_people(d)
-
-
-def people_text(rows: list) -> str:
-    rows.sort(key=lambda x: x["login"])
-    return json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n"
-
-
-@contextlib.contextmanager
-def store_lock(state: Path, name: str):
-    """Cross-process lock around one read-modify-write of a state file. The running server (record_person) and
-    `limn member` / `limn token` may write the same file at once; a thread lock alone would let one of them
-    overwrite the other's change with stale data. The lock file (.<name>.lock) stays in the state dir."""
-    fd = os.open(str(Path(state) / (".%s.lock" % name)), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)                                     # closing the descriptor releases the lock
+    """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing or unreadable."""
+    return people.load_people(C.people_file)
 
 
 def record_person(actor: dict, now: float = None, role: str = None) -> bool:
-    """Records a tailnet person into people.json (only written for a new person, a name/picture change, or when last_seen is stale past PEOPLE_TOUCH_S).
-    Local/agent is never recorded. The request continues even if the write fails (only a warning). Returns True if it wrote.
-
-    A person's `role` (set with `limn member`) is kept as-is. A person seen for the first time gets no role field (= editor)
-    unless `role` is given (the local owner is recorded as owner)."""
+    """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
+    last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
+    continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
+    no role field (= DEFAULT_ROLE) unless `role` is given (the local owner is recorded as owner)."""
     login = (actor or {}).get("login")
     if not login or is_agent(actor):
         return False
-    now = time.time() if now is None else now
-    name, pic = actor.get("name") or login, actor.get("pic")
-    key = (str(C.people_file), login)
-    seen = _PEOPLE_SEEN.get(key)
-    if seen and seen[0] == name and seen[1] == pic and now - seen[2] < PEOPLE_TOUCH_S:
-        return False
-    with PEOPLE_LOCK:
-        try:
-            with store_lock(C.state, "people"):
-                rows = load_people()                  # re-read under the lock - `limn member` may have just changed it
-                stamp = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                cur = next((x for x in rows if x["login"] == login), None)
-                if cur is None:
-                    cur = {"login": login, "first_seen": stamp}
-                    if role and role != DEFAULT_ROLE:
-                        cur["role"] = role
-                    rows.append(cur)
-                cur["name"] = name
-                if pic:
-                    cur["pic"] = pic
-                cur["last_seen"] = stamp
-                atomic_write(C.people_file, people_text(rows), mode=0o600)
-        except OSError as e:
-            print("warning: failed to write people.json: %s" % e, file=sys.stderr)
-            return False
-        _PEOPLE_SEEN[key] = (name, pic, now)
-    return True
+    return people.record_person(people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
 
 
 def known_people(rows: list = None) -> dict:
-    """@-tag candidates {login: {login,name,pic?,last_seen?}} - from people.json plus authors/actors/thread posters on pins. Local is excluded."""
-    out: dict = {}
-    def add(a, seen=None):
-        if not isinstance(a, dict) or not isinstance(a.get("login"), str) or not a["login"] or is_agent(a):
-            return
-        cur = out.setdefault(a["login"], {"login": a["login"], "name": a.get("name") or a["login"]})
-        if a.get("pic") and not cur.get("pic"):
-            cur["pic"] = a["pic"]
-        if seen:
-            cur["last_seen"] = seen
-    for x in load_people():
-        add(x, x.get("last_seen"))
-    for r in rows if rows is not None else read_pins()[0]:
-        for k, v in r.items():
-            if k == "author" or k.endswith("_by"):
-                add(v)
-        for m in r.get("thread") or []:
-            add(m.get("by"))
-    return out
+    """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (rows, or the
+    stored pins when None), agents excluded (limn.people.known_people)."""
+    ppl = load_people()
+    return people.known_people(ppl, rows if rows is not None else read_pins()[0], is_agent)
 
 
-def _mention_tokens(people: dict) -> list:
-    """(text, {login...}) - longest first. Full name, login, the part of the login before @, and the first word of the name (multiple logins if they collide)."""
-    toks: dict = {}
-    for login, p in people.items():
-        name = str(p.get("name") or "")
-        for t in {name, login, login.split("@")[0]} | ({name.split()[0]} if len(name.split()) > 1 else set()):
-            if len(t) >= 2:
-                toks.setdefault(t.lower(), set()).add(login)
-    return sorted(toks.items(), key=lambda kv: -len(kv[0]))
-
-
-def resolve_mentions(text: str, people: dict, hints=None, exclude: str = None) -> list:
-    """Resolves '@name' to a login (post text is left unchanged). Skipped if the character before '@' is
-    alphanumeric (an email address); treated as a different word if an ASCII letter immediately follows a
-    name ending in an ASCII letter (@Alicex). A Korean particle attached right after ('@서준님') is fine.
-    When a token matches multiple people (same first word of the name), only those in the viewer-selected
-    hints are included. Returned in first-seen order, no duplicates. `exclude` (usually the author's own
-    login) is removed from the result - so self-@-tagging never turns into "a pin that called someone" /
-    "I was called" (observed: a self-mention was picked up as addressed)."""
-    return list(dict.fromkeys(mention_hits(text, people, hints, exclude)))
-
-
-def mention_hits(text: str, people: dict, hints=None, exclude: str = None) -> list:
-    """Every resolved '@name' occurrence in text, in order and with repeats (resolve_mentions() is its de-duplicated
-    form). Counting occurrences is what tells a note edit that *adds* another '@Bob' apart from one that only
-    fixes a typo next to an existing '@Bob' (note_tags)."""
-    text = str(text or "")
-    if "@" not in text or not people:
-        return []
-    low, toks, hints = text.lower(), _mention_tokens(people), set(hints or ())
-    found = []
-    for i, ch in enumerate(text):
-        if ch != "@" or (i > 0 and (text[i - 1].isalnum() or text[i - 1] in "._-")):
-            continue
-        rest = low[i + 1:]
-        for tok, logins in toks:
-            if not rest.startswith(tok):
-                continue
-            nxt = rest[len(tok):len(tok) + 1]
-            if nxt and tok[-1].isascii() and tok[-1].isalnum() and nxt.isascii() and (nxt.isalnum() or nxt == "_"):
-                continue
-            pick = logins if len(logins) == 1 else logins & hints
-            for lg in sorted(pick):
-                if lg != exclude:
-                    found.append(lg)
-            if pick:
-                break
-    return found
-
-
-def pin_mentions_all(r: dict) -> list:
-    """Every person called out on this pin (note + the entire thread)."""
-    out = list(r.get("mentions") or [])
-    for m in r.get("thread") or []:
-        for lg in m.get("mentions") or []:
-            if lg not in out:
-                out.append(lg)
-    return out
-
-
-def _round_mentions(r: dict) -> list:
-    """The note's @-tags plus @-tags in the current round's (thread_round) thread posts - shared material for addressed_to/fyi_mentions_to."""
-    out = list(r.get("mentions") or [])
-    for m in thread_round(r):
-        for lg in m.get("mentions") or []:
-            if lg not in out:
-                out.append(lg)
-    return out
-
-
-def addressed_to(r: dict) -> list:
-    """Is this a pin that **asked** a person something - only meaningful for a question pin (kind_req=question). pins.md marks it
-    '→ @name', and an agent skips it (unless the requesting user says otherwise). A fix pin's @-tags are just
-    for reference, not something a person must answer to close it, so they don't go here - fyi_mentions_to()
-    handles those instead (observed: a fix pin that FYI-tagged someone was picked up as '→ @name' and an agent
-    skipped it forever). A closed-then-reopened pin doesn't count posts from the old round (thread_round)."""
-    a = r.get("assignee")
-    if a:                                   # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
-        return [] if a == ASSIGNEE_AGENT else [a]
-    if r.get("kind_req") != "question":
-        return []
-    return _round_mentions(r)
-
-
-def fyi_mentions_to(r: dict) -> list:
-    """People called for reference on a fix pin (kind_req != question) - never skipped, only shown in pins.md as '참고 @name'.
-    The opposite of addressed_to() (non-question pins). On a pin with an assignee, every @-tag other than the assignee is FYI."""
-    if r.get("assignee"):
-        to = addressed_to(r)
-        return [lg for lg in _round_mentions(r) if lg not in to]
-    if r.get("kind_req") == "question":
-        return []
-    return _round_mentions(r)
-
-
-def _excerpt(s, n: int = 140) -> str:
-    return _flat(s, n)
+def event_log() -> events.EventLog:
+    """events.jsonl of the current run (limn.events.EventLog) with the process's lock and read cache, stamped by
+    time.time() and now_str() - looked up when the value is made, so a test that freezes either reaches the records."""
+    return events.EventLog(C.events_file, EVENTS_LOCK, _EVENTS_CACHE, time.time, now_str)
 
 
 def make_event(typ: str, r: dict, actor: dict, to, msg: dict = None, text: str = None) -> dict:
-    """One events.jsonl line (seq/at are filled in by emit_events). The actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
-    me = (actor or {}).get("login")
-    to = [lg for lg in dict.fromkeys(to or []) if lg and lg != me and lg != LOCAL_ACTOR["login"]]
-    if not to:
-        return None
-    ev = {"type": typ, "pin": r.get("id"), "doc": pin_doc_key(r), "to": to, "by": who(actor)}
-    if r.get("kind_req"):
-        ev["kind_req"] = r["kind_req"]
-    if msg is not None:
-        ev["msg"] = msg.get("id")
-    ex = _excerpt(text if text is not None else (msg or {}).get("text", ""))
-    if ex:
-        ev["excerpt"] = ex
-    return ev
+    """One events.jsonl line about pin r by actor (limn.events.make_event; seq/at are filled in by emit_events). The
+    actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
+    return events.make_event(typ, r, actor, to, who, pin_doc_key, LOCAL_ACTOR["login"], msg, text)
 
 
-def emit_events(events: list) -> None:
-    """Appends events to the end of events.jsonl (lock + full atomic replace, leaving the earlier part untouched - append-only). seq starts from the file's last seq+1.
-    Only called after the pin write has committed (prevents phantom events). A failure is just a warning - the pin change already went through."""
-    events = [e for e in events or [] if e]
-    if not events:
-        return
-    with EVENTS_LOCK:
-        rows, _ = _read_events()
-        seq = max((e.get("seq", 0) for e in rows), default=0)
-        now = time.time()
-        for e in events:
-            seq += 1
-            e.update(seq=seq, at=now_str(), ts=round(now, 3))
-        rows = (rows + events)[-EVENTS_KEEP:]
-        try:
-            atomic_write(C.events_file, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in rows))
-        except OSError as e:
-            print("warning: failed to write events.jsonl: %s" % e, file=sys.stderr)
-
-
-_EVENTS_CACHE: dict = {}
+def emit_events(evs: list) -> None:
+    """Appends notices to events.jsonl, keeping the newest EVENTS_KEEP (limn.events.EventLog.emit). Only called after
+    the pin write has committed (prevents phantom events); a failure is just a warning."""
+    event_log().emit(evs, EVENTS_KEEP)
 
 
 def _read_events() -> tuple:
-    """(event list, file signature). Since polling reads this often, the cache is used when mtime/size are unchanged."""
-    try:
-        st = C.events_file.stat()
-    except OSError:
-        return [], None
-    sig = (str(C.events_file), st.st_mtime_ns, st.st_size)
-    c = _EVENTS_CACHE.get("v")
-    if c and c[0] == sig:
-        return list(c[1]), sig
-    rows = []
-    for line in C.events_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(e, dict) and _is_int(e.get("seq")):
-            rows.append(e)
-    _EVENTS_CACHE["v"] = (sig, rows)
-    return list(rows), sig
-
-
-def note_mention_targets(added: Sequence[str], recent: Sequence[dict], by: str | None, pin: object, now: float,
-                         window: float = NOTE_MENTION_COOLDOWN_S) -> list[str]:
-    """Which of `added` (people a note save newly tags, in order) get a mention event - the cooldown of issue #10 L3.
-
-    A person is left out when `by` already sent them a note mention about the same pin in the last `window` seconds
-    before `now`: toggling '@Bob' off and on through note edits would otherwise notify Bob on every edit. The key is
-    (actor login, target login, pin id). Only note mentions count - `mention` records without `msg`; replies and reopen
-    reasons carry their thread message id and keep notifying every time, since they leave a visible entry. A suppressed
-    mention is never written, so the window runs from the last one sent. A record counts when its `ts` lies less than
-    `window` from `now` on either side - events.jsonl rounds ts to milliseconds, so the last mention can read as a
-    moment ahead of the next save, and after the clock steps back a far-future record must not silence anyone for
-    longer than the window. Records without a numeric ts are ignored. Pure: `recent` (events.jsonl records) and `now`
-    (epoch seconds) come from the caller."""
-    cooled: set = set()
-    for e in recent:
-        if e.get("type") != "mention" or "msg" in e or e.get("pin") != pin:
-            continue
-        if (e.get("by") or {}).get("login") != by:
-            continue
-        ts = e.get("ts")
-        if _is_num(ts) and abs(now - ts) < window:
-            cooled.update(e.get("to") or [])
-    return [lg for lg in added if lg not in cooled]
-
-
-class NoteTags(NamedTuple):
-    """What a note save means for @-tags: the note's resolved tags (the pin's mentions) and whom to notify now."""
-    mentions: tuple[str, ...]
-    notify: list[str]
+    """(event list, file signature) of events.jsonl, cached by mtime/size (limn.events.EventLog.read)."""
+    return event_log().read()
 
 
 def note_tags(note: str, old_note: str, rows: list, hints, actor: dict, pid: object) -> NoteTags:
     """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
 
-    Everyone this save or edit explicitly @-tags is notified: a person whose '@name' occurs more often in the new note
-    than in old_note (the note before this edit; empty for a new pin). A typo fix next to an existing '@Bob' notifies
-    nobody, while an edit or note_append that writes '@Bob' again notifies Bob even though the note already tagged
-    him - unless this actor's note already notified him about this pin within NOTE_MENTION_COOLDOWN_S
-    (note_mention_targets, which reads events.jsonl). Runs inside transact(): the caller emits the event under the
-    same PIN_LOCK, so the next save sees it."""
-    ppl = known_people(rows)
+    Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
+    new pin) is notified - unless this actor's note already notified them about this pin within
+    NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
+    inside transact(): the caller emits the event under the same PIN_LOCK, so the next save sees it."""
     me = (actor or {}).get("login")
-    hits = mention_hits(note or "", ppl, hints, exclude=me)
-    before = Counter(mention_hits(old_note or "", ppl, hints, exclude=me))
-    new = list(dict.fromkeys(hits))
-    counts = Counter(hits)
-    added = [lg for lg in new if counts[lg] > before[lg]]
-    if added:
-        added = note_mention_targets(added, _read_events()[0], me, pid, time.time())
-    return NoteTags(tuple(new), added)
-
-
-NOTIFY_TYPES = ("mention", "review_requested", "replied", "reopened", "assigned", "dropped")
-EVENTS_SINCE_MAX = 20
+    tags = tag_note(note, old_note, known_people(rows), hints, me)
+    if not tags.notify:
+        return tags
+    return tags._replace(notify=note_mention_targets(tags.notify, _read_events()[0], me, pid, time.time()))
 
 
 def events_since(actor: dict, cursor: int | None) -> dict:
-    """Notification material carried in /api/meta polling (docs/handbook/api.md §브라우저 알림 커서). Always includes ev_seq (the latest event number), and if
-    the parsed ev=<number> is given, includes up to 20 events after it addressed to the current requester's tailnet login - nothing for local/agent. Read-only."""
+    """Notification material carried in /api/meta polling (limn.events.events_since): ev_seq always, and with a cursor
+    the events after it addressed to the requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
-    out = {"ev_seq": max((e.get("seq", 0) for e in rows), default=0)}
-    if cursor is None:
-        return out
     me = (actor or {}).get("login")
-    if not me or is_agent(actor):
-        out["events"] = []
-        return out
-    names = {d.key: d.name for d in DOCS}
-    evs = [dict(e, doc_name=names.get(e.get("doc"), e.get("doc"))) for e in rows
-           if e.get("seq", 0) > cursor and e.get("type") in NOTIFY_TYPES and me in (e.get("to") or [])
-           and (e.get("by") or {}).get("login") != me]
-    out["events"] = evs[-EVENTS_SINCE_MAX:]
-    return out
-
-
-# ---------------------------------------------------------------- Audit log (<state>/audit.jsonl, docs/handbook/api.md §감사 기록 (`audit.jsonl`))
-#
-# events.jsonl keeps only the newest EVENTS_KEEP records, so ordinary notification traffic pushed out the record of who
-# cleared every pin (issue #10 L5). Destructive and owner actions are therefore also written here, one JSON object per
-# line, appended under a cross-process lock and never rewritten or truncated by Limn. The HTTP handler records clear and
-# purge (via "http"); the state helpers behind `limn token` / `limn member` record theirs as the OS account (via "cli").
-# The existing events (`cleared`, `purged`) are still written for compatibility. Old servers never open this file.
-
-AUDIT_FILE = "audit.jsonl"
-AUDIT_ACTIONS = ("cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role")
-AUDIT_VIA = ("http", "cli")
-
-
-def audit_entry(action: str, by: dict, via: str, details: dict, now: float) -> dict:
-    """One audit.jsonl line: {at, ts, action, by, via, details}.
-
-    at is the local wall-clock string of `now` (the shape now_str() writes), ts the same instant in epoch seconds; by
-    keeps only {login, name} of the principal (name falls back to login). Raises ValueError for an action or via
-    outside AUDIT_ACTIONS / AUDIT_VIA - a programming error, never a request error. Pure: the caller passes the clock."""
-    if action not in AUDIT_ACTIONS:
-        raise ValueError("unknown audit action %r" % action)
-    if via not in AUDIT_VIA:
-        raise ValueError("unknown audit channel %r" % via)
-    login = (by or {}).get("login")
-    return {"at": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S"), "ts": round(now, 3),
-            "action": action, "by": {"login": login, "name": (by or {}).get("name") or login}, "via": via,
-            "details": dict(details)}
-
-
-def append_audit(state: Path, entry: dict) -> bool:
-    """Appends entry as one line to <state>/audit.jsonl under the cross-process lock (.audit.lock), then fsyncs.
-
-    The file is opened O_APPEND, so earlier bytes are never rewritten - not even a line that does not parse - and it
-    is created, or narrowed if it already exists, with mode 0600. It is never opened through a symlink. The action it
-    records has already happened when this runs, so a failure only warns on stderr and returns False; callers do not
-    undo or fail the action. Returns True once the line is on disk."""
-    line = memoryview((json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
-    path = Path(state) / AUDIT_FILE
-    try:
-        with store_lock(state, "audit"):
-            fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-            try:
-                os.fchmod(fd, 0o600)
-                while line:
-                    line = line[os.write(fd, line):]
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-    except OSError as e:
-        print("warning: failed to write %s: %s" % (path, e), file=sys.stderr)
-        return False
-    return True
-
-
-def os_actor() -> dict:
-    """The local account running this process as an audit `by` {login, name}: who ran `limn token` / `limn member` on
-    the server machine. Read from the password database by uid, not from $USER; "uid:<n>" if the uid has no entry."""
-    uid = os.getuid()
-    try:
-        name = pwd.getpwuid(uid).pw_name
-    except KeyError:
-        name = "uid:%d" % uid
-    return {"login": name, "name": name}
+    return events.events_since(rows, None if not me or is_agent(actor) else me, cursor, {d.key: d.name for d in DOCS})
 
 
 # Service worker: shows notifications (showNotification - Chrome on Android blocks the page's own new
