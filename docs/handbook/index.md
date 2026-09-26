@@ -51,8 +51,8 @@ catalog_schema: 1
 | `src/limn/pull.py` | `--git-pull`과 원격 main 감시의 순수 규칙: pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 빌드의 `pull` 기록, git 답 읽기, 감시 상태·다시 빌드할 문서·`updating`이 끝나는 조건 | pull 결과·사유·감시 상태 이름 변경(계약) | build-sync.md, api.md |
 | `src/limn/meta.py` | 뷰어가 폴링하는 읽기: `/api/meta` 본문, `/api/docs`, `pins_rev`, 화면 빌드의 `.aux`에서 읽는 목차 라벨. 문서·목록·설정을 인자로 받고 쓰지 않는다 | meta·docs 응답 필드, 폴링 규칙 변경 | api.md, build-sync.md §자동 동기화 (가벼운 meta 폴링) |
 | `src/limn/outline.py` | `.aux` 목차 줄의 순수 파서(번호·제목·인쇄 쪽 번호·계층) | 목차 라벨 변환 규칙 변경 | api.md, viewer.md |
-| `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 경로가 원고 트리 안의 파일인지 보는 규칙(`file_in_tree`), 원고 줄 세기(`tex_lines`), PDF.js 파일 이름 검사(`vendor_file`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
-| `src/limn/people.py` | `people.json`: 항목 검사, 저장 형식, 읽기, 실행 중 서버의 기록(`record_person`), @태그 후보(`known_people`) | 사람 목록 필드·기록 간격·후보 규칙 변경 | api.md §@태그·사람·이벤트, §인증 |
+| `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 무엇이 원고 트리인지(`tree_part`: 점으로 시작하는 이름 아래는 트리가 아니다)와 경로가 그 안의 파일인지 보는 규칙(`file_in_tree`), 원고 줄 세기(`tex_lines`), PDF.js 파일 이름 검사(`vendor_file`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
+| `src/limn/people.py` | `people.json`: 항목 검사, 저장 형식, 읽기(쓸 수 없는 파일은 `PeopleUnreadable`)와 그 경고, 실행 중 서버의 기록(`record_person`, 쓸 수 없는 파일은 다시 쓰지 않음), @태그 후보(`known_people`) | 사람 목록 필드·기록 간격·후보 규칙 변경 | api.md §@태그·사람·이벤트, §인증 |
 | `src/limn/mentions.py` | @태그의 순수 규칙: `@이름` 풀기, 지금 차례, `addressed`·`fyi`, 메모 태그와 재알림 간격 | 태그 해석·addressed·재알림 규칙 변경 | api.md §@태그·사람·이벤트, viewer.md §스레드와 검토 |
 | `src/limn/events.py` | 알림 한 건과 받는 사람, 폴링이 고르는 이벤트(순수), `events.jsonl` 쓰기·읽기(`EventLog`) | 이벤트 종류·필드·받는 사람·보관 건수 변경 | api.md §이벤트 (`events.jsonl`), §브라우저 알림 커서 |
 | `src/limn/audit.py` | `audit.jsonl` 한 줄과 추가 전용 쓰기, CLI 행위자 | 감사 항목·쓰기 방식 변경 | api.md §감사 기록 (`audit.jsonl`), SECURITY.md |

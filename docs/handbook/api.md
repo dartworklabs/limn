@@ -22,6 +22,8 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 - **교차 출처 `Origin` 과 낯선 `Host` 는 `403`** 이다. 허용하는 Host는 루프백 이름, `*.ts.net`, 그리고 0.2.0부터 `--public-host` 로 준 이름이다. 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사에 있다.
 - **소켓 타임아웃은 30초**다. 본문을 보내다 멈춘 연결과 유휴 keep-alive 연결이 닫힌다. 재빌드처럼 오래 걸리는 처리 시간과는 관계없다.
 - **이 경계를 지난 요청은 신원 확인을 거친다.** 신원을 정하지 못하면 `401`, 들어올 수 없는 사람이면 `403`, 역할이 허락하지 않는 변경이면 `403` 이다. 순서와 규칙은 §인증에 있다.
+- **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 이 규칙 전에 점 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이 된다. 정본은 `src/limn/files.py` 의 `tree_part` 다.
+- **모든 응답은 다른 페이지의 프레임에 담기지 않는다.** 서버가 내는 모든 응답(표준 라이브러리가 직접 내는 `501` 같은 오류 쪽도)에 `X-Frame-Options: DENY` 와 `Content-Security-Policy: frame-ancestors 'none'` 이 붙는다. CSP에는 이 지시어 하나뿐이라 뷰어의 인라인 스크립트는 제한하지 않는다. 다른 사이트가 뷰어를 투명한 틀에 넣어 클릭을 훔치는 일(클릭재킹)을 막는다.
 
 ### 오류 응답
 
@@ -106,7 +108,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 설정 | 들어오는 사람 |
 | --- | --- |
-| `--members-only` | `people.json` 에 있거나 `--allow` 에 있는 로그인 |
+| `--members-only` | `people.json` 에 있거나 `--allow` 에 있는 로그인. `people.json` 을 쓸 수 없는 동안은 `--allow` 에 있는 로그인만(§역할) |
 | `--allow` 만 | `--allow` 에 있는 로그인. 0.1과 같은 뜻이다 |
 | 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 방문 때 `role` 필드 없이 `people.json` 에 기록된다 |
 
@@ -118,17 +120,18 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 | 역할 | 누가 이 역할인가 | 허용되는 POST |
 | --- | --- | --- |
-| `viewer` | `role` 이 `viewer` 인 사람, 그리고 `role` 값을 알 수 없는 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
+| `viewer` | `role` 이 `viewer` 인 사람, `role` 값을 알 수 없는 사람, 그리고 `people.json` 을 쓸 수 없는 동안 헤더로 들어온 모든 사람 | `/api/pick`, `/api/revision-build` 만(상태를 바꾸지 않는 계산). 그 밖은 모두 `403` |
 | `agent` | 모든 토큰, 헤더 없는 루프백 에이전트, `role` 이 `agent` 인 사람 | `/api/pins/{id}/confirm`, `/api/clear`, `/api/pins/{id}/purge` 를 뺀 전부. 셋은 `403` 이다. 본문에 `review` 없이 닫으면 검토 대기로 가고, 답글은 규칙으로 핀을 다시 열지 않는다(§스레드 (답글)) |
 | `editor` | `role` 이 없거나 `editor` 인 사람 | `/api/clear` 와 `/api/pins/{id}/purge` 를 뺀 전부(`403`) |
 | `owner` | `role` 이 `owner` 인 사람, `local` 방식의 루프백 소유자 | 전부 |
 
 - `GET` 은 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다.
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
+- **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 예전대로 모두 `editor` 다. 전에 읽은 역할을 계속 쓰는 방법은 고르지 않았다. 답이 프로세스의 이력에 따라 달라지고(재시작하면 바뀐다), `tokens.json` 도 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
 - 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1부터, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2부터, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
-`/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다.
+`/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
 ### 검사 순서
 
@@ -210,7 +213,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/` | 뷰어 HTML. 이 뷰어를 연 사람을 기록한다(§@태그·사람·이벤트). 에이전트(토큰, 헤더 없는 루프백 요청)는 기록하지 않는다 |
-| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다. 이름이 이 모양이 아니거나 파일이 없으면 `404` |
+| `GET` | `/pages/<파일>` | 지금 빌드의 쪽 이미지(`page-<번호>.png`)를 `image/png` 로 준다(`Cache-Control: private, max-age=600`, PDF처럼 공유 캐시에 남지 않는다. 예전에는 `public` 이었다). 이름이 이 모양이 아니거나 파일이 없으면 `404` |
 | `GET` | `/pdf?build=<pages_build>` | 그 빌드의 쪽 이미지와 짝인 PDF 사본(`pages-<build>/<main>.pdf`)을 `application/pdf` 로 준다(`Cache-Control: private, max-age=600`). 뷰어가 벡터로 그릴 때 쓴다([viewer.md](viewer.md) §벡터 렌더링). `build` 를 빼면 지금 빌드다. 이름이 틀렸거나, 이미 지워졌거나, 그 디렉토리에 PDF 가 없으면 `404 {error, pdf_build_gone, pages_build}` 다. `build/` 나 다른 빌드로 물러서지 않는다. 화면의 쪽 이미지와 어긋나면 좌표가 틀리기 때문이다. `Range` 는 받지 않고 통째로 준다. Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/vendor/pdfjs/<파일>.mjs` | 뷰어가 쓰는 PDF.js(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 `text/javascript; charset=utf-8` 로 준다(`Cache-Control: public, max-age=86400`). 뷰어는 `?v=<버전>` 을 붙여 캐시를 가른다. 이름 한 칸의 `.mjs` 만 받는다. 하위 경로, `..`, 점으로 시작하는 이름, `%` 인코딩, 디렉토리 밖을 가리키는 심볼릭 링크, `.mjs` 가 아닌 파일(`LICENSE`·`README.md`)은 모두 `404` 다. PDF.js는 패키지 안 `src/limn/vendor/pdfjs/` 에 들어 있고 기본으로 이것을 준다. `--pdfjs-dir`([operations.md](operations.md) §실행 인자)로 디렉토리를 바꿀 수 있다. 출처·버전은 [`src/limn/vendor/pdfjs/README.md`](../../src/limn/vendor/pdfjs/README.md). Host·Origin 검사는 다른 `GET` 과 같다 |
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
@@ -247,7 +250,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(쓰기 부작용 없음). 계산 필드는 0.2.2에서 더한 `expires_ts`(지워질 시각, epoch 초) 하나다. `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖(점으로 시작하는 이름 아래 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 더 이상 쓰지 않는다(§겹친 핀과 덧붙이기). 에이전트와 옛 뷰어 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
@@ -394,7 +397,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
 
 - **에이전트는 무엇을 고쳤는지와 커밋을 남긴다.** `reply` 에는 고친 내용(≤500자), `ref` 에는 참조(≤80자)를 적는다. 서버에는 둘 다 선택이다. 나중에 공저자가 닫힌 핀을 볼 때 원고를 다시 뒤지지 않고도 왜 닫혔는지 알 수 있다.
 - **에이전트 규칙(0.3).** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)).
-- **`changes`(0.3, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 폴더 안이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 닫아도 바뀌지 않으며, 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
+- **`changes`(0.3, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 트리 안(원고 폴더 안이고 점으로 시작하는 이름 아래가 아닌 곳, §요청 형식과 경계)이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 닫아도 바뀌지 않으며, 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
 - 본문이 없거나 비어 있으면(빈 문자열·공백만) 예전과 같이 동작한다. 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
 - 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드처럼 뷰어에서 `esc()` 로 이스케이프해 렌더한다.
 - 성공하면 핀에 `close_reply`·`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI가 묶어 보일 수 있다.
@@ -475,6 +478,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 사람과, 쓰기 요청을 보낸 사람을 적는다. `limn member add` 로 더한 사람도 있다. 에이전트(토큰 포함)는 적지 않는다.
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
 - 같은 값이면 10분에 한 번만 다시 쓴다. `/api/meta?light=1` 폴링은 쓰지 않는다.
+- 파일이 있는데 쓸 수 없으면(§역할) 방문을 기록하지 않고 파일도 건드리지 않는다. 예전에는 빈 명단으로 읽고 방문자 한 명만 담아 덮어써서 소유자를 포함한 모든 역할이 지워졌다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
 
 ### @이름 풀기

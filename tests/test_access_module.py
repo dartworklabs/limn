@@ -66,9 +66,9 @@ class Lookups:
     """Stand-in file-backed facts: fixed token rows and roles, and counters of what identify/admit read."""
 
     def __init__(self, tokens=(), roles=None):
-        """tokens: the tokens.json rows; roles: {login: role} of people.json."""
+        """tokens: the tokens.json rows; roles: {login: role} of people.json, or PeopleUnreadable for a broken file."""
         self.rows = list(tokens)
-        self.role_map = dict(roles or {})
+        self.role_map = roles if isinstance(roles, people.PeopleUnreadable) else dict(roles or {})
         self.role_reads = 0
         self.warnings = 0
 
@@ -485,6 +485,71 @@ class Hosts(unittest.TestCase):
         self.assertEqual(access.remote_base_for("evil.example.com", self.PUBLIC, 18300), "http://127.0.0.1:18300")
 
 
+class UnreadableRoles(RefusalCase):
+    """While people.json cannot be used (PeopleUnreadable), no header-vouched person gets a role or a membership from
+    it: least privilege, whatever the file said before. Tokens and the local owner do not read it."""
+
+    BROKEN = people.PeopleUnreadable("cannot read /state/people.json: Expecting value")
+
+    def test_every_header_identified_person_is_a_viewer(self):
+        """Under tailscale and trusted-proxy alike, a person - listed or not - is identified as a viewer."""
+        lk = Lookups(roles=self.BROKEN)
+        p = access.identify(headers(ALICE), "127.0.0.1", settings(), lk.value())
+        self.assertEqual((p.actor["login"], p.role, p.via), ("alice@example.com", "viewer", "header"))
+        p = access.identify(
+            headers({"X-Forwarded-User": "bob@example.com"}), "127.0.0.1", settings(auth="trusted-proxy"), lk.value()
+        )
+        self.assertEqual((p.role, p.via), ("viewer", "header"))
+
+    def test_tokens_and_the_local_owner_keep_their_roles(self):
+        """An agent token stays an agent and the local owner the owner - neither is looked up in people.json."""
+        lk = Lookups([TOKEN_ROW], roles=self.BROKEN)
+        p = access.identify(headers({"Authorization": "Bearer " + TOKEN}), "127.0.0.1", settings(), lk.value())
+        self.assertEqual(p.role, "agent")
+        p = access.identify(headers(), "127.0.0.1", settings(auth="local"), lk.value())
+        self.assertEqual(p.role, "owner")
+
+    def test_person_role_and_membership(self):
+        """person_role: the listed role, DEFAULT_ROLE when unlisted, viewer for anyone while unreadable;
+        is_member: listed, and never while unreadable."""
+        roles = {"alice@example.com": "owner"}
+        self.assertEqual(access.person_role(roles, "alice@example.com"), "owner")
+        self.assertEqual(access.person_role(roles, "bob@example.com"), access.DEFAULT_ROLE)
+        self.assertEqual(access.person_role(self.BROKEN, "alice@example.com"), "viewer")
+        self.assertTrue(access.is_member(roles, "alice@example.com"))
+        self.assertFalse(access.is_member(roles, "bob@example.com"))
+        self.assertFalse(access.is_member(self.BROKEN, "alice@example.com"))
+
+    def test_members_only_admits_no_one_from_an_unreadable_file(self):
+        """--members-only refuses a person 403 not_member; a login --allow lists is admitted, as it does not depend
+        on the file."""
+        person = Principal({"login": "alice@example.com", "name": "Alice"}, "viewer", "header")
+        broken = Lookups(roles=self.BROKEN).roles
+        self.refused(
+            access.admit,
+            person,
+            None,
+            None,
+            settings(members_only=True),
+            broken,
+            code=403,
+            reason="not_member",
+            page="not-member",
+        )
+        access.admit(person, None, None, settings(members_only=True, allow=frozenset({"alice@example.com"})), broken)
+
+    def test_the_cli_refuses_to_rewrite_what_the_server_cannot_read(self):
+        """load_people_file (the CLI's read before `limn member` rewrites) raises ValueError with the same reason
+        the server's load_people gives, for every shape the server refuses."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            for raw in (b"{", b"[]", b'{"version": 1}', b""):
+                (state / "people.json").write_bytes(raw)
+                with self.assertRaises(ValueError) as cm:
+                    access.load_people_file(state)
+                self.assertEqual(str(cm.exception), people.load_people(state / "people.json").reason, raw)
+
+
 class Caches(unittest.TestCase):
     """FileCache follows the file on disk; WarnOnce prints once."""
 
@@ -511,6 +576,23 @@ class Caches(unittest.TestCase):
         self.assertEqual(len(loads), 2)
         p.unlink()
         self.assertEqual(cache.get(p, load, "empty"), "empty")  # a revoked-by-deletion file accepts nothing
+
+    def test_a_mode_change_alone_reloads(self):
+        """chmod changes neither mtime nor size, yet decides whether the file can be read: a file made readable
+        again must be loaded again, or an unreadable people.json would keep everyone a viewer until a restart."""
+        cache, p, loads = access.FileCache(), self.dir / "people.json", []
+        p.write_text("one", encoding="utf-8")
+
+        def load():
+            """Count the loads."""
+            loads.append(1)
+            return len(loads)
+
+        self.assertEqual(cache.get(p, load, 0), 1)
+        p.chmod(0o000)
+        self.assertEqual(cache.get(p, load, 0), 2)
+        p.chmod(0o600)
+        self.assertEqual(cache.get(p, load, 0), 3)
 
     def test_the_key_includes_the_path_so_two_state_folders_never_share(self):
         """The same cache over another state folder's file loads that file, and switching back loads A's again -
