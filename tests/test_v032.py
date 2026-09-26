@@ -19,6 +19,7 @@ import unittest
 from pathlib import Path
 
 from limn import mapping
+from limn.store import dump_jsonl
 from test_access import AccessBase, configure, mask
 from test_server import ps
 from test_v03 import ScopedRepo
@@ -132,7 +133,7 @@ class MovedManuscriptBase(AccessBase):
         """Edit pins.jsonl directly (a state written by another version, or by hand)."""
         rows = ps.read_pins()[0]
         fn(rows)
-        ps.C.pins_jsonl.write_text(ps.dump_jsonl(rows), encoding="utf-8")
+        ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
 
     def make_legacy(self, *ids):
         self.rewrite(lambda rows: [r.pop("file_rel", None) for r in rows if r["id"] in ids])

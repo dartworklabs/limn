@@ -22,6 +22,7 @@ from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
+from limn.store import PinStore
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -687,7 +688,7 @@ class Store(Base):
     def test_restore_survives_failed_pins_write(self):
         pid = self.add()
         ps.drop_pin(pid, dict(ps.LOCAL_ACTOR))
-        with mock.patch.object(ps, "write_pins", side_effect=OSError("disk full")):
+        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")):   # the transaction's own write
             with self.assertRaises(OSError):
                 ps.restore_pin(pid, dict(ps.LOCAL_ACTOR))
         dropped, _ = ps.read_jsonl(ps.C.dropped)

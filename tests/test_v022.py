@@ -20,6 +20,8 @@ import unittest
 from pathlib import Path
 
 from limn.pins.model import OpenPin, ReviewPin
+from limn import store as limn_store
+from limn.store import dump_jsonl
 from test_access import ALICE, BOB, CAROL, AccessBase
 from test_qa_021 import BrowserBase, actor
 from test_server import Base, extract_js_fn, js_i18n, js_icons, ps, run_node
@@ -266,7 +268,7 @@ class Trash(AccessBase):
                "author": A, "dropped_by": B, **extra}
         if days_ago is not None:
             rec["dropped_at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days_ago * 86400))
-        ps.atomic_write(ps.C.dropped, ps.dump_jsonl(self.dropped_file() + [rec]))
+        ps.atomic_write(ps.C.dropped, dump_jsonl(self.dropped_file() + [rec]))
 
     def test_retention_is_thirty_days(self):
         self.assertEqual(ps.TRASH_DAYS, 30)
@@ -292,7 +294,7 @@ class Trash(AccessBase):
     def test_a_failing_purge_never_stops_the_server(self):
         from unittest import mock
         self.put_dropped(72, 40)
-        with mock.patch.object(ps, "atomic_write", side_effect=OSError("read-only")):
+        with mock.patch.object(limn_store, "atomic_write", side_effect=OSError("read-only")):   # the Trash writer's
             self.assertEqual(ps.purge_trash(), 0)
 
     def test_someone_elses_delete_notifies_the_author(self):
@@ -816,7 +818,7 @@ class LazyTrashExpiry(AccessBase):
     def put_dropped(self, pid, dropped_epoch):
         rec = {"id": pid, "file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "old",
                "dropped_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(dropped_epoch))}
-        ps.atomic_write(ps.C.dropped, ps.dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
+        ps.atomic_write(ps.C.dropped, dump_jsonl(ps.read_jsonl(ps.C.dropped)[0] + [rec]))
 
     def ids(self):
         return sorted(r["id"] for r in ps.read_jsonl(ps.C.dropped)[0])

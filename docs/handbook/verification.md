@@ -47,6 +47,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_mapping.py`](../../tests/test_mapping.py) | `limn.mapping`이 순수한지(표준 라이브러리 순수 모듈만 가져오고 `C.`·`cur_doc()`을 읽지 않음), 떠 있는 환경 목록을 인자로 받아 그대로 따르는지 |
 | [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py) | 뷰어 파일 세 개가 패키지에 있고, `index.html`의 CSS·JS 표식이 한 번씩이며, 서버가 조립한 HTML에 두 파일이 그대로 들어가는지. 표식이 틀리면 시작 단계에서 실패하는지 |
 | [`tests/test_build.py`](../../tests/test_build.py) | `limn.build`가 서버 전역(`C`, `cur_doc()`, 문서 목록, 옛 전역 잠금·상태)을 읽지 않고 서버를 가져오지 않는지, `latex_errors`, 두 문서가 인자만으로 동시에 빌드되고(가짜 latexmk가 서로를 기다림) 결과·이력·빌드 폴더가 섞이지 않는지. TeX 없이 가짜 `latexmk`·`pdftoppm`을 PATH에 둔다 |
+| [`tests/test_store.py`](../../tests/test_store.py) | `limn.store`를 서버 없이 직접 몬다: 서버·HTTP를 가져오지 않는지(import 검사), `pins.jsonl` 뒤에 `pins.md`를 쓰고 렌더가 실패하면 아무것도 쓰지 않는지, 바꾼 것 없는 읽기는 줄 맞춤이 바꿨을 때만 쓰는지, 거절은 줄 맞춤을 쓰고 결함은 아무것도 쓰지 않는지, 손상 줄을 건너뛰고 원본을 `.corrupt-*.bak`로 보존하는지(휴지통 포함), 잠금을 쥔 채 겹쳐 쓸 수 있고 다른 스레드는 기다리는지, 30건 동시 저장이 모두 남는지, 핀 번호·`init_seq`·clear 보관 |
 | [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 빌드 첫 단계인 원고 복사가 실패하면(`rsync` 비정상 종료) 사본을 컴파일하지 않고 빌드를 실패로 끝내는지 |
 | [`tests/test_v03.py`](../../tests/test_v03.py) | 0.3(이슈 #9, [ADR-0005](../adr/0005-pin-scoped-changes.md)): hunk 블록 파싱과 귀속(겹침, 줄 밀림을 거친 대응, 한 커밋의 핀 셋, 이름 바꾸기, 지운 범위, 기록한 `changes` 가 추정을 이기는 순서), 핀 hunk의 실제 줄 번호와 맥락, 합성 적용(실제 git으로 만든 무작위 편집 왕복·`git apply` 대조), `changes` 검사·저장·다시 열기, `pins.md` 닫기 줄, 핀 단위 소스 diff·비교 PDF HTTP와 캐시 키, 실제 격리 빌드(TeX가 있을 때만, CI는 건너뜀), 뷰어(데스크톱 1400×850·폴드 842×758·폰 384×832 × 한국어·영어: 다른 변경 접기·펴기, [커밋 전체 비교] 토글, 컴파일 실패 시 커밋 전체로 넘어감), 순수 판단의 직접 테스트(`ScopeDecisions`: `changes_at` 규칙, 합성 판에 쓸 파일, 거부 이유 표), 새 거부마다의 상태 코드·본문(`ScopedErrorBodies`), 스쿼시 커밋 하나가 핀 셋을 고치고 머지 뒤 `changes`·`PR #N (해시)`로 닫는 흐름, 다시 여는 답글의 이벤트가 0.2.2와 같은지(v0.2.2 모듈과 대조, 얕은 클론이면 건너뜀), viewer 휴지통에 [되살리기]·[영구 삭제]가 없는지(브라우저) |
 | [`tests/test_v031.py`](../../tests/test_v031.py) | 0.3.1(이슈 #10): 메모 mention 재알림 간격의 순수 판단(`note_mention_targets`: 키 세 부분, 10분 경계, 답글 mention 제외, 시각 없는·먼 기록)과 핀 조작을 거친 흐름(가짜 시계로 태그 껐다 켜기 세 번 = 알림 하나, 10분 뒤 다시, `note_append`, 답글·다시 연 이유는 매번), `audit.jsonl`(`EVENTS_KEEP`+1건 회전 뒤에도 `cleared` 가 남음, 영구 삭제, 거부된 요청은 적지 않음, 권한 0600, 덧붙이기만, 쓰기 실패는 경고, 스레드 동시 쓰기, `limn token`·`limn member` 가 OS 계정으로 적고 토큰 원문·해시는 적지 않음) |
@@ -134,7 +135,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |
