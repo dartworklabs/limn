@@ -94,7 +94,8 @@ def meta(D: Doc, actor: Mapping[str, Any], settings: MetaSettings, docs: Sequenc
             return "?"
     bstate = build.state_snapshot(D)
     sm = build.src_mtime(D, settings.state)
-    newer = 0.0 if D.is_pdf else build.source_newer(D, settings.state)   # view-only: the server re-renders on its own when the PDF changes
+    # view-only: the server re-renders on its own when the PDF changes
+    newer = 0.0 if D.is_pdf else build.source_newer(D, settings.state)
     multi = len(docs) > 1
     out = {"pages": build.page_list(build.cur_pages(D), settings.dpi), "built_at": read("built_at.txt"),
            "head": read("head.txt"), "main": D.main.name, "pins_md": str(settings.pins_md),

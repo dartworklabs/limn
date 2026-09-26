@@ -168,7 +168,8 @@ class Wiring(unittest.TestCase):
     def test_table_is_embedded_and_script_safe(self):
         html = ps.build_html("A-DEMO", "#2563eb")
         self.assertNotIn("__UI_EN_JSON__", html)
-        self.assertFalse([k for k in ps.UI_EN if "__" in k])   # build_html fills placeholders; keys must not contain them
+        # build_html fills placeholders; keys must not contain them
+        self.assertFalse([k for k in ps.UI_EN if "__" in k])
         m = re.search(r"I18N_EN=(\{.*?\}), I18N_ATTRS=", html, re.S)
         self.assertIsNotNone(m)
         self.assertEqual(json.loads(m.group(1).replace("<\\/", "</")), ps.UI_EN)

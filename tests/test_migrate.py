@@ -126,7 +126,8 @@ def test_migrate_copies_configs_and_keeps_every_value(box):
         for k, v in old_vals.items():
             assert new_vals[k] == v, (n, k)
         text = (new / ("%s.env" % n)).read_text()
-        assert not [ln for ln in text.splitlines() if ln.startswith("#") and "pin-viewer" in ln]  # old-name comments dropped
+        # old-name comments dropped
+        assert not [ln for ln in text.splitlines() if ln.startswith("#") and "pin-viewer" in ln]
         assert text.startswith("# limn@%s" % n)
         assert not (new / ("%s.env" % n)).is_symlink()
     # A missing STATE_DIR is pinned to the old default so pins do not vanish.

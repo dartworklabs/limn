@@ -262,9 +262,11 @@ class EditAddParsing(Base):
         self.assertEqual(parse.parse_edit({"base_rev": 0}, ()),
                          InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
                                           "nothing_to_change"))
-        unknown = parse.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
+        # the assignee refusal comes before base_rev's
+        unknown = parse.parse_edit({"assignee": "carol@example.com"}, ())
         self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
-        self.assertIsNone(parse.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
+        # note_append alone needs no base_rev
+        self.assertIsNone(parse.parse_edit({"note_append": "x"}, ()).request.base_rev)
 
     def test_parse_assignee_checks_known_people_only_for_a_person(self):
         """"agent" needs no lookup; a person must be among the known logins; local is never an assignee."""

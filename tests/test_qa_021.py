@@ -116,7 +116,8 @@ class MentionRules(Base):
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
         ps.set_done(pid, True, dict(LOCAL_ACTOR))
         n = self.n()
-        ps.set_done(pid, False, self.C, reason="@Alice Kim 확인 부탁")      # the author tagged: mention only, not also reopened
+        # the author tagged: mention only, not also reopened
+        ps.set_done(pid, False, self.C, reason="@Alice Kim 확인 부탁")
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
@@ -345,7 +346,8 @@ class ProxyHardening(AccessBase):
             startup.tighten_state_perms(ps.C.people_file)
             startup.tighten_state_perms(ps.C.people_file)
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())   # logged once
+        # logged once
+        self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())
         os.chmod(ps.C.people_file, 0o644)                                              # only writable-by-others is changed
         startup.tighten_state_perms(ps.C.people_file)
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)

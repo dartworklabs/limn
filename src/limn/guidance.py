@@ -14,7 +14,8 @@ from pathlib import PurePath
 
 # The 401 text for a request whose identity cannot be told (docs/handbook/api.md §인증). Part of the agent contract.
 UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
-TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"   # the convention, shown when this server does not know its own file
+# the convention, shown when this server does not know its own file
+TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"
 
 
 def shell_path(path: PurePath, home: PurePath | None) -> str:

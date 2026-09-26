@@ -255,9 +255,11 @@ class TrustedProxyProvider(AccessBase):
     def test_other_peers_and_missing_header_are_401(self):
         h = {"X-Forwarded-User": "alice"}
         self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="10.0.0.9")[0], 401)
-        self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="127.0.0.1")[0], 401)   # loopback is not in the list here
+        # loopback is not in the list here
+        self.assertEqual(self.call("GET", "/api/pins", headers=h, peer="127.0.0.1")[0], 401)
         self.assertEqual(self.call("GET", "/api/pins", peer="10.0.0.1")[0], 401)               # the proxy, but no user
-        self.assertEqual(self.call("GET", "/api/pins", headers=ALICE, peer="127.0.0.1")[0], 401)  # tailscale headers mean nothing
+        # tailscale headers mean nothing
+        self.assertEqual(self.call("GET", "/api/pins", headers=ALICE, peer="127.0.0.1")[0], 401)
 
     def test_custom_header_names_and_email_as_login(self):
         ps.C.proxy_user_header, ps.C.proxy_name_header, ps.C.proxy_email_header = "X-Auth-User", "X-Auth-Name", "X-Auth-Email"
@@ -421,7 +423,8 @@ class Tokens(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, token=bad, headers=ALICE)[0], 401)
         self.assertFalse(self.pin(pid).get("done"))
         self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Bearer "})[0], 401)
-        self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Basic YTpi"})[0], 200)   # not ours: ignored
+        # not ours: ignored
+        self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Basic YTpi"})[0], 200)
 
     def test_token_file_is_reread_when_it_changes(self):
         self.assertEqual(ps.current_tokens(), [])

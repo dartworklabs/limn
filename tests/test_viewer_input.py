@@ -341,7 +341,8 @@ class DesktopPanelCollapse(ViewerBase):
                 self.assertAlmostEqual(s["grip"]["r"], s["vw"], delta=1)             # the rail sits at the right edge
                 self.assertEqual(s["grip"]["w"], 6)
                 self.assertIsNotNone(s["nav"])
-                self.assertEqual((s["prefs"].get("sideClosed"), s["prefs"].get("side")), (True, 400))   # saved width untouched
+                # saved width untouched
+                self.assertEqual((s["prefs"].get("sideClosed"), s["prefs"].get("side")), (True, 400))
                 self.assertEqual((s["valuenow"], s["label"]), ("0", "패널 폭 · 접힘"))
                 nav = page.locator('#nav-side')
                 self.assertEqual(nav.get_attribute("aria-expanded"), "false")

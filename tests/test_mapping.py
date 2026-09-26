@@ -88,7 +88,8 @@ class Ladder(Base):
 
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
-        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
+        # the line after the table — the next line is \subsection
+        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)
         para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 

@@ -447,7 +447,8 @@ class GitPullBuildIntegration(Base):
         original_run_logged = limn_build.run_logged
 
         def bump_then_run(cmd, cwd, timeout):
-            os.utime(self.main, (time.time() + 50, time.time() + 50))   # edit the source after copy finishes (during the latex phase)
+            # edit the source after copy finishes (during the latex phase)
+            os.utime(self.main, (time.time() + 50, time.time() + 50))
             return original_run_logged(cmd, cwd, timeout)
 
         def fake_pull():

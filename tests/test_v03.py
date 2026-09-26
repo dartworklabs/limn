@@ -302,7 +302,8 @@ class ScopeDecisions(unittest.TestCase):
                "changes": [good, {"file": 3, "lo": 1, "hi": 1}]}
         self.assertEqual(scoping.recorded_changes(pin, X, revs), (good,))
         self.assertEqual(scoping.recorded_changes(pin, Y, revs), ())                      # another commit: inference decides
-        self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7"), X, revs), (good,))   # the squash commit by PR
+        # the squash commit by PR
+        self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7"), X, revs), (good,))
         self.assertEqual(scoping.recorded_changes(dict(pin, close_ref="PR #7 (cccc111)"), X, revs), (good,))
         self.assertEqual(scoping.recorded_changes(dict(pin, close_ref=""), X, revs), ())
         self.assertEqual(scoping.recorded_changes(dict(pin, done_at="2026-09-26 09:00:00"), X, revs), ())
@@ -890,7 +891,8 @@ class ScopedPdf(ScopedRepo):
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
             return {"state": "ready", "warnings": [], "error": None, "reason": None}
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
-            code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})   # shares the whole key
+            # shares the whole key
+            code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})
             self.assertEqual((d["scope"], d["pin"]), ("commit", self.p4))
             end = time.time() + 10
             while time.time() < end and self.call("GET", "/api/revision-build?commit=%s" % self.solo)[1]["state"] == "running":
@@ -940,7 +942,8 @@ class ScopedPdf(ScopedRepo):
             self.assertEqual((d["state"], d["scope"]), ("ready", "pin"))
             code, _ = self.call("GET", "/api/revision-pdf?commit=%s&pin=%d" % (self.fix, self.p2))
             self.assertEqual(code, 200)
-            self.assertEqual(self.call("GET", "/api/revision-pdf?commit=%s" % self.fix)[0], 404)   # the whole commit was not built
+            # the whole commit was not built
+            self.assertEqual(self.call("GET", "/api/revision-pdf?commit=%s" % self.fix)[0], 404)
             code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})
             self.assertEqual(d["scope"], "commit")
         self.assertEqual(len(seen[0]), 1)

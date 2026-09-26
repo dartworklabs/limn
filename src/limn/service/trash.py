@@ -21,7 +21,8 @@ from limn.pins.position import epoch as parse_epoch
 from limn.service.context import Event, Json, PinContext, Row, typed_actor
 from limn.store import find_pin
 
-TRASH_CHECK_EVERY_S = 3600          # a long-running server also drops expired Trash entries during normal reads, at most this often
+# a long-running server also drops expired Trash entries during normal reads, at most this often
+TRASH_CHECK_EVERY_S = 3600
 
 
 def expires_ts(r: Mapping[str, Any], days: int) -> float | None:

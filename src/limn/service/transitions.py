@@ -65,7 +65,8 @@ def reply_pin(ctx: PinContext, pid: int, text: str, actor: Mapping[str, Any], hi
         if r is None:
             return PinNotFound(pid), False
         ment = resolve_mentions(text, ctx.known_people(rows), hints, exclude=(actor or {}).get("login"))
-        persons = [lg for lg in ment if ctx.role_of(lg) != "agent"]     # tagging an agent-role account is not asking a person
+        # tagging an agent-role account is not asking a person
+        persons = [lg for lg in ment if ctx.role_of(lg) != "agent"]
         pin = parse_pin(r)
         event = decide_reply(pin, typed_actor(actor), ctx.now(), text, tuple(ment),
                              reopens_on_reply(pin, human, persons, reopen), ctx.thread_max)

@@ -44,7 +44,8 @@ class Cfg:
     agent_loopback: bool = True     # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
     tailnet_agent: bool = False     # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
     bind: str = "127.0.0.1"
-    public_hosts: tuple[HostEntry, ...] = ()   # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
+    # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
+    public_hosts: tuple[HostEntry, ...] = ()
     trusted_proxies: tuple[IPNetwork, ...] = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
     proxy_user_header: str = "X-Forwarded-User"
     proxy_name_header: str = "X-Forwarded-Preferred-Username"
@@ -52,7 +53,8 @@ class Cfg:
     members_only: bool = False      # admit only logins in people.json (or --allow)
     local_user: str | None = None   # the owner's login under --auth local (None = $USER, then "owner")
     insecure: bool = False          # a non-loopback bind allowed by --i-know-this-is-insecure
-    agent_token_file: Path | None = None   # where agents on this machine keep this instance's token (ADR-0007); never read
+    # where agents on this machine keep this instance's token (ADR-0007); never read
+    agent_token_file: Path | None = None
 
     @property
     def pins_jsonl(self) -> Path:

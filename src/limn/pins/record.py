@@ -79,7 +79,8 @@ def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable
     for k in ("raw_lo", "raw_hi", "rev"):
         if r.get(k) is not None and not is_int(r[k]):
             return False
-    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):   # epoch seconds - named apart from '*_at' (string timestamps)
+    # epoch seconds - named apart from '*_at' (string timestamps)
+    for k in ("synced_at", "score", "claim_until", "claim_ts", "eta_ts"):
         if r.get(k) is not None and not _is_num(r[k]):
             return False
     for k in ("done", "stale", "review"):

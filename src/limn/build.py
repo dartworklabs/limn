@@ -376,7 +376,8 @@ def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildRe
                "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e, "elapsed_s": 0.0}
     src_mtime_for_build = res.get("src_mtime")
     if not _is_num(src_mtime_for_build):
-        src_mtime_for_build = src_mtime_at_start          # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
+        # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
+        src_mtime_for_build = src_mtime_at_start
     if res.get("state") in ("ok", "ok_errors"):
         write_built_src_mtime(D, state_dir, src_mtime_for_build)
     finish_build(D, res, src_mtime_for_build)
@@ -653,7 +654,8 @@ def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildResult:
     if newdir is None:
         res["log"] = err
         res["elapsed_s"] = round(time.time() - t0, 1)
-        with contextlib.suppress(OSError):           # never retries the same file every 3 seconds - re-renders only when the file changes
+        # never retries the same file every 3 seconds - re-renders only when the file changes
+        with contextlib.suppress(OSError):
             atomic_write(D.dir / "pdf_sig.txt", sig)
         return res
     res["head"] = commit_pages(D, newdir)
@@ -822,7 +824,8 @@ def iter_sources(D: BuildDoc, root: Path, state_dir: Path) -> Iterator[tuple[str
     directories, build artifacts / directories the build rsync excludes (BUILD_OUTDIRS), the state directory
     (state_dir) when placed inside the manuscript, and the root's main PDF are all excluded."""
     main_pdf = D.pdf_name
-    main_at = tuple(D.main_rel.parent.parts)            # the PDF next to the main .tex (a build artifact / committed copy) is not part of the manuscript
+    # the PDF next to the main .tex (a build artifact / committed copy) is not part of the manuscript
+    main_at = tuple(D.main_rel.parent.parts)
     state_in_root = None
     with contextlib.suppress(ValueError, OSError, RuntimeError):
         state_in_root = tuple(state_dir.resolve().relative_to(root.resolve()).parts)

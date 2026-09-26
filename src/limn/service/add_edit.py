@@ -135,7 +135,8 @@ def edit_pin(ctx: PinContext, pid: int, request: EditRequest, actor: Mapping[str
         if r is None:
             return PinNotFound(pid), False
         pin = parse_pin(r)
-        where = None if region else ctx.locate(file_after(r, request))   # ADR-0006: an edit records where the file is now
+        # ADR-0006: an edit records where the file is now
+        where = None if region else ctx.locate(file_after(r, request))
         count = len(tex_lines(where.path)) if where is not None and request.sets_lines() else None
         event = decide_edit(pin, request, typed_actor(actor), ctx.now(), clock, count, NOTE_MAX)
         if not isinstance(event, PinEdited):

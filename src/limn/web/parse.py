@@ -44,15 +44,18 @@ Query: TypeAlias = Mapping[str, list[str]]  # parse_qs() of a query string
 
 CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (docs/handbook/api.md §닫을 때 사유 남기기)
 CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
-CLOSE_CHANGES_MAX = 50             # v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
+# v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
+CLOSE_CHANGES_MAX = 50
 CHANGE_LINE_MAX = 1_000_000       # a line number past this is not a manuscript line
 CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (docs/handbook/api.md §처리 중 표시 (claim))
 CLAIM_TTL_MIN = 1
-CLAIM_TTL_MAX = 120                # the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
+# the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
+CLAIM_TTL_MAX = 120
 CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
 CLAIM_ETA_MAX = 240
 CLAIM_TTL_FLOOR = 30               # if only eta_min is given, the lock is min(ceiling, max(this floor, eta x 2)) - even a short estimate holds for 30 min
-THREAD_TEXT_MAX = 1000             # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
+# one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
+THREAD_TEXT_MAX = 1000
 MENTION_MAX = 10                   # cap on mention hints per post
 SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score",
@@ -632,7 +635,8 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     hints = parse_mention_hints(d.get("mentions"))
     if isinstance(hints, InputRejected):
         return hints
-    assignee = parse_assignee(d.get("assignee"), known)   # like kind_req, changeable on a closed pin (leaves an ev=assign)
+    # like kind_req, changeable on a closed pin (leaves an ev=assign)
+    assignee = parse_assignee(d.get("assignee"), known)
     if isinstance(assignee, InputRejected):
         return assignee
     base_given = "base_rev" in d

@@ -289,7 +289,8 @@ class LightMeta(Base):
         (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
         (ps.C.src / "build").mkdir()
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
-        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)          # must not change even outside the cache window (even after 2s)
+        # must not change even outside the cache window (even after 2s)
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
         ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
@@ -327,7 +328,8 @@ class LightMeta(Base):
         os.utime(self.main, (time.time() + 10, time.time() + 10))
         cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)            # inside the cache window (within 2s) — the stale value
         self.assertEqual(cached, m0)
-        forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)  # bypass the cache and measure for real — a fresh value
+        # bypass the cache and measure for real — a fresh value
+        forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)
         self.assertGreater(forced, m0)
 
     def test_write_built_src_mtime_uses_fresh_value(self):

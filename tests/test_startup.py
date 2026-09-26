@@ -502,7 +502,8 @@ class DocArgs(unittest.TestCase):
         doc = startup.make_docs(["ms=본문:manuscript::2nd/m.tex"], self.ms, ps.C)[0]
         self.assertEqual(doc.main_rel, Path("2nd/m.tex"))
         ps.C.state = Path(self.tmp.name) / "st"
-        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")   # latexmk runs from the folder that holds the main file
+        # latexmk runs from the folder that holds the main file
+        self.assertEqual(doc.out, ps.C.state / "docs" / "ms" / "build" / "2nd")
 
     def test_pdf_is_view_only(self):
         d = startup.parse_doc_arg("rv=리뷰어 코멘트:sub/review.pdf", self.ms)
@@ -536,7 +537,8 @@ class DocArgs(unittest.TestCase):
         with self.assertRaises(ValueError):
             startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C)
         docs = startup.make_docs(["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms, ps.C)
-        self.assertEqual([d.root for d in docs], [True, False, False])    # only the LaTeX document keyed main is placed at the state-folder root
+        # only the LaTeX document keyed main is placed at the state-folder root
+        self.assertEqual([d.root for d in docs], [True, False, False])
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
         with self.assertRaises(ValueError):
             startup.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(DOCS_MAX + 1)], self.ms, ps.C)

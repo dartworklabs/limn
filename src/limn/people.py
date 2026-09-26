@@ -30,7 +30,8 @@ Row: TypeAlias = dict[str, Any]
 SeenMemo: TypeAlias = dict[tuple[str, str], tuple[str, Any, float]]
 
 PEOPLE_FILE = "people.json"
-PEOPLE_TOUCH_S = 600               # don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+# don't rewrite people.json's last_seen more often than this interval (so every poll doesn't trigger a write)
+PEOPLE_TOUCH_S = 600
 
 
 def is_actor(v: object) -> bool:

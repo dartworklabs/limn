@@ -202,7 +202,8 @@ class Legacy(Base):
         limn_build.migrate_pages(ps.DOCS[0])
         self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]), ps.C.state / "pages" / "main.pdf")
         (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")       # even though the rebuild overwrites build/
-        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")  # pick reads the PDF paired with the screen
+        # pick reads the PDF paired with the screen
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
         self.assertEqual((ps.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
         limn_build.migrate_pages(ps.DOCS[0])                                        # calling it twice doesn't overwrite either
         self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
@@ -288,7 +289,8 @@ class AsyncBuild(Base):
 
         with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
             ps.build_all(ps.DOCS[0])
-        self.assertEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), first_ok)  # a subsequent failure doesn't touch the committed value
+        # a subsequent failure doesn't touch the committed value
+        self.assertEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), first_ok)
 
     def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
         # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.

@@ -132,7 +132,8 @@ class Handler(BaseHTTPRequestHandler):
         - Origin: if present, must be loopback when Host is loopback (port irrelevant - SSH -L), or the same
           origin as that host when Host is *.ts.net (origin_ok).
           A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
-        if not self.app.C.origin_check:               # --no-origin-check: an escape hatch for when the observed path differs from expectations
+        # --no-origin-check: an escape hatch for when the observed path differs from expectations
+        if not self.app.C.origin_check:
             return
         host = self.headers.get("Host")
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
@@ -239,7 +240,8 @@ class Handler(BaseHTTPRequestHandler):
         propagate to _run as HTTPError."""
         app = self.app
         if path == "/":
-            self._record(actor)                   # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
+            # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
+            self._record(actor)
             return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
         if path == "/api/people":                 # @-tag autocomplete candidates (no write). role: people.json role, editor if absent
             roles = app.people_roles()
@@ -274,7 +276,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(answers.diet_log(app.build_state_snapshot(D), full))
-        if path == "/pins.md":                    # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
+        # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
+        if path == "/pins.md":
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)
@@ -402,7 +405,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pin":
             want = d.get("doc")
             if isinstance(want, str) and want != D.key:
-                D = self._found(app.request_doc(want))   # the body's doc wins, as it always has: "" names the first document
+                # the body's doc wins, as it always has: "" names the first document
+                D = self._found(app.request_doc(want))
             request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/revision-build":

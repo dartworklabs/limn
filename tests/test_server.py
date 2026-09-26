@@ -100,7 +100,8 @@ class Smuggling(Base):
 
     def test_short_body_does_nothing(self):
         self.add()
-        raw = b"POST /api/clear HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: 5\r\n\r\n"   # cut off without a body
+        # cut off without a body
+        raw = b"POST /api/clear HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: 5\r\n\r\n"
         out = self.talk(raw)
         self.assertIn(b" 400 ", out)
         self.assertEqual(len(ps.snapshot_pins()), 1)
@@ -160,7 +161,8 @@ class CrossOrigin(Base):
 
     def test_host_ok_still_rejects_non_loopback_non_tailnet(self):
         self.assertFalse(ps.host_ok("evil.example"))
-        self.assertFalse(ps.host_ok("evil.example:18999"))    # mimicking the server port doesn't help if the name is wrong
+        # mimicking the server port doesn't help if the name is wrong
+        self.assertFalse(ps.host_ok("evil.example:18999"))
 
     def test_host_ok_tailnet_unaffected(self):
         self.assertTrue(ps.host_ok("box.tail1234.ts.net"))
@@ -188,7 +190,8 @@ class CrossOrigin(Base):
 
     def test_origin_ok_tailnet_host_requires_same_host_and_port(self):
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net"))
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))   # default-port normalization
+        # default-port normalization
+        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net:443"))
         self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net:8443"))
         self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net"))
@@ -299,7 +302,8 @@ class VendorPdfjs(Base):
         for name in ("pdf.min.mjs", "pdf.worker.min.mjs"):
             code, h, body = self.get("/vendor/pdfjs/%s?v=%s" % (name, viewer_assemble.PDFJS_VERSION))
             self.assertEqual(code, 200, name)
-            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")   # a module script only runs with the JS MIME type
+            # a module script only runs with the JS MIME type
+            self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
             self.assertEqual(h["x-content-type-options"], "nosniff")
             self.assertEqual(h["cache-control"], "public, max-age=86400")
             self.assertEqual(body, (VENDOR / name).read_bytes())
@@ -387,7 +391,8 @@ class PdfRoute(Base):
             self.assertEqual(code, 200)
             self.assertEqual(h["content-type"], "application/pdf")
             self.assertEqual(h["cache-control"], "private, max-age=600")
-            self.assertEqual(got, body)                   # asking for the previous build gets the previous build — not swapped for the current one
+            # asking for the previous build gets the previous build — not swapped for the current one
+            self.assertEqual(got, body)
 
     def test_no_build_means_current(self):
         self.assertEqual(self.get("/pdf")[2], b"%PDF-new")
@@ -402,7 +407,8 @@ class PdfRoute(Base):
             self.assertNotIn(b"%PDF", body)
 
     def test_does_not_fall_back_to_build_dir(self):
-        (ps.C.state / self.new / "main.pdf").unlink()   # if the page directory has no matching PDF, don't fall back to build/
+        # if the page directory has no matching PDF, don't fall back to build/
+        (ps.C.state / self.new / "main.pdf").unlink()
         code, _h, body = self.get("/pdf?build=%s" % self.new)
         self.assertEqual(code, 404)
         self.assertNotIn(b"%PDF-build-dir", body)
@@ -427,7 +433,8 @@ class PdfRoute(Base):
 
 class Overlaps(Base):
     def test_inside_and_contains_pair(self):
-        p1 = self.add(4, 9, note="outer")     # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
+        # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
+        p1 = self.add(4, 9, note="outer")
         p2 = self.add(4, 5, note="inner")
         rows = ps.snapshot_pins()
         rel = ps.overlaps_by_id(rows)
@@ -518,7 +525,8 @@ class Overlaps(Base):
 
     def test_note_append_over_note_max_combined_is_rejected(self):
         pid = self.add(note="x" * (NOTE_MAX - 20))          # only 20 chars of headroom
-        refused = edit_pin(pid, {"note_append": "y" * 100}, dict(LOCAL_ACTOR))   # under the per-field cap (2000), over it once combined
+        # under the per-field cap (2000), over it once combined
+        refused = edit_pin(pid, {"note_append": "y" * 100}, dict(LOCAL_ACTOR))
         self.assertIsInstance(refused, NoteTooLong)
         self.assertEqual(refused.limit, NOTE_MAX)
         self.assertEqual(len(self.pin(pid)["note"]), NOTE_MAX - 20)          # unchanged length since it was rejected
@@ -579,7 +587,8 @@ class RemotePinsMd(Base):
     def test_pins_md_endpoint_syncs_like_api_pins(self):
         # must take the same sync path as GET /api/pins — if editing the manuscript shifted lines, it must be reflected.
         pid = self.add(lo=7, hi=7, note="n")
-        self.main.write_text("\n" + TEX, encoding="utf-8")   # one blank line up front — everything shifts down by one line
+        # one blank line up front — everything shifts down by one line
+        self.main.write_text("\n" + TEX, encoding="utf-8")
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
         self.assertIn("L8-L8", body)
@@ -718,7 +727,8 @@ class BuildHtmlSubstitution(unittest.TestCase):
         """build_html fills the label (title, identity crumb after the Limn mark), the accent stripe and every placeholder."""
         out = ps.build_html("A-DEMO", "#1d4ed8")
         self.assertIn("<title>Limn · A-DEMO</title>", out)
-        self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)   # the Limn mark (test_brand.py)
+        # the Limn mark (test_brand.py)
+        self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)
         self.assertIn('</svg></span><span>A-DEMO</span>', out)
         self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
@@ -927,7 +937,8 @@ class MultiDoc(Base):
         rev = self.pin(pid)["rev"]
         self.assertEqual(edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(LOCAL_ACTOR)),
                          InputRejected(parse.REGION_EDIT_REFUSAL, "no_source_lines"))
-        p = record_of(edit_pin(pid, {"note": "b", "base_rev": rev}, dict(LOCAL_ACTOR)))   # even without doc in the request, it resolves via the pin's own document
+        # even without doc in the request, it resolves via the pin's own document
+        p = record_of(edit_pin(pid, {"note": "b", "base_rev": rev}, dict(LOCAL_ACTOR)))
         self.assertEqual(p["note"], "b")
         p = record_of(edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"},
                                         "base_rev": p["rev"]}, dict(LOCAL_ACTOR)))
@@ -1028,7 +1039,8 @@ class MultiDoc(Base):
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
         self.assertEqual(limn_build.state_snapshot(rv)["seq"], 2)
         b = limn_build.load_builds(rv)["by"]
-        self.assertNotEqual(b[first]["src_hash"], b[limn_build.cur_pages(rv).name]["src_hash"])   # the source of location estimation
+        # the source of location estimation
+        self.assertNotEqual(b[first]["src_hash"], b[limn_build.cur_pages(rv).name]["src_hash"])
 
 
 # ---------------------------------------------------------------- estimated time to finish (eta_min) — server/pins.md/viewer display
@@ -1044,7 +1056,8 @@ class ClaimEta(Base):
         self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
         for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
             self.assertEqual(parse.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
-        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))     # supplying ttl passes it through unchanged
+        # supplying ttl passes it through unchanged
+        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))
         for bad in (0, "15", 1.5, True, None, -5):              # refused: answered 400 by the handler
             self.assertIsInstance(parse.parse_claim_body({"eta_min": bad}), InputRejected, bad)
         self.assertIsInstance(parse.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
@@ -1078,7 +1091,8 @@ class ClaimEta(Base):
         self.assertEqual(second["claimed_at"], first["claimed_at"])
         self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)          # the new estimate starts from now
         self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))                    # extending with no new estimate keeps the previous one
+        # extending with no new estimate keeps the previous one
+        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
         self.assertEqual(third["eta_ts"], second["eta_ts"])
         self.assertEqual(third["rev"], second["rev"] + 1)
 
@@ -1311,7 +1325,8 @@ class KindAndThread(Base):
         self.assertEqual(code, 200)
         self.assertTrue(d["ok"])
         self.assertEqual(d["msg"]["id"], 1)
-        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")   # CRLF -> LF, leading/trailing whitespace stripped
+        # CRLF -> LF, leading/trailing whitespace stripped
+        self.assertEqual(d["msg"]["text"], "0 은 전 구간 평균입니다\n두 번째 줄")
         self.assertEqual(d["msg"]["by"], {"login": self.S["login"], "name": self.S["name"]})
         code, d = self.post("/api/pins/%d/reply" % pid, {"text": "에이전트 답"})
         self.assertEqual(d["msg"]["id"], 2)
@@ -1330,7 +1345,8 @@ class KindAndThread(Base):
         code, d = self.post("/api/pins/%d/reply" % pid, {"text": "x" * parse.THREAD_TEXT_MAX})
         self.assertEqual(code, 200)
         code, d = self.post("/api/pins/999/reply", {"text": "없음"})
-        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))   # a nonexistent id follows the same convention as other routes
+        # a nonexistent id follows the same convention as other routes
+        self.assertEqual((code, d["ok"], d["pin"]), (200, False, None))
 
     def test_control_characters_are_stripped_but_newlines_kept(self):
         self.assertEqual(parse.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
@@ -1352,7 +1368,8 @@ class KindAndThread(Base):
         th = self.pin(pid)["thread"]
         self.assertEqual([(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
                          [(1, None, "질문이 있어요", None), (2, "close", "제목을 고침", "PR #227")])
-        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")   # the old field is left in place too (compat with old viewers/agents)
+        # the old field is left in place too (compat with old viewers/agents)
+        self.assertEqual(self.pin(pid)["close_reply"], "제목을 고침")
 
     def test_bodyless_close_still_works_and_records_event(self):
         pid = self.add()
@@ -1506,7 +1523,8 @@ class ReviewState(Base):
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)
         code, d = self.post("/api/pins/%d/reopen" % pid, {"reason": "x" * (parse.THREAD_TEXT_MAX + 1)})
         self.assertEqual(code, 400)
-        code, d = self.post("/api/pins/%d/reopen" % pid)              # a body-less legacy reopen still works too (already open — thread unchanged)
+        # a body-less legacy reopen still works too (already open — thread unchanged)
+        code, d = self.post("/api/pins/%d/reopen" % pid)
         self.assertEqual(code, 200)
         self.assertEqual(len(self.pin(pid)["thread"]), 2)
 
@@ -1543,7 +1561,8 @@ class ReviewState(Base):
         ps.confirm_pin(a, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("## 검토 대기", md)
-        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)                # with nothing awaiting review, the header line reverts to the old look
+        # with nothing awaiting review, the header line reverts to the old look
+        self.assertIn("열린 핀 1건  ·  닫힌 핀 1건", md)
 
 
 # ---------------------------------------------------------------- @-mentions · people.json · events.jsonl (docs/handbook/api.md §@태그·사람·이벤트)
@@ -1578,7 +1597,8 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(R("@bob park님 이거요", ppl), [self.S["login"]])            # case-insensitive, Korean particle attached
         self.assertEqual(R("@Bob 봐 주세요", ppl), [self.S["login"]])               # first word of the name (only one match)
         self.assertEqual(R("@Wendy 어때요", ppl), [])                                   # two candidates share the first word — ambiguous, don't resolve
-        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])  # resolved via the viewer's chosen hint
+        # resolved via the viewer's chosen hint
+        self.assertEqual(R("@Wendy 어때요", ppl, [self.W["login"]]), [self.W["login"]])
         self.assertEqual(R("메일 bob@example.com 로", ppl), [])                     # an email address is not a mention
         self.assertEqual(R("@Bobx", ppl), [])                                         # letters right after an English name = a different word
         self.assertEqual(R("@박서준님 @Wendy Kim @박서준", ppl), ["sy@x.com", self.W["login"]])
@@ -1588,7 +1608,8 @@ class MentionsPeopleEvents(Base):
         self.assertFalse(ps.record_person(dict(LOCAL_ACTOR)))
         self.assertFalse(ps.C.people_file.exists())
         self.assertTrue(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
-        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))   # same value within 10 minutes — not written
+        # same value within 10 minutes — not written
+        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))
         self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))        # written when the name changes
         self.assertTrue(ps.record_person(dict(self.W), now=2000))
         d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
@@ -1640,7 +1661,8 @@ class MentionsPeopleEvents(Base):
         # when the mentioned person replies, they're excluded from the recipients themselves
         self.post("/api/pins/%d/reply" % pid, {"text": "@Bob Park 맞아요"}, self.HW)
         types = [(x["type"], x["to"]) for x in self.events()[2:]]
-        self.assertEqual(types, [("mention", [self.S["login"]])])       # the author, mentioned by this message, gets only one mention (doesn't overlap with replied)
+        # the author, mentioned by this message, gets only one mention (doesn't overlap with replied)
+        self.assertEqual(types, [("mention", [self.S["login"]])])
         self.assertEqual(self.pin(pid)["thread"][-1]["mentions"], [self.S["login"]])
         # when an agent closes it, review_requested goes to the author; when the author reopens with a reason, reopened is skipped since it's themself
         self.post("/api/pins/%d/close" % pid, {"reply": "답함"})
@@ -1693,7 +1715,8 @@ class MentionsPeopleEvents(Base):
         self.assertNotIn("assignee", rows[legacy])                        # legacy pin: no field -> inferred per #87 (fix request = fyi)
         self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
         self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))
-        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))   # even a question is fyi if the assignee is an agent
+        # even a question is fyi if the assignee is an agent
+        self.assertEqual((rows[agent]["addressed"], rows[agent]["fyi"]), ([], [self.S["login"]]))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         def line(pid):
             """The pins.md table row for pin pid."""
@@ -1815,7 +1838,8 @@ class NotifyServer(Base):
         js = raw.decode()
         self.assertIn("showNotification" if False else "notificationclick", js)
         self.assertIn("clients.openWindow", js)
-        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)   # v0.2.2: [되살리기] on a 'dropped' notification
+        # v0.2.2: [되살리기] on a 'dropped' notification
+        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
         self.assertNotIn("'fetch'", js)                                   # doesn't cache app data
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})
         self.assertEqual(code, 403)

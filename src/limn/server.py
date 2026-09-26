@@ -373,7 +373,8 @@ def _build(D: Doc) -> BuildResult:
 # limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
 # list and the run settings as arguments, bound here.
 
-_SRC_MTIME_CACHE: list[Any] = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
+# [C.src string, value, measured-at time] - a 2-second cache (for a single document)
+_SRC_MTIME_CACHE: list[Any] = [None, 0.0, 0.0]
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
 # and regression tests see is exactly this document's.
 LEGACY_DOC = Doc(DEFAULT_DOC_KEY, "본문", legacy=True, lock=BUILD_LOCK, bstate=BUILD_STATE,
@@ -914,8 +915,10 @@ def overlaps_api(rng: locate.SourceLines) -> Json:
 # people.json are re-read when they change on disk, so `limn token` / `limn member` edits take effect on the next
 # request without a restart) and the one-time loopback-agent warning. The refusals raise HTTPError (fail closed).
 
-TOKENS_CACHE: access.FileCache[list[Json]] = access.FileCache()   # tokens.json's valid entries as this process last read them
-ROLES_CACHE: access.FileCache[dict[str, str]] = access.FileCache()    # {login: role} of people.json as this process last read it
+# tokens.json's valid entries as this process last read them
+TOKENS_CACHE: access.FileCache[list[Json]] = access.FileCache()
+# {login: role} of people.json as this process last read it
+ROLES_CACHE: access.FileCache[dict[str, str]] = access.FileCache()
 LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
 
 
@@ -1135,7 +1138,8 @@ def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
     if not docs:
         D = DOCS[0]
         build.migrate_pages(D)
-        build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
+        # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
+        build.seed_builds(D, C.state)
         if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
             r = build_all(D)
             if r.get("state") == "fail":

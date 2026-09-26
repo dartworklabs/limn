@@ -273,9 +273,11 @@ class Estimate(Base):
         self.assertTrue(position.pin_est(old, ctx))
         # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
         self.assertTrue(position.pin_est(dict(old, edited_at="2026-09-22T11:00:00+09:00"), ctx))
-        self.assertFalse(position.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))   # the manuscript hasn't changed since
+        # the manuscript hasn't changed since
+        self.assertFalse(position.pin_est({"at": "2026-09-22T09:45:00+09:00"}, ctx))
         self.assertFalse(position.pin_est({"at": "2026-09-22T10:30:00+09:00"}, ctx))   # placed after the build
-        self.assertTrue(position.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))  # the legacy field name also takes the identity path
+        # the legacy field name also takes the identity path
+        self.assertTrue(position.pin_est({"frac_build": "pages-x", "at": "2026-09-22T10:30:00+09:00"}, ctx))
 
     def test_legacy_epoch_ignores_process_timezone_for_offset_strings(self):
         with mock.patch.dict(os.environ, {"TZ": "America/New_York"}):
@@ -315,7 +317,8 @@ class Estimate(Base):
         self.assertTrue(m["last_build"]["finished_at"])
         h = limn_build.load_builds(ps.DOCS[0])
         self.assertEqual(h["seq"], 2)
-        self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])   # a failure doesn't leave a build in history
+        # a failure doesn't leave a build in history
+        self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])
         self.assertEqual(h["by"]["pages-20260101000000"]["src_hash"], "h1")
 
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
@@ -337,7 +340,8 @@ class Estimate(Base):
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
         ent = limn_build.load_builds(ps.DOCS[0])["by"]["pages"]
         self.assertEqual(ent["src_hash"], limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
-        pid = self.add()                                   # first pin after startup -> no false positive from a rebuild that didn't change the manuscript
+        # first pin after startup -> no false positive from a rebuild that didn't change the manuscript
+        pid = self.add()
         self._fake_build("pages-20260101000100", limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
         self.assertIs(self.est_of(pid), False)
 

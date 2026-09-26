@@ -517,7 +517,8 @@ class Claim(Base):
     def test_claim_on_closed_pin_is_409_done(self):
         pid = self.add()
         ps.set_done(pid, True, dict(LOCAL_ACTOR))
-        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120), ClaimClosedPin)   # 409 "done"
+        # 409 "done"
+        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120), ClaimClosedPin)
 
     def test_claim_missing_pin_id_returns_none(self):
         self.assertEqual(ps.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))

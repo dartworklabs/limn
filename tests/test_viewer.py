@@ -326,7 +326,8 @@ class FrontendLogic(unittest.TestCase):
         self.assertNotIn("#1", joined)                 # own action — suppressed
         self.assertNotIn("#2", joined)                  # own action — suppressed
         self.assertIn("#3 이 완료되었습니다", joined)     # another tab's completion — shown as-is
-        self.assertTrue(any("#4" in t and "삭제함" in t and "Coauthor" in t for t in out))  # another tab's drop — shown as-is
+        # another tab's drop — shown as-is
+        self.assertTrue(any("#4" in t and "삭제함" in t and "Coauthor" in t for t in out))
 
 
 # ---------------------------------------------------------------- frontend structure (source-string inspection)
@@ -448,7 +449,8 @@ class FrontendStructure(unittest.TestCase):
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
-        self.assertIn("LDROP.filter(p=>!PURGING.has(p.id)).length", body)   # LDROP = listDropped() (current document or all documents)
+        # LDROP = listDropped() (current document or all documents)
+        self.assertIn("LDROP.filter(p=>!PURGING.has(p.id)).length", body)
         self.assertIn("tl('휴지통 {n}',{n:nTrash})", body)
         self.assertIn("if($('#trash').open)drawTrash();", body)
         self.assertIn("map(droppedCard)", extract_js_fn("drawTrash"))
@@ -541,7 +543,8 @@ class FrontendMobileStructure(unittest.TestCase):
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}")]
         self.assertIn("min-height:44px", coarse)
-        self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)   # prevents iOS zoom-in — 16px or larger
+        # prevents iOS zoom-in — 16px or larger
+        self.assertIn("input,textarea,select{font-size:var(--text-xl)}", coarse)
         self.assertIn("--text-xl:16px", css)
         self.assertIn("env(safe-area-inset-bottom)", css)
         self.assertIn("var(--kb,0px)", css)
@@ -982,7 +985,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("relayout()", m.group(1))
         m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
         body = m.group(1)
-        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))   # the panel width must be settled first for the page width to match
+        # the panel width must be settled first for the page width to match
+        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))
         # ResizeObserver doesn't re-fit every frame while dragging
         self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", ps.HTML)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", ps.HTML)
@@ -1011,7 +1015,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("#composer[hidden]~#c-actions{display:none}", css)
         self.assertIn("grid-template-columns:1fr 2fr", css)
         self.assertIn("body.compact #c-actions{position:sticky;bottom:0", css)
-        self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)   # the help paragraph is hidden while selecting
+        # the help paragraph is hidden while selecting
+        self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)
 
     def test_composer_is_one_loc_line_segmented_ladder_and_folded_snippet(self):
         self.assertNotIn('id="c-meta"', ps.HTML)            # location info repeated 3x -> now one line
@@ -1024,7 +1029,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
         self.assertIn('<div class="step" role="group"', ps.HTML)
-        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)   # 4 lines + 8px top/bottom padding
+        # 4 lines + 8px top/bottom padding
+        self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
         m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
         # on a narrow sheet the note field sits above the source snippet (so it doesn't hide under the action row)
@@ -1034,11 +1040,13 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1)
         self.assertNotIn('<span class="tags">', body)                        # badges are not inside the head row
-        self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))   # one line after the head (fold button)
+        # one line after the head (fold button)
+        self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))
         self.assertLess(body.index('b-drop'), body.index('b-close'))         # done (primary) sits at the far right
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
-        self.assertIn('class="btn-sm btn-soft b-close"', body)               # done = soft (pale blue, author-specified 09-23), drop = destructive
+        # done = soft (pale blue, author-specified 09-23), drop = destructive
+        self.assertIn('class="btn-sm btn-soft b-close"', body)
         self.assertNotIn('btn-secondary b-close', body)
         self.assertIn("button.btn-soft{background:color-mix(in srgb,var(--primary) 14%,transparent);color:var(--primary)", css)
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
@@ -1056,7 +1064,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
         self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
-        self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)     # the body/panel only occupy the space between the two
+        # the body/panel only occupy the space between the two
+        self.assertIn("padding-top:var(--mid-top);padding-bottom:var(--mbar-h)}", css)
         self.assertIn("@media (pointer:coarse){body.lay-mid{--mbar-tb:var(--control-h-touch)}}", css)
         # thumb order: [select] at the far left, [pin N] at the far right. DOM is shared with the narrow sheet, so only order changes.
         self.assertIn("body.lay-mid #btn-select{order:1}", css)
@@ -1166,7 +1175,8 @@ class FrontendDesignTokens(unittest.TestCase):
     def test_every_var_is_defined(self):
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))    # values JS measures and sets (--kb, --side-w, etc.)
+        # values JS measures and sets (--kb, --side-w, etc.)
+        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))
         used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
         defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
         self.assertEqual(used - defined - runtime, set())             # no old tokens left over from a rename (--acc, --dim, ...)
@@ -1218,7 +1228,8 @@ class FrontendToasts(unittest.TestCase):
         self.assertIn("LAYOUT==='mid'?['#bar1']", body)               # doesn't cover the bottom toolbar
         self.assertIn("right.getBoundingClientRect().top", body)      # narrow: above the sheet
         self.assertIn("innerWidth-rr.right+12", body)                 # right edge inside the panel column
-        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)   # a nearly-full sheet: drop down so it doesn't cover the toolbar
+        # a nearly-full sheet: drop down so it doesn't cover the toolbar
+        self.assertIn("if(top<vh*0.3){top=vh; const ca=$('#c-actions');", body)
         self.assertIn("@media (pointer:coarse){.toast{pointer-events:none}.toast button{pointer-events:auto}}", self.css)
         for v in ("--toast-b", "--toast-r", "--toast-w"):
             self.assertIn("setProperty('%s'" % v, body)
@@ -1297,7 +1308,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
         self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
         self.assertIn("setInterval(tickRel,60000);", ps.HTML)
-        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)   # formerly: it could wrap to '09-24 1…'
+        # formerly: it could wrap to '09-24 1…'
+        self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)
 
     def test_one_toast_per_event_notify_wins(self):
         if not shutil.which("node"):
@@ -1776,7 +1788,8 @@ class FrontendArchive(unittest.TestCase):
               /data-act="restore"[^>]*>되살리기</.test(d), />잘못 찍음</.test(d), /L2-L9/.test(d), /data-act="reopen"/.test(d),
               /data-act="purge"/.test(d)]));
             """)
-        self.assertEqual(out, [True, False, True, True, True, True, True, False, False])   # [영구 삭제] is the owner's only
+        # [영구 삭제] is the owner's only
+        self.assertEqual(out, [True, False, True, True, True, True, True, False, False])
 
     def test_section_head_reads_label_count_and_fold_state(self):
         # One header component for open / awaiting review / done (v0.2.2): chevron, name, count, and 'new N' while collapsed.
@@ -1918,7 +1931,8 @@ class FrontendToolbarOneRow(unittest.TestCase):
         self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
         self.assertIn("flex:0 1 auto;min-width:40px}", css)
         self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
-        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)   # in compact, the label yields space first
+        # in compact, the label yields space first
+        self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)
         out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
@@ -2133,10 +2147,12 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(data["curAfterFirstPick"], 717)
         self.assertTrue(data["curClearedOnNewPick"])
-        self.assertEqual(data["pinCallsWhileWaiting"], 0)   # doesn't save with the old CUR before the new response arrives
+        # doesn't save with the old CUR before the new response arrives
+        self.assertEqual(data["pinCallsWhileWaiting"], 0)
         self.assertTrue(data["queued"])
         self.assertTrue(data["autoSaved"])
-        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)   # the queued save fires once the new location response arrives
+        # the queued save fires once the new location response arrives
+        self.assertEqual(data["pinCallsAfterSecondResolve"], 1)
 
 
 class FrontendResponsiveBrowser(unittest.TestCase):
@@ -2264,7 +2280,8 @@ class FrontendResponsiveBrowser(unittest.TestCase):
                     self.assertEqual(s['blocked'], [])
                     self.assertEqual(s['clipped'], [])
                     self.assertLess(s['side']['x'] + s['side']['width'], width)
-                    self.assertGreater(s['side']['x'] + s['side']['width'], width - 40)   # bottom-right corner (right thumb)
+                    # bottom-right corner (right thumb)
+                    self.assertGreater(s['side']['x'] + s['side']['width'], width - 40)
                 opened = a if a['open'] else b
                 self.assertGreaterEqual(opened['right']['y'], opened['nav']['y'] + opened['nav']['height'] - 1)
                 self.assertLessEqual(opened['right']['y'] + opened['right']['height'], opened['bar']['y'] + 1)
@@ -2371,7 +2388,8 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", ps.HTML)   # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
-        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)   # one path; the server decides
+        # one path; the server decides
+        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)
         self.assertIn("body.reopen=R.toggle==='reopen'", send)               # the one override: [상태 유지] / [다시 열기]
         self.assertIn("deferred(", send)                                      # sent when the undo toast goes away
 
@@ -2435,7 +2453,8 @@ class FrontendReview(unittest.TestCase):
         # a reply would do. v0.2.2: on a closed pin the placeholder says a reply reopens it, and the outcome line under the
         # box previews the server rule (tests/test_v022.py covers every row).
         body = extract_js_fn("replyEl")
-        self.assertIn("placeholder=\"'+esc(replyPlaceholder(p,isHuman(),false))+'\"", body)   # from the same outcome as the line below
+        # from the same outcome as the line below
+        self.assertIn("placeholder=\"'+esc(replyPlaceholder(p,isHuman(),false))+'\"", body)
         self.assertIn("'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'", extract_js_fn("replyPlaceholder"))
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
@@ -2482,7 +2501,8 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn('id="revision-pin"', h)
         self.assertIn("showRevision(pick.id,'source')", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
-        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)       # the comparison PDF is only built while viewing that format
+        # the comparison PDF is only built while viewing that format
+        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)
         css = h[h.index("<style>"):h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)   # it opens even on a folded fold device
 
@@ -2553,7 +2573,8 @@ class FrontendMentions(unittest.TestCase):
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
-        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)             # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
+        # 12/3/40 (a dropped pin) — nonexistent 99 stays plain text
+        self.assertEqual(out[0].count('data-act="pin-ref"'), 3)
         self.assertIn('data-ref="12"', out[0])
         self.assertIn('data-ref="40"', out[0])
         self.assertNotIn('data-ref="99"', out[0])
@@ -2600,7 +2621,8 @@ class FrontendMentions(unittest.TestCase):
     def test_preview_row_under_every_mention_field(self):
         h = ps.HTML
         self.assertIn('<div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>', h)
-        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)   # edit and reply
+        # edit and reply
+        self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)
         body = extract_js_fn("mentionPreview")
         self.assertIn("등록된 사람이 아님", body)
         self.assertIn("ic('at-sign')+'알림</span>'", body)
@@ -2630,7 +2652,8 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;", extract_js_fn("savePin"))
         self.assertIn("mentionHints(ta)", extract_js_fn("sendReply"))
         self.assertIn("fmtText(p.note,p.mentions)", extract_js_fn("card"))
-        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)   # autocomplete gets Enter/Esc first (capture phase)
+        # autocomplete gets Enter/Esc first (capture phase)
+        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)
 
 
 # ---------------------------------------------------------------- browser notifications (docs/handbook/viewer.md §브라우저 알림)
@@ -2739,7 +2762,8 @@ class FrontendQuestionHint(unittest.TestCase):
         html = ps.HTML
         self.assertIn('id="c-qhint"', html)                                   # composer
         self.assertIn('class="e-qhint q-hint"', html)                         # edit panel (the kind can be changed)
-        self.assertIn('data-act="kind" data-kind="question"', html)           # clicking it switches — same as the existing kind action
+        # clicking it switches — same as the existing kind action
+        self.assertIn('data-act="kind" data-kind="question"', html)
         self.assertIn('data-act="e-kind" data-kind="question"', html)
         qh = extract_js_fn("qHint")
         self.assertNotIn("setKind", qh)                                      # only suggests

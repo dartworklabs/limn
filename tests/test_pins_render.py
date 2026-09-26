@@ -308,7 +308,8 @@ class PinsMdV2(Base):
         before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         for i in range(20):
             pid = self.add(4, 5, note="c%d" % i)
-            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
+            # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
+            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})
         after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
         self.assertEqual(before, after)
         self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
@@ -366,7 +367,8 @@ class PinsMdV2(Base):
         long = "x" * 90
         cut = mapping.truncate_quote(long, 60)
         self.assertEqual(cut, "x" * 59 + "…")
-        self.assertEqual(len(cut), 60)   # bug: it used to come out to 61 chars (60 + …) — the design calls for <=60 chars
+        # bug: it used to come out to 61 chars (60 + …) — the design calls for <=60 chars
+        self.assertEqual(len(cut), 60)
         self.assertEqual(mapping.truncate_quote("x" * 60, 60), "x" * 60)   # exactly at the boundary, nothing is appended
 
     def test_quote_truncated_with_ellipsis_in_pins_md(self):
