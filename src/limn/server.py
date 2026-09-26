@@ -81,6 +81,7 @@ from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig, valid_build_name  # noqa: E402 - after the path bootstrap above
 from limn.files import atomic_write  # noqa: E402 - after the path bootstrap above
+from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
@@ -247,9 +248,8 @@ ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9",
                    "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
 
-# Every path that touches the pin file goes through this single lock. Without it, a read-modify-write
-# race loses most concurrent writes - of 30 pins saved at once, only 2 survived (observed) - the rest
-# were clobbered by each other's writes.
+# The pin store's lock (limn.store.PinStore.lock): every path that touches the pin files goes through this single
+# re-entrant lock. The store creates no lock, so the process makes its one here and pin_store() passes it on.
 PIN_LOCK = threading.RLock()
 # If two latexmk runs share the same build/, they trample each other's .aux.
 BUILD_LOCK = threading.Lock()
@@ -297,19 +297,23 @@ class Cfg:
 
     @property
     def pins_jsonl(self) -> Path:
-        return self.state / "pins.jsonl"
+        """The live pins (the file names are the pin store's, limn.store.PinFiles)."""
+        return PinFiles(self.state).pins_jsonl
 
     @property
     def pins_md(self) -> Path:
-        return self.state / "pins.md"
+        """The agents' work list."""
+        return PinFiles(self.state).pins_md
 
     @property
     def dropped(self) -> Path:
-        return self.state / "pins.dropped.jsonl"
+        """The Trash."""
+        return PinFiles(self.state).dropped
 
     @property
     def seq(self) -> Path:
-        return self.state / "pins.seq"
+        """The last pin id handed out."""
+        return PinFiles(self.state).seq
 
     @property
     def pages_ptr(self) -> Path:
@@ -2854,83 +2858,43 @@ def stamp_location(r: dict, root: Path) -> PinLocation | None:
     return loc
 
 
-def read_jsonl(path: Path) -> tuple:
-    """(records, broken line numbers). Broken lines are skipped with a warning - so the whole GET doesn't become a 500.
+def pin_store() -> PinStore:
+    """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
-    Even a line that parses as JSON is treated as broken if the required fields (file/lo/hi/id) have the wrong type (valid_rec)."""
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
-        return [], []
-    rows, bad = [], []
-    for i, t in enumerate(text.splitlines(), 1):
-        if not t.strip():
-            continue
-        try:
-            r = json.loads(t)
-        except (ValueError, RecursionError):
-            r = None
-        if not valid_rec(r):
-            bad.append(i)
-            continue
-        rows.append(r)
-    if bad:
-        print("warning: failed to read %d line(s) of %s (line %s)." % (len(bad), path.name, bad[:10]),
-              file=sys.stderr)
-    return rows, bad
+    Made per call, like build_config(), so a test or main() that changes C.state is seen at once; the lock is the one
+    process-wide PIN_LOCK. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
+    sync_all (reads the .tex files under C.src), the renderer pins_md_text, and HTTPError as a step's refusal."""
+    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text, HTTPError)
+
+
+# The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
+# delegates to pin_store(). The contracts are the store's methods of the same name.
+
+def read_jsonl(path: Path) -> tuple:
+    """(records, broken line numbers) of a JSONL file (PinStore.read_jsonl)."""
+    return pin_store().read_jsonl(path)
 
 
 def read_pins() -> tuple:
-    return read_jsonl(C.pins_jsonl)
-
-
-def dump_jsonl(rows: list) -> str:
-    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
-
-
-def unique_path(stem: str, suffix: str) -> Path:
-    """If <state>/<stem><suffix> already exists, appends -1, -2, ... - so archiving twice in the same second never overwrites."""
-    p = C.state / (stem + suffix)
-    k = 1
-    while p.exists():
-        p = C.state / ("%s-%d%s" % (stem, k, suffix))
-        k += 1
-    return p
+    """The live pins and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
+    return pin_store().read_pins()
 
 
 def write_pins(rows: list, bad=None) -> None:
-    """Builds pins.md in memory first. If rendering fails, nothing is written -
-    committing pins.jsonl and then returning a 500 would make the client retry and create a duplicate pin."""
-    md = pins_md_text(rows)
-    data = dump_jsonl(rows)
-    if bad and C.pins_jsonl.exists():                # avoid silent data loss: keep the original bytes
-        shutil.copy2(C.pins_jsonl, unique_path("pins.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
-    atomic_write(C.pins_jsonl, data)
-    atomic_write(C.pins_md, md)
+    """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold PIN_LOCK."""
+    pin_store().write_pins(rows, bad)
 
 
 def transact(fn):
     """Write-order invariant: with PIN_LOCK -> read -> sync -> apply the request's change -> atomic write -> pins.md.
 
-    The change is applied after sync, so a caller-supplied lo/hi never gets reverted by a stale anchor.
-    fn(rows) returns (result, whether it mutated). fn only modifies rows after validation is done."""
-    with PIN_LOCK:
-        rows, bad = read_pins()
-        synced = sync_all(rows)
-        try:
-            result, mutated = fn(rows)
-        except HTTPError:
-            if synced:
-                write_pins(rows, bad)
-            raise
-        if synced or mutated:
-            write_pins(rows, bad)
-        return rows, result
+    fn(rows) returns (result, whether it mutated); returns (rows, result). See PinStore.transact."""
+    return pin_store().transact(fn)
 
 
 def snapshot_pins() -> list:
-    rows, _ = transact(lambda rows: (None, False))
-    return rows
+    """The live pins, re-synced and written back if that changed them (PinStore.snapshot)."""
+    return pin_store().snapshot()
 
 
 def public(r: dict) -> dict:
@@ -3204,35 +3168,14 @@ def rel_badge(rel: list, by_id: dict, me: dict = None) -> str:
     return ""
 
 
-def max_id_in(path: Path) -> int:
-    rows, _ = read_jsonl(path)
-    return max((r["id"] for r in rows), default=0)
-
-
 def init_seq() -> None:
-    """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (a one-time migration)."""
-    with PIN_LOCK:
-        if C.seq.exists():
-            return
-        m = max_id_in(C.pins_jsonl)
-        for p in list(C.state.glob("pins_*.jsonl.bak")) + [C.dropped]:
-            m = max(m, max_id_in(p))
-        atomic_write(C.seq, str(m))
+    """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
+    pin_store().init_seq()
 
 
 def next_id(rows: list) -> int:
-    """An id is never reused - "#2" in a chat message must never end up pointing at a different pin."""
-    try:
-        last = int(C.seq.read_text().strip() or 0)
-    except (OSError, ValueError):
-        last = 0
-    nid = max(last, max((r["id"] for r in rows), default=0)) + 1
-    atomic_write(C.seq, str(nid))
-    return nid
-
-
-def find_pin(rows: list, pid: int):
-    return next((r for r in rows if r.get("id") == pid), None)
+    """An id is never reused - hands out the next one and records it in pins.seq (PinStore.next_id)."""
+    return pin_store().next_id(rows)
 
 
 def who(actor: dict) -> dict:
@@ -4546,11 +4489,8 @@ def trash_expired(r: dict, now: float = None) -> bool:
 
 
 def write_dropped(rows: list, bad=None) -> None:
-    """Rewrites pins.dropped.jsonl. Unreadable lines are never dropped silently: the original bytes are kept in a
-    .corrupt-*.bak first, as write_pins does for pins.jsonl."""
-    if bad and C.dropped.exists():
-        shutil.copy2(C.dropped, unique_path("pins.dropped.jsonl.corrupt-%s" % time.strftime("%Y%m%d-%H%M%S"), ".bak"))
-    atomic_write(C.dropped, dump_jsonl(rows))
+    """Rewrites pins.dropped.jsonl, keeping a .corrupt-*.bak of unreadable lines first (PinStore.write_dropped)."""
+    pin_store().write_dropped(rows, bad)
 
 
 def _unexpired(rows: list, now: float = None) -> list:
@@ -4737,12 +4677,7 @@ def clear_pins(actor: dict | None = None) -> dict:
     always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
     by = who(actor or LOCAL_ACTOR)
     with PIN_LOCK:
-        n, archive = len(read_pins()[0]), None
-        if C.pins_jsonl.exists():                    # clearing twice in the same second never overwrites the earlier archive
-            dest = unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak")
-            C.pins_jsonl.rename(dest)
-            archive = dest.name
-        render_pins_md([])
+        n, archive = pin_store().clear()             # never over an earlier archive of the same second
         emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
     append_audit(C.state, audit_entry("cleared", by, "http", {"n": n, "archive": archive}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
     print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
@@ -4769,7 +4704,8 @@ def claim_md(r: dict, now: float = None) -> str:
 
 
 def render_pins_md(rows: list) -> None:
-    atomic_write(C.pins_md, pins_md_text(rows))
+    """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold PIN_LOCK."""
+    pin_store().render_md(rows)
 
 
 def md_cell(v, newline: str = " ") -> str:

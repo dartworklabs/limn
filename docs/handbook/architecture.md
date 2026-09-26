@@ -36,9 +36,10 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 6,885 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
+| [`src/limn/server.py`](../../src/limn/server.py) | 6,818 | 설정, 빌드를 부르는 셸과 `--git-pull`·원격 main 감시, 역변환, 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사), 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립. 핀 편집·추가 본문의 파서(`parse_edit`·`parse_add` 등)는 거절을 `InputRejected` 값으로 돌려준다. 값을 돌려주는 검사는 예외를 던지던 검사보다 길어서, 편집·추가를 옮기며 이 파일은 145줄 늘었다 |
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 30 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다 |
+| [`src/limn/store.py`](../../src/limn/store.py) | 236 | 핀 저장소 `PinStore`: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통(`pins.dropped.jsonl`) 쓰기, 손상 줄의 원본 보존, 핀 번호(`pins.seq`), clear 보관. 서버를 가져오지 않는다. 파일 위치(`PinFiles`)·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외를 `server.pin_store()`가 호출마다 인자로 넘긴다 (`tests/test_store.py`가 import를 검사) |
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 821 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
@@ -48,7 +49,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
-`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
+`server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소(2026-09-26부터 `limn/store.py`를 조립하고 옛 이름으로 넘기는 셸)·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
 
 `server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 서버와 옮긴 모듈은 Python 3.10 이상에서만 돈다. `server.py`가 `match` 문을 쓰므로 3.9는 파일을 읽는 단계에서 `SyntaxError`로 멈춘다. 옮긴 모듈이 `from __future__ import annotations`로 시작하는 것은 옆 모듈과 모양을 맞춘 것이지, 오래된 파이썬을 위한 장치가 아니다. 인스턴스 경로가 안전한 이유는 두 가지다. `limn run`(systemd 유닛이 부르는 명령)은 자기가 도는 도구 가상환경의 파이썬을 `LIMN_PYTHON`으로 넘기고, 그 파이썬은 설치 때 `requires-python >= 3.10`을 이미 통과했다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH에서 3.10 이상인 파이썬을 찾는다. 없으면 `help`를 뺀 모든 명령이 무엇이든 시작하기 전에 멈추고, 그 파이썬의 경로·버전·고치는 법을 한 줄로 알린다([instances.md](instances.md) §환경 변수).
 
@@ -56,7 +57,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 1. **모듈 전역 설정** `C = Cfg()` — 실행 인자를 담는다. `server.py` 안에서 `C.` 참조가 240곳쯤이다.
 2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 요청 처리 코드가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 43곳이다. 빌드(`limn/build.py`)는 2026-09-26부터 이 값을 읽지 않고 문서를 인자로 받는다. `server.py`의 옛 이름 셸이 `cur_doc()`과 `C`를 한 번 읽어 넘긴다.
-3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등.
+3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등. `PIN_LOCK`은 2026-09-26부터 `server.py`가 프로세스에 하나 만들어 `pin_store()`로 저장소(`limn/store.py`)에 넘긴다. 저장소 자신은 잠금을 만들지 않는다.
 
 핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 옮겨진 전이(확인, 닫기·다시 열기, 답글, claim, 휴지통, 편집)는 그 타입을 받아 결과를 반환값으로 돌려준다. 새 핀의 레코드도 `limn.pins.edit`이 만든다.
 
@@ -93,7 +94,7 @@ src/limn/
 │   ├── edit.py          편집 판단(거절은 값), 새 핀 레코드
 │   └── render.py        pins.md 렌더링 (입력 → 문자열)
 ├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
-├── store.py             pins.jsonl 잠금·원자적 쓰기·손상 레코드 보존 (부수효과)
+├── store.py             핀 저장소: 잠금 아래 쓰기 순서·원자적 쓰기·손상 레코드 보존 (부수효과, 2026-09-26 옮김)
 ├── build.py             원고 복사·latexmk·pdftoppm·쪽 디렉토리·빌드 이력·원고 지문 (부수효과, 2026-09-26 옮김)
 ├── files.py             원자적 파일 교체 (모든 저장 쓰기가 공유, 2026-09-26 옮김)
 ├── http/                요청 파싱, 라우팅, 오류 매핑, 신원 헤더 (부수효과)
@@ -125,7 +126,7 @@ src/limn/
 
 ### 4. 핀 파일은 한 잠금 아래 정해진 순서로만 쓴다
 
-핀 파일을 만지는 모든 경로는 `PIN_LOCK` 하나 아래에서 **읽기 → 재동기화 → 요청한 변경 적용 → 임시 파일에 쓰고 `os.replace` → `pins.md` 재생성** 순서를 지킨다. 지금은 `transact()`가 이 순서를 강제한다. 잠금이 없던 시절 핀 30개를 동시에 저장하면 2개만 남았다. 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
+핀 파일을 만지는 모든 경로는 `PIN_LOCK` 하나 아래에서 **읽기 → 재동기화 → 요청한 변경 적용 → 임시 파일에 쓰고 `os.replace` → `pins.md` 재생성** 순서를 지킨다. 지금은 [`limn/store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 이 순서를 강제하고, `server.py`의 `transact()`는 `pin_store()`로 만든 저장소에 그대로 넘긴다. 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `store.py`에 있다. 잠금이 없던 시절 핀 30개를 동시에 저장하면 2개만 남았다. 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 
