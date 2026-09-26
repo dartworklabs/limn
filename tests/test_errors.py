@@ -13,10 +13,19 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.web.errors import SCOPE_REJECTIONS
 from test_access import BOB, AccessBase
 from test_server import extract_js_fn, ps, run_node
 
-SERVER = Path(ps.__file__).read_text(encoding="utf-8")
+# The modules that build error bodies: server.py and the HTTP layer moved out of it (limn/web: the handler, the
+# answers to pin outcomes, SCOPE_REJECTIONS). Every static guard below reads all of them, keyed by file name.
+SOURCES = {p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
+           for p in [Path(ps.__file__)] + sorted((Path(ps.__file__).parent / "web").glob("*.py"))}
+
+
+def parsed():
+    """(file name, module tree) for server.py and every limn/web module."""
+    return [(name, ast.parse(text)) for name, text in SOURCES.items()]
 HANGUL = re.compile(r"[가-힣]")
 CODE = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -45,7 +54,7 @@ def _dict_get(node: ast.Dict, key: str):
 
 
 def http_error_calls(tree):
-    """(line, reason node or None) for every HTTPError(...) construction in the server module."""
+    """(line, reason node or None) for every HTTPError(...) construction in one module."""
     out = []
     for n in ast.walk(tree):
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "HTTPError":
@@ -79,51 +88,54 @@ def input_rejections(tree):
 def emitted_reasons():
     """Every reason code the server can put in an error body or error status: HTTPError reason= literals, the
     InputRejected reasons, the SCOPE_REJECTIONS table and error dict literals."""
-    tree = ast.parse(SERVER)
-    codes = {c for _, r in http_error_calls(tree) + input_rejections(tree) for c in _codes(r)}
-    codes |= {reason for _, _, reason in ps.SCOPE_REJECTIONS.values()}
-    for d in error_dicts(tree):
-        code = _const(_dict_get(d, "reason") or ast.Constant(None))
-        if code:
-            codes.add(code)
+    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()}
+    for _, tree in parsed():
+        codes |= {c for _, r in http_error_calls(tree) + input_rejections(tree) for c in _codes(r)}
+        for d in error_dicts(tree):
+            code = _const(_dict_get(d, "reason") or ast.Constant(None))
+            if code:
+                codes.add(code)
     return codes
 
 
 class EveryErrorHasAReason(unittest.TestCase):
-    """Static guard over server.py: no refusal can be written without a stable reason code."""
+    """Static guard over server.py and limn/web: no refusal can be written without a stable reason code."""
 
     def test_every_http_error_names_a_reason_code(self):
         """Each HTTPError(...) passes reason=, a snake_case literal (or a conditional of two) - except where it passes
         on a reason carried by a value: scope_http_error (SCOPE_REJECTIONS) and the answers to an InputRejected."""
         missing = []
-        for line, reason in http_error_calls(ast.parse(SERVER)):
-            if (isinstance(reason, ast.Name) and reason.id == "reason") or (
-                    isinstance(reason, ast.Attribute) and reason.attr == "reason"):
-                continue                                # carried: SCOPE_REJECTIONS or InputRejected.reason
-            codes = _codes(reason)
-            if not codes or not all(CODE.fullmatch(c) for c in codes):
-                missing.append(line)
-        self.assertEqual(missing, [], "HTTPError without a literal reason code at these server.py lines")
+        for name, tree in parsed():
+            for line, reason in http_error_calls(tree):
+                if (isinstance(reason, ast.Name) and reason.id == "reason") or (
+                        isinstance(reason, ast.Attribute) and reason.attr == "reason"):
+                    continue                            # carried: SCOPE_REJECTIONS or InputRejected.reason
+                codes = _codes(reason)
+                if not codes or not all(CODE.fullmatch(c) for c in codes):
+                    missing.append("%s:%d" % (name, line))
+        self.assertEqual(missing, [], "HTTPError without a literal reason code at these lines")
 
     def test_every_input_rejection_names_a_reason_code(self):
         """Each InputRejected(message, reason) - the parse_* refusals - names a snake_case literal, or passes one on."""
         missing = []
-        for line, reason in input_rejections(ast.parse(SERVER)):
-            if isinstance(reason, ast.Attribute) and reason.attr == "reason":
-                continue
-            if not _codes(reason) or not all(CODE.fullmatch(c) for c in _codes(reason)):
-                missing.append(line)
+        for name, tree in parsed():
+            for line, reason in input_rejections(tree):
+                if isinstance(reason, ast.Attribute) and reason.attr == "reason":
+                    continue
+                if not _codes(reason) or not all(CODE.fullmatch(c) for c in _codes(reason)):
+                    missing.append("%s:%d" % (name, line))
         self.assertEqual(missing, [])
         self.assertIn("reason", ps.InputRejected._fields)
 
     def test_every_error_dict_names_a_reason_code(self):
         """Error bodies built as dicts (the pick refusals, the 500, the comparison worker's status) carry a reason."""
-        lines = [d.lineno for d in error_dicts(ast.parse(SERVER)) if _dict_get(d, "reason") is None]
+        lines = ["%s:%d" % (name, d.lineno) for name, tree in parsed() for d in error_dicts(tree)
+                 if _dict_get(d, "reason") is None]
         self.assertEqual(lines, [])
 
     def test_the_scope_table_names_a_reason_for_every_refusal(self):
         """SCOPE_REJECTIONS maps each refusal to (status, Korean text, reason); the reason is never empty."""
-        for name, (status, msg, reason) in ps.SCOPE_REJECTIONS.items():
+        for name, (status, msg, reason) in SCOPE_REJECTIONS.items():
             with self.subTest(name=name):
                 self.assertTrue(CODE.fullmatch(reason or ""), reason)
                 e = ps.scope_http_error(ps.ScopeRejected(name))

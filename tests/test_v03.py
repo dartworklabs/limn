@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.web.errors import SCOPE_REJECTIONS
 from test_access import ALICE, AccessBase, talk_to
 from test_qa_021 import BrowserBase, actor
 from test_server import extract_js_fn, ps, req, run_node, split_resp
@@ -362,7 +363,7 @@ class ScopeDecisions(unittest.TestCase):
                 "scope_mismatch": (422, {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"}),
                 "unsafe_path": (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"}),
                 "scope_unwritable": (422, {"error": "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "reason": "scope_failed"})}
-        self.assertEqual(set(ps.SCOPE_REJECTIONS), set(want))
+        self.assertEqual(set(SCOPE_REJECTIONS), set(want))
         for reason, (code, body) in want.items():
             e = ps.scope_http_error(ps.ScopeRejected(reason))
             self.assertEqual((e.code, e.body), (code, body))
