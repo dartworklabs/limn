@@ -40,6 +40,7 @@ import pwd
 import re
 import secrets
 import selectors
+import shlex
 import shutil
 import signal
 import socket
@@ -292,6 +293,7 @@ class Cfg:
     members_only: bool = False      # admit only logins in people.json (or --allow)
     local_user: str = None          # the owner's login under --auth local (None = $USER, then "owner")
     insecure: bool = False          # a non-loopback bind allowed by --i-know-this-is-insecure
+    agent_token_file: Path | None = None   # where agents on this machine keep this instance's token (ADR-0007); never read
 
     @property
     def pins_jsonl(self) -> Path:
@@ -5320,6 +5322,66 @@ TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer 
                   "테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다")
 
 
+TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"   # the convention, shown when this server does not know its own file
+
+
+def shell_path(path: Path, home: Path | None) -> str:
+    """path as one word an agent's shell on this machine reads back: `~/<rest>` when it is under home and the rest has
+    only plain characters (the tilde still expands inside `$(cat ...)`), else the absolute path, shell-quoted."""
+    if home is not None:
+        try:
+            rest = path.relative_to(home)
+        except ValueError:
+            rest = None
+        if rest is not None and re.fullmatch(r"[A-Za-z0-9._/-]+", str(rest)):
+            return "~/%s" % rest
+    return shlex.quote(str(path))
+
+
+def token_file_curl(shown: str) -> str:
+    """The curl form an agent on this machine uses with the instance's token file (ADR-0007): the shell reads the
+    file at call time, so the text names the file and never carries the token."""
+    return "`curl -H \"Authorization: Bearer $(cat %s)\" …`" % shown
+
+
+def token_guidance_line(shown_file: str | None) -> str:
+    """The agent-auth line of pins.md: TOKEN_GUIDANCE as before, plus one clause when this machine's agents have a token
+    file to send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause
+    is appended after the old text, never woven in, so the line still starts with what agents already match."""
+    if not shown_file:
+        return TOKEN_GUIDANCE
+    return (TOKEN_GUIDANCE + " · 이 기기의 에이전트는 토큰 파일을 붙인다: " + token_file_curl(shown_file)
+            + "(파일 내용은 출력하지도 저장소에 옮기지도 않는다)")
+
+
+def loopback_refused_text(token_file: Path | None, exists: bool, home: Path | None) -> str:
+    """The 401 text for a headerless request from this machine when the loopback agent is off (--no-agent-loopback,
+    AGENT_LOOPBACK=0). The v0.2 text comes first, unchanged; then where this machine's agents get their token: the
+    instance's token file when the server knows it (token_file, and whether it exists), else the convention.
+    Pure: the caller stats the file and passes the home folder."""
+    shown = shell_path(token_file, home) if token_file is not None else TOKEN_FILE_EXAMPLE
+    text = ("%s 이 인스턴스는 헤더 없는 로컬 요청을 받지 않습니다(AGENT_LOOPBACK=0). 이 기기의 에이전트는 토큰 파일을 "
+            "붙이세요: %s" % (UNAUTHENTICATED, token_file_curl(shown)))
+    if not exists:
+        name = token_file.stem if token_file is not None and token_file.suffix == ".token" else "<인스턴스>"
+        text += " 파일이 없으면 소유자가 `limn token create %s --save` 로 만듭니다." % name
+    return text
+
+
+def existing_token_file_shown(f: Path | None) -> str | None:
+    """The shell path of token file f when it exists, else None - the edge half of token_guidance_line(): one stat
+    per render, never a read of the file."""
+    return shell_path(f, home_or_none()) if f is not None and f.exists() else None
+
+
+def home_or_none() -> Path | None:
+    """This account's home folder, or None when neither $HOME nor the password database names one."""
+    try:
+        return Path.home()
+    except (RuntimeError, KeyError):
+        return None
+
+
 REPLY_GUIDANCE = ("답글(0.2.2): 사람 신원으로 단 답글은 검토 대기·완료 핀을 다시 연다(답글이 다시 연 이유가 된다) — "
                   "토큰 없이 사람 신원을 달고 가는 에이전트(테일넷 주소로 닫을 때 `\"review\":true` 를 넣는 경우, `--auth local` 의 "
                   "헤더 없는 curl)는 답글 본문에 `\"reopen\":false` 를 넣는다 · 토큰을 쓰는 에이전트의 답글은 상태를 바꾸지 않는다")
@@ -5503,7 +5565,7 @@ def pins_md_text(rows: list, base: str | None = None) -> str:
                      "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)")
     out.append(guidance)
     out.append(claim_guidance(base))
-    out.append(TOKEN_GUIDANCE)
+    out.append(token_guidance_line(None if is_remote else existing_token_file_shown(C.agent_token_file)))
     out.append(REPLY_GUIDANCE)                    # v0.2.2: one more additive line
     if any_symbol:
         out.append(LEGEND)
@@ -6229,6 +6291,10 @@ def identify(headers, peer) -> Principal:
                 raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
+        if not came_through_proxy(headers):
+            # An agent on this machine with the loopback agent off (ADR-0007): say where its token file is.
+            f = C.agent_token_file
+            raise HTTPError(401, loopback_refused_text(f, f is not None and f.exists(), home_or_none()))
     raise HTTPError(401, UNAUTHENTICATED)
 
 
@@ -6968,6 +7034,7 @@ def configure_access(a) -> None:
         sys.exit("--local-user takes a login (no spaces, not 'local' or 'agent:...'): %r" % a.local_user)
     C.local_user = a.local_user
     C.insecure = bool(a.i_know_this_is_insecure) and not loop_bind and C.auth != "trusted-proxy"
+    C.agent_token_file = Path(a.agent_token_file).expanduser() if a.agent_token_file else None
 
 
 def tighten_state_perms() -> None:
@@ -6997,6 +7064,8 @@ def access_log_lines() -> list:
         parts.append("proxies %s" % ",".join(str(n) for n in C.trusted_proxies))
         parts.append("user header %s" % C.proxy_user_header)
     parts.append("tokens %d" % len(load_tokens(C.state)))
+    if C.agent_token_file is not None:
+        parts.append("token file %s (%s)" % (C.agent_token_file, "present" if C.agent_token_file.exists() else "absent"))
     parts.append("loopback agent %s" % ("on (deprecated)" if C.agent_loopback else "off"))
     if C.agent_loopback:                          # only meaningful where the loopback agent exists
         parts.append("tailnet agent %s" % ("on (deprecated)" if C.tailnet_agent else "off"))
@@ -7099,6 +7168,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="Admit only people listed in people.json (limn member add) or --allow; others get 403 and are not recorded")
     acc.add_argument("--local-user",
                      help="The owner's login under --auth local (default $USER, then 'owner')")
+    acc.add_argument("--agent-token-file", default=os.environ.get("LIMN_AGENT_TOKEN_FILE") or None, metavar="PATH",
+                     help="Where agents on this machine keep this instance's token (limn token create <instance> "
+                          "--save; default $LIMN_AGENT_TOKEN_FILE, which limn run sets). Never read: once the file "
+                          "exists, pins.md and the 401 for a headerless local request tell agents to send it")
     return ap
 
 
