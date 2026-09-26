@@ -25,12 +25,23 @@ no() {
 }
 chk() { if eval "$2"; then ok "$1"; else no "$1  [$2]"; fi; }
 
-# The real interpreter (resolved before HOME is redirected — some python3 shims depend on HOME).
-PY=$(python3 -c "import sys; print(sys.executable)" 2> /dev/null || true)
+# The real interpreter (resolved before HOME is redirected — some python3 shims depend on HOME). limn needs
+# Python >= 3.10, and macOS's /usr/bin/python3 is 3.9, so the first python3 is not enough: LIMN_TEST_PYTHON, then
+# python3 / python3.1x on PATH, then this checkout's .venv (uv sync).
+py_ok() { "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 10) else 1)' > /dev/null 2>&1; }
+PY=""
+for c in "${LIMN_TEST_PYTHON:-}" python3 python3.14 python3.13 python3.12 python3.11 python3.10 "$ROOT/.venv/bin/python"; do
+    [[ -n "$c" ]] || continue
+    c=$(command -v "$c" 2> /dev/null) || continue
+    py_ok "$c" || continue
+    PY=$("$c" -c "import sys; print(sys.executable)") && break
+done
 if [[ -z "$PY" ]]; then
-    printf '  · python3 not found — skipping (runs fine in CI)\n'
+    printf '  · no Python >= 3.10 found (set LIMN_TEST_PYTHON, or uv sync) — skipping (runs fine in CI)\n'
     exit 0
 fi
+# mode_of <file> — octal permission bits on GNU (Linux) and BSD (macOS) stat alike.
+mode_of() { stat -c %a "$1" 2> /dev/null || stat -f %Lp "$1"; }
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 mkdir -p "$T/bin"
@@ -546,7 +557,7 @@ echo "── 14. limn token / limn member resolve the instance's state dir ─�
 tok=$("$PV" token create v01 --name ci 2> "$T/tok.err")
 chk "token create prints the token on stdout only" "[[ \"\$tok\" == limn_* && \$(wc -l <<< \"\$tok\") -eq 1 ]]"
 chk "the token lands in STATE_DIR from the config, hashed and 0600" \
-    "[[ -f '$T/data/v01/tokens.json' && \$(stat -c %a '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
+    "[[ -f '$T/data/v01/tokens.json' && \$(mode_of '$T/data/v01/tokens.json') == 600 ]] && ! grep -qF \"\$tok\" '$T/data/v01/tokens.json' && grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
 chk "token list shows the name, never the token" "'$PV' token list v01 | grep -q ' ci ' && ! '$PV' token list v01 | grep -qF \"\$tok\""
 chk "token revoke by name" "'$PV' token revoke v01 ci >/dev/null && ! grep -q '\"name\": \"ci\"' '$T/data/v01/tokens.json'"
 chk "token on an unknown instance fails" "! '$PV' token list nope >/dev/null 2>&1"
@@ -556,6 +567,34 @@ chk "member remove" "'$PV' member remove v01 alice@example.com >/dev/null && ! g
 chk "--state-dir instead of an instance" "'$PV' member add --state-dir '$T/data/plain' bob@example.com >/dev/null && grep -q bob@example.com '$T/data/plain/people.json'"
 "$PV" help > "$T/help.out" 2>&1
 chk "limn help lists token and member" "grep -q 'limn token create' '$T/help.out' && grep -q 'limn member add' '$T/help.out' && grep -q -- '--auth' '$T/help.out'"
+
+echo "── 16. portability: Python >= 3.10, timeout without GNU coreutils ──"
+mkdir -p "$T/py39" "$T/pynew"
+printf '#!/bin/sh\n# a Python 3.9: too old for limn\nexit 1\n' > "$T/py39/python3"
+chmod +x "$T/py39/python3"
+ln -s "$(command -v dirname)" "$T/py39/dirname"
+ln -s "$(command -v sed)" "$T/py39/sed" # for `help`
+ln -s "$PY" "$T/pynew/python3.12"
+IM="$ROOT/src/limn/instances.sh"
+out=$(env -u LIMN_PYTHON LIMN_PRINT_ARGV=1 PATH="$T/py39:$T/pynew:$PATH" bash "$IM" run v01 2>&1)
+chosen=$(sed -n 1p <<< "$out")
+chk "run directly: skips a python3 older than 3.10 for a newer python3.1x on PATH" "[[ '$chosen' != '$T/py39/python3' && -x '$chosen' ]] && py_ok '$chosen'"
+out=$(env -u LIMN_PYTHON PATH="$T/py39" "$BASH" "$IM" list 2>&1)
+chk "run directly with only an old python3: stops with a clear message" "grep -q 'no Python >= 3.10 found' <<< \"\$out\""
+out=$(LIMN_PYTHON="$T/py39/python3" PATH="$T/pynew:$PATH" bash "$IM" list 2>&1)
+chk "an explicit LIMN_PYTHON that is too old is an error, not silently replaced" "grep -qF 'LIMN_PYTHON=$T/py39/python3 is not Python >= 3.10' <<< \"\$out\""
+chk "help still works without a Python" "env -u LIMN_PYTHON PATH='$T/py39' '$BASH' '$IM' help | grep -q 'limn add'"
+# with_timeout: no timeout(1)/gtimeout (stock macOS) -> perl's alarm still bounds the command.
+if command -v perl > /dev/null 2>&1; then
+    mkdir -p "$T/notimeout"
+    ln -s "$(command -v perl)" "$T/notimeout/perl"
+    ln -s "$(command -v sleep)" "$T/notimeout/sleep"
+    sed -n '/^with_timeout()/,/^}/p' "$IM" > "$T/with_timeout.sh"
+    chk "with_timeout without timeout(1) still stops a hung command (perl alarm)" \
+        "PATH='$T/notimeout' '$BASH' -c '. \"\$1\"; type with_timeout > /dev/null && s=\$SECONDS && { with_timeout 1 sleep 5 2> /dev/null; rc=\$?; (( rc != 0 && SECONDS - s < 4 )); }' x '$T/with_timeout.sh' 2> /dev/null"
+    chk "with_timeout without timeout(1) passes a quick command's status through" \
+        "PATH='$T/notimeout' '$BASH' -c '. \"\$1\"; with_timeout 5 sleep 0' x '$T/with_timeout.sh'"
+fi
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

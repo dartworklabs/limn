@@ -442,7 +442,8 @@ class Tokens(AccessBase):
         self.assertIsNone(cli.env_get(f, "NOPE"))
         bash = shutil.which("bash")
         if bash:                                                       # the same answer as instances.sh's env_get
-            script = 'source <(sed -n "/^env_get()/,/^}/p" "$1"); env_get "$2" STATE_DIR'
+            # eval, not `source <(...)`: bash 3.2 (macOS /bin/bash) sources nothing from a process substitution
+            script = 'eval "$(sed -n "/^env_get()/,/^}/p" "$1")"; env_get "$2" STATE_DIR'
             out = subprocess.run([bash, "-c", script, "x", str(SRC / "limn" / "instances.sh"), str(f)],
                                  capture_output=True, text=True, timeout=30, check=False).stdout.strip()
             self.assertEqual(out, "/a b")
