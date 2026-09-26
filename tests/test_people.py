@@ -92,28 +92,29 @@ class Known(unittest.TestCase):
 
     def test_people_and_pin_actors_without_agents(self):
         """people.json first (with last_seen), then author, *_by and thread posters; agents and bad actors skipped."""
-        rows = [{"login": "a@x", "name": "A", "last_seen": "t1"}]
+        rows = [{"login": "a@example.com", "name": "A", "last_seen": "t1"}]
         pins = [
             {
-                "author": {"login": "b@x", "name": "B", "pic": "p"},
+                "author": {"login": "b@example.com", "name": "B", "pic": "p"},
                 "closed_by": {"login": "local", "name": "로컬"},
                 "done_by": {"login": "agent:bot", "name": "bot"},
-                "note": {"login": "n@x"},
-                "thread": [{"by": {"login": "a@x", "name": "Other", "pic": "q"}}, {"by": {"login": ""}}],
+                "note": {"login": "n@example.com"},
+                "thread": [{"by": {"login": "a@example.com", "name": "Other", "pic": "q"}}, {"by": {"login": ""}}],
             }
         ]
         self.assertEqual(
             known_people(rows, pins, agent),
             {
-                "a@x": {"login": "a@x", "name": "A", "last_seen": "t1", "pic": "q"},
-                "b@x": {"login": "b@x", "name": "B", "pic": "p"},
+                "a@example.com": {"login": "a@example.com", "name": "A", "last_seen": "t1", "pic": "q"},
+                "b@example.com": {"login": "b@example.com", "name": "B", "pic": "p"},
             },
         )
 
     def test_a_name_falls_back_to_the_login(self):
         """An actor without a name is shown by login."""
         self.assertEqual(
-            known_people([], [{"author": {"login": "z@x"}}], agent), {"z@x": {"login": "z@x", "name": "z@x"}}
+            known_people([], [{"author": {"login": "z@example.com"}}], agent),
+            {"z@example.com": {"login": "z@example.com", "name": "z@example.com"}},
         )
 
 
@@ -131,40 +132,50 @@ class Write(unittest.TestCase):
 
     def test_a_first_visit_writes_a_private_entry_without_a_role(self):
         """first_seen/last_seen are the local time of now; no role field for the default role; mode 0600."""
-        self.assertTrue(record_person(self.book, {"login": "a@x", "name": "A"}, 0.0, None, "editor"))
+        self.assertTrue(record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         (entry,) = self.rows()
         self.assertEqual(set(entry), {"login", "name", "first_seen", "last_seen"})
         self.assertEqual(stat.S_IMODE(os.stat(self.book.path).st_mode), 0o600)
 
     def test_a_given_role_is_kept_only_when_it_is_not_the_default(self):
         """The local owner is recorded as owner; 'editor' is not written."""
-        record_person(self.book, {"login": "o@x", "name": "O"}, 0.0, "owner", "editor")
-        record_person(self.book, {"login": "e@x", "name": "E"}, 0.0, "editor", "editor")
-        self.assertEqual({x["login"]: x.get("role") for x in self.rows()}, {"o@x": "owner", "e@x": None})
+        record_person(self.book, {"login": "o@example.com", "name": "O"}, 0.0, "owner", "editor")
+        record_person(self.book, {"login": "e@example.com", "name": "E"}, 0.0, "editor", "editor")
+        self.assertEqual(
+            {x["login"]: x.get("role") for x in self.rows()}, {"o@example.com": "owner", "e@example.com": None}
+        )
 
     def test_an_unchanged_person_is_not_rewritten_within_the_touch_interval(self):
         """Same name and pic within PEOPLE_TOUCH_S: no write; a name change or a stale last_seen: a write."""
-        actor = {"login": "a@x", "name": "A"}
+        actor = {"login": "a@example.com", "name": "A"}
         record_person(self.book, actor, 100.0, None, "editor")
         self.assertFalse(record_person(self.book, actor, 100.0 + people.PEOPLE_TOUCH_S - 1, None, "editor"))
-        self.assertTrue(record_person(self.book, {"login": "a@x", "name": "A2", "pic": "p"}, 101.0, None, "editor"))
+        self.assertTrue(
+            record_person(self.book, {"login": "a@example.com", "name": "A2", "pic": "p"}, 101.0, None, "editor")
+        )
         self.assertEqual((self.rows()[0]["name"], self.rows()[0]["pic"]), ("A2", "p"))
         self.assertTrue(
             record_person(
-                self.book, {"login": "a@x", "name": "A2", "pic": "p"}, 101.0 + people.PEOPLE_TOUCH_S, None, "editor"
+                self.book,
+                {"login": "a@example.com", "name": "A2", "pic": "p"},
+                101.0 + people.PEOPLE_TOUCH_S,
+                None,
+                "editor",
             )
         )
 
     def test_a_member_role_set_meanwhile_is_kept(self):
         """The file is re-read under the lock, so a role `limn member` wrote survives the visit."""
-        self.book.path.write_text(people_text([{"login": "a@x", "name": "A", "role": "viewer"}]), encoding="utf-8")
-        record_person(self.book, {"login": "a@x", "name": "A"}, 0.0, "owner", "editor")
+        self.book.path.write_text(
+            people_text([{"login": "a@example.com", "name": "A", "role": "viewer"}]), encoding="utf-8"
+        )
+        record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, "owner", "editor")
         self.assertEqual(self.rows()[0]["role"], "viewer")
 
     def test_a_failed_write_returns_false_and_is_not_memoised(self):
         """people.json that cannot be replaced (a directory) is a warning and False; the next call tries again."""
         self.book.path.mkdir()
-        self.assertFalse(record_person(self.book, {"login": "a@x", "name": "A"}, 0.0, None, "editor"))
+        self.assertFalse(record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         self.assertEqual(self.book.seen, {})
 
 

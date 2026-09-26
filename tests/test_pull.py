@@ -54,7 +54,7 @@ class ModuleBoundary(unittest.TestCase):
         self.assertEqual(set(typing.get_args(pull.PullOutcome)), {Pulled, UpToDate, PullSkipped, PullFailed})
 
 
-class Records(unittest.TestCase):
+class PullRecords(unittest.TestCase):
     """pull_record(): the {"state", "reason", "head_before", "head_after"} object of the agent contract."""
 
     def test_each_outcome_writes_its_state_reason_and_heads_in_contract_order(self):
@@ -124,7 +124,7 @@ class ReadingGit(unittest.TestCase):
         self.assertEqual(merged(None, 0, B), Pulled(None, B))
 
 
-class Watch(unittest.TestCase):
+class WatchRounds(unittest.TestCase):
     """The remote-main watch's status and what a round does next."""
 
     def test_sync_state_per_outcome(self):

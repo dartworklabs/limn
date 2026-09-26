@@ -1,8 +1,11 @@
 """Shared fixtures of the server-level tests: the one loaded copy of server.py (ps), the Base fixture that points it at a
-temporary manuscript and state folder, the socketpair request helpers, and the node harness for the viewer's scripts.
+temporary manuscript and state folder, the socketpair request helpers, the node harness for the viewer's scripts, and
+the viewer's source text and page images.
 
 Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
-would give two sets of module globals: two C, two DOCS, two locks).
+would give two sets of module globals: two C, two DOCS, two locks). The access fixtures (identities, AccessBase) are in
+helpers_access.py and the browser ones (the Chromium launcher, BrowserBase) in helpers_browser.py. Test modules import
+fixtures only from these helpers, never from one another.
 """
 
 import dataclasses
@@ -13,15 +16,18 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
 import unittest
+import zlib
 from pathlib import Path
 
 from limn import config, gitsync, revisions
 from limn.access import LOCAL_ACTOR
 from limn.store import find_pin
+from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import InputRejected
 
@@ -71,6 +77,12 @@ def js_icons() -> str:
     """The viewer's Lucide icon table (ICONS) and ic() — included together when running icon-drawing functions like card()/archiveRow() under node."""
     m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
     return m.group(0) + "\n" + extract_js_fn("ic")
+
+
+def js_esc() -> str:
+    """The viewer's own esc() (HTML-escapes &<>"' and turns null into ''), as the page defines it - for node harnesses
+    that run functions building markup, so they escape exactly as the viewer does instead of with a pasted copy."""
+    return re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
 
 
 def js_thread() -> str:
@@ -346,6 +358,30 @@ def req(method, path, body=b"", headers=None):
         h["Content-Length"] = str(len(body))
     head = "%s %s HTTP/1.1\r\n" % (method, path) + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n"
     return head.encode() + body
+
+
+def blank_png(w: int, h: int) -> bytes:
+    """A white 8-bit grayscale PNG of w x h pixels (the viewer only needs real page images and their size)."""
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    raw = b"".join(b"\x00" + b"\xff" * w for _ in range(h))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
+
+
+# The viewer's build-free source folder (index.html, parts.txt, css/, js/).
+VIEWER = PKG / "viewer"
+
+
+def viewer_text(marker: str, directory: Path = VIEWER) -> str:
+    """The text the server puts at marker: the manifest's parts for it, joined in order."""
+    return "".join((directory / n).read_text(encoding="utf-8") for n in assemble.viewer_manifest(directory)[marker])
 
 
 # the smallest PDF that pdftoppm/pdftotext can read (one page, one line of text). poppler rebuilds the xref itself.

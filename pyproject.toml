@@ -61,7 +61,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it
-known-local-folder = ["helpers", "test_*"]   # the tests' shared modules, imported after limn
+known-local-folder = ["helpers", "helpers_*", "test_*"]   # the tests' shared modules, imported after limn
 
 [tool.mypy]
 # Stage 7 of docs/handbook/code-style-roadmap.md: every module of the package is type-checked strictly - the modules

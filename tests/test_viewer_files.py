@@ -20,15 +20,9 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import PKG, ps
+from helpers import VIEWER, ps, viewer_text
 
-VIEWER = PKG / "viewer"
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
-
-
-def viewer_text(marker: str, directory: Path = VIEWER) -> str:
-    """The text the server puts at marker: the manifest's parts for it, joined in order (what test_brand reads)."""
-    return "".join((directory / n).read_text(encoding="utf-8") for n in assemble.viewer_manifest(directory)[marker])
 
 
 class _InlineScripts(HTMLParser):
