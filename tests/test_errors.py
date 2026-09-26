@@ -21,7 +21,7 @@ from limn.pins.edit import NOTE_MAX
 from limn.web.errors import REVISION_FAILURES, SCOPE_REJECTIONS, HTTPError, InputRejected, scope_http_error
 
 from helpers import extract_js_fn, ps, run_node
-from test_access import BOB, AccessBase
+from helpers_access import BOB, AccessBase
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:

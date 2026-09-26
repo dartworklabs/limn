@@ -5,8 +5,6 @@ limn/startup.py; the modules it wires receive the values (or C itself, typed by 
 limn.documents.RunPaths) as arguments. Nothing here reads the command line, the environment or the disk.
 """
 
-from __future__ import annotations
-
 import ipaddress
 from pathlib import Path
 

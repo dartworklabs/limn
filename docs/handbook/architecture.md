@@ -38,14 +38,14 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
 | 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `pull.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
-| 부수효과 셸 | `service/`(핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
+| 부수효과 셸 | `service/`(핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
 | HTTP 층 | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 요청을 읽고 파싱하고, 서비스를 부르고, 결과마다 상태 코드와 본문으로 답한다 | `server.py`. 서비스 목록은 `web/app.py`의 `App` 프로토콜로만 안다 |
 | 조립 지점 | `server.py` | 실행 설정 `C`와 문서 목록 `DOCS`, 프로세스에 하나인 자원(잠금·캐시·작업 목록·감시 상태)을 만들고, 옮긴 모듈에 이 인스턴스의 설정과 협력자를 묶는 한 줄 연결을 두고, 시작 단계를 차례로 부른다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
 
 - **뷰어** `viewer/`: 빌드 단계 없는 정적 파일(`index.html`, 스타일 조각 `css/`, 스크립트 조각 `js/`, 순서 목록 `parts.txt`, 서비스 워커 `sw.js`)과 그것을 한 장의 HTML로 잇는 `assemble.py`. 규칙은 [viewer.md](viewer.md)에 있다.
-- **명령과 인스턴스 관리자** `cli.py`·`instances.sh`·`migrate.py`: `limn` 명령의 입구다. `serve`는 `server.main`으로, `token`·`member`는 `limn/access.py`의 상태 도우미로, 나머지는 `instances.sh`로 간다. 규칙은 [instances.md](instances.md)에 있다.
+- **명령과 인스턴스 관리자** `cli.py`·`instances.sh`·`migrate.py`: `limn` 명령의 입구다. `serve`는 `server.main`으로, `token`·`member`는 `limn/access.py`의 상태 도우미로, 나머지는 `instances.sh`로 간다. `token`·`member`는 `server.py`를 가져오지 않는다. 감사 기록 싱크(`cli_audit`)도 `cli.py`에 있어서, 뷰어 조각이 깨져 서버가 뜨지 못해도 토큰을 취소할 수 있다. 규칙은 [instances.md](instances.md)에 있다.
 
 `server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 그래서 `limn.*` import가 그 준비 뒤에 온다(Ruff `E402`를 이 파일에서만 끈다).
 
@@ -114,7 +114,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 
-빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 셸 없이 `subprocess.run([...])`로 하고 사용자 입력을 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md)다.
+빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 모두 `limn/gitrun.py`를 거친다. 셸 없이 인자 목록으로, stdin과 제어 터미널 없이, `GIT_TERMINAL_PROMPT=0`과 서버의 `GIT_*` 변수를 뺀 환경에서, 시간 제한을 두고 돈다. 사용자 입력은 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md) §git 프로세스다.
 
 ### 6. 옛 상태 디렉터리는 쓰기 마이그레이션 없이 읽는다
 

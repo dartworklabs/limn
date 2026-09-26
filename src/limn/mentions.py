@@ -8,13 +8,13 @@ limn.people.known_people(). A note save notifies the people it newly tags, at mo
 Pure: no files, no clock, no HTTP, no server. Every fact (the people, the records, the time) comes in as an argument.
 """
 
-from __future__ import annotations
-
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, TypeAlias
 
 from limn.pins.edit import ASSIGNEE_AGENT
+from limn.pins.lifecycle import round_marks, thread_of
+from limn.pins.shapes import is_num
 
 # A pin record, a thread post or an events.jsonl record as read from JSON.
 Row: TypeAlias = Mapping[str, Any]
@@ -29,9 +29,8 @@ def thread_round(r: Row) -> list[Any]:
     otherwise (still under review, not yet reopened), it's simply everything after the last close. Without
     this distinction, a reply posted during review (between close and reopen) leaked into the new round after
     reopening as a defect (e.g. that reply's @-tags incorrectly ended up in the new round's addressed_to)."""
-    th: list[Any] = r["thread"] if isinstance(r.get("thread"), list) else []
-    last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
+    th = thread_of(r)
+    last_close, last_reopen = round_marks(r)
     start = last_reopen if last_reopen > last_close else last_close + 1
     return [m for m in th[start:] if isinstance(m, dict)]
 
@@ -161,7 +160,7 @@ def note_mention_targets(
         if (e.get("by") or {}).get("login") != by:
             continue
         ts = e.get("ts")
-        if isinstance(ts, (int, float)) and not isinstance(ts, bool) and abs(now - ts) < window:
+        if is_num(ts) and abs(now - ts) < window:
             cooled.update(e.get("to") or [])
     return [lg for lg in added if lg not in cooled]
 

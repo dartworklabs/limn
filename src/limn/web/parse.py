@@ -12,8 +12,6 @@ file, that a page is in the build. They read those facts through DocumentFacts, 
 a named path against the tree (limn.files.file_in_tree and the close's `changes`).
 """
 
-from __future__ import annotations
-
 import math
 import os
 import re
@@ -31,12 +29,18 @@ from limn.pins.edit import (
     LOCAL_LOGIN,
     NOTE_MAX,
     PDF_QUOTE_MAX,
+    SCOPES,
     AddRequest,
     EditRequest,
+    KindReq,
     LinePlace,
     Place,
     RegionPlace,
+    Scope,
+    is_kind_req,
+    is_scope,
 )
+from limn.pins.shapes import is_int
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 
@@ -58,7 +62,6 @@ CLAIM_TTL_FLOOR = 30  # if only eta_min is given, the lock is min(ceiling, max(t
 # one reply - like the note (NOTE_MAX), only string/length are checked; the UI renders it via esc()
 THREAD_TEXT_MAX = 1000
 MENTION_MAX = 10  # cap on mention hints per post
-SCOPES = ("raw", "para", "env", "env2", "env3", "lines")
 ADD_FIELDS = (
     "file",
     "name",
@@ -130,11 +133,6 @@ class DocumentFacts(Protocol):
         ...
 
 
-def _is_int(v: object) -> bool:
-    """An int that is not a bool - how a JSON integer arrives from json.loads."""
-    return isinstance(v, int) and not isinstance(v, bool)
-
-
 def _is_str_list(v: object) -> bool:
     """A JSON list of strings."""
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
@@ -171,12 +169,21 @@ def parse_note(v: object) -> str | InputRejected:
     return v
 
 
-def parse_kind_req(v: object) -> str | None | InputRejected:
+def parse_kind_req(v: object) -> KindReq | None | InputRejected:
     """Pin kind - 'fix' (fix request) | 'question'. None if absent (= fix, same as a legacy pin)."""
     if v is None:
         return None
-    if not isinstance(v, str) or v not in KIND_REQS:
+    if not isinstance(v, str) or not is_kind_req(v):
         return InputRejected("kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS), "bad_kind_req")
+    return v
+
+
+def parse_scope(v: object) -> Scope | None | InputRejected:
+    """A line pin's range-ladder rung (SCOPES), or None when absent."""
+    if v is None:
+        return None
+    if not is_scope(v):
+        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
     return v
 
 
@@ -317,7 +324,7 @@ def parse_close_changes(v: object, root: Path, state: Path) -> tuple[CloseChange
         f, lo, hi = c["file"], c["lo"], c["hi"]
         if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
             return InputRejected("%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what, "bad_changes")
-        if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
+        if not (is_int(lo) and is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
             return InputRejected(
                 "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), "bad_changes"
             )
@@ -382,7 +389,7 @@ def parse_pin_param(v: object) -> int | None | InputRejected:
         return None
     if isinstance(v, str) and re.fullmatch(r"[1-9][0-9]{0,8}", v):
         return int(v)
-    if isinstance(v, int) and _is_int(v) and 1 <= v <= 999999999:
+    if isinstance(v, int) and is_int(v) and 1 <= v <= 999999999:
         return v
     return InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin")
 
@@ -418,7 +425,7 @@ def parse_revision_build(d: Json) -> RevisionQuery | InputRejected:
     the commit (parse_commit)."""
     if set(d) - REVISION_BUILD_FIELDS:
         return InputRejected("허용되지 않는 비교 PDF 요청 필드입니다.", "unknown_fields")
-    if "pin" in d and not _is_int(d["pin"]):
+    if "pin" in d and not is_int(d["pin"]):
         return InputRejected("pin 은 핀 번호(양의 정수)여야 합니다.", "bad_pin")
     pin = parse_pin_param(d.get("pin"))
     if isinstance(pin, InputRejected):
@@ -522,9 +529,10 @@ def parse_loc(d: Json, facts: DocumentFacts) -> dict[str, Any] | InputRejected:
             return bad
         out["frac"] = nums
     if d.get("scope") is not None:
-        if d["scope"] not in SCOPES:
-            return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
-        out["scope"] = d["scope"]
+        scope = parse_scope(d["scope"])
+        if isinstance(scope, InputRejected):
+            return scope
+        out["scope"] = scope
     if d.get("quote") is not None:
         if not isinstance(d["quote"], str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
@@ -664,9 +672,9 @@ def parse_edit(d: Json, known: Collection[str]) -> EditBody | InputRejected:
     hi = int_field(d["hi"], "hi") if d.get("hi") is not None else None
     if isinstance(hi, InputRejected):
         return hi
-    scope = d.get("scope")
-    if scope is not None and scope not in SCOPES:
-        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
+    scope = parse_scope(d.get("scope"))
+    if isinstance(scope, InputRejected):
+        return scope
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
         return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")

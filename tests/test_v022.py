@@ -22,16 +22,16 @@ from pathlib import Path
 
 from limn import access, startup, store as limn_store
 from limn.access import LOCAL_ACTOR
-from limn.events import EVENT_TYPES, NOTIFY_TYPES
+from limn.events import NOTIFY_TYPES
 from limn.files import atomic_write
 from limn.pins import position, render as md_render
 from limn.pins.model import OpenPin, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import dump_jsonl, find_pin
 
-from helpers import Base, add_pin, extract_js_fn, js_i18n, js_icons, ps, run_node
-from test_access import ALICE, BOB, CAROL, AccessBase, token_create
-from test_qa_021 import BrowserBase, actor
+from helpers import Base, add_pin, blank_png, extract_js_fn, js_esc, js_i18n, js_icons, ps, run_node
+from helpers_access import ALICE, BOB, CAROL, AccessBase, actor, token_create
+from helpers_browser import BrowserBase
 
 ROOT = Path(__file__).resolve().parent.parent
 HANGUL = re.compile(r"[가-힣]")
@@ -272,7 +272,7 @@ class ReplyApi(AccessBase):
 # ---------------------------------------------------------------- 2. Trash
 
 
-class Trash(AccessBase):
+class TrashApi(AccessBase):
     def setUp(self):
         super().setUp()
         ps._EVENTS_CACHE.clear()
@@ -466,7 +466,7 @@ class ViewerMarkup(unittest.TestCase):
 
     def test_dropped_is_a_notification_type(self):
         self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
-        self.assertIn("dropped", EVENT_TYPES)
+        self.assertIn("dropped", NOTIFY_TYPES)
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
@@ -597,8 +597,8 @@ class ViewerFunctions(unittest.TestCase):
     def test_ref_to_a_deleted_pin_renders_as_deleted(self):
         js = "\n".join(
             [
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             let PEOPLE=[], META=null; const DROPPED=[{id:12}];
             function findAnyPin(id){return id===3?{id:3}:null;}
             """,
@@ -1044,8 +1044,6 @@ class ColdDeepLink(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        from test_i18n import _png
-
         src = ps.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
         ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C))
@@ -1053,7 +1051,7 @@ class ColdDeepLink(BrowserBase):
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)
             for i in (1, 2):
-                (pages / ("page-%d.png" % i)).write_bytes(_png(1275, 1650))
+                (pages / ("page-%d.png" % i)).write_bytes(blank_png(1275, 1650))
             (D.dir / "pages.cur").write_text(pages.name)
             (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
             (D.dir / "head.txt").write_text("abc1234")
@@ -1247,8 +1245,8 @@ class ViewerFunctions2(unittest.TestCase):
             [
                 js_i18n("ko"),
                 js_icons(),
+                js_esc(),
                 r"""
-            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
             const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}

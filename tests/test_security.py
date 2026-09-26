@@ -2,7 +2,7 @@
 out of every route that reads a named manuscript file, an unusable people.json fails closed, and every response forbids
 framing.
 
-Each class drives the request handler over a socketpair as a tailnet person or the agent (test_access.AccessBase),
+Each class drives the request handler over a socketpair as a tailnet person or the agent (helpers_access.AccessBase),
 so what is pinned is what a client sees: status, reason and body, the response headers, and the bytes left on disk.
 The module rules underneath are pinned on their own in test_web_parse.py (FileInTree), test_locate.py (DotPaths,
 StateFolderPaths), test_build_copy.py (StateFolderCopy), test_startup.py (StatePlacement), test_people.py (Unreadable)
@@ -20,9 +20,10 @@ from unittest import mock
 from urllib.parse import quote
 
 from limn import access
+from limn.cli import cli_audit
 
 from helpers import ps, req, split_resp
-from test_access import ALICE, BOB, CAROL, AccessBase, talk_to
+from helpers_access import ALICE, BOB, CAROL, AccessBase, talk_to
 
 SECRET = "url = https://alice:hunter2@example.com/repo.git"
 
@@ -108,7 +109,7 @@ class StateFolderInManuscript(AccessBase):
         ps.C.build = ps.C.state / "build"
         ps.init_seq()
         self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
-        access.token_create(ps.C.state, "ci", ps.cli_audit(ps.C.state))
+        access.token_create(ps.C.state, "ci", cli_audit(ps.C.state))
         self.pid = self.pin_id(ALICE)
         if not ps.C.events_file.exists():
             ps.C.events_file.write_text('{"id": 1, "kind": "mention"}\n', encoding="utf-8")

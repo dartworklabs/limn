@@ -18,7 +18,7 @@ from pathlib import Path
 from limn import revisions, scope
 
 PKG = Path(__file__).resolve().parent.parent / "src" / "limn"
-PURE_IMPORTS = {"__future__", "re", "collections.abc", "dataclasses", "typing", "limn.mapping"}
+PURE_IMPORTS = {"__future__", "re", "collections.abc", "dataclasses", "typing", "limn.mapping", "limn.pins.shapes"}
 
 
 def imports_of(path: Path) -> set:

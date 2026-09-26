@@ -67,7 +67,7 @@ limn serve \
 | `--no-build` | 아니오 | 꺼짐 | 기동 때 재빌드를 건너뛴다. 산출물이 이미 있을 때 서버만 빨리 올리는 용도다. PDF나 쪽 이미지가 없으면 이 플래그와 무관하게 빌드한다 |
 | `--allow` | 아니오 | 비움(= 전원 허용) | 허용할 tailscale 로그인 목록(쉼표 구분). 자세한 규칙은 표 아래 설명 |
 | `--no-origin-check` | 아니오 | 꺼짐 | `Host`·`Origin` 검사(DNS rebinding·CSRF 방어, 아래 'Host·Origin 검사' 절)를 끈다. 탈출구 전용이다. 켜면 기동 로그에 경고가 찍힌다 |
-| `--git-pull` | 아니오 | 꺼짐 | 기동 직후와 60초마다 원격 main을 확인해 fast-forward하고, 새 커밋이면 LaTeX PDF를 다시 빌드한다. 수동 재빌드도 복사 전에 업스트림을 `--ff-only`로 pull한다. 자세한 규칙은 [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`) |
+| `--git-pull` | 아니오 | 꺼짐 | 기동 직후와 60초마다 원격 main을 확인해 fast-forward하고, 새 커밋이면 LaTeX PDF를 다시 빌드한다. 수동 재빌드도 복사 전에 업스트림을 `--ff-only`로 pull한다. 자세한 규칙은 [build-sync.md](build-sync.md) §재빌드 전 원격 main 당겨오기 (`--git-pull`). git은 사람에게 묻지 않으므로(비밀번호·암호 문구·호스트 키) 원격 인증은 ssh 에이전트나 git 자격 증명 도우미로 미리 준비한다([build-sync.md](build-sync.md) §git 프로세스) |
 | `--pdfjs-dir` | 아니오 | 패키지 내장 `src/limn/vendor/pdfjs/` | 뷰어가 벡터로 그릴 때 받는 PDF.js 디렉토리(`pdf.min.mjs`·`pdf.worker.min.mjs`)를 다른 경로로 바꿀 때만 쓴다. 지정한 경로에 파일이 없으면 기동 로그에 경고가 찍히고 뷰어는 PNG로 보인다. 그 밖의 동작은 같다 |
 | `--label` | 아니오 | `--manuscript`의 git origin 저장소 이름. git 저장소가 아니면 폴더 이름 | 여러 논문 뷰어를 동시에 열었을 때 구분할 이름표. 기본 이름표는 40자를 넘으면 잘라 `…`를 붙인다. 직접 줄 때는 40자 이하여야 하고, 넘으면 기동에 실패한다. HTML 이스케이프된다. 쓰이는 자리는 아래 '`--label`·`--accent`' 절 |
 | `--accent` | 아니오 | 이름표 문자열의 해시로 고른 고정 팔레트 색 | 이름표의 강조색. `#rrggbb` 형식만 받고, 형식이 아니면 기동에 실패한다. 직접 지정하지 않으면 같은 `--label`은 항상 같은 기본색이 된다 |

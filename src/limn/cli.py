@@ -4,12 +4,11 @@
 Instance management lives in the bash script instances.sh next to this file. This module hands it
 the paths it needs (interpreter, server, unit template, the limn executable) and the version via
 environment variables, then execs bash. `limn token` and `limn member` are Python: they edit the
-instance's state directory through the state helpers in limn.access, with the audit sink server.py wires
-(cli_audit). server.py is imported only by the commands that need it, so
-`limn version` and the instance commands stay fast.
+instance's state directory through the state helpers in limn.access, with the audit sink cli_audit() makes here.
+They never import server.py, so a revoke works even when the server itself could not start (a broken viewer part, a
+bad install of the web side). server.py is imported only by `limn serve`, and limn.access only by the commands that
+need it, so `limn version` and the instance commands stay fast.
 """
-
-from __future__ import annotations
 
 import argparse
 import os
@@ -18,11 +17,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, TypeAlias
 
 from limn import __version__
+from limn.audit import append_audit, audit_action, audit_entry, os_actor
+from limn.gitrun import run_git
 
 HERE = Path(__file__).resolve().parent
 
@@ -180,6 +182,19 @@ def split_target(
     return state, pos, ns
 
 
+def cli_audit(state: Path) -> Callable[[str, Mapping[str, Any]], bool]:
+    """The audit sink of `limn token` / `limn member` on state (limn.access.AuditSink): each change becomes one
+    audit.jsonl line (limn.audit) as the OS account running the command (os_actor), via "cli", stamped with the clock
+    when it is recorded. The action is narrowed by audit_action (ValueError for one limn.audit does not name - a
+    defect of the caller). A failed write only warns on stderr and returns False, as append_audit does."""
+
+    def record(action: str, details: Mapping[str, Any]) -> bool:
+        """Append one audit line for action with details."""
+        return append_audit(state, audit_entry(audit_action(action), os_actor(), "cli", details, time.time()))
+
+    return record
+
+
 # ---------------------------------------------------------------- the agent token file (docs/adr/0007-agent-token-file.md)
 
 
@@ -229,23 +244,19 @@ def git_tree_holding(path: Path) -> tuple[str | None, str | None]:
     (dubious ownership, a broken repository), so the caller can refuse rather than guess.
 
     Symlinks are resolved first, so a config folder linked into a repository is judged by that repository. The folder
-    may not exist yet: its nearest existing parent is asked. GIT_* variables of the caller (GIT_DIR, GIT_WORK_TREE)
-    are dropped - they would point git at another repository - and messages are read in the C locale."""
-    git = shutil.which("git")
-    if not git:
+    may not exist yet: its nearest existing parent is asked. git runs through limn.gitrun, which drops the caller's
+    GIT_* variables (GIT_DIR, GIT_WORK_TREE would point git at another repository) and never prompts; messages are
+    read in the C locale."""
+    if not shutil.which("git"):
         return None, None
     folder = path.parent
     while not folder.is_dir() and folder != folder.parent:
         folder = folder.parent
     real = folder.resolve() / path.parent.relative_to(folder) / path.name
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env["LC_ALL"] = "C"
 
     def git_in(*args: str) -> subprocess.CompletedProcess[str]:
-        """One git command in the resolved folder, with the cleaned environment; never raises on git's status."""
-        return subprocess.run(
-            [git, "-C", str(folder.resolve()), *args], capture_output=True, text=True, env=env, timeout=30, check=False
-        )
+        """One git command in the resolved folder (limn.gitrun.run_git, LC_ALL=C); never raises on git's status."""
+        return run_git(["-C", str(folder.resolve()), *args], folder.resolve(), 30, extra_env={"LC_ALL": "C"})
 
     top = git_in("rev-parse", "--show-toplevel")
     if top.returncode != 0:
@@ -318,7 +329,7 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
 
     Every check runs before the token exists, and a failed write revokes the new token again, so a failure never
     leaves a valid token nobody holds. The token is printed only with --print."""
-    from limn import access, server as ps
+    from limn import access
 
     if ns.instance is None:
         raise CliError(
@@ -330,12 +341,12 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
     refusal = save_refusal(inspect_save_target(path), path, ns.force)
     if refusal:
         raise CliError(refusal)
-    entry, plain = access.token_create(state, ns.name, ps.cli_audit(state))
+    entry, plain = access.token_create(state, ns.name, cli_audit(state))
     try:
         write_token_file(path, plain, replace=ns.force)
     except OSError as e:
         try:
-            access.token_revoke(state, entry["id"], ps.cli_audit(state))
+            access.token_revoke(state, entry["id"], cli_audit(state))
         except (OSError, ValueError) as undo:
             raise CliError(
                 "could not write %s: %s - and could not revoke the new token (%s), so it is still valid; "
@@ -381,11 +392,11 @@ def forget_saved_token(path: Path, revoked: Mapping[str, Any], token_hash: Calla
 
 def cmd_token(argv: Sequence[str]) -> int:
     """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the state helpers in
-    limn.access (audited through server.cli_audit) and, for an instance, its token file (ADR-0007). Refusals raise
-    CliError; main() prints them."""
+    limn.access (audited through cli_audit) and, for an instance, its token file (ADR-0007). Refusals
+    raise CliError; main() prints them."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    from limn import access, server as ps
+    from limn import access
 
     if sub == "create":
         state, _, ns = split_target(
@@ -409,7 +420,7 @@ def cmd_token(argv: Sequence[str]) -> int:
             return create_saved_token(state, ns)
         if ns.force or ns.print:
             raise CliError("--force and --print only go with --save")
-        entry, plain = access.token_create(state, ns.name, ps.cli_audit(state))
+        entry, plain = access.token_create(state, ns.name, cli_audit(state))
         print(plain)
         sys.stdout.flush()
         print(
@@ -447,7 +458,7 @@ def cmd_token(argv: Sequence[str]) -> int:
         return 0
     if sub in ("revoke", "rm"):
         state, pos, ns = split_target("limn token revoke", rest, 1)
-        revoked = access.token_revoke(state, pos[0], ps.cli_audit(state))
+        revoked = access.token_revoke(state, pos[0], cli_audit(state))
         if revoked is None:
             raise CliError("no token with id or name %r in %s" % (pos[0], state))
         print(
@@ -463,13 +474,13 @@ def cmd_token(argv: Sequence[str]) -> int:
 
 def cmd_member(argv: Sequence[str]) -> int:
     """`limn member add|list|remove|role ...` -> exit status. Edits <state>/people.json through the state helpers in
-    limn.access, in server.py's people.json format and audit sink; a running server applies the change from its next
-    request. A missing member or an unknown subcommand
-    raises CliError; an invalid login or role, an existing member, or an unreadable people.json raises ValueError
-    from the store helpers; main() prints both."""
+    limn.access, in limn.people's people.json format and with cli_audit's audit sink; a running server
+    applies the change from its next request. A missing member or an unknown subcommand raises CliError; an invalid
+    login or role, an existing member, or an unreadable people.json raises ValueError from the store helpers; main()
+    prints both."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    from limn import access, server as ps
+    from limn import access
 
     note = "the running server applies it from the next request"
     if sub == "add":
@@ -485,7 +496,7 @@ def cmd_member(argv: Sequence[str]) -> int:
                 (("--name",), {"help": "display name (default: the part of the login before @)"}),
             ],
         )
-        e = access.member_add(state, pos[0], ns.role, ns.name, ps.cli_audit(state))
+        e = access.member_add(state, pos[0], ns.role, ns.name, cli_audit(state))
         print("added %s as %s (%s) — %s" % (e["login"], e["role"], e["name"], note))
         return 0
     if sub in ("list", "ls"):
@@ -506,13 +517,13 @@ def cmd_member(argv: Sequence[str]) -> int:
         return 0
     if sub in ("remove", "rm"):
         state, pos, _ = split_target("limn member remove", rest, 1)
-        if access.member_remove(state, pos[0], ps.cli_audit(state)) is None:
+        if access.member_remove(state, pos[0], cli_audit(state)) is None:
             raise CliError("%s is not in %s" % (pos[0], state / "people.json"))
         print("removed %s — %s" % (pos[0], note))
         return 0
     if sub == "role":
         state, pos, _ = split_target("limn member role", rest, 2)
-        changed = access.member_set_role(state, pos[0], pos[1], ps.cli_audit(state))
+        changed = access.member_set_role(state, pos[0], pos[1], cli_audit(state))
         if changed is None:
             raise CliError("%s is not in %s (add it with `limn member add`)" % (pos[0], state / "people.json"))
         print("%s is now %s — %s" % (changed["login"], changed["role"], note))

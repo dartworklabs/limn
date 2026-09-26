@@ -29,10 +29,6 @@ from helpers import TEX, Base, add_pin, edit_pin, ps, record_of
 STORE_PY = Path(store.__file__)
 
 
-class Refused(Exception):
-    """The refusal a transaction step raises in these tests (the server passes its HTTPError)."""
-
-
 def valid(r: object) -> bool:
     """The test's record check: a JSON object with an integer id."""
     return isinstance(r, dict) and isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
@@ -53,7 +49,7 @@ class StoreBase(unittest.TestCase):
         self.state = Path(self.tmp.name)
         self.sync_result = False
         self.sync_calls = 0
-        self.store = PinStore(PinFiles(self.state), threading.RLock(), valid, self.sync, render, Refused)
+        self.store = PinStore(PinFiles(self.state), threading.RLock(), valid, self.sync, render)
 
     def sync(self, rows: list) -> bool:
         """Fake anchor re-sync: marks every row synced when self.sync_result is true, and says so."""
@@ -133,7 +129,7 @@ class WriteOrderTest(StoreBase):
             """A renderer that fails."""
             raise RuntimeError("boom")
 
-        broken = PinStore(self.store.files, self.store.lock, valid, self.sync, boom, Refused)
+        broken = PinStore(self.store.files, self.store.lock, valid, self.sync, boom)
         with self.assertRaises(RuntimeError):
             broken.transact(self.add(2))
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
@@ -166,30 +162,32 @@ class WhenWrittenTest(StoreBase):
         self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1, "synced": true}\n')
         self.assertEqual(self.store.files.pins_md.read_text(encoding="utf-8"), "#1\n")
 
-    def test_refusal_still_writes_the_resync(self):
-        """A step raising the refusal type after a re-sync change: the re-sync is written, the refusal propagates."""
+    def test_an_infrastructure_error_after_a_resync_writes_nothing(self):
+        """A step failing with an I/O error after a re-sync change writes nothing, not even the re-sync, and the error
+        propagates. A refused request is a returned result, so no exception type is written through any more."""
         self.put('{"id": 1}\n')
         self.sync_result = True
 
-        def refuse(rows):
-            """Refuses the request."""
-            raise Refused("no")
+        def fail(rows):
+            """Fails the way a file read inside the step can."""
+            raise OSError("io")
 
-        with self.assertRaises(Refused):
-            self.store.transact(refuse)
-        self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1, "synced": true}\n')
+        with self.assertRaises(OSError):
+            self.store.transact(fail)
+        self.assertEqual(self.store.files.pins_jsonl.read_text(encoding="utf-8"), '{"id": 1}\n')
+        self.assertFalse(self.store.files.pins_md.exists())
 
-    def test_refusal_without_resync_writes_nothing(self):
-        """A refusal when the re-sync changed nothing leaves pins.jsonl as it was."""
+    def test_an_infrastructure_error_without_resync_writes_nothing(self):
+        """The same error when the re-sync changed nothing leaves pins.jsonl untouched."""
         self.put('{"id": 1}\n')
         before = self.store.files.pins_jsonl.stat().st_mtime_ns
 
-        def refuse(rows):
-            """Refuses the request."""
-            raise Refused("no")
+        def fail(rows):
+            """Fails the way a file read inside the step can."""
+            raise OSError("io")
 
-        with self.assertRaises(Refused):
-            self.store.transact(refuse)
+        with self.assertRaises(OSError):
+            self.store.transact(fail)
         self.assertEqual(self.store.files.pins_jsonl.stat().st_mtime_ns, before)
 
     def test_defect_writes_nothing_even_after_a_resync(self):

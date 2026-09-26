@@ -11,8 +11,6 @@ says where each pin's file is now (the overlaps count each pin in that file). No
 the server's run settings or imports the server (coding rule R5); the composition root (server.py) binds these.
 """
 
-from __future__ import annotations
-
 import contextlib
 import re
 import subprocess
@@ -38,6 +36,7 @@ from limn.mapping import (
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
+from limn.pins.model import OpenPin, is_region_pin, state_of
 from limn.pins.position import EstContext, epoch, est_basis, resync
 
 # One stored pin as the store reads it: a JSON object (limn.store.Row).
@@ -306,7 +305,7 @@ def sync_all(rows: list[Row], locate: Locator) -> bool:
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
     for i, r in enumerate(rows):
-        if r.get("done") or not r.get("file"):  # a view-only PDF's pin has no lines - nothing to re-match
+        if state_of(r) is not OpenPin or is_region_pin(r):  # a view-only PDF's pin has no lines - nothing to re-match
             continue
         loc = locate(r)
         if loc is None:
@@ -550,8 +549,7 @@ def overlaps_api(rng: SourceLines, ctx: PickContext) -> dict[str, Any]:
 
     The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
     range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
-    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer. rng is the range
-    parsed by limn.web.parse.parse_source_range."""
+    otherwise save a duplicate with no banner shown. rng is the range parsed by limn.web.parse.parse_source_range."""
     return {"overlaps": ctx.overlaps(str(rng.file), rng.lo, rng.hi)}
 
 

@@ -17,8 +17,6 @@ module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Ha
 binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
 """
 
-from __future__ import annotations
-
 from collections.abc import Collection, Sequence
 from email.message import Message
 from pathlib import Path

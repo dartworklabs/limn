@@ -129,7 +129,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 pull이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한다. pull은 있으면 좋은 것이지 빌드의 전제조건이 아니다.
 
-모든 git 호출은 `subprocess.run([...])` 으로 쉘 없이 돈다. 인자에 사용자 입력을 넣지 않는다.
+git 호출이 어떤 환경에서 도는지는 §git 프로세스에 있다.
 
 뷰어는 pull 결과를 빌드 완료 토스트에 한 줄 덧붙인다.
 
@@ -138,6 +138,18 @@ pull이 `skipped`·`error` 여도 빌드는 지금 체크아웃으로 계속한�
 | `skipped`·`error` | 사유(`git pull 건너뜀(dirty)` 등) |
 | `ok` | `원격 반영 <head_before>→<head_after>` |
 | `up_to_date` | 없음. 알릴 변화가 없다 |
+
+### git 프로세스
+
+Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)를 거친다. `--git-pull`의 fetch·merge, 변경 보기의 이력·diff·스냅샷, 빌드의 `head`, 시작 때 라벨을 정하는 origin URL, `limn token create --save`의 저장소 확인이 모두 그렇다. git 명령줄을 다른 모듈이 직접 만들지 않는다(`tests/test_gitrun.py`가 검사).
+
+- 인자는 목록으로만 넘기고 셸을 쓰지 않는다. 사용자 입력은 인자에 넣지 않는다. 호출마다 시간 제한이 있다.
+- stdin은 `/dev/null`이고 새 세션에서 돈다. 제어 터미널이 없으므로 git도, fetch가 부르는 ssh도 `/dev/tty`로 비밀번호·암호 문구·호스트 키를 묻지 못한다.
+- `GIT_TERMINAL_PROMPT=0`을 준다. HTTPS 자격 증명이 필요하면 묻지 않고 바로 실패한다(`error:fetch_failed`).
+- 서버 환경의 `GIT_*` 변수는 넘기지 않는다. `GIT_DIR`·`GIT_WORK_TREE`·`GIT_INDEX_FILE`·`GIT_CONFIG_*` 같은 변수는 git을 다른 저장소로 보내거나 원고에 없는 설정을 더하고, `GIT_ASKPASS`는 묻는 프로그램을 띄운다. ssh 전송 설정(`GIT_SSH_COMMAND`·`GIT_SSH`·`GIT_SSH_VARIANT`)만 남긴다. systemd 유닛이 `GIT_SSH_COMMAND`로 ssh를 BatchMode로 돌리고([instances.md](instances.md)), 운영자가 배포 키를 거기서 고를 수 있어서다. `HOME`·`PATH`·`SSH_AUTH_SOCK`·로케일·프록시 설정은 그대로 넘긴다.
+- git에 설정한 자격 증명 도우미(credential helper)와 ssh 에이전트는 그대로 쓴다. 꺼지는 것은 사람에게 묻는 일뿐이다.
+
+비교 PDF의 샌드박스 빌드(latexdiff·latexmk)는 이 규칙이 아니라 샌드박스 규칙을 따른다([api.md](api.md) §변경 보기와 비교 PDF).
 
 ## 에이전트 응답 다이어트
 

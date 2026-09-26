@@ -10,8 +10,6 @@ audit_entry() builds a line from values the caller passes (the clock included); 
 the file. The module knows no run arguments, no HTTP and no server: the state directory comes in as an argument.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import pwd
@@ -19,25 +17,44 @@ import sys
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
 from limn.files import store_lock
 
 AUDIT_FILE = "audit.jsonl"
-AUDIT_ACTIONS = ("cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role")
-AUDIT_VIA = ("http", "cli")
+# What an audit line records (action) and through which door it came (via).
+AuditAction: TypeAlias = Literal[
+    "cleared", "purged", "token_created", "token_revoked", "member_added", "member_removed", "member_role"
+]
+AuditVia: TypeAlias = Literal["http", "cli"]
+AUDIT_ACTIONS: tuple[AuditAction, ...] = get_args(AuditAction)
+AUDIT_VIA: tuple[AuditVia, ...] = get_args(AuditVia)
+
+
+def is_audit_action(v: object) -> TypeGuard[AuditAction]:
+    """Is v one of AUDIT_ACTIONS?"""
+    return v in AUDIT_ACTIONS
+
+
+def audit_action(v: str) -> AuditAction:
+    """The audit action v names, for a caller the type checker cannot vouch for: the CLI's audit sink receives the
+    action as a plain str (limn.access.AuditSink). ValueError for any other string - a programming error, never a
+    request error."""
+    if not is_audit_action(v):
+        raise ValueError("unknown audit action %r" % v)
+    return v
 
 
 def audit_entry(
-    action: str, by: Mapping[str, Any] | None, via: str, details: Mapping[str, Any], now: float
+    action: AuditAction, by: Mapping[str, Any] | None, via: AuditVia, details: Mapping[str, Any], now: float
 ) -> dict[str, Any]:
     """One audit.jsonl line: {at, ts, action, by, via, details}.
 
     at is the local wall-clock string of `now` (the shape now_str() writes), ts the same instant in epoch seconds; by
-    keeps only {login, name} of the principal (name falls back to login). Raises ValueError for an action or via
-    outside AUDIT_ACTIONS / AUDIT_VIA - a programming error, never a request error. Pure: the caller passes the clock."""
-    if action not in AUDIT_ACTIONS:
-        raise ValueError("unknown audit action %r" % action)
+    keeps only {login, name} of the principal (name falls back to login). Still raises ValueError for an action or
+    via outside AUDIT_ACTIONS / AUDIT_VIA when an untyped caller passes one - a programming error, never a request
+    error. Pure: the caller passes the clock."""
+    audit_action(action)
     if via not in AUDIT_VIA:
         raise ValueError("unknown audit channel %r" % via)
     login = (by or {}).get("login")

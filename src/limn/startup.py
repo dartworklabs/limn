@@ -8,8 +8,9 @@ StartupRefused instead of ending the process - server.main() is the one place th
   AccessOptions or the refusal. The rule: bind loopback by default; a non-loopback --bind only with --auth
   trusted-proxy or an explicit --i-know-this-is-insecure; the deprecated headerless loopback agent only under tailscale
   on a loopback bind. access_log_lines() is the startup log about the result.
-- Documents and files: the --doc specs (parse_doc_arg, make_docs), the main .tex without --doc (detect_main,
-  pick_documents), the state folder (state_dir, state_placement), and people.json's permissions (tighten_state_perms).
+- Documents and files: the --doc specs (parse_doc_arg, make_docs; a refusal is a DocsRefusal value, worded by
+  doc_refusal_message), the main .tex without --doc (detect_main, pick_documents), the state folder (state_dir,
+  state_placement), and people.json's permissions (tighten_state_perms).
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
@@ -35,7 +36,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple, TypedDict
+from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from limn.access import (
     AUTH_PROVIDERS,
@@ -53,6 +54,7 @@ from limn.access import (
 )
 from limn.config import ACCENT_PALETTE, Cfg
 from limn.documents import DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, RunPaths
+from limn.gitrun import run_git
 from limn.mapping import truncate_quote
 
 APP_NAME = "limn"
@@ -276,7 +278,153 @@ class DocSpec(TypedDict):
     main: Path
 
 
-def parse_doc_arg(spec: str, ms: Path) -> DocSpec:
+@dataclass(frozen=True)
+class DocNotKeyed:
+    """The --doc value is not a string of the form <key>=<name>:<path> (it has no '=')."""
+
+    spec: object
+
+
+@dataclass(frozen=True)
+class DocKeyInvalid:
+    """The key before '=' is not [a-z0-9-]{1,24} (DOC_KEY_RE)."""
+
+    key: str
+
+
+@dataclass(frozen=True)
+class DocNameUnseparated:
+    """No ':' separates the display name from the path; spec is the whole --doc value."""
+
+    key: str
+    spec: str
+
+
+@dataclass(frozen=True)
+class DocNameEmpty:
+    """The display name is empty once its whitespace is collapsed."""
+
+    key: str
+
+
+@dataclass(frozen=True)
+class DocNameTooLong:
+    """The display name (whitespace collapsed) is longer than DOC_NAME_MAX characters."""
+
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
+class DocPathEmpty:
+    """Nothing but whitespace follows the ':' after the display name."""
+
+    key: str
+
+
+@dataclass(frozen=True)
+class DocOutsideManuscript:
+    """A path resolves outside --manuscript (a security constraint: pins only point at files inside it). part says
+    which one - the build root of the '::' form or the plain path; manuscript and path are both resolved."""
+
+    key: str
+    part: Literal["root", "path"]
+    manuscript: Path
+    path: Path
+
+
+@dataclass(frozen=True)
+class DocExtendedMalformed:
+    """The '::' form is not exactly one <build root>::<main.tex> with both sides non-empty; path is the path part."""
+
+    key: str
+    path: str
+
+
+@dataclass(frozen=True)
+class DocRootMissing:
+    """The build root of the '::' form is not an existing folder."""
+
+    key: str
+    root: Path
+
+
+@dataclass(frozen=True)
+class DocMainAbsolute:
+    """The main file after '::' is absolute; it must be relative to the build root."""
+
+    key: str
+    main: Path
+
+
+@dataclass(frozen=True)
+class DocMainOutsideRoot:
+    """The main file after '::' resolves outside its build root."""
+
+    key: str
+    main: Path
+
+
+@dataclass(frozen=True)
+class DocExtendedNotTex:
+    """The '::' form names a main file that is not .tex - the form is for LaTeX documents only."""
+
+    key: str
+    main: Path
+
+
+@dataclass(frozen=True)
+class DocFileMissing:
+    """The resolved main file is not an existing regular file."""
+
+    key: str
+    main: Path
+
+
+@dataclass(frozen=True)
+class DocKindUnknown:
+    """The main file is neither .tex (LaTeX) nor .pdf (view-only)."""
+
+    key: str
+    main: Path
+
+
+@dataclass(frozen=True)
+class TooManyDocs:
+    """More --doc values than DOCS_MAX; count is how many were given."""
+
+    count: int
+
+
+@dataclass(frozen=True)
+class DocKeyRepeated:
+    """Two --doc values share a key."""
+
+    key: str
+
+
+# Why one --doc value cannot be served (parse_doc_arg), and why the --doc list cannot (make_docs adds its own two). All
+# are answered the same way: pick_documents() refuses to start with doc_refusal_message()'s text.
+DocSpecRefusal: TypeAlias = (
+    DocNotKeyed
+    | DocKeyInvalid
+    | DocNameUnseparated
+    | DocNameEmpty
+    | DocNameTooLong
+    | DocPathEmpty
+    | DocOutsideManuscript
+    | DocExtendedMalformed
+    | DocRootMissing
+    | DocMainAbsolute
+    | DocMainOutsideRoot
+    | DocExtendedNotTex
+    | DocFileMissing
+    | DocKindUnknown
+)
+DocsRefusal: TypeAlias = DocSpecRefusal | TooManyDocs | DocKeyRepeated
+
+
+def parse_doc_arg(spec: str, ms: Path) -> DocSpec | DocSpecRefusal:
     """Parses one --doc <key>=<display name>:<path>. The path is relative to --manuscript (recommended) or absolute.
 
     - `<key>=<name>:a/b/main.tex` - LaTeX. The build root is the folder holding that .tex (a/b).
@@ -286,80 +434,124 @@ def parse_doc_arg(spec: str, ms: Path) -> DocSpec:
     - `<key>=<name>:x/review.pdf` - a view-only PDF (no rebuild, page/region pins).
     key must be [a-z0-9-]{1,24}; name must be 40 characters or fewer with no ':'. The path must be inside
     --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree).
-    Returns the DocSpec; raises ValueError (with a Korean-language reason) if
-    malformed - make_docs() is its one caller and pick_documents() turns the reason into the refusal."""
+    Returns the DocSpec, or the first rule the value breaks (DocSpecRefusal), checked in this order: form, key, name,
+    path, then the files. Reads the file system only to resolve the paths and check that they exist."""
     if not isinstance(spec, str) or "=" not in spec:
-        raise ValueError("--doc 는 <키>=<표시 이름>:<경로> 형식입니다: %r" % spec)
+        return DocNotKeyed(spec)
     key, rest = spec.split("=", 1)
     key = key.strip()
     if not DOC_KEY_RE.fullmatch(key):
-        raise ValueError("--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: %r" % key)
+        return DocKeyInvalid(key)
     if ":" not in rest:
-        raise ValueError("--doc %s: 표시 이름과 경로 사이에 ':' 가 없습니다: %r" % (key, spec))
+        return DocNameUnseparated(key, spec)
     name, path = rest.split(":", 1)
     name = " ".join(name.split())
     if not name:
-        raise ValueError("--doc %s: 표시 이름이 비었습니다" % key)
+        return DocNameEmpty(key)
     if len(name) > DOC_NAME_MAX:
-        raise ValueError("--doc %s: 표시 이름은 %d자 이하여야 합니다: %r" % (key, DOC_NAME_MAX, name))
+        return DocNameTooLong(key, name)
     path = path.strip()
     if not path:
-        raise ValueError("--doc %s: 경로가 비었습니다" % key)
+        return DocPathEmpty(key)
     ms = ms.resolve()
 
-    def inside(p: Path, what: str) -> Path:
-        """p resolved against --manuscript; ValueError when it lands outside the manuscript tree."""
+    def inside(p: Path, part: Literal["root", "path"]) -> Path | DocOutsideManuscript:
+        """p resolved against --manuscript, or the refusal when it lands outside the manuscript tree."""
         p = (p if p.is_absolute() else ms / p).resolve()
         try:
             p.relative_to(ms)
         except ValueError:
-            raise ValueError("--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, p)) from None
+            return DocOutsideManuscript(key, part, ms, p)
         return p
 
     if "::" in path:
         root_s, main_s = path.split("::", 1)
         if "::" in main_s or not root_s.strip() or not main_s.strip():
-            raise ValueError("--doc %s: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: %r" % (key, path))
-        root = inside(Path(root_s.strip()), "빌드 루트")
+            return DocExtendedMalformed(key, path)
+        root = inside(Path(root_s.strip()), "root")
+        if isinstance(root, DocOutsideManuscript):
+            return root
         if not root.is_dir():
-            raise ValueError("--doc %s: 빌드 루트 폴더가 없습니다: %s" % (key, root))
+            return DocRootMissing(key, root)
         mp = Path(main_s.strip())
         if mp.is_absolute():
-            raise ValueError("--doc %s: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: %s" % (key, mp))
+            return DocMainAbsolute(key, mp)
         main = (root / mp).resolve()
         try:
             main.relative_to(root)
         except ValueError:
-            raise ValueError("--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main)) from None
+            return DocMainOutsideRoot(key, main)
         if main.suffix.lower() != ".tex":
-            raise ValueError("--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main))
+            return DocExtendedNotTex(key, main)
     else:
-        main = inside(Path(path), "경로")
-        root = main.parent
+        found = inside(Path(path), "path")
+        if isinstance(found, DocOutsideManuscript):
+            return found
+        main, root = found, found.parent
     if not main.is_file():
-        raise ValueError("--doc %s: 파일이 없습니다: %s" % (key, main))
+        return DocFileMissing(key, main)
     suf = main.suffix.lower()
     if suf == ".tex":
         kind = "tex"
     elif suf == ".pdf":
         kind = "pdf"
     else:
-        raise ValueError("--doc %s: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (key, main))
+        return DocKindUnknown(key, main)
     return DocSpec(key=key, name=name, kind=kind, src=root, main=main)
 
 
-def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc]:
-    """--doc list -> Doc list, each reading the run paths it is given (paths, the composition root's C). Checks for
-    duplicate keys and the count ceiling (ValueError, like parse_doc_arg). A LaTeX document keyed main uses the
-    state-folder-root layout (root)."""
+def doc_refusal_message(r: DocsRefusal) -> str:
+    """The text the server refuses to start with for each --doc refusal (Korean, worded as it always was)."""
+    match r:
+        case DocNotKeyed(spec=spec):
+            return "--doc 는 <키>=<표시 이름>:<경로> 형식입니다: %r" % (spec,)
+        case DocKeyInvalid(key=key):
+            return "--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: %r" % key
+        case DocNameUnseparated(key=key, spec=spec):
+            return "--doc %s: 표시 이름과 경로 사이에 ':' 가 없습니다: %r" % (key, spec)
+        case DocNameEmpty(key=key):
+            return "--doc %s: 표시 이름이 비었습니다" % key
+        case DocNameTooLong(key=key, name=name):
+            return "--doc %s: 표시 이름은 %d자 이하여야 합니다: %r" % (key, DOC_NAME_MAX, name)
+        case DocPathEmpty(key=key):
+            return "--doc %s: 경로가 비었습니다" % key
+        case DocOutsideManuscript(key=key, part=part, manuscript=ms, path=path):
+            what = "빌드 루트" if part == "root" else "경로"
+            return "--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, path)
+        case DocExtendedMalformed(key=key, path=text):
+            return "--doc %s: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: %r" % (key, text)
+        case DocRootMissing(key=key, root=root):
+            return "--doc %s: 빌드 루트 폴더가 없습니다: %s" % (key, root)
+        case DocMainAbsolute(key=key, main=main):
+            return "--doc %s: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: %s" % (key, main)
+        case DocMainOutsideRoot(key=key, main=main):
+            return "--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main)
+        case DocExtendedNotTex(key=key, main=main):
+            return "--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main)
+        case DocFileMissing(key=key, main=main):
+            return "--doc %s: 파일이 없습니다: %s" % (key, main)
+        case DocKindUnknown(key=key, main=main):
+            return "--doc %s: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (key, main)
+        case TooManyDocs(count=count):
+            return "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, count)
+        case DocKeyRepeated(key=key):
+            return "--doc 키가 겹칩니다: %s" % key
+
+
+def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc] | DocsRefusal:
+    """--doc list -> Doc list, each reading the run paths it is given (paths, the composition root's C), or the first
+    refusal: more than DOCS_MAX values (checked before any is parsed), a value parse_doc_arg refuses, or a key used
+    twice. A LaTeX document keyed main uses the state-folder-root layout (root)."""
     if len(specs) > DOCS_MAX:
-        raise ValueError("--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, len(specs)))
+        return TooManyDocs(len(specs))
     out: list[Doc] = []
     seen: set[str] = set()
     for spec in specs:
         p = parse_doc_arg(spec, ms)
+        if not isinstance(p, dict):
+            return p
         if p["key"] in seen:
-            raise ValueError("--doc 키가 겹칩니다: %s" % p["key"])
+            return DocKeyRepeated(p["key"])
         seen.add(p["key"])
         out.append(
             Doc(
@@ -409,10 +601,9 @@ def pick_documents(src: Path, specs: Sequence[str], main: str | None, paths: Run
     if specs:
         if main:
             return StartupRefused("--doc and --main are not used together - the main file is set via the --doc path.")
-        try:
-            docs = make_docs(specs, src, paths)
-        except ValueError as e:
-            return StartupRefused(str(e))
+        docs = make_docs(specs, src, paths)
+        if not isinstance(docs, list):
+            return StartupRefused(doc_refusal_message(docs))
         first_tex = next((d for d in docs if not d.is_pdf), docs[0])
         return RunDocuments(docs, first_tex.main)
     main_file = (src / main) if main else detect_main(src)
@@ -507,13 +698,7 @@ def git_remote_url(src: Path) -> str | None:
     if not shutil.which("git"):
         return None
     try:
-        r = subprocess.run(
-            ["git", "-C", str(src), "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        r = run_git(["-C", str(src), "remote", "get-url", "origin"], src, 5)
     except (OSError, subprocess.SubprocessError):
         return None
     url = r.stdout.strip()

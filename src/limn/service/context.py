@@ -6,13 +6,13 @@ lookups, where a pin's file is under the manuscript root, and the settings value
 run settings and a frozen clock or a patched setting in a test reaches them.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 
 from limn.access import Role, is_agent_actor
+from limn.audit import AuditAction
+from limn.events import EventType
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.model import Actor, Agent, Person
@@ -28,7 +28,7 @@ class MakeEvent(Protocol):
 
     def __call__(
         self,
-        typ: str,
+        typ: EventType,
         r: Mapping[str, Any],
         actor: Mapping[str, Any],
         to: Iterable[str | None] | None,
@@ -74,7 +74,7 @@ class PinContext:
     make_event: MakeEvent
     emit_events: Callable[[list[Event | None]], None]
     who: Callable[[Mapping[str, Any]], Json]  # an actor as notices and audit.jsonl record it
-    audit: Callable[[str, Json, Json], object]
+    audit: Callable[[AuditAction, Json, Json], object]
     known_people: Callable[[list[Row]], Mapping[str, Json]]  # @-tag candidates: people.json plus the people on rows
     note_tags: NoteTagger
     role_of: Callable[[str], Role]  # a login's people.json role

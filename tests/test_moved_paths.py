@@ -23,8 +23,7 @@ from limn.locate import locate_file
 from limn.store import dump_jsonl
 
 from helpers import add_pin, ps
-from test_access import AccessBase
-from test_v03 import ScopedRepo
+from helpers_access import AccessBase, ScopedRepo
 
 MS_MAIN = (
     "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n"
@@ -194,7 +193,7 @@ class ChangesAfterAClone(ScopedRepo):
             r["changes"] = [dict(c, file="/nowhere/else/other.tex") for c in r["changes"]]
             return None, True
 
-        ps.transact(fn)
+        ps.pin_store().transact(fn)
         self.clone()
         code, d = self.diff(self.fix, self.p1)
         self.assertEqual((code, d["scope"]["source"]), (200, "inferred"))
