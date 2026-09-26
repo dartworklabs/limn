@@ -19,6 +19,7 @@ from unittest import mock
 
 from limn import build as limn_build
 from limn.mapping import find_level
+from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 
@@ -182,7 +183,7 @@ class Base(unittest.TestCase):
 
     def add(self, lo=4, hi=5, note="n", actor=None):
         return ps.add_pin({"file": str(self.main), "lo": lo, "hi": hi, "page": 1, "note": note},
-                          actor or dict(ps.LOCAL_ACTOR))
+                          actor or dict(ps.LOCAL_ACTOR)).record["id"]
 
     def pin(self, pid):
         return ps.find_pin(ps.snapshot_pins(), pid)
@@ -643,15 +644,13 @@ class Store(Base):
         outside.write_text("line one outsidesecret\nline two\n", encoding="utf-8")
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 970, "file": str(outside), "lo": 1, "hi": 1, "anchor": {}}) + "\n")
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(ps.LOCAL_ACTOR))
-        self.assertEqual(cm.exception.code, 400)
+        self.assertEqual(ps.edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(ps.LOCAL_ACTOR)), PinOutsideTree())
         self.assertNotIn("outsidesecret", json.dumps(ps.snapshot_pins()))
 
     def test_lines_edit_drops_via_score(self):
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "via": "synctex", "score": 0.74},
-                         dict(ps.LOCAL_ACTOR))
-        p = ps.edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+                         dict(ps.LOCAL_ACTOR)).record["id"]
+        p = record_of(ps.edit_pin(pid, {"lo": 4, "hi": 6, "scope": "lines", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertNotIn("via", p)
         self.assertNotIn("score", p)
 
@@ -698,9 +697,9 @@ class Store(Base):
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 3, "frac": [0.1, 0.2, 0.3, 0.4]},
-                         dict(ps.LOCAL_ACTOR))
-        p = ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0},
-                        dict(ps.LOCAL_ACTOR))
+                         dict(ps.LOCAL_ACTOR)).record["id"]
+        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9}, "base_rev": 0},
+                                  dict(ps.LOCAL_ACTOR)))
         self.assertEqual((p["lo"], p["hi"], p["page"], p["kind"]), (8, 9, 3, "lines"))
         self.assertEqual(p["frac"], [0.1, 0.2, 0.3, 0.4])
 
@@ -715,10 +714,10 @@ class Store(Base):
         (ps.C.state / "pages-20260101000000").mkdir()
         ps.C.pages_ptr.write_text("pages-20260101000000")
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
-                         dict(ps.LOCAL_ACTOR))
+                         dict(ps.LOCAL_ACTOR)).record["id"]
         self.assertEqual(self.pin(pid)["pdf_build"], "pages")
-        with self.assertRaises(ps.HTTPError):
-            ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(ps.LOCAL_ACTOR))
+        self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(ps.LOCAL_ACTOR)),
+                         ps.InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다."))
 
     def _new_build(self, name="pages-20260101000000"):
         (ps.C.state / name).mkdir(exist_ok=True)
@@ -727,11 +726,11 @@ class Store(Base):
 
     def test_edit_loc_with_new_frac_restamps_pdf_build(self):
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "frac": [0, 0, 1, 1]},
-                         dict(ps.LOCAL_ACTOR))
+                         dict(ps.LOCAL_ACTOR)).record["id"]
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
-                                       "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5,
+                                                 "frac": [0.1, 0.1, 0.2, 0.2]}, "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertNotEqual(p["pdf_build"], old_build)
         self.assertEqual(p["pdf_build"], nb)
 
@@ -739,8 +738,8 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         nb = self._new_build()
-        p = ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb}, "base_rev": 0},
-                        dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 8, "hi": 9, "pdf_build": nb},
+                                        "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_edit_loc_replaces_legacy_frac_build_field(self):
@@ -750,8 +749,8 @@ class Store(Base):
         rows[0]["frac_build"] = "pages"
         ps.write_pins(rows)
         nb = self._new_build()
-        p = ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]},
-                              "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"loc": {"file": str(self.main), "lo": 4, "hi": 5, "frac": [0, 0, 1, 1]},
+                                        "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], nb)
         self.assertNotIn("frac_build", p)
 
@@ -760,14 +759,14 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = ps.edit_pin(pid, {"note": "고친 메모", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"note": "고친 메모", "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_note_append_does_not_touch_pdf_build(self):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = ps.edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"note_append": "덧붙임"}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_lo_hi_only_edit_does_not_touch_pdf_build(self):
@@ -775,7 +774,7 @@ class Store(Base):
         pid = self.add()
         old_build = self.pin(pid)["pdf_build"]
         self._new_build()
-        p = ps.edit_pin(pid, {"lo": 4, "hi": 6, "base_rev": 0}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"lo": 4, "hi": 6, "base_rev": 0}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
@@ -1048,7 +1047,7 @@ class Estimate(Base):
     def test_unknown_pin_build_is_estimated(self):
         self._fake_build("pages-20260101000000", "h1")
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"},
-                         dict(ps.LOCAL_ACTOR))            # a build not in history — treat unknown as estimated (conservative)
+                         dict(ps.LOCAL_ACTOR)).record["id"]            # a build not in history — treat unknown as estimated (conservative)
         self.assertIs(self.est_of(pid), True)
 
     def test_sync_moved_or_lost_is_estimated(self):
@@ -1337,32 +1336,30 @@ class Overlaps(Base):
     def test_note_append_then_undo(self):
         pid = self.add(note="원본")
         p0 = self.pin(pid)
-        p1 = ps.edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR))
+        p1 = record_of(ps.edit_pin(pid, {"note_append": "추가 텍스트"}, dict(ps.LOCAL_ACTOR)))
         self.assertIn("추가 텍스트", p1["note"])
         self.assertIn("(추가 ", p1["note"])
         self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)   # line count unchanged
-        undone = ps.edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR))
+        undone = record_of(ps.edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual(undone["note"], p0["note"])
 
     def test_note_append_does_not_need_base_rev(self):
         pid = self.add()
-        p = ps.edit_pin(pid, {"note_append": "x"}, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"note_append": "x"}, dict(ps.LOCAL_ACTOR)))
         self.assertIn("x", p["note"])
 
     def test_note_append_empty_string_rejected(self):
         pid = self.add(note="원본")
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR))
-        self.assertEqual(cm.exception.code, 400)
-        with self.assertRaises(ps.HTTPError):                 # rejected even if it's whitespace only
-            ps.edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR))
+        empty = ps.InputRejected("덧붙일 메모가 비어 있습니다.")
+        self.assertEqual(ps.edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR)), empty)
+        self.assertEqual(ps.edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR)), empty)   # whitespace only too
         self.assertEqual(self.pin(pid)["note"], "원본")        # unchanged since it was rejected
 
     def test_note_append_over_note_max_combined_is_rejected(self):
         pid = self.add(note="x" * (ps.NOTE_MAX - 20))          # only 20 chars of headroom
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # doesn't exceed the per-field cap (2000) but does once combined
-        self.assertEqual(cm.exception.code, 400)
+        refused = ps.edit_pin(pid, {"note_append": "y" * 100}, dict(ps.LOCAL_ACTOR))   # under the per-field cap (2000), over it once combined
+        self.assertIsInstance(refused, NoteTooLong)
+        self.assertEqual(refused.limit, ps.NOTE_MAX)
         self.assertEqual(len(self.pin(pid)["note"]), ps.NOTE_MAX - 20)          # unchanged length since it was rejected
         self.assertEqual(self.pin(pid)["rev"], 0)                                # rev doesn't bump either
 
@@ -1397,7 +1394,7 @@ class PinsMdV2(Base):
         sub.mkdir()
         f = sub / "intro.tex"
         f.write_text("line one\nline two\n", encoding="utf-8")
-        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR))
+        pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("`sections/intro.tex L1-L1`", md)
         self.assertEqual(self.pin(pid)["lo"], 1)
@@ -1450,7 +1447,7 @@ class PinsMdV2(Base):
         f = self.src / "long.tex"
         f.write_text(long_line + "\n", encoding="utf-8")
         pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
-                          "quote": "짧은 인용"}, dict(ps.LOCAL_ACTOR))
+                          "quote": "짧은 인용"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("«짧은 인용»", md)
         # a short line (<=600 chars) doesn't get a quote attached even if one is present
@@ -1479,7 +1476,7 @@ class PinsMdV2(Base):
         f = self.src / "long2.tex"
         f.write_text(long_line + "\n", encoding="utf-8")
         pid = ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
-                          "quote": "가" * 90}, dict(ps.LOCAL_ACTOR))
+                          "quote": "가" * 90}, dict(ps.LOCAL_ACTOR)).record["id"]
         stored = self.pin(pid)["quote"]
         self.assertEqual(stored, "가" * 59 + "…")
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -1491,7 +1488,7 @@ class PinsMdV2(Base):
         sub.mkdir()
         f = sub / "c.tex"
         f.write_text("line one\n", encoding="utf-8")
-        ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR))
+        ps.add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("a\\|b/c.tex L1-L1", md)
         for line in md.splitlines():
@@ -1505,7 +1502,7 @@ class PinsMdV2(Base):
         # but the range column (range_label) returned the env name as-is — so storing kind='env:x|y'
         # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
-                          "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR))
+                          "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR)).record["id"]
         self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
         md = ps.C.pins_md.read_text(encoding="utf-8")
         for line in md.splitlines():
@@ -1518,9 +1515,9 @@ class PinsMdV2(Base):
         # design 5: exhaustively cover every column — kind (range column, both env and non-env branches),
         # filename, note, quote. Any column breaks the row if a raw '|' or newline gets through.
         ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "a|b\nc",
-                    "scope": "env", "kind": "env:x|y\nz"}, dict(ps.LOCAL_ACTOR))
+                    "scope": "env", "kind": "env:x|y\nz"}, dict(ps.LOCAL_ACTOR)).record["id"]
         ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "n", "kind": "k|1\r\nk2"},
-                   dict(ps.LOCAL_ACTOR))
+                   dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.C.pins_md.read_text(encoding="utf-8")
         rows = [ln for ln in md.splitlines() if ln.startswith("| ") and "main.tex" in ln]
         self.assertEqual(len(rows), 2)
@@ -3014,7 +3011,7 @@ class AuthorPrefixInPinsMd(Base):
 
     def test_legacy_pin_without_author_counts_as_one_group(self):
         pid1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
-                          dict(ps.LOCAL_ACTOR))
+                          dict(ps.LOCAL_ACTOR)).record["id"]
         rows = ps.snapshot_pins()
         for r in rows:
             if r["id"] == pid1:
@@ -4356,9 +4353,9 @@ class MultiDoc(Base):
         self.assertEqual(ps.docs_payload()["docs"][0]["n_open"], 1)
 
     def test_api_docs_lists_kind_and_counts(self):
-        ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR))
+        ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(ps.LOCAL_ACTOR)).record["id"]
         with ps.using_doc(self.rrd):
-            ps.add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR))
+            ps.add_pin({"file": str(self.rr), "lo": 8, "hi": 8, "page": 1}, dict(ps.LOCAL_ACTOR)).record["id"]
         code, _, body = split_resp(self.talk(req("GET", "/api/docs")))
         self.assertEqual(code, 200)
         d = json.loads(body)
@@ -4425,7 +4422,7 @@ class MultiDoc(Base):
         # validation for LaTeX documents is unchanged — a pin without lo/hi is 400
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
         self.assertEqual(code, 400)
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR))
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(ps.LOCAL_ACTOR)).record["id"]
         md = ps.pins_md_text(ps.snapshot_pins())
         self.assertIn("## 본문 · `ms` · `main.tex`", md)
         self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
@@ -4440,15 +4437,14 @@ class MultiDoc(Base):
     def test_view_only_pin_edit_note_and_region_only(self):
         self.fake_pages(self.rv)
         with ps.using_doc(self.rv):
-            pid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR))
+            pid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR)).record["id"]
         rev = self.pin(pid)["rev"]
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR))
-        self.assertEqual(cm.exception.code, 400)
-        p = ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR))   # even without doc in the request, it resolves via the pin's own document
+        self.assertEqual(ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR)),
+                         ps.InputRejected(ps.REGION_EDIT_REFUSAL))
+        p = record_of(ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR)))   # even without doc in the request, it resolves via the pin's own document
         self.assertEqual(p["note"], "b")
-        p = ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"}, "base_rev": p["rev"]},
-                        dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"},
+                                        "base_rev": p["rev"]}, dict(ps.LOCAL_ACTOR)))
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(ps.valid_rec(self.pin(pid)))
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))                            # close/drop are resolved by id, independent of document
@@ -4469,7 +4465,7 @@ class MultiDoc(Base):
     def test_sync_and_overlaps_skip_region_pins(self):
         self.fake_pages(self.rv)
         with ps.using_doc(self.rv):
-            rid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR))
+            rid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2]}, dict(ps.LOCAL_ACTOR)).record["id"]
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")                     # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
@@ -5652,20 +5648,19 @@ class KindAndThread(Base):
 
     def test_kind_req_stored_only_when_given_and_validated(self):
         q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
-                       dict(self.S))
+                       dict(self.S)).record["id"]
         f = self.add()
         self.assertEqual(self.pin(q)["kind_req"], "question")
         self.assertNotIn("kind_req", self.pin(f))                 # an old-style call (agent curl) has no field = fix request
-        with self.assertRaises(ps.HTTPError) as cm:
-            ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S))
-        self.assertEqual(cm.exception.code, 400)
+        self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
+                         ps.InputRejected("kind_req 는 fix|question 중 하나입니다."))
 
     def test_edit_switches_kind_even_on_closed_pin(self):
         pid = self.add()
-        p = ps.edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S))
+        p = record_of(ps.edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
         self.assertEqual(p["kind_req"], "question")
         ps.set_done(pid, True, dict(self.S))
-        p = ps.edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S))
+        p = record_of(ps.edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
         self.assertEqual(p["kind_req"], "fix")
 
     def test_reply_endpoint_appends_message_with_header_identity(self):
@@ -5765,7 +5760,7 @@ class KindAndThread(Base):
 
     def test_pins_md_marks_questions_and_shows_current_round_of_thread(self):
         q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
-                       dict(self.S))
+                       dict(self.S)).record["id"]
         for i in range(5):
             ps.reply_pin(q, "답글 %d\n둘째 줄 | 파이프" % i, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -5958,7 +5953,7 @@ class ReviewState(Base):
         self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
     def test_pins_md_review_section_and_header(self):
-        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S))
+        a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)).record["id"]
         b = self.add(8, 9)
         ps.set_done(a, True, dict(ps.LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -6173,7 +6168,7 @@ class MentionsPeopleEvents(Base):
         self.talk(req("GET", "/", headers=self.HW))
         self.talk(req("GET", "/api/meta?light=1", headers=self.HS))     # polling doesn't count
         self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S))
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
         code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
         d = json.loads(raw)
         self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
@@ -6221,7 +6216,7 @@ class MentionsPeopleEvents(Base):
     def test_edit_adds_mention_event_only_for_new_names(self):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(ps.LOCAL_ACTOR)).record["id"]
         ps.edit_pin(pid, {"note": "@Wendy Kim @Bob Park 봐 주세요", "base_rev": 0}, dict(ps.LOCAL_ACTOR))
         self.assertEqual([(e["type"], e["to"]) for e in self.events()],
                          [("mention", [self.W["login"]]), ("mention", [self.S["login"]])])
@@ -6231,7 +6226,7 @@ class MentionsPeopleEvents(Base):
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
         ps.record_person(dict(self.W))
         a = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
-                       dict(self.S))
+                       dict(self.S)).record["id"]
         self.add(8, 9)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % a))
@@ -6246,10 +6241,10 @@ class MentionsPeopleEvents(Base):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
-        legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W))
-        person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W))
+        legacy = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
+        person = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "note": note, "assignee": self.S["login"]}, dict(self.W)).record["id"]
         agent = ps.add_pin({"file": str(self.main), "lo": 2, "hi": 3, "note": "@Bob Park 질문 참고", "kind_req": "question",
-                            "assignee": "agent"}, dict(self.W))
+                            "assignee": "agent"}, dict(self.W)).record["id"]
         rows = {r["id"]: r for r in ps.pins_payload(ps.snapshot_pins(), True)}
         self.assertNotIn("assignee", rows[legacy])                        # legacy pin: no field -> inferred per #87 (fix request = fyi)
         self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
@@ -6298,7 +6293,7 @@ class MentionsPeopleEvents(Base):
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W))
+        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record["id"]
         f = ps.C.pins_jsonl
         before = f.read_bytes()
         for _ in range(2):
@@ -6337,7 +6332,7 @@ class MentionsPeopleEvents(Base):
         ps.record_person(dict(self.W))
         ps.record_person(dict(self.S))
         pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그",
-                          "kind_req": "question"}, dict(self.W))
+                          "kind_req": "question"}, dict(self.W)).record["id"]
         p = self.pin(pid)
         self.assertNotIn("mentions", p)                    # a self-@mention isn't stored
         self.assertEqual(ps.addressed_to(p), [])
@@ -6723,3 +6718,53 @@ class SocketHarness(unittest.TestCase):
             self.assertEqual(a.recv(64), b"HTTP/1.1 400 Bad Request\r\n\r\n")
         finally:
             a.close()
+
+
+class EditAddParsing(Base):
+    """The HTTP-boundary parsers of pin edit/add return the checked request or the refusal, in the contract's order."""
+
+    def test_parse_edit_returns_the_request_or_the_first_refusal(self):
+        """A valid body becomes an EditRequest (place still unset); the first bad field wins, before base_rev and emptiness."""
+        body = ps.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
+        self.assertIsNone(body.loc)
+        self.assertEqual((body.request.note, body.request.lo, body.request.scope, body.request.base_rev,
+                          body.request.hints, body.request.place), ("n", 3, "para", 2, ("a",), None))
+        self.assertEqual(ps.parse_edit({"note": 3}, ()), ps.InputRejected("note 는 문자열이어야 합니다."))
+        self.assertEqual(ps.parse_edit({"note": "n"}, ()), ps.InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev)."))
+        self.assertEqual(ps.parse_edit({"base_rev": 0}, ()),
+                         ps.InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee)."))
+        unknown = ps.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
+        self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
+        self.assertIsNone(ps.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
+
+    def test_parse_assignee_checks_known_people_only_for_a_person(self):
+        """"agent" needs no lookup; a person must be among the known logins; local is never an assignee."""
+        self.assertEqual(ps.parse_assignee("agent", ()), "agent")
+        self.assertEqual(ps.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
+        self.assertIsInstance(ps.parse_assignee("bob@example.com", ()), ps.InputRejected)
+        self.assertEqual(ps.parse_assignee("local", {"local"}),
+                         ps.InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다."))
+        self.assertIsNone(ps.parse_assignee(None, ()))
+
+    def test_parse_add_checks_the_location_first(self):
+        """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
+        self.assertEqual(ps.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, False, ()),
+                         ps.InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99"))
+        request = ps.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, False, ())
+        self.assertEqual((request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
+                         (str(self.main), 1, "n", ()))
+        self.assertEqual(request.place.named, frozenset({"file", "lo", "hi", "note"}))
+
+    def test_edit_and_add_answers_keep_the_contract_statuses(self):
+        """Over HTTP the refusals keep their statuses and bodies: 404 for no pin, 409 conflict/done, 400 for a bad field."""
+        pid = self.add()
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"note": "x", "base_rev": 5})))
+        self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
+        self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다."}))
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1})))
+        d = json.loads(body)
+        self.assertEqual((code, d["error"], d["detail"], d["pin"]["id"]), (409, "done", "닫힌 핀은 메모만 고칠 수 있습니다.", pid))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "main.tex", "lo": 4, "hi": 5, "kind_req": "x"})))
+        self.assertEqual((code, json.loads(body)), (400, {"error": "kind_req 는 fix|question 중 하나입니다."}))

@@ -18,7 +18,7 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
-PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model"}
+PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model", "limn.pins.lifecycle"}
 ALICE = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AT = "2026-09-26 10:00:00"
 

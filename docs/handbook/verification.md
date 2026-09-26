@@ -43,6 +43,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
 | [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
 | [`tests/test_pins_lifecycle.py`](../../tests/test_pins_lifecycle.py) | `limn.pins`가 순수한지(import 검사), 레코드가 `pin_state()`와 같은 규칙으로 상태 타입이 되는지, 확인·닫기·다시 열기·답글·claim·휴지통 전이가 상태마다 맞는 결과를 돌려주고 필드 순서·모르는 필드·입력 레코드를 지키는지, 스레드 id 규칙 |
+| [`tests/test_pins_edit.py`](../../tests/test_pins_edit.py) | `limn.pins.edit`의 순수 판단: 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 거절 값으로 돌려주는지와 그 순서, 줄 범위가 바뀐 것으로 치는 조건, 편집이 쓰는 필드와 그 순서(위치 다시 잡기의 page·frac 유지, `via`·`score` 지우기, anchor, 담당 스레드 줄), 새 줄 핀·영역 핀 레코드의 필드 순서 |
 | [`tests/test_mapping.py`](../../tests/test_mapping.py) | `limn.mapping`이 순수한지(표준 라이브러리 순수 모듈만 가져오고 `C.`·`cur_doc()`을 읽지 않음), 떠 있는 환경 목록을 인자로 받아 그대로 따르는지 |
 | [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py) | 뷰어 파일 세 개가 패키지에 있고, `index.html`의 CSS·JS 표식이 한 번씩이며, 서버가 조립한 HTML에 두 파일이 그대로 들어가는지. 표식이 틀리면 시작 단계에서 실패하는지 |
 | [`tests/test_build.py`](../../tests/test_build.py) | `limn.build`가 서버 전역(`C`, `cur_doc()`, 문서 목록, 옛 전역 잠금·상태)을 읽지 않고 서버를 가져오지 않는지, `latex_errors`, 두 문서가 인자만으로 동시에 빌드되고(가짜 latexmk가 서로를 기다림) 결과·이력·빌드 폴더가 섞이지 않는지. TeX 없이 가짜 `latexmk`·`pdftoppm`을 PATH에 둔다 |
