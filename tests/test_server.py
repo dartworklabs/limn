@@ -4109,7 +4109,7 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertIn("&lt;script&gt;", out)
 
     def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
-        """The favicon is the Limn mark in the accent (since 0.3.3; it used to be the label's first letter). The label
+        """The favicon is the Limn mark in the accent (since 0.3.4; it used to be the label's first letter). The label
         never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
         out = ps.favicon_href("#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))

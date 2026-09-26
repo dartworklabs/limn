@@ -95,7 +95,7 @@ src/limn/
 │   ├── edit.py          편집 판단(거절은 값), 새 핀 레코드
 │   └── render.py        pins.md 렌더링 (입력 → 문자열)
 ├── mapping.py           역변환·범위 사다리·anchor — 순수 계산 (2026-09-26 옮김)
-├── mark.py              Limn 마크의 SVG·PNG — 순수 (0.3.3)
+├── mark.py              Limn 마크의 SVG·PNG — 순수 (0.3.4)
 ├── store.py             핀 저장소: 잠금 아래 쓰기 순서·원자적 쓰기·손상 레코드 보존 (부수효과, 2026-09-26 옮김)
 ├── build.py             원고 복사·latexmk·pdftoppm·쪽 디렉토리·빌드 이력·원고 지문 (부수효과, 2026-09-26 옮김)
 ├── files.py             원자적 파일 교체 (모든 저장 쓰기가 공유, 2026-09-26 옮김)

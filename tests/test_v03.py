@@ -356,7 +356,7 @@ class ScopeDecisions(unittest.TestCase):
 
     def test_every_rejection_reason_maps_to_one_status_and_body(self):
         """The one SCOPE_REJECTIONS table: status, Korean message and API reason per reason (agent contract). The
-        404 gained its reason in 0.3.3 (every refusal names one, tests/test_errors.py); its text is unchanged."""
+        404 gained its reason in 0.3.4 (every refusal names one, tests/test_errors.py); its text is unchanged."""
         want = {"pin_not_in_doc": (404, {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}),
                 "scope_unreadable": (422, {"error": "이 핀의 변경만 골라 적용하지 못했습니다.", "reason": "scope_failed"}),
                 "scope_mismatch": (422, {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"}),
@@ -756,7 +756,7 @@ class ScopedErrorBodies(ScopedRepo):
     """Every refusal this PR adds, with its exact status and JSON body. Error strings are part of the agent contract
     (api.md), so moving the checks between layers (coding rule R3) must not change a byte of them."""
 
-    # Since 0.3.3 every refusal also names a reason code (additive; tests/test_errors.py). The text stays byte-identical.
+    # Since 0.3.4 every refusal also names a reason code (additive; tests/test_errors.py). The text stays byte-identical.
     PIN_MSG = {"error": "pin 은 핀 번호(양의 정수)여야 합니다.", "reason": "bad_pin"}
     NOT_HERE = {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}
 
