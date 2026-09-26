@@ -1087,7 +1087,8 @@ class ReviewRegressions(AccessBase):
         rows = ps.read_pins()[0]
         with mock.patch.object(ps, "revision_changes", side_effect=slow):
             ts = [threading.Thread(target=ps.revision_pin_scope,
-                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.SCOPE_CACHE))
+                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.SCOPE_CACHE),
+                                   kwargs={"root": ps.C.src})
                   for pid in pins]
             for t in ts:
                 t.start()

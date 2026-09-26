@@ -818,7 +818,7 @@ def revision_diff(D: Doc, commit: str, pin: int | None = None) -> dict:
            "truncated": too_large}
     if pin is not None:
         base, rows = revision_first_parent(repo, commit), [public(r) for r in read_pins()[0]]   # current paths (ADR-0006)
-        sc = (revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, SCOPE_CACHE) if base  # may raise ScopeRejected
+        sc = (revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, SCOPE_CACHE, root=C.src) if base  # may raise ScopeRejected
               else PinScope(scope_pin_record(rows, D, pin)["id"], "commit", "none", 0, 0))
         out["scope"] = scope_payload(sc)
     return out
@@ -1479,14 +1479,21 @@ def scope_pin_record(rows: list, D: Doc, pid: int) -> dict:
 
 
 def revision_pin_scope(D: Doc, rows: list, repo: Path, paths: Sequence[str], base: str, head: str, pid: int,
-                       revisions: Sequence[dict], cache: ScopeCache) -> PinScope:
+                       revisions: Sequence[dict], cache: ScopeCache, *, root: Path) -> PinScope:
     """How pin pid of document D sees commit head (compared with its first parent base). rows are the pin records,
     revisions the document's recent commits (revision_history); the recorded changes count only on the commit the
-    pin's close_ref names. Unless the same pin facts were decided for this commit before (cache), reads the commit's
-    files within one of the cache's slots and decides with pin_scope(); an unreadable commit is mode "commit" and not
-    stored. Raises ScopeRejected("pin_not_in_doc")."""
+    pin's close_ref names. Their absolute paths are located under the manuscript root `root` by the same rule as the
+    pin's own file (locate_file, issue #24), so a moved or cloned checkout keeps the agent's lines; a path the rule
+    cannot place is dropped and the pin's hunks are inferred as before. Unless the same pin facts were decided for
+    this commit before (cache), reads the commit's files within one of the cache's slots and decides with pin_scope();
+    an unreadable commit is mode "commit" and not stored. Raises ScopeRejected("pin_not_in_doc")."""
     r = scope_pin_record(rows, D, pid)
-    changes = [RepoRange(_repo_rel(repo, c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
+
+    def repo_path(file: str) -> str | None:
+        """A recorded change's path relative to the repository, located under root first; None if it cannot be placed."""
+        loc = locate_file(file, None, root, D)
+        return _repo_rel(repo, str(loc.path)) if loc is not None else None
+    changes = [RepoRange(repo_path(c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
     pin = pin_facts(r, _repo_rel(repo, r["file"]) if not is_region_pin(r) else None)
     key = (str(repo), base, head, json.dumps([pin, changes], default=str))
     hit = cache.get(key)
@@ -1566,7 +1573,7 @@ def revision_spec(D: Doc, commit: str, pin: int | None = None) -> RevisionSpec:
     blocks, meta = (), None
     if pin is not None:
         sc = revision_pin_scope(D, [public(r) for r in read_pins()[0]], repo, paths, base, commit, pin, revisions,
-                                SCOPE_CACHE)
+                                SCOPE_CACHE, root=C.src)
         meta = scope_meta(sc)
         if sc.mode == "pin":
             blocks = sc.blocks                    # keyed by the block set, not the pin: pins on the same fix share it
@@ -2830,25 +2837,48 @@ def _within(p: Path, root: Path) -> bool:
         return False
 
 
-def pin_location(r: dict, root: Path) -> PinLocation | None:
-    """Where line pin r's file is under the manuscript root on this machine now (pin_rel_path), or None: a view-only
-    PDF pin, or a file the rule cannot place inside root. Only file metadata is read (resolve, is_file) - under root,
-    apart from resolving the stored path itself as 0.3.0's in_tree() did - and never file contents: a line read from
-    outside the tree would leak into the anchor and out through GET /api/pins. The result is checked once more after
-    resolving symlinks, so a link inside the tree cannot lead outside (a tail through such a link is skipped for the
-    next one)."""
-    file = r.get("file")
+def doc_scope(D: Doc | None, root: Path) -> str:
+    """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
+    record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
+    document's pins come from its own build, which copies only that folder, so nothing of D lies outside it. '' when
+    D is None (a record whose document is no longer configured - the whole root, as in 0.3.2) or D.src is not under
+    root."""
+    if D is None:
+        return ""
+    try:
+        rel = D.src.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        return ""
+    return "" if rel == "." else rel
+
+
+def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> PinLocation | None:
+    """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
+    (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
+    in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
+
+    Only file metadata is read (resolve, is_file) - under root, apart from resolving the stored path itself as 0.3.0's
+    in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
+    through GET /api/pins. The result is checked once more after resolving symlinks, so a link inside the tree cannot
+    lead outside (a tail through such a link is skipped for the next one)."""
     if not isinstance(file, str) or not file:
         return None
     try:
         under = Path(file).resolve().relative_to(root.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         under = None
-    rel = pin_rel_path(file, r.get("file_rel"), under, lambda t: (root / t).is_file() and _within(root / t, root))
+    scope = doc_scope(doc, root) if under is None else ""         # only a moved record needs its document folder
+    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
     if rel is None:
         return None
     path = root / rel
     return PinLocation(rel, path) if _within(path, root) else None
+
+
+def pin_location(r: dict, root: Path) -> PinLocation | None:
+    """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
+    the pin's own document folder), or None: a view-only PDF pin, or a file the rule cannot place inside root."""
+    return locate_file(r.get("file"), r.get("file_rel"), root, doc_by_key(pin_doc_key(r)))
 
 
 def stamp_location(r: dict, root: Path) -> PinLocation | None:
