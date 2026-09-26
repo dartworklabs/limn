@@ -54,7 +54,12 @@ class ModuleBoundary(unittest.TestCase):
         """The runner the server passes (limn.revisions.git) takes a list and never a shell - the security contract
         of every pull step, whose arguments hold no request input."""
         src = inspect.getsource(revisions.git)
-        self.assertIn("subprocess.run([\"git\"]", src)
+        # The call is read from the AST, not the source text, so the check does not depend on the call's layout.
+        runs = [n for n in ast.walk(ast.parse(src))
+                if isinstance(n, ast.Call) and ast.unparse(n.func) == "subprocess.run"]
+        self.assertEqual(len(runs), 1)
+        self.assertTrue(ast.unparse(runs[0].args[0]).startswith("['git']"))
+        self.assertNotIn("shell", {k.arg for k in runs[0].keywords})
         self.assertNotIn("shell=True", src)
 
 
