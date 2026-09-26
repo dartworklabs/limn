@@ -1566,10 +1566,13 @@ def revision_exec(cmd: list, cwd: Path, timeout: float, limit: int = 8 * 1024 * 
                 raise HTTPError(503, "비교 PDF 실행 시간이 초과됐습니다.", reason="timeout") from None
         return rc, bytes(buffers[proc.stdout]), bytes(buffers[proc.stderr])
     finally:
-        # Also remove descendants left behind by a command that has already exited.
+        # Also remove descendants left behind by a command that has already exited. An empty group is ESRCH; on macOS a
+        # group whose members have all exited but are not yet reaped (a zombie leader on the early exits, an orphan
+        # the system has not reaped yet) is EPERM. Either way nothing is left to kill, and the command's own answer
+        # stands (EPERM used to replace a finished git read with a 500).
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
         proc.wait()
         for pipe in buffers:

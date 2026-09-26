@@ -584,6 +584,13 @@ class ScopedRepo(AccessBase):
         q = "/api/revision-diff?commit=%s" % commit + ("&pin=%s" % pin if pin is not None else "")
         return self.call("GET", q)
 
+    def diff_ok(self, commit, pin=None):
+        """The body of a revision-diff request that must succeed. A failure shows the server's answer; a 500 used to
+        surface only as KeyError: 'scope'."""
+        code, d = self.diff(commit, pin)
+        self.assertEqual(code, 200, d)
+        return d
+
 
 class ScopedSourceDiff(ScopedRepo):
     """GET /api/revision-diff?pin= over a real git repository."""
@@ -608,19 +615,19 @@ class ScopedSourceDiff(ScopedRepo):
 
     def test_scoped_hunk_header_keeps_the_commits_line_numbers(self):
         """The scoped hunk of a pin after an insertion carries the commit's real new-side numbers."""
-        _, d = self.diff(self.fix, self.p2)
+        d = self.diff_ok(self.fix, self.p2)
         self.assertIn("@@ -8,7 +9,7 @@", d["scope"]["diff"])
 
     def test_a_commit_that_belongs_entirely_to_the_pin_is_shown_whole(self):
         """A commit that is all the pin's is mode commit: the viewer shows it as in 0.2.2 without extra controls."""
-        _, d = self.diff(self.solo, self.p4)
+        d = self.diff_ok(self.solo, self.p4)
         s = d["scope"]
         self.assertEqual((s["mode"], s["hunks"], s["other"]), ("commit", 1, 0))
         self.assertNotIn("other_diff", s)
 
     def test_a_pin_the_commit_does_not_touch_gets_the_whole_commit(self):
         """A commit that touches none of the pin is mode commit with source none (0.2.2 view)."""
-        _, d = self.diff(self.solo, self.p2)
+        d = self.diff_ok(self.solo, self.p2)
         self.assertEqual((d["scope"]["mode"], d["scope"]["source"], d["scope"]["hunks"]), ("commit", "none", 0))
 
     def test_revision_diff_without_pin_has_the_0_2_2_fields_only(self):
@@ -633,7 +640,7 @@ class ScopedSourceDiff(ScopedRepo):
         # diff.interHunkContext would glue nearby -U0 hunks together and give both pins both edits
         self.git("config", "diff.interHunkContext", "10")
         ps.SCOPE_CACHE.clear()
-        _, d = self.diff(self.fix, self.p2)
+        d = self.diff_ok(self.fix, self.p2)
         self.assertEqual((d["scope"]["hunks"], d["scope"]["other"]), (1, 2))
         self.assertNotIn("pears", d["scope"]["diff"])
 
@@ -667,7 +674,7 @@ class ScopedSourceDiff(ScopedRepo):
         ps.set_done(new_pin, True, dict(ps.LOCAL_ACTOR), ref=mv[:8])
         for pid in (old_pin, new_pin):              # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
-                _, d = self.diff(mv, pid)
+                d = self.diff_ok(mv, pid)
                 s = d["scope"]
                 self.assertEqual((s["mode"], s["hunks"], s["other"]), ("pin", 1, 1))
                 self.assertIn("diff --git a/ms/part.tex b/ms/chapter.tex\nrename from ms/part.tex\nrename to ms/chapter.tex\n", s["diff"])
@@ -866,7 +873,7 @@ class ScopedPdf(ScopedRepo):
         r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]     # beta's line
         r["done_at"] = "2026-09-26 09:00:00"
         ps.write_pins(rows)
-        _, d = self.diff(self.fix, self.p1)
+        d = self.diff_ok(self.fix, self.p1)
         self.assertEqual((d["scope"]["source"], "pears" in d["scope"]["diff"]), ("inferred", True))
 
     def test_status_without_pin_never_carries_another_requests_pin_fields(self):
