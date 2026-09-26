@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlparse
 
+from limn import mapping
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
 from test_access import ALICE, BOB, CAROL, AccessBase, reset_access, talk_to
@@ -600,10 +601,10 @@ class BrowserBase(unittest.TestCase):
             return route.abort()
         if u.path == "/api/pick":
             lines = ps.tex_lines(self.main)
-            lad = ps.compute_levels(lines, 5, 5, ps.C.envs)
+            lad = mapping.compute_levels(lines, 5, 5, ps.C.envs)
             d = {"file": str(self.main), "name": "main.tex", "page": 1, "lo": lad["lo"], "hi": lad["hi"], "raw_lo": 5,
                  "raw_hi": 5, "kind": lad["kind"], "via": "synctex", "score": 1.0, "warn": "", "n_lines": len(lines),
-                 "snippet": ps.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",
+                 "snippet": mapping.snippet(lines, lad["lo"], lad["hi"]), "frac": [0.1, 0.1, 0.3, 0.05], "quote": "Line 5",
                  "levels": lad["levels"], "default_level": lad["default_level"], "overlaps": [],
                  "pdf_build": ps.cur_pages(ps.DOCS[0]).name}
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))

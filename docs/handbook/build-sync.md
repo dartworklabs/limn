@@ -200,6 +200,8 @@ est = (pin.pdf_build ≠ 지금 빌드 그리고 두 빌드의 src_hash 가 다�
 - 그 빌드를 이력에서 못 찾으면 추정(점선)으로 본다. 모르는 채 실선으로 그리는 편이 더 해롭기 때문이다.
 - `pdf_build` 가 없는 옛 핀은 서버가 epoch 수치로 판정한다. 옛 필드명 `frac_build` 는 `pdf_build` 와 같은 뜻으로 읽는다. 찍은 시각 `at` < `built_at` 이고, 지금 빌드를 시작할 때의 `src_mtime` > `at` 이면 추정이다. `edited_at` 은 보지 않는다.
 
+실행 정본은 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `pin_est`·`same_source`·`legacy_est`·`est_basis`(순수 판정, 시계를 읽지 않는다)와 문서의 빌드 이력을 한 번 읽어 그 재료(`EstContext`)를 만드는 [`src/limn/locate.py`](../../src/limn/locate.py)의 `est_context`다.
+
 ### 기동 때 지금 빌드 등록
 
 옛 인스턴스가 만든 지금 빌드는 이력에 없을 수 있다. 기동 때 이 빌드를 이력에 한 번 올린다. 원고가 그 빌드 뒤로 안 바뀌었으면(`src_mtime` ≤ 빌드 기준 시각) 지금 원고의 지문을 그 빌드의 지문으로 삼는다. 그래야 기동 뒤 첫 핀이 원고를 안 바꾼 재빌드에서 점선으로 오탐되지 않는다.

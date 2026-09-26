@@ -56,10 +56,10 @@ from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest,
     CloseRequest, NotClaimed, NotInTrash, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds,
     confirm, confirmer, decide_close, decide_reopen, decide_reply, drop, evolve_close, evolve_reopen, evolve_reply,
-    find_trashed, next_rev, reopen_request, reopens_on_reply, restore, unclaim,
+    find_trashed, reopen_request, reopens_on_reply, restore, unclaim,
 )
 from limn.pins.edit import (  # noqa: E402 - after the path bootstrap above
-    ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, PDF_QUOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
+    ASSIGNEE_AGENT, KIND_REQS, LOCAL_LOGIN, NOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
     LinePlace, Located, PinEdited, RegionPlace, decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
 )
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
@@ -80,7 +80,7 @@ from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the pa
 from limn import revisions  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts, to_source,
+    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts,
 )
 from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
 from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
@@ -90,9 +90,12 @@ from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as buil
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
-    anchor_holds, anchor_offset, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
-    truncate_quote,
+    anchor_of, truncate_quote,
 )
+from limn import locate  # noqa: E402 - after the path bootstrap above
+from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
+from limn.pins import position  # noqa: E402 - after the path bootstrap above
+from limn.pins.position import epoch as _epoch, pin_est  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn.guidance import UNAUTHENTICATED, loopback_refused_text, shell_path  # noqa: E402 - after the path bootstrap above
 # pins.md's renderer; server.py builds its input (pins_md_input).
@@ -141,7 +144,6 @@ def load_ui_messages() -> dict:
 
 UI_EN = load_ui_messages()
 
-TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
@@ -833,164 +835,6 @@ def meta(D: Doc, actor: dict, light: bool = False) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
-
-def synctex_edit(pdf: Path, page: int, x: float, y: float):
-    try:
-        out = subprocess.run(["synctex", "edit", "-o", "%d:%.2f:%.2f:%s" % (page, x, y, pdf)],
-                             capture_output=True, text=True, timeout=10, check=False).stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    inp = line = None
-    for ln in out.splitlines():
-        if ln.startswith("Input:"):
-            inp = ln[6:].strip()
-        elif ln.startswith("Line:"):
-            try:
-                line = int(ln[5:].strip())
-            except ValueError:
-                pass
-        if inp and line:
-            return inp, line
-    return None
-
-
-def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float):
-    w, h = x1 - x0, y1 - y0
-    nx = max(2, min(5, int(w / 40) + 2))
-    ny = max(2, min(6, int(h / 14) + 2))
-    hits = []
-    for i in range(nx):
-        for j in range(ny):
-            r = synctex_edit(pdf, page, x0 + w * (i + 0.5) / nx, y0 + h * (j + 0.5) / ny)
-            if r:
-                hits.append(r)
-    if not hits:
-        return None
-    best = max({f for f, _ in hits}, key=lambda f: sum(1 for g, _ in hits if g == f))
-    ls = densest(sorted(ln for f, ln in hits if f == best))
-    return best, ls[0], ls[-1]
-
-
-# ---------------------------------------------------------------- Reverse mapping 2: rendered text
-
-def region_text(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> str:
-    """Pulls out the characters actually printed inside the selection rectangle (1px = 1pt since -r 72)."""
-    try:
-        return subprocess.run(
-            ["pdftotext", "-f", str(page), "-l", str(page), "-r", "72",
-             "-x", str(int(x0)), "-y", str(int(y0)),
-             "-W", str(max(1, int(x1 - x0))), "-H", str(max(1, int(y1 - y0))), str(pdf), "-"],
-            capture_output=True, text=True, timeout=15, check=False).stdout
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return ""
-
-
-_DF_CACHE: dict = {}
-_DF_LOCK = threading.Lock()
-
-
-def file_key(path: Path) -> tuple:
-    try:
-        st = path.stat()
-        return (str(path), st.st_mtime_ns, st.st_size)
-    except OSError:
-        return (str(path), 0, 0)
-
-
-def token_weights(text: str, lines: list, key: tuple) -> list:
-    """Weights the region text's word tokens by rarity.
-
-    Without weighting, common words like "target"/"data"/"training" dominate the score, so a selection that
-    actually picked the Nomenclature can come out scoring high overlap with a body paragraph too (observed).
-    The rarer a token, the more power it has to pin down a location. The cache key is (path, mtime_ns,
-    size) - id(lines) gets reused once the list is garbage-collected and can pick up another file's frequencies."""
-    with _DF_LOCK:
-        df = _DF_CACHE.get(key)
-    if df is None:
-        df = {}
-        for ln in lines:
-            for t in set(TOKEN_RE.findall(ln)):
-                df[t] = df.get(t, 0) + 1
-        with _DF_LOCK:
-            _DF_CACHE.clear()
-            _DF_CACHE[key] = df
-    n = max(1, len(lines))
-    out = []
-    for t in {t for t in TOKEN_RE.findall(text) if len(t) >= 2}:
-        freq = df.get(t, 0)
-        if freq > n * 0.05:            # a word scattered across the whole manuscript can't pin down a location
-            continue
-        out.append((t, 1.0 / (1.0 + freq)))
-    return out
-
-
-# ---------------------------------------------------------------- Block expansion and the range ladder
-
-# ---------------------------------------------------------------- Anchors and re-syncing
-
-def sync_all(rows: list) -> bool:
-    """If the manuscript is newer than a pin, re-match its line numbers via the anchor. Records whose lines or stale flag changed get rev+1.
-
-    The pin's file is the one pin_location() finds (ADR-0006). When that is not the stored `file` (a moved checkout),
-    synced_at was measured on another file, so the mtime shortcut is taken only if the anchor still holds at lo
-    (anchor_holds); a re-match then writes the located path into `file`, so lines, synced_at and file describe one file
-    again. `file_rel` is never added here, and an anchor is never backfilled from a file the record does not name."""
-    changed = False
-    cache: dict = {}
-    for r in rows:
-        if r.get("done") or not r.get("file"):         # a view-only PDF's pin has no lines - nothing to re-match
-            continue
-        loc = pin_location(r, C.src)                 # ADR-0006: a moved checkout is followed; outside the tree is never read
-        if loc is None:
-            continue
-        f = loc.path
-        try:
-            if not f.is_file():
-                continue
-        except OSError:
-            continue
-        if f not in cache:
-            ls = tex_lines(f)
-            cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
-        lines, nlines, mtime = cache[f]
-        moved = str(f) != r["file"]                  # measured on another file than the stored one (ADR-0006)
-        if "anchor" not in r:                        # backfill a legacy pin saved without an anchor, once
-            if moved:
-                continue                             # never from a file the record does not name (it may be a guess)
-            r["anchor"] = anchor_of(lines, r["lo"], r["hi"])
-            r["synced_at"] = mtime
-            changed = True
-            continue
-        if not r["anchor"]:                          # a pin that selected only blank lines has no anchor to follow
-            continue
-        if r.get("synced_at", 0) >= mtime and (not moved or anchor_holds(r["anchor"], r["lo"], nlines)):
-            continue
-        before = (r["lo"], r["hi"], bool(r.get("stale")))
-        anc = r["anchor"]
-        ho, to = anchor_offset(anc.get("head_off")), anchor_offset(anc.get("tail_off"))   # 0 for a legacy anchor
-        span = r["hi"] - r["lo"]
-        head = find_line(nlines, anc.get("head", ""), r["lo"] + ho)
-        if head is None:
-            r["stale"], r["sync"] = True, "lost"
-        else:
-            n = max(1, len(lines))
-            lo = max(1, head - ho)
-            tail = find_line(nlines, anc.get("tail", ""), r["hi"] - to + (lo - r["lo"]))
-            hi = tail + to if tail is not None and tail >= head else lo + span
-            hi = max(lo, min(n, hi))
-            r["sync"] = "ok" if (lo, hi) == (r["lo"], r["hi"]) else "moved %+d" % (lo - r["lo"])
-            r["lo"], r["hi"] = lo, hi
-            r.pop("stale", None)
-        if (r["lo"], r["hi"], bool(r.get("stale"))) != before:
-            r["rev"] = next_rev(r)
-        if moved:
-            r["file"] = str(f)                       # the new numbers describe this file
-        r["synced_at"] = mtime
-        changed = True
-    return changed
-
-
 # ---------------------------------------------------------------- Pin store
 
 def _is_int(v) -> bool:
@@ -1095,74 +939,27 @@ def _valid_thread(th) -> bool:
     return True
 
 
-class PinLocation(NamedTuple):
-    """Where a line pin's file is on this machine now (pin_location, docs/adr/0006-relative-pin-paths.md)."""
-    rel: str                 # POSIX path relative to the manuscript root (--manuscript)
-    path: Path               # root / rel - the absolute path the API returns as `file`
-
-
-def _within(p: Path, root: Path) -> bool:
-    """Does p, symlinks resolved, lie inside root (also resolved)? False when either cannot be resolved."""
-    try:
-        p.resolve().relative_to(root.resolve())
-        return True
-    except (ValueError, OSError, RuntimeError):
-        return False
-
-
-def doc_scope(D: Doc | None, root: Path) -> str:
-    """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
-    record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
-    document's pins come from its own build, which copies only that folder, so nothing of D lies outside it. '' when
-    D is None (a record whose document is no longer configured - the whole root, as in 0.3.2) or D.src is not under
-    root."""
-    if D is None:
-        return ""
-    try:
-        rel = D.src.resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        return ""
-    return "" if rel == "." else rel
-
-
-def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> PinLocation | None:
-    """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
-    (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
-    in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
-
-    Only file metadata is read (resolve, is_file) - under root, apart from resolving the stored path itself as 0.3.0's
-    in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
-    through GET /api/pins. The result is checked once more after resolving symlinks, so a link inside the tree cannot
-    lead outside (a tail through such a link is skipped for the next one)."""
-    if not isinstance(file, str) or not file:
-        return None
-    try:
-        under = Path(file).resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        under = None
-    scope = doc_scope(doc, root) if under is None else ""         # only a moved record needs its document folder
-    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
-    if rel is None:
-        return None
-    path = root / rel
-    return PinLocation(rel, path) if _within(path, root) else None
-
-
 def pin_location(r: dict, root: Path) -> PinLocation | None:
-    """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
-    the pin's own document folder), or None: a view-only PDF pin, or a file the rule cannot place inside root."""
-    return locate_file(r.get("file"), r.get("file_rel"), root, doc_by_key(pin_doc_key(r)))
+    """Where line pin r's file is under the manuscript root on this machine now (limn.locate.pin_location, the tail
+    guess limited to the folder of the pin's own document), or None."""
+    return locate.pin_location(r, root, doc_by_key(pin_doc_key(r)))
 
 
 def stamp_location(r: dict, root: Path) -> PinLocation | None:
-    """Records where line pin r's file is now (ADR-0006 §1): `file` becomes the current absolute path and `file_rel` the
-    path relative to root. Only for a write to this very pin (create, edit, restore) - other writes keep the stored
-    record, so there is no write migration. A pin that cannot be located, or a view-only PDF pin, is left as it is.
-    Mutates r and returns its location (or None)."""
-    loc = pin_location(r, root)
-    if loc is not None:
-        r["file"], r["file_rel"] = str(loc.path), loc.rel
-    return loc
+    """Records in r where its file is now (limn.locate.stamp_location, the pin's own document). Mutates r."""
+    return locate.stamp_location(r, root, doc_by_key(pin_doc_key(r)))
+
+
+def pin_locator() -> locate.Locator:
+    """pin_location() bound to this instance's manuscript root, read now."""
+    root = C.src
+    return lambda r: pin_location(r, root)
+
+
+def sync_all(rows: list) -> bool:
+    """The store's re-sync (PinStore.sync): stored pins' lines follow their anchors in the .tex files as this instance
+    finds them now (limn.locate.sync_all)."""
+    return locate.sync_all(rows, pin_locator())
 
 
 def pin_store() -> PinStore:
@@ -1220,84 +1017,10 @@ def public(r: dict) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- Location estimation (.est) — a computed field the server judges
+# ---------------------------------------------------------------- Computed fields of GET /api/pins
 #
-# A mark is fixed to frac (the ratio relative to the page) at the moment the pin was placed. If those
-# coordinates might no longer match the PDF currently on screen, it's "estimated" (dashed). The judgment
-# is made by build identity: estimated if the build the pin was placed on screen with (pdf_build) differs
-# from the current build and the two builds' manuscript fingerprints differ. Also estimated if anchor line
-# matching moved or lost the pin. The wall clock is never used - browser timezone, a note-only edited_at,
-# and a pin placed on a stale PDF were all wrong across the board.
-
-def pin_build(r: dict):
-    """The name of the build a pin's coordinates belong to. frac_build is the legacy field name with the same meaning (83b91a5)."""
-    for k in ("pdf_build", "frac_build"):
-        v = r.get(k)
-        if isinstance(v, str) and v:
-            return v
-    return None
-
-
-def _epoch(s):
-    """'YYYY-MM-DD HH:MM:SS' (server local time, the shape now_str writes) or ISO+offset -> epoch seconds. Resolved server-side only."""
-    if not isinstance(s, str) or not s.strip():
-        return None
-    try:
-        dt = datetime.fromisoformat(s.strip().replace(" ", "T", 1))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.astimezone()          # this value was written in server local time - read back on the same machine
-    return dt.timestamp()
-
-
-def est_context(D: Doc) -> dict:
-    """Judgment material of document D for one request (its history read once)."""
-    h = build.load_builds(D)
-    cur = build.cur_pages(D).name
-    by = dict(h["by"])
-    if cur not in by:                                 # before seed_builds() (tests / a rare race) - judge with what's known
-        by[cur] = {"build": cur, "src_mtime": build.read_built_src_mtime(D), "src_hash": None}
-    bsm = build.read_built_src_mtime(D)
-    if bsm is None and _is_num(by[cur].get("src_mtime")):
-        bsm = float(by[cur]["src_mtime"])
-    return {"cur": cur, "by": by, "built_at": _epoch(build.read_built_at(D)), "bsm": bsm}
-
-
-def same_source(a, b) -> bool:
-    """Were two builds made from the same manuscript? By hash if both have one, otherwise by src_mtime at start.
-    False (treated as different) if neither is known - rendering it as "exact location" while actually unsure would be worse."""
-    if not a or not b:
-        return False
-    if a.get("src_hash") and b.get("src_hash"):
-        return a["src_hash"] == b["src_hash"]
-    ma, mb = a.get("src_mtime"), b.get("src_mtime")
-    return _is_num(ma) and _is_num(mb) and abs(float(ma) - float(mb)) < 0.01
-
-
-def legacy_est(r: dict, ctx: dict) -> bool:
-    """Fallback heuristic for a legacy pin without pdf_build (the old viewer's rule, redone server-side with epoch numbers): estimated if
-    the pin was placed before the current PDF, and the manuscript that produced the current PDF (src_mtime at start) changed after the pin.
-
-    The only reference time is when it was placed (at) - using edited_at would turn off estimation just from
-    editing the note (confirmed by independent verification). An edit that re-places frac (loc) now records
-    pdf_build, so it no longer falls through to this heuristic."""
-    ba, pa = ctx["built_at"], _epoch(r.get("at"))
-    if ba is None or pa is None or pa >= ba:
-        return False
-    return ctx["bsm"] is not None and ctx["bsm"] > pa
-
-
-def pin_est(r: dict, ctx: dict) -> bool:
-    sync = r.get("sync")
-    if r.get("stale") or (isinstance(sync, str) and sync != "ok"):
-        return True                                   # moved +-N / lost - the anchor shifted or was lost
-    b = pin_build(r)
-    if b is None:
-        return legacy_est(r, ctx)
-    if b == ctx["cur"]:
-        return False
-    return not same_source(ctx["by"].get(b), ctx["by"].get(ctx["cur"]))
+# Location estimation (est) is limn.pins.position.pin_est over the document's builds as limn.locate.est_context reads
+# them; overlap (rel) is overlaps_by_id below. Neither is stored.
 
 
 def pin_state(r: dict) -> str:
@@ -1358,83 +1081,25 @@ def dropped_payload(now: float = None) -> list:
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored
+#
+# The rule is limn.pins.position (overlaps_by_id, selection_rel, overlaps_for_range); here it is bound to where this
+# instance finds each pin's file now.
 
-def _range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int):
-    """a's relationship to b. None if they don't overlap."""
-    if a_hi < b_lo or b_hi < a_lo:
-        return None
-    if b_lo <= a_lo and a_hi <= b_hi:
-        return "contains" if (a_lo, a_hi) == (b_lo, b_hi) else "inside"
-    if a_lo <= b_lo and b_hi <= a_hi:
-        return "contains"
-    return "partial"
+def pin_file(r: dict) -> str:
+    """The file an open line pin's overlaps are counted in: where pin_location() places it now, else its stored file
+    (pins made before and after a move of the checkout are one file)."""
+    return locate.located_file(r, pin_locator())
 
 
 def overlaps_by_id(rows: list) -> dict:
-    """Computes the relationship for every pair of open pins on the same file (never stored). {id: [{"id","rel"}, ...]}.
-
-    When two ranges are exactly equal, the one with the smaller id is treated as the outer one (contains) -
-    since neither is truly nested inside the other, a single deterministic rule is needed."""
-    out: dict = {}
-    by_file: dict = {}
-    for r in rows:
-        if r.get("done"):
-            continue
-        out.setdefault(r["id"], [])
-        if not r.get("file"):                          # a view-only PDF's pin - no line-range overlap
-            continue
-        loc = pin_location(r, C.src)                   # pins made before and after a move of the checkout are one file
-        by_file.setdefault(str(loc.path) if loc else r.get("file"), []).append(r)
-    for group in by_file.values():
-        for i, a in enumerate(group):
-            for b in group[i + 1:]:
-                if (a["lo"], a["hi"]) == (b["lo"], b["hi"]):
-                    outer, inner = (a, b) if a["id"] < b["id"] else (b, a)
-                    out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
-                    out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
-                    continue
-                rel_a = _range_rel(a["lo"], a["hi"], b["lo"], b["hi"])   # does a fall inside b?
-                if rel_a == "inside":
-                    out[a["id"]].append({"id": b["id"], "rel": "inside"})
-                    out[b["id"]].append({"id": a["id"], "rel": "contains"})
-                elif rel_a == "contains":
-                    out[a["id"]].append({"id": b["id"], "rel": "contains"})
-                    out[b["id"]].append({"id": a["id"], "rel": "inside"})
-                elif rel_a == "partial":
-                    out[a["id"]].append({"id": b["id"], "rel": "partial"})
-                    out[b["id"]].append({"id": a["id"], "rel": "partial"})
-    return out
-
-
-def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int):
-    """The relationship between a not-yet-saved selection (lo..hi) and a saved pin (b_lo..b_hi) - from the selection's point of view.
-
-    equal (same range - the most common duplicate: placing a pin on the same paragraph/environment twice) -
-    inside (selection is inside the pin) - contains (selection wraps the pin) - partial (overlapping) -
-    None (no overlap). Same rule as the viewer's overlapsFor() (the browser recomputes this on every range
-    change without a server round trip - a regression test compares the two implementations)."""
-    if (lo, hi) == (b_lo, b_hi):
-        return "equal"
-    return _range_rel(lo, hi, b_lo, b_hi)
+    """The relationship of every pair of open line pins on the same file (position.overlaps_by_id), never stored."""
+    return position.overlaps_by_id(rows, pin_file)
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list:
-    """The overlap relationships between the (not-yet-saved) range pick chose and that file's open pins. Nothing is saved.
-
-    Between saved pins (overlaps_by_id), equal ranges are split into inner/outer by id, but a new selection
-    has no id yet, so an identical range is reported separately as 'equal' - the viewer surfaces all four
-    relationships via a banner with wording that spells out the relationship."""
-    out = []
-    for r in snapshot_pins():
-        if r.get("done") or not r.get("file"):
-            continue
-        loc = pin_location(r, C.src)
-        if (str(loc.path) if loc else r.get("file")) != file:
-            continue
-        rel = selection_rel(lo, hi, r["lo"], r["hi"])
-        if rel:
-            out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
-    return out
+    """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
+    (position.overlaps_for_range). Nothing is saved."""
+    return position.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_file)
 
 
 def josa(n, cons: str, vowel: str) -> str:
@@ -2238,113 +1903,31 @@ def home_or_none() -> Path | None:
 
 
 # ---------------------------------------------------------------- Selection resolution
+#
+# Resolving a drag to source lines, the snippet and the overlaps of a range are limn/locate.py's; they take the
+# document and the instance's settings as arguments. These are the App members the handler calls (web/app.py),
+# bound to this instance's run settings, token-weight cache and pins.
 
-def pick(D: Doc, request) -> dict:
-    """Dragged region -> source line range + range ladder, for document D and a selection parsed by
-    limn.web.parse.parse_pick (page directory, page, box and page size in points, the viewer's frac).
-
-    Pits the SyncTeX candidate and the text candidate against each other on equal footing. Treating either
-    as a conditional fallback leaves no way to catch SyncTeX being silently wrong (inside minipage/tabular).
-
-    The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
-    finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
-    against that build's PDF and returned as pdf_build in the response - the viewer carries that value
-    through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
-    pdir, page, (x0, y0, x1, y1), (pw, ph), frac = request
-    pdf = build.cur_pdf(D, pdir)
-    rtext = region_text(pdf, page, x0, y0, x1, y1)
-    if D.is_pdf:
-        return _pick_region(D, pdir, page, (x0, y0, x1, y1), (pw, ph), frac, rtext)
-    sy = by_synctex(pdf, page, x0, y0, x1, y1)
-
-    src = to_source(D, sy[0]) if sy else D.main
-    if src.suffix in (".bbl", ".bib"):
-        return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
-                         % src.suffix, "reason": "generated_file"}
-    found = file_in_tree(str(src), C.src)
-    if not isinstance(found, Path):
-        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
-                "reason": "synctex_outside"}
-    src = found
-
-    lines = tex_lines(src)
-    if not lines:
-        return {"error": "원문 파일을 읽지 못했습니다: %s" % src, "reason": "source_unreadable"}
-    tw = token_weights(rtext, lines, file_key(src))
-
-    cands = []
-    if sy:
-        cands.append(("synctex", sy[1], sy[2], score_range(tw, lines, sy[1], sy[2])))
-    alt = by_text(tw, lines, sy[1] if sy else None)
-    if alt:
-        cands.append(("text", alt[0], alt[1], alt[2]))
-    if not cands:
-        return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
-                "reason": "no_source_here"}
-
-    # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
-    cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
-    via, raw_lo, raw_hi, best = cands[0]
-    warn = ""
-    if tw and best < 0.3:
-        warn = "이 영역은 원문 대조가 약합니다(%.0f%%). 줄 범위를 눈으로 확인하세요." % (best * 100)
-
-    lad = compute_levels(lines, raw_lo, raw_hi, C.envs)
-    lo, hi = lad["lo"], lad["hi"]
-    if not warn and len(cands) == 2 and abs(cands[0][3] - cands[1][3]) < 0.12:
-        # If both expand into the same block, the two paths haven't actually diverged - don't warn.
-        if not (lo <= cands[1][1] <= hi):
-            warn = "두 경로가 다른 곳을 가리킵니다(L%d / L%d). 확인이 필요합니다." % (cands[0][1], cands[1][1])
-
-    if build.source_newer(D, C.state, pdir.name) > 2:
-        stale_note = "화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요."
-        warn = stale_note + (" " + warn if warn else "")
-    bstate = build.state_snapshot(D)
-    if bstate["state"] == "running" and bstate["phase"] == "latex":
-        warn = (warn + " " if warn else "") + "빌드 중이라 결과가 흔들릴 수 있습니다."
-
-    quote = truncate_quote(norm(rtext), 60)
-    return {"file": str(src), "name": src.name, "page": page, "lo": lo, "hi": hi,
-            "raw_lo": raw_lo, "raw_hi": raw_hi, "kind": lad["kind"], "via": via,
-            "score": round(best, 2), "warn": warn, "n_lines": len(lines),
-            "snippet": snippet(lines, lo, hi), "frac": frac, "quote": quote,
-            "levels": lad["levels"], "default_level": lad["default_level"],
-            "overlaps": overlaps_for_range(str(src), lo, hi), "pdf_build": pdir.name}
+TOKEN_CACHE = locate.TokenCache()             # the process's word-frequency cache for the last file weighed
 
 
-def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, rtext: str) -> dict:
-    """pick for a view-only document - returns only page/region and the region's text (pdftotext), no SyncTeX.
-    If frac wasn't sent (agent curl), it's built from the coordinates - for a view-only pin, the region is the whole location."""
-    x0, y0, x1, y1 = box
-    pw, ph = size
-    if frac is None:
-        frac = [x0 / pw, y0 / ph, (x1 - x0) / pw, (y1 - y0) / ph]
-    text = norm(rtext)
-    warn = ""
-    if not text:
-        warn = "이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요."
-    bstate = build.state_snapshot(D)
-    if bstate["state"] == "running":
-        warn = (warn + " " if warn else "") + "PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요."
-    return {"doc": D.key, "kind": "region", "view_only": True, "page": page, "frac": frac,
-            "pdf": D.rel_path(), "name": D.main.name, "quote": truncate_quote(text, PDF_QUOTE_MAX),
-            "n_chars": len(text), "warn": warn, "overlaps": [], "pdf_build": pdir.name}
+def pick_context() -> locate.PickContext:
+    """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the
+    process's token-weight cache and the overlaps of a range with the stored pins."""
+    return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def snippet_api(rng, levels: bool) -> dict:
-    """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by limn.web.parse.parse_snippet:
-    the file, its lines as read, lo and hi), and with levels the range ladder around them."""
-    f, lines, lo, hi = rng
-    out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
-           "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
-    if levels:
-        lad = compute_levels(lines, lo, hi, C.envs)
-        out["levels"] = lad["levels"]
-        out["default_level"] = lad["default_level"]
-    return out
+def pick(D: Doc, request: locate.Selection) -> dict:
+    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
+    return locate.pick(D, request, pick_context())
 
 
-def overlaps_api(rng) -> dict:
+def snippet_api(rng: locate.SourceLines, levels: bool) -> dict:
+    """GET /api/snippet: a parsed range's lines, with levels the range ladder under --float-envs (limn.locate.snippet_api)."""
+    return locate.snippet_api(rng, levels, C.envs)
+
+
+def overlaps_api(rng: locate.SourceLines) -> dict:
     """GET /api/overlaps — asks about a not-yet-saved selection's overlap using only file/range (kept for agent/legacy-viewer compatibility).
 
     The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
