@@ -5,7 +5,7 @@
 Mouse and touch usability from the 2026-09-26 input review ([viewer.md](docs/handbook/viewer.md) §패널 폭과 시트 높이,
 §펼친 화면 레이아웃, §모바일 레이아웃). Viewer only: the HTTP API, `pins.md` and the state directory are unchanged; the
 browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse` hints in `pinPrefs.coach`) and a
-per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`).
+per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`). One server fix: new-pin notices name the pin's document.
 
 - **Collapse the panel by its handle, in every layout.** Drag it right: the width follows down to the minimum, stops
   there between half the minimum and the minimum (the bar turns primary), and below half the minimum the panel's
@@ -35,6 +35,11 @@ per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`).
   crosshair and a first-time mouse user gets one hint; a pick in the overlay's right column is no longer hidden
   under the panel; the handle's tooltip hides when the drag starts; more than three toasts get a button that opens
   the stack on touch.
+- **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
+  and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
+  they were made before the record had its `doc`; a notice about a pin in the second document opened the first one.
+  They now carry the pin's document, like every other notice. Region pins, single-document instances and the other
+  fields are unchanged; records already written are left as they are.
 - Rolling back to 0.3.4 is safe: it ignores `pinPrefs.sideClosed` (a wide panel just opens).
 
 ## 0.3.4 — unreleased

@@ -3605,8 +3605,8 @@ def _add_line_pin(place: LinePlace, request: AddRequest, actor: dict, D: Doc) ->
 
     The file's lines are read before the lock (as always); under it the shell takes the time, the next id (pins.seq),
     the note's @-tags, the anchor over those lines with the file's mtime, the current build and where the file is now,
-    and limn.pins.edit.new_line_pin() builds the record. The notices are made from the record without its doc, so they
-    name the first document (pin_doc_key) exactly as before: they were queued before the record had its doc.
+    and limn.pins.edit.new_line_pin() builds the record. The notices are made from the finished record, so they name
+    the pin's own document D.
     """
     f = Path(place.fields["file"])
     lines = tex_lines(f)
@@ -3624,10 +3624,9 @@ def _add_line_pin(place: LinePlace, request: AddRequest, actor: dict, D: Doc) ->
         pin = new_line_pin(place, request, pid, at, actor, tags.mentions, anchoring, cur_pages().name, D.key,
                            located(pin_location({"file": place.fields["file"]}, C.src)))
         rows.append(dict(pin.record))
-        queued = {k: v for k, v in pin.record.items() if k != "doc"}
-        evs.append(make_event("mention", queued, actor, tags.notify, text=request.note))
+        evs.append(make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
-            evs.append(make_event("assigned", queued, actor, [request.assignee], text=request.note))
+            evs.append(make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
         return pin, True
     with PIN_LOCK:
         out = transact(fn)[1]
