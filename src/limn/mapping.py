@@ -1,16 +1,17 @@
 """Where a selection lands in the manuscript - the pure half of Limn's position rules.
 
-Everything here takes lines of text and numbers and returns values: no files, clock, subprocess, HTTP or
-module state (coding rule R1, docs/handbook/code-style-roadmap.md). The effectful half - running SyncTeX and
-pdftotext, reading .tex files, the token-weight cache, re-syncing stored pins - stays in server.py and calls
-into this module. The rules themselves are described in docs/handbook/domain.md.
+Everything here takes lines of text, numbers and path strings and returns values: no files, clock, subprocess, HTTP
+or module state (coding rule R1, docs/handbook/code-style-roadmap.md). That includes finding a stored pin's file
+under a moved manuscript (pin_rel_path), whose existence checks come in as a callback. The effectful half - running
+SyncTeX and pdftotext, reading .tex files, the token-weight cache, re-syncing stored pins, resolving paths - stays in
+server.py and calls into this module. The rules themselves are described in docs/handbook/domain.md.
 """
 # Lazy annotations like server.py: instances.sh may start server.py with the system python3, and an eager
 # `dict | None` would stop an older interpreter at import where server.py itself still loads.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 
 FLOAT_KINDS = ("figure", "table", "algorithm")
@@ -309,3 +310,53 @@ def find_line(nlines: list, needle: str, near: int) -> int | None:
     if not cands:
         return None
     return min(cands, key=lambda i: abs(i + 1 - near)) + 1
+
+
+def anchor_holds(anchor: dict, lo: int, nlines: Sequence[str]) -> bool:
+    """Is the anchor's head line still where the pin's lo says (line lo + head_off, 1-based), by find_line()'s matching
+    (the whole norm()-ed line, or its first 40 characters for a head of 12 or more)? head_off that is not an integer in
+    0..9999 counts as 0, like a legacy anchor. False for a missing head or a line outside nlines."""
+    head, off = anchor.get("head"), anchor.get("head_off")
+    off = off if isinstance(off, int) and not isinstance(off, bool) and 0 <= off < 10000 else 0
+    i = lo + off - 1
+    if not isinstance(head, str) or not head or not 0 <= i < len(nlines):
+        return False
+    return nlines[i] == head or (len(head) >= 12 and head[:40] in nlines[i])
+
+
+# ---------------------------------------------------------------- Where a pin's file is (docs/adr/0006-relative-pin-paths.md)
+
+def _posix_parts(path: str) -> list[str]:
+    """The components of a POSIX path string, without empty and '.' parts ('/a//b/./c' -> ['a', 'b', 'c'])."""
+    return [p for p in path.split("/") if p not in ("", ".")]
+
+
+def file_tails(file: str) -> list[str]:
+    """The relative tails of an absolute path, longest first: '/p/s/x.tex' -> ['p/s/x.tex', 's/x.tex', 'x.tex']. A tail
+    with a '..' part is left out, so no candidate can climb above the root it is joined to."""
+    parts = _posix_parts(file)
+    return ["/".join(parts[k:]) for k in range(len(parts)) if ".." not in parts[k:]]
+
+
+def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Callable[[str], bool]) -> str | None:
+    """Where a stored line pin's file lives now, relative to the manuscript root - the one rule of ADR-0006 §2.
+
+    1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
+       symlinks, as 0.3.0's in_tree() did). It wins even if the file is gone - a known location is never re-guessed.
+    2. file_rel (stored since 0.3.2), when it is a non-empty relative path without '..' parts and the stored `file`
+       ends with it. The server writes the two together; 0.3.1 or 0.3.0 relocating a pin changes only `file`, and the
+       mismatch drops the stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ ->
+       the repository); otherwise file_rel itself, even if that file is gone - no shorter guess.
+    3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
+    None when nothing matches: the pin is outside the tree. `exists` answers for paths relative to the root and is
+    expected to accept only files that resolve inside it; the caller supplies it (this module reads no files)."""
+    if under_root is not None:
+        return under_root
+    tails = file_tails(file)
+    if isinstance(file_rel, str) and file_rel and not file_rel.startswith("/"):
+        rel, parts = _posix_parts(file_rel), _posix_parts(file)
+        n = len(rel)
+        if n and ".." not in rel and len(parts) > n and parts[-n:] == rel:
+            longer = [t for t in tails if len(_posix_parts(t)) > n]
+            return next((t for t in longer if exists(t)), "/".join(rel))
+    return next((t for t in tails if exists(t)), None)

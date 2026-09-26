@@ -28,7 +28,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 빌드를 원본 체크아웃이 아니라 rsync 사본에서 하는 이유는 동시에 편집 중인 원고를 빌드가 중간 상태로 붙잡지 않게 하려는 것이다. 빌드 사본 경로를 원본 경로로 되돌리는 일(`build_dir → manuscript_dir`)은 서버가 안에서 처리한다. 그래서 에이전트는 언제나 원본 경로만 받는다.
 
-상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 트리 밖의 파일은 절대 읽지 않는다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
+상태 디렉터리를 옮기거나 복제해서 SyncTeX가 옛 빌드 경로를 가리키는 경우도 있다. 이때는 경로 꼬리가 원고 트리 안의 파일과 맞을 때만 경로를 고쳐 쓴다. 원고 체크아웃을 옮겨 핀에 저장된 절대 경로가 낡은 경우도 같은 규칙에 원고 폴더 기준 상대 경로 `file_rel` 을 더해 읽을 때 찾는다([api.md](api.md) §핀 파일의 위치, [ADR-0006](../adr/0006-relative-pin-paths.md)). 원고 트리 밖의 파일은 절대 읽지 않는다. 역변환·범위 사다리·줄 맞춤의 규칙은 [domain.md](domain.md)에 있다.
 
 ## 현재 구조
 
@@ -36,8 +36,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 | 파일 | 줄 수 | 맡은 일 |
 | --- | --- | --- |
-| [`src/limn/server.py`](../../src/limn/server.py) | 7,109 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
-| [`src/limn/mapping.py`](../../src/limn/mapping.py) | 311 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기. 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
+| [`src/limn/server.py`](../../src/limn/server.py) | 7,188 | 설정, 빌드, 역변환, 핀 저장소, 검증, 사람·이벤트, 감사 기록, 접근 제어, HTTP 처리, 뷰어 조립 |
+| [`src/limn/mapping.py`](../../src/limn/mapping.py) | 362 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,381 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출) |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
@@ -128,7 +128,7 @@ src/limn/
 
 ### 6. 옛 상태 디렉터리는 쓰기 마이그레이션 없이 읽는다
 
-`doc` 필드가 없는 옛 레코드는 첫 문서로 읽고, `review` 필드가 없는 옛 `done:true` 레코드는 그냥 완료로 읽는다. 읽는 쪽이 해석할 뿐 파일을 고쳐 쓰지 않는다. 그래서 옛 버전으로 되돌려도 상태 디렉터리가 그대로 동작한다.
+`doc` 필드가 없는 옛 레코드는 첫 문서로 읽고, `review` 필드가 없는 옛 `done:true` 레코드는 그냥 완료로 읽는다. `file_rel` 이 없는 옛 레코드는 저장된 `file` 로 지금 원고 폴더에서 파일을 찾는다(0.3.2). 읽는 쪽이 해석할 뿐 파일을 고쳐 쓰지 않는다. 그래서 옛 버전으로 되돌려도 상태 디렉터리가 그대로 동작한다.
 
 ### 7. 앱 이름은 Limn 하나이고 개인정보를 넣지 않는다
 
