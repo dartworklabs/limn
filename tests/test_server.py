@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build as limn_build
+from limn import meta as limn_meta
 from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
@@ -1251,11 +1252,11 @@ class LightMeta(Base):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = ps.pins_rev()
+        rev0 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.add()
-        rev1 = ps.pins_rev()
+        rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = ps.pins_rev()
+        rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertEqual(rev1, rev2)      # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
@@ -1367,7 +1368,7 @@ class Overlaps(Base):
             self.skipTest("latex tools not available")
         res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
-        pages = ps.page_list(ps.cur_pages(ps.DOCS[0]))
+        pages = limn_build.page_list(ps.cur_pages(ps.DOCS[0]), ps.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
         d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
