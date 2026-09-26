@@ -667,16 +667,15 @@ class FoldOverlay(ViewerBase):
         self.assertEqual(page.evaluate("[...document.querySelectorAll('.pin.editing')].length"), 0)
 
     def test_select_mode_tap_pick_never_clicks_the_panel_that_opens_under_it(self):
-        """s12: a tap-pick in [선택] mode opened the panel under the finger and its ghost click hit the list."""
-        for dev in (FOLD, PHONE):
-            with self.subTest(width=dev["viewport"]["width"]):
+        """s12: a tap-pick in [선택] mode opened the panel under the finger and its ghost click (and ghost focus) hit it."""
+        for dev, (x, y) in ((FOLD, (650, 300)), (FOLD, (700, 500)), (PHONE, (190, 600)), (PHONE, (100, 700))):
+            with self.subTest(width=dev["viewport"]["width"], at=(x, y)):
                 page = self.view(dev)
                 cdp = self.cdp(page)
                 self.tap(cdp, *self.center(page, '#btn-select'))
                 page.wait_for_timeout(300)
                 page.evaluate(CLICKS)
-                w = dev["viewport"]["width"]
-                self.tap(cdp, w * 0.75, 500)
+                self.tap(cdp, x, y)
                 page.wait_for_function("CUR&&CUR.lo", timeout=8000)
                 page.wait_for_timeout(400)
                 self.assertEqual(page.evaluate("window.__clicks"), [])

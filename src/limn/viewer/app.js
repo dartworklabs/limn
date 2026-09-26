@@ -283,6 +283,9 @@ document.addEventListener('pointermove',e=>{if(PRESS&&Math.hypot(e.clientX-PRESS
 document.addEventListener('pointerup',endPress,true);
 document.addEventListener('pointercancel',endPress,true);
 document.addEventListener('click',e=>{if(Date.now()<SWALLOW_CLICK){SWALLOW_CLICK=0;e.preventDefault();e.stopImmediatePropagation();}},true);
+// Inside that window a touch's compatibility mousedown must not move focus either: after a quick pick opened the sheet under
+// the finger it focused the note field and raised the virtual keyboard (input review 2026-09-26, s12_seltap).
+document.addEventListener('mousedown',e=>{if(Date.now()<SWALLOW_CLICK&&LAST_PTR!=='mouse')e.preventDefault();},true);
 document.addEventListener('contextmenu',e=>{if(LAST_PTR==='mouse')return; const t=e.target;
   if(t&&t.closest&&(t.closest('.pg')||pressTarget(t)))e.preventDefault();});
 document.addEventListener('input',hideTip,true);
