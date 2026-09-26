@@ -3026,9 +3026,14 @@ class FrontendMentions(unittest.TestCase):
                     "mentionQuery",
                     "mentionMatches",
                     "mentionHints",
+                    "mentionAfterWord",
+                    "mentionTokens",
                     "mentionScan",
                     "defaultAssignee",
                     "assignPeople",
+                    "assignSeg",
+                    "renderAssignNew",
+                    "renderAssignEdit",
                 )
             ]
             + [script]
@@ -3068,6 +3073,15 @@ class FrontendMentions(unittest.TestCase):
         self.assertNotIn("mention", out[2])  # letters right after a name make it a different word
         self.assertIn('class="mention me"', out[3])  # case-insensitive (same as the server)
 
+    def test_highlight_skips_an_at_that_follows_any_letter(self):
+        """fmtText() wraps only the '@name' the server resolves: an '@' right after a letter of any script ('é', '김',
+        an astral '𠀀' written as two UTF-16 units) continues a word, as in resolve_mentions(). It used to check only
+        ASCII and Hangul, so 'é@Wendy Kim' rendered as a tag the server never recorded."""
+        out = self.run_js(r"""
+            console.log(JSON.stringify(['é@Wendy Kim','김@Wendy Kim','𠀀@Wendy Kim','😀@Wendy Kim','(@Wendy Kim)']
+              .map(t=>(fmtText(t,['w@x']).match(/class="mention"/g)||[]).length)));""")
+        self.assertEqual(out, [0, 0, 0, 1, 1])
+
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
         out = self.run_js(r"""
             console.log(JSON.stringify([fmtText("#12 과 #99 그리고 it's (#3) #40",[]), fmtText('a#12 &#12;',[])]));""")
@@ -3105,6 +3119,23 @@ class FrontendMentions(unittest.TestCase):
               assignPeople('메모',new Set(),'k@x')]));""")
         self.assertEqual(out, ["w@x", "w@x", "agent", "w@x", "agent", "w@x", "agent", "agent", ["w@x"], ["k@x"]])
 
+    def test_assignee_choice_reads_the_hints_the_request_carries(self):
+        """The composer and edit assignee rows resolve the note with mentionHints() - the hints the save sends - not
+        with every login ever picked in the field. Picking '@Wendy Kim' and then editing it down to the shared first
+        word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
+        agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
+        out = self.run_js(r"""
+            const box=()=>({hidden:true,innerHTML:''});
+            const note={value:'@Wendy 봐 주세요',_mentions:new Set(['w@x'])},cbox=box();
+            function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
+            let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
+            const ta={value:'@Wendy 봐 주세요',_mentions:new Set(['w@x'])},ebox=box();
+            let EDIT={el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'};
+            renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
+            note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
+            console.log(JSON.stringify([edited,[ASSIGN_NEW.v,cbox.hidden]]));""")
+        self.assertEqual(out, [["agent", True, True], ["w@x", False]])
+
     def test_assign_controls_in_composer_edit_and_card(self):
         h = ps.HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
@@ -3136,7 +3167,7 @@ class FrontendMentions(unittest.TestCase):
     def test_query_matches_and_hints(self):
         out = self.run_js(r"""
             const ta=(v,pos)=>({value:v,selectionStart:pos==null?v.length:pos,selectionEnd:pos==null?v.length:pos});
-            const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch'))];
+            const q=[mentionQuery(ta('안녕 @Won')),mentionQuery(ta('mail a@b')),mentionQuery(ta('@')),mentionQuery(ta('@Won ch')),mentionQuery(ta('é@Won')),mentionQuery(ta('(@Won'))];
             const m=mentionMatches('wen',PEOPLE,'s@x').map(p=>p.login), mine=mentionMatches('',PEOPLE,'s@x').map(p=>p.login);
             const t=ta('@Wendy Kim 봐 주세요'); t._mentions=new Set(['w@x','s@x']);
             console.log(JSON.stringify([q,m,mine.includes('s@x'),mentionHints(t),
@@ -3144,7 +3175,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(
             out,
             [
-                [{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None],
+                [{"start": 3, "q": "Won"}, None, {"start": 0, "q": ""}, None, None, {"start": 1, "q": "Won"}],
                 ["wo@x", "w@x"],
                 False,
                 ["w@x"],
@@ -3229,6 +3260,20 @@ class FrontendMentionPopPlacement(unittest.TestCase):
             self.assertIn(sel, fn)
 
 
+# The viewer functions mentionPreview() reaches (besides esc/ic/tr and the DOM), pulled from the served page.
+MENTION_PREVIEW_FNS = (
+    "peopleName",
+    "mentionAfterWord",
+    "mentionTokens",
+    "meLogin",
+    "mentionQuery",
+    "mentionHints",
+    "mentionBadSettled",
+    "mentionScan",
+    "mentionPreview",
+)
+
+
 class FrontendMentionTypingNotFlagged(unittest.TestCase):
     """A '@word' still being typed isn't flagged as '등록된 사람이 아님' right away (QA 2026-09-25 — a warning showed up while typing @Sa)."""
 
@@ -3247,6 +3292,34 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
               mentionBadSettled(['Sa'],'@Sa 또 @Sa',{start:7,q:'Sa'})]));   // 같은 말이 앞에 이미 있으면 알린다"""
         )
         self.assertEqual(json.loads(run_node(js)), [[], ["Sa"], ["홍길동"], ["Sa"]])
+
+    def test_preview_holds_the_warning_while_the_caret_ends_the_word(self):
+        """mentionPreview() itself applies mentionBadSettled(): with the caret at the end of '@Sa' in the focused field the
+        preview row stays hidden; once focus leaves, the same text shows '@Sa' as '등록된 사람이 아님'. A finished '@홍길동'
+        before the caret is flagged either way.
+
+        Regression: the call was pasted onto the end of a '//' comment in mentionPreview (1486de0), so it never ran and
+        the warning showed while the name was still being typed."""
+        js = "\n".join(
+            [
+                r"""
+            const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
+            function ic(n){return '<svg class="ic ic-'+n+'"></svg>';}
+            const document={activeElement:null};
+            function field(v){const box={hidden:true,innerHTML:'',classList:{contains:c=>c==='m-preview'}};
+              return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
+            function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
+              const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
+            """
+            ]
+            + [extract_js_fn(n) for n in MENTION_PREVIEW_FNS]
+            + [
+                r"""
+            console.log(JSON.stringify([show('@Sa',true), show('@Sa',false), show('@홍길동 @Sa',true), show('@Sa 봐',true)]));"""
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [None, ["@Sa"], ["@홍길동"], ["@Sa"]])
 
     def test_list_highlight_is_a_flat_full_width_row(self):
         css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
