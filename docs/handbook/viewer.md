@@ -10,7 +10,7 @@
 > - 알림·상태 점·배지·링크 모양: §상태와 표시
 > - 스레드·검토·변경 보기·@태그·담당·브라우저 알림: §협업 UI
 > - 한 뷰어에서 문서 여러 개 전환: §여러 문서 전환
-> - 색·radius·글자·간격 토큰, 컴포넌트, 아이콘: §디자인 토큰과 컴포넌트
+> - 색·radius·글자·간격 토큰, 컴포넌트, 아이콘, Limn 마크·파비콘: §디자인 토큰과 컴포넌트
 > - PDF.js 벡터 렌더링과 PDF 영역 확대: §렌더링과 확대
 > - 재지 못한 것과 화면·입력의 한계: §알려진 제약
 
@@ -57,6 +57,7 @@
 | 한 겹 담기 | `FrontendNoNestedOutlines` |
 | 인스턴스 색 자리 | `BuildHtmlSubstitution` |
 | 아이콘 | `FrontendIcons` |
+| 마크와 파비콘 | `test_brand.py`(`MarkRaster`·`MarkMarkup`·`FaviconRoutes`, 브라우저 `MarkInTheBrowser`) |
 | 벡터 렌더링 | `FrontendVector`, `FrontendVectorLogic` |
 | PDF 영역 전용 확대 | `FrontendZoom`, `FrontendZoomLogic` |
 | 그 밖의 뷰어 동작 | `FrontendLogic`, `FrontendStructure` |
@@ -544,7 +545,7 @@
 - `tag` = `pin-<번호>`라 같은 핀의 알림은 한 칸으로 겹친다. 에이전트가 답글과 닫기를 5초 틈을 두고 하면 두 번 오지만, 화면에는 나중 것(`검토 대기`)만 남는다.
 - 제목은 `핀 #N · <문서 이름>`이다.
 - 본문은 `Bob Park님이 불렀습니다: <80자>`(부른 사람의 `name` 그대로 + '님') 또는 `검토 대기: <답 첫 줄>`이다.
-- 아이콘은 파비콘이다.
+- 아이콘은 180px 마크 PNG(`apple-touch-icon`)다. 없으면 첫 파비콘이다. 안드로이드 알림은 SVG 아이콘을 그리지 않는다.
 - 탭이 보이고 포커스가 있으면 알림 대신 토스트([열기])를 띄운다.
 - 탭이 **숨어** 있어도 알림이 켜져 있으면 느린(20초) 이벤트 전용 폴링이 계속 돈다. 이 폴링은 목록을 다시 그리지 않는다.
 
@@ -672,7 +673,7 @@
 | --- | --- | --- |
 | 토큰 블록 세 개(`:root`·`:root[data-theme=light]`·척도 블록) | 색·px 값 | 정의하는 자리다 |
 | `#brand-stripe`·`#brand-chip`의 `style="background:__ACCENT__"` | 인스턴스 색 | 서버가 `--accent` 값으로 채운다. 테마가 바뀌어도 그대로여야 하고 회귀 테스트(`BuildHtmlSubstitution`)가 이 모양을 본다 |
-| 파비콘 SVG(`favicon_href`) | `fill="#ffffff"` 등 | CSS 밖의 data URI 이미지다 |
+| 파비콘 SVG(`limn.mark.favicon_svg`)와 PNG(`limn.mark.png`) | 인스턴스 색, `#ffffff` | CSS 밖의 이미지다. 뷰어 안의 인라인 마크는 예외가 아니다 — 클래스만 달고 색은 토큰으로 칠한다(§마크와 파비콘) |
 | PDF 쪽(PNG·PDF.js 캔버스) | 종이 색 | 원고 PDF의 색이다. 테마는 종이 색을 바꾸지 않는다 |
 | `src/limn/vendor/pdfjs`·Lucide 원본 | — | 외부 코드다(Lucide는 `currentColor`라 글자색을 따른다) |
 | 크기의 자리 값(폭·높이, 음수 margin, 위치 좌표, `calc`) | px | 척도로 반올림하면 레이아웃이 움직인다. 간격(padding·margin·gap)은 예외가 아니다 — 1–2px만 둔다 |
@@ -699,6 +700,37 @@
 - 아이콘 없이 뜻이 분명한 버튼은 글자만 둔다. 카드의 [보기]·[수정]·[풀기]·[삭제]·[완료], 보관함 [답글]·[되살리기], 휴지통 [영구 삭제], [원문 펼치기], [더보기] 안의 [축소]·[확대]·[폭 맞춤]·[테마] 등이다.
 - 아이콘만 두는 버튼(축소·확대·테마·도움말·더보기·위치 복사·알림 닫기)은 `aria-label`로 이름을 준다.
 - 산문 속 화살표(→)와 키 이름(⌘ Enter)은 글자로 남긴다. 아이콘이 아니다.
+
+### 마크와 파비콘
+
+0.3.3 전에는 브랜드가 탭 제목 `Limn · <이름표>` 하나였다. 파비콘과 탐색 줄의 작은 네모는 이름표 첫 글자였다. 이제 Limn 마크 하나를 쓴다.
+
+**모양.** 작은 점(핀)에서 시작한 한 획이 아래로 내려가 한 번 꺾이고, 오른쪽으로 줄(원고의 소스 줄)이 되어 뻗는다. PDF의 한 점을 `.tex` 줄로 되돌린다는 Limn의 일을 그대로 그린 것이다. Lucide와 같은 24 격자에 둥근 끝, 한 굵기(2.4)이고, 점 지름(5.2)은 획의 두 배가 조금 넘어 16px에서도 점으로 읽힌다. 그라데이션·그림자·마스코트·글자는 없다.
+
+| 요소 | 값(24 격자) |
+| --- | --- |
+| 타일 | 24×24, 모서리 5.5 |
+| 점 | 중심 (8, 8), 반지름 2.6 |
+| 획 | `M8 8V13.5a3.75 3.75 0 0 0 3.75 3.75H17.2`, 굵기 2.4, 둥근 끝 |
+
+기하는 [`src/limn/mark.py`](../../src/limn/mark.py) 한 곳에 있고 세 모양을 그 값에서 만든다. 뷰어 인라인 SVG(`inline_svg`), 파비콘 SVG(`favicon_svg`), PNG(`png`)다. 빌드 단계도, 저장소에 넣은 그림 파일도 없다.
+
+**쓰는 곳과 색.** 인라인 SVG는 클래스만 달고(`limn-mark`·`limn-mark-tile`·`limn-mark-dot`·`limn-mark-line`) 색은 CSS 토큰으로 칠한다. 그냥 `.mark` 는 PDF 위 핀 상자라 `marks()` 가 지우고 다시 그린다. 처음에 같은 이름을 썼더니 핀을 그리는 순간 마크가 모두 사라졌다(가드 `MarkMarkup.test_mark_classes_are_its_own`, 브라우저 `EnglishChrome.test_the_limn_mark_survives_boot_and_pin_marks`). 장식이라 `aria-hidden`이고, 이름은 옆 글자가 말한다.
+
+| 자리 | 크기 | 타일 | 점·획 |
+| --- | --- | --- | --- |
+| 탐색 줄의 이름표 앞(`#paper-identity-mark`, 데스크톱·펼친 폴드) | 16px | 인스턴스 색 `--brand` | `--brand-foreground`(흰색) |
+| [더보기] 첫 줄의 이름표 칩(`#more-label`, compact) | 14px | `--brand`(칩과 같은 색이라 획만 보인다) | 흰색 |
+| 도움말 머리(`#help-h`) | 20px | `--popover-foreground`(흑백) | `--popover` |
+| 파비콘 SVG(data URL) | — | `--accent` 값 | 흰색 |
+| `/favicon-32.png`, `/apple-touch-icon.png` | 32·180px | `--accent` 값(터치 아이콘은 네모, iOS가 깎는다) | 흰색 |
+
+- 타일 색은 두 테마에서 같다. 이름표 색이 테마와 무관하기 때문이다(§토큰의 `--brand`). 흑백 도움말 마크만 테마를 따라 뒤집힌다.
+- 파비콘은 이름표 첫 글자를 버렸다. 탭 사이의 구분은 타일 색과 탭 제목의 이름표가 맡는다. 첫 글자가 있을 때도 16px에서는 색이 먼저 보였다.
+- `<head>`는 PNG(`sizes="32x32"`) → SVG(`type="image/svg+xml"`) → `apple-touch-icon` 순으로 잇는다. SVG를 아는 브라우저는 SVG를, 모르는 브라우저·홈 화면은 PNG를 고른다. PNG 주소의 `?c=<색>`은 색이 바뀌었을 때 옛 그림이 캐시에서 나오지 않게 한다.
+- PNG는 부호 있는 거리로 그린다. 픽셀마다 한 번, 타일과 글리프 가장자리까지의 거리로 덮인 비율을 정하고 zlib으로 쓴다. 표준 라이브러리만 쓴다는 불변식([architecture.md](architecture.md) §불변식 2)을 지키려는 것이다. 180px 한 장이 수십 ms이고 크기·색마다 한 번만 그린다(메모리 캐시).
+
+실측(2026-09-26, 헤드리스 Chromium): 16px에서 점과 줄이 따로 읽힌다(가드 `MarkRaster.test_glyph_reads_at_16px`). 스크린샷은 데스크톱(1400×850)·폴드(842×758)·폰(384×832) × 밝게·어둡게로 PR에 적은 경로에 있다.
 
 ## 렌더링과 확대
 

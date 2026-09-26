@@ -47,6 +47,7 @@ catalog_schema: 1
 | `src/limn/server.py` | 빌드 셸·git pull·원격 main 감시·보기 전용 PDF·meta 구역: 요청의 문서로 빌드를 부르고 동기화 | 폴링·추정·동기화 규칙 변경 | build-sync.md |
 | `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유 | 쓰기 방식 변경 | domain.md, architecture.md |
 | `src/limn/server.py` | 핀 단위 변경 구역(0.3): hunk 블록 귀속, 핀 hunk diff, 합성 판 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
+| `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`·`app.css`·`app.js` (서버가 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
 | `src/limn/server.py` | Handler와 main: HTTP 경계와 실행 인자 | 경로·응답·인자 추가나 변경 | api.md, operations.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |

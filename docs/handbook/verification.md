@@ -40,6 +40,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_migrate.py`](../../tests/test_migrate.py) | 옛 설치에서 옮기기 (systemctl 스텁) |
 | [`tests/test_access.py`](../../tests/test_access.py) | 접근 제어: 신원 방식, 토큰, 역할별 허용 범위, 바인드 규칙, 0.1 상태 디렉터리 호환 |
 | [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저, 흔한 거절의 오류 알림 포함), 계약 문자열은 번역하지 않는지 |
+| [`tests/test_brand.py`](../../tests/test_brand.py) | Limn 마크: PNG가 올바른 RGBA이고 타일은 인스턴스 색·글리프는 흰색이며 16px에서 점과 줄이 따로 읽히는지, 파비콘 SVG·인라인 SVG(색 리터럴 없음)·세 자리(탐색 줄·[더보기] 칩·도움말 머리)·`<head>` 링크, PNG 경로가 인스턴스 색으로 그리는지, 브라우저에서 16px·토큰 색으로 그려지는지(밝게·어둡게) |
 | [`tests/test_errors.py`](../../tests/test_errors.py) | 모든 오류 본문에 안정 코드 `reason` 이 있는지(`HTTPError` 는 `reason` 없이 만들 수 없고, 오류 사전 글자에도 있다), 흔한 거절의 한국어 `error` 문장·상태가 그대로인지, 서버가 내는 코드마다 영어 문장이 있고 낡은 문장이 없는지, 뷰어 `errText()` 가 영어에서는 코드로·한국어에서는 서버 문장 그대로 보이는지 |
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
 | [`tests/test_qa_021.py`](../../tests/test_qa_021.py) | 0.2.0 E2E QA에서 나온 결함의 회귀 테스트: @태그 알림 규칙, `/api/clear` 소유자 전용, 주체×진입 경로×동작 행렬(루프백·테일넷·토큰·trusted-proxy × 읽기·핀·답글·닫기·확인·지우기), `pins.md` claim 줄, CLI 로그인 검증·바쁜 포트, 403 안내 페이지, 절 표시, 역할별 화면(브라우저) |
@@ -137,7 +138,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `server.py`에서 옮겨 낸 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 측정 대상 | `server.py`에서 옮겨 낸 모듈과 새 순수 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`, `src/limn/mark.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |

@@ -216,6 +216,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 빈 본문 `204` |
+| `GET` | `/favicon-32.png`, `/apple-touch-icon.png` | 0.3.3. SVG 파비콘을 못 쓰는 브라우저·홈 화면용 PNG 대체본이다. 32×32 둥근 타일과 180×180 네모 타일(iOS가 모서리를 깎는다)을 이 인스턴스의 `--accent` 로 그린다([viewer.md](viewer.md) §마크와 파비콘). `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?c=<색 16진>` 을 붙여 색이 바뀌면 캐시를 가른다. 쿼리는 그 밖의 뜻이 없다. Host·Origin·신원 검사는 다른 `GET` 과 같다 |
 
 ### 빌드
 
