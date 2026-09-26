@@ -51,6 +51,36 @@ jobs:
       - name: Instance manager tests
         run: bash tests/test_instances.sh
 
+  macos:
+    # macOS semantics for the instance manager and the tests that need no TeX or Chromium (those skip here): BSD
+    # userland (stat -f, no timeout(1)), /bin/bash 3.2 as the bash limn and the tests find first, and a system
+    # python3 older than requires-python (issue #12). The Linux jobs cover bash 5 and the browser tests.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+      - name: Put /bin/bash 3.2 first on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          echo "$RUNNER_TEMP/bash32" >> "$GITHUB_PATH"
+      - name: Show the tools under test
+        run: |
+          bash --version | head -1
+          /usr/bin/python3 --version || true
+          command -v timeout || echo "no timeout(1)"
+          stat -f %Lp README.md
+      - name: Python tests
+        run: uv run pytest -q -rs
+      - name: Instance manager tests
+        run: bash tests/test_instances.sh
+
   install:
     runs-on: ubuntu-latest
     steps:
