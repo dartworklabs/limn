@@ -9,8 +9,12 @@ rebind on their server copy (mock.patch.object(ps, "build_async")) is the one th
 The members are server.py's services and wirings. The handler finds the request's document (request_doc) and passes
 it to every member that acts on one - there is no "current document" - and it parses what a route takes from the
 request (limn.web.parse) and passes the parsed values. Some members still read the run settings C themselves;
-stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments. Values the handler only passes back (a
-document) are typed by what the handler reads of them. tests/test_web.py checks that server.py provides every member.
+stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments.
+
+The run settings, a document and a principal are server.py's own types (limn.config.Cfg, limn.documents.Doc,
+limn.access.Principal), not narrower views of them: server.py's members take those types, and mypy checks server.py's
+module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Handler), so a missing or wrongly typed
+binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
 """
 from __future__ import annotations
 
@@ -25,7 +29,9 @@ from limn.pins.lifecycle import (
     AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed,
     NotInTrash, PinStillOpen, ThreadFull,
 )
-from limn.documents import DocNotFound
+from limn import access
+from limn.config import Cfg
+from limn.documents import Doc, DocNotFound
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.web.errors import Messages
@@ -35,56 +41,11 @@ Json: TypeAlias = dict[str, Any]          # a JSON object: request body, respons
 Query: TypeAlias = dict[str, list[str]]   # parse_qs() of the request's query string
 
 
-class Config(Protocol):
-    """The run settings the handler reads (server.py's C)."""
-
-    @property
-    def origin_check(self) -> bool:
-        """False under --no-origin-check: Host/Origin are not checked."""
-        ...
-
-    @property
-    def src(self) -> Path:
-        """The manuscript folder (--manuscript), the root close `changes` must stay under."""
-        ...
-
-    @property
-    def accent(self) -> str:
-        """The instance accent (#rrggbb) the PNG favicons are drawn in."""
-        ...
-
-
-class Document(Protocol):
-    """A document a request acts on (server.py's Doc), as far as the handler reads it."""
-
-    @property
-    def key(self) -> str:
-        """The document key (?doc=)."""
-        ...
-
-    @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document, which is never rebuilt."""
-        ...
-
-
-class Principal(Protocol):
-    """Who a request is (limn.access.Principal, from identify())."""
-
-    @property
-    def actor(self) -> Json:
-        """{login, name, pic?} - what pins record."""
-        ...
-
-    @property
-    def role(self) -> str:
-        """owner | editor | viewer | agent."""
-        ...
-
-    @property
-    def via(self) -> str:
-        """header | token | loopback-agent | local-owner."""
-        ...
+# The run settings the handler reads (C: origin_check, src, accent), a document a request acts on (key, is_pdf) and
+# who a request is (actor, role, via) - server.py's own types, so its members type-check against App.
+Config: TypeAlias = Cfg
+Document: TypeAlias = Doc
+Principal: TypeAlias = access.Principal
 
 
 class App(Protocol):

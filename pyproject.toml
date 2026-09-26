@@ -49,11 +49,11 @@ extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]   # copied from u
 select = ["F", "E4", "E7", "E9", "B", "PLW1510"]
 
 [tool.mypy]
-# Stage 7 of docs/handbook/code-style-roadmap.md, started early: the modules already moved out of server.py and the
-# `limn` command (cli.py, migrate.py, the package files) are type-checked strictly; the list widens as modules move.
-# `uv run mypy` reports errors in exactly these files. cli.py imports server.py: mypy reads its signatures to check the
-# calls, but does not report server.py's own errors.
-files = ["src/limn/pins", "src/limn/people.py", "src/limn/mentions.py", "src/limn/events.py", "src/limn/audit.py", "src/limn/guidance.py", "src/limn/mapping.py", "src/limn/locate.py", "src/limn/build.py", "src/limn/files.py", "src/limn/store.py", "src/limn/mark.py", "src/limn/viewer", "src/limn/web", "src/limn/scope.py", "src/limn/revisions.py", "src/limn/pull.py", "src/limn/gitsync.py", "src/limn/documents.py", "src/limn/outline.py", "src/limn/meta.py", "src/limn/access.py", "src/limn/service", "src/limn/config.py", "src/limn/startup.py", "src/limn/args.py", "src/limn/cli.py", "src/limn/migrate.py", "src/limn/__init__.py", "src/limn/__main__.py"]
+# Stage 7 of docs/handbook/code-style-roadmap.md: every module of the package is type-checked strictly - the modules
+# moved out of server.py, server.py itself (the composition root; its module is also checked against the handler's
+# limn.web.app.App Protocol), and the `limn` command (cli.py, migrate.py, the package files). `uv run mypy` reports
+# errors in exactly these files; a new module is added here.
+files = ["src/limn/pins", "src/limn/people.py", "src/limn/mentions.py", "src/limn/events.py", "src/limn/audit.py", "src/limn/guidance.py", "src/limn/mapping.py", "src/limn/locate.py", "src/limn/build.py", "src/limn/files.py", "src/limn/store.py", "src/limn/mark.py", "src/limn/viewer", "src/limn/web", "src/limn/scope.py", "src/limn/revisions.py", "src/limn/pull.py", "src/limn/gitsync.py", "src/limn/documents.py", "src/limn/outline.py", "src/limn/meta.py", "src/limn/access.py", "src/limn/service", "src/limn/config.py", "src/limn/startup.py", "src/limn/args.py", "src/limn/cli.py", "src/limn/migrate.py", "src/limn/__init__.py", "src/limn/__main__.py", "src/limn/server.py"]
 mypy_path = "src"
 python_version = "3.10"
 strict = true

@@ -36,25 +36,27 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from email.message import Message
+from typing import TYPE_CHECKING, Any, TypeGuard, TypeVar
 from urllib.parse import quote
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    AgentCannotConfirm, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed, NotInTrash,
+    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed, NotInTrash,
     PinStillOpen, ThreadFull, claim_holds, reopens_on_reply,
 )
 from limn.pins.edit import KIND_REQS, NOTE_MAX, AddRequest, EditRefusal, EditRequest  # noqa: E402,F401 - NOTE_MAX is ps.NOTE_MAX to the tests
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
-    DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin, is_region_pin, parse_pin,
+    DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin, is_region_pin, parse_pin,
 )
 # The pin services (add, edit, reply, close/reopen, confirm, claim, the Trash, clear); pin_context() wires them.
 from limn.service import add_edit, claim, trash, transitions  # noqa: E402 - after the path bootstrap above
-from limn.service.context import PinContext, is_agent  # noqa: E402 - is_agent is an App member
+from limn.service.context import Event, Json, PinContext, is_agent as is_agent  # noqa: E402 - is_agent is an App member
 from limn import build  # noqa: E402 - after the path bootstrap above
-from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
+from limn.build import BuildConfig, BuildResult  # noqa: E402 - after the path bootstrap above
 from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
 from limn import events, people  # noqa: E402 - after the path bootstrap above
 from limn.audit import append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
@@ -64,7 +66,7 @@ from limn.mentions import (  # noqa: E402,F401 - pin_mentions_all, resolve_menti
     resolve_mentions, tag_note, thread_round,
 )
 from limn.people import is_actor as _is_actor  # noqa: E402
-from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
+from limn.store import PinFiles, PinStore, Row, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
 from limn import gitsync  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
@@ -72,11 +74,15 @@ from limn.documents import (  # noqa: E402 - after the path bootstrap above
     DEFAULT_DOC_KEY, DOC_KEY_RE, Doc, DocNotFound, DocumentFacts,
 )
 from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
-from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
+from limn.meta import MetaSettings, outline_labels as outline_labels  # noqa: E402,F401 - outline_labels is an App member
 # The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
-# document (web/app.py); they are limn.build's own functions, bound here without a shell.
-from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as build_state_snapshot  # noqa: E402,F401
-from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
+# document (web/app.py); they are limn.build's own functions, bound here without a shell. `X as X` marks a name this
+# module exports (mypy's explicit re-export), so the App check at the Handler sees it; the build state is bound by
+# assignment because an import under another name is never an export.
+from limn.build import build_pdf as build_pdf, cur_pages as cur_pages, pdf_changed  # noqa: E402,F401
+build_state_snapshot = build.state_snapshot
+from limn.revisions import git as _git, revision_history as revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
+from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal  # noqa: E402 - after the path bootstrap above
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402,F401 - anchor_of is ps.anchor_of to the tests
     anchor_of, truncate_quote,
@@ -84,28 +90,29 @@ from limn.mapping import (  # noqa: E402,F401 - anchor_of is ps.anchor_of to the
 from limn import locate  # noqa: E402 - after the path bootstrap above
 from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
 from limn.pins import view  # noqa: E402 - after the path bootstrap above
-from limn.pins.view import pin_state  # noqa: E402,F401 - an App member (web/app.py)
+from limn.pins.view import pin_state as pin_state  # noqa: E402,F401 - an App member (web/app.py)
 from limn.pins.position import EstContext  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn.viewer.assemble import LUCIDE, PDFJS_VERSION, VIEWER_DIR, load_ui_messages, viewer_html  # noqa: E402
 from limn import access  # noqa: E402 - after the path bootstrap above
 from limn.access import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_ROLE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
+    DEFAULT_ROLE as DEFAULT_ROLE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
     file_present, home_or_none, load_tokens, roles_of,
 )
 # hdr_text is an App member (web/app.py): the handler quotes a refused Host/Origin/document key through it.
-from limn.access import hdr_text  # noqa: E402,F401 - after the path bootstrap above
+from limn.access import hdr_text as hdr_text  # noqa: E402,F401 - after the path bootstrap above
 from limn.guidance import shell_path  # noqa: E402 - after the path bootstrap above
 # pins.md's renderer; server.py builds its input (pins_md_input).
 from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
     DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text, rel_badge,
 )
-from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
+from limn.web.errors import HTTPError, Messages, revision_failure_text  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
+from limn.web.parse import CloseChange  # noqa: E402 - after the path bootstrap above
 # The run settings' type, and the startup rules and command line that fill them in (main() -> start() below).
 from limn.config import Cfg  # noqa: E402 - after the path bootstrap above
 from limn import startup  # noqa: E402 - after the path bootstrap above
-from limn.startup import APP_NAME, StartupRefused  # noqa: E402 - after the path bootstrap above
+from limn.startup import APP_NAME as APP_NAME, StartupRefused  # noqa: E402 - after the path bootstrap above
 from limn.args import serve_parser  # noqa: E402 - after the path bootstrap above
 
 
@@ -122,12 +129,12 @@ def app_version() -> str:
 
 
 # The viewer's ko -> en message table: the viewer page embeds it, and the handler's refusal page reads it (App.UI_EN).
-UI_EN = load_ui_messages(Path(__file__).with_name("ui_en.json"))
+UI_EN: Messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
-VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
+VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 
 # The limits a request's fields are checked against (the note, close reply/ref/changes, claim minutes, reply text,
 # @-tag hints) are with the request parsers in limn/web/parse.py; the pin note's NOTE_MAX and the kind_req values
@@ -154,7 +161,7 @@ BUILD_LOCK = threading.Lock()
 # Guards the BUILD_STATE dict (progress chip / error panel). Separate from BUILD_LOCK (only one build at
 # a time) - this lock exists just so that state doesn't race with the GET /api/build request that "reads" it.
 BUILD_STATE_LOCK = threading.Lock()
-BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
+BUILD_STATE: dict[str, Any] = {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
                "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
                "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
 # Bundles the read-modify-write of builds.json (build history).
@@ -162,6 +169,8 @@ BUILDS_LOCK = threading.Lock()
 
 
 C = Cfg()
+# A transaction step's result type (transact).
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
@@ -220,7 +229,7 @@ def vendor_file(name: str) -> Path | None:
 LOG_TAIL_LINES = 40                # lines kept in the diet response for a non-successful build (§P0c-F)
 
 
-def diet_log(payload: dict, full: bool) -> dict:
+def diet_log(payload: Json, full: bool) -> Json:
     """Diets the agent response: drops log/log_tail when state=='ok' (even a success ran a few KB via font paths).
     ok_errors|fail are trimmed to the last LOG_TAIL_LINES lines. Left untouched when full (?log=1).
     Internal state (BUILD_STATE/builds.json) is left alone; this only applies right before the HTTP response."""
@@ -243,19 +252,19 @@ def build_config() -> BuildConfig:
     return BuildConfig(state=C.state, dpi=C.dpi, timeout=C.timeout)
 
 
-def build_all(D: Doc) -> dict:
+def build_all(D: Doc) -> BuildResult:
     """POST /api/rebuild for document D: build it now (synchronous). If it is already building, returns busy without
     waiting (limn.build.build_now)."""
     return build.build_now(D, lambda: _build_tracked(D))
 
 
-def build_async(D: Doc) -> dict:
+def build_async(D: Doc) -> Json:
     """POST /api/rebuild?async=1 for document D: start the tracked build on a daemon thread
     (limn.build.build_in_background); the thread builds D itself."""
     return build.build_in_background(D, lambda: _build_tracked(D), now_str())
 
 
-def _build_tracked(D: Doc) -> dict:
+def _build_tracked(D: Doc) -> BuildResult:
     """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
     (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
     step = (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
@@ -279,7 +288,7 @@ def revision_context() -> revisions.RevisionContext:
     changes C is seen at once."""
     root = C.src
 
-    def locate(file: str, D) -> Path | None:
+    def locate(file: str, D: revisions.RevisionDoc) -> Path | None:
         """Where a recorded change's path of document D is under the manuscript root now (locate_file, issue #24)."""
         loc = locate_file(file, None, root, D)
         return loc.path if loc is not None else None
@@ -288,22 +297,22 @@ def revision_context() -> revisions.RevisionContext:
                                      describe=revision_failure_text)
 
 
-def revision_diff(D: Doc, commit: str, pin: int | None = None):
+def revision_diff(D: Doc, commit: str, pin: int | None = None) -> Json | DiffRefusal:
     """GET /api/revision-diff for document D (limn.revisions.revision_diff with this instance's context)."""
     return revisions.revision_diff(D, commit, pin, revision_context())
 
 
-def revision_status(D: Doc, commit: str, pin: int | None = None):
+def revision_status(D: Doc, commit: str, pin: int | None = None) -> Json | StatusRefusal:
     """GET /api/revision-build for document D (limn.revisions.revision_status)."""
     return revisions.revision_status(D, commit, pin, revision_context())
 
 
-def revision_start(D: Doc, commit: str, pin: int | None = None):
+def revision_start(D: Doc, commit: str, pin: int | None = None) -> Json | StartRefusal:
     """POST /api/revision-build for document D (limn.revisions.revision_start)."""
     return revisions.revision_start(D, commit, pin, revision_context())
 
 
-def revision_pdf(D: Doc, commit: str, pin: int | None = None):
+def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
     """GET /api/revision-pdf for document D (limn.revisions.revision_pdf)."""
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
@@ -325,25 +334,25 @@ PULL_SHARE = gitsync.PullShare()              # the process's one pull per repos
 SYNC_WATCH = gitsync.SyncWatch()              # the remote-main watch status GET /api/meta shows as `sync`
 
 
-def repo_pull() -> dict:
+def repo_pull() -> Json:
     """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several
     share one pull per repository within limn.gitsync.PULL_SHARE_S."""
     return gitsync.repo_pull(PULL_SHARE, multi_doc(), lambda: gitsync.pull(C.src, main_only=False, git=_git), time.time)
 
 
-def sync_status() -> dict:
+def sync_status() -> Json:
     """GET /api/meta's `sync` - the remote-main watch status (limn.gitsync.SyncWatch.status)."""
     return SYNC_WATCH.status(DOCS, C.git_pull)
 
 
-def sync_main_once() -> dict:
+def sync_main_once() -> Json:
     """One remote-main round (limn.gitsync.SyncWatch.once): pull main, then start the builds of the documents the
     pull left behind. The watch thread runs it, and a --no-build startup through it."""
     return SYNC_WATCH.once(DOCS, C.git_pull, lambda: gitsync.pull(C.src, main_only=True, git=_git), PULL_SHARE,
                            build_async, gitsync.local_stamp, time.time)
 
 
-def _build(D: Doc) -> dict:
+def _build(D: Doc) -> BuildResult:
     """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.build.compile_tex)."""
     return build.compile_tex(D, build_config(), repo_pull if C.git_pull else None)
 
@@ -354,15 +363,15 @@ def _build(D: Doc) -> dict:
 # limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
 # list and the run settings as arguments, bound here.
 
-_SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
+_SRC_MTIME_CACHE: list[Any] = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
 # and regression tests see is exactly this document's.
 LEGACY_DOC = Doc(DEFAULT_DOC_KEY, "본문", legacy=True, lock=BUILD_LOCK, bstate=BUILD_STATE,
                  bstate_lock=BUILD_STATE_LOCK, builds_lock=BUILDS_LOCK, mcache=_SRC_MTIME_CACHE, paths=C)
-DOCS: list = [LEGACY_DOC]
+DOCS: list[Doc] = [LEGACY_DOC]
 
 
-def set_docs(docs=None) -> None:
+def set_docs(docs: Iterable[Doc] | None = None) -> None:
     """Change the document list (main()/tests). Reverts to a single document when empty."""
     DOCS[:] = list(docs) if docs else [LEGACY_DOC]
 
@@ -371,12 +380,12 @@ def multi_doc() -> bool:
     return len(DOCS) > 1
 
 
-def doc_by_key(key) -> Doc | None:
+def doc_by_key(key: object) -> Doc | None:
     """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
     return documents.doc_by_key(DOCS, key)
 
 
-def pin_doc_key(r: dict) -> str:
+def pin_doc_key(r: Record) -> str:
     """The document key a pin belongs to; a legacy record without a doc field is the first document's
     (limn.documents.pin_doc_key)."""
     return documents.pin_doc_key(r, DOCS)
@@ -389,13 +398,13 @@ def meta_settings() -> MetaSettings:
                         repo=C.repo, dpi=C.dpi)
 
 
-def docs_payload() -> dict:
+def docs_payload() -> Json:
     """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
     rows, _ = read_pins()
     return meta_reads.docs_payload(DOCS, rows, pin_doc_key, C.state)
 
 
-def meta(D: Doc, actor: dict, light: bool = False) -> dict:
+def meta(D: Doc, actor: Json, light: bool = False) -> Json:
     """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
     light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
     out = meta_reads.meta(D, actor, meta_settings(), DOCS, sync_status(), time.time())
@@ -407,11 +416,11 @@ def meta(D: Doc, actor: dict, light: bool = False) -> dict:
 
 # ---------------------------------------------------------------- Pin store
 
-def _is_int(v) -> bool:
+def _is_int(v: object) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def valid_rec(r) -> bool:
+def valid_rec(r: object) -> bool:
     """Checks only the fields the store trusts and indexes on. If even one is wrong, the line is treated as broken.
 
     Back when only id was checked, a single record with a string lo or no file turned every GET/POST into a
@@ -483,15 +492,15 @@ def valid_rec(r) -> bool:
     return True
 
 
-def _is_num(v) -> bool:
+def _is_num(v: object) -> TypeGuard[int | float]:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def _is_str_list(v) -> bool:
+def _is_str_list(v: object) -> TypeGuard[list[str]]:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
 
-def _valid_thread(th) -> bool:
+def _valid_thread(th: object) -> bool:
     """thread = [{id, by, at, text, ev?, ref?, mentions?}] - the viewer renders by.name/text as-is."""
     if not isinstance(th, list):
         return False
@@ -509,13 +518,13 @@ def _valid_thread(th) -> bool:
     return True
 
 
-def pin_location(r: dict, root: Path) -> PinLocation | None:
+def pin_location(r: Record, root: Path) -> PinLocation | None:
     """Where line pin r's file is under the manuscript root on this machine now (limn.locate.pin_location, the tail
     guess limited to the folder of the pin's own document), or None."""
     return locate.pin_location(r, root, doc_by_key(pin_doc_key(r)))
 
 
-def stamp_location(r: dict, root: Path) -> PinLocation | None:
+def stamp_location(r: Row, root: Path) -> PinLocation | None:
     """Records in r where its file is now (limn.locate.stamp_location, the pin's own document). Mutates r."""
     return locate.stamp_location(r, root, doc_by_key(pin_doc_key(r)))
 
@@ -526,7 +535,7 @@ def pin_locator() -> locate.Locator:
     return lambda r: pin_location(r, root)
 
 
-def sync_all(rows: list) -> bool:
+def sync_all(rows: list[Row]) -> bool:
     """The store's re-sync (PinStore.sync): stored pins' lines follow their anchors in the .tex files as this instance
     finds them now (limn.locate.sync_all)."""
     return locate.sync_all(rows, pin_locator())
@@ -544,34 +553,34 @@ def pin_store() -> PinStore:
 # The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
 # delegates to pin_store(). The contracts are the store's methods of the same name.
 
-def read_jsonl(path: Path) -> tuple:
+def read_jsonl(path: Path) -> tuple[list[Row], list[int]]:
     """(records, broken line numbers) of a JSONL file (PinStore.read_jsonl)."""
     return pin_store().read_jsonl(path)
 
 
-def read_pins() -> tuple:
+def read_pins() -> tuple[list[Row], list[int]]:
     """The live pins and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
     return pin_store().read_pins()
 
 
-def write_pins(rows: list, bad=None) -> None:
+def write_pins(rows: list[Row], bad: list[int] | None = None) -> None:
     """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold PIN_LOCK."""
     pin_store().write_pins(rows, bad)
 
 
-def transact(fn):
+def transact(fn: Callable[[list[Row]], tuple[T, bool]]) -> tuple[list[Row], T]:
     """Write-order invariant: with PIN_LOCK -> read -> sync -> apply the request's change -> atomic write -> pins.md.
 
     fn(rows) returns (result, whether it mutated); returns (rows, result). See PinStore.transact."""
     return pin_store().transact(fn)
 
 
-def snapshot_pins() -> list:
+def snapshot_pins() -> list[Row]:
     """The live pins, re-synced and written back if that changed them (PinStore.snapshot)."""
     return pin_store().snapshot()
 
 
-def public(r: dict) -> dict:
+def public(r: Record) -> Json:
     """A record as the API returns it: a copy with rev defaulted to 0 and - for a line pin that pin_location() places
     under the manuscript root - `file` set to its absolute path on this machine now and the computed `rel_path` to its
     path relative to the root (ADR-0006, for old records too). The stored `file_rel` is not returned: rel_path is always
@@ -594,7 +603,7 @@ def public(r: dict) -> dict:
 # now. Here both are bound to this instance: how a record is shown (public), a pin's document, each document's build
 # history (limn.locate.est_context), the pin locator, the stored pins and the clock.
 
-def pins_payload(rows: list, allp: bool) -> list:
+def pins_payload(rows: list[Row], allp: bool) -> list[Json]:
     """GET /api/pins response (limn.pins.view.pins_payload): stored records + the computed fields rel (overlap), est
     (location estimated), doc, state, addressed, fyi. None of these are stored."""
     return view.pins_payload(rows, allp, overlaps_by_id(rows), public, pin_doc_key, _doc_est_context, time.time())
@@ -607,7 +616,7 @@ def _doc_est_context(key: str) -> EstContext | None:
     return None if D is None else est_context(D)
 
 
-def dropped_payload(now: float = None) -> list:
+def dropped_payload(now: float | None = None) -> list[Json]:
     """GET /api/pins/dropped response - the Trash (limn.pins.view.dropped_payload): pins.dropped.jsonl ordered by
     dropped_at, each entry with `expires_ts`, without entries older than TRASH_DAYS (hidden here, removed from the file
     by the next purge_trash()).
@@ -618,13 +627,13 @@ def dropped_payload(now: float = None) -> list:
     return view.dropped_payload(_unexpired(read_jsonl(C.dropped)[0], now), public, trash_expires_ts)
 
 
-def overlaps_by_id(rows: list) -> dict:
+def overlaps_by_id(rows: Sequence[Row]) -> dict[int, list[Json]]:
     """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
     now (limn.locate.overlaps_by_id), never stored."""
     return locate.overlaps_by_id(rows, pin_locator())
 
 
-def overlaps_for_range(file: str, lo: int, hi: int) -> list:
+def overlaps_for_range(file: str, lo: int, hi: int) -> list[Json]:
     """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
     (limn.locate.overlaps_for_range). Nothing is saved."""
     return locate.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_locator())
@@ -637,12 +646,12 @@ def init_seq() -> None:
     pin_store().init_seq()
 
 
-def next_id(rows: list) -> int:
+def next_id(rows: list[Row]) -> int:
     """An id is never reused - hands out the next one and records it in pins.seq (PinStore.next_id)."""
     return pin_store().next_id(rows)
 
 
-def who(actor: dict) -> dict:
+def who(actor: Mapping[str, Any]) -> Json:
     return {"login": actor.get("login", "local"), "name": actor.get("name", "")}
 
 
@@ -652,7 +661,7 @@ def who(actor: dict) -> dict:
 # with the exact 400 message of the agent contract, and the handler passes the parsed value to the service here. A
 # parser that checks a request against the manuscript reads it through document_facts().
 
-def assignee_people(d: dict) -> Collection[str]:
+def assignee_people(d: Mapping[str, Any]) -> Collection[str]:
     """The logins limn.web.parse.parse_assignee checks against: known_people() when the body names an assignee, else
     none (no read)."""
     return known_people() if d.get("assignee") is not None else ()
@@ -693,17 +702,17 @@ def pin_context() -> PinContext:
         trash_checked=_TRASH_CHECKED)
 
 
-def http_audit(action: str, by: dict, details: dict) -> bool:
+def http_audit(action: str, by: Json, details: Json) -> bool:
     """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
     return append_audit(C.state, audit_entry(action, by, "http", details, time.time()))
 
 
-def add_pin(D: Doc, request: AddRequest, actor: dict) -> OpenPin:
+def add_pin(D: Doc, request: AddRequest, actor: Json) -> OpenPin:
     """POST /api/pin: a new pin in document D (limn.service.add_edit.add_pin)."""
     return add_edit.add_pin(pin_context(), D, request, actor)
 
 
-def edit_scope(pid: int) -> tuple:
+def edit_scope(pid: int) -> tuple[bool, Doc]:
     """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
     view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
     r0 = find_pin(read_pins()[0], pid)
@@ -711,26 +720,26 @@ def edit_scope(pid: int) -> tuple:
     return region, (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or DOCS[0]
 
 
-def edit_pin(pid: int, request: EditRequest, actor: dict,
+def edit_pin(pid: int, request: EditRequest, actor: Json,
              region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """POST /api/pins/{id}/edit: pin pid edited in place (limn.service.add_edit.edit_pin); region and the placed loc
     come from edit_scope()."""
     return add_edit.edit_pin(pin_context(), pid, request, actor, region)
 
 
-def thread_replies(r: dict) -> list:
+def thread_replies(r: Record) -> list[Any]:
     """Replies only, excluding state-transition records (ev)."""
-    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    th: list[Any] = r["thread"] if isinstance(r.get("thread"), list) else []
     return [m for m in th if isinstance(m, dict) and not m.get("ev")]
 
 
-def pin_reopened_in_round(r: dict) -> bool:
+def pin_reopened_in_round(r: Record) -> bool:
     """Has it been reopened since it was last completed (last close) - drives pins.md's "reopened" marker (§Pending review).
     This is effectively the same condition as thread_round() starting the current round from the reopen,
     but it's kept separate in case their definitions diverge in the future (the old version only checked
     "is the round's first post a reopen", which missed a round where a confirm (ev=confirm) followed the
     reopen - after a confirm-then-reopen, the round must start at [reopen, ...], not [confirm, reopen, ...])."""
-    th = r.get("thread") if isinstance(r.get("thread"), list) else []
+    th: list[Any] = r["thread"] if isinstance(r.get("thread"), list) else []
     last_close = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "close"), default=-1)
     last_reopen = max((i for i, m in enumerate(th) if isinstance(m, dict) and m.get("ev") == "reopen"), default=-1)
     return last_reopen > last_close
@@ -754,12 +763,12 @@ def people_book() -> people.PeopleBook:
     return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN)
 
 
-def load_people() -> list:
+def load_people() -> list[Row]:
     """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing or unreadable."""
     return people.load_people(C.people_file)
 
 
-def record_person(actor: dict, now: float = None, role: str = None) -> bool:
+def record_person(actor: Json, now: float | None = None, role: str | None = None) -> bool:
     """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
     last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
     continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
@@ -770,7 +779,7 @@ def record_person(actor: dict, now: float = None, role: str = None) -> bool:
     return people.record_person(people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
 
 
-def known_people(rows: list = None) -> dict:
+def known_people(rows: list[Row] | None = None) -> dict[str, Row]:
     """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (rows, or the
     stored pins when None), agents excluded (limn.people.known_people)."""
     ppl = load_people()
@@ -783,24 +792,26 @@ def event_log() -> events.EventLog:
     return events.EventLog(C.events_file, EVENTS_LOCK, _EVENTS_CACHE, time.time, now_str)
 
 
-def make_event(typ: str, r: dict, actor: dict, to, msg: dict = None, text: str = None) -> dict:
+def make_event(typ: str, r: Mapping[str, Any], actor: Mapping[str, Any], to: Iterable[str | None] | None,
+               msg: Mapping[str, Any] | None = None, text: str | None = None) -> Event | None:
     """One events.jsonl line about pin r by actor (limn.events.make_event; seq/at are filled in by emit_events). The
     actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
     return events.make_event(typ, r, actor, to, who, pin_doc_key, LOCAL_ACTOR["login"], msg, text)
 
 
-def emit_events(evs: list) -> None:
+def emit_events(evs: list[Event | None]) -> None:
     """Appends notices to events.jsonl, keeping the newest EVENTS_KEEP (limn.events.EventLog.emit). Only called after
     the pin write has committed (prevents phantom events); a failure is just a warning."""
     event_log().emit(evs, EVENTS_KEEP)
 
 
-def _read_events() -> tuple:
+def _read_events() -> tuple[list[Row], events.Signature | None]:
     """(event list, file signature) of events.jsonl, cached by mtime/size (limn.events.EventLog.read)."""
     return event_log().read()
 
 
-def note_tags(note: str, old_note: str, rows: list, hints, actor: dict, pid: object) -> NoteTags:
+def note_tags(note: str, old_note: str, rows: list[Row], hints: Sequence[str] | None, actor: Mapping[str, Any],
+              pid: object) -> NoteTags:
     """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
 
     Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
@@ -814,7 +825,7 @@ def note_tags(note: str, old_note: str, rows: list, hints, actor: dict, pid: obj
     return tags._replace(notify=note_mention_targets(tags.notify, _read_events()[0], me, pid, time.time()))
 
 
-def events_since(actor: dict, cursor: int | None) -> dict:
+def events_since(actor: Json, cursor: int | None) -> Json:
     """Notification material carried in /api/meta polling (limn.events.events_since): ev_seq always, and with a cursor
     the events after it addressed to the requester's tailnet login - nothing for local/agent. Read-only."""
     rows, _ = _read_events()
@@ -839,30 +850,31 @@ self.addEventListener('notificationclick',e=>{e.notification.close();const d=e.n
 """
 
 
-def reply_reopens(r: dict, human: bool, mentioned, reopen=None) -> bool:
+def reply_reopens(r: Record, human: bool, mentioned: Sequence[str], reopen: bool | None = None) -> bool:
     """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
     preview (replyReopens) mirrors that rule."""
     return reopens_on_reply(parse_pin(r), human, mentioned, reopen)
 
 
-def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None,
-              human=None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
+def reply_pin(pid: int, text: str, actor: Json, hints: list[str] | None = None, reopen: bool | None = None,
+              human: bool | None = None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
     """POST /api/pins/{id}/reply (limn.service.transitions.reply_pin)."""
     return transitions.reply_pin(pin_context(), pid, text, actor, hints, reopen, human)
 
 
-def set_done(pid: int, done: bool, actor: dict, reply: str | None = None, ref: str | None = None,
-             review: bool | None = None, reason: str | None = None, hints=None, changes=None):
+def set_done(pid: int, done: bool, actor: Json, reply: str | None = None, ref: str | None = None,
+             review: bool | None = None, reason: str | None = None, hints: list[str] | None = None,
+             changes: Sequence[CloseChange] | None = None) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
     """POST /api/pins/{id}/close (done=True) and /reopen (done=False) (limn.service.transitions.set_done)."""
     return transitions.set_done(pin_context(), pid, done, actor, reply, ref, review, reason, hints, changes)
 
 
-def confirm_pin(pid: int, actor: dict) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
+def confirm_pin(pid: int, actor: Json) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
     """POST /api/pins/{id}/confirm (limn.service.transitions.confirm_pin)."""
     return transitions.confirm_pin(pin_context(), pid, actor)
 
 
-def drop_pin(pid: int, actor: dict) -> TrashedPin | PinNotFound:
+def drop_pin(pid: int, actor: Json) -> TrashedPin | PinNotFound:
     """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""
     return trash.drop_pin(pin_context(), pid, actor)
 
@@ -873,25 +885,25 @@ def drop_pin(pid: int, actor: dict) -> TrashedPin | PinNotFound:
 # reading never writes, and the file is rewritten without expired entries at startup, on every drop/restore, hourly on
 # the reads that already write, and by the owner's permanent delete. The process's memo of the last lazy check is here.
 
-_TRASH_CHECKED = [0.0]              # epoch of the last lazy check (per process)
+_TRASH_CHECKED: list[float] = [0.0]              # epoch of the last lazy check (per process)
 
 
-def trash_expires_ts(r: dict):
+def trash_expires_ts(r: Record) -> float | None:
     """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
     return trash.expires_ts(r, TRASH_DAYS)
 
 
-def trash_expired(r: dict, now: float = None) -> bool:
+def trash_expired(r: Record, now: float | None = None) -> bool:
     """Is Trash entry r past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
     return trash.expired(r, TRASH_DAYS, time.time() if now is None else now)
 
 
-def _unexpired(rows: list, now: float = None) -> list:
+def _unexpired(rows: Sequence[Row], now: float | None = None) -> list[Row]:
     """The Trash entries of rows still restorable at now (default: the clock)."""
     return trash.unexpired(rows, TRASH_DAYS, time.time() if now is None else now)
 
 
-def purge_trash(now: float = None) -> int:
+def purge_trash(now: float | None = None) -> int:
     """Rewrites the Trash without entries older than TRASH_DAYS -> how many went (limn.service.trash.purge_trash)."""
     return trash.purge_trash(pin_context(), now)
 
@@ -901,7 +913,7 @@ def maybe_purge_trash() -> int:
     return trash.maybe_purge_trash(pin_context())
 
 
-def purge_pin(pid: int, actor: dict) -> TrashedPin | NotInTrash:
+def purge_pin(pid: int, actor: Json) -> TrashedPin | NotInTrash:
     """POST /api/pins/{id}/purge: the owner's permanent delete (limn.service.trash.purge_pin)."""
     return trash.purge_pin(pin_context(), pid, actor)
 
@@ -912,23 +924,23 @@ def purge_pin(pid: int, actor: dict) -> TrashedPin | NotInTrash:
 # conflicts - it's a signal, not a lock: nothing stops closing or force-claiming a pin another identity holds a valid claim on.
 # Claiming and unclaiming are limn/service/claim.py; claim_active is the read the pin list computes claim_ts from.
 
-def claim_active(r: dict) -> bool:
+def claim_active(r: Record) -> bool:
     """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
     return claim_holds(r, time.time())
 
 
-def claim_pin(pid: int, actor: dict, ttl_min: int,
-              eta_min: int = None) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
+def claim_pin(pid: int, actor: Json, ttl_min: int,
+              eta_min: int | None = None) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
     """POST /api/pins/{id}/claim: place or extend the in-progress marker (limn.service.claim.claim_pin)."""
     return claim.claim_pin(pin_context(), pid, actor, ttl_min, eta_min)
 
 
-def unclaim_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
+def unclaim_pin(pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
     """POST /api/pins/{id}/unclaim (limn.service.claim.unclaim_pin)."""
     return claim.unclaim_pin(pin_context(), pid, actor)
 
 
-def restore_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
+def restore_pin(pid: int, actor: Json) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
     """POST /api/pins/{id}/restore: the pin comes back from the Trash (limn.service.trash.restore_pin)."""
     return trash.restore_pin(pin_context(), pid, actor)
 
@@ -936,23 +948,23 @@ def restore_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotInT
 CLEAR_CONFIRM = "clear all pins"
 
 
-def clear_pins(actor: dict | None = None) -> dict:
+def clear_pins(actor: Json | None = None) -> Json:
     """POST /api/clear: archive and clear every pin, with its notice and audit line (limn.service.trash.clear_pins)."""
     return trash.clear_pins(pin_context(), actor)
 
 
-def render_pins_md(rows: list) -> None:
+def render_pins_md(rows: list[Row]) -> None:
     """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold PIN_LOCK."""
     pin_store().render_md(rows)
 
 
-def pins_md_text(rows: list, base: str | None = None) -> str:
+def pins_md_text(rows: list[Row], base: str | None = None) -> str:
     """pins.md's text for rows: limn.pins.render.pins_md_text over pins_md_input(rows, base). The store renders with
     this after every write (base None: the file on disk) and GET /pins.md with the request's base."""
     return render_pins_md_text(pins_md_input(rows, base))
 
 
-def pins_md_input(rows: list, base: str | None = None) -> PinsMdInput:
+def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
     """Everything one rendering of pins.md reads, gathered at the edge: the run settings in C, the documents and their
     build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
     file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
@@ -961,8 +973,8 @@ def pins_md_input(rows: list, base: str | None = None) -> PinsMdInput:
     one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
     rel = overlaps_by_id(rows)
     by_id = {r["id"]: r for r in rows}
-    sources: dict = {}
-    facts = {}
+    sources: dict[Path, list[str]] = {}
+    facts: dict[int, PinFacts] = {}
     for r in rows:
         if pin_state(r) == "done":
             continue
@@ -1011,17 +1023,17 @@ def pick_context() -> locate.PickContext:
     return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def pick(D: Doc, request: locate.Selection) -> dict:
+def pick(D: Doc, request: locate.Selection) -> Json:
     """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
     return locate.pick(D, request, pick_context())
 
 
-def snippet_api(rng: locate.SourceLines, levels: bool) -> dict:
+def snippet_api(rng: locate.SourceLines, levels: bool) -> Json:
     """GET /api/snippet: a parsed range's lines, with levels the range ladder under --float-envs (limn.locate.snippet_api)."""
     return locate.snippet_api(rng, levels, C.envs)
 
 
-def overlaps_api(rng: locate.SourceLines) -> dict:
+def overlaps_api(rng: locate.SourceLines) -> Json:
     """GET /api/overlaps: a parsed range's overlaps with the stored open pins (limn.locate.overlaps_api)."""
     return locate.overlaps_api(rng, pick_context())
 
@@ -1035,8 +1047,8 @@ def overlaps_api(rng: locate.SourceLines) -> dict:
 # people.json are re-read when they change on disk, so `limn token` / `limn member` edits take effect on the next
 # request without a restart) and the one-time loopback-agent warning. The refusals raise HTTPError (fail closed).
 
-TOKENS_CACHE: access.FileCache[list] = access.FileCache()   # tokens.json's valid entries as this process last read them
-ROLES_CACHE: access.FileCache[dict] = access.FileCache()    # {login: role} of people.json as this process last read it
+TOKENS_CACHE: access.FileCache[list[Json]] = access.FileCache()   # tokens.json's valid entries as this process last read them
+ROLES_CACHE: access.FileCache[dict[str, str]] = access.FileCache()    # {login: role} of people.json as this process last read it
 LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
 
 
@@ -1049,12 +1061,12 @@ def access_settings() -> access.AccessSettings:
         agent_token_file=C.agent_token_file)
 
 
-def current_tokens() -> list:
+def current_tokens() -> list[Json]:
     """tokens.json as the server sees it now - re-read whenever its inode/mtime/size changes (revocation needs no restart)."""
     return TOKENS_CACHE.get(C.tokens_file, lambda: load_tokens(C.state), [])
 
 
-def people_roles() -> dict:
+def people_roles() -> dict[str, str]:
     """{login: role} for everyone in people.json, re-read whenever the file changes - so `limn member role` and
     `limn member remove` take effect on the running server's next request."""
     return ROLES_CACHE.get(C.people_file, lambda: roles_of(load_people()), {})
@@ -1070,12 +1082,12 @@ def access_lookups() -> access.AccessLookups:
     return access.AccessLookups(tokens=current_tokens, roles=people_roles, warn_loopback_agent=LOOPBACK_WARNING)
 
 
-def identify(headers, peer) -> access.Principal:
+def identify(headers: Message, peer: str) -> access.Principal:
     """Who this request is (limn.access.identify under this run's settings); raises HTTPError 401/403."""
     return access.identify(headers, peer, access_settings(), access_lookups())
 
 
-def admit(p: access.Principal, host, headers=None) -> None:
+def admit(p: access.Principal, host: str | None, headers: Message | None = None) -> None:
     """May this principal use the instance at all (limn.access.admit); raises HTTPError 403."""
     access.admit(p, host, headers, access_settings(), people_roles)
 
@@ -1091,7 +1103,7 @@ def host_ok(host: str) -> bool:
     return access.host_ok(host, C.public_hosts)
 
 
-def origin_ok(origin: str, host) -> bool:
+def origin_ok(origin: str, host: str | None) -> bool:
     """Is Origin on the same side as the Host the request arrived on (limn.access.origin_ok)?"""
     return access.origin_ok(origin, host, C.public_hosts)
 
@@ -1104,7 +1116,7 @@ def remote_base_for(host_raw: str) -> str:
 def cli_audit(state: Path) -> access.AuditSink:
     """The audit sink of `limn token` / `limn member` on state: each change becomes an audit.jsonl line as the OS
     account running the command (os_actor), via "cli", stamped when it is recorded."""
-    def record(action: str, details: dict) -> bool:
+    def record(action: str, details: Json) -> bool:
         """Append one audit line for action with details (append_audit: a failed write only warns)."""
         return append_audit(state, audit_entry(action, os_actor(), "cli", details, time.time()))
     return record
@@ -1126,11 +1138,11 @@ class _ModuleApp:
     object: server.py also runs where it is not in sys.modules (loaded by path, as the tests and tools do)."""
     __slots__ = ("_ns",)
 
-    def __init__(self, ns: dict) -> None:
+    def __init__(self, ns: dict[str, Any]) -> None:
         """Wrap the namespace dict itself (this module's globals()), not a snapshot of it."""
         self._ns = ns
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         """The current value of global `name`; AttributeError when this module has none."""
         try:
             return self._ns[name]
@@ -1143,9 +1155,18 @@ class Handler(WebHandler):
     app = _ModuleApp(globals())
 
 
+if TYPE_CHECKING:
+    # _ModuleApp answers every attribute with Any, so mypy cannot see through it. This assignment makes mypy check the
+    # module itself against the handler's Protocol (limn.web.app.App): a missing or wrongly typed binding is a type
+    # error here. Never runs.
+    import limn.server as _this_module
+    from limn.web.app import App
+    _APP_CHECK: App = _this_module
+
+
 # ---------------------------------------------------------------- Entry point
 
-def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
+def init_doc(D: Doc, no_build: bool, wait: bool) -> Json:
     """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
     D.dir.mkdir(parents=True, exist_ok=True)
     if D.root:
@@ -1181,7 +1202,7 @@ def access_options() -> startup.AccessOptions:
     return startup.AccessOptions(**{f.name: getattr(C, f.name) for f in dataclasses.fields(startup.AccessOptions)})
 
 
-def configure_access(a) -> StartupRefused | None:
+def configure_access(a: argparse.Namespace) -> StartupRefused | None:
     """Applies the access options of the command line (limn.startup.access_options) to C, or returns the refusal with
     nothing applied - main() stops before any build, so a misconfigured unit fails fast."""
     opts = startup.access_options(a)
@@ -1192,12 +1213,12 @@ def configure_access(a) -> StartupRefused | None:
     return None
 
 
-def access_log_lines() -> list:
+def access_log_lines() -> list[str]:
     """The startup log lines about access (limn.startup.access_log_lines) for C, its tokens.json and token file."""
     return startup.access_log_lines(access_options(), len(load_tokens(C.state)), file_present(C.agent_token_file))
 
 
-def configure_run(a) -> list | None | StartupRefused:
+def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
     """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
     the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (created
     here, before the label and accent are checked), build settings, the port, access lists, the label and accent -
@@ -1235,7 +1256,7 @@ def configure_run(a) -> list | None | StartupRefused:
     return picked.docs
 
 
-def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
+def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
     """The documents, pin store and builds before serving: the document list, pins.seq, the Trash's expired entries,
     then either the single document's build (synchronous; a failed build refuses to start) or every --doc
     document's build in the background (a failure only opens that tab's error panel), and the watch threads."""
@@ -1267,7 +1288,7 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
     return None
 
 
-def report(docs: list | None) -> None:
+def report(docs: list[Doc] | None) -> None:
     """The startup summary on stdout (limn.startup.summary_lines): manuscript, label, state folder, address, access,
     and the optional features."""
     pdfjs_found = bool(vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"))
@@ -1285,7 +1306,7 @@ def listen() -> Server | StartupRefused:
         return startup.listen_refusal(C.bind, C.port, e)
 
 
-def start(a) -> Server | StartupRefused:
+def start(a: argparse.Namespace) -> Server | StartupRefused:
     """Every startup step, in order, until one refuses: access settings, the --port probe, the run settings and
     documents, the store and builds, the summary, then the listening server."""
     refused = configure_access(a)
