@@ -88,7 +88,7 @@ class PlainDoc:
 
 
 class NoServerState(unittest.TestCase):
-    """The moved build must not reach the server's run arguments or its "current document" (roadmap stage 5)."""
+    """The build module must not reach the server's run arguments or a "current document" (coding rule R5)."""
 
     def test_reads_no_server_global(self):
         """No name the server keeps as hidden state (C, cur_doc(), the document list, the legacy lock/state) appears."""
@@ -106,7 +106,7 @@ class NoServerState(unittest.TestCase):
             self.assertFalse({m for m in modules if m == "limn.server" or m.startswith("server")}, path.name)
 
     def test_source_has_no_config_or_current_document_reference(self):
-        """The grep the roadmap names as the proof: no `C.` and no `cur_doc(` in the module text."""
+        """The plain-text proof of rule R5 (docs/handbook/code-style-roadmap.md §R5): no `C.` and no `cur_doc(`."""
         source = BUILD_PY.read_text(encoding="utf-8")
         self.assertNotIn("C.", source)
         self.assertNotIn("cur_doc(", source)

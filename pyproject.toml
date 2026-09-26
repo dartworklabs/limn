@@ -44,8 +44,8 @@ line-length = 120
 extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]   # copied from upstream; fix there, not here
 
 [tool.ruff.lint]
-# Stage 1 of docs/handbook/code-style-roadmap.md (R4): bug candidates ("F", "B", "PLW1510") and style rules ("E",
-# "W", "I", "UP", "SIM"); `ruff format` owns the layout. Docstring rules ("D") come later, new modules first.
+# Coding rule R4 (docs/handbook/code-style-roadmap.md §R4): bug candidates ("F", "B", "PLW1510") and style rules
+# ("E", "W", "I", "UP", "SIM"); `ruff format` owns the layout. Docstring rules ("D") come later, new modules first.
 select = ["F", "E", "W", "I", "B", "UP", "SIM", "PLW1510"]
 ignore = [
     "E501",   # line length: the formatter wraps code; long comment and docstring lines are not checked
@@ -64,10 +64,9 @@ combine-as-imports = true               # `from limn import access, server as ps
 known-local-folder = ["helpers", "test_*"]   # the tests' shared modules, imported after limn
 
 [tool.mypy]
-# Stage 7 of docs/handbook/code-style-roadmap.md: every module of the package is type-checked strictly - the modules
-# moved out of server.py, server.py itself (the composition root; its module is also checked against the handler's
-# limn.web.app.App Protocol), and the `limn` command (cli.py, migrate.py, the package files). `uv run mypy` reports
-# errors in exactly these files; a new module is added here.
+# Coding rule R8 (docs/handbook/code-style-roadmap.md §R8): every module of the package is type-checked strictly -
+# server.py too (the composition root; its module is also checked against the handler's limn.web.app.App Protocol)
+# and the `limn` command. A new module under src/limn is checked without being listed.
 files = ["src/limn"]
 mypy_path = "src"
 python_version = "3.10"

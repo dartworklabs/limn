@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Server and viewer fixes; the HTTP API and `pins.md` are unchanged.
+Server and viewer fixes and an internal restructuring; the HTTP API and `pins.md` are unchanged.
 
 - **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
   and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
@@ -19,6 +19,25 @@ Server and viewer fixes; the HTTP API and `pins.md` are unchanged.
   server skips. The assignee row resolved the note with every login ever picked in the field instead of the hints the
   save sends, so a pick edited down to a shared first word saved a pin handed to someone its note did not tag. A shared
   corpus (tests/test_mentions_parity.py) now runs through both resolvers.
+- **Internal: the server is split into modules.** No change to the HTTP API, `pins.md`, the state directory or the
+  command line; each move was checked by a differential run against the code before it, in a separate process.
+  - `src/limn/server.py` is only the composition root: the run settings, the document list, the per-process locks and
+    caches, one-line wirings and the startup steps. The logic lives in modules of their own - the pure pin domain
+    (`limn/pins/`), the pin services (`limn/service/`), the pin store, build, location, access control, startup, and
+    the HTTP layer (`limn/web/`).
+  - Pin states are types (`OpenPin`, `ReviewPin`, `DonePin`, `TrashedPin`) that carry only their own fields; records
+    are still read and written byte for byte as before, guarded by a round-trip corpus of every record shape.
+  - Expected refusals are return values (`confirm()` returns `DonePin | AlreadyDone | PinStillOpen`); the HTTP layer
+    answers them with the same statuses, bodies and `reason` codes. Identity, admission and role checks still raise, so
+    a caller cannot miss a refusal.
+  - Request bodies and queries are parsed in `limn/web/parse.py`; there is no thread-local "current document" any more,
+    the handler passes the request's document to every service.
+  - The viewer's page, styles and scripts are build-free files in `src/limn/viewer/`, joined in `parts.txt` order into
+    the same single HTML page.
+  - New gates: Ruff lint and `ruff format --check`, ShellCheck, strict mypy over the whole package, `node --check` of
+    the viewer scripts, and a snapshot test of `pins.md` and the main API answers for one fixed pin flow.
+  - The Handbook states the current design only; `docs/handbook/code-style-roadmap.md` now holds the coding rules
+    R1–R10, and a test checks that Handbook section references and paths resolve.
 
 ## 0.3.5 — unreleased
 
