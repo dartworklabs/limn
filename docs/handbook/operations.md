@@ -10,7 +10,7 @@
 
 ## 요구 환경
 
-서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다.
+서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다. 3.10은 하한이다. 3.9 이하는 `server.py`의 `match` 문을 읽지 못해 시작하자마자 `SyntaxError`로 멈춘다. macOS의 `/usr/bin/python3`이 3.9다.
 
 재빌드에는 외부 도구가 필요하다.
 

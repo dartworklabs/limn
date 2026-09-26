@@ -6,8 +6,8 @@ under a moved manuscript (pin_rel_path), whose existence checks come in as a cal
 SyncTeX and pdftotext, reading .tex files, the token-weight cache, re-syncing stored pins, resolving paths - stays in
 server.py and calls into this module. The rules themselves are described in docs/handbook/domain.md.
 """
-# Lazy annotations like server.py: instances.sh may start server.py with the system python3, and an eager
-# `dict | None` would stop an older interpreter at import where server.py itself still loads.
+# Lazy annotations to match server.py's style, not for an older interpreter: Limn needs Python >= 3.10 (server.py
+# uses `match`), and instances.sh refuses an older one before it starts the server.
 from __future__ import annotations
 
 import re
