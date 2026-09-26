@@ -29,7 +29,7 @@ from limn import access
 from limn.guidance import UNAUTHENTICATED, shell_path
 from test_access import AccessBase, get, token_create, token_revoke
 from limn.pins import render as md_render
-from test_server import ps
+from helpers import ps
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

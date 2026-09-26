@@ -441,7 +441,7 @@ def now_str() -> str:
     """
 ```
 
-또 주석이 `§P0c-C`, `§P0b-보완 C`, `P0b-01` 같은 옛 작업 계획 번호를 가리켰다. 그 계획 문서는 이 저장소에 없다. 2026-09-26 `src/`의 이런 참조 23곳(파이썬 12곳, 뷰어 JS 11곳)을 Handbook의 절 이름으로 바꿨고, `tests/test_server.py`의 것은 그 파일을 나누는 변경에서 바꾼다 (예: `docs/handbook/api.md §처리 중 표시 (claim)`). 새 주석은 처음부터 Handbook 절을 가리킨다.
+또 주석이 `§P0c-C`, `§P0b-보완 C`, `P0b-01` 같은 옛 작업 계획 번호를 가리켰다. 그 계획 문서는 이 저장소에 없다. 2026-09-26 `src/`의 이런 참조 23곳(파이썬 12곳, 뷰어 JS 11곳)을 Handbook의 절 이름으로 바꿨고, `tests/test_server.py`의 것은 같은 날 그 파일을 나누면서 바꿨다 (예: `docs/handbook/api.md §처리 중 표시 (claim)`). 새 주석은 처음부터 Handbook 절을 가리킨다.
 
 **확인하는 법.** Ruff의 `D` 규칙이 누락을 잡는다 (R4). 리뷰에서 docstring을 구현·테스트와 대조해, 말과 코드가 다르면 둘 중 틀린 쪽을 고친다.
 
@@ -475,7 +475,7 @@ def now_str() -> str:
 
 **업계에서 부르는 이름.** 실패하는 테스트부터 쓰는 것은 TDD의 red-green(Kent Beck, *Test-Driven Development: By Example*, 2002). 조건과 기대를 이름에 담는 방식은 Roy Osherove의 *The Art of Unit Testing*이 정리했다.
 
-**지금 코드의 모습.** 테스트 함수 733개 중 docstring이 있는 것은 4개다. 대부분은 클래스 이름(`Claim`, `Estimate`)과 주석이 맥락을 주지만, 개별 테스트가 어떤 사고를 막는지는 본문을 읽어야 안다. `test_server.py` 한 파일이 6,663행이라, 서버를 나눌 때 어느 테스트가 어느 모듈을 지키는지 가려내기 어렵다.
+**지금 코드의 모습.** 테스트 함수 733개 중 docstring이 있는 것은 4개다. 대부분은 클래스 이름(`Claim`, `Estimate`)과 주석이 맥락을 주지만, 개별 테스트가 어떤 사고를 막는지는 본문을 읽어야 안다. `test_server.py` 한 파일이 6,663행이라, 서버를 나눌 때 어느 테스트가 어느 모듈을 지키는지 가려내기 어렵다. (2026-09-26 나눴다: 서버를 옮긴 뒤 6,799행이던 `test_server.py`의 클래스를 주제 모듈의 파일로 옮겼다. 뷰어 화면 클래스 34개(`Frontend*`와 `PinNumberJump`·`HtmlTemplateStructure`)는 새 `test_viewer.py`, 원고 이력은 새 `test_revisions.py`, 나머지는 `test_store.py`·`test_build.py`·`test_locate.py`·`test_meta.py`·`test_pins_render.py`·`test_service.py`·`test_gitsync.py`·`test_startup.py` 등 이미 있던 파일 끝으로 갔다. `test_server.py`에는 `server.py` 자신의 함수, 처리기를 끝까지 지나는 요청, API·`pins.md`·뷰어를 함께 건너는 기능 클래스, 모두 20개 클래스가 남았다. 공용 도구는 `tests/helpers.py`다. 클래스를 쪼개지 않고 통째로 옮겼고 단언은 고치지 않았다. `server.py`가 다시 내보내기만 하던 이름(`LOCAL_ACTOR`, `cur_pages` 등)은 주인 모듈에서 부르고, 서버의 흐름을 바꾸려고 `ps`의 이름을 바꿔 끼우는 테스트는 그대로 서버를 거친다. 옮기기 전후 테스트 id 1,485개가 클래스·함수 이름으로 하나씩 대응한다.)
 
 **바꾼 모습.**
 

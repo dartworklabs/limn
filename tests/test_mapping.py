@@ -1,8 +1,8 @@
 """limn.mapping - the pure half of the position rules (range ladder, block expansion, anchors).
 
-These tests call the module directly: no server, state directory, files or subprocess. The ladder's behavior
-on real manuscripts is also pinned through the handler in test_server.py; here the module's own contract is
-checked - that it stays pure, and that the float environments come in as an argument (coding rule R5).
+These tests call the module directly: no server, state directory, files or subprocess - that it stays pure, and
+that the float environments come in as an argument (coding rule R5). The one exception is Ladder at the end: the
+ladder on the fixture manuscript with the float environments server.py runs with.
 
 Run: uv run pytest -q tests/test_mapping.py
 """
@@ -11,6 +11,9 @@ import unittest
 from pathlib import Path
 
 from limn import mapping
+from limn.mapping import find_level
+
+from helpers import Base, ps, TEX
 
 MAPPING_PY = Path(mapping.__file__)
 PURE_IMPORTS = {"__future__", "re", "collections.abc", "typing", "dataclasses"}
@@ -68,6 +71,27 @@ class FloatEnvironments(unittest.TestCase):
         without = mapping.compute_levels(TABLE_DOC, 5, 5, ("figure",))
         self.assertEqual((with_table["default_level"], with_table["lo"], with_table["hi"]), ("env", 3, 7))
         self.assertEqual((without["default_level"], without["lo"], without["hi"]), ("para", 5, 5))
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# The range ladder on the fixture manuscript with the server's default float environments. These classes load
+# server.py (helpers.ps) and drive the module through its bindings; the tests above call the module on its own.
+
+class Ladder(Base):
+    def test_para_stays_inside_env(self):
+        lines = TEX.splitlines()
+        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
+        para = find_level(lad["levels"], "para")
+        self.assertGreaterEqual(para["lo"], 13)
+        self.assertLessEqual(para["hi"], 15)
+
+    def test_para_stops_at_subsection(self):
+        lines = TEX.splitlines()
+        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
+        para = find_level(lad["levels"], "para")
+        self.assertEqual(para["hi"], 17)
+
 
 
 if __name__ == "__main__":

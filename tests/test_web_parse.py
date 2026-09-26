@@ -3,18 +3,23 @@ the server has always checked them, with the exact 400 message and reason of the
 
 Every route's statuses and bodies are also pinned end to end through the handler (test_server.py, test_access.py and
 the version suites). Here the parsers are called directly; the manuscript facts a location parser reads come from a
-fake DocumentFacts, so each rule is seen without a server, a build or a real page image.
+fake DocumentFacts, so each rule is seen without a server, a build or a real page image. EditAddParsing at the end
+feeds them server.py's document facts instead, and checks the statuses the handler answers them with.
 
 Run: uv run pytest -q tests/test_web_parse.py
 """
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from limn.access import LOCAL_ACTOR
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, RegionPlace
 from limn.web import parse
 from limn.web.errors import InputRejected
+
+from helpers import Base, jreq, ps, split_resp
 
 
 class Facts:
@@ -236,6 +241,63 @@ class Locations(Tree):
         self.assertEqual(got, parse.PickRequest(self.root / "pages", 2, (10.0, 0.0, 600.0, 40.0), (600.0, 800.0), [0, 0, 1, 1]))
         self.assertEqual(parse.parse_pick({"page": 1, "x0": 1, "x1": 2, "y0": 3, "y1": 4, "frac": [1, 2, 3, True]}, self.facts),
                          InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"))
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# The edit/add parsers fed the server's document facts, and the answers the handler gives them. These classes load
+# server.py (helpers.ps) and drive the module through its bindings; the tests above call the module on its own.
+
+class EditAddParsing(Base):
+    """The HTTP-boundary parsers of pin edit/add return the checked request or the refusal, in the contract's order."""
+
+    def test_parse_edit_returns_the_request_or_the_first_refusal(self):
+        """A valid body becomes an EditRequest (place still unset); the first bad field wins, before base_rev and emptiness."""
+        body = parse.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
+        self.assertIsNone(body.loc)
+        self.assertEqual((body.request.note, body.request.lo, body.request.scope, body.request.base_rev,
+                          body.request.hints, body.request.place), ("n", 3, "para", 2, ("a",), None))
+        self.assertEqual(parse.parse_edit({"note": 3}, ()), InputRejected("note 는 문자열이어야 합니다.", "bad_note"))
+        self.assertEqual(parse.parse_edit({"note": "n"}, ()), InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required"))
+        self.assertEqual(parse.parse_edit({"base_rev": 0}, ()),
+                         InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
+                                          "nothing_to_change"))
+        unknown = parse.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
+        self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
+        self.assertIsNone(parse.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
+
+    def test_parse_assignee_checks_known_people_only_for_a_person(self):
+        """"agent" needs no lookup; a person must be among the known logins; local is never an assignee."""
+        self.assertEqual(parse.parse_assignee("agent", ()), "agent")
+        self.assertEqual(parse.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
+        self.assertIsInstance(parse.parse_assignee("bob@example.com", ()), InputRejected)
+        self.assertEqual(parse.parse_assignee("local", {"local"}),
+                         InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee"))
+        self.assertIsNone(parse.parse_assignee(None, ()))
+
+    def test_parse_add_checks_the_location_first(self):
+        """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
+        self.assertEqual(parse.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.document_facts(ps.DOCS[0])),
+                         InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"))
+        request = parse.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.document_facts(ps.DOCS[0]))
+        self.assertEqual((request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
+                         (str(self.main), 1, "n", ()))
+        self.assertEqual(request.place.named, frozenset({"file", "lo", "hi", "note"}))
+
+    def test_edit_and_add_answers_keep_the_contract_statuses(self):
+        """Over HTTP the refusals keep their statuses and bodies: 404 for no pin, 409 conflict/done, 400 for a bad field."""
+        pid = self.add()
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"note": "x", "base_rev": 5})))
+        self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
+        self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1})))
+        d = json.loads(body)
+        self.assertEqual((code, d["error"], d["detail"], d["pin"]["id"]), (409, "done", "닫힌 핀은 메모만 고칠 수 있습니다.", pid))
+        code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "main.tex", "lo": 4, "hi": 5, "kind_req": "x"})))
+        self.assertEqual((code, json.loads(body)), (400, {"error": "kind_req 는 fix|question 중 하나입니다.", "reason": "bad_kind_req"}))
+
 
 
 if __name__ == "__main__":

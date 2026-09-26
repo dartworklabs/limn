@@ -1,15 +1,19 @@
 """limn.service - the pin service shells, driven directly with a real PinStore over a temp folder and recording sinks.
 
 The rules themselves are pinned in test_pins_lifecycle.py and test_pins_edit.py, and every HTTP flow in
-test_server.py, test_v022.py and test_v031.py. This file pins what the shells add around the rules: they write only
+test_server.py, test_v022.py and test_v031.py; claims and closing with a reply also run through server.py's pin
+context at the end of this file (Claim, CloseReplyRef, CloseIdempotent). This file pins what the shells add around
+the rules: they write only
 when the rule accepts, notices are emitted only after the write and never for a refusal, the audit line is appended
 outside the pin lock, an agent's confirm never touches the store, and the package's import boundary.
 
 Run: uv run pytest -q tests/test_service.py
 """
 import ast
+import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,12 +24,16 @@ from limn.locate import PinLocation
 from limn.mentions import NoteTags
 from limn.pins.edit import AddRequest, EditRequest, LinePlace, StaleEdit
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyLive, ClaimedByOther, NotClaimed, NotInTrash, ThreadFull,
+    AgentCannotConfirm, AlreadyClosed, AlreadyLive, ClaimedByOther, NotClaimed, NotInTrash, ThreadFull, ClaimClosedPin,
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
 from limn.service import add_edit, claim, trash, transitions
 from limn.service.context import PinContext, is_agent, typed_actor
 from limn.store import PinFiles, PinStore, find_pin
+from limn.web import parse
+from limn.web.errors import InputRejected
+
+from helpers import Base, ps, record_of, req
 
 SERVICE_DIR = Path(service.__file__).parent
 T = 1790000000.0
@@ -368,6 +376,239 @@ class Trash(ServiceBase):
         self.assertTrue((self.state / out["archive"]).exists())
         self.assertFalse(self.store.files.pins_jsonl.exists())
         self.assertEqual(self.rec.audits, [("cleared", "local", {"n": 1, "archive": out["archive"]}, True)])
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# Claims and closing with a reply, over the server's pin context. These classes load server.py (helpers.ps) and drive
+# the module through its bindings; the tests above call the module on its own.
+
+# ---------------------------------------------------------------- close reason · re-close no-op (docs/handbook/api.md §닫을 때 사유 남기기, §휴지통)
+
+class CloseReplyRef(Base):
+    """§C: /close accepts optional {"reply","ref"} and stores them as close_reply/close_ref."""
+
+    def test_close_with_reply_and_ref_is_stored(self):
+        pid = self.add()
+        p = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR),
+                        *parse.parse_close_body({"reply": "제목을 고침", "ref": "PR #227"})))
+        self.assertEqual(p["close_reply"], "제목을 고침")
+        self.assertEqual(p["close_ref"], "PR #227")
+        self.assertTrue(p["done"])
+
+    def test_close_without_body_behaves_as_before(self):
+        pid = self.add()
+        p = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR)))
+        self.assertNotIn("close_reply", p)
+        self.assertNotIn("close_ref", p)
+
+    def test_clean_close_body_empty_or_whitespace_is_none(self):
+        self.assertEqual(parse.parse_close_body({}), (None, None))
+        self.assertEqual(parse.parse_close_body({"reply": "", "ref": "  "}), (None, None))
+        self.assertEqual(parse.parse_close_body({"reply": None, "ref": None}), (None, None))
+
+    def test_clean_close_body_rejects_wrong_type(self):
+        self.assertIsInstance(parse.parse_close_body({"reply": 123}), InputRejected)
+        self.assertIsInstance(parse.parse_close_body({"ref": ["PR #227"]}), InputRejected)
+
+    def test_clean_close_body_enforces_length_caps(self):
+        self.assertIsInstance(parse.parse_close_body({"reply": "x" * (parse.CLOSE_REPLY_MAX + 1)}), InputRejected)
+        self.assertIsInstance(parse.parse_close_body({"ref": "x" * (parse.CLOSE_REF_MAX + 1)}), InputRejected)
+        # the cap itself is allowed through.
+        reply, ref = parse.parse_close_body({"reply": "x" * parse.CLOSE_REPLY_MAX, "ref": "x" * parse.CLOSE_REF_MAX})
+        self.assertEqual(len(reply), parse.CLOSE_REPLY_MAX)
+        self.assertEqual(len(ref), parse.CLOSE_REF_MAX)
+
+    def test_close_endpoint_http_stores_reply_and_escapes_in_card(self):
+        pid = self.add()
+        body = json.dumps({"reply": "제목을 <b>고침</b>", "ref": "PR #227"}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 200 ", out)
+        p = self.pin(pid)
+        self.assertEqual(p["close_reply"], "제목을 <b>고침</b>")
+        self.assertEqual(p["close_ref"], "PR #227")
+
+    def test_close_endpoint_http_rejects_oversized_reply(self):
+        pid = self.add()
+        body = json.dumps({"reply": "x" * (parse.CLOSE_REPLY_MAX + 1)}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/close" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 400 ", out)
+        self.assertFalse(self.pin(pid).get("done"))
+
+
+class CloseIdempotent(Base):
+    """§D: re-closing an already-closed pin changes nothing (rev stays the same too)."""
+
+    def test_second_close_does_not_overwrite_closed_by_or_rev(self):
+        pid = self.add()
+        first = record_of(ps.set_done(pid, True, {"login": "alice", "name": "Wendy"}))
+        self.assertEqual(first["rev"], 1)
+        second = record_of(ps.set_done(pid, True, {"login": "bob", "name": "Bob"}))
+        self.assertEqual(second["closed_by"]["login"], "alice")
+        self.assertEqual(second["rev"], first["rev"])
+        self.assertEqual(second["done_at"], first["done_at"])
+
+    def test_second_close_with_reply_does_not_apply(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "first"}))
+        again = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"})))
+        self.assertEqual(again["close_reply"], "first")
+
+    def test_reopen_then_close_allows_new_reply(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "first", "ref": "PR #1"}))
+        ps.set_done(pid, False, dict(LOCAL_ACTOR))
+        reopened = self.pin(pid)
+        self.assertNotIn("close_reply", reopened)
+        self.assertNotIn("close_ref", reopened)
+        closed_again = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR), *parse.parse_close_body({"reply": "second"})))
+        self.assertEqual(closed_again["close_reply"], "second")
+        self.assertNotIn("close_ref", closed_again)
+
+    def test_close_http_endpoint_second_call_returns_ok_unchanged(self):
+        pid = self.add()
+        out1 = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out1)
+        rev_after_first = self.pin(pid)["rev"]
+        out2 = self.talk(req("POST", "/api/pins/%d/close" % pid))
+        self.assertIn(b" 200 ", out2)
+        self.assertTrue(json.loads(out2.split(b"\r\n\r\n", 1)[1])["ok"])
+        self.assertEqual(self.pin(pid)["rev"], rev_after_first)
+
+
+# ---------------------------------------------------------------- in-progress indicator (docs/handbook/api.md §처리 중 표시 (claim))
+
+class Claim(Base):
+    def test_claim_sets_fields_and_bumps_rev(self):
+        pid = self.add()
+        p = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120))
+        self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Wendy"})
+        self.assertEqual(p["rev"], 1)
+        self.assertTrue(ps.claim_active(self.pin(pid)))
+
+    def test_default_ttl_used_when_body_omits_it(self):
+        pid = self.add()
+        before = time.time()
+        p = record_of(ps.claim_pin(pid, dict(LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
+        self.assertAlmostEqual(p["claim_until"], before + parse.CLAIM_TTL_DEFAULT * 60, delta=5)
+
+    def test_claim_conflict_from_other_identity_is_409(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        refused = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)          # answered 409 "claimed"
+        self.assertIsInstance(refused, ClaimedByOther)
+        self.assertEqual(refused.claimed_by["login"], "alice@x.com")
+        self.assertIsNotNone(refused.claim_until)
+
+    def test_claim_same_identity_extends(self):
+        pid = self.add()
+        first = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 5))
+        second = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 200))
+        self.assertGreater(second["claim_until"], first["claim_until"])
+        self.assertEqual(second["rev"], first["rev"] + 1)
+
+    def test_claim_on_closed_pin_is_409_done(self):
+        pid = self.add()
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120), ClaimClosedPin)   # 409 "done"
+
+    def test_claim_missing_pin_id_returns_none(self):
+        self.assertEqual(ps.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))
+
+    def test_ttl_out_of_range_or_wrong_type_rejected(self):
+        for bad in (0, -1, "120", 12.5, True, None):                  # 400 for a wrong type or a value below 1
+            self.assertIsInstance(parse.parse_claim_body({"ttl_min": bad}), InputRejected)
+        self.assertEqual(parse.parse_claim_body({}).ttl, parse.CLAIM_TTL_DEFAULT)
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 1}).ttl, 1)
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 120}).ttl, 120)
+        self.assertEqual(parse.CLAIM_TTL_MAX, 120)
+        for over in (121, 480, 10_000):                                # above the cap (120, formerly 480) it gets clamped down (backward compat)
+            self.assertEqual(parse.parse_claim_body({"ttl_min": over}).ttl, 120)
+
+    def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid:
+                r["claim_until"] = time.time() - 10
+        ps.write_pins(rows)
+        self.assertFalse(ps.claim_active(self.pin(pid)))
+        p = record_of(ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120))
+        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+
+    def test_unclaim_clears_fields_regardless_of_requester(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        p = record_of(ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"}))
+        self.assertNotIn("claimed_by", p)
+        self.assertNotIn("claimed_at", p)
+        self.assertNotIn("claim_until", p)
+
+    def test_unclaim_missing_pin_returns_none(self):
+        self.assertEqual(ps.unclaim_pin(999, dict(LOCAL_ACTOR)), PinNotFound(999))
+
+    def test_close_clears_claim(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        p = record_of(ps.set_done(pid, True, dict(LOCAL_ACTOR)))
+        self.assertNotIn("claimed_by", p)
+
+    def test_drop_clears_claim_even_in_dropped_record(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        ps.drop_pin(pid, dict(LOCAL_ACTOR))
+        dropped = ps.dropped_payload()
+        self.assertEqual(len(dropped), 1)
+        self.assertNotIn("claimed_by", dropped[0])
+
+    def test_pins_md_shows_hourglass_with_claimer_name_and_legend(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("처리 중(Coauthor Kim)", md)                     # just the name when there's no ETA
+        self.assertNotIn("⏳", md)
+        self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
+
+    def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
+        pid = self.add()
+        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("처리 중(로컬/에이전트)", md)
+
+    def test_claim_fields_survive_jsonl_roundtrip(self):
+        pid = self.add()
+        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        rows, bad = ps.read_jsonl(ps.C.pins_jsonl)
+        self.assertEqual(bad, [])
+        self.assertIn("claimed_by", find_pin(rows, pid))
+
+    def test_http_claim_then_conflict_then_unclaim(self):
+        pid = self.add()
+        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@x.com", "Tailscale-User-Name": "Wendy"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h1))
+        self.assertIn(b" 200 ", out)
+        h2 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "bob@x.com", "Tailscale-User-Name": "Bob"}
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h2))
+        self.assertIn(b" 409 ", out)
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(body["claimed_by"]["login"], "alice@x.com")
+        out = self.talk(req("POST", "/api/pins/%d/unclaim" % pid))
+        self.assertIn(b" 200 ", out)
+        self.assertFalse(ps.claim_active(self.pin(pid)))
+
+    def test_http_claim_bad_ttl_type_is_400(self):
+        pid = self.add()
+        body = json.dumps({"ttl_min": "soon"}).encode()
+        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, body, {"Content-Type": "application/json"}))
+        self.assertIn(b" 400 ", out)
+
+    def test_http_claim_missing_pin_returns_ok_false(self):
+        out = self.talk(req("POST", "/api/pins/999/claim"))
+        self.assertIn(b" 200 ", out)
+        body = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertFalse(body["ok"])
+
 
 
 if __name__ == "__main__":

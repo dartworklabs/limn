@@ -25,7 +25,7 @@ from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
 from test_qa_021 import CLEAR_BODY, actor
 from limn import access
-from test_server import add_pin, Base, edit_pin, ps
+from helpers import add_pin, Base, edit_pin, ps
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

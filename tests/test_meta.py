@@ -1,7 +1,9 @@
 """limn.meta and the document lookups of limn.documents, called directly - no server, no run arguments.
 
-GET /api/meta, /api/docs and /api/outline-labels are pinned end to end through the server in test_server.py (and
-their bodies were compared byte for byte with the code they came from when they moved). Here each read is called
+GET /api/meta, /api/docs and /api/outline-labels are pinned end to end through the server in test_server.py
+(MultiDoc) and, for the light polling and the instance label, at the end of this file through server.py (LightMeta,
+InstanceMeta); their bodies were compared byte for byte with the code they came from when they moved. Above them each
+read is called
 with the document, the document list and the settings as arguments: the modules must not read the server's globals
 or import it, and each rule holds on its own - which .aux the outline reads, what the light meta body carries, how
 open pins are counted per document, which document a request or a pin belongs to.
@@ -9,15 +11,22 @@ open pins are counted per document, which document a request or a pin belongs to
 Run: uv run pytest -q tests/test_meta.py
 """
 import ast
+import json
 import os
 import tempfile
+import time
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
 from limn import documents, meta
+from limn import build as limn_build
+from limn import meta as limn_meta
+from limn.access import LOCAL_ACTOR
 from limn.documents import Doc, DocNotFound
 from limn.meta import MetaSettings
+
+from helpers import Base, ps, req
 
 PKG = Path(meta.__file__).parent
 SERVER_GLOBALS = {"C", "cur_doc", "using_doc", "DOCS", "LEGACY_DOC", "BUILD_STATE", "BUILD_LOCK"}
@@ -248,6 +257,115 @@ class ToSource(Fixture):
         """An old absolute build path whose tail is a real manuscript file maps to it; otherwise the path is unchanged."""
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/rr/rr.tex"), self.src / "rr" / "rr.tex")
         self.assertEqual(documents.to_source(self.ms, "/old/state/build/none.tex"), Path("/old/state/build/none.tex"))
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# GET /api/meta's light polling and the instance label, accent and repo. These classes load server.py (helpers.ps) and
+# drive the module through its bindings; the tests above call the module on its own.
+
+# ---------------------------------------------------------------- light meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
+
+class LightMeta(Base):
+    def test_light_meta_has_no_write_side_effect(self):
+        self.add()
+        before = ps.C.pins_jsonl.stat().st_mtime_ns
+        for _ in range(5):
+            d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        after = ps.C.pins_jsonl.stat().st_mtime_ns
+        self.assertEqual(before, after)
+        self.assertNotIn("n_open", d)
+        for k in ("src_mtime", "build_src_mtime", "pins_rev", "build", "pages_build"):
+            self.assertIn(k, d)
+
+    def test_pins_rev_changes_only_when_file_changes(self):
+        rev0 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        self.add()
+        rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        self.assertNotEqual(rev0, rev1)
+        rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        self.assertEqual(rev1, rev2)      # unchanged if nothing changed
+
+    def test_src_mtime_ignores_main_pdf_and_build_dir(self):
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
+        (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
+        (ps.C.src / "build").mkdir()
+        (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)          # must not change even outside the cache window (even after 2s)
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+
+    def test_src_mtime_ignores_diff_dir(self):
+        # bug (should): the build rsync excludes diff/ (latexdiff output, exclude "diff/") but
+        # src_mtime didn't — so running latexdiff even once flipped the "manuscript modified" badge on,
+        # and after the next rebuild every pin was falsely marked "estimated" even though the layout was
+        # unchanged.
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
+        (ps.C.src / "diff").mkdir()
+        (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+        ps._SRC_MTIME_CACHE[2] = 0.0                  # force-expire the cache to check recomputation
+        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+
+    def test_src_mtime_reacts_to_tex_change(self):
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
+        time.sleep(0.05)
+        os.utime(self.main, (time.time() + 10, time.time() + 10))
+        ps._SRC_MTIME_CACHE[2] = 0.0
+        self.assertGreater(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+
+    def test_built_src_mtime_file_missing_is_fine(self):
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        self.assertIsNone(d["build_src_mtime"])
+
+    def test_src_mtime_force_bypasses_cache(self):
+        # bug: write_built_src_mtime() used to just take the 2-second-cached value — editing the
+        # manuscript and rebuilding right away, within 2 seconds of the cache filling, wrongly recorded
+        # the "pre-edit" mtime as the build-start time.
+        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)      # fill the cache
+        time.sleep(0.05)
+        os.utime(self.main, (time.time() + 10, time.time() + 10))
+        cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)            # inside the cache window (within 2s) — the stale value
+        self.assertEqual(cached, m0)
+        forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)  # bypass the cache and measure for real — a fresh value
+        self.assertGreater(forced, m0)
+
+    def test_write_built_src_mtime_uses_fresh_value(self):
+        os.utime(self.main, (time.time() + 20, time.time() + 20))
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state)
+        self.assertAlmostEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True), delta=1.0)
+
+    def test_light_query_param_via_handler(self):
+        out = self.talk(req("GET", "/api/meta?light=1"))
+        self.assertIn(b" 200 ", out)
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertNotIn("n_open", data)
+        self.assertIn("pins_rev", data)
+
+
+class InstanceMeta(Base):
+    def test_meta_exposes_label_accent_repo(self):
+        ps.C.label, ps.C.accent, ps.C.repo = "A-DEMO", "#1d4ed8", "git@example.com:org/a-demo.git"
+        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
+        self.assertEqual(d["label"], "A-DEMO")
+        self.assertEqual(d["accent"], "#1d4ed8")
+        self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
+
+    def test_meta_repo_is_none_without_remote(self):
+        ps.C.repo = None
+        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        self.assertIsNone(d["repo"])
+
+    def test_meta_endpoint_serves_new_fields(self):
+        ps.C.label, ps.C.accent = "A-DEMO", "#1d4ed8"
+        out = self.talk(req("GET", "/api/meta"))
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertEqual(data["label"], "A-DEMO")
+        self.assertEqual(data["accent"], "#1d4ed8")
+        self.assertIn("repo", data)
+
 
 
 if __name__ == "__main__":
