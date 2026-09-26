@@ -172,9 +172,9 @@ match result:
     case PinNotFound():
         return self._json({"ok": False, "pin": None, "state": None})
     case AgentCannotConfirm():
-        raise HTTPError(403, CONFIRM_BY_HUMAN)
+        raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
     case PinStillOpen(pin=OpenPin(record=record)):
-        raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
+        raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
 ```
 
 이제 규칙 테스트는 파일 없이 `confirmer(Agent(...)) == AgentCannotConfirm()` 한 줄로 끝난다 (`tests/test_pins_lifecycle.py`). 처리기 테스트는 상태 코드와 저장만 확인한다.
@@ -277,11 +277,13 @@ def clean_note(v) -> str:
     if v is None:
         return ""
     if not isinstance(v, str):
-        raise HTTPError(400, "note 는 문자열이어야 합니다.")
+        raise HTTPError(400, "note 는 문자열이어야 합니다.", reason="bad_note")
     if len(v) > NOTE_MAX:
-        raise HTTPError(400, "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX)
+        raise HTTPError(400, "메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, reason="note_too_long")
     return v
 ```
+
+0.3.3부터 모든 거절에 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`는 `reason` 없이 만들 수 없다. 흩어진 문구는 그대로지만 거절마다 이름이 생겼으므로, 옮길 때 그 코드가 거절 값의 이름과 한 표의 열쇠가 된다.
 
 또 `detect_main()`, `free_port()`, `clean_label()`은 문제가 있으면 `sys.exit()`로 프로세스를 끝낸다. 시작할 때만 불린다는 전제가 코드에 드러나지 않는다.
 
@@ -291,7 +293,7 @@ def clean_note(v) -> str:
 
 0.3의 핀 단위 변경 코드는 이미 거절을 이유(`ScopeRejected(reason)`)와 표 하나(`SCOPE_REJECTIONS`)로 모았다. 다만 예외로 던지므로, 모듈로 옮길 때 반환값으로 바꾼다. 이유마다 데이터나 응답이 다르면 그때 경우별 타입으로 나눈다 (R1 §결과 타입을 고르는 법).
 
-**확인하는 법.** 오류 응답 본문(`{"error": ...}`)과 상태 코드가 옮기기 전후에 같아야 한다. API 오류 문자열은 에이전트 계약의 일부다. 도메인 함수의 반환 타입에 거절 값이 드러나고, 그 함수 안에 업무상 거절을 위한 `raise`가 남지 않는다.
+**확인하는 법.** 오류 응답 본문(`{"error": ..., "reason": ...}`)과 상태 코드가 옮기기 전후에 같아야 한다. API 오류 문자열은 에이전트 계약의 일부다. 도메인 함수의 반환 타입에 거절 값이 드러나고, 그 함수 안에 업무상 거절을 위한 `raise`가 남지 않는다.
 
 ## R4 기계적 규칙은 도구 하나가 집행
 
