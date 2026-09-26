@@ -88,10 +88,41 @@ LOCAL_OFFSET="${LIMN_LOCAL_OFFSET:-100}"
 DOCS_MAX=12
 DOC_NAME_MAX=40
 # Passed in by the CLI: the installed limn's Python, server, unit template, executable, and version.
-PYTHON="${LIMN_PYTHON:-}"
-if [[ -z "$PYTHON" ]]; then
-    if [[ -x /usr/bin/python3 ]]; then PYTHON=/usr/bin/python3; else PYTHON=$(command -v python3 || true); fi
-fi
+# The server needs Python >= 3.10 (pyproject requires-python). The CLI passes the interpreter it runs on, which
+# satisfies that by construction; run directly (tests, a checkout), the first python3 / python3.1x on PATH that does
+# is used. macOS ships a /usr/bin/python3 3.9, so the first python3 found is not good enough by itself.
+PY_MIN_MAJOR=3 PY_MIN_MINOR=10
+python_ok() { # python_ok <interpreter> — is it Python >= PY_MIN_MAJOR.PY_MIN_MINOR?
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (int(sys.argv[1]), int(sys.argv[2])) else 1)' \
+        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" > /dev/null 2>&1
+}
+# find_python — prints the interpreter to use; fails (with the reason on stderr) when there is none. LIMN_PYTHON is
+# an explicit choice, so a too-old one is an error rather than silently replaced.
+find_python() {
+    local c p
+    if [[ -n "${LIMN_PYTHON:-}" ]]; then
+        python_ok "$LIMN_PYTHON" && {
+            printf '%s' "$LIMN_PYTHON"
+            return 0
+        }
+        printf 'LIMN_PYTHON=%s is not Python >= %s.%s (or does not run) — point it at a newer interpreter, or unset it\n' \
+            "$LIMN_PYTHON" "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+        return 1
+    fi
+    for c in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
+        p=$(command -v "$c" 2> /dev/null) || continue
+        python_ok "$p" && {
+            printf '%s' "$p"
+            return 0
+        }
+    done
+    printf 'no Python >= %s.%s found (python3, python3.1x on PATH) — run limn through its installed command, or put a newer python3 first on PATH\n' \
+        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+    return 1
+}
+PYTHON=$(find_python 2> /dev/null) || PYTHON=""
+PYTHON_WHY="" # why there is none - main() stops with it, except for help
+[[ -n "$PYTHON" ]] || PYTHON_WHY=$(find_python 2>&1 > /dev/null)
 _HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="${LIMN_SERVER:-$_HERE/server.py}"
 UNIT_TEMPLATE="${LIMN_UNIT_TEMPLATE:-$_HERE/systemd/limn@.service}"
@@ -704,8 +735,11 @@ git_commit_time() {
     [[ -n "$t" ]] || return 1
     printf '%s' "$t"
 }
-# file_mtime <file> — modification time (unix epoch). Tries both GNU (stat -c) and BSD/macOS (stat -f).
-file_mtime() { stat -c %Y "$1" 2> /dev/null || stat -f %m "$1" 2> /dev/null; }
+# stat_fmt <GNU format> <BSD format> <file> — one stat(1) field on GNU (Linux: stat -c) or BSD/macOS (stat -f). BSD
+# stat rejects -c, so the GNU form fails there and the BSD form runs; on GNU the -c form succeeds for any existing file.
+stat_fmt() { stat -c "$1" "$3" 2> /dev/null || stat -f "$2" "$3" 2> /dev/null; }
+# file_mtime <file> — modification time (unix epoch).
+file_mtime() { stat_fmt %Y %m "$1"; }
 
 # detect_main_for_round <round dir> — uses detect_main as-is, but if there are multiple candidates
 # (e.g. a leftover prior manuscript with its own \documentclass still sitting in the same round
@@ -1003,6 +1037,23 @@ cmd_stop() {
     say "$(unit_of "$n") stopped and disabled (config, port reservation, and serve entry stay as-is — turn back on: limn start $n)"
 }
 
+# with_timeout <seconds> <command...> — runs the command, killed after the given seconds: GNU timeout (Linux),
+# gtimeout (Homebrew coreutils), or perl's alarm (every macOS has perl) — macOS has no timeout(1). Without any of
+# them the command runs unbounded.
+with_timeout() {
+    local s=$1
+    shift
+    if command -v timeout > /dev/null 2>&1; then
+        timeout "$s" "$@"
+    elif command -v gtimeout > /dev/null 2>&1; then
+        gtimeout "$s" "$@"
+    elif command -v perl > /dev/null 2>&1; then
+        perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"
+    else
+        "$@"
+    fi
+}
+
 # update — reinstalls the installed limn via uv tool and restarts instances that are running. Never
 # touches state dirs. To roll back, reinstall the previous tag (limn update --ref v<previous version>).
 # A running server is already loaded into memory, so it doesn't die during the install — it switches
@@ -1011,7 +1062,7 @@ latest_tag() { # the highest v* tag on the remote. Prints nothing on failure.
     local url=${REPO#git+}
     command -v git > /dev/null 2>&1 || return 0
     GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}" \
-        timeout 30 git ls-remote --tags --refs "$url" 'v*' 2> /dev/null \
+        with_timeout 30 git ls-remote --tags --refs "$url" 'v*' 2> /dev/null \
         | awk '{ sub("refs/tags/", "", $2); print $2 }' | sort -V | tail -1
 }
 cmd_update() {
@@ -1359,6 +1410,10 @@ usage() { sed -n '/^# Usage:/,/^# Security rules/p' "${BASH_SOURCE[0]}" | sed -e
 main() {
     local c=${1:-}
     [[ $# -gt 0 ]] && shift
+    case "$c" in
+        -h | --help | help | "") ;;
+        *) [[ -n "$PYTHON" ]] || die "$PYTHON_WHY" ;;
+    esac
     case "$c" in
         add) cmd_add "$@" ;;
         start) cmd_start "$@" ;;
