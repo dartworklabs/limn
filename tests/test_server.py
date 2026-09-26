@@ -5327,6 +5327,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
+            function saveDraftSoon(){} function syncDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}

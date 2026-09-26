@@ -630,8 +630,8 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
 
 // ------------------------------------------------ Document
-// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, the first-visit hint (touch or mouse),
-// polling and notifications, then a pin link from the hash (#doc=&pin=) if there was one.
+// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the first-visit
+// hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was one.
 async function boot(){i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
   // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
@@ -644,7 +644,7 @@ async function boot(){i18nStart();
   if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   drawMeta(); applySideWidth(); applyOutlineState(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); vecBoot(); await loadPins();
-  restoreView(v); drawDocTabs();
+  restoreView(v); drawDocTabs(); restoreDraft();
   if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;
@@ -1908,7 +1908,9 @@ function renderRegionComposer(d){
   $('#c-levels').innerHTML='';
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true;}
-function renderComposer(){const d=CUR; if(!d)return;
+// Draws the composer from CUR (location, ladder, source, overlap) and schedules the draft write - every change of the
+// selection (a pick, a level, a nudge, a restore) passes through here.
+function renderComposer(){const d=CUR; if(!d)return; saveDraftSoon();
   if(isRegion(d)){renderRegionComposer(d); return;}
   $('#composer').classList.remove('region');
   const copy=d.name+' L'+d.lo+'-L'+d.hi;
@@ -1929,7 +1931,7 @@ function renderComposer(){const d=CUR; if(!d)return;
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
-function setKind(k){KIND_NEW=k==='question'?'question':'fix';
+function setKind(k){KIND_NEW=k==='question'?'question':'fix'; saveDraftSoon();
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
   $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
@@ -1944,7 +1946,7 @@ function looksQuestion(text){let t=String(text||'').trim();
 function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestion(text);}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one.
-function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
+function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;} saveDraftSoon();
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
   if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false); applySide();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (CUR), its box on the page, the note with its
@@ -1966,9 +1968,57 @@ function restoreSelection(snap){if(!snap||CUR||PICKING||REPICK||!$('#composer').
   renderComposer(); setSide(true); applySide(); if(LAYOUT!=='wide')revealBox(PENDING); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
   return true;}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the toast offers
-// [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation.
-function discardSelection(){const snap=selectionSnapshot(); cancelSelection(true);
-  if(snap&&snap.cur&&snap.note.trim())toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});}
+// [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation. The stored
+// draft stays for that window (a page left meanwhile still restores it) and is removed when the toast goes.
+function discardSelection(){syncDraft(); const snap=selectionSnapshot(); cancelSelection(true);
+  if(!(snap&&snap.cur&&snap.note.trim())){syncDraft(); return;}
+  const t=toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});
+  if(t){DRAFT_HOLD=t; t._gone=()=>{if(DRAFT_HOLD===t)DRAFT_HOLD=null; syncDraft();};}}   // the kept draft goes when the window does
+// ------------------------------------------------ The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
+// A draft - the composer's selection, box, note, kind and assignee, or a note waiting for the next pick - is written to
+// sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label, document), so leaving the
+// page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
+// clears it; a discard clears it once its undo window is over (DRAFT_HOLD = that toast). Only this tab sees it.
+let DRAFT_T=0,DRAFT_READY=false,DRAFT_HOLD=null,DRAFT_KEY_AT=null;
+// The storage key of a draft: one per instance label and document.
+function draftKey(label,doc){return 'limnDraft:'+encodeURIComponent(label||'')+':'+doc;}
+// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on this build,
+// 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null for nothing to keep,
+// another document, or another record version.
+function draftRestore(rec,doc,build){if(!rec||rec.v!==1||rec.doc!==doc)return null;
+  if(rec.cur&&rec.build===build)return 'full'; return String(rec.note||'').trim()?'note':null;}
+// The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a note
+// kept in the hidden composer for the next pick.
+function draftRecord(){const n=$('#note'),open=!$('#composer').hidden,note=n.value,cur=open?CUR:null;
+  if(!cur&&!note.trim())return null;
+  return {v:1,doc:(cur&&cur.doc)||DOC,build:(cur&&cur.pdf_build)||(META&&META.pages_build)||'',cur,note,
+    mentions:n._mentions?Array.from(n._mentions):[],kind:KIND_NEW,assign:{v:ASSIGN_NEW.v,touched:ASSIGN_NEW.touched}};}
+// Every edit schedules a write (no-op until the boot restore has run, so booting never overwrites the stored draft).
+function saveDraftSoon(){if(!DRAFT_READY)return; clearTimeout(DRAFT_T); DRAFT_T=setTimeout(syncDraft,300);}
+// Writes the draft now, or removes it when there is nothing to keep - unless a discard's undo toast still holds it.
+function syncDraft(){clearTimeout(DRAFT_T); DRAFT_T=0; if(!DRAFT_READY||!META)return; const rec=draftRecord();
+  try{if(rec){const k=draftKey(META.label,rec.doc); DRAFT_HOLD=null;   // a newer draft replaces a discarded one
+      if(DRAFT_KEY_AT&&DRAFT_KEY_AT!==k)sessionStorage.removeItem(DRAFT_KEY_AT);
+      sessionStorage.setItem(k,JSON.stringify(rec)); DRAFT_KEY_AT=k; return;}
+    if(DRAFT_HOLD&&DRAFT_HOLD.isConnected)return;
+    DRAFT_HOLD=null; if(DRAFT_KEY_AT)sessionStorage.removeItem(DRAFT_KEY_AT); DRAFT_KEY_AT=null;}catch(e){}}
+addEventListener('pagehide',syncDraft);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)syncDraft();});
+// Boot: brings back this tab's draft for the document on screen and says so with [버리기]. A full restore redraws the box and
+// opens a collapsed panel or sheet (not remembered); a note-only one leaves the note in the note field for the next pick.
+// [버리기] is the usual discard (a full draft gets its undo toast; the draft goes once that window is over).
+function restoreDraft(){let rec=null; const k=META?draftKey(META.label,DOC):null;
+  try{rec=k?JSON.parse(sessionStorage.getItem(k)||'null'):null;}catch(e){rec=null;}
+  const how=draftRestore(rec,DOC,META&&META.pages_build); DRAFT_KEY_AT=rec?k:null; DRAFT_READY=true;
+  if(!how){syncDraft(); return;}
+  const n=$('#note'); n.value=rec.note||''; n._mentions=rec.mentions&&rec.mentions.length?new Set(rec.mentions):null;
+  setKind(rec.kind); Object.assign(ASSIGN_NEW,rec.assign||{}); renderAssignNew(); mentionPreview(n); autoGrow(n);
+  if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
+    if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); b.innerHTML='<i>새 핀</i>'; PENDING=b;}
+    CUR=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+    renderComposer(); setSide(true); applySide(); if(LAYOUT!=='wide')revealBox(PENDING);}
+  toast(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','ok',
+    {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}});}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -2007,7 +2057,7 @@ async function savePin(){
   renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
   const snap=selectionSnapshot();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
-    const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove();
+    const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove(); syncDraft();   // a saved pin leaves no draft
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     toast(tl(q?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',{label:'되돌리기',fn:()=>{dropPin(id,true); restoreSelection(snap);}});
     await loadPins();
@@ -2563,13 +2613,15 @@ function mentionTop(r,g,h,top,bot){const gap=4,lim=g&&g.top>=r.bottom?Math.min(b
   if(r.top-gap-h>=top+gap)return r.top-gap-h;
   if(g&&g.bottom+gap+h<=bot)return g.bottom+gap;
   return Math.max(top+gap,Math.min(r.bottom+gap,bot-h-gap));}
+// Inserts the picked person as '@name ' at the cursor, remembers the login as a hint, and refreshes what depends on the
+// field (the preview, the assignee, the reply outcome; the note's draft).
 function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)return; const pos=ta.selectionStart,ins='@'+p.name+' ';
   ta.value=ta.value.slice(0,MENTION.start)+ins+ta.value.slice(pos); const c=MENTION.start+ins.length; ta.setSelectionRange(c,c);
   (ta._mentions=ta._mentions||new Set()).add(p.login); mentionClose(); ta.focus(); autoGrow(ta); mentionPreview(ta);
-  if(ta.id==='note')renderAssignNew(); else if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
+  if(ta.id==='note'){renderAssignNew(); saveDraftSoon();} else if(ta.classList.contains('e-note'))renderAssignEdit(); else if(ta.classList.contains('r-text'))renderReplyOutcome();}
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
 document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);
-  if(e.target.id==='note'){renderAssignNew(); qHint($('#c-qhint'),e.target.value,KIND_NEW);}
+  if(e.target.id==='note'){renderAssignNew(); qHint($('#c-qhint'),e.target.value,KIND_NEW); saveDraftSoon();}
   else if(e.target.classList.contains('e-note')){renderAssignEdit(); if(EDIT)qHint(EDIT.el.querySelector('.e-qhint'),e.target.value,EDIT.kind_req);}
   else if(e.target.classList.contains('r-text'))renderReplyOutcome();}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
@@ -2859,7 +2911,7 @@ document.addEventListener('click',e=>{
     case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
     case 'mention-pick':mentionApply(+a.dataset.i);break;
     case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
-    case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); break;
+    case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
     case 'assign-edit':if(EDIT){EDIT.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
     case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
