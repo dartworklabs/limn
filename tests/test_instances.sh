@@ -140,8 +140,10 @@ chk "wraps values containing # in quotes too" "grep -qx 'ACCENT=\"#1f77b4\"' '$e
 chk "--git-pull → GIT_PULL=1" "grep -qx 'GIT_PULL=1' '$env_a'"
 chk "the default state dir is DATA_ROOT/<name>" "grep -qx 'STATE_DIR=$T/data/paper-a' '$env_a'"
 chk "without LIMN_LEDGER_GEN the shared ledger file is left untouched" "cmp -s '$LIMN_LEDGER' '$T/ledger.orig'"
-chk "prints the AGENTS.md snippet" "grep -q 'curl -s https://box.tail0000.ts.net:18008/pins.md' <<< \"\$out\" && grep -q 'git remote get-url origin' <<< \"\$out\" && grep -q '⏳' <<< \"\$out\""
+chk "prints the AGENTS.md snippet" "grep -qF 'https://box.tail0000.ts.net:18008/pins.md' <<< \"\$out\" && grep -q 'git remote get-url origin' <<< \"\$out\" && grep -q '⏳' <<< \"\$out\""
 chk "the snippet tells remote agents to send a token" "grep -qF 'Authorization: Bearer \$LIMN_TOKEN' <<< \"\$out\" && grep -q 'limn token create' <<< \"\$out\""
+chk "the snippet tells agents on this machine to send the token file (ADR-0007), never a token" \
+    "grep -qF 'Authorization: Bearer \$(cat $T/config/paper-a.token)' <<< \"\$out\" && grep -qF 'limn token create paper-a --save' <<< \"\$out\" && ! grep -q 'limn_' <<< \"\$out\""
 chk "--no-start doesn't touch the unit or serve" "! grep -qE 'systemctl .*(enable|start)|tailscale serve --' '$STUB_LOG'"
 
 out=$("$PV" add paper-b --manuscript "$ms" --no-start 2>&1)
@@ -567,6 +569,36 @@ chk "member remove" "'$PV' member remove v01 alice@example.com >/dev/null && ! g
 chk "--state-dir instead of an instance" "'$PV' member add --state-dir '$T/data/plain' bob@example.com >/dev/null && grep -q bob@example.com '$T/data/plain/people.json'"
 "$PV" help > "$T/help.out" 2>&1
 chk "limn help lists token and member" "grep -q 'limn token create' '$T/help.out' && grep -q 'limn member add' '$T/help.out' && grep -q -- '--auth' '$T/help.out'"
+
+echo "── 15. token file (ADR-0007): path, run's LIMN_AGENT_TOKEN_FILE, status with BSD stat ──"
+chk "token path prints <config dir>/<name>.token" "[[ \$('$PV' token path v01) == '$T/config/v01.token' ]]"
+printf '%s\n' 'import os, sys' \
+    'print("token-file=" + os.environ.get("LIMN_AGENT_TOKEN_FILE", "(unset)"))' \
+    'print("argv=" + " ".join(sys.argv[1:]))' > "$T/fake-server.py"
+out=$(LIMN_SERVER="$T/fake-server.py" "$PV" run v01 2>&1)
+chk "run hands the server the token file path in LIMN_AGENT_TOKEN_FILE" "grep -qx 'token-file=$T/config/v01.token' <<< \"\$out\""
+chk "...and adds no flag for it (a v0.1 config keeps the v0.1 argv)" "! grep -q -- '--agent-token-file' <<< \"\$out\""
+# A BSD/macOS-style stat (no -c; -f takes %Lp %u %m) in front of the real one: the token file checks must still work.
+mkdir -p "$T/bsd"
+cat > "$T/bsd/stat" << 'STUB'
+#!/usr/bin/env bash
+[[ "$1" == -f ]] || { echo "stat: illegal option -- ${1#-}" >&2; exit 1; }
+exec "$PY" -c 'import os, sys
+st = os.stat(sys.argv[2])
+print(sys.argv[1].replace("%Lp", "%o" % (st.st_mode & 0o7777)).replace("%u", str(st.st_uid)).replace("%m", str(int(st.st_mtime))))' "$2" "$3"
+STUB
+chmod +x "$T/bsd/stat"
+tokf="$T/config/v01.token"
+"$PV" token create v01 --name local --save > /dev/null 2>&1
+chk "token create --save writes the token file 0600" "[[ \$(mode_of '$tokf') == 600 ]]"
+out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
+chk "status sends a 0600 token file (BSD stat)" "grep -q 'sent with the check above' <<< \"\$out\" && ! grep -q 'not using it' <<< \"\$out\""
+chmod 640 "$tokf"
+out=$(PATH="$T/bsd:$PATH" "$PV" status v01 2>&1)
+chk "status refuses a token file open to the group (BSD stat)" "grep -q 'open to group or others (mode 640)' <<< \"\$out\" && grep -q 'chmod 600' <<< \"\$out\""
+chmod 600 "$tokf"
+out=$(PATH="$T/bsd:$PATH" "$PV" token revoke v01 local 2>&1)
+chk "revoking the saved token removes its file" "[[ ! -e '$tokf' ]] && grep -q 'removed' <<< \"\$out\""
 
 echo "── 16. portability: Python >= 3.10, timeout without GNU coreutils ──"
 mkdir -p "$T/py39" "$T/pynew"

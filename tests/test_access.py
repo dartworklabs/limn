@@ -35,7 +35,7 @@ CAROL = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Ca
 ACCESS_DEFAULTS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False, bind="127.0.0.1", public_hosts=(),
                        trusted_proxies=ps.Cfg.trusted_proxies, proxy_user_header="X-Forwarded-User",
                        proxy_name_header="X-Forwarded-Preferred-Username", proxy_email_header=None,
-                       members_only=False, local_user=None, insecure=False)
+                       members_only=False, local_user=None, insecure=False, agent_token_file=None)
 
 
 def reset_access(mod=ps):
