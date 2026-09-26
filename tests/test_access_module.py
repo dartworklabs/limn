@@ -8,7 +8,9 @@ end-to-end paths through the HTTP handler are tested in test_access.py and test_
 Run: uv run pytest -q tests/test_access_module.py
 """
 import ast
+import dataclasses
 import io
+import ipaddress
 import json
 import stat
 import tempfile
@@ -28,6 +30,18 @@ GUIDANCE_PY = Path(guidance.__file__)
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
 TOKEN = "limn_" + "t" * 43
 TOKEN_ROW = {"id": "0badc0de", "name": "ci", "hash": access.token_hash(TOKEN), "created": "2026-09-26 10:00:00"}
+# The options a server started with no access flags runs with (server.Cfg's values), stated here in full because
+# AccessSettings has no defaults. Each test overrides only what it is about.
+BASE_SETTINGS = dict(auth="tailscale", agent_loopback=True, tailnet_agent=False,
+                     trusted_proxies=(ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128")),
+                     proxy_user_header="X-Forwarded-User", proxy_name_header="X-Forwarded-Preferred-Username",
+                     proxy_email_header=None, members_only=False, allow=frozenset(), local_user=None,
+                     agent_token_file=None)
+
+
+def settings(**over) -> AccessSettings:
+    """AccessSettings of a default-flag server with the given options changed."""
+    return AccessSettings(**dict(BASE_SETTINGS, **over))
 
 
 def headers(values=None) -> Message:
@@ -104,12 +118,43 @@ class ModuleBoundary(unittest.TestCase):
         self.assertIn("from pathlib import PurePath", GUIDANCE_PY.read_text(encoding="utf-8"))
 
 
+class Settings(unittest.TestCase):
+    """AccessSettings cannot be built from partial options."""
+
+    def test_every_field_must_be_given(self):
+        """No field has a default, so leaving one out is an error, never the permissive legacy value."""
+        self.assertTrue(all(f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+                            for f in dataclasses.fields(AccessSettings)))
+        partial = dict(BASE_SETTINGS)
+        del partial["agent_loopback"]
+        with self.assertRaises(TypeError):
+            AccessSettings(**partial)
+
+
+class Peers(unittest.TestCase):
+    """What counts as a loopback peer and as a trusted proxy."""
+
+    def test_a_peer_that_is_not_an_ip_is_never_a_trusted_proxy(self):
+        """A unix-socket path, a host name or an empty peer is refused even when every address is trusted."""
+        everything = access.parse_networks("0.0.0.0/0,::/0")
+        for peer in ("", "localhost", "/run/limn.sock", "10.0.0.1:80", None):
+            self.assertFalse(access.peer_is_trusted_proxy(peer, everything), peer)
+            self.assertFalse(access.peer_is_loopback(peer), peer)
+
+    def test_an_ipv4_mapped_loopback_peer_is_loopback(self):
+        """::ffff:127.0.0.1 (a dual-stack socket's view of 127.0.0.1) is loopback, as on main; ::ffff:10.0.0.1 is not."""
+        self.assertTrue(access.peer_is_loopback("::ffff:127.0.0.1"))
+        self.assertTrue(access.peer_is_loopback("::1%lo0"))
+        self.assertFalse(access.peer_is_loopback("::ffff:10.0.0.1"))
+        self.assertTrue(access.peer_is_trusted_proxy("::ffff:10.0.0.1", access.parse_networks("10.0.0.1")))
+
+
 class Identify(RefusalCase):
     """Who a request is under each provider, and every way it is refused."""
 
-    def identify(self, hdrs=None, peer="127.0.0.1", lookups=None, **settings):
-        """identify() with these headers, peer and settings (AccessSettings defaults otherwise)."""
-        return access.identify(headers(hdrs), peer, AccessSettings(**settings), (lookups or Lookups()).value())
+    def identify(self, hdrs=None, peer="127.0.0.1", lookups=None, **options):
+        """identify() with these headers and peer, under a default-flag server's settings with options changed."""
+        return access.identify(headers(hdrs), peer, settings(**options), (lookups or Lookups()).value())
 
     def test_a_valid_token_is_the_agent_under_every_provider(self):
         """A known token wins over identity headers and the provider, from any peer."""
@@ -198,9 +243,9 @@ class Admit(RefusalCase):
 
     PERSON = Principal({"login": "bob@example.com", "name": "Bob"}, "editor", "header")
 
-    def admit(self, p, host=None, hdrs=None, lookups=None, **settings):
+    def admit(self, p, host=None, hdrs=None, lookups=None, **options):
         """admit() with these settings; hdrs None passes no header block."""
-        return access.admit(p, host, None if hdrs is None else headers(hdrs), AccessSettings(**settings),
+        return access.admit(p, host, None if hdrs is None else headers(hdrs), settings(**options),
                             (lookups or Lookups()).roles)
 
     def test_members_only_refuses_a_non_member_and_reads_roles_only_then(self):
@@ -328,13 +373,45 @@ class Caches(unittest.TestCase):
         self.assertEqual(cache.get(p, load, "empty"), "empty")      # a revoked-by-deletion file accepts nothing
 
     def test_the_key_includes_the_path_so_two_state_folders_never_share(self):
-        """The same cache over another state folder's file loads that file (authorization scope is the folder)."""
+        """The same cache over another state folder's file loads that file, and switching back loads A's again -
+        a value is never served for a folder other than the one it was read from (authorization scope is the folder)."""
         cache = access.FileCache()
         a, b = self.dir / "a.json", self.dir / "b.json"
         a.write_text("A", encoding="utf-8")
         b.write_text("B", encoding="utf-8")
-        self.assertEqual(cache.get(a, lambda: "A", ""), "A")
-        self.assertEqual(cache.get(b, lambda: "B", ""), "B")
+
+        def read(p):
+            """A loader that reads p's current text."""
+            return lambda: p.read_text(encoding="utf-8")
+        self.assertEqual(cache.get(a, read(a), ""), "A")
+        self.assertEqual(cache.get(b, read(b), ""), "B")
+        self.assertEqual(cache.get(a, read(a), ""), "A")
+        b.unlink()
+        self.assertEqual(cache.get(b, read(b), "none"), "none")
+        self.assertEqual(cache.get(a, read(a), "none"), "A")
+
+    def test_a_file_that_cannot_be_statted_still_loads_and_fails_closed(self):
+        """A stat error other than a missing file ("unreadable") never serves the old value or the empty default: it
+        calls load, and the token loader then accepts no token (and the role lookup would see no one)."""
+        state = self.dir / "state"
+        state.mkdir()
+        (state / "tokens.json").write_text(json.dumps({"tokens": [{"id": "1", "name": "ci", "hash": "sha256:x"}]}),
+                                           encoding="utf-8")
+        cache = access.FileCache()
+        path = state / "tokens.json"
+        self.assertEqual(len(cache.get(path, lambda: access.load_tokens(state), [])), 1)
+        loads = []
+
+        def load():
+            """The server's token loader, counting calls; the file itself is unreadable now."""
+            loads.append(1)
+            return access.load_tokens(state)
+        with mock.patch.object(Path, "stat", side_effect=PermissionError(13, "Permission denied")), \
+                mock.patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")), \
+                mock.patch("sys.stderr", io.StringIO()) as err:
+            self.assertEqual(cache.get(path, load, [{"stale": True}]), [])
+        self.assertEqual(loads, [1])
+        self.assertIn("no agent token is accepted", err.getvalue())
 
     def test_an_unreadable_token_file_accepts_no_token(self):
         """A broken tokens.json warns and yields no rows (fail closed); the CLI's strict read refuses it."""

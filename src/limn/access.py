@@ -77,19 +77,21 @@ FORWARDED_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
 
 @dataclass(frozen=True)
 class AccessSettings:
-    """The run options identify() and admit() read (server.py builds this from its C per call). The defaults are the
-    v0.1 behaviour, the same as server.Cfg's: tailscale headers, and a headerless loopback request is the agent."""
-    auth: str = "tailscale"                  # identity provider: one of AUTH_PROVIDERS
-    agent_loopback: bool = True              # a headerless loopback request is the agent (deprecated)
-    tailnet_agent: bool = False              # ...also one that came through tailscale serve (opt-in, deprecated)
-    trusted_proxies: tuple[IPNetwork, ...] = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
-    proxy_user_header: str = "X-Forwarded-User"
-    proxy_name_header: str = "X-Forwarded-Preferred-Username"
-    proxy_email_header: str | None = None
-    members_only: bool = False               # admit only logins in people.json or allow
-    allow: frozenset[str] = frozenset()      # --allow: the logins admitted when set
-    local_user: str | None = None            # the owner's login under --auth local (None = $USER, then "owner")
-    agent_token_file: Path | None = None     # where this machine's agents keep the token (ADR-0007); never read
+    """The run options identify() and admit() read (server.py builds this from its C per call).
+
+    No field has a default: every caller states every option, so a field added later can never fall back silently to
+    a permissive legacy value (such as agent_loopback=True) at a call site that did not think about it."""
+    auth: str                                # identity provider: one of AUTH_PROVIDERS
+    agent_loopback: bool                     # a headerless loopback request is the agent (deprecated)
+    tailnet_agent: bool                      # ...also one that came through tailscale serve (opt-in, deprecated)
+    trusted_proxies: tuple[IPNetwork, ...]   # peers whose identity headers --auth trusted-proxy trusts
+    proxy_user_header: str                   # the header carrying the user under --auth trusted-proxy
+    proxy_name_header: str                   # ...the display name
+    proxy_email_header: str | None           # ...the e-mail, the login when present (None = not configured)
+    members_only: bool                       # admit only logins in people.json or allow
+    allow: frozenset[str]                    # --allow: the logins admitted when set
+    local_user: str | None                   # the owner's login under --auth local (None = $USER, then "owner")
+    agent_token_file: Path | None            # where this machine's agents keep the token (ADR-0007); never read
 
 
 @dataclass(frozen=True)
