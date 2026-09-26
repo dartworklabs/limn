@@ -136,10 +136,10 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 영역 | 현재 상태 | 계획 |
 | --- | --- | --- |
 | docstring | 정량 게이트 없음. Ruff의 `D` 규칙은 켜지 않았다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) R4·R7: 새 모듈부터 켜고, 옮겨지는 모듈마다 넓힌다 |
-| 타입 검사 (옮기지 않은 모듈) | `server.py`는 검사하지 않는다. 옮긴 모듈과 `limn` 명령 모듈만 §9가 검사한다 | [code-style-roadmap.md](code-style-roadmap.md) R8·7단계: 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다 |
+| 테스트 파일의 타입 | `tests/`는 타입 검사 목록에 없다. 패키지(`src/limn/`)는 전부 §9가 검사한다 | 테스트가 타입으로 잡을 결함을 놓치는 일이 생기면 목록에 더하는 것을 검토 |
 | 실제 LaTeX 빌드 | CI에 TeX가 없어 로컬에서만 돈다 | 필요해지면 TeX 설치 작업을 CI에 더하는 것을 검토 |
 | Handbook 링크·형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다 | 폰트를 CI에 준비할 방법을 정한 뒤 CI에 추가 검토 |
-| 에이전트 계약 전체 비교 | 정량 게이트 없음 (§4는 사람 확인) | 계약 스냅숏 테스트 검토 |
+| 에이전트 계약 전체 비교 | 고정된 핀 흐름 하나는 `tests/test_contract_snapshot.py`가 응답과 `pins.md`를 기록된 스냅숏과 바이트 단위로 비교한다(2026-09-26). 그 흐름 밖의 경로·필드는 정량 게이트가 없다 (§4는 사람 확인) | 계약을 더하는 PR이 스냅숏 흐름에도 그 경로를 더한다 |
 
 ## 7. Handbook 출판
 
@@ -165,8 +165,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `server.py`에서 옮겨 낸 모듈과 새 순수 모듈(`src/limn/pins/`, `src/limn/people.py`, `src/limn/mentions.py`, `src/limn/events.py`, `src/limn/audit.py`, `src/limn/guidance.py`, `src/limn/mapping.py`, `src/limn/locate.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`, `src/limn/mark.py`, `src/limn/web/`, `src/limn/scope.py`, `src/limn/revisions.py`, `src/limn/pull.py`, `src/limn/gitsync.py`, `src/limn/documents.py`, `src/limn/meta.py`, `src/limn/outline.py`, `src/limn/access.py`, `src/limn/config.py`, `src/limn/startup.py`, `src/limn/args.py`), 조립 지점 `src/limn/server.py`, `limn` 명령(`src/limn/cli.py`, `src/limn/migrate.py`, `src/limn/__init__.py`, `src/limn/__main__.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
-| 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
+| 측정 대상 | `src/limn/` 아래의 모든 파이썬 파일(`[tool.mypy]`의 `files = ["src/limn"]` — 새 모듈은 만들면 바로 검사된다)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. `src/limn/` 아래에 새 파일을 만들면 따로 등록하지 않아도 검사된다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |
 | 보장 범위 | 목록에 든 파일의 정적 타입이다. 2026-09-26부터 패키지의 모든 파이썬 파일이 목록에 들어, 조립 지점 `server.py`가 옮긴 모듈에 넘기는 값과 협력자(`PinContext`의 `make_event`·`note_tags` 등, `RevisionContext`, 저장소의 레코드 검사)의 서명도 검사한다. HTTP 처리기는 `_ModuleApp`(모든 속성이 `Any`)으로 `server.py`에 닿지만, `server.py` 끝의 `if TYPE_CHECKING:` 대입이 모듈 자체를 `web/app.py`의 `App`과 맞춰 보므로 빠진 연결과 서명이 틀린 연결도 mypy 오류다. `tests/test_web.py`는 실행 때 이름이 모두 있는지를 따로 확인한다. 보지 못하는 것: 저장된 JSON 레코드와 응답은 `Mapping[str, Any]`·`dict[str, Any]`라 필드 값의 타입을 보지 않는다(모양은 계약 스냅숏·레코드 왕복 테스트가 지킨다). 테스트 파일은 목록에 없다 |
