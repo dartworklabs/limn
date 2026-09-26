@@ -3099,6 +3099,7 @@ class FrontendMobileStructure(unittest.TestCase):
             self.assertIn("case '%s':" % act, ps.HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
+        """Touch CSS: 44px controls, 16px inputs, safe areas, and exactly which rules set touch-action (PDF, grips, panel, sheet bar)."""
         css = ps.HTML[ps.HTML.index("<style>"):ps.HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){"):]
         coarse = coarse[:coarse.index("\n}")]
@@ -3782,6 +3783,7 @@ class FrontendToasts(unittest.TestCase):
             self.assertIn("setProperty('%s'" % v, body)
 
     def test_toast_stacks_newest_on_top_and_collapses_after_three(self):
+        """Newest toast on top, 6s life, more than three fold (hover, focus or the '+N' button opens them), no motion when reduced."""
         body = extract_js_fn("toast")
         self.assertIn("box.insertBefore(t,box.firstChild)", body)
         self.assertIn("setTimeout(kill,6000)", body)
@@ -5620,6 +5622,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertTrue(page.evaluate("SIDE_OPEN"))
 
     def test_saved_widths_clamp_without_overwriting_and_mobile_keeps_sheet(self):
+        """A saved width is clamped for the screen but never overwritten; Home goes to the minimum; the phone keeps its sheet."""
         page = self.open_viewer(1180, preferences={'side': 430})
         self.assertEqual(page.locator('#right').bounding_box()['width'], 430)
         page = self.open_viewer(1024, preferences={'sideMid': 600})
@@ -5837,6 +5840,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("ic('message-square')", body)
 
     def test_reply_editor_survives_redraw_and_save_sends_kind(self):
+        """The reply box survives list redraws, Esc closes it first, and a save sends the pin kind."""
         dp = extract_js_fn("drawPins")
         self.assertIn("slot.replaceWith(REPLY.el)", dp)
         self.assertIn("rta.focus()", dp)
