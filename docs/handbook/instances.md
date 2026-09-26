@@ -353,7 +353,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
 | `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |
 | `LIMN_WAIT` | `240` | 기동·재시작 뒤 HTTP 200을 기다리는 초 |
-| `LIMN_PYTHON` | `limn`이 도는 파이썬 | 인스턴스 관리자가 서버와 도우미를 돌리는 파이썬. `limn`이 넘긴다. 3.10 미만이면 멈춘다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH의 `python3`·`python3.1x` 가운데 3.10 이상인 첫 것을 쓴다(macOS의 `/usr/bin/python3`은 3.9다) |
+| `LIMN_PYTHON` | `limn`이 도는 파이썬 | 인스턴스 관리자가 서버와 도우미를 돌리는 파이썬. `limn`이 넘긴다. 3.10 미만이거나 파이썬으로 돌지 않으면 PATH에 다른 파이썬이 있어도 대신 쓰지 않고 멈춘다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH의 `python3`·`python3.1x` 가운데 3.10 이상인 첫 것을 쓴다(macOS의 `/usr/bin/python3`은 3.9다). 없으면 `help`를 뺀 모든 명령이 서버를 띄우기 전에 멈춘다. 이때 메시지 한 줄이 그 파이썬의 경로와 버전, 고치는 법(`limn`으로 부르거나 `LIMN_PYTHON`을 3.10 이상으로)을 알린다. 예: `limn: no Python >= 3.10 on PATH (/usr/bin/python3 is Python 3.9.6) — run it through the installed limn command, or set LIMN_PYTHON to a Python >= 3.10` |
 | `LIMN_AGENT_TOKEN_FILE` | `<설정 폴더>/<이름>.token` | `limn run`이 서버에 넘기는 토큰 파일 경로. 사용자가 두는 값이 아니다 |
 
 `XDG_CONFIG_HOME`이 없으면 `~/.config`, `XDG_DATA_HOME`이 없으면 `~/.local/share`를 쓴다.

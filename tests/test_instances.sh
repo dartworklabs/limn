@@ -602,20 +602,36 @@ out=$(PATH="$T/bsd:$PATH" "$PV" token revoke v01 local 2>&1)
 chk "revoking the saved token removes its file" "[[ ! -e '$tokf' ]] && grep -q 'removed' <<< \"\$out\""
 
 echo "── 16. portability: Python >= 3.10, timeout without GNU coreutils ──"
-mkdir -p "$T/py39" "$T/pynew"
-printf '#!/bin/sh\n# a Python 3.9: too old for limn\nexit 1\n' > "$T/py39/python3"
-chmod +x "$T/py39/python3"
+mkdir -p "$T/py39" "$T/py310" "$T/pynew" "$T/pyother"
+# Fake interpreters that answer the version query: server.py uses `match`, so a 3.9 would die on it with a bare
+# SyntaxError; the instance manager must refuse it first, naming it, its version and the fix.
+printf '#!/bin/sh\n# a Python 3.9: too old for limn\necho 3.9.6\n' > "$T/py39/python3"
+printf '#!/bin/sh\n# exactly the floor: 3.10 must pass (not compared as the string "3.10" < "3.9")\necho 3.10.0\n' > "$T/py310/python3"
+chmod +x "$T/py39/python3" "$T/py310/python3"
 ln -s "$(command -v dirname)" "$T/py39/dirname"
 ln -s "$(command -v sed)" "$T/py39/sed" # for `help`
 ln -s "$PY" "$T/pynew/python3.12"
+ln -s "$PY" "$T/pyother/python3"
 IM="$ROOT/src/limn/instances.sh"
+fix='run it through the installed limn command, or set LIMN_PYTHON to a Python >= 3.10'
 out=$(env -u LIMN_PYTHON LIMN_PRINT_ARGV=1 PATH="$T/py39:$T/pynew:$PATH" bash "$IM" run v01 2>&1)
 chosen=$(sed -n 1p <<< "$out")
 chk "run directly: skips a python3 older than 3.10 for a newer python3.1x on PATH" "[[ '$chosen' != '$T/py39/python3' && -x '$chosen' ]] && py_ok '$chosen'"
+out=$(env -u LIMN_PYTHON LIMN_PRINT_ARGV=1 PATH="$T/py39" "$BASH" "$IM" run v01 2>&1)
+chk "run directly with only an old python3: refused before the server starts, naming it, its version and the fix" \
+    "grep -qxF 'limn: no Python >= 3.10 on PATH ($T/py39/python3 is Python 3.9.6) — $fix' <<< \"\$out\" && [[ \$(wc -l <<< \"\$out\") -eq 1 ]]"
 out=$(env -u LIMN_PYTHON PATH="$T/py39" "$BASH" "$IM" list 2>&1)
-chk "run directly with only an old python3: stops with a clear message" "grep -q 'no Python >= 3.10 found' <<< \"\$out\""
+chk "the refusal holds for every command but help" "grep -qF '$T/py39/python3 is Python 3.9.6' <<< \"\$out\""
 out=$(LIMN_PYTHON="$T/py39/python3" PATH="$T/pynew:$PATH" bash "$IM" list 2>&1)
-chk "an explicit LIMN_PYTHON that is too old is an error, not silently replaced" "grep -qF 'LIMN_PYTHON=$T/py39/python3 is not Python >= 3.10' <<< \"\$out\""
+chk "an explicit LIMN_PYTHON that is too old is an error naming its version, not silently replaced" \
+    "grep -qxF 'limn: LIMN_PYTHON=$T/py39/python3 is Python 3.9.6, limn needs >= 3.10 — $fix' <<< \"\$out\""
+out=$(LIMN_PYTHON="$T/nonexistent/python3" bash "$IM" list 2>&1)
+chk "an explicit LIMN_PYTHON that does not run is an error" \
+    "grep -qxF 'limn: LIMN_PYTHON=$T/nonexistent/python3 does not run as Python — $fix' <<< \"\$out\""
+out=$(LIMN_PYTHON="$T/py310/python3" LIMN_PRINT_ARGV=1 bash "$IM" run v01 2>&1)
+chk "Python 3.10.0, exactly the floor, is accepted" "[[ \$(sed -n 1p <<< \"\$out\") == '$T/py310/python3' ]]"
+out=$(LIMN_PYTHON="$T/pynew/python3.12" LIMN_PRINT_ARGV=1 PATH="$T/pyother:$PATH" bash "$IM" run v01 2>&1)
+chk "LIMN_PYTHON wins over a good python3 earlier on PATH" "[[ \$(sed -n 1p <<< \"\$out\") == '$T/pynew/python3.12' ]]"
 chk "help still works without a Python" "env -u LIMN_PYTHON PATH='$T/py39' '$BASH' '$IM' help | grep -q 'limn add'"
 # with_timeout: no timeout(1)/gtimeout (stock macOS) -> perl's alarm still bounds the command.
 if command -v perl > /dev/null 2>&1; then

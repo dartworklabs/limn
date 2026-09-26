@@ -89,36 +89,55 @@ LOCAL_OFFSET="${LIMN_LOCAL_OFFSET:-100}"
 DOCS_MAX=12
 DOC_NAME_MAX=40
 # Passed in by the CLI: the installed limn's Python, server, unit template, executable, and version.
-# The server needs Python >= 3.10 (pyproject requires-python). The CLI passes the interpreter it runs on, which
-# satisfies that by construction; run directly (tests, a checkout), the first python3 / python3.1x on PATH that does
-# is used. macOS ships a /usr/bin/python3 3.9, so the first python3 found is not good enough by itself.
+# The server needs Python >= 3.10 (pyproject requires-python; server.py uses `match`, so 3.9 cannot even parse it and
+# would die with a bare SyntaxError). The CLI passes the interpreter it runs on, which satisfies that by construction;
+# run directly (tests, a checkout), the first python3 / python3.1x on PATH that does is used. macOS ships a
+# /usr/bin/python3 3.9, so the first python3 found is not good enough by itself. Every command but help calls the
+# interpreter (the helpers below use it), so it is chosen and checked here, once, and main() stops with the reason
+# before any command runs.
 PY_MIN_MAJOR=3 PY_MIN_MINOR=10
-python_ok() { # python_ok <interpreter> — is it Python >= PY_MIN_MAJOR.PY_MIN_MINOR?
-    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (int(sys.argv[1]), int(sys.argv[2])) else 1)' \
-        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" > /dev/null 2>&1
+PY_FIX="run it through the installed limn command, or set LIMN_PYTHON to a Python >= $PY_MIN_MAJOR.$PY_MIN_MINOR"
+py_version() { # py_version <interpreter> — prints its version (3.9.6); fails when it does not run as Python
+    "$1" -c 'import sys; print("%d.%d.%d" % tuple(sys.version_info[:3]))' 2> /dev/null
 }
-# find_python — prints the interpreter to use; fails (with the reason on stderr) when there is none. LIMN_PYTHON is
-# an explicit choice, so a too-old one is an error rather than silently replaced.
+py_new_enough() { # py_new_enough <version> — is <version> (3.9.6) at least PY_MIN_MAJOR.PY_MIN_MINOR?
+    local major minor
+    IFS=. read -r major minor _ <<< "$1"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    ((major > PY_MIN_MAJOR || (major == PY_MIN_MAJOR && minor >= PY_MIN_MINOR)))
+}
+# find_python — prints the interpreter to use; fails when there is none, with a one-line reason on stderr that names
+# the interpreter, its version and the fix. LIMN_PYTHON is an explicit choice, so a too-old one is an error rather
+# than silently replaced.
 find_python() {
-    local c p
+    local c p v first=""
     if [[ -n "${LIMN_PYTHON:-}" ]]; then
-        python_ok "$LIMN_PYTHON" && {
+        if ! v=$(py_version "$LIMN_PYTHON"); then
+            printf 'LIMN_PYTHON=%s does not run as Python — %s\n' "$LIMN_PYTHON" "$PY_FIX" >&2
+            return 1
+        fi
+        py_new_enough "$v" && {
             printf '%s' "$LIMN_PYTHON"
             return 0
         }
-        printf 'LIMN_PYTHON=%s is not Python >= %s.%s (or does not run) — point it at a newer interpreter, or unset it\n' \
-            "$LIMN_PYTHON" "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+        printf 'LIMN_PYTHON=%s is Python %s, limn needs >= %s.%s — %s\n' \
+            "$LIMN_PYTHON" "$v" "$PY_MIN_MAJOR" "$PY_MIN_MINOR" "$PY_FIX" >&2
         return 1
     fi
     for c in python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
         p=$(command -v "$c" 2> /dev/null) || continue
-        python_ok "$p" && {
+        if ! v=$(py_version "$p"); then
+            [[ -n "$first" ]] || first="$p does not run as Python"
+            continue
+        fi
+        py_new_enough "$v" && {
             printf '%s' "$p"
             return 0
         }
+        [[ -n "$first" ]] || first="$p is Python $v"
     done
-    printf 'no Python >= %s.%s found (python3, python3.1x on PATH) — run limn through its installed command, or put a newer python3 first on PATH\n' \
-        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" >&2
+    printf 'no Python >= %s.%s on PATH (%s) — %s\n' \
+        "$PY_MIN_MAJOR" "$PY_MIN_MINOR" "${first:-no python3 or python3.1x there}" "$PY_FIX" >&2
     return 1
 }
 PYTHON=$(find_python 2> /dev/null) || PYTHON=""

@@ -42,7 +42,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/pins/`](../../src/limn/pins/model.py) | 821 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
-| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,609 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
+| [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,628 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
 | [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
 | [`src/limn/cli.py`](../../src/limn/cli.py) | 475 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
@@ -50,7 +50,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 `server.py` 안은 `# ------` 배너 주석으로 관심사별 구역이 나뉘어 있다. 순서대로 문서(Doc)·쪽 디렉토리·빌드·빌드 이력(이 셋은 2026-09-26부터 `limn/build.py`를 부르는 얇은 셸이다)·`--git-pull`·핀 단위 변경(0.3)·리비전 PDF·목차 라벨·보기 전용 PDF·meta·원문 접근·역변환 두 경로·범위 사다리·anchor·핀 저장소·위치 추정·겹침·입력 검증·핀 조작·사람과 이벤트·처리 중 표시·선택 해석·신원·접근 제어·뷰어 조립·HTTP 처리기·입구다. 뷰어 화면 자체는 2026-09-26부터 `src/limn/viewer/`의 파일 세 개에 있다 ([code-style-roadmap.md](code-style-roadmap.md) 3단계).
 
-`server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 옮긴 모듈은 `server.py`처럼 `from __future__ import annotations`로 시작한다 — 인스턴스 관리자가 시스템 `python3`로 `server.py`를 띄울 때 새 모듈 때문에 먼저 멈추지 않게 하려는 것이다.
+`server.py`는 `limn serve`로는 패키지 모듈(`limn.server`)로, 인스턴스(`limn run` → `instances.sh`)에서는 파일 경로(`python …/limn/server.py`)로 실행된다. 파일로 실행될 때도 옆 모듈을 `limn.*`으로 가져올 수 있도록, `server.py`는 시작할 때 자기 폴더의 부모를 `sys.path` 앞에 넣는다. 새로 꺼내는 모듈은 이 방식으로 가져온다. 서버와 옮긴 모듈은 Python 3.10 이상에서만 돈다. `server.py`가 `match` 문을 쓰므로 3.9는 파일을 읽는 단계에서 `SyntaxError`로 멈춘다. 옮긴 모듈이 `from __future__ import annotations`로 시작하는 것은 옆 모듈과 모양을 맞춘 것이지, 오래된 파이썬을 위한 장치가 아니다. 인스턴스 경로가 안전한 이유는 두 가지다. `limn run`(systemd 유닛이 부르는 명령)은 자기가 도는 도구 가상환경의 파이썬을 `LIMN_PYTHON`으로 넘기고, 그 파이썬은 설치 때 `requires-python >= 3.10`을 이미 통과했다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH에서 3.10 이상인 파이썬을 찾는다. 없으면 `help`를 뺀 모든 명령이 무엇이든 시작하기 전에 멈추고, 그 파이썬의 경로·버전·고치는 법을 한 줄로 알린다([instances.md](instances.md) §환경 변수).
 
 구역 사이에서 상태를 주고받는 방식은 세 가지다.
 
