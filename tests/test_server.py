@@ -20,12 +20,15 @@ from unittest import mock
 
 from limn import build as limn_build
 from limn import locate, mapping
+from limn import meta as limn_meta
 from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 from limn.pins import position
+from limn.pins import render as md_render
 from limn.store import PinStore
+from limn.events import NOTIFY_TYPES
 from limn import revisions
 from limn import scope as scoping
 from limn.web import answers, parse
@@ -1253,11 +1256,11 @@ class LightMeta(Base):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = ps.pins_rev()
+        rev0 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.add()
-        rev1 = ps.pins_rev()
+        rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = ps.pins_rev()
+        rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertEqual(rev1, rev2)      # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
@@ -1369,7 +1372,7 @@ class Overlaps(Base):
             self.skipTest("latex tools not available")
         res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
-        pages = ps.page_list(ps.cur_pages(ps.DOCS[0]))
+        pages = limn_build.page_list(ps.cur_pages(ps.DOCS[0]), ps.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
         d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
@@ -1560,7 +1563,7 @@ class PinsMdV2(Base):
         # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
                           "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
+        self.assertEqual(md_render.range_label(self.pin(pid)), "env:x\\|y")
         md = ps.C.pins_md.read_text(encoding="utf-8")
         for line in md.splitlines():
             if "env:x" in line:
@@ -1584,7 +1587,7 @@ class PinsMdV2(Base):
         self.assertIn("env:x\\|y z", rows[0])
         self.assertIn("a\\|b ⏎ c", rows[0])
         self.assertIn("k\\|1 k2", rows[1])
-        self.assertEqual(ps.md_cell("a|b\r\nc"), "a\\|b c")
+        self.assertEqual(md_render.md_cell("a|b\r\nc"), "a\\|b c")
 
     def test_legend_absent_when_no_symbols(self):
         self.add(4, 5)
@@ -5173,11 +5176,11 @@ class ClaimEta(Base):
     def test_pins_md_claim_text(self):
         now = 1_790_000_000.0
         r = {"claimed_by": {"name": "Kim"}}
-        self.assertEqual(ps.claim_md(dict(r), now), "처리 중(Kim)")
+        self.assertEqual(md_render.claim_md(dict(r), now), "처리 중(Kim)")
         for left_s, want in ((14 * 60 + 10, "약 15분"), (3 * 60, "약 5분"), (15 * 60, "약 15분"), (16 * 60, "약 20분"),
                              (-60, "예상 초과")):
-            self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
-        self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+            self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
         ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -5233,7 +5236,7 @@ class FrontendClaimEta(unittest.TestCase):
 
     def test_js_ceil5_matches_server(self):
         out = self.run_info("console.log(JSON.stringify([0,0.2,5,5.01,14.9,23].map(ceil5)));")
-        self.assertEqual(out, [ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
+        self.assertEqual(out, [md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
 
     def test_card_uses_claim_tag_and_ticker(self):
         self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
@@ -6415,7 +6418,7 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(code, 400)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
-        self.assertIn("assigned", ps.NOTIFY_TYPES)
+        self.assertIn("assigned", NOTIFY_TYPES)
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))

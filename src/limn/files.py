@@ -2,16 +2,23 @@
 
 atomic_write serves every writer of the state directory (pins, people, tokens, build history): a reader - another
 request, another process, an agent reading pins.md - must only ever see the old file or the new one, never a
-half-written file. What gets written is the caller's business.
+half-written file. What gets written is the caller's business. store_lock serialises one read-modify-write of a
+state file across processes (the server and the `limn member` / `limn token` commands).
 
 file_in_tree is the one rule for a path a request or SyncTeX names inside the manuscript tree: the request parsers
 (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own message.
+
+tex_lines is how every line number is counted when a manuscript file is read; vendor_file is the name guard of the
+bundled PDF.js files the viewer loads.
 """
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import os
+import re
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
@@ -36,6 +43,19 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def store_lock(state: Path, name: str) -> Iterator[None]:
+    """Cross-process lock around one read-modify-write of a state file. The running server (record_person) and
+    `limn member` / `limn token` may write the same file at once; a thread lock alone would let one of them
+    overwrite the other's change with stale data. The lock file (.<name>.lock) stays in the state dir."""
+    fd = os.open(str(Path(state) / (".%s.lock" % name)), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)                                     # closing the descriptor releases the lock
 
 
 @dataclass(frozen=True)
@@ -73,3 +93,32 @@ def file_in_tree(p: object, root: Path) -> Path | TreePathRefusal:
     if not out.is_file():
         return NotAFile()
     return out
+
+
+def tex_lines(path: Path) -> list[str]:
+    """The lines of a manuscript file (str.splitlines, so line N is index N-1), or [] when it cannot be read or is
+    not UTF-8. Every line number a pin records counts lines this way."""
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
+VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
+
+
+def vendor_file(base: Path, name: object) -> Path | None:
+    """The file of the bundled-library directory `base` that GET /vendor/pdfjs/<name> serves, or None. Accepts only a
+    single (.mjs) name component and never points outside the directory: the name pattern already filters out '/',
+    '..' and '%', and resolve() adds a second check against escaping via symlinks and the like. A missing directory
+    or file is None."""
+    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
+        return None
+    try:
+        base = base.resolve()
+        f = (base / name).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if f.parent != base or not f.is_file():
+        return None
+    return f

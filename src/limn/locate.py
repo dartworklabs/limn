@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn import build
-from limn.documents import Doc
-from limn.files import file_in_tree
+from limn.documents import Doc, to_source
+from limn.files import file_in_tree, tex_lines
 from limn.mapping import (
     TokenWeights, by_text, compute_levels, densest, norm, pin_rel_path, score_range, snippet, truncate_quote,
 )
@@ -32,38 +32,6 @@ from limn.pins.position import EstContext, epoch, est_basis, resync
 Row: TypeAlias = dict[str, Any]
 # A word token worth weighting: a Hangul word of 2+ syllables, a Latin word of 4+ letters, or a decimal number.
 TOKEN_RE = re.compile(r"[가-힣]{2,}|[A-Za-z]{4,}|\d+\.\d+")
-
-
-# ---------------------------------------------------------------- Source-text access
-
-def tex_lines(path: Path) -> list[str]:
-    """The lines of a manuscript file as pins number them (str.splitlines), or [] when it cannot be read as UTF-8."""
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
-
-
-def to_source(D: Doc, path: str) -> Path:
-    """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path."""
-    p = Path(path)
-    for base in (D.build, D.build.resolve()):
-        try:
-            return D.src / p.relative_to(base)
-        except ValueError:
-            pass
-    try:
-        return D.src / p.resolve().relative_to(D.build.resolve())
-    except (ValueError, OSError):
-        pass
-    # If the state directory was moved or cloned, synctex points at the old build path. If the path's tail
-    # matches a real file inside the manuscript tree, fall back to that (longest tail wins; never reads outside the tree).
-    parts = p.parts
-    for k in range(1, len(parts)):
-        cand = D.src.joinpath(*parts[k:])
-        if cand.is_file():
-            return cand
-    return p
 
 
 # ---------------------------------------------------------------- Reverse mapping 1: SyncTeX

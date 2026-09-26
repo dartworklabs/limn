@@ -23,6 +23,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from limn import mapping
+from limn.mentions import NOTE_MENTION_COOLDOWN_S
+from limn.pins import render as md_render
 from test_access import ALICE, BOB, CAROL, AccessBase, reset_access, talk_to
 from test_server import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
 
@@ -123,7 +125,7 @@ class MentionRules(Base):
             n = self.n()
             edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
             self.assertEqual(self.events_after(n), [])
-        with mock.patch.object(ps.time, "time", return_value=t0 + ps.NOTE_MENTION_COOLDOWN_S):
+        with mock.patch.object(ps.time, "time", return_value=t0 + NOTE_MENTION_COOLDOWN_S):
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
@@ -389,8 +391,8 @@ class PinsMdInstructions(AccessBase):
         i = next(k for k, ln in enumerate(lines) if ln.startswith("처리한 핀은 닫는다"))
         self.assertIn("/api/pins/N/claim", lines[i + 1])
         self.assertIn('"eta_min"', lines[i + 1])
-        self.assertEqual(lines[i + 1], ps.claim_guidance("http://127.0.0.1:18999"))
-        self.assertEqual(lines[i + 2], ps.TOKEN_GUIDANCE)
+        self.assertEqual(lines[i + 1], md_render.claim_guidance("http://127.0.0.1:18999"))
+        self.assertEqual(lines[i + 2], md_render.TOKEN_GUIDANCE)
 
     def test_remote_agents_are_told_to_use_a_token(self):
         self.add()
@@ -398,9 +400,9 @@ class PinsMdInstructions(AccessBase):
         code, md = self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST})
         self.assertEqual(code, 200)
         self.assertIn("https://%s/api/pins/N/claim" % TS_HOST, md)
-        self.assertIn("테일넷 주소", ps.TOKEN_GUIDANCE)
-        self.assertIn("403", ps.TOKEN_GUIDANCE)
-        self.assertEqual(md.splitlines().count(ps.TOKEN_GUIDANCE), 1)
+        self.assertIn("테일넷 주소", md_render.TOKEN_GUIDANCE)
+        self.assertIn("403", md_render.TOKEN_GUIDANCE)
+        self.assertEqual(md.splitlines().count(md_render.TOKEN_GUIDANCE), 1)
 
 
 # ---------------------------------------------------------------- CLI: member add / list, serve on a busy port
