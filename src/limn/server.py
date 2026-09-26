@@ -226,7 +226,8 @@ def vendor_file(name: str) -> Path | None:
 
 # ---------------------------------------------------------------- Build
 
-LOG_TAIL_LINES = 40                # lines kept in the diet response for a non-successful build (§P0c-F)
+# The log lines an agent response keeps for a non-successful build (docs/handbook/build-sync.md §에이전트 응답 다이어트).
+LOG_TAIL_LINES = 40
 
 
 def diet_log(payload: Json, full: bool) -> Json:
@@ -317,7 +318,7 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefu
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
 
-# ---------------------------------------------------------------- --git-pull and the remote-main watch (§P0c-E)
+# ---------------------------------------------------------------- --git-pull and the remote-main watch (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기)
 #
 # Fast-forwards the manuscript repo to the remote main before the rebuild's copy step, and watches remote main while
 # the server runs. A co-author merging a PR wasn't reflected on the server-side checkout - the viewer kept showing the
@@ -918,7 +919,7 @@ def purge_pin(pid: int, actor: Json) -> TrashedPin | NotInTrash:
     return trash.purge_pin(pin_context(), pid, actor)
 
 
-# ---------------------------------------------------------------- In-progress marker (claim, §P0c-C)
+# ---------------------------------------------------------------- In-progress marker (docs/handbook/api.md §처리 중 표시 (claim))
 #
 # A co-author and their agent can work on the same pin at the same time. A TTL'd optimistic marker reduces
 # conflicts - it's a signal, not a lock: nothing stops closing or force-claiming a pin another identity holds a valid claim on.

@@ -34,11 +34,11 @@ from limn.web.errors import InputRejected
 Json: TypeAlias = Mapping[str, Any]        # a request's JSON object
 Query: TypeAlias = Mapping[str, list[str]]  # parse_qs() of a query string
 
-CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (§P0b-보완 C)
+CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (docs/handbook/api.md §닫을 때 사유 남기기)
 CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
 CLOSE_CHANGES_MAX = 50             # v0.3: ranges in one close body's optional changes (the new-side lines the agent changed for the pin)
 CHANGE_LINE_MAX = 1_000_000       # a line number past this is not a manuscript line
-CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (§P0c-C)
+CLAIM_TTL_DEFAULT = 120            # minutes - lock duration used when neither ttl_min nor eta_min is given for a claim (docs/handbook/api.md §처리 중 표시 (claim))
 CLAIM_TTL_MIN = 1
 CLAIM_TTL_MAX = 120                # the lock auto-expiring is a safety net - at 480 a stuck agent held a pin for half a day (observed 23 times)
 CLAIM_ETA_MIN = 1                  # minutes - estimated time to handle (eta_min). Shown in the UI rounded up to 5-minute steps
@@ -226,7 +226,7 @@ class CloseBody(NamedTuple):
 
 def parse_close_body(d: Json) -> CloseBody | InputRejected:
     """The close body's optional {"reply", "ref"} fields. Absent or an empty (whitespace-only) string both become
-    None - preserving the existing "curl POST with no body" behavior (§P0b-보완 C)."""
+    None - preserving the existing "curl POST with no body" behavior (docs/handbook/api.md §닫을 때 사유 남기기)."""
     reply = d.get("reply")
     if reply is not None:
         if not isinstance(reply, str):

@@ -22,7 +22,7 @@ function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const
     '<pre class="nowrap" style="max-height:30vh">'+esc(String(r.log_tail||r.log||'').split('\n').slice(-20).join('\n'))+'</pre>';
   b.hidden=false; $('#build-err-chip').hidden=true;}
 function hideBuildErr(){$('#build-err').hidden=true; $('#build-err-chip').hidden=!LAST_BUILD_ERR;}
-// P0b-01: rebuild is async - the POST returns immediately, and the #build-chip poller (startBuildPolling) shows
+// docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip poller (startBuildPolling) shows
 // progress, then does the in-place swap and notification once it finishes. A build started by someone else is caught by the same poller.
 async function rebuild(){
   try{const {status}=await api(dq('/api/rebuild?async=1'),{method:'POST',what:'PDF 재빌드',expect:[409]});

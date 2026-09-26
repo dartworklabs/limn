@@ -275,7 +275,7 @@ def origin_ok(origin: str, host: str | None, public_hosts: Sequence[HostEntry]) 
 
 
 def remote_base_for(host_raw: str, public_hosts: Sequence[HostEntry], port: int) -> str:
-    """The base URL used in GET /pins.md's guidance line (§P0c-B). If Host is *.ts.net, 'https://<Host as-is,
+    """The base URL used in GET /pins.md's guidance line (docs/handbook/api.md §원격 에이전트 진입점). If Host is *.ts.net, 'https://<Host as-is,
     including port>'; if it's a --public-host name, 'https://<name>[:<configured port>]'; otherwise (loopback/no
     Host) the loopback URL on this server's port. The handler has already validated Host by this point, so only the
     kind needs to be distinguished here."""

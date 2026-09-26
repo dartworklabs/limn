@@ -1,4 +1,4 @@
-// ------------------------------------------------ Auto sync (P0b-02) - lightweight meta polling
+// ------------------------------------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
 let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0,LIGHT_TIMER=null,LIGHT_INFLIGHT=null;
 // Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
 // call this together (e.g. focus returning at the same moment as a tab switch), /api/meta and loadPins only go out once (observed defect: overlapping calls fired loadPins 3 times).

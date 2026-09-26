@@ -497,7 +497,8 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     D.build.mkdir(parents=True, exist_ok=True)
     res: BuildResult = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
 
-    if pull is not None:                                  # fast-forward to remote main before the copy step (§P0c-E)
+    # --git-pull fast-forwards to remote main before the copy step (docs/handbook/build-sync.md §pull 단계).
+    if pull is not None:
         state_update(D, phase="pull")
         res["pull"] = pull()
         state_update(D, phase="copy")

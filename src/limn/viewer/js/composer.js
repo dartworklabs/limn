@@ -5,7 +5,7 @@ function setBusy(on){$('#c-spin').hidden=!on; $('#c-body').classList.toggle('bus
 async function pick(r){
   const seq=++PICKSEQ,rp=REPICK;
   // When a new selection (not a re-place) starts, the previous CUR is cleared right away - so that a [핀 저장] within
-  // this window (~1.1s) never silently saves the stale CUR, and instead goes through the PEND_SAVE queue (§P0c) to
+  // this window (~1.1s) never silently saves the stale CUR, and instead goes through the PEND_SAVE queue (docs/handbook/viewer.md §패널 정리) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
   if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
@@ -36,7 +36,7 @@ async function pick(r){
   // If [핀 저장] was pressed while pick was still slow (~1.1s), the queued save runs here (CUR has just been filled in).
   if(PEND_SAVE){clearPendingSave(); savePin();}
 }
-// P0b-03: if the pre-save selection (CUR) overlaps an open pin, one representative is chosen and a "append" banner
+// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (CUR) overlaps an open pin, one representative is chosen and a "append" banner
 // is drawn. Never auto-merged - the user picks between [메모에 덧붙이기]/[별도 핀으로 저장].
 // Overlap is recomputed against this tab's PINS every time the range changes (drag/level switch/up-down). Computing
 // it only once at pick time meant switching levels to produce the exact same range as an existing pin never showed

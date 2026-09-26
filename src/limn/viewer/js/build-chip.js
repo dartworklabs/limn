@@ -1,4 +1,4 @@
-// ------------------------------------------------ Async build-progress chip (P0b-01)
+// ------------------------------------------------ Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
 // BUILD_TIMER only exists while a build is actually running - /api/build is never hit every second once there's
 // nothing to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
 // pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot.
@@ -12,7 +12,8 @@ function buildChipText(b){
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' '+tl('(지난번 {s}초)',{s:Math.round(b.last_s)}):'';
   return tr(label)+' · '+tl('{s}초',{s:el})+last;
 }
-// §P0c-E: appends one line about the pull result to the build-complete toast. ok gets the applied commit range,
+// --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기): appends one line about the pull result to the
+// build-complete toast. ok gets the applied commit range,
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
