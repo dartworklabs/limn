@@ -15,9 +15,8 @@ pins.jsonl -> pins.md. pins.md is rendered in memory before anything is written,
 
 This module knows no run arguments and no HTTP. What the order needs from outside comes in as fields of PinStore,
 set by the composition root (server.pin_store()): where the files are (PinFiles), the process-wide lock, which
-parsed line the store trusts (valid), the anchor re-sync of rows against the .tex files (sync), the pins.md
-renderer (render) and the exception a transaction step raises to refuse its request (refusal). It creates no lock
-and holds no state of its own, so a store value is cheap to make per call.
+parsed line the store trusts (valid), the anchor re-sync of rows against the .tex files (sync) and the pins.md
+renderer (render). It creates no lock and holds no state of its own, so a store value is cheap to make per call.
 """
 
 from __future__ import annotations
@@ -84,8 +83,7 @@ class PinStore:
     it a read-modify-write race lost most concurrent writes (of 30 pins saved at once only 2 survived, observed). It
     must be re-entrant: a caller bundles a transaction with the Trash write or its notices under the same lock
     (restore_pin, drop_pin). valid decides which parsed line is a record the store trusts; sync re-matches rows'
-    line numbers in place and says whether it changed any; render turns the live pins into pins.md's text; a
-    transaction step raising refusal is a refused request, after which the re-sync is still written.
+    line numbers in place and says whether it changed any; render turns the live pins into pins.md's text.
     """
 
     files: PinFiles
@@ -93,7 +91,6 @@ class PinStore:
     valid: Callable[[object], bool]
     sync: Callable[[list[Row]], bool]
     render: Callable[[list[Row]], str]
-    refusal: type[Exception]
 
     def read_jsonl(self, path: Path) -> tuple[list[Row], list[int]]:
         """(records, broken line numbers) of a JSONL file; a missing file is ([], []). Takes no lock.
@@ -159,19 +156,15 @@ class PinStore:
         """The write-order invariant: with the lock -> read -> sync -> fn applies the change -> write_pins.
 
         fn(rows) changes rows in place, only after its own checks pass, and returns (result, whether it changed
-        rows). The change is applied after sync, so a caller-supplied lo/hi is never reverted by a stale anchor.
-        The file is written when sync or fn changed rows - a read-only step still writes a re-sync. If fn raises
-        refusal, the re-sync (if any) is written and the exception propagates; any other exception writes nothing.
-        Returns (rows as written or read, fn's result)."""
+        rows) - a refused request is a result with nothing changed, never an exception. The change is applied after
+        sync, so a caller-supplied lo/hi is never reverted by a stale anchor. The file is written when sync or fn
+        changed rows - a read-only step still writes a re-sync. If fn raises (a defect or an infrastructure failure),
+        nothing is written, not even the re-sync, and the exception propagates. Returns (rows as written or read,
+        fn's result)."""
         with self.lock:
             rows, bad = self.read_pins()
             synced = self.sync(rows)
-            try:
-                result, mutated = fn(rows)
-            except self.refusal:
-                if synced:
-                    self.write_pins(rows, bad)
-                raise
+            result, mutated = fn(rows)
             if synced or mutated:
                 self.write_pins(rows, bad)
             return rows, result

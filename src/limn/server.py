@@ -34,11 +34,11 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 if __package__ in (None, ""):
@@ -165,7 +165,7 @@ from limn.viewer.assemble import (
     service_worker,
     viewer_html,
 )
-from limn.web.errors import HTTPError, Messages, revision_failure_text
+from limn.web.errors import HTTPError as HTTPError, Messages, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
 from limn.web.parse import CloseChange
 
@@ -213,8 +213,6 @@ BUILDS_LOCK = threading.Lock()
 
 
 C = Cfg()
-# A transaction step's result type (transact).
-T = TypeVar("T")
 
 
 # ---------------------------------------------------------------- Documents (§Multiple documents, docs/handbook/domain.md §여러 문서)
@@ -513,8 +511,8 @@ def pin_store() -> PinStore:
 
     Made per call, like build_config(), so a test or main() that changes C.state is seen at once; the lock is the one
     process-wide PIN_LOCK. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
-    sync_all (reads the .tex files under C.src), the renderer pins_md_text, and HTTPError as a step's refusal."""
-    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text, HTTPError)
+    sync_all (reads the .tex files under C.src) and the renderer pins_md_text."""
+    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text)
 
 
 # The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
@@ -534,13 +532,6 @@ def read_pins() -> tuple[list[Row], list[int]]:
 def write_pins(rows: list[Row], bad: list[int] | None = None) -> None:
     """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold PIN_LOCK."""
     pin_store().write_pins(rows, bad)
-
-
-def transact(fn: Callable[[list[Row]], tuple[T, bool]]) -> tuple[list[Row], T]:
-    """Write-order invariant: with PIN_LOCK -> read -> sync -> apply the request's change -> atomic write -> pins.md.
-
-    fn(rows) returns (result, whether it mutated); returns (rows, result). See PinStore.transact."""
-    return pin_store().transact(fn)
 
 
 def snapshot_pins() -> list[Row]:
@@ -606,11 +597,6 @@ def overlaps_for_range(file: str, lo: int, hi: int) -> list[Json]:
 def init_seq() -> None:
     """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
     pin_store().init_seq()
-
-
-def next_id(rows: list[Row]) -> int:
-    """An id is never reused - hands out the next one and records it in pins.seq (PinStore.next_id)."""
-    return pin_store().next_id(rows)
 
 
 # ---------------------------------------------------------------- Request documents and parsing facts

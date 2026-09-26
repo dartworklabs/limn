@@ -571,7 +571,7 @@ class EnglishChrome(unittest.TestCase):
                     m["at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3 * 3600))
             return None, True
 
-        ps.transact(age)
+        ps.pin_store().transact(age)
 
     def talk(self, raw):
         a, b = socket.socketpair()

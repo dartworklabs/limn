@@ -44,7 +44,6 @@ EVENTS_KEEP = 5000  # number of recent events kept in events.jsonl. seq only inc
 # `cleared` and `purged` are written by the Trash service directly and are never notified.
 EventType: TypeAlias = Literal["mention", "review_requested", "replied", "reopened", "assigned", "dropped"]
 NOTIFY_TYPES: tuple[EventType, ...] = get_args(EventType)
-EVENT_TYPES = NOTIFY_TYPES
 EVENTS_SINCE_MAX = 20
 EXCERPT_CHARS = 140  # a notice's excerpt, on one line (limn.mapping.flat)
 
