@@ -300,6 +300,13 @@ class Agent:
 Actor: TypeAlias = Person | Agent
 
 
+def is_region_pin(record: object) -> bool:
+    """Is this a pin on a view-only PDF document - no file, but a pdf path? Told purely by the record's shape: even if the
+    current configuration no longer has that document, the record is not broken (treating it as broken would delete
+    the pin on the next write)."""
+    return isinstance(record, dict) and record.get("file") is None and isinstance(record.get("pdf"), str) and bool(record["pdf"])
+
+
 @dataclass(frozen=True)
 class PinNotFound:
     """No pin with this id is in the store; the API answers ok:false rather than an error."""

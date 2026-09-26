@@ -1,0 +1,57 @@
+/* Panel width grip (shared by wide/mid, Pointer Events): the visible bar is 6px; the grab area is widened via
+   ::after (24px for touch). For mouse, only 3px on each side is added, so it doesn't cover the body scrollbar on the left. */
+#grip{position:relative;z-index:6;width:6px;cursor:col-resize;background:var(--border);flex:none;touch-action:none}
+#grip::after{content:'';position:absolute;top:0;bottom:0;left:-3px;right:-3px}
+#grip:hover,#grip.on,#grip:focus-visible{background:var(--border-strong)}
+body.resizing{-webkit-user-select:none;user-select:none;cursor:col-resize}
+body.resizing #left{pointer-events:none}
+/* Collapsing by the handle (docs/handbook/viewer.md §패널 폭과 시트 높이, snapSide): stopped at the minimum the bar turns primary;
+   past half the minimum the panel's contents fade to 40% as a preview of the collapse (the panel box itself never gets opacity -
+   in mid its fixed tool bar would move, §펼친 화면 레이아웃) and the cursor says where the panel goes; a draft blocks that zone. */
+#grip.snap-min,body.lay-mid #grip.snap-min{background:var(--primary)}
+body.lay-wide.side-snap-collapse #bar1,body.side-snap-collapse :is(#bar2,#build-err,#banner,#composer,#list,#c-actions){opacity:.4}
+body.side-snap-collapse,body.side-snap-collapse #grip{cursor:w-resize}
+body.side-snap-blocked,body.side-snap-blocked #grip{cursor:not-allowed}
+/* Collapsed wide panel: only a 6px rail is left at the right edge (the handle itself, a flex item beside #left - never over its
+   scrollbar); dragging it left or a double-click brings the panel back. The status chips float as a card at the PDF area's
+   bottom-right as in mid, the tools hide with the panel (zoom stays on Ctrl+wheel / Ctrl±0), and [핀 N] moves to the nav bar. */
+body.lay-wide:not(.side-open) #grip{cursor:w-resize}
+body.lay-wide:not(.side-open) #grip::after{left:0;right:0}
+body.lay-wide:not(.side-open) #right{position:fixed;left:auto;top:auto;right:calc(var(--space-6) + 6px);bottom:var(--space-3);width:auto!important;min-width:0;
+  height:auto;max-width:calc(100vw - 2 * var(--space-6));display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-2);
+  background:transparent;border:0;box-shadow:none;z-index:20;overflow:visible;pointer-events:none}
+body.lay-wide:not(.side-open) #right>:not(#bar2):not(#banner){display:none}
+body.lay-wide:not(.side-open) #right>:is(#bar2,#banner){pointer-events:auto;background:var(--sidebar);border:1px solid var(--border-strong);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+body.lay-wide:not(.side-open) :is(#meta-txt,#me){display:none}
+body.lay-wide:not(.side-open) #bar2:not(:has(.badge:not([hidden]))){display:none}
+/* The wide panel slides 0.18s (margin only - no transform, so nothing inside changes its containing block). */
+@keyframes side-out{to{margin-right:calc(-1 * var(--side-w,348px))}}
+@keyframes side-in{from{margin-right:calc(-1 * var(--side-w,348px))}}
+body.lay-wide.side-closing #right{animation:side-out .18s ease-in forwards}
+body.lay-wide.side-opening #right{animation:side-in .18s ease-out}
+/* [핀 N] of a collapsed wide panel: the right end of the nav bar, the same component as the tool bar's (count, review pill, draft dot). */
+#nav-side{flex:none;margin-left:auto;height:var(--control-h);gap:var(--space-1);padding:0 var(--space-2)}
+body:not(.lay-wide) #nav-side{display:none}
+/* A draft the collapsed panel is holding (draftOpen): a dot on [핀 N] - the note is only hidden, not gone. */
+.c-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--primary)}
+#sheet-grip{display:none}
+#right{width:348px;min-width:280px;max-width:80vw;border-left:1px solid var(--border);background:var(--sidebar);
+  display:flex;flex-direction:column;flex:none;min-height:0;touch-action:pan-y pinch-zoom}   /* horizontal drags stay pointer events (the overlay's swipe); pinch keeps the browser's zoom */
+.bar{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border);display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
+#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}   /* wraps to two lines in a narrowed panel - so it never overflows horizontally */
+/* The tool bar is a single height (--tb-h: 28px desktop, 44px touch). The page field is also the same height/text size as the buttons - taking the
+   generic input field rule (14px, 6px padding) as-is made it 8px taller than the buttons with larger text, breaking the row's harmony (author feedback 2026-09-23). Icon buttons are square. */
+#bar1>button,#bar1>input{height:var(--tb-h)}
+#bar1 button{padding:0 var(--space-2);white-space:nowrap}
+#bar1 button.btn-icon{padding:0;width:var(--tb-h);min-width:var(--tb-h)}
+#bar1 input.n{width:54px;flex:100 1 40px;min-width:40px;max-width:54px;padding:0 var(--space-1);font-size:var(--text-base);line-height:normal;border-radius:var(--radius);text-align:left}   /* the single-character '쪽' field read like a button (QA) - left-aligned like a proper input field for '쪽 이동'. Its basis is 40px and it takes the free space first (grow 100, up to 54px) so the longer English labels still fit the 348px panel on one row - a wrapping flex line breaks on the basis, not the shrunk size */
+/* Tool bar hierarchy (QA 2026-09-24): page/zoom-in/zoom-out/fit-width are bordered navigation controls, notification/theme/help
+   are borderless utility icons, and [PDF 재빌드] is a rarely used action so it's a faint ghost - if the manuscript is newer than the PDF, updateStaleBadge promotes it to .btn-default. */
+#bar1 :is(#btn-notify,#btn-theme,#btn-help){background:transparent;border-color:transparent;color:var(--muted-foreground)}
+#bar1 :is(#btn-notify,#btn-theme,#btn-help):hover{background:var(--accent);color:var(--foreground)}
+#btn-rebuild:not(.btn-default){background:transparent;border-color:transparent;color:var(--muted-foreground)}
+body.lay-wide #btn-rebuild .ic{display:none}   /* text only on a wide screen - so the 348px panel's tool bar fits on one line */
+body.lay-wide #bar1 #btn-rebuild{padding:0 var(--space-1)}   /* at 8px, [?] dropped to a second line in the default 348px panel (grid-cleanup QA) */
+#btn-rebuild:not(.btn-default):hover{background:var(--accent);color:var(--foreground)}
+#bar1 .chip{height:var(--control-h-sm);display:block;line-height:var(--control-h-sm);padding:0 var(--space-2);flex:0 1 auto;min-width:40px}

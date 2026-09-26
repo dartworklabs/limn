@@ -9,18 +9,24 @@ Run: uv run pytest -q tests/test_errors.py
 import ast
 import json
 import re
+import typing
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn.web.errors import SCOPE_REJECTIONS, InputRejected
+from limn import revisions
+from limn.web.errors import REVISION_FAILURES, SCOPE_REJECTIONS, InputRejected, scope_http_error
 from test_access import BOB, AccessBase
 from test_server import extract_js_fn, ps, run_node
 
-# The modules that build error bodies: server.py and the HTTP layer moved out of it (limn/web: the handler, the
-# answers to pin outcomes, SCOPE_REJECTIONS). Every static guard below reads all of them, keyed by file name.
+# The modules that build error bodies or statuses: server.py, the revision services moved out of it (limn/revisions.py:
+# the comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values) and the
+# HTTP layer (limn/web: the handler, the parsers, the answers, the refusal tables). Every static guard below reads all
+# of them, keyed by file name; the two tables (SCOPE_REJECTIONS, REVISION_FAILURES) are read as data.
+PKG = Path(ps.__file__).parent
 SOURCES = {p.name if p.parent.name != "web" else "web/" + p.name: p.read_text(encoding="utf-8")
-           for p in [Path(ps.__file__)] + sorted((Path(ps.__file__).parent / "web").glob("*.py"))}
+           for p in [Path(ps.__file__), PKG / "revisions.py", PKG / "scope.py", PKG / "documents.py"]
+           + sorted((PKG / "web").glob("*.py"))}
 
 
 def parsed():
@@ -87,8 +93,8 @@ def input_rejections(tree):
 
 def emitted_reasons():
     """Every reason code the server can put in an error body or error status: HTTPError reason= literals, the
-    InputRejected reasons, the SCOPE_REJECTIONS table and error dict literals."""
-    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()}
+    InputRejected reasons, the SCOPE_REJECTIONS and REVISION_FAILURES tables and error dict literals."""
+    codes = {reason for _, _, reason in SCOPE_REJECTIONS.values()} | {reason for _, reason in REVISION_FAILURES.values()}
     for _, tree in parsed():
         codes |= {c for _, r in http_error_calls(tree) + input_rejections(tree) for c in _codes(r)}
         for d in error_dicts(tree):
@@ -134,12 +140,21 @@ class EveryErrorHasAReason(unittest.TestCase):
         self.assertEqual(lines, [])
 
     def test_the_scope_table_names_a_reason_for_every_refusal(self):
-        """SCOPE_REJECTIONS maps each refusal to (status, Korean text, reason); the reason is never empty."""
-        for name, (status, msg, reason) in SCOPE_REJECTIONS.items():
-            with self.subTest(name=name):
+        """SCOPE_REJECTIONS maps each refusal type to (status, Korean text, reason); the reason is never empty."""
+        for kind, (status, msg, reason) in SCOPE_REJECTIONS.items():
+            with self.subTest(kind=kind.__name__):
                 self.assertTrue(CODE.fullmatch(reason or ""), reason)
-                e = ps.scope_http_error(ps.ScopeRejected(name))
+                e = scope_http_error(kind())
                 self.assertEqual((e.code, e.body), (status, {"error": msg, "reason": reason}))
+
+    def test_the_build_failure_table_names_a_reason_for_every_kind(self):
+        """REVISION_FAILURES gives every kind of a failed comparison step (limn.revisions.FailureKind) its Korean text
+        and a snake_case reason."""
+        self.assertEqual(set(REVISION_FAILURES), set(typing.get_args(revisions.FailureKind)))
+        for kind, (msg, reason) in REVISION_FAILURES.items():
+            with self.subTest(kind=kind):
+                self.assertTrue(HANGUL.search(msg))
+                self.assertTrue(CODE.fullmatch(reason), reason)
 
     def test_http_error_requires_a_reason(self):
         """A refusal cannot be constructed without a reason (keyword-only, no default)."""

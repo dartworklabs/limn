@@ -28,7 +28,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생 |
 | 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
 | 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 레이아웃 테스트까지 돌리려면 먼저 `uv run playwright install chromium` |
-| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업(0.3.3)이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다 |
+| 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. 같은 작업에 `LIMN_TEST_REQUIRE_NODE=1`도 있어서, node가 없으면 뷰어 스크립트 문법 검사(`test_viewer_files`)도 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업(0.3.3)이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다 |
 | 보장 범위 | 테스트가 고정한 동작만 보장한다. CI의 테스트 작업은 전체 이력(`fetch-depth: 0`)을 받아, 옛 릴리스를 `git show` 로 불러 비교하는 테스트(v0.1.0 이관, v0.2.2 이벤트 대조)도 돈다. 얕은 클론에서는 건너뛴다. CI에는 TeX(`latexmk`)와 Poppler가 없어서 실제 빌드가 필요한 테스트는 CI에서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다 |
 
 테스트 파일마다 맡은 범위가 다르다.
@@ -49,9 +49,10 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_pins_model.py`](../../tests/test_pins_model.py) | 레코드 왕복: 테스트 전체가 읽고 쓴 레코드 모양 147건([`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl))과 옛 모양·어긋난 값 24건을 상태 타입으로 파싱해 다시 쓰면 저장소의 `json.dumps` 설정으로 바이트가 같은지, 상태마다 어떤 필드를 속성으로 올리는지(열림의 claim, 닫힘의 닫은 기록, 완료의 확인, 휴지통의 삭제 기록), 없거나 종류가 틀린 값이 어떻게 남는지, 상태와 어긋난 `done`·`review`를 생성자가 거절하는지 |
 | [`tests/test_pins_edit.py`](../../tests/test_pins_edit.py) | `limn.pins.edit`의 순수 판단: 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 거절 값으로 돌려주는지와 그 순서, 줄 범위가 바뀐 것으로 치는 조건, 편집이 쓰는 필드와 그 순서(위치 다시 잡기의 page·frac 유지, `via`·`score` 지우기, anchor, 담당 스레드 줄), 새 줄 핀·영역 핀 레코드의 필드 순서 |
 | [`tests/test_mapping.py`](../../tests/test_mapping.py) | `limn.mapping`이 순수한지(표준 라이브러리 순수 모듈만 가져오고 `C.`·`cur_doc()`을 읽지 않음), 떠 있는 환경 목록을 인자로 받아 그대로 따르는지 |
-| [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py) | 뷰어 파일 세 개가 패키지에 있고, `index.html`의 CSS·JS 표식이 한 번씩이며, 서버가 조립한 HTML에 두 파일이 그대로 들어가는지. 표식이 틀리면 시작 단계에서 실패하는지 |
+| [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py) | 뷰어 조각과 순서 목록(`parts.txt`): 목록의 조각이 패키지에 있고 `css/`·`js/`의 파일이 목록에 한 번씩 있는지, 조각이 줄 단위로 끝나는지, `index.html`의 CSS·JS 표식이 한 번씩이고 조각에는 없는지, 서버가 조립한 HTML이 조각을 목록 순서대로 이은 것과 같은지. 표식이나 목록이 틀리면 시작 단계에서 실패하는지. 내보내는 페이지의 인라인 스크립트마다 `node --check`가 통과하는지와, 조각 하나에 심은 문법 오류를 그 조각 파일·줄로 잡는지(node가 없으면 건너뜀, `LIMN_TEST_REQUIRE_NODE=1`이면 실패) |
 | [`tests/test_build.py`](../../tests/test_build.py) | `limn.build`가 서버 전역(`C`, `cur_doc()`, 문서 목록, 옛 전역 잠금·상태)을 읽지 않고 서버를 가져오지 않는지, `latex_errors`, 두 문서가 인자만으로 동시에 빌드되고(가짜 latexmk가 서로를 기다림) 결과·이력·빌드 폴더가 섞이지 않는지. TeX 없이 가짜 `latexmk`·`pdftoppm`을 PATH에 둔다 |
 | [`tests/test_store.py`](../../tests/test_store.py) | `limn.store`를 서버 없이 직접 몬다: 서버·HTTP를 가져오지 않는지(import 검사), `pins.jsonl` 뒤에 `pins.md`를 쓰고 렌더가 실패하면 아무것도 쓰지 않는지, 바꾼 것 없는 읽기는 줄 맞춤이 바꿨을 때만 쓰는지, 거절은 줄 맞춤을 쓰고 결함은 아무것도 쓰지 않는지, 손상 줄을 건너뛰고 원본을 `.corrupt-*.bak`로 보존하는지(휴지통 포함), 잠금을 쥔 채 겹쳐 쓸 수 있고 다른 스레드는 기다리는지, 30건 동시 저장이 모두 남는지, 핀 번호·`init_seq`·clear 보관 |
+| [`tests/test_scope.py`](../../tests/test_scope.py) | `limn.scope`가 순수한지(import 검사), `limn.scope`·`limn.revisions`·`limn.documents`가 `C`·`cur_doc()`을 읽지 않고 `limn.revisions`가 서버·HTTP 층 없이 올라오는지, 핀 단위 변경의 거절이 경우마다 한 값인지. 귀속 규칙과 경로별 본문은 `test_v03.py`·`test_server.py`가 지킨다 |
 | [`tests/test_web_parse.py`](../../tests/test_web_parse.py) | 요청 파서(`limn.web.parse`)를 서버 없이 직접: 필드마다 값이나 첫 거절(400 문장·`reason` 그대로), 서버가 늘 보던 순서(새 핀은 위치가 메모보다 먼저, 선택은 빌드 이름 → 지워진 빌드 → 쪽 → x0·x1·y0·y1), 원고 트리 경로 규칙(`limn.files.file_in_tree`), 보기 전용 문서의 영역 핀과 편집 위치. 원고 사실은 가짜 `DocumentFacts`로 준다 |
 | [`tests/test_web.py`](../../tests/test_web.py) | HTTP 층(`limn.web`): `server.py`가 `App`에 적힌 이름을 모두 갖는지, 처리기가 서버 모듈에서 다시 묶은 이름(테스트의 `patch.object`, `main()`의 `HTML`)을 요청 때 읽는지, `limn.web`이 `server.py`를 가져오지 않는지, `server.py`가 파일로 실행되는지(표준 모듈 `http`를 가리지 않음), 결과별 응답(`answers`)과 거부된 첫 화면의 언어·이스케이프를 직접. 경로마다의 상태 코드·본문은 처리기를 거치는 다른 파일이 지킨다 |
 | [`tests/test_build_copy.py`](../../tests/test_build_copy.py) | 빌드 첫 단계인 원고 복사가 실패하면(`rsync` 비정상 종료) 사본을 컴파일하지 않고 빌드를 실패로 끝내는지 |
@@ -81,9 +82,9 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 항목 | 내용 |
 | --- | --- |
 | 측정 대상 | 패키지가 `uv tool install`로 설치되고, 실행 파일과 번들 자산이 들어가는지 |
-| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `ui_en.json`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
+| 적용 조건 | `pyproject.toml`, 패키지 데이터(`vendor/`, `systemd/`, `instances.sh`, `ui_en.json`, `viewer/`)를 바꿀 때. CI `install` 작업이 항상 돈다 |
 | 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn serve --version`, `limn help` |
-| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`, 뷰어 `viewer/app.js`가 설치 경로에 있다 |
+| 합격 기준 | 명령이 모두 성공하고 PDF.js 번들, `limn@.service` 템플릿, `instances.sh`, 뷰어 `viewer/index.html`·`viewer/parts.txt`와 조각 `viewer/css/tokens.css`·`viewer/js/events.js`가 설치 경로에 있다. 파일 하나라도 없으면 그 자리에서 실패한다 (예전 `find … && echo` 줄은 마지막 줄이 아니면 없어도 통과했다) |
 | 보장 범위 | 설치와 실행 입구까지다. 실제 원고 빌드는 확인하지 않는다 |
 
 ## 4. 에이전트 계약 호환
@@ -136,13 +137,13 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run shellcheck src/limn/instances.sh tests/test_instances.sh`. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 두 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄) |
-| 보장 범위 | 켠 규칙만이다. 규칙 목록은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이다. 포매팅·스타일·docstring은 아직 검사하지 않는다 (§6). 타입은 §9가 본다. `src/limn/vendor/`와 플러그인에서 복사한 `tools/handbook-publish/`는 검사에서 뺀다 |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이다. 포매팅·스타일·docstring은 아직 검사하지 않는다 (§6). 타입은 §9가 본다. `src/limn/vendor/`와 플러그인에서 복사한 `tools/handbook-publish/`는 검사에서 뺀다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법만 본다 |
 
 ## 9. 타입 검사
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `server.py`에서 옮겨 낸 모듈과 새 순수 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`, `src/limn/mark.py`, `src/limn/web/`), `limn` 명령(`src/limn/cli.py`, `src/limn/migrate.py`, `src/limn/__init__.py`, `src/limn/__main__.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
+| 측정 대상 | `server.py`에서 옮겨 낸 모듈과 새 순수 모듈(`src/limn/pins/`, `src/limn/mapping.py`, `src/limn/build.py`, `src/limn/files.py`, `src/limn/store.py`, `src/limn/mark.py`, `src/limn/web/`, `src/limn/scope.py`, `src/limn/revisions.py`, `src/limn/documents.py`), `limn` 명령(`src/limn/cli.py`, `src/limn/migrate.py`, `src/limn/__init__.py`, `src/limn/__main__.py`)의 타입 오류. strict 모드라 표기 누락, 타입 인자 없는 `list`·`dict`, `Any` 반환, `None` 가능성을 좁히지 않은 사용도 오류다. 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다. 모듈을 새로 옮기면 같은 PR에서 `[tool.mypy]`의 `files`에 더한다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run mypy`. 검사할 파일과 설정(`strict`, `python_version = "3.10"`, `exhaustive-match`)은 `pyproject.toml`의 `[tool.mypy]`가 정본이다. mypy는 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 명령이 0으로 끝난다. `# type: ignore`는 쓰지 않는 것이 기본이고, 꼭 필요하면 오류 코드를 적고(`# type: ignore[arg-type]`) 그 줄에 이유를 단다. `cast`도 같다 |

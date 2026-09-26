@@ -336,6 +336,12 @@ def anchor_holds(anchor: Mapping[str, Any], lo: int, nlines: Sequence[str]) -> b
 
 # ---------------------------------------------------------------- Where a pin's file is (docs/adr/0006-relative-pin-paths.md)
 
+def anchor_offset(v: object) -> int:
+    """A stored anchor's head_off/tail_off - how far its first/last non-comment line sits from lo/hi - when it is an int
+    in 0..9999, else 0 (a legacy anchor has none, and a bad value must not move the pin)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 10000 else 0
+
+
 def _posix_parts(path: str) -> list[str]:
     """The components of a POSIX path string, without empty and '.' parts ('/a//b/./c' -> ['a', 'b', 'c'])."""
     return [p for p in path.split("/") if p not in ("", ".")]
