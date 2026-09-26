@@ -4398,6 +4398,42 @@ class MultiDoc(Base):
         code, _, body = split_resp(self.talk(jreq("GET", "/api/pins?doc=rr")))
         self.assertEqual([p["doc"] for p in json.loads(body)], ["rr"])
 
+    BOB = {"login": "bob@example.com", "name": "Bob Park"}
+    WENDY = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    def _notices(self, since=0):
+        """The (type, doc) of every events.jsonl record after the first `since` ones, in order."""
+        return [(e["type"], e["doc"]) for e in ps._read_events()[0][since:]]
+
+    def test_new_line_pin_notices_name_the_pins_own_document(self):
+        """A new line pin in the second document queues its mention and assigned notices with that document's key.
+
+        Regression: the notices were built before the record had its doc, so pin_doc_key read the first document (ms)
+        and the viewer opened a notice about a pin in rr on the wrong document.
+        """
+        ps._EVENTS_CACHE.clear()
+        ps.record_person(dict(self.WENDY))
+        pin = ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr",
+                          "note": "@Wendy Kim 이 정의 확인", "assignee": self.WENDY["login"]}, dict(self.BOB))
+        self.assertEqual(pin.record["doc"], "rr")
+        self.assertEqual(self._notices(), [("mention", "rr"), ("assigned", "rr")])
+
+    def test_later_notices_about_a_pin_name_its_document(self):
+        """Edit, reply, close and reopen notices about a pin in the second document carry that document's key: they
+        are made from the stored record, which has its doc."""
+        ps._EVENTS_CACHE.clear()
+        ps.record_person(dict(self.WENDY))
+        pid = ps.add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"},
+                         dict(self.BOB)).record["id"]
+        n = len(ps._read_events()[0])
+        edit = {"base_rev": 0, "note": "@Wendy Kim 정의 확인", "assignee": self.WENDY["login"]}
+        self.assertEqual(ps.edit_pin(pid, edit, dict(self.BOB)).record["doc"], "rr")
+        self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reply" % pid, {"text": "봤어요"})))[0], 200)
+        self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/close" % pid, {"reply": "고침"})))[0], 200)
+        self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reopen" % pid, {"reason": "아직"})))[0], 200)
+        self.assertEqual(self._notices(n), [("mention", "rr"), ("assigned", "rr"), ("replied", "rr"),
+                                            ("review_requested", "rr"), ("reopened", "rr")])
+
     def test_view_only_pick_returns_region_without_synctex(self):
         self.fake_pages(self.rv)
         with mock.patch.object(ps, "region_text", return_value="Reviewer   one\n comment"), \

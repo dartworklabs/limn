@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+One server fix; the HTTP API and `pins.md` are unchanged.
+
+- **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
+  and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
+  they were made before the record had its `doc`; a notice about a pin in the second document opened the first one.
+  They now carry the pin's document, like every other notice. Region pins, single-document instances and the other
+  fields are unchanged; records already written are left as they are.
+
 ## 0.3.5 — unreleased
 
 Mouse and touch usability from the 2026-09-26 input review ([viewer.md](docs/handbook/viewer.md) §패널 폭과 시트 높이,
