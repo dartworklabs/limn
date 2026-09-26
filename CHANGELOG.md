@@ -4,7 +4,8 @@
 
 Mouse and touch usability from the 2026-09-26 input review ([viewer.md](docs/handbook/viewer.md) §패널 폭과 시트 높이,
 §펼친 화면 레이아웃, §모바일 레이아웃). Viewer only: the HTTP API, `pins.md` and the state directory are unchanged; the
-browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse` hints in `pinPrefs.coach`).
+browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse` hints in `pinPrefs.coach`) and a
+per-tab draft (`sessionStorage` `limnDraft:<label>:<doc>`).
 
 - **Collapse the panel by its handle, in every layout.** Drag it right: the width follows down to the minimum, stops
   there between half the minimum and the minimum (the bar turns primary), and below half the minimum the panel's
@@ -27,6 +28,9 @@ browser keeps two new preferences (`pinPrefs.sideClosed`, and the `side`/`mouse`
   close on an outside tap; the documents sheet also follows a pull-down.
 - **Undo instead of loss.** Esc or [취소] on a selection with a written note offers `선택 취소됨 · [되돌리기]`, which
   brings back the selection, the note and the box; [되돌리기] after saving a pin also reopens the composer with them.
+  The composer draft is also kept per tab in `sessionStorage` (per instance and document, written on every edit): a
+  reload, or leaving Limn with a second back gesture and coming back, restores it with `작성 중이던 메모를 되살렸습니다 ·
+  [버리기]` (only the note when the PDF was rebuilt meanwhile). Saving clears it; a discard clears it after its undo window.
 - **Smaller things.** Mouse hit targets reach 24x24 (WCAG 2.5.8) without changing what is drawn; the PDF shows a
   crosshair and a first-time mouse user gets one hint; a pick in the overlay's right column is no longer hidden
   under the panel; the handle's tooltip hides when the drag starts; more than three toasts get a button that opens
