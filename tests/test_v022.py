@@ -19,10 +19,11 @@ import time
 import unittest
 from pathlib import Path
 
+from limn import access
 from limn.pins.model import OpenPin, ReviewPin
 from limn import store as limn_store
 from limn.store import dump_jsonl
-from test_access import ALICE, BOB, CAROL, AccessBase
+from test_access import ALICE, BOB, CAROL, AccessBase, token_create
 from test_qa_021 import BrowserBase, actor
 from test_server import add_pin, Base, extract_js_fn, js_i18n, js_icons, ps, run_node
 
@@ -158,7 +159,7 @@ class ReplyApi(AccessBase):
         pid = self.review_pin()
         code, d = self.reply(pid, {"text": "추가 설명: 식 (3) 도 같이 고쳤습니다"})            # headerless loopback agent
         self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
-        _, tok = ps.token_create(ps.C.state, "bot")
+        _, tok = token_create(ps.C.state, "bot")
         code, d = self.reply(pid, {"text": "토큰으로 단 답글"}, token=tok)
         self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
 
@@ -365,7 +366,7 @@ class Trash(AccessBase):
                          {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}])
         pid = self.pin_id(BOB)
         self.call("POST", "/api/pins/%d/drop" % pid, None, BOB)
-        _, tok = ps.token_create(ps.C.state, "bot")
+        _, tok = token_create(ps.C.state, "bot")
         for who, kw in (("editor", {"headers": BOB}), ("viewer", {"headers": CAROL}), ("loopback agent", {}),
                         ("token", {"token": tok})):
             with self.subTest(who=who):
@@ -741,7 +742,7 @@ class ViewerFlows(BrowserBase):
         ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
             {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
             {"login": "bob@example.com", "name": "Bob Park"}]}), encoding="utf-8")
-        ps._ROLES_CACHE.update(key=None, roles={})
+        ps.ROLES_CACHE = access.FileCache()
         ps.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")

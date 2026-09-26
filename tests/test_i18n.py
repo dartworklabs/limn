@@ -22,6 +22,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
+from limn import access
 from limn.scope import ScopeUnreadable
 from limn.web import parse
 from limn.web.errors import scope_http_error
@@ -461,7 +462,7 @@ class EnglishChrome(unittest.TestCase):
         agent = dict(ps.LOCAL_ACTOR)
         for who in (ALICE, BOB, SEOJUN):
             ps.record_person(who)
-        ps.member_add(C.state, VERA["login"], "viewer", VERA["name"])
+        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.PEOPLE_FORMAT, ps.cli_audit(C.state))
         ms, rr = ps.DOCS
 
         def add(lo, hi, note, actor, **kw):

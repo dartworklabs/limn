@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlparse
 
-from test_access import ALICE, BOB, CAROL, AccessBase, reset_access, talk_to
+from test_access import ALICE, BOB, CAROL, AccessBase, member_add, reset_access, talk_to, token_create
 from test_server import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -151,7 +151,7 @@ class ClearEndpoint(AccessBase):
         self.assertEqual(self.backups(), [])
 
     def test_only_the_owner_may_clear(self):
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         refused = [("editor", dict(headers=BOB)), ("viewer", dict(headers=CAROL)), ("agent-role person", dict(headers=DAVE)),
                    ("token agent", dict(token=tok)), ("loopback agent", {}),
                    ("token over tailnet", dict(token=tok, headers={"Host": TS_HOST}))]
@@ -253,7 +253,7 @@ class PrincipalMatrix(AccessBase):
                 self.assertIsNotNone(self.pin(pid))
         # the same forwarded headers with a person's identity or a token are fine
         self.assertEqual(self.call("GET", "/pins.md", headers=dict(BOB, Host=TS_HOST, **{"X-Forwarded-For": "100.64.0.9"}))[0], 200)
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0], 200)
 
     def test_opt_in_with_an_allowlist_refuses_forwarded_requests_too(self):
@@ -274,7 +274,7 @@ class PrincipalMatrix(AccessBase):
         self.assertEqual(self.call("GET", "/pins.md", headers={"Host": TS_HOST})[0], 403)
 
     def test_bearer_token_over_loopback_and_tailnet(self):
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         self.expect(self.run_ops(token=tok), **self.AGENT)
         self.expect(self.run_ops(token=tok, headers={"Host": TS_HOST}), **self.AGENT)
 
@@ -315,7 +315,7 @@ class ProxyHardening(AccessBase):
         self.assertEqual(len(ps.snapshot_pins()), 1)
         code, d = self.call("GET", "/api/meta?light=1")                               # the owner at the keyboard
         self.assertEqual((code, d["me"]["role"]), (200, "owner"))
-        _, tok = ps.token_create(ps.C.state, "ci")                                     # tokens still work through a proxy
+        _, tok = token_create(ps.C.state, "ci")                                     # tokens still work through a proxy
         self.assertEqual(self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST, "X-Forwarded-For": "1.2.3.4"})[0], 200)
 
     def test_people_json_is_written_0600(self):
@@ -323,7 +323,7 @@ class ProxyHardening(AccessBase):
         ps.record_person({"login": "bob@example.com", "name": "Bob"})
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
         os.chmod(ps.C.people_file, 0o644)
-        ps.member_add(ps.C.state, "carol@example.com")
+        member_add(ps.C.state, "carol@example.com")
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
 
     def test_startup_tightens_a_group_or_world_writable_people_json(self):
@@ -393,7 +393,7 @@ class PinsMdInstructions(AccessBase):
 
     def test_remote_agents_are_told_to_use_a_token(self):
         self.add()
-        _, tok = ps.token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.C.state, "ci")
         code, md = self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST})
         self.assertEqual(code, 200)
         self.assertIn("https://%s/api/pins/N/claim" % TS_HOST, md)

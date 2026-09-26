@@ -51,7 +51,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 | 비교 PDF(0.2.2부터 있던 코드) | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
 | 예상 밖 예외 | `500` | `internal` |
 
-코드와 문장의 짝은 HTTP 층 `src/limn/web/`(처리기·요청 파서·결과마다의 응답·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 `src/limn/server.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
+코드와 문장의 짝은 HTTP 층 `src/limn/web/`(처리기·요청 파서·결과마다의 응답·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 `src/limn/access.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
@@ -170,7 +170,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, `loopback_refused_text` 다.
+실행 정본은 [`src/limn/access.py`](../../src/limn/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, [`src/limn/guidance.py`](../../src/limn/guidance.py) 의 `loopback_refused_text`, `shell_path`, [`src/limn/server.py`](../../src/limn/server.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line` 이다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `access.py`에 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 

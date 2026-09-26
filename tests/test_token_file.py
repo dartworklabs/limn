@@ -25,7 +25,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_access import AccessBase, get
+from limn import access
+from limn.guidance import UNAUTHENTICATED, shell_path
+from test_access import AccessBase, get, token_create, token_revoke
 from test_server import ps
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -98,7 +100,7 @@ class SaveTokenFile(SandboxTest):
         self.assertRegex(token, r"^limn_[A-Za-z0-9_-]+\n$")
         self.assertNotIn(token.strip(), r.stderr)
         self.assertIn(str(f), r.stderr)
-        self.assertEqual([t["hash"] for t in self.box.tokens()], [ps.token_hash(token.strip())])
+        self.assertEqual([t["hash"] for t in self.box.tokens()], [access.token_hash(token.strip())])
         self.assertFalse((self.box.cfg / "paper.token").exists())         # never next to the source copy
 
     def test_print_also_prints_the_saved_token(self):
@@ -248,7 +250,7 @@ class SaveTokenFileReview(SandboxTest):
         env = {k: v for k, v in self.box.env.items() if k.startswith(("LIMN_", "XDG_", "HOME"))}
         with mock.patch.dict(os.environ, env), \
                 mock.patch.object(cli, "write_token_file", side_effect=PermissionError(13, "Permission denied")), \
-                mock.patch("limn.server.token_revoke", side_effect=OSError(28, "No space left on device")), \
+                mock.patch("limn.access.token_revoke", side_effect=OSError(28, "No space left on device")), \
                 mock.patch.object(sys, "stderr", new_callable=lambda: open(os.devnull, "w")) as err:
             self.addCleanup(err.close)
             with self.assertRaises(cli.CliError) as cm:
@@ -332,7 +334,7 @@ class ServerTokenFile(AccessBase):
         md = ps.C.pins_md.read_text(encoding="utf-8")
         line = self.token_line(md)
         self.assertTrue(line.startswith(ps.TOKEN_GUIDANCE + " · "))
-        self.assertIn('Authorization: Bearer $(cat %s)' % ps.shell_path(ps.C.agent_token_file, ps.home_or_none()), line)
+        self.assertIn('Authorization: Bearer $(cat %s)' % shell_path(ps.C.agent_token_file, access.home_or_none()), line)
         self.assertNotIn(secret, md)
         self.assertEqual(len([ln for ln in md.splitlines() if ln.startswith(ps.TOKEN_GUIDANCE)]), 1)
 
@@ -378,8 +380,8 @@ class ServerTokenFile(AccessBase):
         code, d = self.call("GET", "/api/pins")
         self.assertEqual(code, 401)
         self.assertEqual(self.last_headers.get("www-authenticate"), 'Bearer realm="limn"')
-        self.assertTrue(d["error"].startswith(ps.UNAUTHENTICATED))
-        self.assertIn("$(cat %s)" % ps.shell_path(ps.C.agent_token_file, ps.home_or_none()), d["error"])
+        self.assertTrue(d["error"].startswith(UNAUTHENTICATED))
+        self.assertIn("$(cat %s)" % shell_path(ps.C.agent_token_file, access.home_or_none()), d["error"])
         self.assertIn("limn token create paper --save", d["error"])
         ps.C.agent_token_file.write_text("limn_x\n", encoding="utf-8")
         code, d = self.call("GET", "/api/pins")
@@ -390,14 +392,14 @@ class ServerTokenFile(AccessBase):
         """Through a proxy the request is not from this machine: the plain 401 text, no local path."""
         ps.C.agent_loopback = False
         code, d = self.call("GET", "/api/pins", headers={"Host": "127.0.0.1:18999", "X-Forwarded-For": "100.64.0.9"})
-        self.assertEqual((code, d["error"]), (401, ps.UNAUTHENTICATED))
+        self.assertEqual((code, d["error"]), (401, UNAUTHENTICATED))
 
     def test_revoked_token_from_the_file_is_401(self):
         """A token read from a token file is an ordinary token: revoked means 401, never a fallback to another identity."""
         ps.C.agent_loopback = False
-        entry, tok = ps.token_create(ps.C.state, "local")
+        entry, tok = token_create(ps.C.state, "local")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
-        ps.token_revoke(ps.C.state, entry["id"])
+        token_revoke(ps.C.state, entry["id"])
         code, d = self.call("GET", "/api/pins", token=tok)
         self.assertEqual(code, 401)
         self.assertIn("폐기", d["error"])
@@ -418,10 +420,10 @@ class ServerTokenFile(AccessBase):
     def test_shell_path_uses_a_tilde_only_for_a_plain_path_under_home(self):
         """The shown path must work pasted into a shell: ~/rest when safe to leave unquoted, else quoted absolute."""
         home = Path("/home/u")
-        self.assertEqual(ps.shell_path(Path("/home/u/.config/limn/p.token"), home), "~/.config/limn/p.token")
-        self.assertEqual(ps.shell_path(Path("/srv/limn/p.token"), home), "/srv/limn/p.token")
-        self.assertEqual(ps.shell_path(Path("/home/u/my dir/p.token"), home), "'/home/u/my dir/p.token'")
-        self.assertEqual(ps.shell_path(Path("/home/u/p.token"), None), "/home/u/p.token")
+        self.assertEqual(shell_path(Path("/home/u/.config/limn/p.token"), home), "~/.config/limn/p.token")
+        self.assertEqual(shell_path(Path("/srv/limn/p.token"), home), "/srv/limn/p.token")
+        self.assertEqual(shell_path(Path("/home/u/my dir/p.token"), home), "'/home/u/my dir/p.token'")
+        self.assertEqual(shell_path(Path("/home/u/p.token"), None), "/home/u/p.token")
 
 
 # ---------------------------------------------------------------- the instance manager against a real server
@@ -534,7 +536,7 @@ class InstanceManagerProbes(SandboxTest):
         """A file whose token was revoked behind the CLI's back: 401, pointing at --force to replace it."""
         self.serve(loopback_agent=False)
         self.limn("token", "create", "paper", "--name", "local", "--save")
-        ps.token_revoke(self.box.state, "local")                           # the file stays: not revoked through the CLI
+        token_revoke(self.box.state, "local")                           # the file stays: not revoked through the CLI
         line, _ = self.status_local_line()
         self.assertIn("→ 401", line)
         self.assertIn("refused", line)

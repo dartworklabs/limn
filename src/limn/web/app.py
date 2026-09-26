@@ -69,7 +69,7 @@ class Document(Protocol):
 
 
 class Principal(Protocol):
-    """Who a request is (server.py's Principal from identify())."""
+    """Who a request is (limn.access.Principal, from identify())."""
 
     @property
     def actor(self) -> Json:
@@ -100,7 +100,7 @@ class App(Protocol):
     PAGE_FILE_RE: re.Pattern[str]     # a page image name GET /pages/<name> serves
     VENDOR_MIME: Mapping[str, str]    # suffix -> Content-Type of a file vendor_file() returns
 
-    # ---- request guard: Host/Origin, identity, admission, roles (the security boundary stays in server.py)
+    # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
 
     def host_ok(self, host: str) -> bool:
         """Is Host a loopback name, *.ts.net or a --public-host?"""

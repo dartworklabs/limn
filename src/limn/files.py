@@ -2,7 +2,8 @@
 
 atomic_write serves every writer of the state directory (pins, people, tokens, build history): a reader - another
 request, another process, an agent reading pins.md - must only ever see the old file or the new one, never a
-half-written file. What gets written is the caller's business.
+half-written file. What gets written is the caller's business. store_lock serializes one read-modify-write of a state
+file across processes (the server and `limn token` / `limn member`).
 
 file_in_tree is the one rule for a path a request or SyncTeX names inside the manuscript tree: the request parsers
 (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own message.
@@ -10,8 +11,10 @@ file_in_tree is the one rule for a path a request or SyncTeX names inside the ma
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import os
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
@@ -36,6 +39,19 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def store_lock(state: Path, name: str) -> Iterator[None]:
+    """Cross-process lock around one read-modify-write of a state file. The running server (record_person) and
+    `limn member` / `limn token` may write the same file at once; a thread lock alone would let one of them
+    overwrite the other's change with stale data. The lock file (.<name>.lock) stays in the state dir."""
+    fd = os.open(str(Path(state) / (".%s.lock" % name)), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)                                     # closing the descriptor releases the lock
 
 
 @dataclass(frozen=True)

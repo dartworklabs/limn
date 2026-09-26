@@ -21,8 +21,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_access import ALICE, BOB, CAROL, AccessBase
+from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
 from test_qa_021 import CLEAR_BODY, actor
+from limn import access
 from test_server import add_pin, Base, edit_pin, ps
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -340,7 +341,7 @@ class AuditLogCli(unittest.TestCase):
         self.assertEqual(rows[0]["details"], rows[1]["details"])
         text = (self.state / "audit.jsonl").read_text(encoding="utf-8")
         self.assertNotIn(plain, text)
-        self.assertNotIn(ps.token_hash(plain), text)
+        self.assertNotIn(access.token_hash(plain), text)
         self.assertNotIn("sha256:", text)
         self.assertEqual(stat.S_IMODE((self.state / "audit.jsonl").stat().st_mode), 0o600)
 
@@ -367,8 +368,8 @@ class AuditLogCli(unittest.TestCase):
 
     def test_python_helpers_audit_too(self):
         """The state helpers themselves write the line, so any caller of them is audited."""
-        e, _ = ps.token_create(self.state, "bot")
-        ps.member_add(self.state, "carol@example.com", "viewer")
+        e, _ = token_create(self.state, "bot")
+        member_add(self.state, "carol@example.com", "viewer")
         self.assertEqual([(r["action"], r["details"]) for r in audit_rows(self.state)],
                          [("token_created", {"id": e["id"], "name": "bot"}),
                           ("member_added", {"login": "carol@example.com", "role": "viewer"})])
