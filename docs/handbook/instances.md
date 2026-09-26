@@ -17,6 +17,7 @@
 | CLI | `limn` (`uv tool install`로 설치) |
 | 앱 | 설치된 `limn` 패키지. 올리기와 되돌리기는 `limn update` |
 | 상태(인스턴스별) | 설정의 `STATE_DIR`, 기본 `~/.local/share/limn/<이름>`. 핀, `build/`, `build.log`, `pins.md`가 여기 있다 |
+| 에이전트 토큰 파일(인스턴스별) | `~/.config/limn/<이름>.token` — 설정 폴더, 권한 `0600`. 이 머신의 에이전트가 읽는다. `limn token create <이름> --save`가 쓰고, 저장소에는 두지 않는다(아래 '서버 머신의 에이전트: 토큰 파일' 절) |
 | 로그(인스턴스별) | `journalctl --user -u limn@<이름>` · `<STATE_DIR>/build.log` |
 
 ## 명령
@@ -39,7 +40,7 @@
 | `limn doc suggest --manuscript <dir> [--stage auto\|initial\|revision]` | 자동 탐지될 `DOCS` 문자열만 출력한다(읽기 전용) |
 | `limn remove` (`rm`) `<이름>` | 유닛 중지·비활성, serve 해제, 설정 삭제. 상태 폴더는 지우지 않는다 |
 | `limn run <이름>` | 유닛 전용. 설정을 읽고 검증한 뒤 서버로 exec한다 |
-| `limn token create`·`list`·`revoke <이름> …` | 에이전트 API 토큰을 만들고 보고 폐기한다. 아래 '접근: 토큰과 멤버' 절 |
+| `limn token create`·`path`·`list`·`revoke <이름> …` | 에이전트 API 토큰을 만들고 보고 폐기한다. `create --save`는 토큰을 이 머신 에이전트의 토큰 파일에 쓴다. 아래 '접근: 토큰과 멤버' 절 |
 | `limn member add`·`list`·`role`·`remove <이름> …` | `people.json`의 멤버와 역할을 고친다. 아래 '접근: 토큰과 멤버' 절 |
 
 ## 설정 키
@@ -111,7 +112,7 @@ limn add paper2 --manuscript ~/papers/paper2 --git-pull --label Paper2
 
 같은 이름의 설정이 이미 있으면 `limn add`는 멈춘다. 다시 켜려면 `limn start <이름>`을 쓰고, 새로 만들려면 먼저 `limn remove`한다. 동시에 여러 `add`가 돌 때 포트 선택과 설정 쓰기가 겹치지 않도록 `<설정 폴더>/.lock`에 잠금을 건다(`flock`이 있으면, 최대 30초 대기).
 
-시작 뒤에는 `127.0.0.1:<PORT>`의 `/api/meta`가 HTTP 200을 돌려줄 때까지 기다린다. 첫 기동은 빌드를 기다리므로 최대 `LIMN_WAIT`초(기본 240)까지 걸린다.
+시작 뒤에는 `127.0.0.1:<PORT>`의 `/api/meta`가 HTTP 200을 돌려줄 때까지 기다린다. 첫 기동은 빌드를 기다리므로 최대 `LIMN_WAIT`초(기본 240)까지 걸린다. 인스턴스의 토큰 파일이 있으면 이 확인에 그 토큰을 붙인다. `401`이 오면 서버는 떠 있지만 이 확인을 받지 않는 것이다(`AGENT_LOOPBACK=0`인데 토큰 파일이 없거나 그 토큰이 폐기됨). 그때는 더 기다리지 않고 고칠 명령을 알려 준다. `limn status`·`list`·`update`·`doc … --restart`의 확인도 같다.
 
 설정을 다른 저장소(예: dotfiles)에서 관리한다면 `LIMN_SOURCE_DIR`로 그 폴더를 가리킨다. 그러면 `limn add`가 설정 원본을 거기에 쓰고 `~/.config/limn/`에 링크를 건다. 원본 쪽 변경은 그 저장소에서 커밋하라고 `limn`이 알려 준다.
 
@@ -280,7 +281,7 @@ limn member remove paper2 <로그인>
 
 두 명령 모두 인스턴스의 `STATE_DIR`에 있는 `tokens.json`과 `people.json`을 고친다. 인스턴스 없이 `limn serve`만 쓴다면 인스턴스 이름 대신 `--state-dir <폴더>`를 준다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 쓰므로 재시작이 필요 없다.
 
-토큰은 에이전트에게 건넨다(예: `export LIMN_TOKEN=…`). 에이전트는 요청마다 `Authorization: Bearer $LIMN_TOKEN`을 보낸다. 토큰 원문은 만들 때 한 번만 보이고 해시만 저장되므로, 잃어버리면 폐기하고 새로 만든다. HTTP 쪽 계약은 [api.md](api.md) §인증에 있다.
+토큰은 에이전트에게 건넨다(예: `export LIMN_TOKEN=…`). 에이전트는 요청마다 `Authorization: Bearer $LIMN_TOKEN`을 보낸다. 토큰 원문은 만들 때 한 번만 보이고 해시만 저장되므로, 잃어버리면 폐기하고 새로 만든다. 인스턴스를 띄운 머신의 에이전트는 환경 변수 대신 토큰 파일을 쓴다(아래 '서버 머신의 에이전트: 토큰 파일' 절). HTTP 쪽 계약은 [api.md](api.md) §인증에 있다.
 
 | 역할 | 할 수 있는 일 |
 | --- | --- |
@@ -290,6 +291,37 @@ limn member remove paper2 <로그인>
 | `agent` | 에이전트 계약대로 claim, 답글, 검토 대기로 닫기를 한다. 확인(confirm)과 전체 지우기는 못 한다. 토큰으로 들어온 주체는 늘 이 역할이다 |
 
 결정 근거는 [ADR-0002](../adr/0002-access-control.md)에 있다.
+
+### 서버 머신의 에이전트: 토큰 파일
+
+인스턴스를 띄운 머신에서 도는 에이전트는 토큰을 환경 변수 대신 **토큰 파일**에서 읽는다. 결정 근거는 [ADR-0007](../adr/0007-agent-token-file.md)이다.
+
+```bash
+limn token create paper2 --name local --save   # ~/.config/limn/paper2.token 에 쓴다(0600). 토큰은 찍지 않는다
+limn token path paper2                          # 경로만 찍는다
+curl -s -H "Authorization: Bearer $(cat ~/.config/limn/paper2.token)" http://127.0.0.1:<PORT>/pins.md   # 에이전트 쪽
+```
+
+| 규칙 | 내용 |
+| --- | --- |
+| 경로 | `<설정 폴더>/<이름>.token`. 설정 폴더는 `<이름>.env`가 있는 `LIMN_CONFIG_DIR`(기본 `~/.config/limn`)이다. `LIMN_SOURCE_DIR`(설정 원본 저장소)에는 쓰지 않는다 |
+| 권한 | 파일 `0600`, 폴더가 없으면 `0700`으로 만든다 |
+| 저장소 금지 | 그 폴더가 git 작업 트리 안이고 저장소가 그 파일을 무시하지 않으면 `--save`가 멈춘다. `--force`로도 넘길 수 없다 |
+| 덮어쓰기 | 파일이 있으면 멈춘다. `--force`면 원자적으로 바꾸고, 바뀐 토큰이 아직 유효하면 폐기하라고 알려 준다 |
+| 화면 | `--save`는 토큰을 찍지 않는다. `--print`를 함께 줄 때만 찍는다 |
+| 실패 | 파일을 못 쓰면 방금 만든 토큰을 곧바로 폐기한다. 쥔 사람 없는 토큰이 남지 않는다 |
+| 폐기 | `limn token revoke`로 폐기한 토큰이 그 파일의 토큰이면 파일도 지운다. 다른 토큰이 든 파일은 두고 그렇게 알린다. `limn token list`는 파일이 어느 토큰을 쥐었는지 보여 준다 |
+| 인스턴스 관리자 | 확인 요청에 이 파일의 토큰을 표준 입력으로 `curl`에 넘긴다(명령줄에 남지 않는다). 심링크, 다른 계정의 파일, 그룹·다른 사람 권한이 있는 파일, 토큰 한 줄이 아닌 파일은 쓰지 않고 경고한다 |
+| 서버 | `limn run`이 `LIMN_AGENT_TOKEN_FILE`로 경로를 넘긴다. 서버는 파일을 읽지 않고 있는지만 본다. 파일이 생기면 `pins.md` 인증 안내 줄에 이 형식이 붙는다([api.md](api.md) §pins.md 안내 줄) |
+
+`AGENT_LOOPBACK=0`으로 헤더 없는 loopback 에이전트를 끄는 순서는 이렇다.
+
+1. 0.3.3 이상을 설치한다(`limn update`).
+2. `limn token create <이름> --name <이름표> --save`로 토큰 파일을 만든다. 돌고 있는 서버는 재시작 없이 받는다.
+3. 논문 저장소 `AGENTS.md`의 Limn 절을 `limn snippet <이름>` 출력으로 바꿔 에이전트가 토큰 파일을 쓰게 한다. 토큰으로 온 요청은 `agent:<이름표>`로 기록되므로(`closed_by`·`claimed_by`) 확인할 수 있다.
+4. 설정에 `AGENT_LOOPBACK=0`을 넣고 `limn stop <이름> && limn start <이름>`으로 재시작한다. 기동 로그의 `auth` 줄이 `loopback agent off`이고 `limn status <이름>`의 로컬 응답이 `200`이면 끝이다.
+
+되돌리려면 `AGENT_LOOPBACK=0` 줄을 지우고 재시작한다. 토큰 파일은 남아도 된다.
 
 ## 보안 규칙
 
@@ -303,7 +335,7 @@ limn member remove paper2 <로그인>
 
 - 서버는 `BIND`가 없으면 `127.0.0.1`에 바인드한다. loopback이 아닌 `BIND`는 `AUTH=trusted-proxy`일 때만 받는다. `EXTRA_ARGS`에 `--i-know-this-is-insecure`가 있으면 큰 경고와 함께 뜬다. 테일넷 노출은 `tailscale serve --bg --https=<TS_PORT> http://127.0.0.1:<PORT>` 뿐이다.
 - `tailscale serve`는 `tailscale` 방식에서만 쓴다. `add`와 `start`는 `AUTH=local`·`AUTH=trusted-proxy` 인스턴스에 serve를 거부한다. `AUTH=local`은 loopback 요청이 모두 소유자라서, serve로 열면 테일넷 사람 모두가 소유자가 된다. `AUTH=trusted-proxy`는 테일넷 사람이 프록시 헤더를 직접 보낼 수 있다. 이런 인스턴스는 `--no-serve`로 두고 자체 프록시 뒤에 둔다.
-- 에이전트는 토큰으로 인증한다. "헤더 없는 loopback 요청 = 에이전트"라는 v0.1 규칙은 `tailscale` 방식에서 아직 되지만 폐지 예정이고, 서버 로그에 경고가 남는다. 에이전트가 토큰을 쓰게 되면 `AGENT_LOOPBACK=0`을 둔다. 이 규칙은 이 기기를 부른 요청에만 해당한다. `tailscale serve`를 거쳐 온 헤더 없는 요청(태그 장치, 공용 CI 노드)은 0.2.1부터 `403`이다. 원격 에이전트에게는 토큰을 준다(`TAILNET_AGENT=1`이 옛 동작을 되살리지만 폐지 예정이다).
+- 에이전트는 토큰으로 인증한다. 서버 머신의 에이전트는 토큰 파일 `~/.config/limn/<이름>.token`을 쓴다(위 '서버 머신의 에이전트: 토큰 파일' 절). "헤더 없는 loopback 요청 = 에이전트"라는 v0.1 규칙은 `tailscale` 방식에서 아직 되지만 폐지 예정이고, 서버 로그에 경고가 남는다. 에이전트가 토큰을 쓰게 되면 `AGENT_LOOPBACK=0`을 둔다. 이 규칙은 이 기기를 부른 요청에만 해당한다. `tailscale serve`를 거쳐 온 헤더 없는 요청(태그 장치, 공용 CI 노드)은 0.2.1부터 `403`이다. 원격 에이전트에게는 토큰을 준다(`TAILNET_AGENT=1`이 옛 동작을 되살리지만 폐지 예정이다).
 - **funnel은 쓰지 않는다.** 미공개 원고이기 때문이다. `add`와 `start`는 serve 설정을 되읽어, 그 포트가 funnel이면 멈춘다.
 - **sudo를 부르지 않는다.** tailscale operator 설정도 바꾸지 않는다. sudo 없이 serve를 걸려면 이 사용자가 tailscale operator여야 한다. 권한이 없어 serve가 안 걸리면 오류로 멈춘다.
 - 남의 serve 항목을 덮거나 내리지 않는다. `serve reset`은 기기 전체 설정이라 쓰지 않는다.
@@ -321,8 +353,12 @@ limn member remove paper2 <로그인>
 | `LIMN_TS_MIN`, `LIMN_TS_MAX`, `LIMN_LOCAL_OFFSET` | `18005`, `18099`, `100` | 자동 배정 대역 |
 | `LIMN_REPO`, `LIMN_UV` | `git+https://github.com/dartworklabs/limn`, `uv` | `limn update`가 설치할 원본과 쓸 `uv`. SSH로 받으려면 `LIMN_REPO`에 `git+ssh://git@github.com/dartworklabs/limn`을 준다(0.1.0의 기본값, 위 '업데이트와 되돌리기' 참고) |
 | `LIMN_WAIT` | `240` | 기동·재시작 뒤 HTTP 200을 기다리는 초 |
+| `LIMN_PYTHON` | `limn`이 도는 파이썬 | 인스턴스 관리자가 서버와 도우미를 돌리는 파이썬. `limn`이 넘긴다. 3.10 미만이면 멈춘다. `limn`을 거치지 않고 `instances.sh`를 직접 부르면 PATH의 `python3`·`python3.1x` 가운데 3.10 이상인 첫 것을 쓴다(macOS의 `/usr/bin/python3`은 3.9다) |
+| `LIMN_AGENT_TOKEN_FILE` | `<설정 폴더>/<이름>.token` | `limn run`이 서버에 넘기는 토큰 파일 경로. 사용자가 두는 값이 아니다 |
 
 `XDG_CONFIG_HOME`이 없으면 `~/.config`, `XDG_DATA_HOME`이 없으면 `~/.local/share`를 쓴다.
+
+인스턴스 관리자 스크립트는 GNU(Linux)와 BSD(macOS) 명령 모두에서 돈다. `stat`은 두 형식을 차례로 쓰고, `timeout`이 없으면(macOS 기본) `gtimeout`이나 `perl`로 `limn update`의 원격 태그 읽기를 끊는다. macOS의 `/bin/bash` 3.2에서도 돈다. 유닛은 systemd 사용자 유닛이므로 상시 인스턴스는 Linux용이다. CI의 macOS 작업이 이 이식성을 확인한다([verification.md](verification.md) §2).
 
 ## 예전 설치에서 옮겨 오기
 

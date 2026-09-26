@@ -39,7 +39,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 2. 토큰이 없으면 인스턴스의 **신원 방식**(`--auth`)이 정한다. 아래 표를 본다.
 3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트). 0.2.1부터는 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
 
-어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다.
+어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다. 헤더 없는 루프백 에이전트가 꺼진 `tailscale` 인스턴스에서, 이 기기가 보낸 헤더 없는 요청(프록시 표시 헤더 없음)의 `401` 메시지는 그 문구 뒤에 토큰 파일 안내를 더한다(0.3.3, [ADR-0007](../adr/0007-agent-token-file.md)): 서버가 아는 토큰 파일 경로로 쓴 `curl -H "Authorization: Bearer $(cat <파일>)" …` 형식, 그리고 파일이 아직 없으면 `limn token create <인스턴스> --save`. 기존 문구는 그대로 앞에 둔다.
 
 | 신원 방식 | 신원을 읽는 곳 | 그 밖의 요청 |
 | --- | --- | --- |
@@ -54,6 +54,8 @@ export LIMN_TOKEN=limn_…            # limn token create <인스턴스> 가 한
 curl -s -H "Authorization: Bearer $LIMN_TOKEN" <base>/pins.md
 curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"reply": "…", "ref": "PR #12"}' <base>/api/pins/3/close
+# 서버 머신의 에이전트: 소유자가 limn token create <인스턴스> --save 로 둔 토큰 파일을 요청 때마다 읽는다
+curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" http://127.0.0.1:<port>/pins.md
 ```
 
 ### 토큰
@@ -66,6 +68,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 - **어디서나 같다**: 토큰은 루프백 밖에서 와도, 프록시 뒤에서 와도 같은 에이전트다.
 - **물러서지 않는다**: 모르는 토큰, 폐기된 토큰, 빈 Bearer 헤더, Bearer 헤더가 두 번 온 요청은 `401` 이다. 다른 신원으로 물러서지 않는다. 물러서면 폐기한 토큰을 든 에이전트가 사람이나 로컬 에이전트로 조용히 통과한다.
 - **다른 방식은 무시한다**: `Basic` 처럼 `Bearer` 가 아닌 `Authorization` 방식은 Limn의 것이 아니므로 읽지 않는다.
+- **서버 머신의 에이전트는 토큰 파일**(0.3.3, [ADR-0007](../adr/0007-agent-token-file.md)): 소유자가 `limn token create <인스턴스> --save` 로 `~/.config/limn/<인스턴스>.token`(권한 `0600`, 저장소 밖)에 토큰을 둔다. 에이전트는 요청마다 `-H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)"` 로 그 파일을 읽어 보낸다. 파일 내용을 화면에 찍거나 저장소에 옮기지 않는다. `$(cat …)` 로 펼친 값은 그 `curl` 이 도는 동안 명령줄(`ps`)에 보이므로, 여러 계정이 쓰는 머신에서는 `printf 'Authorization: Bearer %s\n' "$(cat <파일>)" | curl -H @- …` 처럼 표준 입력으로 넘긴다(`printf` 는 셸 내장이다). 원격 에이전트는 지금처럼 건네받은 토큰(`$LIMN_TOKEN`)을 쓴다. 파일 규칙과 CLI는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일에 있다.
 
 ### 입장 — `--allow` 와 `--members-only`
 
@@ -114,7 +117,7 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 
 0.1에서는 헤더 없이 루프백으로 온 요청을 에이전트로 봤다. 0.2.0은 이 동작을 `tailscale` 방식에서 기본으로 남겨 두되 **폐지 예정**으로 표시한다. 서버는 기동 로그와 처음 그런 요청이 왔을 때 경고를 한 번 남긴다.
 
-- `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다.
+- `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다. 0.3.3부터 이 `401` 메시지가 서버 머신 에이전트의 토큰 파일을 알려 준다(§신원을 정하는 순서). 끄는 순서는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일이다.
 - `local`, `trusted-proxy` 방식이나 루프백이 아닌 `--bind` 에서는 늘 꺼져 있다. 거기서 `--agent-loopback` 을 요구하면 서버가 기동을 거부한다.
 - 같은 머신의 로컬 프로세스는 헤더를 빼서 에이전트를, 헤더를 붙여 사람을 흉내 낼 수 있다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, 이 동작을 끄고, `--members-only` 나 역할로 좁힌다.
 - **이 기기를 부른 요청에만 해당한다(0.2.1).** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) §남는 한계). 0.2.0은 허용 목록이 없을 때 이런 요청(태그 장치, 공용 CI 노드)을 에이전트로 받아 핀을 닫고 모두 지울 수도 있었다. 이제는 `403` 이고 메시지가 토큰을 쓰라고 알려 준다.
@@ -129,7 +132,15 @@ curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" -H 'Content-Type: applica
 에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, 토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다
 ```
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE` 다.
+0.3.3부터 인증 안내 줄 끝에 구절 하나가 더 붙을 수 있다. 서버가 이 인스턴스의 토큰 파일을 알고(`--agent-token-file`, `limn run` 이 `LIMN_AGENT_TOKEN_FILE` 로 넘긴다) 그 파일이 있을 때만이다. 서버는 파일이 있는지만 보고 읽지 않는다. 구절은 기존 줄 뒤에 ` · ` 로 이어 붙으므로 줄의 앞부분은 위와 같다. 토큰은 담지 않는다. 원격 base로 렌더하는 `GET /pins.md` 에는 붙지 않는다. 원격 에이전트는 그 파일에 닿지 못하기 때문이다(§원격 에이전트 진입점).
+
+```text
+… — 원격 에이전트는 반드시 토큰을 붙인다 · 이 기기의 에이전트는 토큰 파일을 붙인다: `curl -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" …`(파일 내용은 출력하지도 저장소에 옮기지도 않는다)
+```
+
+경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
+
+실행 정본은 [`src/limn/server.py`](../../src/limn/server.py) 의 `identify`, `came_through_proxy`, `admit`, `check_role`, `OWNER_POSTS`, `bearer_of`, `token_lookup`, `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, `loopback_refused_text` 다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -540,6 +551,7 @@ curl -s -H "Authorization: Bearer $LIMN_TOKEN" https://<기기>.<tailnet>.ts.net
 - `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다. 그래서 줄 번호가 최신이다.
 - 바뀌는 것은 close 예시의 base URL뿐이다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 지금까지처럼 `http://127.0.0.1:<port>` 다.
 - 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다. 루프백에는 없다. 루프백 쪽은 이미 그 파일을 직접 읽고 있기 때문이다.
+- 원격일 때는 인증 안내 줄에 토큰 파일 구절(0.3.3, §pins.md 안내 줄)이 붙지 않는다. 그 파일은 서버 머신에만 있다.
 - 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base로 쓴다. 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
 - Host·Origin 검사는 다른 `GET` 과 같다([operations.md](operations.md) §Host·Origin 검사). 낯선 Host는 `403` 이다.
 

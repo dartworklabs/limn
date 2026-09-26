@@ -95,6 +95,7 @@ Limn 0.2.0부터 서버는 요청한 사람이 누구인지 가리는 방법을 
 | `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `X-Forwarded-User` / `X-Forwarded-Preferred-Username` / 없음 | `trusted-proxy` 방식이 읽는 헤더 이름. 사용자 헤더는 필수다. 이메일 헤더를 주면 값이 있을 때 이메일이 로그인이 된다 |
 | `--members-only` | 꺼짐 | `people.json`(`limn member add`)이나 `--allow`에 있는 사람만 들인다. 나머지는 `403`이고 `people.json`에 기록하지 않는다. 토큰과 로컬 소유자는 늘 들어온다 |
 | `--local-user` | `$USER`, 없으면 `owner` | `--auth local`에서 소유자의 로그인 |
+| `--agent-token-file` | `$LIMN_AGENT_TOKEN_FILE`, 없으면 없음 | 0.3.3. 이 머신의 에이전트가 이 인스턴스의 토큰을 두는 파일. `limn run`이 `<설정 폴더>/<이름>.token`을 환경 변수로 넘긴다. 서버는 **읽지 않고** 있는지만 본다. 파일이 있으면 `pins.md` 인증 안내 줄과, 헤더 없는 loopback 에이전트가 꺼졌을 때 이 기기의 헤더 없는 요청이 받는 `401` 메시지가 그 파일을 쓰라고 알려 준다([api.md](api.md) §인증, [ADR-0007](../adr/0007-agent-token-file.md)). 기동 로그의 `auth` 줄에 경로와 `present`·`absent`가 찍힌다 |
 
 세 신원 방식은 신원을 읽는 곳과 그 밖의 요청을 다루는 방식이 다르다.
 
@@ -183,6 +184,7 @@ Limn 0.2.0부터 서버는 요청한 사람이 누구인지 가리는 방법을 
 
 - 논문별 설정 키(`MANUSCRIPT`·`MAIN`·`DOCS`·`PORT`·`STATE_DIR`·`LABEL`·`ACCENT`·`GIT_PULL`·`EXTRA_ARGS`, 파일 `~/.config/limn/<이름>.env`)
 - 접근 설정 키(`AUTH`·`AGENT_LOOPBACK`·`TAILNET_AGENT`·`BIND`·`PUBLIC_HOSTS`·`TRUSTED_PROXIES`·`PROXY_*_HEADER`·`MEMBERS_ONLY`·`LOCAL_USER`)
+- 서버 머신 에이전트의 토큰 파일(`~/.config/limn/<이름>.token`, `limn token create <이름> --save`)과 `limn run`이 넘기는 `LIMN_AGENT_TOKEN_FILE`
 - 설정 키와 서버 인자의 대응
 - 새 논문 추가·업데이트·제거 절차
 
@@ -268,7 +270,7 @@ Limn은 미공개 원고와 공저자의 메모를 다룬다. 그래서 기본�
 | 바인딩 주소 | 기본 `127.0.0.1`. loopback이 아닌 `--bind`(예: `0.0.0.0`)는 인증 프록시 뒤의 `--auth trusted-proxy`일 때만 받는다. 아니면 서버가 시작을 거부한다. `--i-know-this-is-insecure`로 넘길 수 있지만 크게 경고한다 |
 | 외부 노출 | `tailscale serve`(`tailscale` 방식)나 인증 리버스 프록시(`--auth trusted-proxy`)를 쓴다. **`tailscale funnel`은 금지**다. funnel은 공인 인터넷에 노출한다 |
 | 노출 후 검증 | 두 가지를 확인해야 "노출됐다"고 보고한다. (1) 테일넷 안에서 그 URL에 `curl`하면 `200`이다. (2) 공인 IP나 테일넷 밖 경로로는 연결이 실패한다. 즉 `tailscale serve status`가 "Funnel"이 아니라 "tailnet only"로 뜬다 |
-| 인증 | 인스턴스마다 신원 방식 하나(`--auth`). 기본 `tailscale`은 테일넷이 경계이고 헤더로 누가 했는지 기록한다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 들어올 사람은 `--allow`·`--members-only`로, 바꿀 수 있는 일은 역할(`limn member`)로 좁힌다 |
+| 인증 | 인스턴스마다 신원 방식 하나(`--auth`). 기본 `tailscale`은 테일넷이 경계이고 헤더로 누가 했는지 기록한다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 서버 머신의 에이전트는 토큰 파일(`limn token create <이름> --save`)을 쓰고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0`을 둔다([instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일). 들어올 사람은 `--allow`·`--members-only`로, 바꿀 수 있는 일은 역할(`limn member`)로 좁힌다 |
 | 요청 경계 | 응답 전에 본문을 끝까지 읽고 오류 뒤에는 연결을 닫는다(요청 밀반입 차단). `Transfer-Encoding`은 거부한다. 교차 출처 `Origin`과 낯선 `Host`는 `403`이다. 본문 있는 POST는 JSON만 받는다. 상세는 [api.md](api.md) §요청 형식과 경계와 아래 'Host·Origin 검사' 절 |
 | 경로 | 핀과 스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다. 밖이면 `400`이다 |
 | 종료 | 세션을 끝낼 때 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스를 계속 띄워 둘지는 사용자가 판단한다. 재사용 이점과 유휴 자원 비용의 트레이드오프다 |

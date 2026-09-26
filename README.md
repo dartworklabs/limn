@@ -57,6 +57,7 @@ limn status paper2 · limn url paper2 · limn snippet paper2 # details · tailne
 limn update [--dry-run] [--ref vX.Y.Z]                     # reinstall via uv tool, restart running instances
 limn stop paper2 · limn start paper2 · limn remove paper2
 limn token create paper2 · limn member add paper2 <login> --role viewer   # agent token (shown once) · roles
+limn token create paper2 --save                            # token file ~/.config/limn/paper2.token for agents on this machine
 ```
 
 Config lives in `~/.config/limn/<name>.env`, state in `~/.local/share/limn/<name>` by default.
@@ -67,7 +68,8 @@ Details (Korean): [docs/handbook/instances.md](docs/handbook/instances.md).
 An agent reads `pins.md` (`curl -s <base>/pins.md`) or `GET /api/pins`, claims one pin right before
 editing it, and closes it with a `reply` and a `ref` (commit/PR); a person confirms, or replies with what is
 wrong, which reopens the pin into the open table. It authenticates with
-a token from `limn token create <instance>` (`Authorization: Bearer …`). Agents never
+a token from `limn token create <instance>` (`Authorization: Bearer …`); on the machine that serves the
+instance, it reads the token from `~/.config/limn/<instance>.token` (`limn token create <instance> --save`). Agents never
 confirm, and skip pins claimed by others, awaiting review, or assigned to a person. The full procedure
 is [skill/SKILL.md](skill/SKILL.md); the API contract is [docs/handbook/api.md](docs/handbook/api.md) (Korean). The `pins.md` format and
 the HTTP API are a stable contract — they do not change with the UI language.

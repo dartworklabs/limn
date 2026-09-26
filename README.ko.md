@@ -56,6 +56,7 @@ limn status paper2 · limn url paper2 · limn snippet paper2 # 자세히 · 테�
 limn update [--dry-run] [--ref vX.Y.Z]                     # uv tool 로 다시 설치, 켜진 인스턴스 재시작
 limn stop paper2 · limn start paper2 · limn remove paper2
 limn token create paper2 · limn member add paper2 <login> --role viewer   # 에이전트 토큰(한 번만 보임) · 역할
+limn token create paper2 --save                            # 이 머신 에이전트의 토큰 파일 ~/.config/limn/paper2.token
 ```
 
 설정은 `~/.config/limn/<이름>.env`, 상태는 기본 `~/.local/share/limn/<이름>`.
@@ -66,7 +67,8 @@ limn token create paper2 · limn member add paper2 <login> --role viewer   # 에
 에이전트는 `pins.md`(`curl -s <base>/pins.md`) 또는 `GET /api/pins` 를 읽고, 고치기 직전에 그 핀 하나만
 claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 닫는다. 사람이 확인하거나, 틀린 점을
 답글로 달면 핀이 다시 열려 열린 표로 돌아온다. 인증은
-`limn token create <인스턴스>` 로 받은 토큰(`Authorization: Bearer …`)으로 한다. 에이전트는
+`limn token create <인스턴스>` 로 받은 토큰(`Authorization: Bearer …`)으로 한다. 인스턴스를 띄운 머신의
+에이전트는 토큰을 `~/.config/limn/<인스턴스>.token`(`limn token create <인스턴스> --save`)에서 읽는다. 에이전트는
 확인(confirm)하지 않고, 남이 claim 한 핀·검토 대기 핀·담당이 사람인 핀은 건너뛴다. 전체 절차는
 [skill/SKILL.ko.md](skill/SKILL.ko.md), API 계약은 [docs/handbook/api.md](docs/handbook/api.md). `pins.md` 형식과 HTTP API 는
 고정된 계약이라 UI 언어와 상관없이 바뀌지 않는다.

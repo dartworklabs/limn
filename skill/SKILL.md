@@ -44,7 +44,10 @@ Do not use it when:
 
 ### Authentication
 
-Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`. The token comes from the user, who creates it once with `limn token create <instance>` (it is shown only then); keep it in `LIMN_TOKEN`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). **Through the tailnet address a token is required** unless your machine is signed in to the tailnet as a person: a request that reaches `https://…ts.net` without a token or a person's identity (a tagged device, a CI runner) gets `403` since v0.2.1. If you get `401` or `403`, ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증.
+Send an API token with every request. Where the token comes from depends on where you run:
+
+- **On the machine that serves the instance**, read it from the instance's token file at each request: `curl -H "Authorization: Bearer $(cat ~/.config/limn/<instance>.token)" ...`. The user writes that file once with `limn token create <instance> --save` (mode `0600`). Never print the file, echo the token, or copy it into a repository. When `pins.md`'s authentication line names a token file, use that path. If the file is missing, ask the user to run the command.
+- **From another machine**, use the token the user created with `limn token create <instance>` (it is shown only then) and gave you: keep it in `LIMN_TOKEN` and send `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). **Through the tailnet address a token is required** unless your machine is signed in to the tailnet as a person: a request that reaches `https://…ts.net` without a token or a person's identity (a tagged device, a CI runner) gets `403` since v0.2.1. If you get `401` or `403`, ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증.
 
 ### What you read
 
