@@ -26,7 +26,27 @@ from unittest import mock
 from limn import args, config, startup
 from limn.access import LOOPBACK_AGENT_DEPRECATION
 from limn.documents import DOCS_MAX
-from limn.startup import AccessOptions, RunDocuments, StartupRefused
+from limn.startup import (
+    AccessOptions,
+    DocExtendedMalformed,
+    DocExtendedNotTex,
+    DocFileMissing,
+    DocKeyInvalid,
+    DocKeyRepeated,
+    DocKindUnknown,
+    DocMainAbsolute,
+    DocMainOutsideRoot,
+    DocNameEmpty,
+    DocNameTooLong,
+    DocNameUnseparated,
+    DocNotKeyed,
+    DocOutsideManuscript,
+    DocPathEmpty,
+    DocRootMissing,
+    RunDocuments,
+    StartupRefused,
+    TooManyDocs,
+)
 
 from helpers import MINI_PDF, TEX as FIXTURE_TEX, ps
 
@@ -609,37 +629,109 @@ class DocArgs(unittest.TestCase):
         self.assertEqual(d["kind"], "tex")
 
     def test_rejects_bad_specs(self):
-        bad = [
-            "rr답변서:sub/rr/rr.tex",  # no '='
-            "RR=답변서:sub/rr/rr.tex",  # uppercase key
-            "a" * 25 + "=x:sub/rr/rr.tex",  # 25-char key
-            "rr=답변서",  # no ':'
-            "rr=:sub/rr/rr.tex",  # empty name
-            "rr=" + "가" * 41 + ":sub/rr/rr.tex",  # 41-char name
-            "rr=답변서:",  # empty path
-            "rr=답변서:../outside.tex",  # outside --manuscript
-            "rr=답변서:sub/rr/none.tex",  # nonexistent file
-            "rr=답변서:notes.txt",  # extension
-            "rv=코멘트:sub::review.pdf",  # '::' is LaTeX-only
-            "ms=본문:manuscript::../outside.tex",  # main is outside the build root
-            "ms=본문:manuscript::2nd/m.tex::x",  # '::' twice
-            "ms=본문:nope::2nd/m.tex",
-        ]  # no build root
-        for spec in bad:
-            with self.assertRaises(ValueError, msg=spec):
-                startup.parse_doc_arg(spec, self.ms)
+        """Each malformed --doc returns the refusal naming the first rule it breaks (never raises), and
+        doc_refusal_message words it as the server always has."""
+        ms = self.ms.resolve()
+        rr, m2 = ms / "sub" / "rr", ms / "manuscript"
+        name41 = "가" * 41
+        cases = [
+            (
+                "rr답변서:sub/rr/rr.tex",
+                DocNotKeyed("rr답변서:sub/rr/rr.tex"),
+                "--doc 는 <키>=<표시 이름>:<경로> 형식입니다: 'rr답변서:sub/rr/rr.tex'",
+            ),
+            ("RR=답변서:sub/rr/rr.tex", DocKeyInvalid("RR"), "--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: 'RR'"),
+            (
+                "a" * 25 + "=x:sub/rr/rr.tex",
+                DocKeyInvalid("a" * 25),
+                "--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: '%s'" % ("a" * 25),
+            ),
+            (
+                "rr=답변서",
+                DocNameUnseparated("rr", "rr=답변서"),
+                "--doc rr: 표시 이름과 경로 사이에 ':' 가 없습니다: 'rr=답변서'",
+            ),
+            ("rr=:sub/rr/rr.tex", DocNameEmpty("rr"), "--doc rr: 표시 이름이 비었습니다"),
+            (
+                "rr=" + name41 + ":sub/rr/rr.tex",
+                DocNameTooLong("rr", name41),
+                "--doc rr: 표시 이름은 40자 이하여야 합니다: '%s'" % name41,
+            ),
+            ("rr=답변서:", DocPathEmpty("rr"), "--doc rr: 경로가 비었습니다"),
+            (
+                "rr=답변서:../outside.tex",
+                DocOutsideManuscript("rr", "path", ms, ms.parent / "outside.tex"),
+                "--doc rr: 경로 가 --manuscript(%s) 밖입니다: %s" % (ms, ms.parent / "outside.tex"),
+            ),
+            (
+                "ms=본문:..::outside.tex",
+                DocOutsideManuscript("ms", "root", ms, ms.parent),
+                "--doc ms: 빌드 루트 가 --manuscript(%s) 밖입니다: %s" % (ms, ms.parent),
+            ),
+            (
+                "rr=답변서:sub/rr/none.tex",
+                DocFileMissing("rr", rr / "none.tex"),
+                "--doc rr: 파일이 없습니다: %s" % (rr / "none.tex"),
+            ),
+            (
+                "rr=답변서:notes.txt",
+                DocKindUnknown("rr", ms / "notes.txt"),
+                "--doc rr: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (ms / "notes.txt"),
+            ),
+            (
+                "rv=코멘트:sub::review.pdf",
+                DocExtendedNotTex("rv", ms / "sub" / "review.pdf"),
+                "--doc rv: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (ms / "sub" / "review.pdf"),
+            ),
+            (
+                "ms=본문:manuscript::../outside.tex",
+                DocMainOutsideRoot("ms", ms / "outside.tex"),
+                "--doc ms: 메인 .tex 가 빌드 루트 밖입니다: %s" % (ms / "outside.tex"),
+            ),
+            (
+                "ms=본문:manuscript::/abs/m.tex",
+                DocMainAbsolute("ms", Path("/abs/m.tex")),
+                "--doc ms: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: /abs/m.tex",
+            ),
+            (
+                "ms=본문:manuscript::2nd/m.tex::x",
+                DocExtendedMalformed("ms", "manuscript::2nd/m.tex::x"),
+                "--doc ms: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: 'manuscript::2nd/m.tex::x'",
+            ),
+            (
+                "ms=본문:nope::2nd/m.tex",
+                DocRootMissing("ms", ms / "nope"),
+                "--doc ms: 빌드 루트 폴더가 없습니다: %s" % (ms / "nope"),
+            ),
+        ]
+        for spec, refusal, message in cases:
+            with self.subTest(spec):
+                got = startup.parse_doc_arg(spec, self.ms)
+                self.assertEqual(got, refusal)
+                self.assertEqual(startup.doc_refusal_message(refusal), message)
+        self.assertTrue((m2 / "2nd" / "m.tex").is_file())  # the '::' cases above fail on their rule, not a missing file
 
     def test_make_docs_rejects_duplicate_keys_and_marks_main_root(self):
-        with self.assertRaises(ValueError):
-            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C)
+        """make_docs returns the list's own refusals (a repeated key; more than DOCS_MAX values, counted before any is
+        parsed) and passes a value's refusal on unchanged; a LaTeX document keyed main sits at the state-folder root."""
+        self.assertEqual(
+            startup.make_docs(["rr=a:sub/rr/rr.tex", "rr=b:sub/rr/rr.tex"], self.ms, ps.C), DocKeyRepeated("rr")
+        )
+        self.assertEqual(startup.doc_refusal_message(DocKeyRepeated("rr")), "--doc 키가 겹칩니다: rr")
+        self.assertEqual(startup.make_docs(["rr=a:sub/rr/rr.tex", "RR=b:x.tex"], self.ms, ps.C), DocKeyInvalid("RR"))
         docs = startup.make_docs(
             ["main=본문:manuscript/2nd/m.tex", "rr=답변서:sub/rr/rr.tex", "rv=코멘트:sub/review.pdf"], self.ms, ps.C
         )
+        assert isinstance(docs, list)
         # only the LaTeX document keyed main is placed at the state-folder root
         self.assertEqual([d.root for d in docs], [True, False, False])
         self.assertEqual([d.kind for d in docs], ["tex", "tex", "pdf"])
-        with self.assertRaises(ValueError):
-            startup.make_docs(["d%d=x:sub/rr/rr.tex" % i for i in range(DOCS_MAX + 1)], self.ms, ps.C)
+        too_many = ["d%d=x:missing.tex" % i for i in range(DOCS_MAX + 1)]
+        self.assertEqual(startup.make_docs(too_many, self.ms, ps.C), TooManyDocs(DOCS_MAX + 1))
+        self.assertEqual(
+            startup.doc_refusal_message(TooManyDocs(DOCS_MAX + 1)),
+            "--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, DOCS_MAX + 1),
+        )
 
 
 class Version(unittest.TestCase):

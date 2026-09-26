@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from limn import access, config, locate, startup
 from limn.access import LOCAL_ACTOR
+from limn.cli import cli_audit
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web import parse
@@ -489,7 +490,7 @@ class EnglishChrome(ChromiumTestCase):
         agent = dict(LOCAL_ACTOR)
         for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
             ps.record_person(who)
-        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], ps.cli_audit(C.state))
+        access.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
         ms, rr = ps.DOCS
 
         def add(lo, hi, note, actor, **kw):

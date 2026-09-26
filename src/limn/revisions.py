@@ -11,7 +11,8 @@ limn.web.errors next to the HTTP answers.
 Nothing here reads server.py's settings or the thread's current document: the document is an argument, and what the
 instance supplies - its pins, where a recorded path is now, the process's scope cache and job registry, the build
 timeout - comes in a RevisionContext made per request by the composition root (server.revision_context).
-git runs without a shell; only full SHA-1s that git itself listed, and git's own object ids, reach its arguments.
+git runs through limn.gitrun (no shell, no stdin or terminal, GIT_TERMINAL_PROMPT=0, the server's GIT_* variables
+dropped, a timeout per call); only full SHA-1s that git itself listed, and git's own object ids, reach its arguments.
 """
 
 import contextlib
@@ -35,6 +36,7 @@ from typing import Any, Literal, NamedTuple, Protocol, TypeAlias
 
 from limn import scope
 from limn.files import atomic_write
+from limn.gitrun import git_command, git_env, open_git, run_git
 from limn.pins.model import is_region_pin
 from limn.scope import (
     FileChange,
@@ -300,12 +302,10 @@ class RevisionSpec(NamedTuple):
 
 
 def git(args: Sequence[str], cwd: Path | str, timeout: float = GIT_TIMEOUT) -> tuple[int | None, str, str]:
-    """Run git without a shell. Never puts user input into the args. Returns (returncode, stdout, stderr).
-    Timeout and exec failure are both distinguished by returncode=None."""
+    """Run git (limn.gitrun.run_git: no shell, no prompt). Never puts user input into the args. Returns (returncode,
+    stdout, stderr). Timeout and exec failure are both distinguished by returncode=None."""
     try:
-        r = subprocess.run(
-            ["git"] + list(args), cwd=str(cwd), timeout=timeout, capture_output=True, text=True, check=False
-        )
+        r = run_git(args, cwd, timeout)
         return r.returncode, r.stdout, r.stderr
     except (subprocess.TimeoutExpired, OSError):
         return None, "", ""
@@ -371,7 +371,6 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
         return CommitNotRecent()
     cap = scope.REVISION_DIFF_MAX
     cmd = [
-        "git",
         "-C",
         str(repo),
         "show",
@@ -385,7 +384,7 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
     ] + paths
     chunks: list[bytes] = []
     try:
-        with subprocess.Popen(cmd, cwd=str(repo), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as proc:
+        with open_git(cmd, repo) as proc:
             assert proc.stdout is not None  # stdout=PIPE
             size = 0
             deadline = time.monotonic() + GIT_TIMEOUT
@@ -395,7 +394,7 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
                     while size <= cap:
                         ready = sel.select(max(0, deadline - time.monotonic()))
                         if not ready:
-                            raise subprocess.TimeoutExpired(cmd, GIT_TIMEOUT)
+                            raise subprocess.TimeoutExpired(git_command(cmd), GIT_TIMEOUT)
                         part = os.read(proc.stdout.fileno(), min(65536, cap + 1 - size))
                         if not part:
                             break
@@ -433,7 +432,7 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
 def _blob(repo: Path, oid: str, budget: list[int]) -> bytes | None:
     """The bytes of one git blob, charged against budget[0] (bytes left for the whole commit, updated in place). None
     when git fails, times out, or the budget runs out - revision_changes() then shows the whole commit."""
-    ran = revision_exec(["git", "cat-file", "blob", oid], repo, 15, budget[0] + 4096)
+    ran = git_exec(["cat-file", "blob", oid], repo, 15, budget[0] + 4096)
     if isinstance(ran, StepFailed) or ran[0] != 0:
         return None
     data = ran[1]
@@ -448,8 +447,8 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
     over the scoping limits - the caller then shows the whole commit, exactly as before 0.3. git runs without a
     shell; only full SHA-1s from revision_history() and git's own object ids reach its arguments."""
     try:
-        ran = revision_exec(
-            ["git", "diff", "--raw", "-z", "-M", "--abbrev=40", "--no-ext-diff", base, head, "--"] + list(paths),
+        ran = git_exec(
+            ["diff", "--raw", "-z", "-M", "--abbrev=40", "--no-ext-diff", base, head, "--"] + list(paths),
             repo,
             30,
             2 * 1024 * 1024,
@@ -482,9 +481,8 @@ def revision_changes(repo: Path, base: str, head: str, paths: Sequence[str]) -> 
                 blocks = [scope.Block(0, len(git_lines(old)), 0, len(git_lines(new)))]
             else:
                 # --inter-hunk-context=0: a diff.interHunkContext setting must not merge two pins' blocks into one
-                ran = revision_exec(
+                ran = git_exec(
                     [
-                        "git",
                         "diff",
                         "-U0",
                         "--inter-hunk-context=0",
@@ -614,11 +612,12 @@ def revision_spec(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
 
 
 def revision_exec(
-    cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 1024 * 1024
+    cmd: list[str], cwd: Path, timeout: float, limit: int = 8 * 1024 * 1024, env: Mapping[str, str] | None = None
 ) -> tuple[int, bytes, bytes] | StepFailed:
-    """Run cmd without a shell with both pipes and the lifetime bounded: (returncode, stdout, stderr), or the step
-    failure - the tool could not start, it ran past timeout seconds, or its output passed limit bytes. The whole process
-    group is killed on every exit."""
+    """Run cmd without a shell, without stdin and in its own session, with both pipes and the lifetime bounded:
+    (returncode, stdout, stderr), or the step failure - the tool could not start, it ran past timeout seconds, or its
+    output passed limit bytes. The whole process group is killed on every exit. env replaces the environment (None:
+    the server's, as the sandboxed comparison build gets it; git_exec passes limn.gitrun's)."""
     try:
         proc = subprocess.Popen(
             cmd,
@@ -627,6 +626,7 @@ def revision_exec(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            env=env,
         )
     except OSError:
         return StepFailed("tool_start")
@@ -667,14 +667,20 @@ def revision_exec(
             pipe.close()
 
 
+def git_exec(args: Sequence[str], cwd: Path, timeout: float, limit: int) -> tuple[int, bytes, bytes] | StepFailed:
+    """`git <args>` through revision_exec's bounded pipes, in limn.gitrun's environment (GIT_TERMINAL_PROMPT=0, the
+    server's GIT_* variables dropped): (returncode, stdout, stderr) or the step failure."""
+    return revision_exec(git_command(args), cwd, timeout, limit, env=git_env())
+
+
 def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | StepFailed:
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
     within the file-count and size limits - and check that spec.main is there. The step failure otherwise."""
     prefix = "" if spec.source == "." else spec.source + "/"
-    cmd = ["git", "ls-tree", "-r", "-l", "-z", commit]
+    cmd = ["ls-tree", "-r", "-l", "-z", commit]
     if prefix:
         cmd += ["--", ":(literal)" + spec.source]
-    ran = revision_exec(cmd, spec.repo, 30, 2 * 1024 * 1024)
+    ran = git_exec(cmd, spec.repo, 30, 2 * 1024 * 1024)
     if isinstance(ran, StepFailed):
         return ran
     rc, tree, _ = ran
@@ -714,8 +720,8 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
     for path, oid_text, n in entries:
         if time.monotonic() >= deadline:
             return StepFailed("snapshot_timeout")
-        ran = revision_exec(
-            ["git", "cat-file", "blob", oid_text], spec.repo, min(15, max(0.01, deadline - time.monotonic())), n + 4096
+        ran = git_exec(
+            ["cat-file", "blob", oid_text], spec.repo, min(15, max(0.01, deadline - time.monotonic())), n + 4096
         )
         if isinstance(ran, StepFailed):
             return ran

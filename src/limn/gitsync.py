@@ -8,8 +8,8 @@ behind (SyncWatch). What git's answers mean and what the watch does next are lim
 git and keeps the process's state.
 
 Nothing here reads server.py's settings or document list: the composition root passes the manuscript folder, the
-documents, whether --git-pull is on, the git runner (limn.revisions.git: no shell, a timeout per call), the clock and
-the build starter on every call, and owns the one PullShare and SyncWatch of the process.
+documents, whether --git-pull is on, the git runner (limn.revisions.git over limn.gitrun: no shell, no prompt, a
+timeout per call), the clock and the build starter on every call, and owns the one PullShare and SyncWatch of the process.
 """
 
 import sys

@@ -75,7 +75,7 @@ from limn.access import (
     person_role,
 )
 from limn.args import serve_parser
-from limn.audit import AuditAction, append_audit, audit_action, audit_entry, os_actor
+from limn.audit import AuditAction, append_audit, audit_entry
 from limn.build import (
     BuildConfig,
     BuildResult,
@@ -1088,17 +1088,6 @@ def origin_ok(origin: str, host: str | None) -> bool:
 def remote_base_for(host_raw: str) -> str:
     """The base URL of GET /pins.md's guidance for this Host (limn.access.remote_base_for, loopback on C.port)."""
     return access.remote_base_for(host_raw, C.public_hosts, C.port)
-
-
-def cli_audit(state: Path) -> access.AuditSink:
-    """The audit sink of `limn token` / `limn member` on state: each change becomes an audit.jsonl line as the OS
-    account running the command (os_actor), via "cli", stamped when it is recorded."""
-
-    def record(action: str, details: Json) -> bool:
-        """Append one audit line for action with details (append_audit: a failed write only warns)."""
-        return append_audit(state, audit_entry(audit_action(action), os_actor(), "cli", details, time.time()))
-
-    return record
 
 
 # ---------------------------------------------------------------- Viewer

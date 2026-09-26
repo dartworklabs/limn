@@ -567,7 +567,7 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
 # ---------------------------------------------------------------- agent API tokens (<state>/tokens.json, hashed at rest)
 
 # The audit record of a `limn token` / `limn member` change: (action, details) -> appended to audit.jsonl as the OS
-# account, via "cli". The composition root wires it (server.cli_audit). Called under the file's lock after the write,
+# account, via "cli". limn.cli.cli_audit makes it. Called under the file's lock after the write,
 # so audit lines follow the order of the changes. Its return value is ignored; it must not raise for an I/O failure.
 AuditSink: TypeAlias = Callable[[str, Json], object]
 
