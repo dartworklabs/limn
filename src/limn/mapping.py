@@ -343,10 +343,10 @@ def pin_rel_path(file: str, file_rel: object, under_root: str | None, exists: Ca
 
     1. under_root: the stored absolute `file` relative to the current root when it lies under it (the caller resolves
        symlinks, as 0.3.0's in_tree() did). It wins even if the file is gone - a known location is never re-guessed.
-    2. file_rel (stored by 0.4), when it is a non-empty relative path without '..' parts and the stored `file` ends with
-       it. The server writes the two together; 0.3.0 relocating a pin changes only `file`, and the mismatch drops the
-       stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ -> the repository);
-       otherwise file_rel itself, even if that file is gone - no shorter guess.
+    2. file_rel (stored since 0.3.2), when it is a non-empty relative path without '..' parts and the stored `file`
+       ends with it. The server writes the two together; 0.3.1 or 0.3.0 relocating a pin changes only `file`, and the
+       mismatch drops the stale value. A longer tail of `file` that exists wins (the root was widened, e.g. paper/ ->
+       the repository); otherwise file_rel itself, even if that file is gone - no shorter guess.
     3. For older records, the longest tail of `file` (file_tails) for which exists(tail) is true.
     None when nothing matches: the pin is outside the tree. `exists` answers for paths relative to the root and is
     expected to accept only files that resolve inside it; the caller supplies it (this module reads no files)."""

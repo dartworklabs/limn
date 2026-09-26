@@ -49,7 +49,7 @@ Send an API token with every request: `curl -H "Authorization: Bearer $LIMN_TOKE
 ### What you read
 
 - `pins.md`: `curl -s <base>/pins.md` remotely, or `Read` `<state_dir>/pins.md` on the server machine.
-- `GET <base>/api/pins`: open pins as JSON, with current line numbers and each pin's `rev`. `file` is the absolute path valid on the server machine now; `rel_path` (v0.4) is the path relative to the manuscript folder, as in the `pins.md` location column — use `rel_path` to open it in your own checkout. `GET <base>/api/pins/{id}` returns one pin with its whole thread.
+- `GET <base>/api/pins`: open pins as JSON, with current line numbers and each pin's `rev`. `file` is the absolute path valid on the server machine now; `rel_path` (v0.3.2) is the path relative to the manuscript folder, as in the `pins.md` location column — use `rel_path` to open it in your own checkout. `GET <base>/api/pins/{id}` returns one pin with its whole thread.
 
 ### What you may do
 

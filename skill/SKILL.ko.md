@@ -49,7 +49,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 ### 읽는 것
 
 - `pins.md`: 원격이면 `curl -s <base>/pins.md`, 서버 머신이면 `<state_dir>/pins.md` 를 `Read`.
-- `GET <base>/api/pins`: 열린 핀 JSON(최신 줄 번호, 핀마다 `rev`). `file` 은 서버 머신에서 지금 유효한 절대 경로이고, `rel_path`(v0.4)는 `pins.md` 위치 칸과 같은 원고 폴더 기준 경로다 — 내 체크아웃에서 열 때는 `rel_path` 를 쓴다. `GET <base>/api/pins/{id}` 는 핀 한 건과 스레드 전부.
+- `GET <base>/api/pins`: 열린 핀 JSON(최신 줄 번호, 핀마다 `rev`). `file` 은 서버 머신에서 지금 유효한 절대 경로이고, `rel_path`(v0.3.2)는 `pins.md` 위치 칸과 같은 원고 폴더 기준 경로다 — 내 체크아웃에서 열 때는 `rel_path` 를 쓴다. `GET <base>/api/pins/{id}` 는 핀 한 건과 스레드 전부.
 
 ### 해도 되는 것
 

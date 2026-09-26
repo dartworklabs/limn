@@ -896,7 +896,7 @@ class Migration(AccessBase):
                     self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
                 old["dropped"] = [r for r in old["dropped"] if not ps.trash_expired(r)]
             recs = new["dropped"] if path == "/api/pins/dropped" else [new["pin"]] if path == "/api/pins/4" else new
-            for r in recs:                                               # v0.4 (ADR-0006): an additive rel_path on line pins
+            for r in recs:                                               # v0.3.2 (ADR-0006): an additive rel_path on line pins
                 rel = r.pop("rel_path", None)
                 self.assertTrue(rel is None or r["file"].endswith("/" + rel), (path, r["file"], rel))
             self.assertEqual(new, old, path)

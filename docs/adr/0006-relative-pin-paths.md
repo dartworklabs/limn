@@ -1,6 +1,6 @@
 # ADR-0006: 핀의 파일을 원고 폴더 기준 상대 경로로도 적는다 — 옮긴 원고에서도 핀이 따라온다
 
-- 상태: 확정 (Limn 0.4.0, 2026-09-26). 소유자가 PR #19 검토 뒤 설계와 필드 이름(저장 `file_rel`, 응답 `rel_path`)을 승인했다. 범위 밖으로 남긴 두 가지는 [이슈 #24](https://github.com/dartworklabs/limn/issues/24)에서 이어 간다
+- 상태: 확정 (Limn 0.3.2, 2026-09-26). 소유자가 PR #19 검토 뒤 설계와 필드 이름(저장 `file_rel`, 응답 `rel_path`)을 승인했다. 범위 밖으로 남긴 두 가지는 [이슈 #24](https://github.com/dartworklabs/limn/issues/24)에서 이어 간다
 - 날짜: 2026-09-26
 - 범위: 저장(핀 레코드의 선택 필드 `file_rel`, 다시 쓴 레코드의 `file` 값), 에이전트 계약(핀을 돌려주는 응답의 `file` 값과 더한 계산 필드 `rel_path`, `pins.md` 위치 칸의 값), 읽기 규칙(핀의 파일을 지금 원고 폴더에서 찾는 순서)과 줄 맞춤
 - 관련: [이슈 #7](https://github.com/dartworklabs/limn/issues/7). [ADR-0001](0001-blueprint.md)의 시간축 호환(쓰기 마이그레이션 없이 읽는다)과 HARD-GATE(저장 형식 변경은 설계 승인 뒤 구현)를 따른다. 되돌리기 판별은 [ADR-0005](0005-pin-scoped-changes.md)의 `changes_at` 규칙과 같은 방식이다
@@ -85,7 +85,7 @@
   - `file`을 읽는 에이전트는 이제 이 머신에 있는 경로를 받는다.
   - `rel_path`는 모르는 필드로 지나친다.
   - `pins.md`는 형식이 같다.
-- **0.3.x(0.3.0·0.3.1)로 되돌리기**. 두 버전의 경로 처리는 같다
+- **0.3.1·0.3.0으로 되돌리기**. 두 버전의 경로 처리는 같다
   - 0.3.0의 `valid_rec()`는 모르는 필드 `file_rel`을 지나친다.
   - 0.3.0은 `file_rel`을 응답에 그대로 싣지만, 그 이름을 읽으라고 안내받은 에이전트는 없다. 0.3.0 응답에는 `rel_path`가 없다.
   - 이 버전이 다시 쓴 레코드는 `file`이 지금 절대 경로라, 0.3.0에서도 원고 안이다. 다시 쓴 경우는 둘이다. 그 핀을 고친 경우, 그리고 옮긴 뒤 줄을 다시 맞춘 경우다.
@@ -126,8 +126,8 @@
 
 ## 결과
 
-- 구현은 같은 PR(#19, 0.4.0)에 있다. 순수 판단 `pin_rel_path`·`file_tails`·`anchor_holds` 는 [`src/limn/mapping.py`](../../src/limn/mapping.py)에, 가장자리 `pin_location`·`stamp_location` 은 `server.py` 에 있다. 현재값은 [api.md](../handbook/api.md) §핀 레코드 스키마·§핀 파일의 위치와 [domain.md](../handbook/domain.md)에 적었다.
-- 검증은 [verification.md](../handbook/verification.md) §1의 `tests/test_v04.py`가 맡는다. 확인하는 것은 다음과 같다.
+- 구현은 같은 PR(#19, 0.3.2)에 있다. 순수 판단 `pin_rel_path`·`file_tails`·`anchor_holds` 는 [`src/limn/mapping.py`](../../src/limn/mapping.py)에, 가장자리 `pin_location`·`stamp_location` 은 `server.py` 에 있다. 현재값은 [api.md](../handbook/api.md) §핀 레코드 스키마·§핀 파일의 위치와 [domain.md](../handbook/domain.md)에 적었다.
+- 검증은 [verification.md](../handbook/verification.md) §1의 `tests/test_v032.py`가 맡는다. 확인하는 것은 다음과 같다.
   - 두 서버 실행 사이에 원고 폴더를 옮겨도 핀이 줄 맞춤을 따라간다.
   - `lo`·`hi` 수정이 된다.
   - `pins.md`가 `sections/x.tex`를 보인다.

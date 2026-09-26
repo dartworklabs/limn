@@ -4051,7 +4051,7 @@ def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
 
 def add_pin(d: dict, actor: dict) -> int:
     """Saves a new pin from a POST /api/pin body for the current document (or the body's `doc`) -> its id. A LaTeX pin
-    stores its location, anchor, the author and - since 0.4 (ADR-0006) - rel_path next to the absolute file; a view-only
+    stores its location, anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the absolute file; a view-only
     document gets a region pin. Queues mention/assigned events and emits them after the write. Validation errors are
     HTTPError(400) from the clean_* parsers (404 for an unknown doc), raised before anything is written."""
     D = cur_doc()

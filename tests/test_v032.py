@@ -1,4 +1,4 @@
-"""v0.4 (issue #7, docs/adr/0006-relative-pin-paths.md): pins follow a moved manuscript.
+"""v0.3.2 (issue #7, docs/adr/0006-relative-pin-paths.md): pins follow a moved manuscript.
 
 Pins stored the manuscript file only as an absolute path, so moving the checkout left every pin outside the tree: no
 line re-sync, no range edit, no «…» quote, and a bare file name in pins.md. Records now also store `file_rel` (relative
@@ -7,7 +7,7 @@ to --manuscript) when the server writes that pin, and every record - old ones in
 the longest tail of the file that exists under the root. The API returns the located `file` and a computed `rel_path`.
 Old records are never rewritten just to add file_rel, and nothing outside the tree is ever read.
 
-Run: uv run pytest -q tests/test_v04.py
+Run: uv run pytest -q tests/test_v032.py
 """
 import importlib.util
 import json
