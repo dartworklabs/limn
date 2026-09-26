@@ -28,6 +28,7 @@ from unittest import mock
 from limn import access
 from limn.guidance import UNAUTHENTICATED, shell_path
 from test_access import AccessBase, get, token_create, token_revoke
+from limn.pins import render as md_render
 from test_server import ps
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -316,15 +317,15 @@ class ServerTokenFile(AccessBase):
         ps.C.agent_token_file = self.cfg / "paper.token"
 
     def token_line(self, md: str) -> str:
-        return next(ln for ln in md.splitlines() if ln.startswith(ps.TOKEN_GUIDANCE))
+        return next(ln for ln in md.splitlines() if ln.startswith(md_render.TOKEN_GUIDANCE))
 
     def test_pins_md_is_unchanged_until_the_token_file_exists(self):
         """No file (or no file configured): the agent-auth line is exactly the v0.2 TOKEN_GUIDANCE."""
         self.add()
-        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), ps.TOKEN_GUIDANCE)
+        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
         ps.C.agent_token_file = None
         self.add()
-        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), ps.TOKEN_GUIDANCE)
+        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
 
     def test_pins_md_adds_the_token_file_clause_once_the_file_exists(self):
         """The clause is appended to the old line: the curl form reading the file, and no token anywhere in pins.md."""
@@ -333,10 +334,10 @@ class ServerTokenFile(AccessBase):
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         line = self.token_line(md)
-        self.assertTrue(line.startswith(ps.TOKEN_GUIDANCE + " · "))
+        self.assertTrue(line.startswith(md_render.TOKEN_GUIDANCE + " · "))
         self.assertIn('Authorization: Bearer $(cat %s)' % shell_path(ps.C.agent_token_file, access.home_or_none()), line)
         self.assertNotIn(secret, md)
-        self.assertEqual(len([ln for ln in md.splitlines() if ln.startswith(ps.TOKEN_GUIDANCE)]), 1)
+        self.assertEqual(len([ln for ln in md.splitlines() if ln.startswith(md_render.TOKEN_GUIDANCE)]), 1)
 
     def test_the_server_never_reads_the_token_file(self):
         """An unreadable (mode 000) token file still counts as present: the server only stats it."""
@@ -356,7 +357,7 @@ class ServerTokenFile(AccessBase):
         self.cfg.chmod(0o000)
         try:
             pid = self.add()
-            self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), ps.TOKEN_GUIDANCE)
+            self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
             ps.C.agent_loopback = False
             code, d = self.call("GET", "/api/pins/%d" % pid)
             self.assertEqual(code, 401, d)
@@ -370,7 +371,7 @@ class ServerTokenFile(AccessBase):
         code, md = get(ps, "/pins.md", {"Host": TS_HOST + ":18004", "X-Forwarded-For": "100.64.0.9",
                                         "Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"})
         self.assertEqual(code, 200)
-        self.assertEqual(self.token_line(md), ps.TOKEN_GUIDANCE)
+        self.assertEqual(self.token_line(md), md_render.TOKEN_GUIDANCE)
         code, md = get(ps, "/pins.md")                                    # the local reader does get it
         self.assertIn("$(cat ", self.token_line(md))
 

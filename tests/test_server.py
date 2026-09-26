@@ -19,11 +19,16 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build as limn_build
+from limn import locate, mapping
+from limn import meta as limn_meta
 from limn.mapping import find_level
 from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
+from limn.pins import position
+from limn.pins import render as md_render
 from limn.store import PinStore
+from limn.events import NOTIFY_TYPES
 from limn import revisions
 from limn import scope as scoping
 from limn.web import answers, parse
@@ -887,14 +892,14 @@ class Anchor(Base):
 class Ladder(Base):
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
+        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)    # a cell inside the table
         para = find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
 
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
-        lad = ps.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
+        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)    # the line after the table — the next line is \subsection
         para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 
@@ -1116,10 +1121,10 @@ class Estimate(Base):
 
     def test_same_source_falls_back_to_src_mtime_without_hash(self):
         a = {"src_hash": None, "src_mtime": 100.0}
-        self.assertTrue(ps.same_source(a, {"src_hash": None, "src_mtime": 100.0}))
-        self.assertFalse(ps.same_source(a, {"src_hash": None, "src_mtime": 101.0}))
-        self.assertFalse(ps.same_source(a, None))
-        self.assertFalse(ps.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
+        self.assertTrue(position.same_source(a, {"src_hash": None, "src_mtime": 100.0}))
+        self.assertFalse(position.same_source(a, {"src_hash": None, "src_mtime": 101.0}))
+        self.assertFalse(position.same_source(a, None))
+        self.assertFalse(position.same_source({"src_hash": "x"}, {"src_hash": "y", "src_mtime": 1}))
 
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
@@ -1251,11 +1256,11 @@ class LightMeta(Base):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = ps.pins_rev()
+        rev0 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.add()
-        rev1 = ps.pins_rev()
+        rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = ps.pins_rev()
+        rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
         self.assertEqual(rev1, rev2)      # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
@@ -1355,11 +1360,11 @@ class Overlaps(Base):
         self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
 
     def test_selection_rel_all_four_relations(self):
-        self.assertEqual(ps.selection_rel(4, 9, 4, 9), "equal")
-        self.assertEqual(ps.selection_rel(5, 6, 4, 9), "inside")
-        self.assertEqual(ps.selection_rel(3, 10, 4, 9), "contains")
-        self.assertEqual(ps.selection_rel(8, 12, 4, 9), "partial")
-        self.assertIsNone(ps.selection_rel(10, 12, 4, 9))
+        self.assertEqual(position.selection_rel(4, 9, 4, 9), "equal")
+        self.assertEqual(position.selection_rel(5, 6, 4, 9), "inside")
+        self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
+        self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
+        self.assertIsNone(position.selection_rel(10, 12, 4, 9))
 
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         import shutil as _sh
@@ -1367,7 +1372,7 @@ class Overlaps(Base):
             self.skipTest("latex tools not available")
         res = ps.build_all(ps.DOCS[0])
         self.assertEqual(res["state"], "ok")
-        pages = ps.page_list(ps.cur_pages(ps.DOCS[0]))
+        pages = limn_build.page_list(ps.cur_pages(ps.DOCS[0]), ps.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
         d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
@@ -1558,7 +1563,7 @@ class PinsMdV2(Base):
         # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
                           "scope": "env", "kind": "env:x|y"}, dict(ps.LOCAL_ACTOR)).record["id"]
-        self.assertEqual(ps.range_label(self.pin(pid)), "env:x\\|y")
+        self.assertEqual(md_render.range_label(self.pin(pid)), "env:x\\|y")
         md = ps.C.pins_md.read_text(encoding="utf-8")
         for line in md.splitlines():
             if "env:x" in line:
@@ -1582,7 +1587,7 @@ class PinsMdV2(Base):
         self.assertIn("env:x\\|y z", rows[0])
         self.assertIn("a\\|b ⏎ c", rows[0])
         self.assertIn("k\\|1 k2", rows[1])
-        self.assertEqual(ps.md_cell("a|b\r\nc"), "a\\|b c")
+        self.assertEqual(md_render.md_cell("a|b\r\nc"), "a\\|b c")
 
     def test_legend_absent_when_no_symbols(self):
         self.add(4, 5)
@@ -1760,7 +1765,7 @@ class FrontendLogic(unittest.TestCase):
         js = "\n".join([extract_js_fn("selRel"),
                         "console.log(JSON.stringify(%s.map(c=>selRel(c[0],c[1],c[2],c[3]))));" % json.dumps(cases)])
         got = json.loads(run_node(js))
-        self.assertEqual(got, [ps.selection_rel(*c) for c in cases])
+        self.assertEqual(got, [position.selection_rel(*c) for c in cases])
 
     def test_overlaps_for_filters_by_file_and_skips_done(self):
         js = "\n".join([extract_js_fn("selRel"), extract_js_fn("overlapsFor"), r"""
@@ -4519,8 +4524,8 @@ class MultiDoc(Base):
 
     def test_view_only_pick_returns_region_without_synctex(self):
         self.fake_pages(self.rv)
-        with mock.patch.object(ps, "region_text", return_value="Reviewer   one\n comment"), \
-                mock.patch.object(ps, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")):
+        with mock.patch.object(locate, "region_text", return_value="Reviewer   one\n comment"), \
+                mock.patch.object(locate, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")):
             code, _, body = split_resp(self.talk(jreq("POST", "/api/pick", {"doc": "rv", "page": 1, "x0": 10, "y0": 20,
                                                                             "x1": 110, "y1": 60})))
         self.assertEqual(code, 200)
@@ -5171,11 +5176,11 @@ class ClaimEta(Base):
     def test_pins_md_claim_text(self):
         now = 1_790_000_000.0
         r = {"claimed_by": {"name": "Kim"}}
-        self.assertEqual(ps.claim_md(dict(r), now), "처리 중(Kim)")
+        self.assertEqual(md_render.claim_md(dict(r), now), "처리 중(Kim)")
         for left_s, want in ((14 * 60 + 10, "약 15분"), (3 * 60, "약 5분"), (15 * 60, "약 15분"), (16 * 60, "약 20분"),
                              (-60, "예상 초과")):
-            self.assertEqual(ps.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
-        self.assertEqual([ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
+            self.assertEqual(md_render.claim_md(dict(r, eta_ts=now + left_s), now), "처리 중(Kim, %s)" % want)
+        self.assertEqual([md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)], [5, 5, 5, 10, 15, 25])
         pid = self.add()
         ps.claim_pin(pid, {"login": "k", "name": "에이전트 A"}, *parse.parse_claim_body({"eta_min": 15}))
         md = ps.C.pins_md.read_text(encoding="utf-8")
@@ -5231,7 +5236,7 @@ class FrontendClaimEta(unittest.TestCase):
 
     def test_js_ceil5_matches_server(self):
         out = self.run_info("console.log(JSON.stringify([0,0.2,5,5.01,14.9,23].map(ceil5)));")
-        self.assertEqual(out, [ps.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
+        self.assertEqual(out, [md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
 
     def test_card_uses_claim_tag_and_ticker(self):
         self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
@@ -6413,7 +6418,7 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(code, 400)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
-        self.assertIn("assigned", ps.NOTIFY_TYPES)
+        self.assertIn("assigned", NOTIFY_TYPES)
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))

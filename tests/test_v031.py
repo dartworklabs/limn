@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from test_access import ALICE, BOB, CAROL, AccessBase, member_add, token_create
 from test_qa_021 import CLEAR_BODY, actor
 from limn import access
@@ -54,13 +55,13 @@ class NoteMentionCooldownRule(unittest.TestCase):
         """A note mention from the same actor to the same person about the same pin inside ten minutes suppresses the next."""
         recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
         self.assertEqual(self.targets(recent, 1000.0 + 1), [])
-        self.assertEqual(self.targets(recent, 1000.0 + ps.NOTE_MENTION_COOLDOWN_S - 0.001), [])
+        self.assertEqual(self.targets(recent, 1000.0 + NOTE_MENTION_COOLDOWN_S - 0.001), [])
 
     def test_a_mention_is_sent_again_once_the_window_has_passed(self):
         """Exactly NOTE_MENTION_COOLDOWN_S (ten minutes) after the last sent note mention, the tag notifies again."""
-        self.assertEqual(ps.NOTE_MENTION_COOLDOWN_S, 600)
+        self.assertEqual(NOTE_MENTION_COOLDOWN_S, 600)
         recent = [note_ev(A_LOGIN, [B_LOGIN], 7, ts=1000.0)]
-        self.assertEqual(self.targets(recent, 1000.0 + ps.NOTE_MENTION_COOLDOWN_S), [B_LOGIN])
+        self.assertEqual(self.targets(recent, 1000.0 + NOTE_MENTION_COOLDOWN_S), [B_LOGIN])
 
     def test_each_key_part_keeps_its_own_cooldown(self):
         """The key is (actor login, target login, pin id): changing any one of them is not suppressed."""
@@ -128,10 +129,10 @@ class NoteMentionCooldown(Base):
             self.edit_note(pid, "@Bob Park 봐 주세요", self.A)
             self.toggle(pid, self.A, times=2)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        with mock.patch.object(ps.time, "time", return_value=self.t0 + ps.NOTE_MENTION_COOLDOWN_S - 1):
+        with mock.patch.object(ps.time, "time", return_value=self.t0 + NOTE_MENTION_COOLDOWN_S - 1):
             self.toggle(pid, self.A, times=1)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        with mock.patch.object(ps.time, "time", return_value=self.t0 + ps.NOTE_MENTION_COOLDOWN_S):
+        with mock.patch.object(ps.time, "time", return_value=self.t0 + NOTE_MENTION_COOLDOWN_S):
             self.toggle(pid, self.A, times=2)
         self.assertEqual(len(self.mentions_to_bob()), 2)                                  # one more, then quiet again
 
@@ -141,7 +142,7 @@ class NoteMentionCooldown(Base):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        with mock.patch.object(ps.time, "time", return_value=self.t0 + ps.NOTE_MENTION_COOLDOWN_S + 5):
+        with mock.patch.object(ps.time, "time", return_value=self.t0 + NOTE_MENTION_COOLDOWN_S + 5):
             edit_pin(pid, {"note_append": "@Bob Park 아직입니다"}, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 2)
 

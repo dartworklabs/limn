@@ -1,9 +1,10 @@
 """How an agent on this machine authenticates: the texts that name the instance's token file (ADR-0007).
 
 Two places say it: the 401 for a headerless local request when the loopback agent is off (limn.access.identify) and
-the agent-auth line of pins.md. Both must name the file the same way, so the wording lives here once. Pure: strings
-and paths in, strings out - whether the file exists and where home is are read by the caller (limn.access.file_present,
-home_or_none) and passed in. Nothing here touches the file system; tests/test_access_module.py checks the imports.
+the agent-auth line of pins.md (limn.pins.render). Both must name the file the same way, so the wording lives here
+once. Pure: strings and paths in, strings out - whether the file exists and where home is are read by the caller
+(limn.access.file_present, home_or_none) and passed in (docs/handbook/api.md §인증). Nothing here touches the file
+system; tests/test_access_module.py checks the imports.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ import re
 import shlex
 from pathlib import PurePath
 
+# The 401 text for a request whose identity cannot be told (docs/handbook/api.md §인증). Part of the agent contract.
 UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
 TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"   # the convention, shown when this server does not know its own file
 

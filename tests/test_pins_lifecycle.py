@@ -18,7 +18,12 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
-PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model", "limn.pins.lifecycle"}
+# datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
+PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "datetime", "math", "typing", "limn.pins.model",
+                "limn.pins.lifecycle", "limn.guidance", "limn.mapping"}   # the last two: pure text modules render.py uses (checked below)
+# What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
+# pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
+PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib"}
 ALICE = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AT = "2026-09-26 10:00:00"
 
@@ -46,6 +51,22 @@ class Purity(unittest.TestCase):
                 elif isinstance(node, ast.ImportFrom):
                     imported.add(node.module or "")
             self.assertLessEqual(imported, PURE_IMPORTS, path.name)
+
+    def test_text_modules_the_package_imports_are_pure_too(self):
+        """limn.guidance and limn.mapping (imported by render.py) do string work only; from pathlib only PurePath."""
+        for path in (PINS_DIR.parent / "guidance.py", PINS_DIR.parent / "mapping.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            imported, from_pathlib = set(), set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imported |= {a.name for a in node.names}
+                elif isinstance(node, ast.ImportFrom):
+                    imported.add(node.module or "")
+                    if node.module == "pathlib":
+                        from_pathlib |= {a.name for a in node.names}
+            self.assertLessEqual(imported, PURE_TEXT_IMPORTS, path.name)
+            self.assertLessEqual(from_pathlib, {"PurePath"}, path.name)
+            self.assertNotIn("pathlib", {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names})
 
 
 class States(unittest.TestCase):

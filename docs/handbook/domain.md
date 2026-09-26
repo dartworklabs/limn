@@ -118,7 +118,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 예전 표시였던 '일치 93%'·'글자 일치 100%'는 뜻을 알 수 없었다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`src/limn/server.py`](../../src/limn/server.py)의 `pick`, `score_range`, `token_weights`다.
+실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `score_range`·`by_text`(순수 계산)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다.
 
 ## 범위 사다리
 
@@ -170,7 +170,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > 예외는 그 범위가 방금 자신이 고친 곳일 때다. 앞선 핀을 처리하면서 그 문장 자체를 갈아엎은 경우가 그렇다. 이때는 원문을 확인하고 닫아도 된다([SKILL.ko.md](../../skill/SKILL.ko.md) §규칙).
 
-실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`(순수 계산)와 [`src/limn/server.py`](../../src/limn/server.py)의 `sync_all`(파일을 읽고 레코드를 고치는 쪽)이다.
+실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `follow_anchor`·`resync`(순수 계산: 핀 하나를 지금 줄과 맞춰 바뀐 레코드 사본을 돌려준다), 그리고 [`src/limn/locate.py`](../../src/limn/locate.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 레코드로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
 
 ## 저장소 안전성
 
@@ -201,7 +201,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 **되살리기는 두 파일 사이에서 핀을 잃지 않는다.** `restore`는 `pins.jsonl` 쓰기가 성공한 뒤에만 삭제 기록에서 핀을 뺀다. 중간에 죽으면 최악의 결과는 '양쪽에 다 있음'이다. 이것은 복구할 수 있다. 순서를 거꾸로 하면 '양쪽에 다 없음'이 될 수 있다.
 
-실행 정본은 [`src/limn/store.py`](../../src/limn/store.py)의 `PinStore`(`transact`의 잠금·순서, `write_pins`의 렌더 먼저·손상 원본 보존, `read_jsonl`, `next_id`·`init_seq`, `clear`, `write_dropped`)와 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`), 그리고 저장소를 조립하는 [`src/limn/server.py`](../../src/limn/server.py)의 `pin_store`·`PIN_LOCK`(프로세스에 하나), 레코드 검사 `valid_rec`, `restore_pin`이다. 저장소는 서버를 모르고, 파일 위치·잠금·레코드 검사·줄 맞춤(`sync_all`)·`pins.md` 렌더(`pins_md_text`)를 `pin_store()`에게서 인자로 받는다. 이 순서와 보존 규칙은 [`tests/test_store.py`](../../tests/test_store.py)가 저장소를 직접 몰아 지킨다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
+실행 정본은 [`src/limn/store.py`](../../src/limn/store.py)의 `PinStore`(`transact`의 잠금·순서, `write_pins`의 렌더 먼저·손상 원본 보존, `read_jsonl`, `next_id`·`init_seq`, `clear`, `write_dropped`)와 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`), 그리고 저장소를 조립하는 [`src/limn/server.py`](../../src/limn/server.py)의 `pin_store`·`PIN_LOCK`(프로세스에 하나), 레코드 검사 `valid_rec`, `restore_pin`이다. 저장소는 서버를 모르고, 파일 위치·잠금·레코드 검사·줄 맞춤(`sync_all`)·`pins.md` 렌더(`pins_md_text`)를 `pin_store()`에게서 인자로 받는다. 렌더는 [`limn/pins/render.py`](../../src/limn/pins/render.py)의 순수 함수이고, 읽는 것(실행 설정, 문서와 빌드 도장, 시계, 토큰 파일, 핀마다의 파일 위치·겹침·@태그·스레드)은 `server.py`의 `pins_md_input`이 값(`PinsMdInput`)으로 모아 넘긴다. 이 순서와 보존 규칙은 [`tests/test_store.py`](../../tests/test_store.py)가 저장소를 직접 몰아 지킨다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
 
 ## 작성자 귀속
 

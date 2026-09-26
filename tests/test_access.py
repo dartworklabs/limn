@@ -25,6 +25,7 @@ from unittest import mock
 
 from limn import access
 from limn.web.answers import CONFIRM_BY_HUMAN
+from limn.pins import render as md_render
 from test_server import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -735,13 +736,13 @@ class ContractAdditions(AccessBase):
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         lines = md.splitlines()
-        self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
-        i = lines.index(ps.TOKEN_GUIDANCE)
+        self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
+        i = lines.index(md_render.TOKEN_GUIDANCE)
         self.assertTrue(lines[i - 2].startswith("처리한 핀은 닫는다"))  # after the existing guidance paragraph
-        self.assertEqual(lines[i - 1], ps.claim_guidance("http://127.0.0.1:18999"))   # and the v0.2.1 claim line
-        self.assertIn("Authorization: Bearer", ps.TOKEN_GUIDANCE)
-        self.assertIn("limn token create <인스턴스>", ps.TOKEN_GUIDANCE)
-        self.assertIn("폐지 예정", ps.TOKEN_GUIDANCE)
+        self.assertEqual(lines[i - 1], md_render.claim_guidance("http://127.0.0.1:18999"))   # and the v0.2.1 claim line
+        self.assertIn("Authorization: Bearer", md_render.TOKEN_GUIDANCE)
+        self.assertIn("limn token create <인스턴스>", md_render.TOKEN_GUIDANCE)
+        self.assertIn("폐지 예정", md_render.TOKEN_GUIDANCE)
         for s in ("| # | 쪽 | 위치 | 범위 | 메모 |", "# 수정 요청 핀"):
             self.assertIn(s, md)
 
@@ -908,10 +909,10 @@ class Migration(AccessBase):
         code, md = get(ps, "/pins.md")
         self.assertEqual(code, 200)
         lines = md.split("\n")
-        self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
-        lines.remove(ps.TOKEN_GUIDANCE)
-        lines.remove(ps.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
-        lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
+        self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
+        lines.remove(md_render.TOKEN_GUIDANCE)
+        lines.remove(md_render.claim_guidance("http://127.0.0.1:18999"))       # v0.2.1: one more additive line
+        lines.remove(md_render.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), v03_close_line(V01_PINS_MD.replace("{src}", str(self.src))))
 
     def test_api_and_pins_md_equal_the_v01_server(self):
@@ -942,12 +943,12 @@ class Migration(AccessBase):
         c_new, md_new = get(ps, "/pins.md", headers)
         self.assertEqual(c_new, c_old)
         lines = md_new.split("\n")
-        self.assertEqual(lines.count(ps.TOKEN_GUIDANCE), 1)
-        lines.remove(ps.TOKEN_GUIDANCE)
+        self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
+        lines.remove(md_render.TOKEN_GUIDANCE)
         claim = [ln for ln in lines if ln.startswith("처리를 시작하는 핀은 먼저 잡는다")]
         self.assertEqual(len(claim), 1)                                  # v0.2.1: one more additive line
         lines.remove(claim[0])
-        lines.remove(ps.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
+        lines.remove(md_render.REPLY_GUIDANCE)                                  # v0.2.2: one more additive line
         self.assertEqual(mask("\n".join(lines)), v03_close_line(mask(md_old)))
         _, p_old = get(v01, "/api/people", headers)
         _, p_new = get(ps, "/api/people", headers)
