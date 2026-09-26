@@ -3078,8 +3078,9 @@ class FrontendMentions(unittest.TestCase):
         an astral '𠀀' written as two UTF-16 units) continues a word, as in resolve_mentions(). It used to check only
         ASCII and Hangul, so 'é@Wendy Kim' rendered as a tag the server never recorded."""
         out = self.run_js(r"""
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login;
             console.log(JSON.stringify(['é@Wendy Kim','김@Wendy Kim','𠀀@Wendy Kim','😀@Wendy Kim','(@Wendy Kim)']
-              .map(t=>(fmtText(t,['w@x']).match(/class="mention"/g)||[]).length)));""")
+              .map(t=>(fmtText(t,[W]).match(/class="mention"/g)||[]).length)));""")
         self.assertEqual(out, [0, 0, 0, 1, 1])
 
     def test_pin_refs_link_only_existing_pins_and_skip_entities(self):
@@ -3125,16 +3126,16 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const box=()=>({hidden:true,innerHTML:''});
-            const note={value:'@Wendy 봐 주세요',_mentions:new Set(['w@x'])},cbox=box();
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:''});
+            const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
-            const ta={value:'@Wendy 봐 주세요',_mentions:new Set(['w@x'])},ebox=box();
+            const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
             let EDIT={el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
             note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
-            console.log(JSON.stringify([edited,[ASSIGN_NEW.v,cbox.hidden]]));""")
-        self.assertEqual(out, [["agent", True, True], ["w@x", False]])
+            console.log(JSON.stringify([edited,[ASSIGN_NEW.v===W,cbox.hidden]]));""")
+        self.assertEqual(out, [["agent", True, True], [True, False]])
 
     def test_assign_controls_in_composer_edit_and_card(self):
         h = ps.HTML
