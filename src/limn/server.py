@@ -63,9 +63,10 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinReopened, PinStillOpen, Replied,
-    ThreadFull, confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
-    next_rev, reopen_request, reopens_on_reply, thread_message,
+    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, ClaimClosedPin, ClaimedByOther, ClaimRequest,
+    CloseRequest, NotClaimed, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds, confirm,
+    confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply, next_rev,
+    reopen_request, reopens_on_reply, thread_message, unclaim,
 )
 from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, parse_pin  # noqa: E402
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
@@ -5076,9 +5077,8 @@ def purge_pin(pid: int, actor: dict) -> int | None:
 # conflicts - it's a signal, not a lock: nothing stops closing or force-claiming a pin another identity holds a valid claim on.
 
 def claim_active(r: dict) -> bool:
-    """Does this pin have an unexpired claim? claim_until is epoch seconds (compared independent of timezone)."""
-    cu = r.get("claim_until")
-    return _is_num(cu) and float(cu) > time.time()
+    """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
+    return claim_holds(r, time.time())
 
 
 
@@ -5124,53 +5124,39 @@ def clean_claim_ttl(d: dict) -> int:
     return clean_claim_body(d)[0]
 
 
-def claim_pin(pid: int, actor: dict, ttl_min: int, eta_min: int = None):
-    """Places the in-progress marker (or extends it, for the same identity). An unknown id returns (None, False) -
-    the caller then reports {"ok": false}. 409 for a closed pin, or one where another identity holds a valid claim.
+def claim_pin(pid: int, actor: dict, ttl_min: int,
+              eta_min: int = None) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
+    """Place or extend the in-progress marker (docs/handbook/api.md §처리 중 표시) under the pin lock.
 
-    An extension (a valid claim from the same identity) leaves the start time (claimed_at/claim_ts) as-is
-    and re-measures the lock (claim_until) from now. If eta_min is given, the estimate (eta_ts) is also
-    reset from now; if not, the earlier estimate is kept - if it's been exceeded, the screen shows "running
-    behind estimate". On a fresh claim with no eta_min, there is no eta_ts either (shown as start time plus elapsed minutes)."""
+    The rule is limn.pins.lifecycle.claim(): a closed pin or another identity's live claim is refused (409 over HTTP),
+    the same identity extends. The clock is read once here - epoch and store string of the same moment.
+    """
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
-            return None, False
-        if r.get("done"):
-            raise HTTPError(409, "done", pin=public(r))
-        me = who(actor)
-        mine = claim_active(r) and (r.get("claimed_by") or {}).get("login") == me["login"]
-        if claim_active(r) and not mine:
-            raise HTTPError(409, "claimed", claimed_by=r["claimed_by"], claim_until=r["claim_until"],
-                            eta_ts=r.get("eta_ts"))
-        now = time.time()
-        if not mine:
-            _clear_claim(r)
-            r["claimed_at"] = now_str()
-            r["claim_ts"] = now
-        elif not _is_num(r.get("claim_ts")):          # extending a legacy claim - backfills the start time as an epoch
-            r["claim_ts"] = _epoch(r.get("claimed_at")) or now
-        r["claimed_by"] = me
-        r["claim_until"] = now + ttl_min * 60
-        if eta_min is not None:
-            r["eta_ts"] = now + eta_min * 60
-        r["rev"] = next_rev(r)
-        return public(r), True
+            return PinNotFound(pid), False
+        result = claim(parse_pin(r), typed_actor(actor), time.time(), now_str(), ClaimRequest(ttl_min, eta_min),
+                       _epoch(r.get("claimed_at")))
+        if isinstance(result, OpenPin):
+            r.clear()
+            r.update(result.record)
+            return result, True
+        return result, False
     return transact(fn)[1]
 
 
-def unclaim_pin(pid: int, actor: dict):
-    """Clears the in-progress marker - independent of the requester's identity (the trust model imposes no permission restriction here).
-    An unknown id returns (None, False)."""
+def unclaim_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
+    """Clear the in-progress marker, whoever asks; written only when there was a claim."""
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
-            return None, False
-        had = "claimed_by" in r
-        _clear_claim(r)
-        if had:
-            r["rev"] = next_rev(r)
-        return public(r), had
+            return PinNotFound(pid), False
+        result = unclaim(parse_pin(r))
+        if isinstance(result, NotClaimed):
+            return result, False
+        r.clear()
+        r.update(result.record)
+        return result, True
     return transact(fn)[1]
 
 
@@ -6444,6 +6430,32 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _claim_answer(self, result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int,
+                      eta: int | None) -> None:
+        """Answer POST /api/pins/{id}/claim: the pin and the ttl/eta actually applied (clamped values), or a 409."""
+        match result:
+            case OpenPin(record=record):
+                out = {"ok": True, "pin": public(record), "ttl_min_applied": ttl}
+            case PinNotFound():
+                out = {"ok": False, "pin": None, "ttl_min_applied": ttl}
+            case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
+                raise HTTPError(409, "done", pin=public(record))
+            case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
+                raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts)
+        if eta is not None:
+            out["eta_min_applied"] = eta              # the clamped value, if sent above the ceiling (240)
+        return self._json(out)
+
+    def _unclaim_answer(self, result: OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound) -> None:
+        """Answer POST /api/pins/{id}/unclaim: the pin as it stands (no claim), or ok:false for an unknown id."""
+        match result:
+            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
+                return self._json({"ok": True, "pin": public(record)})
+            case NotClaimed(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
+                return self._json({"ok": True, "pin": public(record)})
+            case PinNotFound():
+                return self._json({"ok": False, "pin": None})
+
     def _reply_answer(self, result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound) -> None:
         """Answer POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
         match result:
@@ -6752,14 +6764,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "pin": edit_pin(pid, d, actor)})
             if act == "claim":
                 ttl, eta = clean_claim_body(d)
-                pin = claim_pin(pid, actor, ttl, eta)
-                out = {"ok": pin is not None, "pin": pin, "ttl_min_applied": ttl}
-                if eta is not None:
-                    out["eta_min_applied"] = eta          # the clamped value, if sent above the ceiling (240)
-                return self._json(out)
+                return self._claim_answer(claim_pin(pid, actor, ttl, eta), ttl, eta)
             if act == "unclaim":
-                pin = unclaim_pin(pid, actor)
-                return self._json({"ok": pin is not None, "pin": pin})
+                return self._unclaim_answer(unclaim_pin(pid, actor))
             reply = ref = review = reason = changes = None
             if act == "close":
                 reply, ref = clean_close_body(d)
