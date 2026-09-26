@@ -16,13 +16,24 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 별도 프런트엔드 프로젝트가 아니다. [`src/limn/viewer/`](../../src/limn/viewer/index.html)의 세 파일 — 마크업 `index.html`, 스타일 `app.css`, 스크립트 `app.js` — 이 전부이고, 빌드 단계·번들러·CDN이 없다. 서버는 시작할 때 `app.css`와 `app.js`를 `index.html`의 `__APP_CSS__`·`__APP_JS__` 자리에 그대로 끼워 한 장의 HTML(`server.py`의 `HTML`)을 만들고, 그 뒤 버전·아이콘·영어 표·라벨 자리 표시자를 채워 내보낸다. 그래서 화면 규칙을 바꾸는 일은 곧 이 세 파일을 고치는 일이다. 표식은 `index.html`에 한 번씩만 있어야 하고, 어기면 서버가 시작하지 않는다 (`tests/test_viewer_files.py`).
+뷰어는 별도 프런트엔드 프로젝트가 아니다. [`src/limn/viewer/`](../../src/limn/viewer/parts.txt)의 파일 — 마크업 `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각의 순서를 적은 `parts.txt` — 이 전부이고, 빌드 단계·번들러·모듈 로더·CDN이 없다. 서버는 시작할 때 `parts.txt`에 적힌 순서대로 조각을 바이트 그대로 이어 붙여 `index.html`의 `__APP_CSS__`·`__APP_JS__` 자리에 끼우고(`server.py`의 `load_viewer_html()`), 그렇게 만든 한 장의 HTML(`HTML`)에 버전·아이콘·영어 표·라벨 자리 표시자를 채워 내보낸다. 그래서 페이지에는 `<style>` 하나와 주 `<script>` 하나가 있고, 화면 규칙을 바꾸는 일은 곧 이 파일들을 고치는 일이다. 표식은 `index.html`에 한 번씩만 있어야 하고, 어기면 서버가 시작하지 않는다 (`tests/test_viewer_files.py`).
+
+**조각은 책임별로 나누고, 순서는 `parts.txt` 하나가 정한다.** 2026-09-26 한 파일이던 `app.js`(2,985줄)와 `app.css`(902줄)를 변경 이유가 다른 조각 45개로 나눴다([code-style-roadmap.md](code-style-roadmap.md) R6). 나눈 자리는 원래 파일의 구역 배너와 같고, 조각을 목록 순서대로 이으면 원래 파일과 바이트 단위로 같다. 그래서 나누기 전후 `HTML`과 `build_html()` 결과의 sha256이 같다. 조각마다 맡은 일은 `parts.txt`의 각 줄에 적혀 있고, 흐름은 이렇다.
+
+- 스타일(`css/`, 10개): 토큰(`tokens.css`) → 화면 틀 → 변경 보기 → 패널 틀·도구 막대 → 컴포넌트 → 작성 패널 → 카드 → 목록 → 떠 있는 층(알림·툴팁·대화상자) → 폭별 배치(`responsive.css`).
+- 스크립트(`js/`, 35개): 공용 바탕(`core.js`: DOM 도우미·아이콘·공유 상태) → 화면 언어(`i18n.js`)·설정 → `api()`와 알림 → 툴팁 → 여러 문서·변경 보기·문서 전환 → 시작(`boot.js`)·폴링·브라우저 알림·빌드 칩 → 패널 크기·쪽·PDF.js(`pdf-open.js` 열기, `outline.js` 목차, `pdf-draw.js` 그리기)·확대 → 배치·제스처 → 선택·범위 사다리·작성 패널·초안·저장 → 카드·목록·핀 조작 → @태그·답글·편집·위치 다시 잡기·재빌드 → 이벤트 위임과 `boot()` 호출(`events.js`).
+
+> **주의**
+>
+> 조각은 모듈이 아니다. JS 조각은 모두 예전 `app.js`처럼 고전 스크립트 하나의 범위를 나눠 쓴다. 함수 선언은 어느 조각에서나 보이지만, 최상위 코드(`let`·`const`, 리스너 등록, 바로 부르는 함수)는 목록 순서대로 실행된다. 그래서 위쪽 조각의 `let`·`const`만 쓸 수 있고, 순서를 바꾸면 페이지가 시작하다 멈출 수 있다. 새 코드는 맡은 일이 같은 조각에 넣고, 새 조각을 만들면 `parts.txt`에 줄을 더한다.
+
+조각은 마지막 줄바꿈으로 끝나야 한다. 그래야 이어 붙일 때 앞 조각의 끝 줄이 다음 조각의 첫 줄과 붙지 않는다. `css/`·`js/`에 있는데 목록에 없는 파일, 목록에 두 번 나온 파일, 형식에 맞지 않는 목록 줄은 테스트나 서버 시작에서 실패한다. 이번 분리는 바이트를 그대로 두려고 구역 배너 주석을 고치지 않았다. 그래서 두 조각은 이름과 다른 배너로 시작한다. `i18n.js`는 'Preferences', `card-parts.js`는 'Pin list' 배너로 시작한다.
 
 > **핵심**
 >
 > 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `tests/test_server.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
-**CSS는 `app.css` 하나이고, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
+**CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 색 리터럴은 앞의 두 블록 안 변수 정의에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
 **UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/ui_en.json`](../../src/limn/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 
@@ -38,7 +49,7 @@
 
 [`tests/test_i18n.py`](../../tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. 0.1.1부터는 `tl()` 틀에 번역이 없으면 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 0.3.4부터 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`tests/test_errors.py`](../../tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `ui_en.json`에 추가한다.
 
-**가드는 `tests/test_server.py`의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패).
+**가드는 `tests/test_server.py`의 `Frontend*` 클래스다.** 대부분은 배포되는 `ps.HTML` 문자열에서 고친 패턴이 있고 옛 버그 패턴이 없는지를 본다. `...Logic` 클래스는 JS 함수를 node로 떼어 실행하며, node가 없으면 건너뛴다. `FrontendResponsiveBrowser`는 실제 Chromium으로 레이아웃·키보드 회귀를 잰다. `$LIMN_CHROMIUM` → 시스템 Chrome/Chromium → Playwright 번들 Chromium 순으로 찾고, 못 띄우면 건너뛴다(`LIMN_TEST_REQUIRE_BROWSER=1`인 CI에서는 실패). 조각과 조립은 [`tests/test_viewer_files.py`](../../tests/test_viewer_files.py)가 지킨다. 목록과 파일이 맞는지, 조립한 페이지가 조각을 이은 것과 같은지 본다. 내보내는 페이지(`build_html()`)의 인라인 스크립트마다 `node --check`를 돌려, 문법 오류를 조각 파일과 줄(예: `js/cards.js:41`)로 알린다. node가 없으면 건너뛰고, `LIMN_TEST_REQUIRE_NODE=1`인 CI에서는 실패한다.
 
 | 규칙(이 문서의 절) | 가드 클래스 |
 | --- | --- |
@@ -57,6 +68,7 @@
 | 토큰·컴포넌트 | `FrontendDesignTokens`, `FrontendSpacingGrid` |
 | 한 겹 담기 | `FrontendNoNestedOutlines` |
 | 인스턴스 색 자리 | `BuildHtmlSubstitution` |
+| 조각과 조립, 스크립트 문법 | `ViewerFiles`, `ViewerScriptParses` (`tests/test_viewer_files.py`) |
 | 아이콘 | `FrontendIcons` |
 | 마크와 파비콘 | `test_brand.py`(`MarkRaster`·`MarkMarkup`·`FaviconRoutes`, 브라우저 `MarkInTheBrowser`) |
 | 벡터 렌더링 | `FrontendVector`, `FrontendVectorLogic` |
