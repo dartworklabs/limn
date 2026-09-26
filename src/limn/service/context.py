@@ -7,7 +7,7 @@ run settings and a frozen clock or a patched setting in a test reaches them.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeAlias
 
@@ -34,7 +34,7 @@ class MakeEvent(Protocol):
 class NoteTagger(Protocol):
     """The saved note's @-tags and whom this save notifies (server.note_tags: people plus the recent notices)."""
 
-    def __call__(self, note: str, old_note: str, rows: list[Row], hints: Iterable[str] | None,
+    def __call__(self, note: str, old_note: str, rows: list[Row], hints: Sequence[str] | None,
                  actor: Mapping[str, Any], pid: object) -> NoteTags:
         """Resolve note against the people on rows; old_note is the note before this save ('' for a new pin)."""
         ...

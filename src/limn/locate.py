@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import subprocess
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, TypeAlias, cast
@@ -149,8 +149,19 @@ class PinLocation(NamedTuple):
     path: Path               # root / rel - the absolute path the API returns as `file`
 
 
-# Where a stored pin's file is now, as the composition root binds pin_location to its root and documents.
-Locator: TypeAlias = Callable[[Row], PinLocation | None]
+# Where a stored pin's file is now, as the composition root binds pin_location to its root and documents. It only
+# reads the record, so a read-only record (a Mapping) is enough.
+Locator: TypeAlias = Callable[[Mapping[str, Any]], PinLocation | None]
+
+
+class BuildRoot(Protocol):
+    """A document as doc_scope reads it: only its build root. limn.documents.Doc is one, and so is the revision
+    services' document (limn.revisions.RevisionDoc), whose recorded paths the composition root locates too."""
+
+    @property
+    def src(self) -> Path:
+        """The build root - the folder a build copies."""
+        ...
 
 
 def _within(p: Path, root: Path) -> bool:
@@ -162,7 +173,7 @@ def _within(p: Path, root: Path) -> bool:
         return False
 
 
-def doc_scope(D: Doc | None, root: Path) -> str:
+def doc_scope(D: BuildRoot | None, root: Path) -> str:
     """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
     record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
     document's pins come from its own build, which copies only that folder, so nothing of D lies outside it. '' when
@@ -177,7 +188,7 @@ def doc_scope(D: Doc | None, root: Path) -> str:
     return "" if rel == "." else rel
 
 
-def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> PinLocation | None:
+def locate_file(file: object, file_rel: object, root: Path, doc: BuildRoot | None) -> PinLocation | None:
     """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
     (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
     in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
@@ -200,7 +211,7 @@ def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> 
     return PinLocation(rel, path) if _within(path, root) else None
 
 
-def pin_location(r: Row, root: Path, doc: Doc | None) -> PinLocation | None:
+def pin_location(r: Mapping[str, Any], root: Path, doc: Doc | None) -> PinLocation | None:
     """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
     the folder of doc - the pin's own document, None when it is no longer configured), or None: a view-only PDF pin,
     or a file the rule cannot place inside root."""

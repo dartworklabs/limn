@@ -35,7 +35,7 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
-from typing import Any, Generic, NamedTuple, TypeAlias, TypeVar
+from typing import Any, Generic, NamedTuple, TypeAlias, TypeGuard, TypeVar
 from urllib.parse import urlparse
 
 from limn.files import atomic_write, store_lock
@@ -275,7 +275,7 @@ def origin_ok(origin: str, host: str | None, public_hosts: Sequence[HostEntry]) 
 
 
 def remote_base_for(host_raw: str, public_hosts: Sequence[HostEntry], port: int) -> str:
-    """The base URL used in GET /pins.md's guidance line (§P0c-B). If Host is *.ts.net, 'https://<Host as-is,
+    """The base URL used in GET /pins.md's guidance line (docs/handbook/api.md §원격 에이전트 진입점). If Host is *.ts.net, 'https://<Host as-is,
     including port>'; if it's a --public-host name, 'https://<name>[:<configured port>]'; otherwise (loopback/no
     Host) the loopback URL on this server's port. The handler has already validated Host by this point, so only the
     kind needs to be distinguished here."""
@@ -382,7 +382,7 @@ def proxy_actor(headers: Message, settings: AccessSettings) -> Json | None:
     return {"login": login, "name": name}
 
 
-def file_present(p: Path | None) -> bool:
+def file_present(p: Path | None) -> TypeGuard[Path]:
     """Whether p exists - False too when that cannot be told: Path.exists() raises PermissionError in a folder this
     process may not search, and a token-file hint must never fail a pin write or turn a 401 into a 500."""
     if p is None:

@@ -12,7 +12,7 @@ document.addEventListener('error',e=>{const t=e.target;
     s.textContent=t.dataset.ini||'?';t.replaceWith(s);}},true);
 function authorTip(p){let s=tl('작성: {name} · {at}',{name:p.author?who(p.author):tr('기록 전'),at:p.at||'?'});
   if(p.edited_at)s+=' / '+tl('수정: {name} · {at}',{name:who(p.edited_by)||tr('기록 전'),at:p.edited_at}); return s;}
-// P0b-03: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
+// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
 // otherwise the smallest-id partial. Must follow the same rule as the server's rel_badge() (pins.md) so card tags and
 // pins.md rows never disagree - since a rel entry is only {id,rel}, the range is looked up by id from PINS (all currently loaded open pins).
 // The badge wording is phrased to be self-explanatory: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is distinguished using p's (this pin's) lo/hi.
@@ -33,8 +33,8 @@ function relBadge(rel,p){
   if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:tl('#{id}{p} 일부 겹침',{id:n,p:josa(n,'과','와')})};}
   return null;
 }
-// §P0c-C: the in-progress marker. claim_until is epoch seconds, compared independent of the browser's timezone (numbers
-// instead of a wall-clock string, for the same reason as §Position estimation). The viewer never places a claim (agent-only) - it only offers [풀기].
+// The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared independent of the browser's timezone (numbers
+// instead of a wall-clock string, for the same reason as docs/handbook/build-sync.md §위치 추정). The viewer never places a claim (agent-only) - it only offers [풀기].
 function claimActive(p){return typeof p.claim_until==='number'&&p.claim_until>Date.now()/1000;}
 // Estimated time to handle (docs/handbook/api.md §처리 중 표시): if an agent gives eta_min on a claim, the server sets eta_ts
 // (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded up to

@@ -268,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/build":
             full = (q.get("log") or ["0"])[0] == "1"
             return self._json(app.diet_log(app.build_state_snapshot(D), full))
-        if path == "/pins.md":                    # §P0c-B: entry point for a remote agent - the same sync path as GET /api/pins
+        if path == "/pins.md":                    # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)

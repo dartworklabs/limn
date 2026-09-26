@@ -10,7 +10,7 @@ async function undoAppend(id,note,rev){
     toast(tl('#{id} 메모를 되돌렸습니다',{id}),'ok');}catch(e){} await loadPins();}
 // The normal label for the save-pin button (shared by boot and clearing the pending state).
 function saveBtnLabel(){return MQ_COARSE.matches?tr('핀 저장'):tr('핀 저장')+' <span class="kh">'+(IS_MAC?'⌘ Enter':'Ctrl+Enter')+'</span>';}
-// P0c: pressing [핀 저장] right after a drag but before SyncTeX pick finishes (~1.1s) used to just silently vanish, since
+// docs/handbook/viewer.md §패널 정리 (드래그 직후 저장): pressing [핀 저장] right after a drag but before SyncTeX pick finishes (~1.1s) used to just silently vanish, since
 // CUR didn't exist yet (observed). Now that save request is queued and auto-saved once pick succeeds - the note re-reads
 // #note at the moment of saving (when pick resolves), picking up even characters the user edited in the meantime. If pick
 // fails or the selection is canceled, the queue is cleared too. Pressing the button again cancels the pending save (a toggle) - so it can be undone without a separate cancel button.

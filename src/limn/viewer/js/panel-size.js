@@ -1,4 +1,4 @@
-// ------------------------------------------------ Panel width (P0b-06 + docs/handbook/viewer.md §패널 정리)
+// ------------------------------------------------ Panel width (docs/handbook/viewer.md §패널 폭과 시트 높이)
 // wide/mid adjusts the right panel's width; narrow adjusts the bottom sheet's height. Width is remembered separately
 // per screen kind (pinPrefs.side = wide, pinPrefs.sideMid = mid) - so a width fit for a spread-out screen never covers the desktop width.
 // If the saved value exceeds the current screen's limit (collapsing/expanding, shrinking the window), the saved value is kept

@@ -295,7 +295,7 @@ def pins_md_text(page: PinsMdInput) -> str:
     Only %s is used as a format specifier - so a single malformed record never kills the whole summary.
     Closed pins are never listed (only counted in the header line) - so pins.md's size doesn't grow as they pile up.
 
-    page.base (§P0c-B): the base URL the guidance line's close example uses. If None (the default path written
+    page.base (docs/handbook/api.md §원격 에이전트 진입점): the base URL the guidance line's close example uses. If None (the default path written
     to disk), it's loopback, as now. GET /pins.md passes the value rewritten to the request Host - only when
     it's a remote base does a "원격: curl ..." line get appended to the guidance paragraph (omitted for
     loopback, since that means the file is already being read locally), and the token-file clause is left out
@@ -311,7 +311,8 @@ def pins_md_text(page: PinsMdInput) -> str:
     reviewn = [r for r in rows if isinstance(parse_pin(r), ReviewPin)]
     n_done = len(rows) - len(openn) - len(reviewn)
 
-    # §P0c-G: @name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author count as one group).
+    # The author's name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author
+    # count as one group) - docs/handbook/api.md §메모 칸의 덧붙임.
     author_groups = set()
     for r in openn:
         a = r.get("author")
@@ -372,7 +373,7 @@ def pins_md_text(page: PinsMdInput) -> str:
            "논문: %s · 저장소: %s" % (page.label, page.repo or "(없음)")]
     if not sectioned:
         head_short, built_at = docs[0].head, docs[0].built_at   # the one document
-        if head_short and head_short != "-" and built_at:           # §P0c-D: omitted entirely if absent
+        if head_short and head_short != "-" and built_at:           # omitted if either is absent (docs/handbook/api.md §머리줄)
             out.append("기준: %s · 빌드 %s" % (head_short, built_at))
             out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
     else:
