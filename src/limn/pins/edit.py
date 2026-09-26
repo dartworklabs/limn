@@ -258,7 +258,7 @@ def evolve_edit(pin: PinT, event: PinEdited, where: Located | None, anchoring: A
     record["edited_at"] = event.at
     record["edited_by"] = signature(event.by)
     record["rev"] = next_rev(pin.record)
-    return type(pin)(record)
+    return type(pin).from_record(record)
 
 
 def assignment_text(assignee: str, name: str | None) -> str:
@@ -300,7 +300,7 @@ def new_line_pin(place: LinePlace, request: AddRequest, pid: int, at: str, autho
     record["rev"] = 0
     if where is not None:
         record["file"], record["file_rel"] = where.path, where.rel
-    return OpenPin(record)
+    return OpenPin.from_record(record)
 
 
 def new_region_pin(place: RegionPlace, request: AddRequest, pid: int, at: str, author_record: Record,
@@ -317,7 +317,7 @@ def new_region_pin(place: RegionPlace, request: AddRequest, pid: int, at: str, a
     _set_mentions(record, mentions)
     if request.assignee is not None:
         record["assignee"] = request.assignee
-    return OpenPin(record)
+    return OpenPin.from_record(record)
 
 
 def _set_mentions(record: dict[str, Any], mentions: Sequence[str]) -> None:

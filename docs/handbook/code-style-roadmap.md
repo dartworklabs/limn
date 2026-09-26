@@ -205,7 +205,7 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
 
 **언제 시작하나.** 방향 층이다. 2026-09-26 소유자 결정으로 4단계와 함께 시작한다 (§두 층).
 
-**지금 코드의 모습.** 핀 상태는 저장된 필드의 조합에서 계산한다.
+**옮기기 전 모습.** 핀 상태는 저장된 필드의 조합에서 계산했다.
 
 ```python
 def pin_state(r: dict) -> str:
@@ -214,36 +214,53 @@ def pin_state(r: dict) -> str:
     return "review" if r.get("review") is True else "done"
 ```
 
-`done`, `review`, `confirmed_by`, `close_reply`, `claim_until` 같은 필드는 서로 독립적이다. 예를 들어 `done`이 거짓인데 `review`가 참이거나, 열린 핀에 `confirmed_by`가 남는 조합도 사전에는 담길 수 있다. 지금은 이런 조합을 만드는 코드 경로가 없도록 사람이 조심해서 막고 있다. 핀 코드를 처음 보는 사람은 이 약속을 모른다.
+`done`, `review`, `confirmed_by`, `close_reply`, `claim_until` 같은 필드는 서로 독립적이다. 예를 들어 `done`이 거짓인데 `review`가 참이거나, 열린 핀에 `confirmed_by`가 남는 조합도 사전에는 담길 수 있다. 이런 조합을 만드는 코드 경로가 없도록 사람이 조심해서 막았고, 핀 코드를 처음 보는 사람은 이 약속을 몰랐다. `pin_state()`는 서버의 다른 읽기(목록, `pins.md`)를 위해 그대로 남아 있다.
 
-**바꾼 모습.** 상태를 필드로 들고 다니는 한 타입이 아니라, **상태마다 타입을 두고 핀을 그 합으로** 둔다 (2026-09-26, [`limn/pins/model.py`](../../src/limn/pins/model.py)). **저장 형식(`pins.jsonl`)과 API 모양은 바꾸지 않는다** ([architecture.md](architecture.md) §불변식 3, 6). 각 상태 타입은 저장된 레코드를 그대로 들고 다녀서, 이 버전이 모르는 필드도 왕복에서 살아남는다.
+**바꾼 모습.** 상태를 필드로 들고 다니는 한 타입이 아니라, **상태마다 타입을 두고 핀을 그 합으로** 둔다 (2026-09-26, [`limn/pins/model.py`](../../src/limn/pins/model.py)). **저장 형식(`pins.jsonl`)과 API 모양은 바꾸지 않는다** ([architecture.md](architecture.md) §불변식 3, 6). 같은 날 **그 상태에만 있는 필드를 상태 타입의 속성으로 올렸다.** 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 그래서 "열린 핀의 `confirmed_by`"나 "닫힌 핀의 claim"을 담을 속성이 아예 없다.
 
 ```python
 @dataclass(frozen=True)
 class OpenPin:
-    """A pin nobody has closed: its stored done is false or missing."""
-    record: Record
+    """A pin nobody has closed: its stored done is false or missing. Only an open pin carries a claim."""
+    claim: Claim | None          # claimed_by, claimed_at, claim_ts, claim_until, eta_ts
+    fields: Record               # every other stored field, as stored
+    order: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
 @dataclass(frozen=True)
 class ReviewPin:
     """Closed by an agent and waiting for a person to confirm it: done and review are both true."""
-    record: Record
+    close: Close                 # done_at, closed_by, close_reply, close_ref, changes, changes_at
+    fields: Record
+    order: tuple[str, ...] = ...
 
 @dataclass(frozen=True)
 class DonePin:
-    """Closed for good. A legacy done record with no review field is done too."""
-    record: Record
+    """Closed for good: done without review. A legacy done record with no review field is done too."""
+    close: Close
+    confirmation: Confirmation | None   # confirmed_by + confirmed_at
+    fields: Record
+    order: tuple[str, ...] = ...
 
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin
 
-def parse_pin(record: Record) -> Pin: ...        # pin_state()와 같은 규칙
+def parse_pin(record: Record) -> Pin: ...        # pin_state()와 같은 규칙, 실패하지 않는다
 ```
+
+`TrashedPin`은 삭제 전의 핀(`pin: Pin`)과 `dropped: Dropped | None`을 가진다. 모든 상태가 함께 쓰는 필드(`note`, `file`, `lo`/`hi`, `thread`, `rev`, `reopened_*` 등)와 이 버전이 모르는 필드는 올리지 않고 `fields`에 저장된 그대로 둔다. `record`는 이제 속성에서 레코드를 다시 쓰는 읽기 전용 속성이고, `order`가 저장 때의 필드 순서를 기억한다. 그래서 셸의 `r.update(result.record)`와 처리기의 `case OpenPin(record=record)`는 그대로 돈다.
+
+옛 레코드와 어긋난 값은 이렇게 담는다.
+
+- 필드가 없으면 속성도 없다. 닫은 기록의 각 부분(`Close.at`, `Close.by` 등)은 모두 선택이고, `claim_ts`가 없는 옛 claim은 `Claim.start`가 `None`이다.
+- 값의 종류가 틀리면(숫자가 아닌 `claim_until`, 객체가 아닌 `closed_by` 등) 올리지 않는다. `fields`에 저장된 그대로 남고, 상태는 그 필드가 없는 것처럼 읽는다. 파싱은 실패하지 않는다.
+- 묶음은 이루는 필드가 있을 때만 올린다. claim은 `claimed_by`가 객체일 때, 확인은 `confirmed_by`와 `confirmed_at`이 함께 있을 때, 삭제 기록은 `dropped_at`과 `dropped_by`가 함께 있을 때다.
+- 다른 상태의 필드는 속성이 되지 않는다. 다시 연 핀에 남는 지난 닫기의 `done_at`·`closed_by`, 손으로 고친 닫힌 핀의 claim 필드는 `fields`에 그대로 있을 뿐이다. 그래서 닫힌 핀에 대한 `unclaim`은 늘 `NotClaimed`이고 아무것도 쓰지 않는다. 어떤 버전도 닫힌 핀에 claim을 남긴 적이 없으므로(닫기는 처음부터 claim을 지웠다) 저장소가 쓴 레코드에서는 동작이 같다.
+- `done`·`review`는 상태를 가르는 값이라 `fields`에 저장된 그대로 두고, 생성자가 그 값이 자기 상태를 가리키는지 확인한다. 어긋나면 `ValueError`(결함)다.
+
+전이는 여전히 다음 레코드를 필드 하나씩 만든 뒤 곧바로 다음 상태로 파싱한다(`DonePin.from_record(record)`). 필드 순서가 바이트 계약의 일부라서다. 규칙은 올린 속성을 읽는다. 예를 들어 `claim_open`은 `pin.claim.holds(now)`와 `pin.claim.by`로 판단하고, `unclaim`은 `case OpenPin(claim=Claim())`로 claim이 있는 열린 핀만 쓴다.
 
 한 상태에만 쓰는 전이는 그 상태 타입만 받는다(`confirm_review(pin: ReviewPin, ...)`). 요청처럼 어떤 상태든 올 수 있는 입구는 `match pin:`으로 타입을 나눈다. 상태 문자열을 비교하지 않는다.
 
-**다음 단계.** 전이를 하나씩 옮길 때, 그 상태에만 있는 필드(검토 대기의 닫은 기록, 완료의 `confirmed_by`, 열림의 claim)를 레코드에서 꺼내 해당 상태 타입의 속성으로 올린다. 그래야 "열린 핀에 `confirmed_by`가 남는" 조합이 타입으로 막힌다. 지금은 상태만 타입이고 필드는 레코드 안에 있다.
-
-**확인하는 법.** 옛 레코드 모양(검토 필드 없는 완료, `doc` 없는 레코드 등)을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. 이 왕복 테스트를 먼저 만들고 옮긴다.
+**확인하는 법.** 옛 레코드 모양(검토 필드 없는 완료, `doc` 없는 레코드 등)을 읽어서 다시 쓰면 바이트 단위로 같아야 한다. [`tests/test_pins_model.py`](../../tests/test_pins_model.py)가 이것을 지킨다. 말뭉치 [`tests/data/pin_records.jsonl`](../../tests/data/pin_records.jsonl)은 전체 테스트가 `pins.jsonl`·`pins.dropped.jsonl`에서 읽고 쓴 레코드를 모양(필드 이름·순서·값 종류)마다 하나씩 모은 147건이다. 여기에 테스트가 더는 쓰지 않는 옛 모양과 어긋난 값 24건을 더했다. 모두 `parse_pin`과 `TrashedPin.from_record` 둘 다에서 저장소의 `json.dumps` 설정으로 바이트가 같다.
 
 > **참고**
 >
@@ -489,7 +506,7 @@ def now_str() -> str:
 | 1 안전망 | 완료 (포매팅·스타일 규칙은 남음) | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침 |
 | 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용. 0.3.0~0.3.3 PR이 새 함수·테스트에 R1·R3·R7~R9를 적용함(0.3.3은 보안 경계라 R10 부정 경우 테스트도) |
 | 3 뷰어 분리 | 완료 | 2026-09-26. `server.py` 10,973 → 7,378행. 출력 바이트 동일 |
-| 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 이어서 편집·추가(`limn/pins/edit.py`: `decide_edit`가 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 값으로 돌려주고, `evolve_edit`·`new_line_pin`·`new_region_pin`이 레코드를 옛 필드 순서 그대로 만든다. 본문 파서 `parse_edit`·`parse_add`는 `InputRejected` 값을 돌려주고 처리기가 옛 문구로 답한다). 이로써 핀 조작의 전이는 모두 옮겼다. 이어서 핀 저장소를 `limn/store.py`로 꺼냈다: `PinStore`가 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기와 손상 원본 보존, `pins.seq`, clear 보관을 맡고, 파일 위치·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외는 조립 지점 `server.pin_store()`가 호출마다 인자로 넘긴다(서버를 가져오지 않음, `tests/test_store.py`가 검사). 옛 이름 `transact`·`read_pins`·`write_pins` 등은 `server.py`에 남아 저장소에 넘긴다. 옛 코드와 응답·상태 디렉터리 전체 바이트(손상 백업·clear 보관 이름 포함)가 같음을 차등 비교로 확인. 남은 일: 상태에만 있는 필드를 상태 타입의 속성으로 올리기(R2 §다음 단계) |
+| 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 이어서 편집·추가(`limn/pins/edit.py`: `decide_edit`가 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 값으로 돌려주고, `evolve_edit`·`new_line_pin`·`new_region_pin`이 레코드를 옛 필드 순서 그대로 만든다. 본문 파서 `parse_edit`·`parse_add`는 `InputRejected` 값을 돌려주고 처리기가 옛 문구로 답한다). 이로써 핀 조작의 전이는 모두 옮겼다. 이어서 핀 저장소를 `limn/store.py`로 꺼냈다: `PinStore`가 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기와 손상 원본 보존, `pins.seq`, clear 보관을 맡고, 파일 위치·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외는 조립 지점 `server.pin_store()`가 호출마다 인자로 넘긴다(서버를 가져오지 않음, `tests/test_store.py`가 검사). 옛 이름 `transact`·`read_pins`·`write_pins` 등은 `server.py`에 남아 저장소에 넘긴다. 옛 코드와 응답·상태 디렉터리 전체 바이트(손상 백업·clear 보관 이름 포함)가 같음을 차등 비교로 확인. 이어서 상태에만 있는 필드를 상태 타입의 속성으로 올렸다(열림의 `Claim`, 닫힘의 `Close`, 완료의 `Confirmation`, 휴지통의 `Dropped`; `record`는 저장 순서대로 다시 쓰는 속성). 테스트가 읽고 쓴 모든 레코드 모양 147건과 옛 모양 24건의 왕복이 바이트 단위로 같고(`tests/test_pins_model.py`), 옛 코드와 응답·상태 디렉터리 바이트가 같음을 핀 흐름 80단계 차등 비교로 확인. 이로써 R2 §다음 단계로 적어 둔 일도 끝났다 |
 | 5 역변환과 빌드 | 완료 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). 같은 날 `build.py` 분리: 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고, `--git-pull`과 보기 전용 그리기는 단계로 넘겨받는다. `C.`·`cur_doc()` 없음(`tests/test_build.py`), 두 문서 동시 빌드 테스트 녹색. 옛 코드와 응답·빌드 상태·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인(성공, LaTeX 오류, PDF 없음, SyncTeX 없음, pdftoppm 실패, 복사 실패, 시간 초과, 빌드 예외, 두 LaTeX 문서와 보기 전용 PDF). `--git-pull`·원격 main 감시는 문서 여럿을 묶는 일이라 `server.py`에 남고, `server.py`의 옛 이름 셸은 6단계에서 없앤다 |
 | 6 HTTP와 조립 지점 | 진행 중 | 2026-09-26 소유자 결정으로 4단계의 `store.py`와 나란히 시작. 앞부분: HTTP 처리기(`Handler`·`Server`·`Server6`, 본문 읽기와 1 MiB 한도, Host/Origin 검사 호출, GET/POST 경로 분기), 결과별 응답(옛 `_*_answer`·`_*_reply` 메서드 → `limn/web/answers.py`의 함수), `HTTPError`·`InputRejected`·`SCOPE_REJECTIONS`·거부된 첫 화면을 `limn/web/`로 옮겼다. 처리기는 `server.py`를 가져오지 않는다. `server.py`가 자기 전역을 요청 때 그대로 읽는 보기(`_ModuleApp`)로 하위 클래스 `Handler`를 묶고, 처리기가 부르는 서비스 목록은 `web/app.py`의 `App` 프로토콜이다. 신원·역할·Host/Origin 판단(`identify`·`admit`·`check_role`·`host_ok`·`origin_ok`)은 보안 경계라 `server.py`에 그대로 두었다. 경로 표는 만들지 않았다 — 분기 순서가 응답을 정하므로(`/pages/`가 404로 떨어지는 길, `/api/pins/dropped`가 `/api/pins/N`보다 먼저) 이번에는 옮기기만 했다. 옛 코드와 응답(상태, Date·Server를 뺀 헤더, 본문)과 상태 디렉터리 전체 바이트가 같음을 160개 경우의 차등 비교로 확인(모든 핀 조작과 거절, 잘못된 JSON·본문 한도·`Transfer-Encoding`, 잘못된 Host·Origin, 테일넷의 헤더 없는 요청, 토큰 에이전트, 역할별 403, 거부된 첫 화면 ko·en, 500, 핀 단위 변경 거절 표). 남은 일(뒷부분): `App`의 셸이 `C`·`cur_doc()`을 읽지 않고 인자를 받게 하기, 요청 파서(`parse_*`·`clean_*`)를 `web/`로 옮기고 서비스는 파싱된 값을 받기, 서비스가 `HTTPError`를 던지지 않고 결과 값을 돌려주기, 신원 헤더 읽기의 자리 정하기, `main()`에 조립 코드만 남기기 |
 | 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. 같은 날 `build.py`·`files.py`를 더했다(표기만 고침, 동작 그대로). 이어서 `store.py`를 더했다. 이어서 `web/`을 더했다(처리기가 부르는 서비스는 `App` 프로토콜로 적고, `cast` 한 곳에 이유를 단다). `server.py`는 남음 |

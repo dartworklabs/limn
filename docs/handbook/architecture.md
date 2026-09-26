@@ -41,7 +41,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/build.py`](../../src/limn/build.py) | 845 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/files.py`](../../src/limn/files.py) | 30 | 원자적 파일 교체 `atomic_write`. 핀·사람·토큰·빌드 이력의 모든 쓰기가 공유한다 |
 | [`src/limn/store.py`](../../src/limn/store.py) | 236 | 핀 저장소 `PinStore`: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통(`pins.dropped.jsonl`) 쓰기, 손상 줄의 원본 보존, 핀 번호(`pins.seq`), clear 보관. 서버를 가져오지 않는다. 파일 위치(`PinFiles`)·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외를 `server.pin_store()`가 호출마다 인자로 넘긴다 (`tests/test_store.py`가 import를 검사) |
-| [`src/limn/pins/`](../../src/limn/pins/model.py) | 821 | 핀 도메인의 순수 코드: 상태 타입과 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
+| [`src/limn/pins/`](../../src/limn/pins/model.py) | 1,061 | 핀 도메인의 순수 코드: 상태 타입과 그 상태에만 있는 필드(`Claim`·`Close`·`Confirmation`·`Dropped`), 행위자 타입(`model.py`), 전이(`lifecycle.py`: 확인, 닫기·다시 열기, 답글, claim, 휴지통), 편집 판단과 새 핀 레코드(`edit.py`). 파일·시계·HTTP를 모른다 (`tests/test_pins_lifecycle.py`가 import를 검사) |
 | [`src/limn/mapping.py`](../../src/limn/mapping.py) | 372 | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 옮긴 원고에서 핀 파일 찾기(0.3.2, 있는지 확인은 인자로 받는다). 파일·subprocess·전역을 모른다 (`tests/test_mapping.py`가 import를 검사) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,628 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
@@ -60,7 +60,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 2. **스레드 지역 "현재 문서"** `using_doc(D)` / `cur_doc()` — 요청 하나가 문서 하나를 다룬다는 전제로, 요청 처리 코드가 인자 없이 현재 문서를 본다. `cur_doc()` 호출이 `server.py`에 35곳, HTTP 처리기에 `app.cur_doc()`으로 7곳이다. 빌드(`limn/build.py`)는 2026-09-26부터 이 값을 읽지 않고 문서를 인자로 받는다. `server.py`의 옛 이름 셸이 `cur_doc()`과 `C`를 한 번 읽어 넘긴다.
 3. **모듈 전역 잠금과 상태 사전** — `PIN_LOCK`, `BUILD_LOCK`, `BUILD_STATE` 등. `PIN_LOCK`은 2026-09-26부터 `server.py`가 프로세스에 하나 만들어 `pin_store()`로 저장소(`limn/store.py`)에 넘긴다. 저장소 자신은 잠금을 만들지 않는다.
 
-핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 옮겨진 전이(확인, 닫기·다시 열기, 답글, claim, 휴지통, 편집)는 그 타입을 받아 결과를 반환값으로 돌려준다. 새 핀의 레코드도 `limn.pins.edit`이 만든다.
+핀 레코드는 대부분의 코드에서 파이썬 `dict` 그대로 다닌다. 핀의 상태(열림·검토 대기·완료)는 `done`·`review` 같은 독립 필드의 조합에서 `pin_state()`가 계산한다. 2026-09-26부터 [`limn/pins/`](../../src/limn/pins/model.py)가 상태를 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하면서 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올리고, 나머지 필드는 저장된 그대로 순서까지 지켜 다시 쓴다. 옮겨진 전이(확인, 닫기·다시 열기, 답글, claim, 휴지통, 편집)는 그 타입을 받아 결과를 반환값으로 돌려준다. 새 핀의 레코드도 `limn.pins.edit`이 만든다.
 
 > **참고**
 >

@@ -10,7 +10,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, TypeGuard, TypeVar, cast
 
-from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, Pin, Record, ReviewPin, TrashedPin, parse_pin
+from limn.pins.model import (
+    Actor, Agent, Claim, DonePin, OpenPin, Person, Pin, Record, ReviewPin, TrashedPin, parse_pin,
+)
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
 
@@ -68,7 +70,7 @@ def confirm_review(pin: ReviewPin, by: Person, at: str) -> DonePin:
     record["confirmed_at"] = at
     record["thread"] = [*thread_of(pin.record), thread_message(pin.record.get("thread"), author(by), at, ev="confirm")]
     record["rev"] = next_rev(pin.record)
-    return DonePin(record)
+    return DonePin.from_record(record)
 
 
 @dataclass(frozen=True)
@@ -133,7 +135,9 @@ def evolve_close(pin: Pin, event: PinClosed) -> ReviewPin | DonePin:
     for key in CLAIM_FIELDS:
         record.pop(key, None)
     record["rev"] = next_rev(pin.record)
-    return ReviewPin(record) if record.get("review") is True else DonePin(record)   # parse_pin()'s rule, done now true
+    if record.get("review") is True:                 # parse_pin()'s rule, done now true
+        return ReviewPin.from_record(record)
+    return DonePin.from_record(record)
 
 
 @dataclass(frozen=True)
@@ -165,13 +169,13 @@ def evolve_reopen(pin: Pin, event: PinReopened) -> OpenPin:
         record["thread"] = [*thread_of(pin.record),
                             thread_message(pin.record.get("thread"), author(event.by), event.at, event.reason or "",
                                            ev="reopen", mentions=event.mentions)]
-    return OpenPin(record)
+    return OpenPin.from_record(record)
 
 
 def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
     """POST /reopen: apply the reopen and bump rev - even for a pin that was already open, as before."""
     opened = evolve_reopen(pin, event)
-    return OpenPin({**opened.record, "rev": next_rev(pin.record)})
+    return OpenPin.from_record({**opened.record, "rev": next_rev(pin.record)})
 
 
 @dataclass(frozen=True)
@@ -229,7 +233,7 @@ def evolve_reply(pin: PinT, event: Replied) -> PinT:
                         thread_message(pin.record.get("thread"), author(event.by), event.at, event.text,
                                        mentions=event.mentions)]
     record["rev"] = next_rev(pin.record)
-    return type(pin)(record)
+    return type(pin).from_record(record)
 
 
 def replies_of(record: Record) -> list[Any]:
@@ -289,35 +293,41 @@ def claim_open(pin: OpenPin, by: Actor, now: float, at: str, request: ClaimReque
     """An open pin's claim rule: another identity's live claim refuses; the same identity extends; otherwise a new claim.
 
     An extension keeps the start (claimed_at/claim_ts) and re-measures claim_until from now; eta_ts is reset only when
-    an estimate is given. A new claim drops every earlier claim field first, so a stale estimate never survives.
+    an estimate is given. A new claim drops every earlier claim field first - stray ones kept among the pin's fields
+    too - so a stale estimate never survives.
     """
-    held = claim_holds(pin.record, now)
-    mine = held and (pin.record.get("claimed_by") or {}).get("login") == by.login
-    if held and not mine:
-        return ClaimedByOther(pin.record["claimed_by"], pin.record["claim_until"], pin.record.get("eta_ts"))
+    held = pin.claim if pin.claim is not None and pin.claim.holds(now) else None
+    if held is not None and held.by.get("login") != by.login:
+        return ClaimedByOther(held.by, held.until, held.eta)
     record = dict(pin.record)
-    if not mine:
+    if held is None:
         for key in CLAIM_FIELDS:
             record.pop(key, None)
         record["claimed_at"] = at
         record["claim_ts"] = now
-    elif not _is_num(record.get("claim_ts")):
+    elif held.start is None:
         record["claim_ts"] = legacy_start or now
     record["claimed_by"] = signature(by)
     record["claim_until"] = now + request.ttl_min * 60
     if request.eta_min is not None:
         record["eta_ts"] = now + request.eta_min * 60
     record["rev"] = next_rev(pin.record)
-    return OpenPin(record)
+    return OpenPin.from_record(record)
 
 
-def unclaim(pin: PinT) -> PinT | NotClaimed:
-    """Clear the in-progress marker, whoever asks (the trust model restricts nothing here); rev goes up only if there was one."""
+def unclaim(pin: Pin) -> OpenPin | NotClaimed:
+    """Clear the in-progress marker, whoever asks (the trust model restricts nothing here); rev goes up only if there was one.
+
+    Only an open pin can hold a claim. Any other pin, or an open one without a claim, comes back as NotClaimed, shown
+    with every stray claim field (one kept among its fields, not a claim) cleared; nothing is written for it.
+    """
     cleared = {key: value for key, value in pin.record.items() if key not in CLAIM_FIELDS}
-    if "claimed_by" not in pin.record:
-        return NotClaimed(type(pin)(cleared))
-    cleared["rev"] = next_rev(pin.record)
-    return type(pin)(cleared)
+    match pin:
+        case OpenPin(claim=Claim()):
+            cleared["rev"] = next_rev(pin.record)
+            return OpenPin.from_record(cleared)
+        case OpenPin() | ReviewPin() | DonePin():
+            return NotClaimed(type(pin).from_record(cleared))
 
 
 @dataclass(frozen=True)
@@ -337,13 +347,13 @@ def drop(pin: Pin, by: Actor, at: str) -> TrashedPin:
     record = {key: value for key, value in pin.record.items() if key not in CLAIM_FIELDS}
     record["dropped_at"] = at
     record["dropped_by"] = signature(by)
-    return TrashedPin(record)
+    return TrashedPin.from_record(record)
 
 
 def find_trashed(trash: Sequence[Record], pid: int) -> TrashedPin | NotInTrash:
     """The newest copy of pin pid among the Trash entries given (the caller passes only unexpired ones)."""
     hits = [record for record in trash if record.get("id") == pid]
-    return TrashedPin(hits[-1]) if hits else NotInTrash(pid)
+    return TrashedPin.from_record(hits[-1]) if hits else NotInTrash(pid)
 
 
 def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | AlreadyLive:
