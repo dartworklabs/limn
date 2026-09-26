@@ -603,6 +603,7 @@ class ViewerFunctions(unittest.TestCase):
             function findAnyPin(id){return id===3?{id:3}:null;}
             """,
                 extract_js_fn("mentionToks"),
+                extract_js_fn("mentionAfterWord"),
                 extract_js_fn("reEsc"),
                 extract_js_fn("meLogin"),
                 extract_js_fn("pinRefExists"),

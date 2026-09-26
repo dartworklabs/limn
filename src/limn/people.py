@@ -5,8 +5,10 @@ plus the role `limn member` sets. Local/agent is never recorded. The file is wri
 then os.replace'd (atomic) - readers only ever see the old file or the new one.
 
 What lives here: the record check of a people.json entry (valid_people, is_actor), its stored text (people_text), its
-read (load_people), the running server's write (record_person, through a PeopleBook) and the @-tag candidates made
-from people.json rows and the pins (known_people, pure).
+read (load_people: the rows, or PeopleUnreadable for a file that exists but cannot be used - fail closed, never "no
+one"), the warning about such a file (UnreadableWarning), the running server's write (record_person, through a
+PeopleBook; never over an unusable file) and the @-tag candidates made from people.json rows and the pins
+(known_people, pure).
 
 The module knows no run arguments, no HTTP and no server. The composition root (server.people_book()) passes where the
 file is, the process's lock and its last-written memo, the clock, and the rule that tells an agent from a person.
@@ -52,13 +54,58 @@ def valid_people(d: object) -> list[Row]:
     ]
 
 
-def load_people(path: Path) -> list[Row]:
-    """The valid entries of the people.json at path; [] when it is missing, unreadable or not JSON."""
+@dataclass(frozen=True)
+class PeopleUnreadable:
+    """people.json exists but cannot be used: it cannot be read, is not UTF-8 JSON (truncated, empty, invalid), or is
+    not a Limn people file ({"people": [...]}). `reason` names the file and why, as the server's warning and the CLI's
+    refusal show it. While this holds nothing may rewrite the file - the roles in it, the owner's too, would be lost -
+    and no one gets a role or a membership from it (limn.access.person_role, is_member)."""
+
+    reason: str
+
+
+def load_people(path: Path) -> list[Row] | PeopleUnreadable:
+    """The valid entries of the people.json at path (valid_people); [] when the file does not exist (nobody recorded
+    yet); PeopleUnreadable when it exists but cannot be used. An entry that is not a person is dropped as before; only
+    a file that is not a people file as a whole is unreadable."""
     try:
         d = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return []
+    except (OSError, ValueError) as e:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
+        return PeopleUnreadable("cannot read %s: %s" % (path, e))
+    if not isinstance(d, dict) or not isinstance(d.get("people"), list):
+        return PeopleUnreadable("%s is not a Limn people file" % path)
     return valid_people(d)
+
+
+class UnreadableWarning:
+    """The stderr warning about an unusable people.json, printed once per breakage: the first read that finds a file
+    unusable warns, later ones stay quiet, and a good read re-arms it so a new breakage warns again. The running
+    server owns one for the process and hands it to every reader (the role lookup and record_person), so a visit and
+    a role check of the same breakage print one line between them. Thread-safe."""
+
+    def __init__(self) -> None:
+        """No file is known to be broken yet."""
+        self._lock = threading.Lock()
+        self._broken: set[str] = set()
+
+    def note(self, path: Path, read: list[Row] | PeopleUnreadable) -> None:
+        """Record what a read of path gave: warn for PeopleUnreadable unless this breakage was warned about already;
+        forget the breakage after a good read."""
+        key = str(path)
+        with self._lock:
+            if not isinstance(read, PeopleUnreadable):
+                self._broken.discard(key)
+                return
+            if key in self._broken:
+                return
+            self._broken.add(key)
+        print(
+            "warning: %s - every person gets the viewer role, --members-only admits no one from it, and no visit is "
+            "recorded until it is fixed" % read.reason,
+            file=sys.stderr,
+        )
 
 
 def people_text(rows: list[Row]) -> str:
@@ -70,12 +117,14 @@ def people_text(rows: list[Row]) -> str:
 
 @dataclass(frozen=True)
 class PeopleBook:
-    """The running server's people.json: the state directory it lives in, the process's thread lock and its memo of
-    what it last wrote. The composition root makes both the lock and the memo once; a book value is cheap per call."""
+    """The running server's people.json: the state directory it lives in, the process's thread lock, its memo of what
+    it last wrote and its unreadable-file warning. The composition root makes the lock, the memo and the warning once;
+    a book value is cheap per call."""
 
     state: Path
     lock: threading.Lock
     seen: SeenMemo
+    warning: UnreadableWarning
 
     @property
     def path(self) -> Path:
@@ -91,7 +140,10 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
     A person's `role` (set with `limn member`) is kept as-is. A person seen for the first time gets no role field (=
     default_role) unless `role` is given and differs from it (the local owner is recorded as owner). The file is
     re-read under the thread lock and the cross-process lock (.people.lock), since `limn member` may have just
-    changed it. first_seen/last_seen are the local wall-clock strings of `now`."""
+    changed it. first_seen/last_seen are the local wall-clock strings of `now`.
+
+    A file that exists but cannot be used (PeopleUnreadable) is never rewritten - that would replace every role in it
+    with this one visitor: nothing is written or memoised, book.warning warns once, and the result is False."""
     login = actor["login"]
     name, pic = actor.get("name") or login, actor.get("pic")
     key = (str(book.path), login)
@@ -102,6 +154,9 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
         try:
             with store_lock(book.state, "people"):
                 rows = load_people(book.path)  # re-read under the lock - `limn member` may have just changed it
+                book.warning.note(book.path, rows)
+                if isinstance(rows, PeopleUnreadable):
+                    return False
                 stamp = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S")
                 cur = next((x for x in rows if x["login"] == login), None)
                 if cur is None:

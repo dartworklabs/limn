@@ -75,7 +75,7 @@ class Binding(unittest.TestCase):
 
 
 class ImportDirection(unittest.TestCase):
-    """limn.web depends on the pin domain and never on server.py (docs/handbook/architecture.md §목표 구조)."""
+    """limn.web depends on the pin domain and never on server.py (docs/handbook/architecture.md §의존 방향)."""
 
     def test_web_package_loads_without_server(self):
         """Importing the handler must not import server.py: the composition root binds it, not the other way round."""

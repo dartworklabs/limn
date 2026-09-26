@@ -10,7 +10,7 @@
 
 ## 요구 환경
 
-서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다. 3.10은 하한이다. 3.9 이하는 `server.py`의 `match` 문을 읽지 못해 시작하자마자 `SyntaxError`로 멈춘다. macOS의 `/usr/bin/python3`이 3.9다.
+서버는 Python 3.10 이상의 표준 라이브러리만 쓴다. 외부 패키지, CDN, 빌드 단계가 없다. 뷰어가 PDF를 벡터로 그릴 때 쓰는 PDF.js는 패키지 안 `src/limn/vendor/pdfjs/`에 담겨 기본으로 제공된다. 그래서 가상환경 없이 시스템 Python 3.10으로도 돈다. 3.10은 하한이다. 3.9 이하는 `server.py`가 가져오는 `limn.*` 모듈(`match` 문, `typing.TypeAlias`)을 읽지 못해 시작하자마자 `ImportError`나 `SyntaxError`로 멈춘다. macOS의 `/usr/bin/python3`이 3.9다.
 
 재빌드에는 외부 도구가 필요하다.
 
@@ -93,7 +93,7 @@ Limn 0.2.0부터 서버는 요청한 사람이 누구인지 가리는 방법을 
 | `--public-host` | 없음 | 인스턴스에 닿는 공개 호스트 이름 `이름[:포트]`. 여러 번 주거나 쉼표로 잇는다. 이 이름을 `Host`로, 같은 출처의 `Origin`(`https`, 포트를 안 주면 443)으로 받는다. `GET /pins.md`의 기준 주소로도 쓴다 |
 | `--trusted-proxies` | `127.0.0.1,::1` | `trusted-proxy` 방식이 신원 헤더를 믿는 요청 상대의 IP·CIDR 목록(쉼표) |
 | `--proxy-user-header` / `--proxy-name-header` / `--proxy-email-header` | `X-Forwarded-User` / `X-Forwarded-Preferred-Username` / 없음 | `trusted-proxy` 방식이 읽는 헤더 이름. 사용자 헤더는 필수다. 이메일 헤더를 주면 값이 있을 때 이메일이 로그인이 된다 |
-| `--members-only` | 꺼짐 | `people.json`(`limn member add`)이나 `--allow`에 있는 사람만 들인다. 나머지는 `403`이고 `people.json`에 기록하지 않는다. 토큰과 로컬 소유자는 늘 들어온다 |
+| `--members-only` | 꺼짐 | `people.json`(`limn member add`)이나 `--allow`에 있는 사람만 들인다. 나머지는 `403`이고 `people.json`에 기록하지 않는다. 토큰과 로컬 소유자는 늘 들어온다. `people.json`을 쓸 수 없는 동안은 `--allow`에 있는 사람만 들인다(아래 '상태 파일 배치') |
 | `--local-user` | `$USER`, 없으면 `owner` | `--auth local`에서 소유자의 로그인 |
 | `--agent-token-file` | `$LIMN_AGENT_TOKEN_FILE`, 없으면 없음 | 0.3.3. 이 머신의 에이전트가 이 인스턴스의 토큰을 두는 파일. `limn run`이 `<설정 폴더>/<이름>.token`을 환경 변수로 넘긴다. 서버는 **읽지 않고** 있는지만 본다. 파일이 있으면 `pins.md` 인증 안내 줄과, 헤더 없는 loopback 에이전트가 꺼졌을 때 이 기기의 헤더 없는 요청이 받는 `401` 메시지가 그 파일을 쓰라고 알려 준다([api.md](api.md) §인증, [ADR-0007](../adr/0007-agent-token-file.md)). 기동 로그의 `auth` 줄에 경로와 `present`·`absent`가 찍힌다 |
 
@@ -272,7 +272,10 @@ Limn은 미공개 원고와 공저자의 메모를 다룬다. 그래서 기본�
 | 노출 후 검증 | 두 가지를 확인해야 "노출됐다"고 보고한다. (1) 테일넷 안에서 그 URL에 `curl`하면 `200`이다. (2) 공인 IP나 테일넷 밖 경로로는 연결이 실패한다. 즉 `tailscale serve status`가 "Funnel"이 아니라 "tailnet only"로 뜬다 |
 | 인증 | 인스턴스마다 신원 방식 하나(`--auth`). 기본 `tailscale`은 테일넷이 경계이고 헤더로 누가 했는지 기록한다. 에이전트는 API 토큰(`limn token create`)을 쓴다. 서버 머신의 에이전트는 토큰 파일(`limn token create <이름> --save`)을 쓰고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0`을 둔다([instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일). 들어올 사람은 `--allow`·`--members-only`로, 바꿀 수 있는 일은 역할(`limn member`)로 좁힌다 |
 | 요청 경계 | 응답 전에 본문을 끝까지 읽고 오류 뒤에는 연결을 닫는다(요청 밀반입 차단). `Transfer-Encoding`은 거부한다. 교차 출처 `Origin`과 낯선 `Host`는 `403`이다. 본문 있는 POST는 JSON만 받는다. 상세는 [api.md](api.md) §요청 형식과 경계와 아래 'Host·Origin 검사' 절 |
-| 경로 | 핀과 스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다. 밖이면 `400`이다 |
+| 경로 | 핀과 스니펫이 가리킬 수 있는 파일은 `--manuscript` 트리 안뿐이다. 밖이면 `400`이다. 심볼릭 링크는 풀어서 보고, 트리 안이라도 점으로 시작하는 이름 아래(`.git`·`.env`·`.ssh`·`.latexmkrc` 등)는 트리가 아니다. 거절 이유는 트리 밖과 같다([api.md](api.md) §요청 형식과 경계) |
+| 응답 헤더 | 모든 응답에 `X-Frame-Options: DENY`와 `Content-Security-Policy: frame-ancestors 'none'`을 붙여 다른 사이트가 뷰어를 프레임에 넣지 못하게 한다(클릭재킹). CSP는 이 지시어 하나뿐이다. 쪽 이미지와 PDF는 `Cache-Control: private`이다 |
+| 접근 상태 파일 | `people.json`이 있는데 쓸 수 없으면 닫힌다. 헤더로 들어온 사람은 모두 `viewer`, `--members-only`는 `--allow`만 들이고, 서버는 그 파일을 다시 쓰지 않는다. `tokens.json`을 못 읽으면 토큰을 하나도 받지 않는다 |
+| 원고 저장소 | 믿는 코드로 다룬다. 본 빌드의 `latexmk`는 `-norc`도 격리도 없이 서버 계정으로 돌아 원고의 `latexmkrc`(Perl)를 실행한다. 푸시하는 사람을 모두 믿는 저장소만 가리키게 한다. 비교 PDF 빌드만 격리된다([build-sync.md](build-sync.md) §신뢰 가정 — 원고 저장소는 믿는 코드다) |
 | 종료 | 세션을 끝낼 때 `tailscale serve --https=<port> off` 등으로 노출을 내린다. 서버 프로세스를 계속 띄워 둘지는 사용자가 판단한다. 재사용 이점과 유휴 자원 비용의 트레이드오프다 |
 
 보안 제보 절차와 지원 범위는 [SECURITY.md](../../SECURITY.md)에 있다.
@@ -384,7 +387,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/rebuild | head -c 200   # state 가 
 
 `built_src_mtime.txt`가 쓰이는 자동 동기화 배지는 [build-sync.md](build-sync.md) §자동 동기화에서 설명한다.
 
-`people.json`과 `tokens.json`은 접근 제어의 상태다. `people.json`의 각 사람에게는 `role` 필드가 있을 수 있고(`owner`·`editor`·`viewer`·`agent`), 없으면 editor다. `tokens.json`에는 토큰 원문이 아니라 해시만 남으므로 토큰을 잃으면 새로 만든다. 두 파일 모두 권한 `0600` 으로 쓴다. 0.2.1 이전에 만든 `people.json` 을 남이 쓸 수 있으면 서버가 기동 때 `0600` 으로 좁히고 한 번 기록한다. 서버와 `limn token`·`limn member` 명령이 두 파일을 동시에 고칠 수 있어서 `.people.lock`·`.tokens.lock`으로 프로세스 사이 쓰기를 잠근다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 읽으므로 재시작이 필요 없다.
+`people.json`과 `tokens.json`은 접근 제어의 상태다. `people.json`의 각 사람에게는 `role` 필드가 있을 수 있고(`owner`·`editor`·`viewer`·`agent`), 없으면 editor다. `tokens.json`에는 토큰 원문이 아니라 해시만 남으므로 토큰을 잃으면 새로 만든다. 두 파일 모두 권한 `0600` 으로 쓴다. 0.2.1 이전에 만든 `people.json` 을 남이 쓸 수 있으면 서버가 기동 때 `0600` 으로 좁히고 한 번 기록한다. 서버와 `limn token`·`limn member` 명령이 두 파일을 동시에 고칠 수 있어서 `.people.lock`·`.tokens.lock`으로 프로세스 사이 쓰기를 잠근다. 돌고 있는 서버는 다음 요청부터 바뀐 내용을 읽으므로 재시작이 필요 없다. 권한만 바꿔도(`chmod`) 다시 읽는다.
+
+`people.json`이 있는데 쓸 수 없으면(읽기 권한 없음, 잘림, 빈 파일, 깨진 JSON, `{"people": [...]}`가 아닌 모양) 서버는 닫힌 쪽으로 동작한다. 헤더로 들어온 사람은 명단의 역할과 관계없이 모두 `viewer`이고, `--members-only`는 `--allow`에 있는 사람만 들이며, 방문을 기록하지 않아 파일을 다시 쓰지 않는다. stderr에 경고가 한 번 찍힌다. 예전에는 이런 파일을 빈 명단으로 읽어 모두를 `editor`로 들이고, 첫 방문자 한 명만 담아 덮어써 소유자까지 모든 역할을 지웠다. `limn member`도 같은 판단으로 이 파일을 고치기를 거부하므로 손으로 되살리거나 백업에서 돌려놓는다. 고치면 재시작 없이 다음 요청부터 원래 역할이 적용된다. 토큰과 `--auth local`의 소유자는 이 파일을 읽지 않아 영향이 없다. 전에 읽은 역할을 계속 쓰는 방법은 고르지 않았다. 답이 프로세스 이력에 달리고(재시작하면 바뀐다) `tokens.json`과도 어긋나기 때문이다.
 
 `audit.jsonl`(0.3.1)은 누가 되돌릴 수 없는 일을 했는지 남기는 감사 기록이다. 서버는 `/api/clear`·영구 삭제를, `limn token`·`limn member` 명령은 토큰 발급·폐기와 멤버 추가·역할 변경·제거를 명령을 돌린 OS 계정 이름으로 덧붙인다. `events.jsonl` 과 달리 회전하지 않으므로 오래 운영한 인스턴스에서는 필요할 때 옮겨 보관한다. 옛 버전은 이 파일을 읽지 않으므로 되돌려도 된다. 레코드 모양은 [api.md](api.md) §감사 기록 (`audit.jsonl`)에 있다.
 

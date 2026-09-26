@@ -7,6 +7,7 @@ Run: uv run pytest -q tests/test_people.py
 """
 
 import ast
+import io
 import json
 import os
 import stat
@@ -14,9 +15,20 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from limn import people
-from limn.people import PeopleBook, is_actor, known_people, load_people, people_text, record_person, valid_people
+from limn.people import (
+    PeopleBook,
+    PeopleUnreadable,
+    UnreadableWarning,
+    is_actor,
+    known_people,
+    load_people,
+    people_text,
+    record_person,
+    valid_people,
+)
 
 PEOPLE_PY = Path(people.__file__)
 
@@ -78,13 +90,24 @@ class Records(unittest.TestCase):
             + "\n",
         )
 
-    def test_a_missing_or_broken_file_reads_as_nobody(self):
-        """load_people() of a missing or non-JSON file is []."""
+    def test_a_missing_file_reads_as_nobody(self):
+        """load_people() of a file that does not exist is [] - a new instance has recorded no one yet."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(load_people(Path(tmp) / "people.json"), [])
+
+    def test_a_file_that_exists_but_cannot_be_used_is_unreadable_not_empty(self):
+        """Truncated or invalid JSON, bytes that are not UTF-8, an empty file, a document of another shape and a
+        directory are PeopleUnreadable naming the file - never [], which would read as "nobody has a role"."""
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "people.json"
-            self.assertEqual(load_people(p), [])
-            p.write_text("{", encoding="utf-8")
-            self.assertEqual(load_people(p), [])
+            for raw in (b'{"version": 1, "peo', b"{", b"\xff\xfe", b"", b"[]", b'{"version": 1}', b'{"people": {}}'):
+                p.write_bytes(raw)
+                got = load_people(p)
+                self.assertIsInstance(got, PeopleUnreadable, raw)
+                self.assertIn(str(p), got.reason, raw)
+            p.unlink()
+            p.mkdir()
+            self.assertIsInstance(load_people(p), PeopleUnreadable)
 
 
 class Known(unittest.TestCase):
@@ -124,7 +147,7 @@ class Write(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.book = PeopleBook(Path(self.tmp.name), threading.Lock(), {})
+        self.book = PeopleBook(Path(self.tmp.name), threading.Lock(), {}, UnreadableWarning())
 
     def rows(self):
         """people.json as stored now."""
@@ -177,6 +200,48 @@ class Write(unittest.TestCase):
         self.book.path.mkdir()
         self.assertFalse(record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         self.assertEqual(self.book.seen, {})
+
+
+class Unreadable(unittest.TestCase):
+    """record_person() never rewrites a people.json it cannot read: that would erase every role in it, the owner's too."""
+
+    def setUp(self):
+        """A state folder whose people.json held an owner and is now truncated."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.book = PeopleBook(Path(self.tmp.name), threading.Lock(), {}, UnreadableWarning())
+        self.good = people_text([{"login": "o@example.com", "name": "O", "role": "owner"}]).encode()
+        self.book.path.write_bytes(self.good[:-9])
+
+    def test_a_visit_writes_nothing_and_warns_once(self):
+        """Every visit returns False and leaves the bytes as they were; only the first prints the warning, and
+        nothing is memoised, so the visit is recorded next to the owner once the file reads again."""
+        broken = self.book.path.read_bytes()
+        with mock.patch("sys.stderr", io.StringIO()) as err:
+            for now in (0.0, 1.0, 2.0 + people.PEOPLE_TOUCH_S):
+                self.assertFalse(record_person(self.book, {"login": "a@example.com", "name": "A"}, now, None, "editor"))
+        self.assertEqual(self.book.path.read_bytes(), broken)
+        self.assertEqual(err.getvalue().count("warning:"), 1, err.getvalue())
+        self.assertIn(str(self.book.path), err.getvalue())
+        self.assertEqual(self.book.seen, {})
+        self.book.path.write_bytes(self.good)
+        self.assertTrue(record_person(self.book, {"login": "a@example.com", "name": "A"}, 3.0, None, "editor"))
+        rows = load_people(self.book.path)
+        self.assertEqual(
+            [(x["login"], x.get("role")) for x in rows], [("a@example.com", None), ("o@example.com", "owner")]
+        )
+
+    def test_a_new_breakage_after_a_good_read_warns_again(self):
+        """The warning is once per breakage, not once per process: a good read in between re-arms it."""
+        warning, path = self.book.warning, self.book.path
+        with mock.patch("sys.stderr", io.StringIO()) as err:
+            warning.note(path, load_people(path))
+            warning.note(path, load_people(path))
+            path.write_bytes(self.good)
+            warning.note(path, load_people(path))
+            path.write_bytes(b"{")
+            warning.note(path, load_people(path))
+        self.assertEqual(err.getvalue().count("warning:"), 2, err.getvalue())
 
 
 if __name__ == "__main__":

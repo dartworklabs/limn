@@ -4,7 +4,7 @@
 // it from the text (dropped if the name was deleted from the text). There is no external notification.
 const MENTION={ta:null,start:0,items:[],sel:0};
 function mentionQuery(ta){const pos=ta.selectionStart; if(pos==null||pos!==ta.selectionEnd)return null;
-  const m=/(^|[^0-9A-Za-z가-힣._@-])@([^\s@]{0,30})$/.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
+  const m=/(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0,pos)); return m?{start:pos-m[2].length-1,q:m[2]}:null;}
 function mentionMatches(q,people,meLogin){q=String(q||'').toLowerCase();
   const rows=people.filter(p=>p.login!==meLogin).map(p=>{const n=String(p.name||'').toLowerCase(),l=p.login.toLowerCase();
     const at=Math.min(...[n.indexOf(q),l.indexOf(q)].filter(i=>i>=0).concat([99]));
@@ -19,17 +19,27 @@ function mentionBadSettled(bad,text,q){if(!q)return bad; const w=q.q, before=Str
 function mentionClose(){MENTION.ta=null; $('#mention-pop').hidden=true;}
 // The line below the input field: who will be notified on save (resolved @names) and any '@word' that won't resolve
 // ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
-// known before saving whether a tag will actually become a notification. The rule matches the server's resolve_mentions() (see the fmtText comment).
-function mentionScan(text,hints){text=String(text||''); const toks=mentionToks(PEOPLE.map(p=>p.login)).map(x=>({t:x.t.toLowerCase(),lg:x.lg}));
+// known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
+// step (tests/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
+function mentionScan(text,hints){text=String(text||''); const toks=mentionTokens(PEOPLE);
   const hit=[],bad=[],low=text.toLowerCase(),hs=hints||new Set(); let first=null;
-  for(let i=0;i<text.length;i++){if(text[i]!=='@'||(i>0&&/[0-9A-Za-z가-힣._-]/.test(text[i-1])))continue;
+  for(let i=0;i<text.length;i++){if(text[i]!=='@'||mentionAfterWord(text,i))continue;
     const rest=low.slice(i+1); let got=null;
-    for(const x of toks){const t=x.t.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
-      if(!rest.startsWith(t))continue; const nx=rest.charAt(t.length); if(/[a-z0-9]$/.test(t)&&/[a-z0-9_]/.test(nx))continue;
-      const all=toks.filter(y=>y.t===x.t).map(y=>y.lg),pick=all.length===1?all:all.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
+    for(const x of toks){if(!rest.startsWith(x.t))continue;
+      const nx=rest.charAt(x.t.length); if(/[a-z0-9]$/.test(x.t)&&/[a-z0-9_]/.test(nx))continue;
+      const pick=x.lg.length===1?x.lg:x.lg.filter(l=>hs.has(l)); if(pick.length){got=pick;break;}}
     if(got){got.forEach(l=>{if(!hit.includes(l))hit.push(l);}); if(first===null&&!text.slice(0,i).trim())first=got[0];}
     else{const w=/^[^\s@]{1,30}/.exec(text.slice(i+1)); if(w&&!bad.includes(w[0]))bad.push(w[0]);}}
   return {hit,bad,first};}
+// The server's mention_tokens(): [{t, lg:[login...]}], longest first. The candidates of a person are the full name, the
+// login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than two
+// characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob' for
+// bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
+function mentionTokens(people){const by=new Map();
+  (people||[]).forEach(p=>{const lg=String(p.login),nm=String(p.name||''),w=nm.split(/\s+/).filter(Boolean);
+    [nm,lg,lg.split('@')[0]].concat(w.length>1?[w[0]]:[]).forEach(t=>{if([...t].length<2)return; const k=t.toLowerCase();
+      if(!by.has(k))by.set(k,new Set()); by.get(k).add(lg);});});
+  return [...by].map(([t,s])=>({t,lg:[...s].sort()})).sort((a,b)=>[...b.t].length-[...a.t].length);}
 // Assignee (docs/handbook/viewer.md §담당): who handles this pin. Default - if the note starts with a resolved @-tag, that
 // person; otherwise a question pin's first @-tag; otherwise the agent. I can never be picked (just as the server
 // excludes a tag mentioning me). With no @-tags, there's nothing to pick (the agent).
@@ -43,18 +53,20 @@ function assignSeg(people,value,act){if(!people.length)return '';
   return '<span class="as-lab">'+esc(tr('담당'))+'</span><div class="seg as-seg">'+opt('agent',esc(tr('에이전트')),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'))+
     people.map(l=>opt(l,'@'+esc(peopleName(l)),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)}))).join('')+'</div>';}
 // The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
+// Both assignee rows read the note with the hints the save carries (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW={v:'agent',touched:false};
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
-  const ppl=assignPeople(ta.value,ta._mentions);
-  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!=='agent'&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,ta._mentions); ASSIGN_NEW.touched=false;}
+  const hs=new Set(mentionHints(ta)),ppl=assignPeople(ta.value,hs);
+  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!=='agent'&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
   if(!ppl.length){ASSIGN_NEW.v='agent'; box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
 function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
-  const ppl=assignPeople(ta.value,ta._mentions,E.assignee);
+  const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);
   if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
 function mentionPreview(ta){if(!ta)return; const box=ta.nextElementSibling; if(!box||!box.classList.contains('m-preview'))return;
-  const r=mentionScan(ta.value,new Set(mentionHints(ta))),me=meLogin();   // the same hints the save/send carries r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
+  const r=mentionScan(ta.value,new Set(mentionHints(ta))),me=meLogin();   // the same hints the save/send carries
+  r.bad=mentionBadSettled(r.bad,ta.value,document.activeElement===ta?mentionQuery(ta):null);
   if(!r.hit.length&&!r.bad.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=(r.hit.length?'<span class="m-lab">'+ic('at-sign')+'알림</span>'+r.hit.map(l=>'<span class="mention'+(l===me?' me':'')+'">'+esc(peopleName(l))+(l===me?' '+esc(tr('(나 — 알림 없음)')):'')+'</span>').join(''):'')+
     r.bad.map(w=>'<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 이 뷰어를 연 테일넷 사람만 부를 수 있습니다">@'+esc(w)+'</span>').join('')+

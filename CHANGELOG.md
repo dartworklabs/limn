@@ -2,13 +2,73 @@
 
 ## Unreleased
 
-One server fix; the HTTP API and `pins.md` are unchanged.
+Three security fixes, one documented trust assumption, server and viewer fixes and an internal restructuring. The HTTP
+API's paths, fields and reason codes and `pins.md` are unchanged; the responses gain two headers and page images change
+their `Cache-Control`.
+
+### Security
+
+- **Dot-named files are not manuscript.** `GET /api/snippet`, `GET /api/overlaps`, `POST /api/pin`, an edit's `loc` and
+  a close's `changes` accepted any regular file under `--manuscript`, so any admitted principal, a `viewer` too, could
+  read `.git/config` or `.env` (`/api/snippet?file=.git/config&lo=1&hi=80`). A path whose part below the manuscript,
+  symlinks resolved, has a component starting with `.` is now outside the tree, refused with the existing
+  `400 file_outside_manuscript` / `change_outside_manuscript` and the same message. A stored pin or change pointing
+  there is no longer located (it becomes a pin outside the tree), so its lines are never read again. A manuscript file
+  that itself lives under a dot folder can no longer be pinned; `a.b.tex` and a `--manuscript` under `~/.local` are fine.
+- **An unusable `people.json` fails closed.** A `people.json` that existed but could not be read or parsed was read as
+  empty: everyone got the default role (`editor`, so a `viewer` gained edits), and the next visit rewrote the file with
+  only the visitor, erasing every role including the owner's. Now every header-identified person is a `viewer` while it
+  is unusable, `--members-only` admits only `--allow` logins, the server never rewrites the file and warns once on
+  stderr, and fixing the file (content or permissions) restores the roles on the next request. A document that is not
+  `{"people": [...]}` counts as unusable for the server too (before, only `limn member` refused it). Tokens and the
+  `--auth local` owner are unaffected.
+- **No framing.** Every response carries `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
+  (that directive only; scripts are not restricted). Page images (`/pages/page-N.png`) are now
+  `Cache-Control: private, max-age=600` instead of `public`, like the PDFs.
+- **Trust assumption documented.** The main LaTeX build runs `latexmk` without `-norc` or a sandbox, so a repository's
+  `latexmkrc` runs with the server's rights, and with `--git-pull` a push to `main` is built within a minute. SECURITY.md
+  and build-sync.md now say so: the manuscript repository is trusted code; comparison builds are sandboxed, the main
+  build is not. No behaviour change.
+
+### Fixes
 
 - **New-pin notices name the pin's own document (fix).** On an instance started with several `--doc`, the `mention`
   and `assigned` records a new line pin writes to `events.jsonl` carried the first document's key in `doc`, because
   they were made before the record had its `doc`; a notice about a pin in the second document opened the first one.
   They now carry the pin's document, like every other notice. Region pins, single-document instances and the other
   fields are unchanged; records already written are left as they are.
+- **No '등록된 사람이 아님' while a name is still being typed (fix).** The 2026-09-25 QA fix that holds the warning
+  for the `@word` under the caret had stopped running: a later edit left its statement at the end of a `//` comment in
+  `mentionPreview`. It runs again, and a test now fails when a viewer `//` comment ends in code.
+- **The viewer reads @-tags exactly as the server does (fix).** The preview line, the reply outcome and the assignee
+  choice now find the same people the server records ([viewer.md](docs/handbook/viewer.md) §@태그). A person whose name
+  or first word equals their login's local part (`Bob`, `bob@example.com`; `@Alice` for `alice@example.com`) was shown
+  as nobody, and an `@` right after a non-ASCII letter (`é@rlee`) was shown - and rendered in cards - as a tag the
+  server skips. The assignee row resolved the note with every login ever picked in the field instead of the hints the
+  save sends, so a pick edited down to a shared first word saved a pin handed to someone its note did not tag. A shared
+  corpus (tests/test_mentions_parity.py) now runs through both resolvers.
+
+### Internal
+
+- **Internal: the server is split into modules.** No change to the HTTP API, `pins.md`, the state directory or the
+  command line; each move was checked by a differential run against the code before it, in a separate process.
+  - `src/limn/server.py` is only the composition root: the run settings, the document list, the per-process locks and
+    caches, one-line wirings and the startup steps. The logic lives in modules of their own - the pure pin domain
+    (`limn/pins/`), the pin services (`limn/service/`), the pin store, build, location, access control, startup, and
+    the HTTP layer (`limn/web/`).
+  - Pin states are types (`OpenPin`, `ReviewPin`, `DonePin`, `TrashedPin`) that carry only their own fields; records
+    are still read and written byte for byte as before, guarded by a round-trip corpus of every record shape.
+  - Expected refusals are return values (`confirm()` returns `DonePin | AlreadyDone | PinStillOpen`); the HTTP layer
+    answers them with the same statuses, bodies and `reason` codes. Identity, admission and role checks still raise, so
+    a caller cannot miss a refusal.
+  - Request bodies and queries are parsed in `limn/web/parse.py`; there is no thread-local "current document" any more,
+    the handler passes the request's document to every service.
+  - The viewer's page, styles and scripts are build-free files in `src/limn/viewer/`, joined in `parts.txt` order into
+    the same single HTML page.
+  - New gates: Ruff lint and `ruff format --check`, ShellCheck, strict mypy over the whole package, `node --check` of
+    the viewer scripts, and a snapshot test of `pins.md` and the main API answers for one fixed pin flow.
+  - The Handbook states the current design only; `docs/handbook/code-style-roadmap.md` now holds the coding rules
+    R1–R10, and a test checks that Handbook section references and paths resolve.
 
 ## 0.3.5 — unreleased
 

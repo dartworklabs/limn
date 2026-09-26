@@ -115,6 +115,7 @@ def js_thread() -> str:
                 "reviewerLabel",
                 "peopleName",
                 "mentionToks",
+                "mentionAfterWord",
                 "reEsc",
                 "meLogin",
                 "pinRefExists",

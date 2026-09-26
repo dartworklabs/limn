@@ -4,11 +4,22 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작은 [operations.md](operations.md) §뷰어 사용법에 있다.
 
-구현은 네 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`, PDF가 바뀌었을 때 추적 빌드를 거는 `refresh_pdf_doc`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. `--git-pull` 과 원격 main 감시(2026-09-26 옮김)는 둘로 나뉜다. [`src/limn/pull.py`](../../src/limn/pull.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`src/limn/gitsync.py`](../../src/limn/gitsync.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. 둘 다 설정·문서·git 실행기·시계를 인자로 받고 서버를 모른다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`)과, 프로세스에 하나인 pull 나눠 쓰기(`PULL_SHARE`)·감시 상태(`SYNC_WATCH`)를 만들어 `limn/gitsync.py` 에 넘기는 연결(`repo_pull`·`sync_status`·`sync_main_once`)을 맡고, 감시 스레드와 보기 전용 PDF 감시 스레드를 시작한다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
+구현은 네 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`, PDF가 바뀌었을 때 추적 빌드를 거는 `refresh_pdf_doc`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. `--git-pull` 과 원격 main 감시는 둘로 나뉜다. [`src/limn/pull.py`](../../src/limn/pull.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`src/limn/gitsync.py`](../../src/limn/gitsync.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. 둘 다 설정·문서·git 실행기·시계를 인자로 받고 서버를 모른다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`)과, 프로세스에 하나인 pull 나눠 쓰기(`PULL_SHARE`)·감시 상태(`SYNC_WATCH`)를 만들어 `limn/gitsync.py` 에 넘기는 연결(`repo_pull`·`sync_status`·`sync_main_once`)을 맡고, 감시 스레드와 보기 전용 PDF 감시 스레드를 시작한다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
 
 > **한눈에**
 >
 > 재빌드는 동기(`POST /api/rebuild`)와 비동기(`?async=1` + `GET /api/build`) 두 경로가 같은 빌드 함수를 쓴다. `--git-pull` 을 켜면 빌드 전에 원격 main을 fast-forward로 당긴다. 에이전트용 응답은 로그를 줄여 보낸다. 뷰어는 쓰기가 없는 라이트 meta를 5초마다 폴링해 변화가 있을 때만 핀을 다시 읽는다. 핀 마크를 실선으로 그릴지 점선으로 그릴지는 서버가 빌드 지문으로 판정한다. 보기 전용 PDF는 빌드 대신 파일 변화를 감시한다.
+
+## 신뢰 가정 — 원고 저장소는 믿는 코드다
+
+본 빌드는 원고를 믿는 코드로 다룬다. 서버는 원고 사본에서 `latexmk -pdf -synctex=1 -interaction=nonstopmode <main>` 을 서버 계정의 권한으로 돌린다. `-norc` 를 주지 않고 격리(bwrap)도 없으므로, 원고 저장소에 든 `latexmkrc`·`.latexmkrc`(Perl)가 그 계정으로 그대로 실행되고, TeX은 배포판 기본값의 shell escape 설정으로 돈다. 원고 사본은 점 폴더도 함께 복사한다(§재빌드 (동기)). 그래서 **원고 저장소에 푸시할 수 있는 사람은 서버에서 코드를 돌릴 수 있다.** `--git-pull` 을 켜면 원격 `main` 에 푸시만 해도 1분 안에 자동 재빌드가 그것을 실행한다(§자동 확인). 끄더라도 editor·agent 의 재빌드 요청이나 다음 빌드에서 실행된다.
+
+- Limn은 푸시하는 사람을 모두 믿는 원고 저장소만 가리키게 한다. 자동 확인은 `main` 만 fast-forward 하므로 남의 PR 브랜치가 저절로 빌드되지는 않지만, `main` 에 머지되면 빌드된다.
+- 서버 계정에는 원고 빌드에 필요한 것만 둔다. 같은 계정의 다른 저장소 자격 증명이나 토큰 파일은 원고 쪽 코드가 읽을 수 있다.
+- 비교 PDF 빌드(`/api/revision-build`)는 다르다. 과거 커밋의 스냅샷을 `bwrap` 격리 안에서 `latexmk -norc -no-shell-escape` 로 돌려 원고의 `latexmkrc` 를 읽지 않고, 홈 디렉토리·원본 저장소·네트워크도 보이지 않는다([api.md](api.md) §실행 환경과 격리).
+- 본 빌드도 같은 방식(`-norc`, 격리)으로 돌리는 선택 인자는 나중의 후보다. 약속이 아니고 지금 동작은 그대로다. `latexmkrc` 에 기대는 원고가 있어서 기본값으로 켜면 그런 빌드가 깨진다.
+
+이 가정은 [SECURITY.md](../../SECURITY.md) §The manuscript repository is trusted code 와 [operations.md](operations.md) §보안 제약에도 적었다.
 
 ## 재빌드 (동기)
 
