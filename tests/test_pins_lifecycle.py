@@ -11,11 +11,11 @@ from pathlib import Path
 
 import limn.pins
 from limn.pins.lifecycle import (
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, ClaimClosedPin, ClaimedByOther, ClaimRequest, CloseRequest, NotClaimed,
+    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest, CloseRequest, NotClaimed,
     PinClosed, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds, confirm, confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply,
-    reopen_request, reopens_on_reply, thread_message, unclaim,
+    reopen_request, reopens_on_reply, thread_message, unclaim, drop, find_trashed, restore, NotInTrash,
 )
-from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, parse_pin
+from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
 PURE_IMPORTS = {"__future__", "collections.abc", "dataclasses", "typing", "limn.pins.model"}
@@ -310,6 +310,35 @@ class Claim(unittest.TestCase):
         cleared = unclaim(DonePin({"id": 1, "done": True, "claimed_by": {"login": "a"}, "claim_until": 1.0, "rev": 2}))
         self.assertEqual(cleared, DonePin({"id": 1, "done": True, "rev": 3}))
         self.assertEqual(unclaim(OpenPin({"id": 1, "claim_until": 1.0})), NotClaimed(OpenPin({"id": 1})))
+
+
+class Trash(unittest.TestCase):
+    """drop/find_trashed/restore: what the Trash keeps, which copy comes back, and when it cannot."""
+
+    def test_drop_keeps_the_record_without_its_claim_and_stamps_who_and_when(self):
+        """A claim is never left behind in the Trash; dropped_at/dropped_by go last."""
+        trashed = drop(OpenPin(open_record()), ALICE, AT)
+        self.assertNotIn("claimed_by", trashed.record)
+        self.assertEqual(list(trashed.record)[-2:], ["dropped_at", "dropped_by"])
+        self.assertEqual(trashed.record["dropped_by"], {"login": "alice@example.com", "name": "Alice Kim"})
+
+    def test_find_trashed_takes_the_newest_copy(self):
+        """A pin deleted twice comes back as its last copy; an id with no copy is NotInTrash."""
+        trash = [{"id": 3, "note": "old"}, {"id": 4}, {"id": 3, "note": "new"}]
+        self.assertEqual(find_trashed(trash, 3), TrashedPin({"id": 3, "note": "new"}))
+        self.assertEqual(find_trashed(trash, 9), NotInTrash(9))
+
+    def test_restore_brings_back_the_state_and_bumps_rev(self):
+        """dropped_at/by go, restored_at/by are recorded, rev goes up, and the pin is in the state it had."""
+        trashed = TrashedPin({**review_record(), "dropped_at": "t", "dropped_by": {"login": "x"}})
+        restored = restore(trashed, False, ALICE, AT)
+        self.assertIsInstance(restored, ReviewPin)
+        self.assertNotIn("dropped_at", restored.record)
+        self.assertEqual((restored.record["restored_at"], restored.record["rev"]), (AT, 3))
+
+    def test_restore_refuses_an_id_that_is_live(self):
+        """If the id is already among the live pins, nothing is restored."""
+        self.assertEqual(restore(TrashedPin({"id": 5}), True, ALICE, AT), AlreadyLive(5))
 
 
 class ThreadMessage(unittest.TestCase):

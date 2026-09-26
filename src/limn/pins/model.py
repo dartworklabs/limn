@@ -45,6 +45,12 @@ def parse_pin(record: Record) -> Pin:
 
 
 @dataclass(frozen=True)
+class TrashedPin:
+    """A deleted pin in the Trash (pins.dropped.jsonl): its last record plus dropped_at/dropped_by, restorable by id."""
+    record: Record
+
+
+@dataclass(frozen=True)
 class Person:
     """A human actor as stored in pins: login, display name, and an optional avatar URL for thread entries."""
     login: str

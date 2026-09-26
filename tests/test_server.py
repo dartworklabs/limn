@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn.mapping import find_level
-from limn.pins.lifecycle import AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
+from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 
 HERE = Path(__file__).resolve().parent
@@ -692,7 +692,7 @@ class Store(Base):
                 ps.restore_pin(pid, dict(ps.LOCAL_ACTOR))
         dropped, _ = ps.read_jsonl(ps.C.dropped)
         self.assertIn(pid, [r["id"] for r in dropped])
-        self.assertEqual(ps.restore_pin(pid, dict(ps.LOCAL_ACTOR))["id"], pid)
+        self.assertEqual(record_of(ps.restore_pin(pid, dict(ps.LOCAL_ACTOR)))["id"], pid)
         self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
@@ -5005,7 +5005,7 @@ class ClaimEta(Base):
             else:
                 ps.drop_pin(pid, self.A)
                 rec = ps.read_jsonl(ps.C.dropped)[0][-1]
-            for k in ps.CLAIM_FIELDS:
+            for k in CLAIM_FIELDS:
                 self.assertNotIn(k, rec, (how, k))
 
     def test_http_claim_with_eta(self):

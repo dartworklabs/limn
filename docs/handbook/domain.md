@@ -98,7 +98,7 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 핀에 `stale: true`가 붙는다. 상태는 열림 그대로다. stale 핀을 어떻게 다룰지는 §줄 번호 재동기화 (`anchor`)에 있다.
 
-전이의 실행 정본은 닫기·다시 열기의 규칙 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)의 `decide_close`·`evolve_close`·`decide_reopen`·`evolve_reopen`과 그것을 부르는 [`src/limn/server.py`](../../src/limn/server.py)의 `close_pin`·`reopen_pin`(입구 `set_done`), 답글의 규칙 `reopens_on_reply`·`decide_reply`·`evolve_reply`(같은 파일)와 그것을 부르는 `reply_pin`·`reply_reopens`, 확인의 규칙 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)의 `confirmer`·`confirm`과 그것을 부르는 `confirm_pin`, 처리 중 표시의 규칙 `claim`·`claim_open`·`unclaim`·`claim_holds`(같은 파일)와 그것을 부르는 `claim_pin`·`unclaim_pin`, `drop_pin`, `restore_pin`, `purge_pin`·`purge_trash`(휴지통), `clear_pins`, `pin_state`, 그리고 역할 검사 `check_role`이다. 요청·응답 필드는 [api.md](api.md) §검토 대기, §처리 중 표시, §닫을 때 사유 남기기, §핀 레코드 스키마를 본다.
+전이의 실행 정본은 닫기·다시 열기의 규칙 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)의 `decide_close`·`evolve_close`·`decide_reopen`·`evolve_reopen`과 그것을 부르는 [`src/limn/server.py`](../../src/limn/server.py)의 `close_pin`·`reopen_pin`(입구 `set_done`), 답글의 규칙 `reopens_on_reply`·`decide_reply`·`evolve_reply`(같은 파일)와 그것을 부르는 `reply_pin`·`reply_reopens`, 확인의 규칙 [`limn/pins/lifecycle.py`](../../src/limn/pins/lifecycle.py)의 `confirmer`·`confirm`과 그것을 부르는 `confirm_pin`, 처리 중 표시의 규칙 `claim`·`claim_open`·`unclaim`·`claim_holds`(같은 파일)와 그것을 부르는 `claim_pin`·`unclaim_pin`, 휴지통의 규칙 `drop`·`find_trashed`·`restore`(같은 파일, 휴지통의 핀은 `TrashedPin`)와 그것을 부르는 `drop_pin`, `restore_pin`, `purge_pin`·`purge_trash`, `clear_pins`, `pin_state`, 그리고 역할 검사 `check_role`이다. 요청·응답 필드는 [api.md](api.md) §검토 대기, §처리 중 표시, §닫을 때 사유 남기기, §핀 레코드 스키마를 본다.
 
 ## 역변환이 두 경로인 이유
 

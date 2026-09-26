@@ -63,12 +63,14 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    CLAIM_FIELDS, AgentCannotConfirm, AlreadyClosed, AlreadyDone, ClaimClosedPin, ClaimedByOther, ClaimRequest,
-    CloseRequest, NotClaimed, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds, confirm,
-    confirmer, decide_close, decide_reopen, decide_reply, evolve_close, evolve_reopen, evolve_reply, next_rev,
-    reopen_request, reopens_on_reply, thread_message, unclaim,
+    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest,
+    CloseRequest, NotClaimed, NotInTrash, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds,
+    confirm, confirmer, decide_close, decide_reopen, decide_reply, drop, evolve_close, evolve_reopen, evolve_reply,
+    find_trashed, next_rev, reopen_request, reopens_on_reply, restore, thread_message, unclaim,
 )
-from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, parse_pin  # noqa: E402
+from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
+    Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin,
+)
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
@@ -4965,7 +4967,7 @@ def confirm_pin(pid: int, actor: dict) -> DonePin | AlreadyDone | PinStillOpen |
     return transact(fn)[1]
 
 
-def drop_pin(pid: int, actor: dict) -> bool:
+def drop_pin(pid: int, actor: dict) -> TrashedPin | PinNotFound:
     """Removes a pin from pins.jsonl and moves it to the Trash (pins.dropped.jsonl). restore brings the same id back.
 
     The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
@@ -4975,14 +4977,13 @@ def drop_pin(pid: int, actor: dict) -> bool:
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
-            return False, False
+            return PinNotFound(pid), False
         rows.remove(r)
-        _clear_claim(r)                           # a claim is never left behind on delete either (§P0c-C)
-        gone = dict(r, dropped_at=now_str(), dropped_by=who(actor))
+        trashed = drop(parse_pin(r), typed_actor(actor), now_str())
         old, bad = read_jsonl(C.dropped)
-        write_dropped(_unexpired(old) + [gone], bad)
+        write_dropped(_unexpired(old) + [dict(trashed.record)], bad)
         evs.append(make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
-        return True, True
+        return trashed, True
     with PIN_LOCK:
         out = transact(fn)[1]
         emit_events(evs)
@@ -5054,21 +5055,22 @@ def maybe_purge_trash() -> int:
     return purge_trash(now)
 
 
-def purge_pin(pid: int, actor: dict) -> int | None:
+def purge_pin(pid: int, actor: dict) -> TrashedPin | NotInTrash:
     """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
-    Returns pid, or None (nothing written) if the pin is not in the Trash - an open or closed pin must be dropped
-    first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a `purged` line
+    Returns the purged entry, or NotInTrash (nothing written) if the pin is not in the Trash - an open or closed pin
+    must be dropped first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a `purged` line
     in audit.jsonl (v0.3.1, never rotated out) and a log line, since it cannot be undone."""
     with PIN_LOCK:
         rows, bad = read_jsonl(C.dropped)
-        if not any(r.get("id") == pid for r in _unexpired(rows)):
-            return None
+        found = find_trashed(_unexpired(rows), pid)
+        if isinstance(found, NotInTrash):
+            return found
         write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
         emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
     append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
     print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
     sys.stderr.flush()
-    return pid
+    return found
 
 
 # ---------------------------------------------------------------- In-progress marker (claim, §P0c-C)
@@ -5081,11 +5083,6 @@ def claim_active(r: dict) -> bool:
     return claim_holds(r, time.time())
 
 
-
-
-def _clear_claim(r: dict) -> None:
-    for k in CLAIM_FIELDS:
-        r.pop(k, None)
 
 
 def _claim_int(d: dict, key: str, lo: int, hi: int):
@@ -5160,39 +5157,37 @@ def unclaim_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotCla
     return transact(fn)[1]
 
 
-def restore_pin(pid: int, actor: dict) -> dict:
+def restore_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
     """Writes to pins.jsonl first, and only removes it from the dropped record once that succeeds.
 
     Reversing the order means a crash between the two writes makes the pin vanish from both files (observed).
     With this order, the worst case is "present in both", which is recoverable."""
     with PIN_LOCK:                                   # RLock - bundles transact and cleaning up the dropped record together
-        rec = transact(lambda rows: _restore(rows, pid, actor))[1]
+        result = transact(lambda rows: _restore(rows, pid, actor))[1]
+        if isinstance(result, (NotInTrash, AlreadyLive)):
+            return result                            # refused: the Trash file is left as it was
         old, bad = read_jsonl(C.dropped)
         write_dropped(_unexpired([r for r in old if r.get("id") != pid]), bad)
-        return rec
+        return result
 
 
 def _restore(rows: list, pid: int, actor: dict):
     """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into rows, re-synced and
-    with rel_path and the current file recorded (ADR-0006) -> (public pin, True). HTTPError 404 if the Trash has no such
-    pin, 409 if the id is already live; rows are unchanged then."""
+    with rel_path and the current file recorded (ADR-0006). The rule is limn.pins.lifecycle.restore(); NotInTrash
+    (404) and AlreadyLive (409) leave rows unchanged."""
     old, _ = read_jsonl(C.dropped)
-    hits = [r for r in _unexpired(old) if r.get("id") == pid]
-    if not hits:
-        raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
-    if find_pin(rows, pid) is not None:
-        raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
-    rec = dict(hits[-1])
-    rec.pop("dropped_at", None)
-    rec.pop("dropped_by", None)
-    rec["restored_at"] = now_str()
-    rec["restored_by"] = who(actor)
-    rec["rev"] = next_rev(rec)
+    trashed = find_trashed(_unexpired(old), pid)
+    if isinstance(trashed, NotInTrash):
+        return trashed, False
+    result = restore(trashed, find_pin(rows, pid) is not None, typed_actor(actor), now_str())
+    if isinstance(result, AlreadyLive):
+        return result, False
+    rec = dict(result.record)
     sync_all([rec])
     stamp_location(rec, C.src)                       # ADR-0006: a restored pin records where its file is now
     rows.append(rec)
     rows.sort(key=lambda r: r["id"])
-    return public(rec), True
+    return parse_pin(rec), True
 
 
 CLEAR_CONFIRM = "clear all pins"
@@ -6430,6 +6425,16 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _restore_answer(self, result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive) -> None:
+        """Answer POST /api/pins/{id}/restore: the pin back in the list, or 404/409 with the old messages."""
+        match result:
+            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
+                return self._json({"ok": True, "pin": public(record)})
+            case NotInTrash(pid=pid):
+                raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
+            case AlreadyLive(pid=pid):
+                raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
+
     def _claim_answer(self, result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int,
                       eta: int | None) -> None:
         """Answer POST /api/pins/{id}/claim: the pin and the ttl/eta actually applied (clamped values), or a 409."""
@@ -6753,11 +6758,11 @@ class Handler(BaseHTTPRequestHandler):
             if act == "confirm":
                 return self._confirm_reply(confirm_pin(pid, actor))
             if act == "drop":
-                return self._json({"ok": drop_pin(pid, actor)})
+                return self._json({"ok": isinstance(drop_pin(pid, actor), TrashedPin)})
             if act == "restore":
-                return self._json({"ok": True, "pin": restore_pin(pid, actor)})
+                return self._restore_answer(restore_pin(pid, actor))
             if act == "purge":                    # owner only (check_role)
-                if purge_pin(pid, actor) is None:
+                if isinstance(purge_pin(pid, actor), NotInTrash):
                     raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
                 return self._json({"ok": True, "purged": pid})
             if act == "edit":
