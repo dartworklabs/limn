@@ -46,8 +46,8 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/mark.py`](../../src/limn/mark.py) | 125 | Limn 마크(점에서 시작해 줄로 이어지는 한 획)의 기하 하나와 세 모양: 뷰어 인라인 SVG, 파비콘 SVG, 표준 라이브러리만으로 그리는 PNG. 순수하다 (`tests/test_brand.py`) |
 | [`src/limn/viewer/`](../../src/limn/viewer/index.html) | 3,616 | 뷰어 화면: `index.html`(172)·`app.css`(835)·`app.js`(2,609). 서버가 시작할 때 CSS·JS를 `index.html`에 끼워 한 장의 HTML로 내보낸다 |
 | [`src/limn/instances.sh`](../../src/limn/instances.sh) | 1,628 | 원고별 인스턴스 관리자 (`limn add` 등, systemd·tailscale 호출). GNU(Linux)와 BSD(macOS) 명령, bash 3.2에서 돈다 |
-| [`src/limn/migrate.py`](../../src/limn/migrate.py) | 242 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
-| [`src/limn/cli.py`](../../src/limn/cli.py) | 475 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
+| [`src/limn/migrate.py`](../../src/limn/migrate.py) | 271 | 이전 이름으로 설치된 인스턴스를 옮겨 오는 일회성 도구 |
+| [`src/limn/cli.py`](../../src/limn/cli.py) | 492 | `limn` 명령 입구. `serve`는 `server.main`, `migrate`는 `migrate.main`, `token`·`member`는 상태 디렉터리의 `tokens.json`·`people.json`을 직접 고치고(`token create --save`는 설정 폴더의 토큰 파일도 쓴다), 나머지는 `instances.sh`로 넘긴다 |
 | [`src/limn/ui_en.json`](../../src/limn/ui_en.json) | 954 | 뷰어의 한국어 UI 문자열 → 영어 대응표 |
 | `src/limn/vendor/` | — | 번들한 PDF.js와 Lucide 아이콘 (외부 CDN 없음) |
 
