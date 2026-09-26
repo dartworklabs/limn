@@ -42,12 +42,11 @@ from limn.web import parse
 from limn.web.errors import InputRejected
 
 from helpers import Base, ps, record_of, req
+from helpers_access import ALICE_ACTOR, BOB_ACTOR
 
 SERVICE_DIR = Path(service.__file__).parent
 T = 1790000000.0
 STAMP = "2026-09-26 10:00:00"
-ALICE = {"login": "alice@example.com", "name": "Alice Kim"}
-BOB = {"login": "bob@example.com", "name": "Bob Park"}
 AGENT = dict(LOCAL_ACTOR)
 
 
@@ -104,7 +103,7 @@ class ServiceBase(unittest.TestCase):
         self.lock = threading.RLock()
         self.store = PinStore(PinFiles(self.state), self.lock, valid, lambda rows: False, lambda rows: "md\n", Refused)
         self.rec = Recorder(self.lock)
-        self.people = {"alice@example.com": ALICE, "bob@example.com": BOB}
+        self.people = {"alice@example.com": ALICE_ACTOR, "bob@example.com": BOB_ACTOR}
         self.checked = [0.0]
         self.ctx = self.context()
         self.doc = SimpleNamespace(key="main", dir=self.state)
@@ -142,7 +141,7 @@ class ServiceBase(unittest.TestCase):
         p = Path(str(r.get("file") or ""))
         return PinLocation(p.relative_to(self.ms).as_posix(), p) if p.is_relative_to(self.ms) else None
 
-    def add(self, actor=ALICE, note="n", lo=1, hi=2):
+    def add(self, actor=ALICE_ACTOR, note="n", lo=1, hi=2):
         """A new open line pin by actor in main.tex -> its id."""
         place = LinePlace(
             {"file": str(self.tex), "name": "main.tex", "lo": lo, "hi": hi, "page": 1},
@@ -212,16 +211,16 @@ class Actors(unittest.TestCase):
         self.assertTrue(is_agent({}))
         self.assertTrue(is_agent(None))
         self.assertTrue(is_agent({"login": "agent:ci", "name": "ci"}))
-        self.assertFalse(is_agent(ALICE))
+        self.assertFalse(is_agent(ALICE_ACTOR))
 
     def test_typed_actor_keeps_a_picture_only_when_it_is_text(self):
         """An agent becomes Agent; a person Person with pic only for a non-empty string."""
         self.assertEqual(typed_actor({"login": "agent:ci", "name": "ci"}), Agent("agent:ci", "ci"))
         self.assertEqual(
-            typed_actor(dict(ALICE, pic="https://example.com/a.png")),
+            typed_actor(dict(ALICE_ACTOR, pic="https://example.com/a.png")),
             Person("alice@example.com", "Alice Kim", "https://example.com/a.png"),
         )
-        self.assertEqual(typed_actor(dict(ALICE, pic="")), Person("alice@example.com", "Alice Kim", None))
+        self.assertEqual(typed_actor(dict(ALICE_ACTOR, pic="")), Person("alice@example.com", "Alice Kim", None))
 
 
 class AddAndEdit(ServiceBase):
@@ -236,7 +235,9 @@ class AddAndEdit(ServiceBase):
             {"file": str(self.tex), "name": "main.tex", "lo": 2, "hi": 3, "page": 1},
             frozenset({"file", "lo", "hi", "page"}),
         )
-        pin = add_edit.add_pin(self.ctx, self.doc, AddRequest(place, "hi @Bob", assignee="bob@example.com"), ALICE)
+        pin = add_edit.add_pin(
+            self.ctx, self.doc, AddRequest(place, "hi @Bob", assignee="bob@example.com"), ALICE_ACTOR
+        )
         self.assertIsInstance(pin, OpenPin)
         stored = self.pin(1)
         self.assertEqual(
@@ -259,7 +260,7 @@ class AddAndEdit(ServiceBase):
         pid = self.add()
         before = self.pins_bytes()
         self.rec.emitted.clear()
-        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=5, note="new"), BOB)
+        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=5, note="new"), BOB_ACTOR)
         self.assertIsInstance(out, StaleEdit)
         self.assertEqual(self.pins_bytes(), before)
         self.assertEqual(self.rec.emitted, [[]])
@@ -267,7 +268,7 @@ class AddAndEdit(ServiceBase):
     def test_an_accepted_edit_is_written_in_place(self):
         """A note edit with the current base_rev rewrites the record, bumps rev and records who edited."""
         pid = self.add()
-        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=0, note="new"), BOB)
+        out = add_edit.edit_pin(self.ctx, pid, EditRequest(base_rev=0, note="new"), BOB_ACTOR)
         self.assertIsInstance(out, OpenPin)
         self.assertEqual(
             (self.pin(pid)["note"], self.pin(pid)["rev"], self.pin(pid)["edited_by"]["login"]),
@@ -276,7 +277,7 @@ class AddAndEdit(ServiceBase):
 
     def test_edit_of_a_missing_pin_is_a_named_miss(self):
         """No pin with the id: PinNotFound, nothing written."""
-        self.assertEqual(add_edit.edit_pin(self.ctx, 9, EditRequest(base_rev=0, note="x"), BOB), PinNotFound(9))
+        self.assertEqual(add_edit.edit_pin(self.ctx, 9, EditRequest(base_rev=0, note="x"), BOB_ACTOR), PinNotFound(9))
         self.assertEqual(self.pins_bytes(), b"")
 
 
@@ -291,14 +292,14 @@ class Transitions(ServiceBase):
         self.assertIsInstance(out, ReviewPin)
         self.assertEqual(self.rec.emitted[-1], [{"type": "review_requested", "pin": pid, "to": ["alice@example.com"]}])
         before = self.pins_bytes()
-        self.assertIsInstance(transitions.set_done(self.ctx, pid, True, BOB), AlreadyClosed)
+        self.assertIsInstance(transitions.set_done(self.ctx, pid, True, BOB_ACTOR), AlreadyClosed)
         self.assertEqual(self.pins_bytes(), before)
 
     def test_a_person_reply_on_a_closed_pin_reopens_it(self):
         """A person's untagged reply on a done pin is a reopen: the pin is open again and the author hears reopened."""
         pid = self.add()
-        transitions.set_done(self.ctx, pid, True, ALICE)
-        out = transitions.reply_pin(self.ctx, pid, "redo please", BOB)
+        transitions.set_done(self.ctx, pid, True, ALICE_ACTOR)
+        out = transitions.reply_pin(self.ctx, pid, "redo please", BOB_ACTOR)
         self.assertIsInstance(out, OpenPin)
         self.assertEqual(self.pin(pid)["thread"][-1]["ev"], "reopen")
         self.assertIn({"type": "reopened", "pin": pid, "to": ["alice@example.com"]}, self.rec.emitted[-1])
@@ -307,14 +308,14 @@ class Transitions(ServiceBase):
         """With thread_max replies already there the next is ThreadFull and pins.jsonl is unchanged."""
         pid = self.add()
         self.ctx = self.context(thread_max=1)
-        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "one", BOB), OpenPin)
+        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "one", BOB_ACTOR), OpenPin)
         before = self.pins_bytes()
-        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "two", BOB), ThreadFull)
+        self.assertIsInstance(transitions.reply_pin(self.ctx, pid, "two", BOB_ACTOR), ThreadFull)
         self.assertEqual(self.pins_bytes(), before)
 
     def test_reopen_of_a_missing_pin_is_a_named_miss(self):
         """set_done(done=False) on no pin is PinNotFound."""
-        self.assertEqual(transitions.set_done(self.ctx, 7, False, ALICE, reason="why"), PinNotFound(7))
+        self.assertEqual(transitions.set_done(self.ctx, 7, False, ALICE_ACTOR, reason="why"), PinNotFound(7))
 
     def test_an_agent_confirm_never_loads_the_store(self):
         """AgentCannotConfirm comes back before the store is read: a store whose re-sync would fail is never asked."""
@@ -330,9 +331,9 @@ class Transitions(ServiceBase):
         """Review -> done by a person; confirming again is refused and writes nothing."""
         pid = self.add()
         transitions.set_done(self.ctx, pid, True, AGENT)
-        self.assertIsInstance(transitions.confirm_pin(self.ctx, pid, ALICE), DonePin)
+        self.assertIsInstance(transitions.confirm_pin(self.ctx, pid, ALICE_ACTOR), DonePin)
         before = self.pins_bytes()
-        self.assertNotIsInstance(transitions.confirm_pin(self.ctx, pid, ALICE), DonePin)
+        self.assertNotIsInstance(transitions.confirm_pin(self.ctx, pid, ALICE_ACTOR), DonePin)
         self.assertEqual(self.pins_bytes(), before)
 
 
@@ -344,7 +345,7 @@ class Claims(ServiceBase):
         pid = self.add()
         self.assertIsInstance(claim.claim_pin(self.ctx, pid, AGENT, 30), OpenPin)
         before = self.pins_bytes()
-        self.assertIsInstance(claim.claim_pin(self.ctx, pid, BOB, 30), ClaimedByOther)
+        self.assertIsInstance(claim.claim_pin(self.ctx, pid, BOB_ACTOR, 30), ClaimedByOther)
         self.assertEqual(self.pins_bytes(), before)
         self.assertEqual(self.pin(pid)["claim_until"], T + 30 * 60)
 
@@ -352,10 +353,10 @@ class Claims(ServiceBase):
         """unclaim clears the marker; a second unclaim is NotClaimed with the file unchanged."""
         pid = self.add()
         claim.claim_pin(self.ctx, pid, AGENT, 30)
-        self.assertIsInstance(claim.unclaim_pin(self.ctx, pid, BOB), OpenPin)
+        self.assertIsInstance(claim.unclaim_pin(self.ctx, pid, BOB_ACTOR), OpenPin)
         self.assertNotIn("claimed_by", self.pin(pid))
         before = self.pins_bytes()
-        self.assertIsInstance(claim.unclaim_pin(self.ctx, pid, BOB), NotClaimed)
+        self.assertIsInstance(claim.unclaim_pin(self.ctx, pid, BOB_ACTOR), NotClaimed)
         self.assertEqual(self.pins_bytes(), before)
 
 
@@ -385,14 +386,14 @@ class Trash(ServiceBase):
         """drop takes the pin out of pins.jsonl into the Trash and tells its author; restore puts it back, removes it
         from the Trash, and refuses a second restore (NotInTrash) without touching the Trash file."""
         pid = self.add()
-        self.assertIsInstance(trash.drop_pin(self.ctx, pid, BOB), TrashedPin)
+        self.assertIsInstance(trash.drop_pin(self.ctx, pid, BOB_ACTOR), TrashedPin)
         self.assertIsNone(self.pin(pid))
         self.assertEqual([r["id"] for r in self.store.read_dropped()[0]], [pid])
         self.assertEqual(self.rec.emitted[-1], [{"type": "dropped", "pin": pid, "to": ["alice@example.com"]}])
-        self.assertIsInstance(trash.restore_pin(self.ctx, pid, ALICE), OpenPin)
+        self.assertIsInstance(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), OpenPin)
         self.assertEqual(self.store.read_dropped()[0], [])
         trash_before = self.store.files.dropped.read_bytes()
-        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE), NotInTrash(pid))
+        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), NotInTrash(pid))
         self.assertEqual(self.store.files.dropped.read_bytes(), trash_before)
 
     def test_restore_of_a_pin_that_is_live_again_is_refused(self):
@@ -400,7 +401,7 @@ class Trash(ServiceBase):
         pid = self.add()
         self.store.write_dropped([dict(self.pin(pid), dropped_at=STAMP)])
         pins, dropped = self.pins_bytes(), self.store.files.dropped.read_bytes()
-        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE), AlreadyLive(pid))
+        self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), AlreadyLive(pid))
         self.assertEqual((self.pins_bytes(), self.store.files.dropped.read_bytes()), (pins, dropped))
 
     def test_purge_trash_drops_expired_entries_and_restarts_the_hourly_clock(self):
@@ -418,14 +419,14 @@ class Trash(ServiceBase):
         """A permanent delete removes the entry, emits `purged` and appends the audit line after releasing the lock;
         a pin not in the Trash is NotInTrash with no audit."""
         pid = self.add()
-        trash.drop_pin(self.ctx, pid, ALICE)
-        self.assertIsInstance(trash.purge_pin(self.ctx, pid, ALICE), TrashedPin)
+        trash.drop_pin(self.ctx, pid, ALICE_ACTOR)
+        self.assertIsInstance(trash.purge_pin(self.ctx, pid, ALICE_ACTOR), TrashedPin)
         self.assertEqual(self.store.read_dropped()[0], [])
         self.assertEqual(
             self.rec.emitted[-1], [{"type": "purged", "to": [], "pin": pid, "by": {"login": "alice@example.com"}}]
         )
         self.assertEqual(self.rec.audits, [("purged", "alice@example.com", {"pin": pid}, True)])
-        self.assertEqual(trash.purge_pin(self.ctx, pid, ALICE), NotInTrash(pid))
+        self.assertEqual(trash.purge_pin(self.ctx, pid, ALICE_ACTOR), NotInTrash(pid))
         self.assertEqual(len(self.rec.audits), 1)
 
     def test_clear_archives_and_is_audited_as_the_agent_without_an_actor(self):
@@ -549,8 +550,8 @@ class CloseIdempotent(Base):
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
         pid = self.add()
-        p = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120))
-        self.assertEqual(p["claimed_by"], {"login": "alice@x.com", "name": "Wendy"})
+        p = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120))
+        self.assertEqual(p["claimed_by"], {"login": "alice@example.com", "name": "Wendy"})
         self.assertEqual(p["rev"], 1)
         self.assertTrue(ps.claim_active(self.pin(pid)))
 
@@ -562,16 +563,16 @@ class Claim(Base):
 
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        refused = ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120)  # answered 409 "claimed"
+        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        refused = ps.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120)  # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
-        self.assertEqual(refused.claimed_by["login"], "alice@x.com")
+        self.assertEqual(refused.claimed_by["login"], "alice@example.com")
         self.assertIsNotNone(refused.claim_until)
 
     def test_claim_same_identity_extends(self):
         pid = self.add()
-        first = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 5))
-        second = record_of(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 200))
+        first = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 5))
+        second = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 200))
         self.assertGreater(second["claim_until"], first["claim_until"])
         self.assertEqual(second["rev"], first["rev"] + 1)
 
@@ -579,7 +580,7 @@ class Claim(Base):
         pid = self.add()
         ps.set_done(pid, True, dict(LOCAL_ACTOR))
         # 409 "done"
-        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120), ClaimClosedPin)
+        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120), ClaimClosedPin)
 
     def test_claim_missing_pin_id_returns_none(self):
         self.assertEqual(ps.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))
@@ -596,20 +597,20 @@ class Claim(Base):
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
         rows = ps.snapshot_pins()
         for r in rows:
             if r["id"] == pid:
                 r["claim_until"] = time.time() - 10
         ps.write_pins(rows)
         self.assertFalse(ps.claim_active(self.pin(pid)))
-        p = record_of(ps.claim_pin(pid, {"login": "bob@x.com", "name": "Bob"}, 120))
-        self.assertEqual(p["claimed_by"]["login"], "bob@x.com")
+        p = record_of(ps.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120))
+        self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
 
     def test_unclaim_clears_fields_regardless_of_requester(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
-        p = record_of(ps.unclaim_pin(pid, {"login": "bob@x.com", "name": "Bob"}))
+        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        p = record_of(ps.unclaim_pin(pid, {"login": "bob@example.com", "name": "Bob"}))
         self.assertNotIn("claimed_by", p)
         self.assertNotIn("claimed_at", p)
         self.assertNotIn("claim_until", p)
@@ -647,21 +648,21 @@ class Claim(Base):
 
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@x.com", "name": "Wendy"}, 120)
+        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
         rows, bad = ps.read_jsonl(ps.C.pins_jsonl)
         self.assertEqual(bad, [])
         self.assertIn("claimed_by", find_pin(rows, pid))
 
     def test_http_claim_then_conflict_then_unclaim(self):
         pid = self.add()
-        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@x.com", "Tailscale-User-Name": "Wendy"}
+        h1 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Wendy"}
         out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h1))
         self.assertIn(b" 200 ", out)
-        h2 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "bob@x.com", "Tailscale-User-Name": "Bob"}
+        h2 = {"Host": "127.0.0.1:18999", "Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob"}
         out = self.talk(req("POST", "/api/pins/%d/claim" % pid, headers=h2))
         self.assertIn(b" 409 ", out)
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
-        self.assertEqual(body["claimed_by"]["login"], "alice@x.com")
+        self.assertEqual(body["claimed_by"]["login"], "alice@example.com")
         out = self.talk(req("POST", "/api/pins/%d/unclaim" % pid))
         self.assertIn(b" 200 ", out)
         self.assertFalse(ps.claim_active(self.pin(pid)))

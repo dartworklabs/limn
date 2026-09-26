@@ -31,7 +31,7 @@ from limn.guidance import UNAUTHENTICATED, shell_path
 from limn.pins import render as md_render
 
 from helpers import ps
-from test_access import AccessBase, get, token_create, token_revoke
+from helpers_access import AccessBase, get, token_create, token_revoke
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

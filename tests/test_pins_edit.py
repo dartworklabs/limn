@@ -31,7 +31,7 @@ from limn.pins.edit import (
 )
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin
 
-ALICE = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
+ALICE_PERSON = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AGENT = Agent("local", "로컬/에이전트")
 AT = "2026-09-26 10:00:00"
 NOTE_MAX = 2000
@@ -62,7 +62,7 @@ def line_record(**extra):
 
 def decide(pin, count=None, clock="10:00", **fields):
     """decide_edit() on an EditRequest with the given fields, by Alice at AT."""
-    return decide_edit(pin, EditRequest(**fields), ALICE, AT, clock, count, NOTE_MAX)
+    return decide_edit(pin, EditRequest(**fields), ALICE_PERSON, AT, clock, count, NOTE_MAX)
 
 
 def edited(**fields):
@@ -71,7 +71,7 @@ def edited(**fields):
         note=None, place=None, lines=None, range_changed=False, scope=None, kind=None, kind_req=None, assignee=None
     )
     base.update(fields)
-    return PinEdited(ALICE, AT, **base)
+    return PinEdited(ALICE_PERSON, AT, **base)
 
 
 class DecideEdit(unittest.TestCase):
@@ -214,7 +214,8 @@ class EvolveEdit(unittest.TestCase):
         self.assertEqual((out.record["note"], out.record["kind_req"], out.record["rev"]), ("new", "question", 3))
         self.assertNotIn("mentions", out.record)
         self.assertEqual(
-            (out.record["edited_at"], out.record["edited_by"]), (AT, {"login": ALICE.login, "name": ALICE.name})
+            (out.record["edited_at"], out.record["edited_by"]),
+            (AT, {"login": ALICE_PERSON.login, "name": ALICE_PERSON.name}),
         )
         tagged = evolve_edit(
             OpenPin.from_record(line_record()), edited(note="@Bob"), None, None, ["bob@example.com"], None
@@ -235,7 +236,7 @@ class EvolveEdit(unittest.TestCase):
             out["thread"][-1],
             {
                 "id": 2,
-                "by": {"login": ALICE.login, "name": ALICE.name, "pic": ALICE.pic},
+                "by": {"login": ALICE_PERSON.login, "name": ALICE_PERSON.name, "pic": ALICE_PERSON.pic},
                 "at": AT,
                 "text": "담당: @Bob Park",
                 "ev": "assign",

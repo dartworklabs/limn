@@ -34,41 +34,24 @@ from limn.web import parse
 from limn.web.errors import SCOPE_REJECTIONS, scope_http_error
 
 from helpers import add_pin, extract_js_fn, ps, req, revision_spec, run_node, split_resp
-from test_access import ALICE, AccessBase, talk_to
-from test_qa_021 import BrowserBase, actor
+from helpers_access import (
+    ALICE,
+    BOB,
+    CAROL,
+    REPO_NEW as NEW,
+    REPO_OLD as OLD,
+    AccessBase,
+    ScopedRepo,
+    actor,
+    configure,
+    reset_access,
+    talk_to,
+)
+from helpers_browser import BrowserBase
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)
 
-OLD = """\\documentclass{article}
-\\begin{document}
-\\section{Intro}
-Alpha paragraph talks about apples.
-
-Filler one.
-Filler two.
-Filler three.
-Filler four.
-
-Beta paragraph talks about bananas.
-
-Filler five.
-Filler six.
-Filler seven.
-Filler eight.
-
-Gamma paragraph talks about cherries.
-\\end{document}
-"""
-# One commit touching three pins: alpha grows by a line (shifting everything below by +1), beta is rewritten, gamma is deleted.
-NEW = (
-    OLD.replace(
-        "Alpha paragraph talks about apples.\n",
-        "Alpha paragraph talks about apples and pears.\nA second alpha sentence.\n",
-    )
-    .replace("Beta paragraph talks about bananas.", "Beta paragraph talks about blueberries.")
-    .replace("Gamma paragraph talks about cherries.\n", "")
-)
 # The -U0 hunks git prints for OLD -> NEW (checked against real git in GitBlocks below).
 U0 = (
     b"@@ -4 +4,2 @@\n-Alpha paragraph talks about apples.\n+Alpha paragraph talks about apples and pears.\n+A second alpha sentence.\n"
@@ -712,62 +695,6 @@ class CloseChanges(AccessBase):
 # ---------------------------------------------------------------- 3. the pin-scoped source diff and comparison PDF (server)
 
 
-class ScopedRepo(AccessBase):
-    """A git repo whose second commit fixes three pins at once (alpha: recorded `changes`; beta and gamma: inferred),
-    and a third commit that belongs entirely to a fourth pin."""
-
-    def setUp(self):
-        super().setUp()
-        if not shutil.which("git"):
-            self.skipTest("git not available")
-        self.repo = self.src.parent
-        self.main.write_text(OLD, encoding="utf-8")
-        self.git("init", "--quiet")
-        self.git("config", "user.email", "t@example.com")
-        self.git("config", "user.name", "T")
-        self.commit("first")
-        self.p1 = self.add(lo=4, hi=4, note="alpha")
-        self.p2 = self.add(lo=11, hi=11, note="beta")
-        self.p3 = self.add(lo=18, hi=18, note="gamma")
-        self.write(NEW)
-        self.fix = self.commit("fix three pins")
-        self.call(
-            "POST",
-            "/api/pins/%d/close" % self.p1,
-            {"ref": self.fix[:8], "changes": [{"file": "main.tex", "lo": 4, "hi": 5}]},
-        )
-        self.call("POST", "/api/pins/%d/close" % self.p2, {"ref": self.fix[:8]})
-        self.call("POST", "/api/pins/%d/close" % self.p3, {"ref": self.fix[:8]})
-        self.p4 = self.add(lo=8, hi=8, note="filler")
-        self.write(NEW.replace("Filler two.", "Filler two, reworded."))
-        self.solo = self.commit("fix the filler pin")
-        self.call("POST", "/api/pins/%d/close" % self.p4, {"ref": self.solo[:8]})
-
-    def git(self, *args):
-        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout
-
-    def write(self, text):
-        self.main.write_text(text, encoding="utf-8")
-        t = time.time() + 5
-        os.utime(self.main, (t, t))
-
-    def commit(self, msg):
-        self.git("add", "ms")
-        self.git("commit", "--quiet", "-m", msg)
-        return self.git("rev-parse", "HEAD").strip()
-
-    def diff(self, commit, pin=None):
-        q = "/api/revision-diff?commit=%s" % commit + ("&pin=%s" % pin if pin is not None else "")
-        return self.call("GET", q)
-
-    def diff_ok(self, commit, pin=None):
-        """The body of a revision-diff request that must succeed. A failure shows the server's answer; a 500 used to
-        surface only as KeyError: 'scope'."""
-        code, d = self.diff(commit, pin)
-        self.assertEqual(code, 200, d)
-        return d
-
-
 class ScopedSourceDiff(ScopedRepo):
     """GET /api/revision-diff?pin= over a real git repository."""
 
@@ -1246,7 +1173,7 @@ class ScopedPdf(ScopedRepo):
         self.assertEqual(revisions.revision_compile(revision_spec(both), whole, 60)["state"], "ready")
 
 
-class ReviewRegressions(AccessBase):
+class ScopeReviewRegressions(AccessBase):
     """Findings of the independent review of PR #13 (probes in /tmp/limn-rev13/probes, kept here as regressions)."""
 
     BASE = "".join("Line %d of the manuscript.\n" % i for i in range(1, 41))
@@ -1346,38 +1273,59 @@ class ReviewRegressions(AccessBase):
         self.assertLessEqual(max(len(sc.diff), len(sc.other_diff)), scoping.REVISION_DIFF_MAX + 1)
 
     def test_scope_computations_run_at_most_two_at_a_time(self):
-        """m3: cache misses read the commit on the request thread; at most SCOPE_SLOTS (2) do so at once."""
+        """m3: cache misses read the commit on the request thread; at most SCOPE_SLOTS (2) do so at once.
+
+        The commit read is held open until the test lets it go, so the two slots are provably taken together (no
+        reliance on two threads happening to overlap); only with all five requests started and both slots held is
+        the read released. The short wait for a third reader can only miss a defect, never fail a correct build."""
         pins = [self.add(lo=3 + i, hi=3 + i, note="p%d" % i) for i in range(5)]
         self.write(self.DOC.replace("Line 1 of", "Line ONE of"))
         X = self.commit("one change")
         base = self.git("rev-parse", X + "^").strip()
-        real, lock, now, peak = revisions.revision_changes, threading.Lock(), [0], [0]
+        real, cond = revisions.revision_changes, threading.Condition()
+        state = {"inside": 0, "peak": 0, "started": 0, "released": False}
 
-        def slow(*a, **k):
-            with lock:
-                now[0] += 1
-                peak[0] = max(peak[0], now[0])
-            time.sleep(0.3)
-            with lock:
-                now[0] -= 1
+        def held(*a, **k):
+            """The commit read, entered and counted, then held until the test releases every reader."""
+            with cond:
+                state["inside"] += 1
+                state["peak"] = max(state["peak"], state["inside"])
+                cond.notify_all()
+                cond.wait_for(lambda: state["released"], timeout=20)
+                state["inside"] -= 1
             return real(*a, **k)
 
         repo, paths = revisions.revision_scope(ps.DOCS[0])
         revs = revision_history(ps.DOCS[0])["revisions"]
         rows = ps.read_pins()[0]
-        with mock.patch.object(revisions, "revision_changes", side_effect=slow):
-            ts = [
-                threading.Thread(
-                    target=revisions.revision_pin_scope,
-                    args=(ps.DOCS[0], rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()),
-                )
-                for pid in pins
-            ]
+
+        def request(pid):
+            """One scoping request for pid, counted as started before it asks for a slot."""
+            with cond:
+                state["started"] += 1
+                cond.notify_all()
+            revisions.revision_pin_scope(
+                ps.DOCS[0], rows, repo, tuple(paths), base, X, pid, revs, ps.revision_context()
+            )
+
+        with mock.patch.object(revisions, "revision_changes", side_effect=held):
+            ts = [threading.Thread(target=request, args=(pid,)) for pid in pins]
             for t in ts:
                 t.start()
-            for t in ts:
-                t.join(20)
-        self.assertEqual(peak[0], 2)
+            try:
+                with cond:
+                    both = cond.wait_for(lambda: state["inside"] == 2 and state["started"] == len(pins), timeout=20)
+                    third = cond.wait_for(lambda: state["inside"] > 2, timeout=0.2)
+            finally:
+                with cond:
+                    state["released"] = True
+                    cond.notify_all()
+                for t in ts:
+                    t.join(20)
+        self.assertTrue(both, state)
+        self.assertFalse(third, state)
+        self.assertEqual(state["peak"], 2)
+        self.assertEqual(state["inside"], 0)
 
     def test_pins_with_the_same_blocks_share_one_comparison_pdf(self):
         """m4: the comparison is keyed by (commit, block set), not by pin - two pins on the same fix build once."""
@@ -1701,8 +1649,6 @@ class ScopedViewer(BrowserBase):
 
 
 # ---------------------------------------------------------------- 5. coordinator follow-ups (E2E re-run): events and the viewer's Trash
-
-from test_access import BOB, CAROL, configure, reset_access  # noqa: E402
 
 
 def load_v022():

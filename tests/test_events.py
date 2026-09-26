@@ -21,8 +21,8 @@ from limn.events import EventLog, events_since, make_event
 from limn.pins import render
 
 EVENTS_PY = Path(events.__file__)
-ALICE = {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"}
-BOB = "bob@example.com"
+ALICE_PICTURED = {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"}
+BOB_LOGIN = "bob@example.com"
 
 
 def who(actor):
@@ -65,19 +65,19 @@ class MakeEvent(unittest.TestCase):
     def test_the_actor_and_the_headerless_agent_are_never_recipients(self):
         """Recipients lose the actor, 'local', empty logins and repeats; none left means no notice."""
         r = {"id": 3, "doc": "appx"}
-        ev = notice("mention", r, ALICE, [BOB, ALICE["login"], "local", None, BOB])
+        ev = notice("mention", r, ALICE_PICTURED, [BOB_LOGIN, ALICE_PICTURED["login"], "local", None, BOB_LOGIN])
         self.assertEqual(
             ev,
             {
                 "type": "mention",
                 "pin": 3,
                 "doc": "appx",
-                "to": [BOB],
+                "to": [BOB_LOGIN],
                 "by": {"login": "alice@example.com", "name": "Alice Kim"},
             },
         )
-        self.assertIsNone(notice("mention", r, ALICE, [ALICE["login"], "local"]))
-        self.assertIsNone(notice("mention", r, ALICE, None))
+        self.assertIsNone(notice("mention", r, ALICE_PICTURED, [ALICE_PICTURED["login"], "local"]))
+        self.assertIsNone(notice("mention", r, ALICE_PICTURED, None))
 
     def test_who_and_doc_of_are_asked_only_for_a_notice(self):
         """With nobody to tell, neither lookup runs (a record without a doc never reaches doc_of)."""
@@ -86,22 +86,22 @@ class MakeEvent(unittest.TestCase):
             """A lookup that must not be called."""
             raise AssertionError("asked")
 
-        self.assertIsNone(make_event("mention", {}, ALICE, [], boom, boom, "local"))
+        self.assertIsNone(make_event("mention", {}, ALICE_PICTURED, [], boom, boom, "local"))
 
     def test_a_post_gives_msg_and_its_text_the_excerpt(self):
         """msg is the post's id; the excerpt is text when given, else the post's text, whitespace collapsed."""
         r = {"id": 1, "kind_req": "question"}
-        ev = notice("replied", r, ALICE, [BOB], msg={"id": 7, "text": "two\n  lines"})
+        ev = notice("replied", r, ALICE_PICTURED, [BOB_LOGIN], msg={"id": 7, "text": "two\n  lines"})
         self.assertEqual((ev["kind_req"], ev["msg"], ev["excerpt"]), ("question", 7, "two lines"))
-        ev = notice("mention", r, ALICE, [BOB], msg={"id": 7, "text": "post"}, text="note")
+        ev = notice("mention", r, ALICE_PICTURED, [BOB_LOGIN], msg={"id": 7, "text": "post"}, text="note")
         self.assertEqual(ev["excerpt"], "note")
-        self.assertNotIn("excerpt", notice("dropped", r, ALICE, [BOB], text="  "))
+        self.assertNotIn("excerpt", notice("dropped", r, ALICE_PICTURED, [BOB_LOGIN], text="  "))
 
     def test_the_excerpt_is_pins_md_one_line_rule_at_140_characters(self):
         """The excerpt is limn.pins.render.flat at EXCERPT_CHARS: whitespace collapsed, cut with an ellipsis."""
         r = {"id": 3, "doc": "main"}
         text = "a  b\n\tc " + "x" * 500
-        ev = notice("replied", r, ALICE, [BOB], text=text)
+        ev = notice("replied", r, ALICE_PICTURED, [BOB_LOGIN], text=text)
         self.assertEqual(ev["excerpt"], render.flat(text, events.EXCERPT_CHARS))
         self.assertEqual(len(ev["excerpt"]), events.EXCERPT_CHARS)
         self.assertTrue(ev["excerpt"].startswith("a b c x"))
@@ -111,22 +111,22 @@ class Since(unittest.TestCase):
     """events_since(): what one person's poll returns."""
 
     ROWS = [
-        {"seq": 1, "type": "mention", "to": [BOB], "by": {"login": "alice@example.com"}, "doc": "main"},
-        {"seq": 2, "type": "cleared", "to": [BOB], "by": {"login": "alice@example.com"}},
-        {"seq": 3, "type": "replied", "to": [BOB], "by": {"login": BOB}, "doc": "main"},
-        {"seq": 4, "type": "assigned", "to": [BOB, "c"], "by": {"login": "c"}, "doc": "gone"},
+        {"seq": 1, "type": "mention", "to": [BOB_LOGIN], "by": {"login": "alice@example.com"}, "doc": "main"},
+        {"seq": 2, "type": "cleared", "to": [BOB_LOGIN], "by": {"login": "alice@example.com"}},
+        {"seq": 3, "type": "replied", "to": [BOB_LOGIN], "by": {"login": BOB_LOGIN}, "doc": "main"},
+        {"seq": 4, "type": "assigned", "to": [BOB_LOGIN, "c"], "by": {"login": "c"}, "doc": "gone"},
     ]
 
     def test_ev_seq_only_without_a_cursor(self):
         """No cursor: just the latest seq (0 for an empty log)."""
-        self.assertEqual(events_since(self.ROWS, BOB, None, {}), {"ev_seq": 4})
-        self.assertEqual(events_since([], BOB, None, {}), {"ev_seq": 0})
+        self.assertEqual(events_since(self.ROWS, BOB_LOGIN, None, {}), {"ev_seq": 4})
+        self.assertEqual(events_since([], BOB_LOGIN, None, {}), {"ev_seq": 0})
 
     def test_notify_types_to_me_not_by_me_after_the_cursor(self):
         """Audit types and my own actions are left out; doc_name falls back to the doc key."""
-        got = events_since(self.ROWS, BOB, 0, {"main": "본문"})
+        got = events_since(self.ROWS, BOB_LOGIN, 0, {"main": "본문"})
         self.assertEqual([(e["seq"], e["doc_name"]) for e in got["events"]], [(1, "본문"), (4, "gone")])
-        self.assertEqual([e["seq"] for e in events_since(self.ROWS, BOB, 1, {})["events"]], [4])
+        self.assertEqual([e["seq"] for e in events_since(self.ROWS, BOB_LOGIN, 1, {})["events"]], [4])
         self.assertNotIn("doc_name", self.ROWS[0])  # the records are not changed
 
     def test_nobody_to_notify_gets_an_empty_list(self):
@@ -135,8 +135,8 @@ class Since(unittest.TestCase):
 
     def test_at_most_twenty_newest(self):
         """Only the newest EVENTS_SINCE_MAX matching events are returned."""
-        rows = [{"seq": i, "type": "mention", "to": [BOB], "by": {"login": "a"}} for i in range(1, 31)]
-        self.assertEqual([e["seq"] for e in events_since(rows, BOB, 0, {})["events"]], list(range(11, 31)))
+        rows = [{"seq": i, "type": "mention", "to": [BOB_LOGIN], "by": {"login": "a"}} for i in range(1, 31)]
+        self.assertEqual([e["seq"] for e in events_since(rows, BOB_LOGIN, 0, {})["events"]], list(range(11, 31)))
 
 
 class Log(unittest.TestCase):
