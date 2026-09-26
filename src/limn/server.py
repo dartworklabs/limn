@@ -32,14 +32,11 @@ import hmac
 import html
 import ipaddress
 import json
-import math
 import os
 import re
 import secrets
-import shlex
 import shutil
 import socket
-import struct
 import subprocess
 import sys
 import threading
@@ -70,7 +67,7 @@ from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
 )
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
-from limn.files import atomic_write, file_in_tree, store_lock  # noqa: E402 - after the path bootstrap above
+from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
 from limn import events, people  # noqa: E402 - after the path bootstrap above
 from limn.audit import AUDIT_FILE, append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
 from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
@@ -81,12 +78,15 @@ from limn.mentions import (  # noqa: E402 - after the path bootstrap above
 from limn.people import is_actor as _is_actor, people_text, valid_people as _valid_people  # noqa: E402
 from limn.store import PinFiles, PinStore, find_pin  # noqa: E402 - after the path bootstrap above
 from limn import revisions  # noqa: E402 - after the path bootstrap above
+from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound,
+    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts, to_source,
 )
+from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
+from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
 # The page directory on screen, a build's PDF and the build state are App members the handler calls with the request's
 # document (web/app.py); they are limn.build's own functions, bound here without a shell.
-from limn.build import build_pdf, cur_pages, state_snapshot as build_state_snapshot  # noqa: E402,F401
+from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as build_state_snapshot  # noqa: E402,F401
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
@@ -94,6 +94,11 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     truncate_quote,
 )
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
+from limn.guidance import UNAUTHENTICATED, loopback_refused_text, shell_path  # noqa: E402 - after the path bootstrap above
+# pins.md's renderer; server.py builds its input (pins_md_input).
+from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
+    DocHeading, PinFacts, PinsMdInput, pins_md_text as render_pins_md_text,
+)
 from limn.web.answers import CONFIRM_BY_HUMAN  # noqa: E402 - after the path bootstrap above
 from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
@@ -141,7 +146,6 @@ DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # PDF.js renders the PDF as vectors in the viewer (vendor/pdfjs/README.md). The version is also the ?v= value that busts the browser cache.
 PDFJS_VERSION = "6.3.289"
-VENDOR_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*\.mjs")
 VENDOR_MIME = {".mjs": "text/javascript; charset=utf-8"}
 
 # Viewer icons - Lucide (ISC, vendor/lucide/README.md). Only the <svg> inner elements of the icons in use are
@@ -465,29 +469,18 @@ def build_html(label: str, accent: str) -> str:
 # The build - page directories, build state, the LaTeX build, history, fingerprint - lives in limn/build.py and
 # takes the document and the settings it needs as arguments (docs/handbook/build-sync.md). Callers here pass the
 # document they act on and the run settings; only the tracked build (build_all/build_async) is wired here, because
-# it binds the instance's BuildConfig, --git-pull and the view-only render.
+# it binds the instance's BuildConfig, --git-pull and the view-only render. The PDF.js directory the viewer's vector
+# renderer is served from is bound here too; the name check of a file in it is limn.files.vendor_file.
 
 def default_pdfjs_dir() -> Path:
     """The PDF.js bundled with the package (limn/vendor/pdfjs)."""
     return Path(__file__).resolve().parent / "vendor" / "pdfjs"
 
 
-def vendor_file(name: str):
-    """The file GET /vendor/pdfjs/<name> serves. Accepts only a single (.mjs) name component and never points outside the directory.
-
-    The name pattern already filters out '/', '..', and '%', but resolve() adds a second check against
-    escaping via symlinks and the like."""
-    if not isinstance(name, str) or not VENDOR_FILE_RE.fullmatch(name) or ".." in name:
-        return None
-    base = C.pdfjs_dir or default_pdfjs_dir()
-    try:
-        base = base.resolve()
-        f = (base / name).resolve()
-    except (OSError, RuntimeError):
-        return None
-    if f.parent != base or not f.is_file():
-        return None
-    return f
+def vendor_file(name: str) -> Path | None:
+    """The file GET /vendor/pdfjs/<name> serves from this instance's PDF.js directory (--pdfjs-dir, else the bundled
+    one), or None (limn.files.vendor_file: a single .mjs name that stays inside the directory)."""
+    return find_vendor_file(C.pdfjs_dir or default_pdfjs_dir(), name)
 
 
 # ---------------------------------------------------------------- Build
@@ -531,9 +524,9 @@ def build_async(D: Doc) -> dict:
 
 
 def _build_tracked(D: Doc) -> dict:
-    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (_render_pdf_doc)
+    """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.build.render_pdf_doc)
     (limn.build.run_tracked). The step is looked up when the build runs, so a test that replaces _build sees it."""
-    step = (lambda: _render_pdf_doc(D)) if D.is_pdf else (lambda: _build(D))
+    step = (lambda: build.render_pdf_doc(D, build_config())) if D.is_pdf else (lambda: _build(D))
     return build.run_tracked(D, C.state, step, now_str())
 
 
@@ -593,125 +586,7 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None):
     return revisions.revision_pdf(D, commit, pin, revision_context())
 
 
-# ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
-
-def _tex_group(text: str, pos: int):
-    while pos < len(text) and text[pos].isspace():
-        pos += 1
-    if pos >= len(text) or text[pos] != "{":
-        return None
-    start, depth = pos + 1, 1
-    pos += 1
-    while pos < len(text):
-        if text[pos] == "\\":
-            pos += 2
-            continue
-        if text[pos] == "{":
-            depth += 1
-        elif text[pos] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:pos], pos + 1
-        pos += 1
-    return None
-
-
-def _tex_plain(text: str, depth: int = 0) -> str:
-    """Conservative display conversion, never a TeX evaluator; unsupported macros omit a label."""
-    if depth > 12 or len(text) > 4000:
-        raise ValueError("complex title")
-    out, i = [], 0
-    wrappers = {"textbf", "textit", "texttt", "textrm", "textsf", "textsc", "emph", "mbox", "ensuremath", "mathrm", "mathbf"}
-    while i < len(text):
-        c = text[i]
-        if c == "{":
-            group = _tex_group(text, i)
-            if not group:
-                raise ValueError("unbalanced title")
-            value, i = group
-            out.append(_tex_plain(value, depth + 1))
-        elif c == "\\":
-            match = re.match(r"\\([A-Za-z@]+|.)", text[i:])
-            if not match:
-                raise ValueError("bad macro")
-            macro = match[1]
-            i += len(match[0])
-            if macro in ("protect", "relax", "ignorespaces"):
-                continue
-            if macro in ("&", "%", "#", "_", "$", "{", "}"):
-                out.append(macro)
-            elif macro in (" ", ",", ";", "quad", "qquad", "enspace"):
-                out.append(" ")
-            elif macro in wrappers or macro == "texorpdfstring":
-                first = _tex_group(text, i)
-                if not first:
-                    raise ValueError("missing macro group")
-                value, i = first
-                if macro == "texorpdfstring":
-                    second = _tex_group(text, i)
-                    if not second:
-                        raise ValueError("missing PDF title")
-                    value, i = second
-                out.append(_tex_plain(value, depth + 1))
-            else:
-                raise ValueError("unsupported title macro")
-        elif c in "$^_}":
-            raise ValueError("unsupported math title")
-        else:
-            out.append(" " if c == "~" else c)
-            i += 1
-    return " ".join("".join(out).replace("---", "—").replace("--", "–").split())
-
-
-def outline_labels(D: Doc) -> dict:
-    pages = build.cur_pages(D)
-    result = {"build": pages.name, "labels": []}
-    if D.is_pdf:
-        return result
-    aux = pages / (D.main.stem + ".aux")
-    try:
-        if aux.is_symlink() or aux.stat().st_size > 4 * 1024 * 1024:
-            return result
-        source = aux.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return result
-    for match in re.finditer(r"\\@writefile\s*\{toc\}", source):
-        outer = _tex_group(source, match.end())
-        if not outer:
-            continue
-        line = outer[0]
-        marker = re.match(r"\s*\\contentsline\s*", line)
-        if not marker:
-            continue
-        groups, pos = [], marker.end()
-        for _ in range(4):
-            group = _tex_group(line, pos)
-            if not group:
-                break
-            value, pos = group
-            groups.append(value)
-        if len(groups) < 3 or groups[0] not in ("part", "chapter", "section", "subsection", "subsubsection", "paragraph", "subparagraph"):
-            continue
-        level, title, page = groups[:3]
-        number, anchor = "", groups[3] if len(groups) > 3 else ""
-        numberline = re.match(r"\s*(?:\\protect\s*)?\\numberline\s*", title)
-        if numberline:
-            group = _tex_group(title, numberline.end())
-            if not group:
-                continue
-            number, pos = group
-            title = title[pos:]
-        try:
-            row = {"number": _tex_plain(number), "title": _tex_plain(title), "page": _tex_plain(page),
-                   "level": level, "anchor": anchor[:200]}
-        except ValueError:
-            # Keep a placeholder so consumers cannot shift all subsequent numbers by index.
-            row = {"number": "", "title": "", "page": page[:40], "level": level, "anchor": anchor[:200]}
-        result["labels"].append(row)
-        if len(result["labels"]) >= 200:
-            break
-    return result
-
+# ---------------------------------------------------------------- --git-pull: the pull itself and the remote-main watch
 
 def git_pull_phase(manuscript: Path, main_only: bool = False) -> dict:
     """{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}.
@@ -890,60 +765,8 @@ def _build(D: Doc) -> dict:
 
 # ---------------------------------------------------------------- View-only PDF documents
 #
-# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild. Instead, when that PDF file changes
-# (mtime/size), the page images are re-rendered - since it goes through the same build path
-# (_build_tracked -> history/build_seq), the viewer updates the screen exactly as it would for a LaTeX rebuild.
-
-def pdf_signature(D: Doc):
-    try:
-        st = D.main.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return None
-
-
-def _render_pdf_doc(D: Doc) -> dict:
-    """The 'build' for view-only document D - renders the original PDF into page images. No LaTeX, SyncTeX, or git pull."""
-    t0 = time.time()
-    res = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
-    sig = pdf_signature(D)
-    if sig is None:
-        res["log"] = "PDF 가 없습니다: %s" % D.main
-        return res
-    try:
-        res["src_hash"] = build.doc_fingerprint(D, C.state)
-    except OSError:
-        res["src_hash"] = None
-    newdir, err = build.render_pages(D, D.main, [], C.dpi)
-    if newdir is None:
-        res["log"] = err
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        try:                                         # never retries the same file every 3 seconds - re-renders only when the file changes
-            atomic_write(D.dir / "pdf_sig.txt", sig)
-        except OSError:
-            pass
-        return res
-    res["head"] = build.commit_pages(D, newdir)
-    try:
-        atomic_write(D.dir / "pdf_sig.txt", sig)
-    except OSError:
-        pass
-    res.update(state="ok", ok=True, build=newdir.name, pages=len(list(newdir.glob("page-*.png"))),
-               elapsed_s=round(time.time() - t0, 1))
-    return res
-
-
-def pdf_changed(D: Doc) -> bool:
-    """Has the view-only PDF changed since the page images were last rendered (or have they never been rendered)?"""
-    sig = pdf_signature(D)
-    if sig is None:
-        return False
-    try:
-        done = (D.dir / "pdf_sig.txt").read_text().strip()
-    except OSError:
-        done = ""
-    return sig != done
-
+# A PDF with no LaTeX source (reviewer comments, etc.) has no rebuild; when that PDF file changes, its page images are
+# re-rendered through the same tracked build as a LaTeX rebuild (limn.build.render_pdf_doc, pdf_changed).
 
 def refresh_pdf_doc(D: Doc) -> bool:
     """If the PDF changed, re-render it in the background (does nothing if already rendering). True if it started."""
@@ -953,26 +776,11 @@ def refresh_pdf_doc(D: Doc) -> bool:
     return not r.get("busy")
 
 
-# ---------------------------------------------------------------- Meta
-
-def png_size(path: Path) -> tuple:
-    with path.open("rb") as fh:
-        return struct.unpack(">II", fh.read(24)[16:24])
-
-
-def page_list(pdir: Path, dpi: int | None = None) -> list:
-    """The page images of page directory pdir as {name, pt_w, pt_h}: sizes in points at the dpi they were rendered at
-    (default: this instance's). An unreadable image is left out."""
-    dpi = C.dpi if dpi is None else dpi
-    pages = []
-    for p in sorted(pdir.glob("page-*.png")):
-        try:
-            w, h = png_size(p)
-        except (OSError, struct.error):
-            continue
-        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
-    return pages
-
+# ---------------------------------------------------------------- Documents and meta
+#
+# The document list (DOCS, the first is the default) is this composition root's. The lookups over it are
+# limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
+# list and the run settings as arguments, bound here.
 
 _SRC_MTIME_CACHE: list = [None, 0.0, 0.0]     # [C.src string, value, measured-at time] - a 2-second cache (for a single document)
 # Single document (no --doc). Holds the module-global lock/state as-is, so the object the legacy code paths
@@ -991,140 +799,38 @@ def multi_doc() -> bool:
     return len(DOCS) > 1
 
 
-def doc_by_key(key):
-    return next((d for d in DOCS if d.key == key), None)
+def doc_by_key(key) -> Doc | None:
+    """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
+    return documents.doc_by_key(DOCS, key)
 
 
 def pin_doc_key(r: dict) -> str:
-    """The document key a pin belongs to. Legacy records without a doc field are read as the first document (no migration write)."""
-    k = r.get("doc")
-    return k if isinstance(k, str) and k else DOCS[0].key
+    """The document key a pin belongs to; a legacy record without a doc field is the first document's
+    (limn.documents.pin_doc_key)."""
+    return documents.pin_doc_key(r, DOCS)
 
 
-def doc_for_file(path) -> Doc:
-    """Which LaTeX document a request that only gave file (agent curl) belongs to. The document whose build root most deeply contains it, or the first document if none."""
-    try:
-        p = Path(path) if os.path.isabs(str(path)) else C.src / str(path)
-        p = p.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return DOCS[0]
-    best, depth = None, -1
-    for d in DOCS:
-        if d.is_pdf:
-            continue
-        try:
-            p.relative_to(d.src.resolve())
-        except (ValueError, OSError, RuntimeError):
-            continue
-        n = len(d.src.resolve().parts)
-        if n > depth:
-            best, depth = d, n
-    return best or DOCS[0]
-
-
-def pins_rev() -> str:
-    try:
-        st = C.pins_jsonl.stat()
-        return "%d:%d" % (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return "0"
-
-
-def doc_brief(D: Doc) -> dict:
-    """A summary of one document - used by /api/docs and (with multiple documents) /api/meta's docs. Never writes (called from polling)."""
-    b = build.state_snapshot(D)
-    stale = (not D.is_pdf) and build.source_newer(D, C.state) > 2
-    pdir = build.cur_pages(D)
-    n_pages = sum(1 for _ in pdir.glob("page-*.png")) if pdir.is_dir() else 0
-    return {"key": D.key, "name": D.name, "kind": D.kind, "view_only": D.is_pdf, "path": D.rel_path(),
-            "main": D.main.name, "stale_build": stale, "src_mtime": build.src_mtime(D, C.state),
-            "building": D.lock.locked(), "build": {"state": b["state"], "phase": b["phase"]},
-            "build_seq": b.get("seq", 0), "last_state": (b.get("last") or {}).get("state"),
-            "pages_build": pdir.name, "n_pages": n_pages}
+def meta_settings() -> MetaSettings:
+    """The run settings GET /api/meta reads, made per request like pin_store(), so a test (or main()) that changes C is
+    seen at once."""
+    return MetaSettings(state=C.state, pins_md=C.pins_md, pins_jsonl=C.pins_jsonl, label=C.label, accent=C.accent,
+                        repo=C.repo, dpi=C.dpi)
 
 
 def docs_payload() -> dict:
     """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
     rows, _ = read_pins()
-    counts: dict = {}
-    for r in rows:
-        if not r.get("done"):
-            k = pin_doc_key(r)
-            counts[k] = counts.get(k, 0) + 1
-    known = {d.key for d in DOCS}
-    return {"docs": [dict(doc_brief(d), n_open=counts.get(d.key, 0)) for d in DOCS],
-            "default": DOCS[0].key, "multi": multi_doc(),
-            "other_open": sum(v for k, v in counts.items() if k not in known)}
+    return meta_reads.docs_payload(DOCS, rows, pin_doc_key, C.state)
 
 
 def meta(D: Doc, actor: dict, light: bool = False) -> dict:
-    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer; with light (polling)
-    the pin counts are left out, and with them the sync write of snapshot_pins()."""
-
-    def read(f):
-        try:
-            return (D.dir / f).read_text().strip()
-        except OSError:
-            return "?"
-    bstate = build.state_snapshot(D)
-    sm = build.src_mtime(D, C.state)
-    newer = 0.0 if D.is_pdf else build.source_newer(D, C.state)     # view-only: the server re-renders on its own when the PDF changes
-    out = {"pages": page_list(build.cur_pages(D)), "built_at": read("built_at.txt"), "head": read("head.txt"),
-           "main": D.main.name, "pins_md": str(C.pins_md), "state_dir": str(C.state), "me": actor,
-           "label": C.label, "accent": C.accent, "repo": C.repo,
-           "building": D.lock.locked(), "sync": sync_status(),
-           "doc": D.key, "doc_name": D.name, "kind": D.kind, "view_only": D.is_pdf, "multi": multi_doc(),
-           # Is the manuscript newer than the PDF on screen - the server judges this numerically (independent of browser clock/timezone).
-           "stale_build": newer > 2, "src_age_s": round(max(0.0, time.time() - sm), 1) if sm else None,
-           "src_mtime": sm, "build_src_mtime": build.read_built_src_mtime(D),
-           "pages_build": build.cur_pages(D).name,
-           "pins_rev": pins_rev(),
-           # build_seq = number of finished builds, last_build = the most recently finished build (kept regardless of any build in progress).
-           "build_seq": bstate.get("seq", 0),
-           "last_build": bstate.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0},
-           "build": {"state": bstate["state"], "phase": bstate["phase"], "started_at": bstate.get("started_at")}}
-    if multi_doc():                       # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
-        out["docs"] = [doc_brief(d) for d in DOCS]
-        out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in out["docs"])
+    """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
+    light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
+    out = meta_reads.meta(D, actor, meta_settings(), DOCS, sync_status(), time.time())
     if light:                             # polling only - skips the sync write in snapshot_pins()
         return out
-    rows = snapshot_pins()
-    states = [pin_state(r) for r in rows]
-    out["n_open"] = states.count("open")
-    out["n_done"] = states.count("done")          # done only - awaiting review (done=true, review=true) is n_review
-    out["n_review"] = states.count("review")
+    out.update(meta_reads.pin_counts([pin_state(r) for r in snapshot_pins()]))
     return out
-
-
-# ---------------------------------------------------------------- Source-text access
-
-def tex_lines(path: Path) -> list:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return []
-
-
-def to_source(D: Doc, path: str) -> Path:
-    """Maps a path in document D's build copy (as SyncTeX reports it) back to the original checkout path."""
-    p = Path(path)
-    for base in (D.build, D.build.resolve()):
-        try:
-            return D.src / p.relative_to(base)
-        except ValueError:
-            pass
-    try:
-        return D.src / p.resolve().relative_to(D.build.resolve())
-    except (ValueError, OSError):
-        pass
-    # If the state directory was moved or cloned, synctex points at the old build path. If the path's tail
-    # matches a real file inside the manuscript tree, fall back to that (longest tail wins; never reads outside the tree).
-    parts = p.parts
-    for k in range(1, len(parts)):
-        cand = D.src.joinpath(*parts[k:])
-        if cand.is_file():
-            return cand
-    return p
 
 
 # ---------------------------------------------------------------- Reverse mapping 1: SyncTeX
@@ -1800,72 +1506,14 @@ def _person_name(login: str) -> str:
 
 
 def request_doc(key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
-    """The document key names (limn.web.parse.parse_doc_key checked it). With no key, the document holding file_hint
-    (agent curl names only a file), else the first document. An unknown key is DocNotFound with the keys this instance
-    serves (answered 404) - silently falling back to the first document would attach the pin to the wrong document."""
-    if not key:
-        if file_hint and multi_doc():
-            return doc_for_file(file_hint)
-        return DOCS[0]
-    D = doc_by_key(key)
-    if D is None:
-        return DocNotFound(key, tuple(d.key for d in DOCS))
-    return D
-
-
-class DocumentFacts:
-    """limn.web.parse.DocumentFacts for document D: what the location parsers read from this machine's disk - the
-    manuscript tree root, a file's lines, the pages of a build of D (sized at dpi). Made per request by
-    document_facts(); every method reads at call time."""
-
-    def __init__(self, D: Doc, root: Path, dpi: int) -> None:
-        """Bind the document, the manuscript root and the dpi the page images were rendered at."""
-        self._doc, self._root, self._dpi = D, root, dpi
-
-    @property
-    def key(self) -> str:
-        """The document key."""
-        return self._doc.key
-
-    @property
-    def is_pdf(self) -> bool:
-        """True for a view-only PDF document."""
-        return self._doc.is_pdf
-
-    @property
-    def pdf(self) -> Path:
-        """The document's main file (a view-only document's PDF)."""
-        return self._doc.main
-
-    @property
-    def root(self) -> Path:
-        """The manuscript tree."""
-        return self._root
-
-    def lines(self, path: Path) -> list:
-        """The file's lines (tex_lines: [] when unreadable)."""
-        return tex_lines(path)
-
-    def page_count(self, name: str | None) -> int:
-        """Pages of build `name` of D, or of the build on screen when name is None or gone (limn.build.pages_dir_for)."""
-        return len(page_list(build.pages_dir_for(self._doc, name), self._dpi))
-
-    def current_build(self) -> str:
-        """The name of D's page directory on screen."""
-        return build.cur_pages(self._doc).name
-
-    def pick_pages(self, name: str | None) -> tuple | None:
-        """(page directory, [(width, height) in points]) of build `name` of D - or the one on screen for None - or None
-        when name is a page directory of D that is gone."""
-        if name is not None and not (self._doc.dir / name).is_dir():
-            return None
-        pdir = build.pages_dir_for(self._doc, name) if name is not None else build.cur_pages(self._doc)
-        return pdir, [(p["pt_w"], p["pt_h"]) for p in page_list(pdir, self._dpi)]
+    """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
+    key it does not serve (limn.documents.request_doc)."""
+    return documents.request_doc(DOCS, C.src, key, file_hint)
 
 
 def document_facts(D: Doc) -> DocumentFacts:
-    """The parsing facts of document D with this instance's manuscript root and dpi - made per request like
-    pin_store(), so a test (or main()) that changes C is seen at once."""
+    """The parsing facts of document D (limn.documents.DocumentFacts) with this instance's manuscript root and dpi -
+    made per request like pin_store(), so a test (or main()) that changes C is seen at once."""
     return DocumentFacts(D, C.src, C.dpi)
 
 
@@ -2517,163 +2165,56 @@ def clear_pins(actor: dict | None = None) -> dict:
     return {"cleared": n, "archive": archive}
 
 
-def ceil5(minutes: float) -> int:
-    """Rounds minutes up to 5-minute steps (minimum 5). Same rule as the viewer's ceil5() - an estimate is approximate, so showing it to the minute would be false precision."""
-    return max(5, int(math.ceil(minutes / 5.0 - 1e-9)) * 5)
-
-
-def claim_md(r: dict, now: float = None) -> str:
-    """The in-progress marker for pins.md's number column - "처리 중(이름, 약 15분)". The remaining estimate is rounded up to 5-minute
-    steps, or "예상 초과" if exceeded; a legacy claim made without an estimate shows just the name. The lock auto-expiry time is never
-    used (it was misread as the estimated completion time)."""
-    now = time.time() if now is None else now
-    name = md_cell((r.get("claimed_by") or {}).get("name") or "?")
-    eta = r.get("eta_ts")
-    if not _is_num(eta):
-        return "처리 중(%s)" % name
-    left = (float(eta) - now) / 60.0
-    return "처리 중(%s, %s)" % (name, "약 %d분" % ceil5(left) if left > 0 else "예상 초과")
-
-
 def render_pins_md(rows: list) -> None:
     """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold PIN_LOCK."""
     pin_store().render_md(rows)
 
 
-def md_cell(v, newline: str = " ") -> str:
-    """One pins.md table cell. '|' would add a column and a newline would break the row - if a record value
-    went in as-is, the table would break (observed: kind 'env:x|y' produced an 8-column row). Every cell goes through this function."""
-    s = str("" if v is None else v).replace("\r\n", "\n").replace("\r", "\n")
-    return s.replace("|", "\\|").replace("\n", newline)
+def pins_md_text(rows: list, base: str | None = None) -> str:
+    """pins.md's text for rows: limn.pins.render.pins_md_text over pins_md_input(rows, base). The store renders with
+    this after every write (base None: the file on disk) and GET /pins.md with the request's base."""
+    return render_pins_md_text(pins_md_input(rows, base))
 
 
-def region_text_of(r: dict) -> str:
-    """A view-only pin's location text: "쪽 3, 영역 가로 12-55% 세로 30-48%"."""
-    fr = r.get("frac") if isinstance(r.get("frac"), list) and len(r["frac"]) == 4 else [0, 0, 0, 0]
-    try:
-        x, y, w, h = [float(v) * 100 for v in fr]
-    except (TypeError, ValueError):
-        x = y = w = h = 0.0
-    return "쪽 %s, 영역 가로 %d–%d%% 세로 %d–%d%%" % (r.get("page", "?"), round(x), round(x + w), round(y), round(y + h))
+def pins_md_input(rows: list, base: str | None = None) -> PinsMdInput:
+    """Everything one rendering of pins.md reads, gathered at the edge: the run settings in C, the documents and their
+    build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
+    file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
 
-
-def location_col(r: dict) -> str:
-    """Path relative to C.src - for a root file this equals the basename, so existing rows are unchanged.
-    A view-only PDF's pin has no line, so it's "쪽 N, 영역 ..." instead (the PDF path is in the document section header)."""
-    if is_region_pin(r):
-        return md_cell(region_text_of(r))
-    loc = pin_location(r, C.src)                     # ADR-0006: still relative after the checkout moved
-    name = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
-    return "`%s L%s-L%s`" % (md_cell(name),md_cell(r.get("lo")), md_cell(r.get("hi")))
-
-
-def range_label(r: dict) -> str:
-    """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines; otherwise the legacy kind.
-    Every branch escapes via md_cell (missing that on just the env branch used to be a bug)."""
-    if is_region_pin(r):
-        return "영역"
-    scope = r.get("scope")
-    if scope and str(scope).startswith("env"):
-        k = str(r.get("kind") or "")
-        return md_cell(k if k.startswith("env:") else "env:%s" % (k or "?"))
-    if scope == "para":
-        return "paragraph"
-    if scope in ("raw", "lines"):
-        return "lines"
-    return md_cell(r.get("kind") or "")
-
-
-def render_quote(r: dict) -> str:
-    """The «quote...» exception: only when the pin range is a single line, that line exceeds 600 characters, and scope is raw/para/absent.
-    Always attached for a view-only PDF's pin - with no line number, the region text is the agent's only clue to the source."""
-    if is_region_pin(r):
-        q = r.get("quote")
-        return "«%s» " % md_cell(q) if q else ""
-    scope = r.get("scope")
-    if scope not in (None, "raw", "para"):
-        return ""
-    lo, hi = r.get("lo"), r.get("hi")
-    if not (_is_int(lo) and _is_int(hi)) or lo != hi:
-        return ""
-    q = r.get("quote")
-    if not q:
-        return ""
-    loc = pin_location(r, C.src)
-    if loc is None:                                   # outside the tree: never read (the line would leak into pins.md)
-        return ""
-    lines = tex_lines(loc.path)
-    if not (1 <= lo <= len(lines)) or len(lines[lo - 1]) <= 600:
-        return ""
-    # q was already truncated by truncate_quote() when it was saved (an ellipsis is already attached if it
-    # was cut) - truncating again to 60 characters here would cut into that ellipsis and look
-    # double-truncated. Only the pipe character is escaped.
-    return "«%s» " % md_cell(q)
-
-
-LEGEND = ("표시: '#N 범위 안'·'#N과 같은 범위' = N과 한 번에 고치고 둘 다 닫는다 · '#N과 일부 겹침' = 참고만, 각자 처리해도 된다 · "
-          "'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다 · '수정됨' = 저장 뒤 메모·범위가 바뀜 · "
-          "'위치 잃음' = 위치를 되찾지 못함(네가 방금 고친 곳이면 확인 후 닫아도 된다) · "
-          "'질문' = 고칠 곳이 아니라 물음이다, 답글(reply)로 답하고 닫는다 · "
-          "'다시 열림' = 검토에서 되돌아온 핀, 메모 칸의 '다시 연 이유'대로 다시 고친다 · "
-          "'→ @이름' = 담당이 사람인 핀(담당 없는 옛 핀은 사람에게 물은 질문 핀), 사용자가 따로 시키지 않으면 건너뛴다 · "
-          "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
-          "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)")
-# v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
-TOKEN_GUIDANCE = ("에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H \"Authorization: Bearer $LIMN_TOKEN\" …`, "
-                  "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
-                  "헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · "
-                  "테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다")
-
-
-TOKEN_FILE_EXAMPLE = "~/.config/limn/<인스턴스>.token"   # the convention, shown when this server does not know its own file
-
-
-def shell_path(path: Path, home: Path | None) -> str:
-    """path as one word an agent's shell on this machine reads back: `~/<rest>` when it is under home and the rest has
-    only plain characters (the tilde still expands inside `$(cat ...)`), else the absolute path, shell-quoted."""
-    if home is not None:
-        try:
-            rest = path.relative_to(home)
-        except ValueError:
-            rest = None
-        if rest is not None and re.fullmatch(r"[A-Za-z0-9._/-]+", str(rest)):
-            return "~/%s" % rest
-    return shlex.quote(str(path))
-
-
-def token_file_curl(shown: str) -> str:
-    """The curl form an agent on this machine uses with the instance's token file (ADR-0007): the shell reads the
-    file at call time, so the text names the file and never carries the token."""
-    return "`curl -H \"Authorization: Bearer $(cat %s)\" …`" % shown
-
-
-def token_guidance_line(shown_file: str | None) -> str:
-    """The agent-auth line of pins.md: TOKEN_GUIDANCE as before, plus one clause when this machine's agents have a token
-    file to send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause
-    is appended after the old text, never woven in, so the line still starts with what agents already match."""
-    if not shown_file:
-        return TOKEN_GUIDANCE
-    return (TOKEN_GUIDANCE + " · 이 기기의 에이전트는 토큰 파일을 붙인다: " + token_file_curl(shown_file)
-            + "(파일 내용은 출력하지도 저장소에 옮기지도 않는다)")
-
-
-def loopback_refused_text(token_file: Path | None, exists: bool, home: Path | None) -> str:
-    """The 401 text for a headerless request from this machine when the loopback agent is off (--no-agent-loopback,
-    AGENT_LOOPBACK=0). The v0.2 text comes first, unchanged; then where this machine's agents get their token: the
-    instance's token file when the server knows it (token_file, and whether it exists), else the convention.
-    Pure: the caller stats the file and passes the home folder."""
-    shown = shell_path(token_file, home) if token_file is not None else TOKEN_FILE_EXAMPLE
-    text = ("%s 이 인스턴스는 헤더 없는 로컬 요청을 받지 않습니다(AGENT_LOOPBACK=0). 이 기기의 에이전트는 토큰 파일을 "
-            "붙이세요: %s" % (UNAUTHENTICATED, token_file_curl(shown)))
-    if not exists:
-        name = token_file.stem if token_file is not None and token_file.suffix == ".token" else "<인스턴스>"
-        text += " 파일이 없으면 소유자가 `limn token create %s --save` 로 만듭니다." % name
-    return text
+    Reads files (people.json, the build stamps, whether the token file exists, and the source file of each open
+    one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
+    rel = overlaps_by_id(rows)
+    by_id = {r["id"]: r for r in rows}
+    sources: dict = {}
+    facts = {}
+    for r in rows:
+        if pin_state(r) == "done":
+            continue
+        location, line_len = "", None
+        if not is_region_pin(r):
+            loc = pin_location(r, C.src)             # ADR-0006: still relative after the checkout moved
+            location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
+            lo, hi = r.get("lo"), r.get("hi")
+            if loc is not None and not r.get("done") and r.get("quote") and _is_int(lo) and _is_int(hi) and lo == hi:
+                if loc.path not in sources:          # outside the tree (loc None) is never read
+                    sources[loc.path] = tex_lines(loc.path)
+                lines = sources[loc.path]
+                line_len = len(lines[lo - 1]) if 1 <= lo <= len(lines) else None
+        facts[r["id"]] = PinFacts(
+            doc_key=pin_doc_key(r), location=location, line_len=line_len,
+            badge=rel_badge(rel.get(r["id"], []), by_id, r), reopened=pin_reopened_in_round(r),
+            addressed=tuple(addressed_to(r)), fyi=tuple(fyi_mentions_to(r)), round=tuple(thread_round(r)))
+    docs = tuple(DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d))
+                 for d in DOCS)
+    return PinsMdInput(
+        rows=rows, facts=facts, base=base, port=C.port, manuscript=str(C.src), label=C.label, repo=C.repo, docs=docs,
+        people=known_people(rows), now=time.time(), updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
+        token_file=existing_token_file_shown(C.agent_token_file))
 
 
 def existing_token_file_shown(f: Path | None) -> str | None:
-    """The shell path of token file f when it exists, else None - the edge half of token_guidance_line(): one stat
-    per render, never a read of the file."""
+    """The shell path of token file f when it exists, else None - the edge half of
+    limn.pins.render.token_guidance_line(): one stat per render, never a read of the file."""
     return shell_path(f, home_or_none()) if file_present(f) else None
 
 
@@ -2694,224 +2235,6 @@ def home_or_none() -> Path | None:
         return Path.home()
     except (RuntimeError, KeyError):
         return None
-
-
-REPLY_GUIDANCE = ("답글(0.2.2): 사람 신원으로 단 답글은 검토 대기·완료 핀을 다시 연다(답글이 다시 연 이유가 된다) — "
-                  "토큰 없이 사람 신원을 달고 가는 에이전트(테일넷 주소로 닫을 때 `\"review\":true` 를 넣는 경우, `--auth local` 의 "
-                  "헤더 없는 curl)는 답글 본문에 `\"reopen\":false` 를 넣는다 · 토큰을 쓰는 에이전트의 답글은 상태를 바꾸지 않는다")
-
-
-def claim_guidance(base: str) -> str:
-    """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
-    return ("처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
-            "%s/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 "
-            "잡는다 · 409 면 다른 쪽이 잡은 핀이니 건너뛴다 · 포기하면 `%s/api/pins/N/unclaim`" % (base, base))
-THREAD_MD_SHOW = 3                 # number of current-round thread posts shown in pins.md's note column (from the end)
-THREAD_MD_CHARS = 200              # character count for one of those posts - the full text is via GET /api/pins/N
-
-
-def _flat(s, n: int) -> str:
-    """Collapses whitespace/newlines to a single space and truncates at n characters (with an ellipsis if cut)."""
-    return truncate_quote(" ".join(str(s or "").split()), n)
-
-
-def thread_md(r: dict) -> str:
-    """The current round's thread (after the last close), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
-    Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
-    msgs = [m for m in thread_round(r) if m.get("ev") != "close" and (m.get("text") or not m.get("ev"))]
-    if not msgs:
-        return ""
-    shown = msgs[-THREAD_MD_SHOW:]
-    parts = []
-    for m in shown:
-        name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
-        label = "다시 연 이유(%s)" % name if m.get("ev") == "reopen" else "담당 바꿈(%s)" % name if m.get("ev") == "assign" else name
-        parts.append("%s: %s" % (label, _flat(m.get("text"), THREAD_MD_CHARS)))
-    more = len(msgs) - len(shown)
-    head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
-    return head + " " + " ⏎ ".join(parts)
-
-
-def review_md(rows: list, sectioned: bool) -> list:
-    """The "awaiting review" subsection at the bottom of pins.md - pins closed by an agent that a person hasn't confirmed yet. A
-    different 4-column table from the open table, so it's never misread as open pins. The expected confirmer is the author (anyone
-    can confirm, but the viewer suggests the author). No subsection at all if empty."""
-    if not rows:
-        return []
-    out = ["", "## 검토 대기 %d건 — 사람이 확인할 차례. 에이전트는 다시 처리하지 않는다(다시 열리면 위 열린 표로 돌아온다)" % len(rows),
-           "", "| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |", "|---|---|---|---|"]
-    for r in sorted(rows, key=lambda x: x["id"]):
-        syms = ["%s" % r.get("id")] + (["질문"] if r.get("kind_req") == "question" else [])
-        loc = location_col(r)
-        if sectioned:
-            loc = "`%s` · %s" % (md_cell(pin_doc_key(r)), loc)
-        who_ = (r.get("author") or {}).get("name") or (r.get("author") or {}).get("login") or "작성자 기록 없음"
-        ans = _flat(r.get("close_reply"), THREAD_MD_CHARS) or "(설명 없이 닫힘)"
-        if r.get("close_ref"):
-            ans += " (%s)" % _flat(r["close_ref"], 80)
-        out.append("| %s | %s | %s | %s |" % (md_cell(" · ".join(syms)), loc, md_cell(who_), md_cell(ans)))
-    return out
-
-
-def pins_md_text(rows: list, base: str | None = None) -> str:
-    """The summary an agent reads in one pass. Snippets are deliberately omitted -
-    given just a line range, an agent reading the source directly is always cheaper and more accurate.
-    Only %s is used as a format specifier - so a single malformed record never kills the whole summary.
-    Closed pins are never listed (only counted in the header line) - so pins.md's size doesn't grow as they pile up.
-
-    base (§P0c-B): the base URL the guidance line's close example uses. If omitted (the default path written
-    to disk), it's loopback, as now. GET /pins.md passes the value rewritten to the request Host - only when
-    it's a remote base does a "원격: curl ..." line get appended to the guidance paragraph (omitted for
-    loopback, since that means the file is already being read locally).
-
-    Multiple documents (§Multiple documents): kept as a single sheet, grouped into per-document subsections
-    (## name - key - path). With a single document and no open pins under any other document key, it keeps the old shape with no subsections."""
-    loopback_base = "http://127.0.0.1:%d" % C.port
-    is_remote = base is not None and base != loopback_base
-    base = base or loopback_base
-    openn = [r for r in rows if not r.get("done")]
-    reviewn = [r for r in rows if pin_state(r) == "review"]
-    n_done = len(rows) - len(openn) - len(reviewn)
-    rel = overlaps_by_id(rows)
-    by_id = {r["id"]: r for r in rows}
-
-    # §P0c-G: @name is prefixed to the note only when there are 2+ authors (by login; legacy pins with no author count as one group).
-    author_groups = set()
-    for r in openn:
-        a = r.get("author")
-        author_groups.add(a.get("login") if a and a.get("login") else None)
-    multi_author = len(author_groups) > 1
-
-    rows_by_doc: dict = {}
-    any_symbol = False
-    people = known_people(rows)
-    n_human = 0
-    for r in openn:
-        syms = []
-        # Number-column priority (reopened > -> @ > question): the most urgent signal to re-check goes leftmost.
-        if pin_reopened_in_round(r):
-            syms.append("다시 열림")
-        to = addressed_to(r)
-        if to:                                    # a pin handed to a person (assignee = a person, or a legacy pin's question @-tag) - an agent skips it
-            n_human += 1
-            syms.append("→ " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in to))
-        fyi = fyi_mentions_to(r)
-        if fyi:                                    # FYI @-tags - notification only, never skipped
-            syms.append("참고 " + ", ".join("@%s" % ((people.get(lg) or {}).get("name") or lg) for lg in fyi))
-        if r.get("kind_req") == "question":
-            syms.append("질문")
-        badge = rel_badge(rel.get(r["id"], []), by_id, r)
-        if badge:
-            syms.append(badge)
-        if claim_active(r):
-            syms.append(claim_md(r))
-        if r.get("edited_at"):
-            syms.append("수정됨")
-        if r.get("stale"):
-            syms.append("위치 잃음")
-        if syms:
-            any_symbol = True
-        idcol = md_cell(" · ".join(["%s" % r.get("id")] + syms))
-        note = md_cell(r.get("note") or "", newline=" ⏎ ")
-        th = thread_md(r)
-        if th:
-            note = (note + " ⏎ " if note else "") + md_cell(th)
-        if multi_author:
-            an = (r.get("author") or {}).get("name")
-            if an:                                 # '[name]' rather than '@name' - so it's never misread as an @-tag (observed)
-                note = "[%s] " % md_cell(an) + note
-        q = render_quote(r)
-        if q:
-            any_symbol = True
-            note = q + note
-        rows_by_doc.setdefault(pin_doc_key(r), []).append(
-            "| %s | %s | %s | %s | %s |" % (idcol, md_cell(r.get("page", 0)), location_col(r), range_label(r), note))
-
-    known = [d.key for d in DOCS]
-    sectioned = multi_doc() or any(k not in known[:1] for k in rows_by_doc)
-    n_region = sum(1 for r in openn if is_region_pin(r))
-
-    out = ["# 수정 요청 핀", "", "원고: `%s`" % C.src,
-           "논문: %s · 저장소: %s" % (C.label, C.repo or "(없음)")]
-    if not sectioned:
-        head_short, built_at = build.read_head(DOCS[0]), build.read_built_at(DOCS[0])   # the one document
-        if head_short and head_short != "-" and built_at:           # §P0c-D: omitted entirely if absent
-            out.append("기준: %s · 빌드 %s" % (head_short, built_at))
-            out.append("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
-    else:
-        parts = []
-        for d in DOCS:
-            parts.append("%s(`%s`%s) %d건" % (md_cell(d.name), d.key, ", 보기 전용" if d.is_pdf else "",
-                                              len(rows_by_doc.get(d.key, []))))
-        for k in rows_by_doc:
-            if k not in known:
-                parts.append("설정에 없는 문서(`%s`) %d건" % (md_cell(k), len(rows_by_doc[k])))
-        out.append("문서: " + " · ".join(parts))
-        out.append("핀은 아래 문서별 소절(`## 이름 · 키 · 경로`)로 묶였다 — 위치 칸의 경로는 `--manuscript` 기준. "
-                   "소절의 `기준:` 커밋이 다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인")
-    out.append("갱신: %s  ·  열린 핀 %d건  ·  %s닫힌 핀 %d건(뷰어의 '닫힌 핀'에서 확인)" %
-               (datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), len(openn),
-                "검토 대기 %d건(맨 아래, 처리하지 않는다)  ·  " % len(reviewn) if reviewn else "", n_done))
-    out.append("")
-    guidance = ("처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: "
-                "`curl -X POST -H 'Content-Type: application/json' "
-                "-d '{\"reply\":\"무엇을 고쳤는지(≤500자)\",\"ref\":\"PR #12 (커밋 해시)\","
-                "\"changes\":[{\"file\":\"main.tex\",\"lo\":12,\"hi\":14}]}' "
-                "%s/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 "
-                "커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. "
-                "핀마다 커밋을 나누면 더 좋지만 필수는 아니다) · "
-                "줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · "
-                "'질문' 핀은 원고를 고치지 말고(질문이 수정을 뜻할 때만 고친다) `curl -X POST -H 'Content-Type: application/json' "
-                "-d '{\"text\":\"답(≤1000자)\"}' %s/api/pins/N/reply` 로 답한 뒤 닫는다 · "
-                "에이전트가 닫은 핀은 완료가 아니라 검토 대기로 간다(사람이 뷰어에서 [확인]) — 테일넷 주소로 닫는 에이전트는 "
-                "요청이 사람 신원을 달고 가므로 본문에 `\"review\":true` 를 넣는다 · 검토 대기 핀은 다시 처리하지 않는다 · "
-                "에이전트는 확인(confirm)하지 않는다 — `/api/pins/N/confirm` 은 사람 신원(테일넷 헤더)이 없으면 403" % (base, base))
-    if n_human:
-        guidance += (" · 번호 칸에 `→ @이름` 이 붙은 핀 %d건은 담당이 사람인 핀이다 — 요청한 사용자가 그 핀을 "
-                     "명시적으로 시키지 않으면 건너뛴다(`참고 @이름`은 알림만 간 참고용 태그라 건너뛰지 않는다)" % n_human)
-    if is_remote:
-        guidance += " · 원격: `curl -s %s/pins.md`" % base
-    if C.repo:
-        guidance += (" · 처리 전 자기 체크아웃의 `git remote get-url origin` 이 위 저장소와 같은지 확인. "
-                      "다르면 다른 논문의 핀이니 멈춘다")
-    if n_region:
-        guidance += (" · 보기 전용 PDF 의 핀은 줄 번호가 없다 — 쪽·영역 글자(«…»)·메모로 무엇을 가리키는지 판단하고, "
-                     "고칠 곳은 LaTeX 문서에서 찾는다(못 찾으면 닫지 말고 보고)")
-    out.append(guidance)
-    out.append(claim_guidance(base))
-    out.append(token_guidance_line(None if is_remote else existing_token_file_shown(C.agent_token_file)))
-    out.append(REPLY_GUIDANCE)                    # v0.2.2: one more additive line
-    if any_symbol:
-        out.append(LEGEND)
-    header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]
-    if not sectioned:
-        rows_render = rows_by_doc.get(known[0], [])
-        out += [""] + header
-        out += rows_render if rows_render else ["| — | — | 열린 핀 없음 | | |"]
-        return "\n".join(out + review_md(reviewn, sectioned)) + "\n"
-    shown = 0
-    for d in DOCS:
-        rs = rows_by_doc.get(d.key)
-        if not rs:
-            continue
-        shown += 1
-        title = "## %s · `%s` · `%s`" % (md_cell(d.name), d.key, md_cell(d.rel_path()))
-        if d.is_pdf:
-            title += " — 보기 전용 PDF(줄 번호 없음)"
-        out += ["", title]
-        head_short, built_at = build.read_head(d), build.read_built_at(d)
-        if head_short and head_short != "-" and built_at:
-            out.append("기준: %s · %s %s" % (head_short, "그림" if d.is_pdf else "빌드", built_at))
-        out += [""] + header + rs
-    for k, rs in rows_by_doc.items():
-        if k in known:
-            continue
-        shown += 1
-        out += ["", "## 설정에 없는 문서 · `%s` — 이 뷰어의 --doc 목록에 없다. 처리 전에 사용자에게 확인" % md_cell(k),
-                ""] + header + rs
-    if not shown:
-        out += ["", "열린 핀 없음"]
-    return "\n".join(out + review_md(reviewn, sectioned)) + "\n"
 
 
 # ---------------------------------------------------------------- Selection resolution
@@ -3186,7 +2509,6 @@ TAILNET_HEADERLESS = ("신원 헤더 없는 원격 요청입니다(테일넷의 
                       "보내세요(`limn token create <인스턴스>`).")
 OWNER_POSTS = ("/api/clear",)               # bulk-destructive: only the owner (a person), and only with a confirmation
 OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")   # permanent delete from the Trash (v0.2.2): only the owner
-UNAUTHENTICATED = "신원을 확인할 수 없습니다 — 에이전트는 `Authorization: Bearer <토큰>` 을 보내세요(`limn token create <인스턴스>`)."
 
 
 class Principal(NamedTuple):
@@ -3815,9 +3137,9 @@ def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
     if D.root:
         build.migrate_pages(D)
     build.seed_builds(D, C.state)
-    need = D.is_pdf and (pdf_changed(D) or not page_list(build.cur_pages(D)))
+    need = D.is_pdf and (pdf_changed(D) or not build.page_list(build.cur_pages(D), C.dpi))
     if not D.is_pdf:
-        need = not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D))
+        need = not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi)
     if not need:
         return {"state": "skip"}
     return build_all(D) if wait else build_async(D)
@@ -4116,7 +3438,7 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
         D = DOCS[0]
         build.migrate_pages(D)
         build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
-        if not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
+        if not no_build or not build.cur_pdf(D).exists() or not build.page_list(build.cur_pages(D), C.dpi):
             r = build_all(D)
             if r.get("state") == "fail":
                 return StartupRefused("Build failed:\n" + r.get("log", ""))

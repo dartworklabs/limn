@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 
 from limn.pins.model import OpenPin, ReviewPin
+from limn.pins import render as md_render
 from limn import store as limn_store
 from limn.store import dump_jsonl
 from limn.events import EVENT_TYPES, NOTIFY_TYPES
@@ -950,10 +951,10 @@ class AgentAsPerson(AccessBase):
 
     def test_the_instruction_is_in_pins_md_skill_and_api(self):
         md = ps.pins_md_text(ps.snapshot_pins()).splitlines()
-        i = md.index(ps.TOKEN_GUIDANCE)
-        self.assertEqual(md[i + 1], ps.REPLY_GUIDANCE)                          # additive line after the token line
-        self.assertIn('`"reopen":false`', ps.REPLY_GUIDANCE)
-        self.assertIn("토큰 없이", ps.REPLY_GUIDANCE)
+        i = md.index(md_render.TOKEN_GUIDANCE)
+        self.assertEqual(md[i + 1], md_render.REPLY_GUIDANCE)                          # additive line after the token line
+        self.assertIn('`"reopen":false`', md_render.REPLY_GUIDANCE)
+        self.assertIn("토큰 없이", md_render.REPLY_GUIDANCE)
         for f, needle in ((ROOT / "skill" / "SKILL.md", '"reopen": false'), (ROOT / "skill" / "SKILL.ko.md", '"reopen": false'),
                           (ROOT / "docs" / "handbook" / "api.md", '"reopen": false')):
             text = f.read_text(encoding="utf-8")

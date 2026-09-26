@@ -38,21 +38,24 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 핀 조작·상태 계산 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`) | 상태·전이·레코드 필드 변경 | domain.md, api.md, architecture.md |
+| `src/limn/server.py` | 핀 조작·상태 계산 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`), `pins.md` 렌더 입력 조립(`pins_md_input`) | 상태·전이·레코드 필드 변경, 렌더가 읽는 값 변경 | domain.md, api.md, architecture.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
-| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드 | 상태·전이·거절 규칙 변경 | domain.md, code-style-roadmap.md |
+| `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드, `pins.md` 렌더(`render.py`: 입력 값 → 문자열) | 상태·전이·거절 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, api.md §pins.md 형식, code-style-roadmap.md |
+| `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
 | `src/limn/mapping.py` | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
 | `src/limn/server.py` | 역변환 실행 구역: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 저장된 핀 재동기화(`sync_all`) | 역변환 경로·재동기화 변경 | domain.md, build-sync.md |
-| `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |
-| `src/limn/server.py` | 빌드 셸·git pull·원격 main 감시·보기 전용 PDF·meta 구역: 요청의 문서로 빌드를 부르고 동기화 | 폴링·추정·동기화 규칙 변경 | build-sync.md |
-| `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 경로가 원고 트리 안의 파일인지 보는 규칙(`file_in_tree`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
+| `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리와 쪽 목록, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |
+| `src/limn/server.py` | 빌드 연결·git pull·원격 main 감시·보기 전용 PDF 감시·문서 목록 구역: 요청의 문서로 빌드를 부르고 동기화, 문서 목록과 설정을 조회·meta에 넘긴다 | 동기화 규칙 변경 | build-sync.md |
+| `src/limn/meta.py` | 뷰어가 폴링하는 읽기: `/api/meta` 본문, `/api/docs`, `pins_rev`, 화면 빌드의 `.aux`에서 읽는 목차 라벨. 문서·목록·설정을 인자로 받고 쓰지 않는다 | meta·docs 응답 필드, 폴링 규칙 변경 | api.md, build-sync.md §자동 동기화 (가벼운 meta 폴링) |
+| `src/limn/outline.py` | `.aux` 목차 줄의 순수 파서(번호·제목·인쇄 쪽 번호·계층) | 목차 라벨 변환 규칙 변경 | api.md, viewer.md |
+| `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유. 상태 파일의 프로세스 간 잠금(`store_lock`). 경로가 원고 트리 안의 파일인지 보는 규칙(`file_in_tree`), 원고 줄 세기(`tex_lines`), PDF.js 파일 이름 검사(`vendor_file`) | 쓰기 방식·트리 경로 규칙 변경 | domain.md, architecture.md |
 | `src/limn/people.py` | `people.json`: 항목 검사, 저장 형식, 읽기, 실행 중 서버의 기록(`record_person`), @태그 후보(`known_people`) | 사람 목록 필드·기록 간격·후보 규칙 변경 | api.md §@태그·사람·이벤트, §인증 |
 | `src/limn/mentions.py` | @태그의 순수 규칙: `@이름` 풀기, 지금 차례, `addressed`·`fyi`, 메모 태그와 재알림 간격 | 태그 해석·addressed·재알림 규칙 변경 | api.md §@태그·사람·이벤트, viewer.md §스레드와 검토 |
 | `src/limn/events.py` | 알림 한 건과 받는 사람, 폴링이 고르는 이벤트(순수), `events.jsonl` 쓰기·읽기(`EventLog`) | 이벤트 종류·필드·받는 사람·보관 건수 변경 | api.md §이벤트 (`events.jsonl`), §브라우저 알림 커서 |
 | `src/limn/audit.py` | `audit.jsonl` 한 줄과 추가 전용 쓰기, CLI 행위자 | 감사 항목·쓰기 방식 변경 | api.md §감사 기록 (`audit.jsonl`), SECURITY.md |
 | `src/limn/scope.py` | 핀 단위 변경(0.3)의 순수 판단: hunk 블록 귀속, 핀 hunk diff, 합성 판, 거절 값 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
 | `src/limn/revisions.py` | 원고 이력의 git 쪽: 최근 커밋, 소스 diff, 비교 PDF 빌드와 캐시. 결과는 값 | 이력·diff·비교 PDF 경로와 한도·캐시 규칙 변경 | api.md §변경 보기와 비교 PDF, verification.md |
-| `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 조회 결과 값(`DocNotFound`) | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
+| `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt` (서버가 순서대로 이어 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다) | viewer.md, verification.md |
 | `src/limn/web/*` | HTTP 층: 처리기와 서버 클래스·본문 읽기와 한도·경로 분기(`handler.py`), 요청 본문·쿼리 파서(`parse.py`), 핀 조작 결과마다의 응답(`answers.py`), 오류 형식·거절 표·거부된 첫 화면(`errors.py`), 처리기가 부르는 서비스 목록(`app.py`) | 경로·응답·오류 문구 추가나 변경, 처리기가 부르는 서비스 변경 | api.md, architecture.md, verification.md |
