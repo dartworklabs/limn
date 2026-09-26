@@ -38,10 +38,13 @@ from pathlib import Path
 from typing import NamedTuple, TypedDict
 
 from limn.access import (
+    AUTH_PROVIDERS,
     HEADER_NAME_RE,
     LOOPBACK_AGENT_DEPRECATION,
+    AuthProvider,
     HostEntry,
     IPNetwork,
+    is_auth_provider,
     is_loopback_bind,
     local_owner_actor,
     parse_networks,
@@ -88,7 +91,7 @@ class AccessOptions:
     """The access settings a command line starts with. Every field is also a run setting of the same name (Cfg), which
     the composition root sets from this value; the startup log (access_log_lines) reads the same value back."""
 
-    auth: str  # identity provider: one of limn.access.AUTH_PROVIDERS
+    auth: AuthProvider  # identity provider
     bind: str  # the listen address
     agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
     tailnet_agent: bool  # ...also one through tailscale serve (opt-in, deprecated)
@@ -107,12 +110,15 @@ def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
     """The access options (--auth, tokens/loopback agent, --bind, proxy, members) of a parsed `limn serve` command
     line, or the refusal with a clear message for a refused combination - main() stops before any build, so a
     misconfigured unit fails fast. The checks run in a fixed order, which decides the message of a line with several
-    faults: --bind, the non-loopback bind, --agent-loopback, --tailnet-agent, --public-host/--trusted-proxies, the
+    faults: --auth (argparse's choices already hold it to AUTH_PROVIDERS; checked again here, where the text becomes an
+    AuthProvider, for a namespace built some other way), --bind, the non-loopback bind, --agent-loopback, --tailnet-agent, --public-host/--trusted-proxies, the
     proxy header names, --local-user.
 
     Rules: a non-loopback --bind needs --auth trusted-proxy or --i-know-this-is-insecure. The headerless loopback agent
     exists only under tailscale on a loopback bind; asking for it (--agent-loopback) anywhere else refuses to start."""
     auth = a.auth or "tailscale"
+    if not is_auth_provider(auth):
+        return StartupRefused("--auth takes one of %s: %r" % (", ".join(AUTH_PROVIDERS), auth))
     bind = a.bind or "127.0.0.1"
     try:
         loop_bind = is_loopback_bind(bind)
@@ -173,7 +179,7 @@ def access_log_lines(s: AccessOptions, tokens: int, token_file_present: bool) ->
     """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated
     loopback agent. tokens is the number of valid entries in tokens.json; token_file_present whether
     s.agent_token_file exists (only shown when one is configured)."""
-    parts = [s.auth]
+    parts: list[str] = [s.auth]
     if s.auth == "local":
         parts.append("owner %s" % local_owner_actor(s.local_user)["login"])
     if s.auth == "trusted-proxy":

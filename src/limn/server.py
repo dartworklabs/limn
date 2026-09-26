@@ -48,7 +48,7 @@ if __package__ in (None, ""):
 # wired by pin_context(); pins.md's renderer gets its input from pins_md_input(); the run settings' type, the startup
 # rules and the command line fill in C (main() -> start() below). `X as X` marks a name this module exports as an App
 # member (web/app.py) - mypy's explicit re-export, so the App check at the Handler sees it: the page directory on screen
-# and a build's PDF (limn.build's own functions, bound here without a shell), is_agent, outline_labels, pin_state,
+# and a build's PDF (limn.build's own functions, bound here without a shell), outline_labels, pin_state,
 # revision_history, hdr_text (the handler quotes a refused Host/Origin/document key through it), APP_NAME and
 # app_version. The build state is bound by assignment below the imports, because an import under another name is
 # never an export. meta_reads is the module; meta() below is the App member that binds it. record is the store's
@@ -154,7 +154,7 @@ from limn.revisions import (
     revision_history as revision_history,
 )
 from limn.service import add_edit, claim, transitions, trash
-from limn.service.context import Event, Json, PinContext, is_agent as is_agent, who
+from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, find_pin
 from limn.viewer.assemble import (
@@ -728,7 +728,7 @@ def load_people() -> list[Row] | people.PeopleUnreadable:
     return rows
 
 
-def record_person(actor: Json, now: float | None = None, role: str | None = None) -> bool:
+def record_person(actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
     """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
     last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
     continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
@@ -1063,7 +1063,7 @@ def people_roles() -> access.PeopleRoles:
     return ROLES_CACHE.get(C.people_file, lambda: people_roles_of(load_people()), {})
 
 
-def role_of(login: str) -> str:
+def role_of(login: str) -> access.Role:
     """The people.json role of login (limn.access.person_role): editor for someone people.json does not list, viewer
     for everyone while it cannot be used."""
     return person_role(people_roles(), login)

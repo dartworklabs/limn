@@ -64,7 +64,7 @@ class App(Protocol):
     SW_JS: str  # the service worker served as /sw.js
     UI_EN: Messages  # the viewer's ko -> en message table, for the refusal page
     APP_NAME: str
-    DEFAULT_ROLE: str  # the role of a person people.json gives none
+    DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
     # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
 
@@ -92,12 +92,8 @@ class App(Protocol):
         """The role rule for a POST to path; raises HTTPError 403."""
         ...
 
-    def record_person(self, actor: Json, now: float | None = None, role: str | None = None) -> bool:
+    def record_person(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
         """Record a person in people.json (never an agent)."""
-        ...
-
-    def is_agent(self, actor: Json) -> bool:
-        """An agent actor: headerless loopback or an API token."""
         ...
 
     # ---- the request's document

@@ -39,7 +39,7 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from email.message import Message
 from pathlib import Path
-from typing import Any, Generic, NamedTuple, TypeAlias, TypeGuard, TypeVar
+from typing import Any, Generic, Literal, NamedTuple, TypeAlias, TypeGuard, TypeVar, get_args
 from urllib.parse import urlparse
 
 from limn.files import atomic_write, store_lock
@@ -51,17 +51,24 @@ from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
 IPNetwork: TypeAlias = ipaddress.IPv4Network | ipaddress.IPv6Network
-# people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
-PeopleRoles: TypeAlias = Mapping[str, str] | PeopleUnreadable
 HostEntry: TypeAlias = tuple[str, int | None]  # one --public-host: (lowercase name, port or None)
 T = TypeVar("T")
 
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"  # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 
-AUTH_PROVIDERS = ("tailscale", "local", "trusted-proxy")
-ROLES = ("owner", "editor", "viewer", "agent")
-DEFAULT_ROLE = "editor"  # a person without a role field - every v0.1 person
+# The security values are closed types: a comparison with a value outside them is a type error (mypy strict, whose
+# strict_equality flags a non-overlapping ==, != or in). Text from outside - people.json, the command line - becomes
+# one of them only through is_role / is_auth_provider (role_value, access_options, member_add); the tuples are the
+# runtime side of the same sets.
+AuthProvider: TypeAlias = Literal["tailscale", "local", "trusted-proxy"]  # the identity provider of an instance
+Role: TypeAlias = Literal["owner", "editor", "viewer", "agent"]  # what a principal may change (check_role)
+Via: TypeAlias = Literal["header", "token", "loopback-agent", "local-owner"]  # how identify() knew the principal
+AUTH_PROVIDERS: tuple[AuthProvider, ...] = get_args(AuthProvider)
+ROLES: tuple[Role, ...] = get_args(Role)
+DEFAULT_ROLE: Role = "editor"  # a person without a role field - every v0.1 person
+# people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
+PeopleRoles: TypeAlias = Mapping[str, Role] | PeopleUnreadable
 VIEWER_POSTS = ("/api/pick", "/api/revision-build")  # computations a viewer may still run (no state change)
 TOKEN_PREFIX = "limn_"
 TOKEN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,39}")
@@ -103,7 +110,7 @@ class AccessSettings:
     No field has a default: every caller states every option, so a field added later can never fall back silently to
     a permissive legacy value (such as agent_loopback=True) at a call site that did not think about it."""
 
-    auth: str  # identity provider: one of AUTH_PROVIDERS
+    auth: AuthProvider  # identity provider
     agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
     tailnet_agent: bool  # ...also one that came through tailscale serve (opt-in, deprecated)
     trusted_proxies: tuple[IPNetwork, ...]  # peers whose identity headers --auth trusted-proxy trusts
@@ -436,13 +443,35 @@ def home_or_none() -> Path | None:
 # ---------------------------------------------------------------- the three checks
 
 
+def is_agent_actor(actor: Mapping[str, Any] | None) -> bool:
+    """An agent actor: a headerless loopback request (LOCAL_ACTOR, login "local") or an API-token principal (login
+    "agent:<name>"). A missing login counts as the headerless loopback agent."""
+    login = (actor or {}).get("login", LOCAL_ACTOR["login"])
+    return bool(login == LOCAL_ACTOR["login"] or str(login).startswith(AGENT_LOGIN_PREFIX))
+
+
 class Principal(NamedTuple):
     """Who a request is, as identify() decided: what pins record, the role that decides what it may change, and how
-    it was identified (admit() treats a header-vouched person differently from a token or the local owner)."""
+    it was identified (admit() treats a header-vouched person differently from a token or the local owner). Besides
+    check_role's route rule, the principal answers the two role questions a handler asks about an action (is_human,
+    review_on_close), so no role comparison lives outside this module."""
 
     actor: Json  # {login, name, pic?} - what pins record
-    role: str  # owner | editor | viewer | agent
-    via: str  # header | token | loopback-agent | local-owner
+    role: Role
+    via: Via
+
+    def is_human(self) -> bool:
+        """Does a person act, as a reply counts it (a person's reply may reopen a closed pin)? Not for an agent actor
+        (is_agent_actor), and not for a person whose people.json role is agent either."""
+        return not is_agent_actor(self.actor) and self.role != "agent"
+
+    def review_on_close(self, asked: bool | None) -> bool | None:
+        """The review flag of this principal's close: what the request asked (asked, from `review`), else True for a
+        person with the agent role - they close into review like any agent - else None, and the close service decides
+        from the actor."""
+        if asked is None and self.role == "agent":
+            return True
+        return asked
 
 
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:
@@ -691,14 +720,24 @@ def bearer_of(headers: Message) -> str | None:
 # ---------------------------------------------------------------- people.json roles and members
 
 
-def role_value(v: object) -> str:
+def is_role(v: object) -> TypeGuard[Role]:
+    """Is v one of the four role names (ROLES)?"""
+    return isinstance(v, str) and v in ROLES
+
+
+def is_auth_provider(v: object) -> TypeGuard[AuthProvider]:
+    """Is v one of the identity provider names (AUTH_PROVIDERS)?"""
+    return isinstance(v, str) and v in AUTH_PROVIDERS
+
+
+def role_value(v: object) -> Role:
     """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
     if v is None:
         return DEFAULT_ROLE
-    return v if isinstance(v, str) and v in ROLES else "viewer"
+    return v if is_role(v) else "viewer"
 
 
-def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, Role]:
     """{login: role} for every row of people.json (role_value of each row's role field)."""
     return {x["login"]: role_value(x.get("role")) for x in rows}
 
@@ -709,7 +748,7 @@ def people_roles_of(read: list[Json] | PeopleUnreadable) -> PeopleRoles:
     return read if isinstance(read, PeopleUnreadable) else roles_of(read)
 
 
-def person_role(roles: PeopleRoles, login: str) -> str:
+def person_role(roles: PeopleRoles, login: str) -> Role:
     """The role of a person a header vouches for: their people.json role, DEFAULT_ROLE when people.json does not list
     them - and viewer for everyone while people.json cannot be used (least privilege). Keeping the roles of an earlier
     good read was considered and rejected: the answer would then depend on the process's history (a restart would
@@ -757,13 +796,14 @@ def _people_update(state: Path, fn: PeopleStep, audit: AuditSink) -> Json | None
 
 def member_add(state: Path, login: str, role: str, name: str | None, audit: AuditSink) -> Json:
     """Adds login to people.json with role (name defaults to the part of the login before @) -> the new entry, and
-    audits `member_added` {login, role}. Raises ValueError for an invalid login or role, or an existing member."""
+    audits `member_added` {login, role}. Raises ValueError for an invalid login or role (the command line's text is
+    parsed here, is_role), or an existing member."""
     if not valid_login(login):
         raise ValueError(
             "invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
             % (login, LOGIN_MAX)
         )
-    if role not in ROLES:
+    if not is_role(role):
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     shown = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
 
@@ -800,8 +840,9 @@ def member_remove(state: Path, login: str, audit: AuditSink) -> Json | None:
 def member_set_role(state: Path, login: str, role: str, audit: AuditSink) -> Json | None:
     """Sets login's role in people.json -> the updated entry, or None if it is not a member (or there is no file).
     A change of the effective role audits `member_role` {login, role, previous_role}; setting the role it already has
-    writes the field but no audit line. Raises ValueError for an unknown role."""
-    if role not in ROLES:
+    writes the field but no audit line. Raises ValueError for an unknown role (the command line's text is parsed
+    here, is_role)."""
+    if not is_role(role):
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     if not (Path(state) / "people.json").exists():
         return None

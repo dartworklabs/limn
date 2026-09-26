@@ -165,6 +165,15 @@ class AccessRefusals(unittest.TestCase):
             with self.subTest(argv):
                 self.assertEqual(refusal(*argv), message)
 
+    def test_an_auth_name_outside_the_providers_is_refused_first(self):
+        """argparse's choices keep --auth to the providers; a namespace built another way is still parsed here, before
+        any other rule, so no unknown provider reaches the run settings."""
+        a = argparse.Namespace(**dict(vars(parse("--bind", "0.0.0.0")), auth="Tailscale"))
+        self.assertEqual(
+            startup.access_options(a),
+            StartupRefused("--auth takes one of tailscale, local, trusted-proxy: 'Tailscale'"),
+        )
+
     def test_the_first_fault_in_rule_order_is_the_one_reported(self):
         """bind, then the loopback agent, then hosts/networks, then headers, then --local-user."""
         self.assertTrue(refusal("--bind", "0.0.0.0", "--local-user", "agent:x").startswith("Refusing to bind"))
