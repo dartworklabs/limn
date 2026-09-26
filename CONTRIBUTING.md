@@ -9,9 +9,11 @@ uv sync --group dev
 uv run playwright install chromium        # browser layout tests; skipped if no Chromium is found
 uv run pytest -q                          # Python tests (server, CLI, migrate, naming)
 bash tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
-uv run ruff check                         # lint (bug-candidate rules, see pyproject.toml)
+uv run ruff check                         # lint (the rules in pyproject.toml)
+uv run ruff format --check                # formatting; `uv run ruff format` applies it
 uv run shellcheck src/limn/instances.sh tests/test_instances.sh
-uv run mypy                               # strict type check of the moved modules (files in pyproject.toml)
+uv run mypy                               # strict type check of the package (files in pyproject.toml)
+git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat
 ```
 
 The server is stdlib-only Python 3.10+ (`src/limn/server.py`, being split into modules — see the coding roadmap);

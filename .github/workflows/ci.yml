@@ -19,6 +19,8 @@ jobs:
         run: uv sync --group dev --locked
       - name: Ruff
         run: uv run ruff check
+      - name: Ruff format
+        run: uv run ruff format --check
       - name: ShellCheck
         run: uv run shellcheck src/limn/instances.sh tests/test_instances.sh
       - name: Mypy (modules moved out of server.py)

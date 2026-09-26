@@ -118,6 +118,7 @@ def confirm_pin(pid: int, actor: dict):
         _thread_append(r, actor, "", ev="confirm")
         r["rev"] = int(r.get("rev") or 0) + 1
         return public(r), True
+
     return transact(fn)[1]
 ```
 
@@ -137,14 +138,15 @@ def confirm_pin(pid: int, actor: dict):
 def confirmer(actor: Actor) -> Person | AgentCannotConfirm:
     """The person who may confirm, or the refusal for an agent - decided before any pin is loaded."""
 
+
 def confirm(pin: Pin, by: Person, at: str) -> DonePin | AlreadyDone | PinStillOpen:
     match pin:
         case ReviewPin():
-            return confirm_review(pin, by, at)      # ReviewPin만 받는 전이: 다른 상태로는 부를 수 없다
+            return confirm_review(pin, by, at)  # ReviewPin만 받는 전이: 다른 상태로는 부를 수 없다
         case DonePin():
-            return AlreadyDone(pin)                 # 거절이 아니라 "바뀐 것 없음"이라는 결과
+            return AlreadyDone(pin)  # 거절이 아니라 "바뀐 것 없음"이라는 결과
         case OpenPin():
-            return PinStillOpen(pin)                # 409 본문에 쓸 핀을 함께 돌려준다
+            return PinStillOpen(pin)  # 409 본문에 쓸 핀을 함께 돌려준다
 ```
 
 ```python
@@ -153,17 +155,20 @@ def confirm_pin(pid, actor) -> DonePin | AlreadyDone | PinStillOpen | AgentCanno
     by = confirmer(typed_actor(actor))
     if isinstance(by, AgentCannotConfirm):
         return by
+
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
             return PinNotFound(pid), False
         result = confirm(parse_pin(r), by, now_str())
-        if isinstance(result, DonePin):             # 처리할 타입 하나만 보고, 나머지는 그대로 넘긴다
+        if isinstance(result, DonePin):  # 처리할 타입 하나만 보고, 나머지는 그대로 넘긴다
             r.clear()
             r.update(result.record)
             return result, True
         return result, False
+
     return transact(fn)[1]
+
 
 # HTTP 층 (limn/web/answers.py, 6단계에서 처리기 메서드에서 옮김) — 모든 결과에 응답 하나.
 # 상태 코드와 본문은 에이전트 계약 그대로. show는 server.py의 public()이다
@@ -222,28 +227,35 @@ def pin_state(r: dict) -> str:
 @dataclass(frozen=True)
 class OpenPin:
     """A pin nobody has closed: its stored done is false or missing. Only an open pin carries a claim."""
-    claim: Claim | None          # claimed_by, claimed_at, claim_ts, claim_until, eta_ts
-    fields: Record               # every other stored field, as stored
+
+    claim: Claim | None  # claimed_by, claimed_at, claim_ts, claim_until, eta_ts
+    fields: Record  # every other stored field, as stored
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
+
 
 @dataclass(frozen=True)
 class ReviewPin:
     """Closed by an agent and waiting for a person to confirm it: done and review are both true."""
-    close: Close                 # done_at, closed_by, close_reply, close_ref, changes, changes_at
+
+    close: Close  # done_at, closed_by, close_reply, close_ref, changes, changes_at
     fields: Record
     order: tuple[str, ...] = ...
+
 
 @dataclass(frozen=True)
 class DonePin:
     """Closed for good: done without review. A legacy done record with no review field is done too."""
+
     close: Close
-    confirmation: Confirmation | None   # confirmed_by + confirmed_at
+    confirmation: Confirmation | None  # confirmed_by + confirmed_at
     fields: Record
     order: tuple[str, ...] = ...
 
+
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin
 
-def parse_pin(record: Record) -> Pin: ...        # pin_state()와 같은 규칙, 실패하지 않는다
+
+def parse_pin(record: Record) -> Pin: ...  # pin_state()와 같은 규칙, 실패하지 않는다
 ```
 
 `TrashedPin`은 삭제 전의 핀(`pin: Pin`)과 `dropped: Dropped | None`을 가진다. 모든 상태가 함께 쓰는 필드(`note`, `file`, `lo`/`hi`, `thread`, `rev`, `reopened_*` 등)와 이 버전이 모르는 필드는 올리지 않고 `fields`에 저장된 그대로 둔다. `record`는 이제 속성에서 레코드를 다시 쓰는 읽기 전용 속성이고, `order`가 저장 때의 필드 순서를 기억한다. 그래서 셸의 `r.update(result.record)`와 처리기의 `case OpenPin(record=record)`는 그대로 돈다.
@@ -328,7 +340,7 @@ def parse_note(v: object) -> str | InputRejected:
 
 버그 후보 묶음이 잡은 것 중 하나는 실제 결함이었다. 빌드 직전에 원고를 사본 폴더로 옮기는 `rsync` 호출이 종료 코드를 보지 않았다. 권한 오류나 디스크 부족으로 복사가 일부만 되어도 빌드는 낡은 사본을 컴파일했다. `subprocess.run`에 `check`를 적게 하는 규칙(`PLW1510`)이 이 호출을 드러냈고, 실패 테스트(`tests/test_build_copy.py`)와 함께 따로 고쳤다.
 
-**지금 모습 (1단계 완료).** 버그 후보 규칙만 켰다. 스타일 규칙은 전체 포매팅 커밋과 함께 넓힌다.
+**지금 모습 (1단계 완료, 2026-09-26).** 버그 후보 규칙에 스타일 규칙을 더했고, 코드 모양은 `ruff format`이 정한다.
 
 ```toml
 # pyproject.toml
@@ -338,18 +350,32 @@ line-length = 120
 extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]
 
 [tool.ruff.lint]
-select = ["F", "E4", "E7", "E9", "B", "PLW1510"]
+select = ["F", "E", "W", "I", "B", "UP", "SIM", "PLW1510"]
+ignore = ["E501", "UP030", "UP031", "UP032", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/limn/server.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-local-folder = ["helpers", "test_*"]
 ```
 
-- Ruff와 ShellCheck(`shellcheck-py`)는 개발 의존성이다. [architecture.md](architecture.md) §불변식 2와 부딪히지 않고, 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다. CI `lint` 작업이 `uv run ruff check`와 `uv run shellcheck ...`를 돌린다 ([verification.md](verification.md) §8).
-- 84건은 동작을 바꾸지 않고 정리했다. 종료 코드를 따로 확인하던 `subprocess.run`에는 `check=False`를 명시했다. `except` 안에서 HTTP 오류로 바꿔 던지는 곳에는 `from None`을, 원인을 메시지에 담는 곳에는 `from e`를 붙였다. 길이가 같아야 하는 `zip`에는 `strict=True`를 붙였다.
+- Ruff와 ShellCheck(`shellcheck-py`)는 개발 의존성이다. [architecture.md](architecture.md) §불변식 2와 부딪히지 않고, 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다. CI `lint` 작업이 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck ...`를 돌린다 ([verification.md](verification.md) §8).
+- 2026-09-25에 켠 버그 후보 규칙의 84건은 동작을 바꾸지 않고 정리했다. 종료 코드를 따로 확인하던 `subprocess.run`에는 `check=False`를 명시했다. `except` 안에서 HTTP 오류로 바꿔 던지는 곳에는 `from None`을, 원인을 메시지에 담는 곳에는 `from e`를 붙였다. 길이가 같아야 하는 `zip`에는 `strict=True`를 붙였다.
+- 2026-09-26 스타일 규칙을 켜며 70건을 동작 변경 없이 고쳤다: import 정렬(`I001`) 50곳, `try`/`except`/`pass` → `contextlib.suppress`(`SIM105`) 11곳, 겹친 `with` 합치기(`SIM117`) 3곳, 겹친 `if` 합치기(`SIM102`) 2곳, 불 값 바로 돌려주기(`SIM103`) 1곳, `socket.timeout` → `TimeoutError`(`UP041`, 3.10부터 같은 클래스) 1곳. `atomic_write`가 두 갈래에서 열고 아래 `with`에서 닫는 파일 2곳(`SIM115`)은 이유를 단 `noqa`로 둔다. `W`와 나머지 `E`·`UP` 규칙에 걸린 곳은 없었다.
+- 끈 규칙은 소유자 결정이다. 줄 길이(`E501`)는 보지 않는다: 코드 줄은 포매터가 접고, 긴 주석·docstring 줄은 검사하지 않는다. printf 형식 문자열은 그대로 둔다(`UP031`): 메시지가 에이전트 계약 바이트라서다. 같은 이유로 `str.format` 문자열을 고치는 `UP030`·`UP032`도 끈다. `UP042`는 `class X(str, Enum)`을 `StrEnum`으로 바꾸면 멤버의 `str()`·`format()` 결과가 달라져서 끈다.
+- `server.py`의 `limn.*` import는 파일로 실행될 때를 위한 `sys.path` 준비 뒤에 와야 한다. 그래서 줄마다 달던 `# noqa: E402` 44개 대신 파일 단위로 `E402`를 끈다.
+- import 정렬은 코드가 쓰던 모양에 맞췄다. `combine-as-imports`로 `from limn import access, server as ps`를 한 줄로 두고, 테스트끼리 가져오는 모듈(`helpers`, `test_*`)은 `limn` 뒤의 로컬 묶음으로 둔다.
+- 포매터 옵션은 모두 기본값이다(큰따옴표, 공백 들여쓰기, 매직 트레일링 쉼표). 부딪힌 곳은 줄 끝 주석 하나였다. `ruff format`은 줄 끝 주석을 줄 폭에 넣어 세고 주석 앞 정렬 공백을 두 칸으로 줄이는데, 이를 끄는 옵션이 없다. 그래서 짧은 문장 뒤의 긴 주석이 문장을 괄호로 쪼갰다(`main_at = tuple(` / `D.main_rel.parent.parts` / `)  # ...`). 포매팅 전에 그런 주석 100개만 문장 위의 줄로 옮기는 커밋을 따로 두었다. 옮긴 기준은 "지우면 포매터 출력의 줄 수가 줄어드는 주석"이다. 정렬해 두었던 짧은 줄 끝 주석은 두 칸 띄운 줄 끝 주석이 된다. `# fmt: off`는 쓰지 않았다.
+- 전체 포매팅은 다른 변경과 섞지 않은 커밋 하나다. 바뀐 파이썬 파일 93개 모두 포매팅 전후 AST가 같다(docstring 값을 비우고 `ast.dump` 비교). 값이 바뀐 docstring은 6개이고, 모두 `"`로 시작하는 docstring 앞에 공백 하나가 붙은 것이다. 실행 중 docstring을 읽는 곳은 `server.py`의 모듈 docstring(명령줄 설명) 하나이고, 그 값은 그대로다. 소스 글자를 찾던 테스트 하나(`test_git_runs_without_a_shell`)는 포매팅이 호출을 여러 줄로 나누면 깨져서, 호출을 AST로 읽도록 바꾼 커밋을 포매팅 앞에 따로 두었다.
+- 주석을 옮긴 커밋과 포매팅 커밋은 [`.git-blame-ignore-revs`](../../.git-blame-ignore-revs)에 적었다. 로컬에서 `git config blame.ignoreRevsFile .git-blame-ignore-revs`를 한 번 하면 `git blame`이 두 커밋을 건너뛴다. GitHub의 blame 화면은 이 파일을 알아서 읽는다.
 - ShellCheck의 info 4건은 의도한 코드라 이유를 적은 주석과 함께 껐다.
-- `tools/handbook-publish/`는 플러그인에서 복사한 사본이라 검사에서 뺀다. 고칠 일이 있으면 원본에서 고친다.
+- `tools/handbook-publish/`는 플러그인에서 복사한 사본이라 검사와 포매팅에서 뺀다. 고칠 일이 있으면 원본에서 고친다.
 
 **다음.**
 
-- `ruff format --check`와 스타일 규칙은 기존 코드 전체를 다시 포매팅하는 커밋과 함께 켠다. 이 커밋은 **동작 변경과 섞지 않고 따로** 만들고, `git blame`이 흐려지지 않도록 `.git-blame-ignore-revs`에 적는다. 열린 PR이 모두 머지된 때를 골라야 다른 작업과 충돌하지 않는다.
-- docstring 규칙(`D`)은 처음에 새 모듈에만 켜고, 옮겨지는 모듈마다 넓힌다.
+- docstring 규칙(`D`)은 이번에 켜지 않았다. 처음에 새 모듈에만 켜고, 옮겨지는 모듈마다 넓힌다. 기존 코드에 docstring을 한꺼번에 채우지 않는다 (R7).
 
 **확인하는 법.** 로컬 명령과 CI 단계가 같은 결과를 낸다. 일부러 쓰지 않는 import를 하나 넣었을 때 `uv run ruff check`가 실패하는지 확인한다.
 
@@ -386,6 +412,7 @@ def build(doc: Doc, cfg: BuildConfig, runner: Runner) -> BuildResult:
 ```python
 def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]] | None) -> BuildResult:
     """Builds D with -synctex=1 from a copy, ... then renders pages into a new directory and only swaps the pointer."""
+
 
 # server.py — 조립 지점의 연결: 처리기가 넘긴 문서에 이 인스턴스의 설정을 묶는다 (6단계에서 셸을 없앴다)
 def _build(D: Doc) -> BuildResult:
@@ -502,12 +529,12 @@ def now_str() -> str:
 
 **착수 조건**은 앞 단계가 끝났다는 것에 더해, 그 단계가 굳히는 영역이 더 움직이지 않는다는 신호다. 1·2단계는 구조를 고정하지 않으므로 조건 없이 0단계와 나란히 한다 ([ADR-0001](../adr/0001-blueprint.md) §결과). 3~6단계의 조건은 2026-09-26 소유자 결정으로 충족됐다 (§두 층).
 
-실행 순서는 표의 번호와 조금 다르다. `server.py`를 빨리 가볍게 하려고 기계적으로 옮길 수 있는 것부터 한다: 3단계(뷰어) → 5단계 앞부분(`mapping.py`, 거의 순수) → 4단계(`store`·핀 모델·전이) → 5단계 나머지(`build/`) → 6단계(`web/`, 조립 지점). 포매팅 커밋은 옮기기가 끝난 뒤에 한 번에 한다.
+실행 순서는 표의 번호와 조금 다르다. `server.py`를 빨리 가볍게 하려고 기계적으로 옮길 수 있는 것부터 한다: 3단계(뷰어) → 5단계 앞부분(`mapping.py`, 거의 순수) → 4단계(`store`·핀 모델·전이) → 5단계 나머지(`build/`) → 6단계(`web/`, 조립 지점). 포매팅 커밋은 옮기기가 끝난 뒤에 한 번에 한다(2026-09-26 6단계가 끝난 뒤 했다, R4).
 
 | 단계 | 목표 | 착수 조건 | 하는 일 | 끝났다는 증거 | 하지 않는 일 |
 | --- | --- | --- | --- | --- | --- |
 | 0 | 합의 | 없음 | 이 문서와 [ADR-0001](../adr/0001-blueprint.md)을 검토하고 확정한다. 3~6단계 착수 조건을 정한다 | ADR-0001 상태가 `확정`. 착수 조건 충족 | 코드 변경 |
-| 1 | 안전망 | 없음. 0단계와 나란히 | Ruff 버그 후보 규칙과 shellcheck를 CI에 더한다 (R4). 스타일 규칙과 전체 포매팅은 별도 커밋으로 뒤에 한다 | CI에 새 단계가 녹색. [verification.md](verification.md) §6 표 갱신 | 동작 변경, docstring 일괄 추가 |
+| 1 | 안전망 | 없음. 0단계와 나란히 | Ruff 버그 후보 규칙과 shellcheck를 CI에 더한다 (R4). 스타일 규칙과 전체 포매팅은 별도 커밋으로 뒤에 한다(2026-09-26 함) | CI에 새 단계가 녹색. [verification.md](verification.md) §6 표 갱신 | 동작 변경, docstring 일괄 추가 |
 | 2 | 새 코드부터 규칙 | 없음. 0단계와 나란히 | 이후 모든 PR은 손대는 함수에 R7·R8을 적용하고, 새 판단은 R1로 쓴다. `§P0…` 주석은 Handbook 절로 바꾼다(2026-09-26 남은 것을 모두 바꿈) | 리뷰 체크 항목에 반영 | 손대지 않는 코드 일괄 수정 |
 | 3 | 뷰어 분리 | 충족: 빌드 없는 정적 파일로 정함 (2026-09-26) | `HTML` 문자열을 `viewer/` 패키지 데이터 파일로 옮긴다. 서버가 조립한 `HTML`은 그대로라 테스트는 계속 `ps.HTML`을 읽는다 | 내보내는 HTML이 바이트 단위로 같다. 설치 스모크 녹색 | 뷰어 동작·디자인 변경 |
 | 4 | 핀 수명 주기 | 충족: 소유자 결정 (2026-09-26) | 계약 스냅숏 테스트(`pins.md`, 주요 API 응답)와 레코드 왕복 테스트를 먼저 만든다. 그다음 `pins/model.py`·`lifecycle.py`로 R1~R3을 적용한다. 전이 함수는 거절을 반환값으로 돌려준다 | 스냅숏·왕복 테스트 녹색. 전이마다 순수 테스트 | 저장 형식·API 변경 |
@@ -524,7 +551,7 @@ def now_str() -> str:
 | 단계 | 상태 | 비고 |
 | --- | --- | --- |
 | 0 합의 | 완료 | 2026-09-25 이 문서와 ADR-0001 초안 작성. 같은 날 리뷰 의견("UX·UI와 스택이 확정되기 전에 구조를 굳히는 게 맞나")으로 두 층과 착수 조건을 더함. 2026-09-26 소유자 결정으로 ADR-0001 확정, 3~6단계 착수 |
-| 1 안전망 | 완료 (포매팅·스타일 규칙은 남음) | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침 |
+| 1 안전망 | 완료 | 2026-09-25 Ruff 버그 후보 규칙·ShellCheck CI 게이트. `rsync` 결함을 따로 고침. 2026-09-26 스타일 규칙(`E`·`W`·`I`·`UP`·`SIM`)과 `ruff format --check`를 CI 게이트로 켜고 트리 전체를 포매팅했다(동작 변경 없음, 포매팅 커밋은 AST 동일, `.git-blame-ignore-revs`에 적음). docstring 규칙 `D`는 R4 §다음 |
 | 2 새 코드부터 규칙 | 진행 중 | 2026-09-25부터 손대는 코드에 적용. 0.3.0~0.3.3 PR이 새 함수·테스트에 R1·R3·R7~R9를 적용함(0.3.3은 보안 경계라 R10 부정 경우 테스트도) |
 | 3 뷰어 분리 | 완료 | 2026-09-26. `server.py` 10,973 → 7,378행. 출력 바이트 동일. 같은 날 `app.js`·`app.css`를 책임별 조각 45개로 나눴다(R6, 순서는 `viewer/parts.txt`). 나누기 전후 `HTML`·`build_html()`의 sha256이 같고, 내보내는 스크립트는 `node --check`를 통과한다(CI에서 필수) |
 | 4 핀 수명 주기 | 완료 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 이어서 편집·추가(`limn/pins/edit.py`: `decide_edit`가 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 값으로 돌려주고, `evolve_edit`·`new_line_pin`·`new_region_pin`이 레코드를 옛 필드 순서 그대로 만든다. 본문 파서 `parse_edit`·`parse_add`는 `InputRejected` 값을 돌려주고 처리기가 옛 문구로 답한다). 이로써 핀 조작의 전이는 모두 옮겼다. 이어서 핀 저장소를 `limn/store.py`로 꺼냈다: `PinStore`가 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기와 손상 원본 보존, `pins.seq`, clear 보관을 맡고, 파일 위치·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외는 조립 지점 `server.pin_store()`가 호출마다 인자로 넘긴다(서버를 가져오지 않음, `tests/test_store.py`가 검사). 옛 이름 `transact`·`read_pins`·`write_pins` 등은 `server.py`에 남아 저장소에 넘긴다. 옛 코드와 응답·상태 디렉터리 전체 바이트(손상 백업·clear 보관 이름 포함)가 같음을 차등 비교로 확인. 이어서 상태에만 있는 필드를 상태 타입의 속성으로 올렸다(열림의 `Claim`, 닫힘의 `Close`, 완료의 `Confirmation`, 휴지통의 `Dropped`; `record`는 저장 순서대로 다시 쓰는 속성). 테스트가 읽고 쓴 모든 레코드 모양 147건과 옛 모양 24건의 왕복이 바이트 단위로 같고(`tests/test_pins_model.py`), 옛 코드와 응답·상태 디렉터리 바이트가 같음을 핀 흐름 80단계 차등 비교로 확인. 이로써 R2 §다음 단계로 적어 둔 일도 끝났다. 이어서 핀 서비스 셸(추가·편집, 답글·닫기·다시 열기·확인, claim·unclaim, 버리기·되살리기·휴지통 만료·영구 삭제, clear)을 `limn/service/`로 꺼냈다: 잠금 아래 읽고 규칙에 묻고 받아들일 때만 쓴 뒤 알림·감사를 남기는 순서는 그대로이고, 결과는 옛 타입 값 그대로 돌려준다. 협력자는 `server.pin_context()`가 호출마다 만드는 `PinContext`로 받는다(`tests/test_service.py`가 import와 쓰기·알림·감사 순서를 검사). 2026-09-26 끝났다: 핀 조작의 전이는 모두 `limn/pins/`의 순수 함수이고 결과는 타입 값(`Pin | 거절 | PinNotFound`)이며, 셸은 `limn/service/`로 나갔다. 저장소가 믿는 레코드 모양 검사(`valid_rec`)도 순수 모듈 `limn/pins/record.py`로 옮겼다. 끝났다는 증거 셋이 녹색이다: 왕복(`tests/test_pins_model.py`), 전이마다의 순수 테스트(`tests/test_pins_lifecycle.py`·`tests/test_pins_edit.py`), 계약 스냅숏(`tests/test_contract_snapshot.py`). 스냅숏은 이 단계를 닫으며 더했다. 그 전까지 계약은 조각별 정확한 문자열 검사와 PR마다의 차등 비교가 지켰고, 한 흐름의 `pins.md`와 주요 API 응답을 통째로 고정한 테스트는 없었다. 스냅숏은 6단계를 마치기 전 `main`의 서버로 기록했고 이 단계를 닫은 코드에서도 바이트 단위로 같다 |

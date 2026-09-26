@@ -37,6 +37,7 @@ uv sync --group dev
 uv run pytest -q -rs
 bash tests/test_instances.sh
 uv run ruff check
+uv run ruff format --check
 uv run shellcheck src/limn/instances.sh tests/test_instances.sh
 uv run mypy
 ```
