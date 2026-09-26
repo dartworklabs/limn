@@ -251,15 +251,18 @@ class TrustedProxyProvider(AccessBase):
 
 class StartupRules(AccessBase):
     def configure(self, *args):
+        """Apply the access options of a `limn serve` command line; a refusal fails the test."""
         a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
-        ps.configure_access(a)
+        self.assertIsNone(ps.configure_access(a))
         return ps.access_log_lines()
 
     def refused(self, *args):
-        with self.assertRaises(SystemExit) as cm:
-            self.configure(*args)
-        self.assertIsInstance(cm.exception.code, str)                 # a message, not a bare exit code
-        return cm.exception.code
+        """The message a refused command line gets; main() prints it and exits with status 1."""
+        a = ps.build_arg_parser().parse_args(["--manuscript", "x", *args])
+        refused = ps.configure_access(a)
+        self.assertIsInstance(refused, ps.StartupRefused)
+        self.assertIsInstance(refused.message, str)                   # a message, not a bare exit code
+        return refused.message
 
     def test_defaults_are_v01(self):
         log = self.configure()

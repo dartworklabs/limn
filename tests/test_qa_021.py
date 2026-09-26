@@ -358,9 +358,9 @@ class TailnetAgentStartup(AccessBase):
         self.assertIn("tailnet agent on (deprecated)", log[0])
         for args in (("--tailnet-agent", "--no-agent-loopback"), ("--tailnet-agent", "--auth", "local"),
                      ("--tailnet-agent", "--auth", "trusted-proxy")):
-            with self.assertRaises(SystemExit) as cm:
-                self.configure(*args)
-            self.assertIn("--tailnet-agent", str(cm.exception.code))
+            refused = ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
+            self.assertIsInstance(refused, ps.StartupRefused)
+            self.assertIn("--tailnet-agent", refused.message)
 
     def test_instances_config_key(self):
         root = Path(self.tmp.name)

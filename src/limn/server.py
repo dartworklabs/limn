@@ -348,25 +348,33 @@ def now_str() -> str:
 
 
 # ---------------------------------------------------------------- Startup preparation
+#
+# A startup step that cannot go on returns a StartupRefused instead of ending the process; main() is the one place
+# that exits (coding rule R3: sys.exit only in main).
 
-def detect_main(src: Path) -> Path:
-    """Find the top-level .tex. If it's ambiguous, don't guess - show the candidates and stop."""
+class StartupRefused(NamedTuple):
+    """Why the server does not start: the message main() prints to stderr before exiting with status 1."""
+    message: str
+
+
+def detect_main(src: Path) -> Path | StartupRefused:
+    """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates."""
     cands = [p for p in sorted(src.glob("*.tex"))
              if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]]
     if len(cands) == 1:
         return cands[0]
     how = "found none" if not cands else "found several"
     listing = "\n".join("  - %s" % p.name for p in cands) or "  (none)"
-    sys.exit("%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing))
+    return StartupRefused("%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing))
 
 
-def free_port(start: int = 18300, end: int = 18400) -> int:
+def free_port(start: int = 18300, end: int = 18400) -> int | StartupRefused:
     """Find a free port. The point is not to steal someone else's port."""
     for p in range(start, end):
         with socket.socket() as s:
             if s.connect_ex(("127.0.0.1", p)) != 0:
                 return p
-    sys.exit("No free port in the %d-%d range. Specify one with --port." % (start, end))
+    return StartupRefused("No free port in the %d-%d range. Specify one with --port." % (start, end))
 
 
 def state_slug(src: Path) -> str:
@@ -410,14 +418,14 @@ def default_label(src: Path, repo_url) -> str:
     return src.name
 
 
-def clean_label(v) -> str:
+def clean_label(v) -> str | StartupRefused:
     """Validate a label. Newlines and excessive length are blocked here since they'd break the tool bar / tab title."""
     v = "" if v is None else str(v).strip()
     v = " ".join(v.split())         # collapse newlines/tabs/repeated whitespace to a single space
     if not v:
         v = "원고"
     if len(v) > LABEL_MAX:
-        sys.exit("--label must be %d characters or fewer: %r" % (LABEL_MAX, v))
+        return StartupRefused("--label must be %d characters or fewer: %r" % (LABEL_MAX, v))
     return v
 
 
@@ -4163,9 +4171,10 @@ def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
                     traceback.print_exc(file=sys.stderr)
 
 
-def configure_access(a) -> None:
-    """Validates and applies the access options (--auth, tokens/loopback agent, --bind, proxy, members). Exits with a
-    clear message on a refused combination - before any build, so a misconfigured unit fails fast.
+def configure_access(a) -> StartupRefused | None:
+    """Validates and applies the access options (--auth, tokens/loopback agent, --bind, proxy, members) to C, or
+    returns the refusal with a clear message for a refused combination - main() stops before any build, so a
+    misconfigured unit fails fast. Settings applied before the refused option stay applied (the process ends).
 
     Rules: a non-loopback --bind needs --auth trusted-proxy or --i-know-this-is-insecure. The headerless loopback agent
     exists only under tailscale on a loopback bind; asking for it (--agent-loopback) anywhere else refuses to start."""
@@ -4174,19 +4183,19 @@ def configure_access(a) -> None:
     try:
         loop_bind = is_loopback_bind(C.bind)
     except ValueError:
-        sys.exit("--bind takes an IP address (or localhost): %s" % C.bind)
+        return StartupRefused("--bind takes an IP address (or localhost): %s" % C.bind)
     if not loop_bind and C.auth != "trusted-proxy" and not a.i_know_this_is_insecure:
-        sys.exit("Refusing to bind %s with --auth %s: a non-loopback address is only safe behind an authenticating "
+        return StartupRefused("Refusing to bind %s with --auth %s: a non-loopback address is only safe behind an authenticating "
                  "proxy (--auth trusted-proxy). Keep the default 127.0.0.1 and expose it with tailscale serve, or "
                  "pass --i-know-this-is-insecure if this network is private." % (C.bind, C.auth))
     loopback_agent_possible = C.auth == "tailscale" and loop_bind
     if a.agent_loopback is True and not loopback_agent_possible:
-        sys.exit("--agent-loopback (AGENT_LOOPBACK=1) works only with --auth tailscale on a loopback --bind "
+        return StartupRefused("--agent-loopback (AGENT_LOOPBACK=1) works only with --auth tailscale on a loopback --bind "
                  "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>"
                  % (C.auth, C.bind))
     C.agent_loopback = loopback_agent_possible and a.agent_loopback is not False
     if a.tailnet_agent and not C.agent_loopback:
-        sys.exit("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
+        return StartupRefused("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
                  "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
                  "--bind %s%s). Give agents a token instead: limn token create <instance>"
                  % (C.auth, C.bind, ", --no-agent-loopback" if a.agent_loopback is False else ""))
@@ -4195,18 +4204,19 @@ def configure_access(a) -> None:
         C.public_hosts = parse_public_hosts(a.public_host)
         C.trusted_proxies = parse_networks(a.trusted_proxies)
     except ValueError as e:
-        sys.exit(str(e))
+        return StartupRefused(str(e))
     for opt, v in (("--proxy-user-header", a.proxy_user_header), ("--proxy-name-header", a.proxy_name_header),
                    ("--proxy-email-header", a.proxy_email_header)):
         if v is not None and not HEADER_NAME_RE.fullmatch(v):
-            sys.exit("%s takes an HTTP header name: %r" % (opt, v))
+            return StartupRefused("%s takes an HTTP header name: %r" % (opt, v))
     C.proxy_user_header, C.proxy_name_header, C.proxy_email_header = a.proxy_user_header, a.proxy_name_header, a.proxy_email_header
     C.members_only = bool(a.members_only)
     if a.local_user is not None and not valid_login(a.local_user):
-        sys.exit("--local-user takes a login (no spaces, not 'local' or 'agent:...'): %r" % a.local_user)
+        return StartupRefused("--local-user takes a login (no spaces, not 'local' or 'agent:...'): %r" % a.local_user)
     C.local_user = a.local_user
     C.insecure = bool(a.i_know_this_is_insecure) and not loop_bind and C.auth != "trusted-proxy"
     C.agent_token_file = Path(a.agent_token_file).expanduser() if a.agent_token_file else None
+    return None
 
 
 def tighten_state_perms() -> None:
@@ -4350,8 +4360,15 @@ def port_in_use_message(bind: str, port: int) -> str:
             % (port, bind))
 
 
-def probe_port(bind: str, port: int) -> None:
-    """Fails fast (one line, exit 1) when --port is taken - before a build that can take minutes, and instead of the
+def listen_refusal(bind: str, port: int, e: OSError) -> StartupRefused:
+    """The one line for a port that cannot be listened on: taken (EADDRINUSE), or the OS's reason."""
+    if e.errno == errno.EADDRINUSE:
+        return StartupRefused(port_in_use_message(bind, port))
+    return StartupRefused("limn serve: cannot listen on %s port %d: %s" % (bind, port, e.strerror or e))
+
+
+def probe_port(bind: str, port: int) -> StartupRefused | None:
+    """Refuses (one line, exit 1) when --port is taken - before a build that can take minutes, and instead of the
     Errno 98 traceback the server constructor would print (observed in the v0.2.0 QA)."""
     fam = socket.AF_INET6 if ":" in bind else socket.AF_INET
     s = socket.socket(fam, socket.SOCK_STREAM)
@@ -4359,38 +4376,38 @@ def probe_port(bind: str, port: int) -> None:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # the same option the server sets (allow_reuse_address)
         s.bind((bind, port))
     except OSError as e:
-        if e.errno == errno.EADDRINUSE:
-            print(port_in_use_message(bind, port), file=sys.stderr)
-            sys.exit(1)
-        print("limn serve: cannot listen on %s port %d: %s" % (bind, port, e.strerror or e), file=sys.stderr)
-        sys.exit(1)
+        return listen_refusal(bind, port, e)
     finally:
         s.close()
+    return None
 
 
-def main() -> None:
-    a = build_arg_parser().parse_args()
-    configure_access(a)
-    if a.port:
-        probe_port(C.bind, a.port)
-
+def configure_run(a) -> list | None | StartupRefused:
+    """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
+    the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (created
+    here, before the label and accent are checked), build settings, the port, access lists, the label and accent -
+    and the viewer page they fill in (HTML)."""
+    global HTML
     C.src = Path(a.manuscript).expanduser().resolve()
     if not C.src.is_dir():
-        sys.exit("Manuscript directory does not exist: %s" % C.src)
+        return StartupRefused("Manuscript directory does not exist: %s" % C.src)
     if a.doc:
         if a.main:
-            sys.exit("--doc and --main are not used together - the main file is set via the --doc path.")
+            return StartupRefused("--doc and --main are not used together - the main file is set via the --doc path.")
         try:
             docs = make_docs(a.doc, C.src)
         except ValueError as e:
-            sys.exit(str(e))
+            return StartupRefused(str(e))
         first_tex = next((d for d in docs if not d.is_pdf), docs[0])
         C.main = first_tex.main
     else:
         docs = None
-        C.main = (C.src / a.main) if a.main else detect_main(C.src)
+        main_file = (C.src / a.main) if a.main else detect_main(C.src)
+        if isinstance(main_file, StartupRefused):
+            return main_file
+        C.main = main_file
         if not C.main.exists():
-            sys.exit("Top-level .tex does not exist: %s" % C.main)
+            return StartupRefused("Top-level .tex does not exist: %s" % C.main)
 
     default_state = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     C.state = Path(a.state_dir).expanduser().resolve() if a.state_dir \
@@ -4400,7 +4417,10 @@ def main() -> None:
     C.dpi = a.dpi
     C.envs = tuple(e.strip() for e in a.float_envs.split(",") if e.strip())
     C.timeout = a.build_timeout
-    C.port = a.port or free_port()
+    port = a.port or free_port()
+    if isinstance(port, StartupRefused):
+        return port
+    C.port = port
     C.allow = frozenset(x.strip() for x in a.allow.split(",") if x.strip())
     C.origin_check = not a.no_origin_check
     C.git_pull = a.git_pull
@@ -4408,16 +4428,24 @@ def main() -> None:
     C.repo = git_remote_url(C.src)
     # The default label (repo name) is truncated if too long - startup must not halt just because of a long
     # repo name (observed: a 62-character repo). Only an explicitly given --label halts on excess length (so a typo is never silently truncated).
-    C.label = clean_label(a.label) if a.label else clean_label(truncate_quote(default_label(C.src, C.repo), LABEL_MAX))
+    label = clean_label(a.label) if a.label else clean_label(truncate_quote(default_label(C.src, C.repo), LABEL_MAX))
+    if isinstance(label, StartupRefused):
+        return label
+    C.label = label
     if a.accent:
         if not valid_accent(a.accent):
-            sys.exit("--accent must be in #rrggbb form: %s" % a.accent)
+            return StartupRefused("--accent must be in #rrggbb form: %s" % a.accent)
         C.accent = a.accent.lower()
     else:
         C.accent = pick_accent(C.label)
-    global HTML
     HTML = build_html(C.label, C.accent)
+    return docs
 
+
+def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
+    """The documents, pin store and builds before serving: the document list, pins.seq, the Trash's expired entries,
+    then either the single document's build (synchronous; a failed build refuses to start) or every --doc
+    document's build in the background (a failure only opens that tab's error panel), and the watch threads."""
     set_docs(docs)
     init_seq()
     purge_trash()                    # Trash entries older than TRASH_DAYS go at startup, on every drop/restore, and hourly on reads
@@ -4425,24 +4453,28 @@ def main() -> None:
         D = DOCS[0]
         build.migrate_pages(D)
         build.seed_builds(D, C.state)    # adds the current build (made by an earlier instance) to history if missing, and restores the last build result
-        if not a.no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
+        if not no_build or not build.cur_pdf(D).exists() or not page_list(build.cur_pages(D)):
             r = build_all(D)
             if r.get("state") == "fail":
-                sys.exit("Build failed:\n" + r.get("log", ""))
+                return StartupRefused("Build failed:\n" + r.get("log", ""))
     else:
         # Multiple documents: each document's build runs in the background, and the server comes up right
         # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
         for D in DOCS:
-            r = init_doc(D, a.no_build, wait=False)
+            r = init_doc(D, no_build, wait=False)
             print("doc    %-10s %s %s%s" % (D.key, "view-only" if D.is_pdf else "LaTeX   ", D.rel_path(),
                                            "" if r.get("state") == "skip" else "  (build started)"))
         threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
     if C.git_pull:
         threading.Thread(target=watch_main, args=(threading.Event(),), daemon=True).start()
-
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
     tighten_state_perms()
+    return None
+
+
+def report(docs: list | None) -> None:
+    """The startup summary on stdout: manuscript, label, state folder, address, access, and the optional features."""
     print("manuscript  %s" % (C.src if docs else C.main))
     print("label       %s (%s)%s" % (C.label, C.accent, "" if C.repo else " - no git origin, using the folder name as default"))
     print("state       %s" % C.state)
@@ -4465,15 +4497,43 @@ def main() -> None:
     else:
         print("warning     pdf.js is missing (%s) - the viewer falls back to PNG" % C.pdfjs_dir)
     sys.stdout.flush()
+
+
+def listen() -> Server | StartupRefused:
+    """The HTTP server on --bind/--port with this module's Handler (Server6 for an IPv6 address), or the refusal when
+    the port was taken during the build (the probe before it passed) or cannot be listened on."""
     try:
-        httpd = (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
-    except OSError as e:                              # taken during the build (the probe above passed)
-        if e.errno == errno.EADDRINUSE:
-            print(port_in_use_message(C.bind, C.port), file=sys.stderr)
-        else:
-            print("limn serve: cannot listen on %s port %d: %s" % (C.bind, C.port, e.strerror or e), file=sys.stderr)
-        sys.exit(1)
-    httpd.serve_forever()
+        return (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
+    except OSError as e:
+        return listen_refusal(C.bind, C.port, e)
+
+
+def start(a) -> Server | StartupRefused:
+    """Every startup step, in order, until one refuses: access settings, the --port probe, the run settings and
+    documents, the store and builds, the summary, then the listening server."""
+    refused = configure_access(a)
+    if refused is None and a.port:
+        refused = probe_port(C.bind, a.port)
+    if refused is not None:
+        return refused
+    docs = configure_run(a)
+    if isinstance(docs, StartupRefused):
+        return docs
+    refused = prepare(docs, a.no_build)
+    if refused is not None:
+        return refused
+    report(docs)
+    return listen()
+
+
+def main() -> None:
+    """The composition root: parse the arguments, then start() settles the run settings (C), makes the documents,
+    prepares the pin store and the builds, starts the watch threads and opens the server; serve until stopped. The
+    one place the process exits on a refused start: the refusal's message on stderr, status 1."""
+    started = start(build_arg_parser().parse_args())
+    if isinstance(started, StartupRefused):
+        sys.exit(started.message)
+    started.serve_forever()
 
 
 if __name__ == "__main__":
