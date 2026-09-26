@@ -26,16 +26,11 @@ Python 3.10 standard library only.
 from __future__ import annotations
 
 import argparse
-import errno
-import hashlib
+import dataclasses
 import html
-import ipaddress
 import json
 import os
 import re
-import shutil
-import socket
-import subprocess
 import sys
 import threading
 import time
@@ -43,7 +38,6 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Collection
-from typing import NamedTuple
 from urllib.parse import quote
 
 if __package__ in (None, ""):
@@ -64,7 +58,7 @@ from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
 from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
 from limn import events, people  # noqa: E402 - after the path bootstrap above
-from limn.audit import AUDIT_FILE, append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
+from limn.audit import append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
 from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
 from limn.mentions import (  # noqa: E402,F401 - pin_mentions_all, resolve_mentions are ps.* to the tests
     NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
@@ -76,7 +70,7 @@ from limn import revisions  # noqa: E402 - after the path bootstrap above
 from limn import gitsync  # noqa: E402 - after the path bootstrap above
 from limn import documents  # noqa: E402 - after the path bootstrap above
 from limn.documents import (  # noqa: E402 - after the path bootstrap above
-    DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, DocNotFound, DocumentFacts,
+    DEFAULT_DOC_KEY, DOC_KEY_RE, Doc, DocNotFound, DocumentFacts,
 )
 from limn import meta as meta_reads  # noqa: E402 - the module; meta() below is the App member that binds it
 from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_labels is an App member
@@ -96,9 +90,8 @@ from limn.pins.position import EstContext  # noqa: E402 - after the path bootstr
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn import access  # noqa: E402 - after the path bootstrap above
 from limn.access import (  # noqa: E402 - after the path bootstrap above
-    AUTH_PROVIDERS, DEFAULT_ROLE, HEADER_NAME_RE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
-    file_present, home_or_none, is_loopback_bind, load_tokens, local_owner_actor, parse_networks, parse_public_hosts,
-    roles_of, valid_login,
+    DEFAULT_ROLE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
+    file_present, home_or_none, load_tokens, roles_of,
 )
 # hdr_text is an App member (web/app.py): the handler quotes a refused Host/Origin/document key through it.
 from limn.access import hdr_text  # noqa: E402,F401 - after the path bootstrap above
@@ -109,6 +102,11 @@ from limn.pins.render import (  # noqa: E402 - after the path bootstrap above
 )
 from limn.web.errors import HTTPError, revision_failure_text  # noqa: E402 - after the path bootstrap above
 from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
+# The run settings' type, and the startup rules and command line that fill them in (main() -> start() below).
+from limn.config import Cfg  # noqa: E402 - after the path bootstrap above
+from limn import startup  # noqa: E402 - after the path bootstrap above
+from limn.startup import StartupRefused  # noqa: E402 - after the path bootstrap above
+from limn.args import serve_parser  # noqa: E402 - after the path bootstrap above
 
 APP_NAME = "limn"
 
@@ -236,15 +234,6 @@ THREAD_EVENTS = ("close", "reopen", "confirm", "assign")
 # Their limits live with their rules: PEOPLE_TOUCH_S in limn.people, EVENTS_KEEP and the notice types in limn.events,
 # NOTE_MENTION_COOLDOWN_S in limn.mentions.
 TRASH_DAYS = 30                    # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
-# Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
-# The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
-LABEL_MAX = 40
-ACCENT_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-# A high-saturation "700-level" palette with enough contrast on both the dark and light theme backgrounds
-# (--bg #14161a / #e9ebef) and under white text (chip text). One is chosen by hashing the label string -
-# the same label always gets the same color.
-ACCENT_PALETTE = ("#1d4ed8", "#047857", "#be123c", "#6d28d9",
-                   "#0e7490", "#c2410c", "#a21caf", "#4d7c0f")
 
 # The pin store's lock (limn.store.PinStore.lock): every path that touches the pin files goes through this single
 # re-entrant lock. The store creates no lock, so the process makes its one here and pin_store() passes it on.
@@ -261,88 +250,6 @@ BUILD_STATE = {"state": "idle", "phase": None, "started_at": None, "start_ts": N
 BUILDS_LOCK = threading.Lock()
 
 
-class Cfg:
-    """Holds the run arguments. Every project-specific value passes through here."""
-    src: Path
-    main: Path
-    state: Path
-    build: Path
-    port: int
-    dpi: int
-    envs: tuple
-    timeout: int
-    allow: frozenset
-    origin_check: bool = True
-    git_pull: bool = False
-    pdfjs_dir: Path = None          # None = default_pdfjs_dir()
-    label: str = "원고"             # label distinguishing multiple instances (§Running multiple manuscript instances at once). Filled in by main()
-    accent: str = ACCENT_PALETTE[0]  # the label's accent color (#rrggbb)
-    repo: str = None                # git origin URL of --manuscript. None if absent
-    # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
-    auth: str = "tailscale"         # identity provider: tailscale | local | trusted-proxy
-    agent_loopback: bool = True     # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
-    tailnet_agent: bool = False     # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
-    bind: str = "127.0.0.1"
-    public_hosts: tuple = ()        # ((name, port or None), ...) accepted as Host/Origin besides loopback and *.ts.net
-    trusted_proxies: tuple = (ipaddress.ip_network("127.0.0.1/32"), ipaddress.ip_network("::1/128"))
-    proxy_user_header: str = "X-Forwarded-User"
-    proxy_name_header: str = "X-Forwarded-Preferred-Username"
-    proxy_email_header: str = None
-    members_only: bool = False      # admit only logins in people.json (or --allow)
-    local_user: str = None          # the owner's login under --auth local (None = $USER, then "owner")
-    insecure: bool = False          # a non-loopback bind allowed by --i-know-this-is-insecure
-    agent_token_file: Path | None = None   # where agents on this machine keep this instance's token (ADR-0007); never read
-
-    @property
-    def pins_jsonl(self) -> Path:
-        """The live pins (the file names are the pin store's, limn.store.PinFiles)."""
-        return PinFiles(self.state).pins_jsonl
-
-    @property
-    def pins_md(self) -> Path:
-        """The agents' work list."""
-        return PinFiles(self.state).pins_md
-
-    @property
-    def dropped(self) -> Path:
-        """The Trash."""
-        return PinFiles(self.state).dropped
-
-    @property
-    def seq(self) -> Path:
-        """The last pin id handed out."""
-        return PinFiles(self.state).seq
-
-    @property
-    def pages_ptr(self) -> Path:
-        return self.state / "pages.cur"
-
-    @property
-    def built_src_mtime_file(self) -> Path:
-        return self.state / "built_src_mtime.txt"
-
-    @property
-    def builds_file(self) -> Path:
-        return self.state / "builds.json"
-
-    @property
-    def people_file(self) -> Path:
-        return self.state / people.PEOPLE_FILE
-
-    @property
-    def events_file(self) -> Path:
-        return self.state / events.EVENTS_FILE
-
-    @property
-    def tokens_file(self) -> Path:
-        return self.state / "tokens.json"
-
-    @property
-    def audit_file(self) -> Path:
-        """The append-only audit log of destructive and owner actions (see append_audit)."""
-        return self.state / AUDIT_FILE
-
-
 C = Cfg()
 
 
@@ -357,97 +264,7 @@ def now_str() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-# ---------------------------------------------------------------- Startup preparation
-#
-# A startup step that cannot go on returns a StartupRefused instead of ending the process; main() is the one place
-# that exits (coding rule R3: sys.exit only in main).
-
-class StartupRefused(NamedTuple):
-    """Why the server does not start: the message main() prints to stderr before exiting with status 1."""
-    message: str
-
-
-def detect_main(src: Path) -> Path | StartupRefused:
-    """Find the top-level .tex. If it's ambiguous, don't guess - refuse with the candidates."""
-    cands = [p for p in sorted(src.glob("*.tex"))
-             if "\\documentclass" in p.read_text(encoding="utf-8", errors="ignore")[:20000]]
-    if len(cands) == 1:
-        return cands[0]
-    how = "found none" if not cands else "found several"
-    listing = "\n".join("  - %s" % p.name for p in cands) or "  (none)"
-    return StartupRefused("%s: %s top-level .tex files under %s. Specify one with --main.\n%s" % (APP_NAME, how, src, listing))
-
-
-def free_port(start: int = 18300, end: int = 18400) -> int | StartupRefused:
-    """Find a free port. The point is not to steal someone else's port."""
-    for p in range(start, end):
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", p)) != 0:
-                return p
-    return StartupRefused("No free port in the %d-%d range. Specify one with --port." % (start, end))
-
-
-def state_slug(src: Path) -> str:
-    """Separates state per manuscript - so opening manuscripts A and B at once doesn't mix their pins."""
-    return "%s-%s" % (src.name, hashlib.sha1(str(src).encode()).hexdigest()[:8])
-
-
 # ---------------------------------------------------------------- Instance label (§Running multiple manuscript instances at once)
-
-def git_remote_url(src: Path):
-    """git origin URL of --manuscript. None if it isn't a git repo or has no origin - a failure never blocks startup."""
-    if not shutil.which("git"):
-        return None
-    try:
-        r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
-                           capture_output=True, text=True, timeout=5, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    url = r.stdout.strip()
-    return url if r.returncode == 0 and url else None
-
-
-def repo_name_from_url(url: str) -> str:
-    """Pulls just the repo name out of the last segment of a git remote URL (strips the .git suffix / trailing slash).
-
-    Also accepts scp-style URLs (user@host:name, path separated by ':' only, no '/') - if a '/' is present,
-    split on that; only fall back to ':' when it isn't (so a ':' in the hostname isn't mistaken for the name)."""
-    tail = url.rstrip("/")
-    tail = tail.rsplit("/", 1)[-1] if "/" in tail else tail.rsplit(":", 1)[-1]
-    if tail.endswith(".git"):
-        tail = tail[:-4]
-    return tail
-
-
-def default_label(src: Path, repo_url) -> str:
-    """Default label used when --label is absent: the git repo name, or the manuscript folder name if none."""
-    if repo_url:
-        name = repo_name_from_url(repo_url)
-        if name:
-            return name
-    return src.name
-
-
-def clean_label(v) -> str | StartupRefused:
-    """Validate a label. Newlines and excessive length are blocked here since they'd break the tool bar / tab title."""
-    v = "" if v is None else str(v).strip()
-    v = " ".join(v.split())         # collapse newlines/tabs/repeated whitespace to a single space
-    if not v:
-        v = "원고"
-    if len(v) > LABEL_MAX:
-        return StartupRefused("--label must be %d characters or fewer: %r" % (LABEL_MAX, v))
-    return v
-
-
-def pick_accent(label: str) -> str:
-    """Pick one from the palette by hashing the label string - the same label always gets the same color."""
-    idx = int(hashlib.sha1(label.encode("utf-8")).hexdigest(), 16) % len(ACCENT_PALETTE)
-    return ACCENT_PALETTE[idx]
-
-
-def valid_accent(v) -> bool:
-    return isinstance(v, str) and ACCENT_RE.fullmatch(v) is not None
-
 
 def favicon_href(accent: str) -> str:
     """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
@@ -1471,91 +1288,6 @@ class Handler(WebHandler):
 
 # ---------------------------------------------------------------- Entry point
 
-def parse_doc_arg(spec: str, ms: Path) -> dict:
-    """Parses one --doc <key>=<display name>:<path>. The path is relative to --manuscript (recommended) or absolute.
-
-    - `<key>=<name>:a/b/main.tex` - LaTeX. The build root is the folder holding that .tex (a/b).
-    - `<key>=<name>:a::b/main.tex` - LaTeX. The build root is a (the scope copied into the build copy), and
-      main is a/b/main.tex. The build runs in the folder holding main (a/b) - used when main reads another
-      folder inside the build root via ../.
-    - `<key>=<name>:x/review.pdf` - a view-only PDF (no rebuild, page/region pins).
-    key must be [a-z0-9-]{1,24}; name must be 40 characters or fewer with no ':'. The path must be inside
-    --manuscript (a security constraint: a pin can only ever point at a file inside the manuscript tree).
-    Raises ValueError (with a Korean-language reason) if malformed."""
-    if not isinstance(spec, str) or "=" not in spec:
-        raise ValueError("--doc 는 <키>=<표시 이름>:<경로> 형식입니다: %r" % spec)
-    key, rest = spec.split("=", 1)
-    key = key.strip()
-    if not DOC_KEY_RE.fullmatch(key):
-        raise ValueError("--doc 키는 영문 소문자·숫자·'-' 1–24자여야 합니다: %r" % key)
-    if ":" not in rest:
-        raise ValueError("--doc %s: 표시 이름과 경로 사이에 ':' 가 없습니다: %r" % (key, spec))
-    name, path = rest.split(":", 1)
-    name = " ".join(name.split())
-    if not name:
-        raise ValueError("--doc %s: 표시 이름이 비었습니다" % key)
-    if len(name) > DOC_NAME_MAX:
-        raise ValueError("--doc %s: 표시 이름은 %d자 이하여야 합니다: %r" % (key, DOC_NAME_MAX, name))
-    path = path.strip()
-    if not path:
-        raise ValueError("--doc %s: 경로가 비었습니다" % key)
-    ms = ms.resolve()
-
-    def inside(p: Path, what: str) -> Path:
-        p = (p if p.is_absolute() else ms / p).resolve()
-        try:
-            p.relative_to(ms)
-        except ValueError:
-            raise ValueError("--doc %s: %s 가 --manuscript(%s) 밖입니다: %s" % (key, what, ms, p)) from None
-        return p
-
-    if "::" in path:
-        root_s, main_s = path.split("::", 1)
-        if "::" in main_s or not root_s.strip() or not main_s.strip():
-            raise ValueError("--doc %s: 확장 표기는 <빌드 루트>::<메인.tex> 하나입니다: %r" % (key, path))
-        root = inside(Path(root_s.strip()), "빌드 루트")
-        if not root.is_dir():
-            raise ValueError("--doc %s: 빌드 루트 폴더가 없습니다: %s" % (key, root))
-        mp = Path(main_s.strip())
-        if mp.is_absolute():
-            raise ValueError("--doc %s: '::' 뒤 메인은 빌드 루트 기준 상대경로입니다: %s" % (key, mp))
-        main = (root / mp).resolve()
-        try:
-            main.relative_to(root)
-        except ValueError:
-            raise ValueError("--doc %s: 메인 .tex 가 빌드 루트 밖입니다: %s" % (key, main)) from None
-        if main.suffix.lower() != ".tex":
-            raise ValueError("--doc %s: '::' 표기는 LaTeX 문서(.tex)에만 씁니다: %s" % (key, main))
-    else:
-        main = inside(Path(path), "경로")
-        root = main.parent
-    if not main.is_file():
-        raise ValueError("--doc %s: 파일이 없습니다: %s" % (key, main))
-    suf = main.suffix.lower()
-    if suf == ".tex":
-        kind = "tex"
-    elif suf == ".pdf":
-        kind = "pdf"
-    else:
-        raise ValueError("--doc %s: .tex(LaTeX) 또는 .pdf(보기 전용)만 받습니다: %s" % (key, main))
-    return {"key": key, "name": name, "kind": kind, "src": root, "main": main}
-
-
-def make_docs(specs: list, ms: Path) -> list:
-    """--doc list -> Doc list. Checks for duplicate keys and the count ceiling. A LaTeX document keyed main uses the state-folder-root layout (root)."""
-    if len(specs) > DOCS_MAX:
-        raise ValueError("--doc 는 %d개까지입니다(지금 %d개)" % (DOCS_MAX, len(specs)))
-    out, seen = [], set()
-    for spec in specs:
-        p = parse_doc_arg(spec, ms)
-        if p["key"] in seen:
-            raise ValueError("--doc 키가 겹칩니다: %s" % p["key"])
-        seen.add(p["key"])
-        out.append(Doc(p["key"], p["name"], p["kind"], src=p["src"], main=p["main"],
-                       root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"), paths=C))
-    return out
-
-
 def init_doc(D: Doc, no_build: bool, wait: bool) -> dict:
     """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
     D.dir.mkdir(parents=True, exist_ok=True)
@@ -1581,253 +1313,51 @@ def watch_pdf_docs(stop: threading.Event, every: float = 3.0) -> None:
                     traceback.print_exc(file=sys.stderr)
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    """The `limn serve` argument parser (limn.args) with this server's one-line description, version and --float-envs
+    default. The environment default of --agent-token-file is read here, i.e. at startup in main()."""
+    return serve_parser(__doc__.splitlines()[0], "%s %s" % (APP_NAME, app_version()), DEFAULT_ENVS)
+
+
+def access_options() -> startup.AccessOptions:
+    """The access settings of this run as the startup rules' value: C's fields of the same names."""
+    return startup.AccessOptions(**{f.name: getattr(C, f.name) for f in dataclasses.fields(startup.AccessOptions)})
+
+
 def configure_access(a) -> StartupRefused | None:
-    """Validates and applies the access options (--auth, tokens/loopback agent, --bind, proxy, members) to C, or
-    returns the refusal with a clear message for a refused combination - main() stops before any build, so a
-    misconfigured unit fails fast. Settings applied before the refused option stay applied (the process ends).
-
-    Rules: a non-loopback --bind needs --auth trusted-proxy or --i-know-this-is-insecure. The headerless loopback agent
-    exists only under tailscale on a loopback bind; asking for it (--agent-loopback) anywhere else refuses to start."""
-    C.auth = a.auth or "tailscale"
-    C.bind = a.bind or "127.0.0.1"
-    try:
-        loop_bind = is_loopback_bind(C.bind)
-    except ValueError:
-        return StartupRefused("--bind takes an IP address (or localhost): %s" % C.bind)
-    if not loop_bind and C.auth != "trusted-proxy" and not a.i_know_this_is_insecure:
-        return StartupRefused("Refusing to bind %s with --auth %s: a non-loopback address is only safe behind an authenticating "
-                 "proxy (--auth trusted-proxy). Keep the default 127.0.0.1 and expose it with tailscale serve, or "
-                 "pass --i-know-this-is-insecure if this network is private." % (C.bind, C.auth))
-    loopback_agent_possible = C.auth == "tailscale" and loop_bind
-    if a.agent_loopback is True and not loopback_agent_possible:
-        return StartupRefused("--agent-loopback (AGENT_LOOPBACK=1) works only with --auth tailscale on a loopback --bind "
-                 "(here: --auth %s, --bind %s). Give agents a token instead: limn token create <instance>"
-                 % (C.auth, C.bind))
-    C.agent_loopback = loopback_agent_possible and a.agent_loopback is not False
-    if a.tailnet_agent and not C.agent_loopback:
-        return StartupRefused("--tailnet-agent (TAILNET_AGENT=1) extends the headerless loopback agent to requests through tailscale serve, "
-                 "so it needs it on: --auth tailscale, a loopback --bind and no --no-agent-loopback (here: --auth %s, "
-                 "--bind %s%s). Give agents a token instead: limn token create <instance>"
-                 % (C.auth, C.bind, ", --no-agent-loopback" if a.agent_loopback is False else ""))
-    C.tailnet_agent = bool(a.tailnet_agent)
-    try:
-        C.public_hosts = parse_public_hosts(a.public_host)
-        C.trusted_proxies = parse_networks(a.trusted_proxies)
-    except ValueError as e:
-        return StartupRefused(str(e))
-    for opt, v in (("--proxy-user-header", a.proxy_user_header), ("--proxy-name-header", a.proxy_name_header),
-                   ("--proxy-email-header", a.proxy_email_header)):
-        if v is not None and not HEADER_NAME_RE.fullmatch(v):
-            return StartupRefused("%s takes an HTTP header name: %r" % (opt, v))
-    C.proxy_user_header, C.proxy_name_header, C.proxy_email_header = a.proxy_user_header, a.proxy_name_header, a.proxy_email_header
-    C.members_only = bool(a.members_only)
-    if a.local_user is not None and not valid_login(a.local_user):
-        return StartupRefused("--local-user takes a login (no spaces, not 'local' or 'agent:...'): %r" % a.local_user)
-    C.local_user = a.local_user
-    C.insecure = bool(a.i_know_this_is_insecure) and not loop_bind and C.auth != "trusted-proxy"
-    C.agent_token_file = Path(a.agent_token_file).expanduser() if a.agent_token_file else None
+    """Applies the access options of the command line (limn.startup.access_options) to C, or returns the refusal with
+    nothing applied - main() stops before any build, so a misconfigured unit fails fast."""
+    opts = startup.access_options(a)
+    if isinstance(opts, StartupRefused):
+        return opts
+    for f in dataclasses.fields(opts):
+        setattr(C, f.name, getattr(opts, f.name))
     return None
-
-
-def tighten_state_perms() -> None:
-    """people.json holds logins and roles (roles are permissions). It is written 0600 since v0.2.1; an older file that
-    others may write is tightened to 0600 on startup, logged once. Other state files keep their mode - pins.md and
-    pins.jsonl are what agents (possibly another account on the machine) read."""
-    p = C.people_file
-    try:
-        mode = p.stat().st_mode & 0o777
-    except OSError:
-        return
-    if mode & 0o022:
-        try:
-            os.chmod(p, 0o600)
-        except OSError as e:
-            print("warning: %s is writable by others (%o) and could not be tightened: %s" % (p, mode, e), file=sys.stderr)
-            return
-        print("people.json: tightened %s from %o to 600 (it was writable by others)" % (p, mode), file=sys.stderr)
 
 
 def access_log_lines() -> list:
-    """Startup log lines about access: the provider line, and warnings for a non-loopback bind / the deprecated loopback agent."""
-    parts = [C.auth]
-    if C.auth == "local":
-        parts.append("owner %s" % local_owner_actor(C.local_user)["login"])
-    if C.auth == "trusted-proxy":
-        parts.append("proxies %s" % ",".join(str(n) for n in C.trusted_proxies))
-        parts.append("user header %s" % C.proxy_user_header)
-    parts.append("tokens %d" % len(load_tokens(C.state)))
-    if C.agent_token_file is not None:
-        parts.append("token file %s (%s)" % (C.agent_token_file, "present" if file_present(C.agent_token_file) else "absent"))
-    parts.append("loopback agent %s" % ("on (deprecated)" if C.agent_loopback else "off"))
-    if C.agent_loopback:                          # only meaningful where the loopback agent exists
-        parts.append("tailnet agent %s" % ("on (deprecated)" if C.tailnet_agent else "off"))
-    parts.append("members-only %s" % ("on" if C.members_only else "off"))
-    if C.public_hosts:
-        parts.append("public hosts %s" % ",".join(n + (":%d" % p if p else "") for n, p in C.public_hosts))
-    out = ["auth        " + " · ".join(parts)]
-    if not is_loopback_bind(C.bind):
-        out.append("warning     bound to %s (not loopback) - identity provider: %s. Anyone who can reach this port "
-                   "can try it; only %s" % (C.bind, C.auth,
-                                           "the configured --trusted-proxies may vouch for people"
-                                           if C.auth == "trusted-proxy" else "tokens and the provider stand in the way"))
-    if C.insecure:
-        out.append("warning     !!! --i-know-this-is-insecure: --auth %s on %s is NOT an authentication boundary - "
-                   "anyone on this network can read the manuscript and change pins. Use --auth trusted-proxy behind an "
-                   "authenticating proxy, or bind 127.0.0.1 and use tailscale serve !!!" % (C.auth, C.bind))
-    if C.agent_loopback:
-        out.append("warning     " + LOOPBACK_AGENT_DEPRECATION)
-    if C.tailnet_agent:
-        out.append("warning     --tailnet-agent: a headerless request through tailscale serve (a tagged device) is treated "
-                   "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
-                   "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT")
-    return out
-
-
-def build_arg_parser() -> argparse.ArgumentParser:
-    """The `limn serve` argument parser. Defaults that come from the environment (LIMN_AGENT_TOKEN_FILE) are read
-    when the parser is built, i.e. at startup in main()."""
-    ap = argparse.ArgumentParser(prog="limn serve", description=__doc__.splitlines()[0])
-    ap.add_argument("--version", action="version", version="%s %s" % (APP_NAME, app_version()))
-    ap.add_argument("--manuscript", required=True, help="LaTeX source root directory")
-    ap.add_argument("--main", help="Top-level .tex filename (auto-detected if omitted). Not used together with --doc")
-    ap.add_argument("--doc", action="append", default=[], metavar="KEY=NAME:PATH",
-                    help="A document the viewer can switch to (repeatable). PATH is relative to --manuscript. "
-                         ".tex = LaTeX (build root is that folder), "
-                         "<build root>::<main.tex> = build root given separately, .pdf = view-only. The first document is the default. "
-                         "If omitted, a single document (key main) built from --manuscript/--main")
-    ap.add_argument("--port", type=int, help="Picks a free port in 18300-18400 if omitted")
-    ap.add_argument("--state-dir", help="Location of pins and build artifacts")
-    ap.add_argument("--dpi", type=int, default=150)
-    ap.add_argument("--float-envs", default=DEFAULT_ENVS)
-    ap.add_argument("--build-timeout", type=int, default=900)
-    ap.add_argument("--no-build", action="store_true", help="Don't rebuild on startup")
-    ap.add_argument("--allow", default="",
-                    help="Allowed logins (comma-separated). Everyone is allowed if empty. A loopback "
-                         "request with no identity header (curl/agent) is always allowed; a request to *.ts.net with no "
-                         "identity header (a tag device) is denied (with or without this option, unless --tailnet-agent)")
-    ap.add_argument("--no-origin-check", action="store_true",
-                    help="Turns off Host/Origin checking (DNS rebinding/CSRF defense). Use only when tailscale "
-                         "serve passes an unexpected Host/Origin and the UI gets a 403")
-    ap.add_argument("--git-pull", action="store_true",
-                    help="Checks remote main right after startup and every 60 seconds, rebuilding the PDF on a "
-                         "new commit. A manual rebuild also does an --ff-only pull of upstream before the copy. Skipped with a screen notice if there are local changes or a divergence")
-    ap.add_argument("--pdfjs-dir",
-                    help="The PDF.js directory the viewer uses for vector rendering (pdf.min.mjs/pdf.worker.min.mjs). "
-                         "Defaults to the limn/vendor/pdfjs bundled with the package. Falls back to PNG in the viewer if absent")
-    ap.add_argument("--label",
-                    help="A label distinguishing tabs/the tool bar when multiple manuscript viewers are open at once "
-                         "(%d characters or fewer). Defaults to --manuscript's git origin repo name, or the folder name if not a git repo" % LABEL_MAX)
-    ap.add_argument("--accent",
-                    help="The label's accent color (#rrggbb). If omitted, one is picked from a fixed palette by "
-                         "hashing the label string (the same label always gets the same color)")
-    acc = ap.add_argument_group("access control (docs/adr/0002-access-control.md)")
-    acc.add_argument("--auth", choices=AUTH_PROVIDERS,
-                     help="Identity provider. tailscale (default): Tailscale-User-* headers from a loopback peer "
-                          "(tailscale serve). local: a single user on this machine - every loopback request is the "
-                          "owner; agents use a token. trusted-proxy: identity headers set by an authenticating reverse "
-                          "proxy, trusted only from --trusted-proxies. Every provider accepts 'Authorization: Bearer "
-                          "<token>' (limn token create)")
-    lb = acc.add_mutually_exclusive_group()
-    lb.add_argument("--no-agent-loopback", dest="agent_loopback", action="store_const", const=False, default=None,
-                    help="Refuse (401) loopback requests with no identity header or token instead of treating them "
-                         "as the agent (the deprecated v0.1 behaviour, on by default under --auth tailscale)")
-    lb.add_argument("--agent-loopback", dest="agent_loopback", action="store_const", const=True,
-                    help="Explicitly keep the deprecated headerless loopback agent. Refuses to start where it cannot "
-                         "apply (--auth local or trusted-proxy, or a non-loopback --bind)")
-    acc.add_argument("--tailnet-agent", action="store_true",
-                     help="Also treat a headerless request that arrives through tailscale serve (Host *.ts.net or a "
-                          "--public-host, e.g. from a tagged device) as the agent, as v0.2.0 did. Off by default: such "
-                          "requests get 403 and remote agents use a token. Needs the loopback agent (deprecated)")
-    acc.add_argument("--bind", default="127.0.0.1",
-                     help="Listen address (default 127.0.0.1). A non-loopback address needs --auth trusted-proxy or "
-                          "--i-know-this-is-insecure")
-    acc.add_argument("--i-know-this-is-insecure", action="store_true",
-                     help="Allow a non-loopback --bind without --auth trusted-proxy (prints a loud warning)")
-    acc.add_argument("--public-host", action="append", default=[], metavar="NAME[:PORT]",
-                     help="A public host name the server is reached under (repeatable or comma-separated): accepted as "
-                          "Host and as https Origin (port 443 unless given), and used as the pins.md base URL")
-    acc.add_argument("--trusted-proxies", default="127.0.0.1,::1", metavar="IP/CIDR,...",
-                     help="Peers whose identity headers --auth trusted-proxy trusts (default 127.0.0.1,::1)")
-    acc.add_argument("--proxy-user-header", default="X-Forwarded-User",
-                     help="Header carrying the user under --auth trusted-proxy (default X-Forwarded-User)")
-    acc.add_argument("--proxy-name-header", default="X-Forwarded-Preferred-Username",
-                     help="Header carrying the display name (default X-Forwarded-Preferred-Username)")
-    acc.add_argument("--proxy-email-header",
-                     help="Optional header carrying the e-mail; when present it is used as the login")
-    acc.add_argument("--members-only", action="store_true",
-                     help="Admit only people listed in people.json (limn member add) or --allow; others get 403 and are not recorded")
-    acc.add_argument("--local-user",
-                     help="The owner's login under --auth local (default $USER, then 'owner')")
-    acc.add_argument("--agent-token-file", default=os.environ.get("LIMN_AGENT_TOKEN_FILE") or None, metavar="PATH",
-                     help="Where agents on this machine keep this instance's token (limn token create <instance> "
-                          "--save; default $LIMN_AGENT_TOKEN_FILE, which limn run sets). Never read: once the file "
-                          "exists, pins.md and the 401 for a headerless local request tell agents to send it")
-    return ap
-
-
-def port_in_use_message(bind: str, port: int) -> str:
-    return ("limn serve: port %d on %s is already in use - stop the other server, or pick another --port"
-            % (port, bind))
-
-
-def listen_refusal(bind: str, port: int, e: OSError) -> StartupRefused:
-    """The one line for a port that cannot be listened on: taken (EADDRINUSE), or the OS's reason."""
-    if e.errno == errno.EADDRINUSE:
-        return StartupRefused(port_in_use_message(bind, port))
-    return StartupRefused("limn serve: cannot listen on %s port %d: %s" % (bind, port, e.strerror or e))
-
-
-def probe_port(bind: str, port: int) -> StartupRefused | None:
-    """Refuses (one line, exit 1) when --port is taken - before a build that can take minutes, and instead of the
-    Errno 98 traceback the server constructor would print (observed in the v0.2.0 QA)."""
-    fam = socket.AF_INET6 if ":" in bind else socket.AF_INET
-    s = socket.socket(fam, socket.SOCK_STREAM)
-    try:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # the same option the server sets (allow_reuse_address)
-        s.bind((bind, port))
-    except OSError as e:
-        return listen_refusal(bind, port, e)
-    finally:
-        s.close()
-    return None
+    """The startup log lines about access (limn.startup.access_log_lines) for C, its tokens.json and token file."""
+    return startup.access_log_lines(access_options(), len(load_tokens(C.state)), file_present(C.agent_token_file))
 
 
 def configure_run(a) -> list | None | StartupRefused:
     """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
     the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (created
     here, before the label and accent are checked), build settings, the port, access lists, the label and accent -
-    and the viewer page they fill in (HTML)."""
+    and the viewer page they fill in (HTML). The rules are limn.startup's; this applies their answers."""
     global HTML
     C.src = Path(a.manuscript).expanduser().resolve()
-    if not C.src.is_dir():
-        return StartupRefused("Manuscript directory does not exist: %s" % C.src)
-    if a.doc:
-        if a.main:
-            return StartupRefused("--doc and --main are not used together - the main file is set via the --doc path.")
-        try:
-            docs = make_docs(a.doc, C.src)
-        except ValueError as e:
-            return StartupRefused(str(e))
-        first_tex = next((d for d in docs if not d.is_pdf), docs[0])
-        C.main = first_tex.main
-    else:
-        docs = None
-        main_file = (C.src / a.main) if a.main else detect_main(C.src)
-        if isinstance(main_file, StartupRefused):
-            return main_file
-        C.main = main_file
-        if not C.main.exists():
-            return StartupRefused("Top-level .tex does not exist: %s" % C.main)
-
-    default_state = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-    C.state = Path(a.state_dir).expanduser().resolve() if a.state_dir \
-        else default_state / "limn" / "serve" / state_slug(C.src)
+    picked = startup.pick_documents(C.src, a.doc, a.main, C)
+    if isinstance(picked, StartupRefused):
+        return picked
+    C.main = picked.main
+    C.state = startup.state_dir(a.state_dir, C.src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
     C.state.mkdir(parents=True, exist_ok=True)
     C.build = C.state / "build"
     C.dpi = a.dpi
     C.envs = tuple(e.strip() for e in a.float_envs.split(",") if e.strip())
     C.timeout = a.build_timeout
-    port = a.port or free_port()
+    port = a.port or startup.free_port()
     if isinstance(port, StartupRefused):
         return port
     C.port = port
@@ -1835,21 +1365,17 @@ def configure_run(a) -> list | None | StartupRefused:
     C.origin_check = not a.no_origin_check
     C.git_pull = a.git_pull
     C.pdfjs_dir = Path(a.pdfjs_dir).expanduser().resolve() if a.pdfjs_dir else default_pdfjs_dir()
-    C.repo = git_remote_url(C.src)
-    # The default label (repo name) is truncated if too long - startup must not halt just because of a long
-    # repo name (observed: a 62-character repo). Only an explicitly given --label halts on excess length (so a typo is never silently truncated).
-    label = clean_label(a.label) if a.label else clean_label(truncate_quote(default_label(C.src, C.repo), LABEL_MAX))
+    C.repo = startup.git_remote_url(C.src)
+    label = startup.run_label(a.label, C.src, C.repo)
     if isinstance(label, StartupRefused):
         return label
     C.label = label
-    if a.accent:
-        if not valid_accent(a.accent):
-            return StartupRefused("--accent must be in #rrggbb form: %s" % a.accent)
-        C.accent = a.accent.lower()
-    else:
-        C.accent = pick_accent(C.label)
+    accent = startup.run_accent(a.accent, C.label)
+    if isinstance(accent, StartupRefused):
+        return accent
+    C.accent = accent
     HTML = build_html(C.label, C.accent)
-    return docs
+    return picked.docs
 
 
 def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
@@ -1880,33 +1406,16 @@ def prepare(docs: list | None, no_build: bool) -> StartupRefused | None:
                          args=(threading.Event(), gitsync.SYNC_EVERY_S, sync_main_once, gitsync.local_stamp)).start()
     with PIN_LOCK:
         render_pins_md(read_pins()[0])
-    tighten_state_perms()
+    startup.tighten_state_perms(C.people_file)
     return None
 
 
 def report(docs: list | None) -> None:
-    """The startup summary on stdout: manuscript, label, state folder, address, access, and the optional features."""
-    print("manuscript  %s" % (C.src if docs else C.main))
-    print("label       %s (%s)%s" % (C.label, C.accent, "" if C.repo else " - no git origin, using the folder name as default"))
-    print("state       %s" % C.state)
-    if is_loopback_bind(C.bind):
-        print("address     http://%s:%d/   (external exposure only via tailscale serve)"
-              % ("[%s]" % C.bind if ":" in C.bind else C.bind, C.port))
-    else:
-        print("address     http://%s:%d/" % ("[%s]" % C.bind if ":" in C.bind else C.bind, C.port))
-    for line in access_log_lines():
+    """The startup summary on stdout (limn.startup.summary_lines): manuscript, label, state folder, address, access,
+    and the optional features."""
+    pdfjs_found = bool(vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"))
+    for line in startup.summary_lines(C, bool(docs), access_log_lines(), pdfjs_found):
         print(line)
-    if C.allow:
-        print("allow       %s%s" % (", ".join(sorted(C.allow)),
-                                    " (a loopback request with no header is still allowed)" if C.agent_loopback else ""))
-    if not C.origin_check:
-        print("warning     --no-origin-check: Host/Origin checking is off (no DNS rebinding defense)")
-    if C.git_pull:
-        print("git-pull    checks main right after startup and every 60 seconds, rebuilding the PDF on a new commit")
-    if vendor_file("pdf.min.mjs") and vendor_file("pdf.worker.min.mjs"):
-        print("pdf.js      %s (vector rendering)" % C.pdfjs_dir)
-    else:
-        print("warning     pdf.js is missing (%s) - the viewer falls back to PNG" % C.pdfjs_dir)
     sys.stdout.flush()
 
 
@@ -1916,7 +1425,7 @@ def listen() -> Server | StartupRefused:
     try:
         return (Server6 if ":" in C.bind else Server)((C.bind, C.port), Handler)
     except OSError as e:
-        return listen_refusal(C.bind, C.port, e)
+        return startup.listen_refusal(C.bind, C.port, e)
 
 
 def start(a) -> Server | StartupRefused:
@@ -1924,7 +1433,7 @@ def start(a) -> Server | StartupRefused:
     documents, the store and builds, the summary, then the listening server."""
     refused = configure_access(a)
     if refused is None and a.port:
-        refused = probe_port(C.bind, a.port)
+        refused = startup.probe_port(C.bind, a.port)
     if refused is not None:
         return refused
     docs = configure_run(a)

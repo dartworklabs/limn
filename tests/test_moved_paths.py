@@ -16,7 +16,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from limn import mapping
+from limn import mapping, startup
 from limn.store import dump_jsonl
 from test_access import AccessBase
 from test_server import add_pin, ps
@@ -92,7 +92,7 @@ class MultiDocMoved(AccessBase):
     def serve(self, root: Path, rr_main: str):
         """Point the server at a manuscript root with the two documents, as a restart with --doc would."""
         ps.C.src, ps.C.main = root, root / "manuscript" / "main.tex"
-        ps.set_docs(ps.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root))
+        ps.set_docs(startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.C))
 
     def pins(self):
         """GET /api/pins?all=1 as {id: pin}."""
