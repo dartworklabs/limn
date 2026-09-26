@@ -619,15 +619,25 @@ class BrowserBase(unittest.TestCase):
         code, hdrs, data = self.talk(raw)
         route.fulfill(status=code, headers={"content-type": hdrs.get("content-type", "application/octet-stream")}, body=data)
 
-    def open(self, n_open, lang="ko", **device):
+    def open(self, n_open, lang="ko", init=None, **device):
+        """Open the viewer in a new context and return the page once boot() has finished: the pin lists (open, review,
+        done) are loaded and polling has started, with at least n_open open pins. init is an optional script run
+        before the viewer's own.
+
+        The wait is on LIGHT_TIMER, which boot() sets only after `await loadPins()`. META and the initial
+        `OPEN_ALL=[]` are both set before that await, so waiting on them alone let a test act on a review or done
+        pin that the viewer did not know yet (showChange() of an unknown pin does nothing, and nothing retries)."""
         context = self.browser.new_context(**(device or {"viewport": {"width": 1400, "height": 850}}))
         self.addCleanup(context.close)
+        if init:
+            context.add_init_script(init)
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s" % lang)
-        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=%d&&META" % n_open, timeout=20000)
+        page.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&OPEN_ALL.length>=%d" % n_open,
+                               timeout=20000)
         page.wait_for_timeout(300)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
@@ -636,6 +646,26 @@ class BrowserBase(unittest.TestCase):
         page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_selector("#composer:not([hidden])", timeout=8000)
         page.wait_for_function("CUR&&CUR.lo", timeout=8000)
+
+
+# Makes the viewer's pin list (GET /api/pins?all=1) answer 1.5s late, as on a slow CI runner; other requests are untouched.
+SLOW_PIN_LIST = ("(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.call(this,u,o);"
+                 "return String(u).startsWith('/api/pins?all=1')?p.then(r=>new Promise(ok=>setTimeout(()=>ok(r),1500))):p;};})()")
+
+
+class BrowserOpenWaitsForPins(BrowserBase):
+    """BrowserBase.open returns only after the viewer knows every pin. The ScopedViewer flake (CI run 36216447363):
+    open(0) returned once META was set, before boot() had loaded the pin lists; showChange() of a done pin then found
+    no pin and did nothing, and the test timed out waiting for the diff."""
+
+    WHO = ALICE
+
+    def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
+        """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
+        ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), reply="fixed")
+        page = self.open(0, init=SLOW_PIN_LIST)
+        self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
 
 class QuestionNudgeFocus(BrowserBase):
