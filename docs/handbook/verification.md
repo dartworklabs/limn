@@ -40,6 +40,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | [`tests/test_migrate.py`](../../tests/test_migrate.py) | 옛 설치에서 옮기기 (systemctl 스텁) |
 | [`tests/test_access.py`](../../tests/test_access.py) | 접근 제어: 신원 방식, 토큰, 역할별 허용 범위, 바인드 규칙, 0.1 상태 디렉터리 호환 |
 | [`tests/test_i18n.py`](../../tests/test_i18n.py) | UI 영어 대응표와 `tl()` 틀 배선, 영어 화면에 한글이 남지 않는지(브라우저, 흔한 거절의 오류 알림 포함), 계약 문자열은 번역하지 않는지 |
+| [`tests/test_moved_paths.py`](../../tests/test_moved_paths.py) | ADR-0006 후속(이슈 #24): 꼬리를 핀의 문서 폴더에 이어 찾는 순수 규칙(다른 문서의 파일은 고르지 않음, 이름을 바꾼 문서 폴더, 1·2는 좁히지 않음, `..` 범위는 아무것도 못 찾음), 여러 문서 인스턴스를 옮긴 흐름, 읽기가 `file_rel` 을 채우지 않음, 클론한 저장소에서 `changes` 로 닫은 핀이 `source:"changes"` 로 남고 저장값은 그대로인지, 맞지 않는 경로·바깥을 가리키는 링크는 버리는지 |
 | [`tests/test_brand.py`](../../tests/test_brand.py) | Limn 마크: PNG가 올바른 RGBA이고 타일은 인스턴스 색·글리프는 흰색이며 16px에서 점과 줄이 따로 읽히는지, 파비콘 SVG·인라인 SVG(색 리터럴 없음)·세 자리(탐색 줄·[더보기] 칩·도움말 머리)·`<head>` 링크, PNG 경로가 인스턴스 색으로 그리는지, 브라우저에서 16px·토큰 색으로 그려지는지(밝게·어둡게) |
 | [`tests/test_errors.py`](../../tests/test_errors.py) | 모든 오류 본문에 안정 코드 `reason` 이 있는지(`HTTPError` 는 `reason` 없이 만들 수 없고, 오류 사전 글자에도 있다), 흔한 거절의 한국어 `error` 문장·상태가 그대로인지, 서버가 내는 코드마다 영어 문장이 있고 낡은 문장이 없는지, 뷰어 `errText()` 가 영어에서는 코드로·한국어에서는 서버 문장 그대로 보이는지 |
 | [`tests/test_naming.py`](../../tests/test_naming.py) | 앱 이름은 Limn 하나, 개인정보 없음, README 두 벌이 서로 링크하는지 |
