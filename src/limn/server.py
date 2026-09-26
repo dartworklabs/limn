@@ -105,10 +105,8 @@ from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E40
 # The run settings' type, and the startup rules and command line that fill them in (main() -> start() below).
 from limn.config import Cfg  # noqa: E402 - after the path bootstrap above
 from limn import startup  # noqa: E402 - after the path bootstrap above
-from limn.startup import StartupRefused  # noqa: E402 - after the path bootstrap above
+from limn.startup import APP_NAME, StartupRefused  # noqa: E402 - after the path bootstrap above
 from limn.args import serve_parser  # noqa: E402 - after the path bootstrap above
-
-APP_NAME = "limn"
 
 
 def app_version() -> str:

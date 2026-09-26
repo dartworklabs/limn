@@ -85,7 +85,7 @@ LEDGER_UNITS_DIR="${LIMN_LEDGER_UNITS_DIR:-$USER_UNIT_DIR}"
 TS_MIN="${LIMN_TS_MIN:-18005}"
 TS_MAX="${LIMN_TS_MAX:-18099}"
 LOCAL_OFFSET="${LIMN_LOCAL_OFFSET:-100}"
-# Multi-document (--doc/DOCS=) limits. Kept in sync with DOC_KEY_RE/DOCS_MAX/DOC_NAME_MAX on the server side (limn/server.py).
+# Multi-document (--doc/DOCS=) limits. Kept in sync with DOC_KEY_RE/DOCS_MAX/DOC_NAME_MAX on the server side (limn/documents.py).
 DOCS_MAX=12
 DOC_NAME_MAX=40
 # Passed in by the CLI: the installed limn's Python, server, unit template, executable, and version.
@@ -338,7 +338,7 @@ emit() { # emit <KEY> <value> — emits no line at all if empty
 
 # ── multiple documents (--doc / DOCS=) ──
 # Format is <key>=<display name>:<path>. Parsing/validation rules are kept in sync with the server
-# (parse_doc_arg/make_docs in limn/server.py) — the server re-validates on startup, but filtering
+# (parse_doc_arg/make_docs in limn/startup.py) — the server re-validates on startup, but filtering
 # here first means a clear error at `limn add`/`limn doc add` time instead of a systemd Restart loop.
 join_semi() { local IFS=';'; printf '%s' "$*"; } # join_semi <items...> -> string joined by ';'
 valid_doc_key() { # [a-z0-9-]{1,24}
