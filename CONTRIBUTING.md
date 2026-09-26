@@ -11,6 +11,7 @@ uv run pytest -q                          # Python tests (server, CLI, migrate, 
 bash tests/test_instances.sh              # instance manager (stubs systemd/tailscale; touches nothing)
 uv run ruff check                         # lint (bug-candidate rules, see pyproject.toml)
 uv run shellcheck src/limn/instances.sh tests/test_instances.sh
+uv run mypy                               # strict type check of the moved modules (files in pyproject.toml)
 ```
 
 The server is stdlib-only Python 3.10+ (`src/limn/server.py`, being split into modules — see the coding roadmap);

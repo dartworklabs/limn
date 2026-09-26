@@ -21,6 +21,8 @@ jobs:
         run: uv run ruff check
       - name: ShellCheck
         run: uv run shellcheck src/limn/instances.sh tests/test_instances.sh
+      - name: Mypy (modules moved out of server.py)
+        run: uv run mypy
 
   test:
     runs-on: ubuntu-latest
