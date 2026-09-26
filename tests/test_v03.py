@@ -1181,16 +1181,16 @@ class ScopedViewer(BrowserBase):
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
             self.git(*args)
         self.commit("first")
-        self.p1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "alpha"}, A)
-        self.p2 = ps.add_pin({"file": str(self.main), "lo": 11, "hi": 11, "page": 1, "note": "beta"}, A)
-        self.p3 = ps.add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "gamma"}, A)
+        self.p1 = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "alpha"}, A).record["id"]
+        self.p2 = ps.add_pin({"file": str(self.main), "lo": 11, "hi": 11, "page": 1, "note": "beta"}, A).record["id"]
+        self.p3 = ps.add_pin({"file": str(self.main), "lo": 18, "hi": 18, "page": 1, "note": "gamma"}, A).record["id"]
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(ps.LOCAL_ACTOR)
         ps.set_done(self.p1, True, loc, reply="alpha", ref=self.fix[:8], changes=(ps.CloseChange(str(self.main.resolve()), 4, 5),))
         ps.set_done(self.p2, True, loc, reply="beta", ref=self.fix[:8])
         ps.set_done(self.p3, True, loc, reply="gamma", ref=self.fix[:8])
-        self.p4 = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A)
+        self.p4 = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
         ps.set_done(self.p4, True, loc, reply="filler", ref=self.solo[:8])
@@ -1480,8 +1480,8 @@ class ViewerTrashControls(BrowserBase):
         ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
             {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
             {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
-        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A)
-        self.gone = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A)
+        ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
+        self.gone = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         ps.drop_pin(self.gone, A)
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):
