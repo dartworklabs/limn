@@ -107,8 +107,8 @@ def reply_pin(
                 r.clear()
                 r.update(replied.record)
                 msg = r["thread"][-1]
-                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
-                # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
+                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin - otherwise a
+                # second "@Bob ..." reaches nobody (observed). Everyone else involved gets replied - never both.
                 evs.append(ctx.make_event("mention", r, actor, ment, msg=msg))
                 evs.append(
                     ctx.make_event(
@@ -199,7 +199,7 @@ def reopen_pin(
     ctx: PinContext, pid: int, actor: Mapping[str, Any], reason: str | None, hints: Iterable[str] | None
 ) -> OpenPin | PinNotFound:
     """Reopen pin pid under the pin lock; a closed pin records the reason and notifies (see _reopen). rev goes up
-    even for a pin that was already open, as before."""
+    even for a pin that was already open."""
     evs: list[Event | None] = []
 
     def fn(rows: list[Row]) -> tuple[OpenPin | PinNotFound, bool]:
@@ -260,7 +260,7 @@ def confirm_pin(
 ) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
     """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
 
-    An agent is refused before the store is touched, as before. Otherwise the pin is loaded under the pin lock
+    An agent is refused before the store is touched. Otherwise the pin is loaded under the pin lock
     (transact) and lifecycle.confirm() decides; only a new DonePin is written, in place, so the saved line
     keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer. No notice.
     """

@@ -146,7 +146,7 @@ def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin
     """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
     Returns the purged entry, or NotInTrash (nothing written) if the pin is not in the Trash - an open or closed pin
     must be dropped first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a
-    `purged` line in audit.jsonl (v0.3.1, never rotated out) and a log line, since it cannot be undone."""
+    `purged` line in audit.jsonl (never rotated out) and a log line, since it cannot be undone."""
     with ctx.store.lock:
         rows, bad = ctx.store.read_dropped()
         found = find_trashed(_live_trash(ctx, rows), pid)
@@ -162,8 +162,8 @@ def purge_pin(ctx: PinContext, pid: int, actor: Mapping[str, Any]) -> TrashedPin
 
 def clear_pins(ctx: PinContext, actor: Mapping[str, Any] | None = None) -> Json:
     """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
-    Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (v0.3.1 - the event can
-    rotate out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
+    Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (the event can rotate
+    out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
     always leaves a trace. No actor means the headerless agent. Returns {"cleared": n, "archive": <file name or None>}."""
     by = ctx.who(actor or LOCAL_ACTOR)
     with ctx.store.lock:

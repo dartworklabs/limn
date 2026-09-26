@@ -137,7 +137,7 @@ def location_col(r: Record, facts: PinFacts) -> str:
 
 def range_label(r: Record) -> str:
     """Range column: if scope is set, env* -> env:<name>, para -> paragraph, raw/lines -> lines; otherwise the legacy kind.
-    Every branch escapes via md_cell (missing that on just the env branch used to be a bug)."""
+    Every branch that shows a record value escapes it through md_cell."""
     if is_region_pin(r):
         return "영역"
     scope = r.get("scope")
@@ -184,14 +184,14 @@ def josa(n: object, cons: str, vowel: str) -> str:
 
 
 def rel_badge(rel: Sequence[Mapping[str, Any]], by_id: Mapping[int, Record], me: Record | None = None) -> str:
-    """Picks one representative relationship for pins.md / card tags - phrased as a short, meaningful label (the old ⊂#N/∩#N marks were unreadable).
+    """Picks one representative relationship for pins.md / card tags, as a short label that says what to do.
 
     1. If there's a pin with the exact same range (the same spot marked twice), the one with the smallest id: '#N과 같은 범위'
     2. If there's an inside relationship, the smallest enclosing outer pin: '#N 범위 안'
     3. The smallest-id partial: '#N과 일부 겹침'
     contains (wraps) is never shown. Since the rel entries from GET /api/pins are only {id,rel} (the
     contract), ranges are looked up from by_id (the full rows). Without me (this pin), same-range pins
-    can't be singled out, so it falls back to only inside/overlap, as before. The viewer's relBadge() is the same rule."""
+    can't be singled out, so only inside and partial are considered. The viewer's relBadge() is the same rule."""
     if me is not None:
         same = [
             x
@@ -229,7 +229,8 @@ LEGEND = (
     "'참고 @이름' = 알림만 간 참고용 태그다, 담당이 아니므로 건너뛰지 않는다 · "
     "«…» = 줄 안에서 가리킨 부분의 렌더 글자(검색 힌트, 원문과 다를 수 있음)"
 )
-# v0.2: the one header line added to pins.md - how an agent authenticates (docs/handbook/api.md §인증).
+# pins.md's agent-auth header line (docs/handbook/api.md §인증). Agents match its start; token_guidance_line() only
+# appends to it.
 TOKEN_GUIDANCE = (
     '에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, '
     "토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · "
@@ -239,9 +240,9 @@ TOKEN_GUIDANCE = (
 
 
 def token_guidance_line(shown_file: str | None) -> str:
-    """The agent-auth line of pins.md: TOKEN_GUIDANCE as before, plus one clause when this machine's agents have a token
-    file to send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause
-    is appended after the old text, never woven in, so the line still starts with what agents already match."""
+    """The agent-auth line of pins.md: TOKEN_GUIDANCE, plus one clause when this machine's agents have a token file to
+    send (shown_file, its shell path; None = no file yet, or a remote reader who cannot reach it). The clause is
+    appended after TOKEN_GUIDANCE, never woven in, so the line always starts with what agents match."""
     if not shown_file:
         return TOKEN_GUIDANCE
     return (
@@ -260,7 +261,8 @@ REPLY_GUIDANCE = (
 
 
 def claim_guidance(base: str) -> str:
-    """v0.2.1: the line after the close instruction - how to claim a pin (the legend only explained the marker)."""
+    """The line after the close instruction: how to claim a pin before working on it, what a 409 means, and how to
+    give the claim up. base is the URL the curl examples use."""
     return (
         "처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{\"eta_min\":15}' "
         "%s/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 "
@@ -476,7 +478,7 @@ def pins_md_text(page: PinsMdInput) -> str:
     out.append(guidance)
     out.append(claim_guidance(base))
     out.append(token_guidance_line(None if is_remote else page.token_file))
-    out.append(REPLY_GUIDANCE)  # v0.2.2: one more additive line
+    out.append(REPLY_GUIDANCE)
     if any_symbol:
         out.append(LEGEND)
     header = ["| # | 쪽 | 위치 | 범위 | 메모 |", "|---|---|---|---|---|"]

@@ -2,9 +2,9 @@
 
 The store (limn.store.PinStore) trusts and indexes a few fields of every record - id, where the pin is, the thread
 the viewer renders as-is - so a line whose fields do not have their stored shape is treated as broken: kept aside
-with its original bytes, never served or rewritten. Back when only id was checked, a single record with a string lo
-or no file turned every GET/POST into a 500 - and because the pins.jsonl write had already committed right before
-that 500, a retry created a duplicate pin (observed).
+with its original bytes, never served or rewritten. Checking id alone is not enough: a single record with a string
+lo or no file turns every GET/POST into a 500, and because the pins.jsonl write commits right before that 500, a
+retry creates a duplicate pin (observed).
 
 Every optional field may be missing (a legacy record), and a field this version does not know passes untouched (an
 older server must not drop what a newer one wrote, docs/adr/0005-pin-scoped-changes.md, 0006). The check changes

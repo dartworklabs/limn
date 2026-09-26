@@ -60,7 +60,7 @@ def epoch(s: object) -> float | None:
 
 def pin_build(r: Row) -> str | None:
     """The name of the build a pin's coordinates belong to, or None for a pin that never recorded one. frac_build is
-    the legacy field name with the same meaning (83b91a5)."""
+    the field name older records carry, with the same meaning; pdf_build wins when both are set."""
     for k in ("pdf_build", "frac_build"):
         v = r.get(k)
         if isinstance(v, str) and v:
@@ -112,13 +112,11 @@ def same_source(a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> boo
 
 
 def legacy_est(r: Row, ctx: EstContext) -> bool:
-    """Fallback heuristic for a legacy pin without pdf_build (the old viewer's rule, redone server-side with epoch
-    numbers): estimated if the pin was placed before the current PDF, and the manuscript that produced the current PDF
-    (src_mtime at start) changed after the pin.
+    """Fallback for a legacy pin without pdf_build, in epoch seconds: estimated if the pin was placed before the
+    current PDF, and the manuscript that produced the current PDF (src_mtime at start) changed after the pin.
 
-    The only reference time is when it was placed (at) - using edited_at would turn off estimation just from
-    editing the note (confirmed by independent verification). An edit that re-places frac (loc) now records
-    pdf_build, so it no longer falls through to this heuristic."""
+    The only reference time is when it was placed (at): edited_at would turn estimation off just for editing the
+    note. An edit that re-places frac (loc) records pdf_build, so such a pin never reaches this rule."""
     ba, pa = ctx.built_at, epoch(r.get("at"))
     if ba is None or pa is None or pa >= ba:
         return False

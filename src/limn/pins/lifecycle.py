@@ -208,7 +208,8 @@ def evolve_reopen(pin: Pin, event: PinReopened) -> OpenPin:
 
 
 def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
-    """POST /reopen: apply the reopen and bump rev - even for a pin that was already open, as before."""
+    """POST /reopen: apply the reopen and bump rev - also for a pin that was already open, which a reopen request
+    rewrites all the same."""
     opened = evolve_reopen(pin, event)
     return OpenPin.from_record({**opened.record, "rev": next_rev(pin.record)})
 

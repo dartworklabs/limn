@@ -552,8 +552,7 @@ def overlaps_api(rng: SourceLines, ctx: PickContext) -> dict[str, Any]:
 
     The current viewer instead recomputes the same rule (overlapsFor) locally against its own PINS on every
     range change, with no round trip - because pressing [Save Pin] while a response is still in flight could
-    otherwise save a duplicate with no banner shown. This path was called by the 83b91a5 viewer. rng is the range
-    parsed by limn.web.parse.parse_source_range."""
+    otherwise save a duplicate with no banner shown. rng is the range parsed by limn.web.parse.parse_source_range."""
     return {"overlaps": ctx.overlaps(str(rng.file), rng.lo, rng.hi)}
 
 

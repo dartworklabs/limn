@@ -42,7 +42,8 @@ def token_file_curl(shown: str) -> str:
 
 def loopback_refused_text(token_file: PurePath | None, exists: bool, home: PurePath | None) -> str:
     """The 401 text for a headerless request from this machine when the loopback agent is off (--no-agent-loopback,
-    AGENT_LOOPBACK=0). The v0.2 text comes first, unchanged; then where this machine's agents get their token: the
+    AGENT_LOOPBACK=0). It starts with UNAUTHENTICATED, word for word, like every 401 of an unauthenticated request;
+    then where this machine's agents get their token: the
     instance's token file when the server knows it (token_file, and whether it exists), else the convention.
     Pure: the caller stats the file and passes the home folder."""
     shown = shell_path(token_file, home) if token_file is not None else TOKEN_FILE_EXAMPLE
