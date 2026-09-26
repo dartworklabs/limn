@@ -82,10 +82,10 @@ def js_thread() -> str:
 
 
 def js_i18n(lang: str = "ko") -> str:
-    """The viewer's message functions tr()/tl() with the language fixed - pulled functions call them for
-    every UI string, so a node harness needs them. Korean (the source) unless lang='en'."""
+    """The viewer's message functions tr()/tl()/trMsg()/errText() with the language fixed - pulled functions call
+    them for every UI string and API error, so a node harness needs them. Korean (the source) unless lang='en'."""
     return "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
-                      extract_js_fn("tr"), extract_js_fn("tl")])
+                      extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("trMsg"), extract_js_fn("errText")])
 
 
 def run_node(js: str, tz: str = None):
@@ -710,6 +710,7 @@ class Store(Base):
         self.assertEqual(self.pin(pid)["pdf_build"], ps.cur_pages().name)
 
     def test_add_pin_keeps_client_pdf_build(self):
+        """A pin keeps the pdf_build the viewer sends; a bad name is refused as bad_pdf_build."""
         # the viewer sends back pdf_build from the pick response as-is (the build on screen at drag time) —
         # a drag made right after a rebuild, before the screen updates, must stay tagged with the old build.
         (ps.C.state / "pages-20260101000000").mkdir()
@@ -718,7 +719,7 @@ class Store(Base):
                          dict(ps.LOCAL_ACTOR)).record["id"]
         self.assertEqual(self.pin(pid)["pdf_build"], "pages")
         self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "pdf_build": "../pins"}, dict(ps.LOCAL_ACTOR)),
-                         ps.InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다."))
+                         ps.InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build"))
 
     def _new_build(self, name="pages-20260101000000"):
         (ps.C.state / name).mkdir(exist_ok=True)
@@ -1350,8 +1351,9 @@ class Overlaps(Base):
         self.assertIn("x", p["note"])
 
     def test_note_append_empty_string_rejected(self):
+        """An empty note_append is refused (note_append_empty) and changes nothing."""
         pid = self.add(note="원본")
-        empty = ps.InputRejected("덧붙일 메모가 비어 있습니다.")
+        empty = ps.InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
         self.assertEqual(ps.edit_pin(pid, {"note_append": ""}, dict(ps.LOCAL_ACTOR)), empty)
         self.assertEqual(ps.edit_pin(pid, {"note_append": "   "}, dict(ps.LOCAL_ACTOR)), empty)   # whitespace only too
         self.assertEqual(self.pin(pid)["note"], "원본")        # unchanged since it was rejected
@@ -4088,13 +4090,16 @@ class AccentValidation(unittest.TestCase):
 
 class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
+        """build_html fills the label (title, identity crumb after the Limn mark), the accent stripe and every placeholder."""
         out = ps.build_html("A-DEMO", "#1d4ed8")
         self.assertIn("<title>Limn · A-DEMO</title>", out)
-        self.assertIn('id="paper-identity-mark" aria-hidden="true">A</span><span>A-DEMO</span>', out)
+        self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)   # the Limn mark (test_brand.py)
+        self.assertIn('</svg></span><span>A-DEMO</span>', out)
         self.assertNotIn('id="brand-chip"', out)
         self.assertIn('id="brand-stripe" style="background:#1d4ed8"', out)
         self.assertNotIn("__LABEL__", out)
-        self.assertNotIn("__LABEL_INITIAL__", out)
+        self.assertNotIn("__LIMN_MARK__", out)
+        self.assertNotIn("__ACCENT_KEY__", out)
         self.assertNotIn("__ACCENT__", out)
         self.assertNotIn("__FAVICON_HREF__", out)
 
@@ -4103,19 +4108,15 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", out)
         self.assertIn("&lt;script&gt;", out)
 
-    def test_favicon_is_data_svg_with_first_letter(self):
-        out = ps.favicon_href("a-demo", "#1d4ed8")
+    def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
+        """The favicon is the Limn mark in the accent (since 0.3.4; it used to be the label's first letter). The label
+        never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
+        out = ps.favicon_href("#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
-        self.assertIn("circle", out)
-        # the uppercased first letter must be present inside the (url-encoded) svg
         from urllib.parse import unquote
-        self.assertIn(">A<", unquote(out))
-
-    def test_favicon_escapes_label_first_char(self):
-        # must be safe even if the first character, like '<', would break XML
-        out = ps.favicon_href("<x", "#1d4ed8")
-        from urllib.parse import unquote
-        self.assertIn("&lt;", unquote(out))
+        self.assertIn('fill="#1d4ed8"', unquote(out))
+        with self.assertRaises(ValueError):
+            ps.favicon_href('#1d4ed8"/><script>')
 
 
 class HtmlTemplateStructure(unittest.TestCase):
@@ -4126,7 +4127,9 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertIn("<title>Limn · __LABEL__</title>", ps.HTML)
 
     def test_favicon_placeholder(self):
-        self.assertIn('<link rel="icon" href="__FAVICON_HREF__">', ps.HTML)
+        """The SVG favicon placeholder, next to its PNG fallbacks keyed by the accent (test_brand.py)."""
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="__FAVICON_HREF__">', ps.HTML)
+        self.assertIn('href="/favicon-32.png?c=__ACCENT_KEY__"', ps.HTML)
 
     def test_brand_stripe_present(self):
         self.assertIn('id="brand-stripe"', ps.HTML)
@@ -4436,12 +4439,13 @@ class MultiDoc(Base):
                 self.assertEqual(line.count(" | ") + 2, 6, line)               # still a 5-column table
 
     def test_view_only_pin_edit_note_and_region_only(self):
+        """A view-only document's pin takes a note and a region only; lines are refused (no_source_lines)."""
         self.fake_pages(self.rv)
         with ps.using_doc(self.rv):
             pid = ps.add_pin({"page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "note": "a"}, dict(ps.LOCAL_ACTOR)).record["id"]
         rev = self.pin(pid)["rev"]
         self.assertEqual(ps.edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(ps.LOCAL_ACTOR)),
-                         ps.InputRejected(ps.REGION_EDIT_REFUSAL))
+                         ps.InputRejected(ps.REGION_EDIT_REFUSAL, "no_source_lines"))
         p = record_of(ps.edit_pin(pid, {"note": "b", "base_rev": rev}, dict(ps.LOCAL_ACTOR)))   # even without doc in the request, it resolves via the pin's own document
         self.assertEqual(p["note"], "b")
         p = record_of(ps.edit_pin(pid, {"loc": {"page": 1, "frac": [0.3, 0.3, 0.2, 0.2], "quote": "new"},
@@ -5648,13 +5652,14 @@ class KindAndThread(Base):
         return code, json.loads(raw)
 
     def test_kind_req_stored_only_when_given_and_validated(self):
+        """kind_req is stored only when given, and an unknown value is refused (bad_kind_req)."""
         q = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "구간의 정의는?", "kind_req": "question"},
                        dict(self.S)).record["id"]
         f = self.add()
         self.assertEqual(self.pin(q)["kind_req"], "question")
         self.assertNotIn("kind_req", self.pin(f))                 # an old-style call (agent curl) has no field = fix request
         self.assertEqual(ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "kind_req": "ask"}, dict(self.S)),
-                         ps.InputRejected("kind_req 는 fix|question 중 하나입니다."))
+                         ps.InputRejected("kind_req 는 fix|question 중 하나입니다.", "bad_kind_req"))
 
     def test_edit_switches_kind_even_on_closed_pin(self):
         pid = self.add()
@@ -6730,10 +6735,11 @@ class EditAddParsing(Base):
         self.assertIsNone(body.loc)
         self.assertEqual((body.request.note, body.request.lo, body.request.scope, body.request.base_rev,
                           body.request.hints, body.request.place), ("n", 3, "para", 2, ("a",), None))
-        self.assertEqual(ps.parse_edit({"note": 3}, ()), ps.InputRejected("note 는 문자열이어야 합니다."))
-        self.assertEqual(ps.parse_edit({"note": "n"}, ()), ps.InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev)."))
+        self.assertEqual(ps.parse_edit({"note": 3}, ()), ps.InputRejected("note 는 문자열이어야 합니다.", "bad_note"))
+        self.assertEqual(ps.parse_edit({"note": "n"}, ()), ps.InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required"))
         self.assertEqual(ps.parse_edit({"base_rev": 0}, ()),
-                         ps.InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee)."))
+                         ps.InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).",
+                                          "nothing_to_change"))
         unknown = ps.parse_edit({"assignee": "carol@example.com"}, ())      # the assignee refusal comes before base_rev's
         self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
         self.assertIsNone(ps.parse_edit({"note_append": "x"}, ()).request.base_rev)   # note_append alone needs no base_rev
@@ -6744,13 +6750,13 @@ class EditAddParsing(Base):
         self.assertEqual(ps.parse_assignee("bob@example.com", {"bob@example.com"}), "bob@example.com")
         self.assertIsInstance(ps.parse_assignee("bob@example.com", ()), ps.InputRejected)
         self.assertEqual(ps.parse_assignee("local", {"local"}),
-                         ps.InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다."))
+                         ps.InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee"))
         self.assertIsNone(ps.parse_assignee(None, ()))
 
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
         self.assertEqual(ps.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, False, ()),
-                         ps.InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99"))
+                         ps.InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"))
         request = ps.parse_add({"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, False, ())
         self.assertEqual((request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
                          (str(self.main), 1, "n", ()))
@@ -6762,10 +6768,10 @@ class EditAddParsing(Base):
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"note": "x", "base_rev": 5})))
         self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
-        self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다."}))
+        self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1})))
         d = json.loads(body)
         self.assertEqual((code, d["error"], d["detail"], d["pin"]["id"]), (409, "done", "닫힌 핀은 메모만 고칠 수 있습니다.", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pin", {"file": "main.tex", "lo": 4, "hi": 5, "kind_req": "x"})))
-        self.assertEqual((code, json.loads(body)), (400, {"error": "kind_req 는 fix|question 중 하나입니다."}))
+        self.assertEqual((code, json.loads(body)), (400, {"error": "kind_req 는 fix|question 중 하나입니다.", "reason": "bad_kind_req"}))

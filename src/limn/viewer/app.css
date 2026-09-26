@@ -64,8 +64,20 @@ body:not(.lay-narrow) #doc-nav{display:flex}
 #doc-nav .nav-sp{flex:1}
 #paper-identity{display:inline-flex;align-items:center;gap:var(--space-2);flex:0 1 auto;min-width:0;max-width:180px;margin-right:var(--space-3);padding-right:var(--space-3);
   border-right:1px solid var(--border);color:var(--muted-foreground);font-size:var(--text-xs);font-weight:600;white-space:nowrap}
-#paper-identity-mark{display:grid;place-items:center;width:15px;height:15px;border-radius:var(--radius-sm);background:var(--brand);
-  color:var(--brand-foreground);font-size:var(--text-xs);line-height:1;font-weight:700}
+#paper-identity-mark{display:grid;place-items:center;width:16px;height:16px}
+/* The Limn mark (docs/handbook/viewer.md §마크와 파비콘): one stroke from the pin's dot into the source line, inline SVG from
+   limn.mark with classes only (limn-mark*: .mark is the pin box on the PDF, which marks() removes and redraws). The tile takes the instance colour (--brand) and the glyph the colour on it; the help
+   header draws it monochrome in the dialog's own colours, so it follows the theme. */
+.limn-mark{display:block;flex:none;width:16px;height:16px}
+.limn-mark-tile{fill:var(--brand)}
+.limn-mark-dot{fill:var(--brand-foreground)}
+.limn-mark-line{fill:none;stroke:var(--brand-foreground)}
+#help-h{display:flex;align-items:center;gap:var(--space-2)}
+#help-h .limn-mark{width:20px;height:20px}
+#help-h .limn-mark-tile{fill:var(--popover-foreground)}
+#help-h .limn-mark-dot{fill:var(--popover)}
+#help-h .limn-mark-line{stroke:var(--popover)}
+#more-label .limn-mark{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:var(--space-1)}
 #paper-identity>span:last-child{overflow:hidden;text-overflow:ellipsis}
 body.lay-narrow #paper-identity{display:none}
 #doc-select-wrap{display:none;align-items:center;gap:var(--space-2);min-width:0}

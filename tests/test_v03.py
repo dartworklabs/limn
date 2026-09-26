@@ -355,8 +355,9 @@ class ScopeDecisions(unittest.TestCase):
             self.assertEqual(e.exception.reason, "unsafe_path")
 
     def test_every_rejection_reason_maps_to_one_status_and_body(self):
-        """The one SCOPE_REJECTIONS table: status, Korean message and API reason per reason (agent contract)."""
-        want = {"pin_not_in_doc": (404, {"error": "이 문서의 핀이 아닙니다."}),
+        """The one SCOPE_REJECTIONS table: status, Korean message and API reason per reason (agent contract). The
+        404 gained its reason in 0.3.4 (every refusal names one, tests/test_errors.py); its text is unchanged."""
+        want = {"pin_not_in_doc": (404, {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}),
                 "scope_unreadable": (422, {"error": "이 핀의 변경만 골라 적용하지 못했습니다.", "reason": "scope_failed"}),
                 "scope_mismatch": (422, {"error": "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "reason": "scope_failed"}),
                 "unsafe_path": (422, {"error": "사본에 허용되지 않는 경로가 있습니다.", "reason": "unsafe_snapshot"}),
@@ -755,8 +756,9 @@ class ScopedErrorBodies(ScopedRepo):
     """Every refusal this PR adds, with its exact status and JSON body. Error strings are part of the agent contract
     (api.md), so moving the checks between layers (coding rule R3) must not change a byte of them."""
 
-    PIN_MSG = {"error": "pin 은 핀 번호(양의 정수)여야 합니다."}
-    NOT_HERE = {"error": "이 문서의 핀이 아닙니다."}
+    # Since 0.3.4 every refusal also names a reason code (additive; tests/test_errors.py). The text stays byte-identical.
+    PIN_MSG = {"error": "pin 은 핀 번호(양의 정수)여야 합니다.", "reason": "bad_pin"}
+    NOT_HERE = {"error": "이 문서의 핀이 아닙니다.", "reason": "pin_not_in_doc"}
 
     def raw(self, method, path, body=None):
         """(status, parsed JSON body) for one request, without AccessBase's lenient decoding."""
@@ -777,7 +779,8 @@ class ScopedErrorBodies(ScopedRepo):
                            ({"commit": self.fix, "pin": True}, (400, self.PIN_MSG)),
                            ({"commit": self.fix, "pin": 0}, (400, self.PIN_MSG)),
                            ({"commit": self.fix, "pin": 999}, (404, self.NOT_HERE)),
-                           ({"commit": self.fix, "pins": 1}, (400, {"error": "허용되지 않는 비교 PDF 요청 필드입니다."}))):
+                           ({"commit": self.fix, "pins": 1},
+                            (400, {"error": "허용되지 않는 비교 PDF 요청 필드입니다.", "reason": "unknown_fields"}))):
             with self.subTest(body=body):
                 self.assertEqual(self.raw("POST", "/api/revision-build", body), want)
 
@@ -785,15 +788,18 @@ class ScopedErrorBodies(ScopedRepo):
         """Each rejection of the close body's `changes` keeps its status and message, and names the offending item."""
         pid = self.add(lo=2, hi=2, note="for the bodies")
         ok = {"file": "main.tex", "lo": 1, "hi": 1}
-        cases = (("x", "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다."),
-                 ([ok] * 51, "changes 는 50개 이하여야 합니다."),
-                 ([ok, {"file": "main.tex", "lo": 1}], "changes[1] 는 file·lo·hi 세 필드만 가진 객체여야 합니다."),
-                 ([{"file": " ", "lo": 1, "hi": 1}], "changes[0].file 은 비어 있지 않은 경로 문자열이어야 합니다."),
-                 ([{"file": "main.tex", "lo": 3, "hi": 2}], "changes[0] 의 lo·hi 는 1 ≤ lo ≤ hi ≤ 1000000 인 정수여야 합니다."),
-                 ([{"file": "../x.tex", "lo": 1, "hi": 1}], "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다."))
-        for changes, msg in cases:
+        cases = (("x", "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.", "bad_changes"),
+                 ([ok] * 51, "changes 는 50개 이하여야 합니다.", "too_many_changes"),
+                 ([ok, {"file": "main.tex", "lo": 1}], "changes[1] 는 file·lo·hi 세 필드만 가진 객체여야 합니다.", "bad_changes"),
+                 ([{"file": " ", "lo": 1, "hi": 1}], "changes[0].file 은 비어 있지 않은 경로 문자열이어야 합니다.", "bad_changes"),
+                 ([{"file": "main.tex", "lo": 3, "hi": 2}], "changes[0] 의 lo·hi 는 1 ≤ lo ≤ hi ≤ 1000000 인 정수여야 합니다.",
+                  "bad_changes"),
+                 ([{"file": "../x.tex", "lo": 1, "hi": 1}], "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
+                  "change_outside_manuscript"))
+        for changes, msg, reason in cases:
             with self.subTest(msg=msg):
-                self.assertEqual(self.raw("POST", "/api/pins/%d/close" % pid, {"changes": changes}), (400, {"error": msg}))
+                self.assertEqual(self.raw("POST", "/api/pins/%d/close" % pid, {"changes": changes}),
+                                 (400, {"error": msg, "reason": reason}))
         self.assertFalse(self.pin(pid).get("done"))
 
     def build_status(self, pid):
@@ -1081,7 +1087,8 @@ class ReviewRegressions(AccessBase):
         rows = ps.read_pins()[0]
         with mock.patch.object(ps, "revision_changes", side_effect=slow):
             ts = [threading.Thread(target=ps.revision_pin_scope,
-                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.SCOPE_CACHE))
+                                   args=(ps.cur_doc(), rows, repo, tuple(paths), base, X, pid, revs, ps.SCOPE_CACHE),
+                                   kwargs={"root": ps.C.src})
                   for pid in pins]
             for t in ts:
                 t.start()

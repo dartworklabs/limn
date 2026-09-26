@@ -86,6 +86,7 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
 )
+from limn.mark import favicon_svg, inline_svg, png as mark_png  # noqa: E402
 
 APP_NAME = "limn"
 
@@ -108,7 +109,8 @@ def load_ui_messages() -> dict:
 
     The Korean strings in the HTML template stay the source; in English mode the viewer swaps every
     UI string it finds in this table (text, tooltips, aria labels, toasts). pins.md and the API are
-    not translated — they are a language-stable contract for agents."""
+    not translated — they are a language-stable contract for agents. The one other kind of key is
+    `reason:<code>`: the English the viewer shows for an API error body with that reason (errText)."""
     try:
         d = json.loads(Path(__file__).with_name("ui_en.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -443,13 +445,18 @@ def _fresh_build_state() -> dict:
 
 
 class HTTPError(Exception):
-    """The handler turns this directly into a JSON error response."""
+    """The handler turns this directly into a JSON error response {"error": msg, "reason": reason, **extra}.
 
-    def __init__(self, code: int, msg: str, page=None, **extra):
+    msg is the Korean text agents already read (api.md §오류 응답 - never reworded); reason is the stable snake_case
+    code for the same refusal, required so that no refusal goes out without one. The viewer shows English by the
+    reason (ui_en.json `reason:<code>`), agents may branch on it. page is (kind, params) for the readable HTML page a
+    browser gets on GET / (error_page_html)."""
+
+    def __init__(self, code: int, msg: str, *, reason: str, page: tuple | None = None, **extra):
         super().__init__(msg)
         self.code = code
-        self.body = dict({"error": msg}, **extra)
-        self.page = page            # (kind, params) for the readable HTML page a browser gets on GET / (error_page_html)
+        self.body = dict({"error": msg, "reason": reason}, **extra)
+        self.page = page
 
 
 def now_str() -> str:
@@ -540,25 +547,22 @@ def valid_accent(v) -> bool:
     return isinstance(v, str) and ACCENT_RE.fullmatch(v) is not None
 
 
-def favicon_href(label: str, accent: str) -> str:
-    """An SVG data URL with the label's first character inside an accent-colored circle. Special characters inside data: are quote-encoded."""
-    ch = (label.strip()[:1] or "?").upper()
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-           '<circle cx="16" cy="16" r="16" fill="%s"/>'
-           '<text x="16" y="21" text-anchor="middle" font-family="sans-serif" font-size="16" '
-           'font-weight="700" fill="#ffffff">%s</text></svg>') % (accent, html.escape(ch, quote=True))
-    return "data:image/svg+xml," + quote(svg, safe="")
+def favicon_href(accent: str) -> str:
+    """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
+    accent tells tabs of different instances apart; the tab title carries the label. Quote-encoded for data:."""
+    return "data:image/svg+xml," + quote(favicon_svg(accent), safe="")
 
 
 def build_html(label: str, accent: str) -> str:
-    """Fills in the __LABEL__/__ACCENT__/__FAVICON_HREF__ placeholders of the viewer HTML template.
+    """Fills in the __LABEL__/__ACCENT__/__ACCENT_KEY__/__FAVICON_HREF__ placeholders of the viewer HTML template.
 
     Depends on run arguments (label/accent), so it's called after argparse (in main()) - unlike
-    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in."""
+    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in.
+    __ACCENT_KEY__ (the accent's hex digits) keys the PNG favicon URLs, so a new accent is never served from a cache."""
     out = HTML.replace("__LABEL__", html.escape(label, quote=True))
-    out = out.replace("__LABEL_INITIAL__", html.escape((label.strip()[:1] or "?").upper(), quote=True))
+    out = out.replace("__ACCENT_KEY__", accent.lstrip("#").lower())
     out = out.replace("__ACCENT__", accent)
-    out = out.replace("__FAVICON_HREF__", favicon_href(label, accent))
+    out = out.replace("__FAVICON_HREF__", favicon_href(accent))
     return out
 
 
@@ -771,15 +775,15 @@ def revision_diff(D: Doc, commit: str, pin: int | None = None) -> dict:
     """The selected commit's unified diff. With pin (v0.3), an additive `scope` says which of its hunks belong to that pin
     (scope_payload); the whole-commit `diff` is returned unchanged either way."""
     if not REVISION_ID_RE.fullmatch(commit or ""):
-        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.")
+        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.", reason="bad_commit")
     scope = revision_scope(D)
     if scope is None:
-        raise HTTPError(404, "이 문서는 원고 변경사항을 볼 수 없습니다.")
+        raise HTTPError(404, "이 문서는 원고 변경사항을 볼 수 없습니다.", reason="no_history")
     repo, paths = scope
     # Only read commits that appear in the current document's recent list. Never exposes arbitrary Git objects or another document's history.
     revisions = revision_history(D)["revisions"]
     if commit not in {row["id"] for row in revisions}:
-        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.")
+        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.", reason="commit_not_recent")
     cmd = ["git", "-C", str(repo), "show", "--format=", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3",
            commit, "--"] + paths
     try:
@@ -807,14 +811,14 @@ def revision_diff(D: Doc, commit: str, pin: int | None = None) -> dict:
                 proc.wait()
                 raise
             if proc.returncode != 0 and not too_large:
-                raise HTTPError(404, "변경사항을 읽지 못했습니다.")
+                raise HTTPError(404, "변경사항을 읽지 못했습니다.", reason="diff_unreadable")
     except (OSError, subprocess.TimeoutExpired):
-        raise HTTPError(503, "변경사항을 읽지 못했습니다.") from None
+        raise HTTPError(503, "변경사항을 읽지 못했습니다.", reason="diff_unreadable") from None
     out = {"id": commit, "diff": b"".join(chunks)[:REVISION_DIFF_MAX].decode("utf-8", errors="replace"),
            "truncated": too_large}
     if pin is not None:
         base, rows = revision_first_parent(repo, commit), [public(r) for r in read_pins()[0]]   # current paths (ADR-0006)
-        sc = (revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, SCOPE_CACHE) if base  # may raise ScopeRejected
+        sc = (revision_pin_scope(D, rows, repo, paths, base, commit, pin, revisions, SCOPE_CACHE, root=C.src) if base  # may raise ScopeRejected
               else PinScope(scope_pin_record(rows, D, pin)["id"], "commit", "none", 0, 0))
         out["scope"] = scope_payload(sc)
     return out
@@ -1475,14 +1479,21 @@ def scope_pin_record(rows: list, D: Doc, pid: int) -> dict:
 
 
 def revision_pin_scope(D: Doc, rows: list, repo: Path, paths: Sequence[str], base: str, head: str, pid: int,
-                       revisions: Sequence[dict], cache: ScopeCache) -> PinScope:
+                       revisions: Sequence[dict], cache: ScopeCache, *, root: Path) -> PinScope:
     """How pin pid of document D sees commit head (compared with its first parent base). rows are the pin records,
     revisions the document's recent commits (revision_history); the recorded changes count only on the commit the
-    pin's close_ref names. Unless the same pin facts were decided for this commit before (cache), reads the commit's
-    files within one of the cache's slots and decides with pin_scope(); an unreadable commit is mode "commit" and not
-    stored. Raises ScopeRejected("pin_not_in_doc")."""
+    pin's close_ref names. Their absolute paths are located under the manuscript root `root` by the same rule as the
+    pin's own file (locate_file, issue #24), so a moved or cloned checkout keeps the agent's lines; a path the rule
+    cannot place is dropped and the pin's hunks are inferred as before. Unless the same pin facts were decided for
+    this commit before (cache), reads the commit's files within one of the cache's slots and decides with pin_scope();
+    an unreadable commit is mode "commit" and not stored. Raises ScopeRejected("pin_not_in_doc")."""
     r = scope_pin_record(rows, D, pid)
-    changes = [RepoRange(_repo_rel(repo, c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
+
+    def repo_path(file: str) -> str | None:
+        """A recorded change's path relative to the repository, located under root first; None if it cannot be placed."""
+        loc = locate_file(file, None, root, D)
+        return _repo_rel(repo, str(loc.path)) if loc is not None else None
+    changes = [RepoRange(repo_path(c["file"]), c["lo"], c["hi"]) for c in recorded_changes(r, head, revisions)]
     pin = pin_facts(r, _repo_rel(repo, r["file"]) if not is_region_pin(r) else None)
     key = (str(repo), base, head, json.dumps([pin, changes], default=str))
     hit = cache.get(key)
@@ -1542,17 +1553,17 @@ def revision_spec(D: Doc, commit: str, pin: int | None = None) -> RevisionSpec:
     scoped comparison is (commit, block set) - two pins with the same blocks share one PDF. Raises HTTPError for a
     bad or foreign commit (as before 0.3) and ScopeRejected("pin_not_in_doc") for a pin D does not have."""
     if not isinstance(commit, str) or not REVISION_ID_RE.fullmatch(commit):
-        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.")
+        raise HTTPError(400, "올바른 커밋 ID가 아닙니다.", reason="bad_commit")
     scope = revision_scope(D)
     revisions = revision_history(D)["revisions"] if scope is not None else []
     if scope is None or commit not in {r["id"] for r in revisions}:
-        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.")
+        raise HTTPError(404, "현재 문서의 최근 커밋이 아닙니다.", reason="commit_not_recent")
     repo, paths = scope[0], tuple(scope[1])
     try:
         source = D.src.resolve().relative_to(repo).as_posix()
         main = D.main.resolve().relative_to(D.src.resolve())
     except ValueError:
-        raise HTTPError(400, "Git 저장소 안의 문서 빌드 루트가 필요합니다.") from None
+        raise HTTPError(400, "Git 저장소 안의 문서 빌드 루트가 필요합니다.", reason="not_in_repo") from None
     rc, out, _ = _git(["rev-list", "--parents", "-n", "1", commit], repo)
     parents = out.strip().split()
     if rc != 0 or len(parents) < 2 or not REVISION_ID_RE.fullmatch(parents[1]):
@@ -1562,7 +1573,7 @@ def revision_spec(D: Doc, commit: str, pin: int | None = None) -> RevisionSpec:
     blocks, meta = (), None
     if pin is not None:
         sc = revision_pin_scope(D, [public(r) for r in read_pins()[0]], repo, paths, base, commit, pin, revisions,
-                                SCOPE_CACHE)
+                                SCOPE_CACHE, root=C.src)
         meta = scope_meta(sc)
         if sc.mode == "pin":
             blocks = sc.blocks                    # keyed by the block set, not the pin: pins on the same fix share it
@@ -1910,11 +1921,11 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes:
     with REVISION_JOBS_LOCK:
         root = _revision_cache_root(D)
         if _revision_cached(spec, root)["state"] != "ready":
-            raise HTTPError(404, "해당 비교 PDF가 아직 없거나 만료됐습니다.")
+            raise HTTPError(404, "해당 비교 PDF가 아직 없거나 만료됐습니다.", reason="revision_not_ready")
         try:
             return (root / spec.key / "revision.pdf").read_bytes()
         except OSError:
-            raise HTTPError(404, "해당 비교 PDF가 없습니다.") from None
+            raise HTTPError(404, "해당 비교 PDF가 없습니다.", reason="revision_pdf_missing") from None
 
 
 # ---------------------------------------------------------------- Outline labels from the same immutable page build as the PDF
@@ -2512,17 +2523,17 @@ def source_file(p: object) -> Path | InputRejected:
     file reads file metadata only.
     """
     if not isinstance(p, str) or not p or "\x00" in p or len(p) > 4096:
-        return InputRejected("file 이 올바르지 않습니다.")
+        return InputRejected("file 이 올바르지 않습니다.", "bad_file")
     q = Path(p)
     if not q.is_absolute():
         q = C.src / q
     try:
         rel = q.resolve().relative_to(C.src.resolve())
     except (ValueError, OSError, RuntimeError):
-        return InputRejected("원고 디렉토리 밖의 파일입니다: %s" % p)
+        return InputRejected("원고 디렉토리 밖의 파일입니다: %s" % p, "file_outside_manuscript")
     out = C.src / rel
     if not out.is_file():
-        return InputRejected("원고 안에 그런 파일이 없습니다: %s" % p)
+        return InputRejected("원고 안에 그런 파일이 없습니다: %s" % p, "file_not_found")
     return out
 
 
@@ -2530,7 +2541,7 @@ def safe_src(p) -> Path:
     """source_file for the callers that still raise (pick, snippet, overlaps): HTTPError(400) with the same message."""
     out = source_file(p)
     if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message)
+        raise HTTPError(400, out.message, reason=out.reason)
     return out
 
 
@@ -2826,25 +2837,48 @@ def _within(p: Path, root: Path) -> bool:
         return False
 
 
-def pin_location(r: dict, root: Path) -> PinLocation | None:
-    """Where line pin r's file is under the manuscript root on this machine now (pin_rel_path), or None: a view-only
-    PDF pin, or a file the rule cannot place inside root. Only file metadata is read (resolve, is_file) - under root,
-    apart from resolving the stored path itself as 0.3.0's in_tree() did - and never file contents: a line read from
-    outside the tree would leak into the anchor and out through GET /api/pins. The result is checked once more after
-    resolving symlinks, so a link inside the tree cannot lead outside (a tail through such a link is skipped for the
-    next one)."""
-    file = r.get("file")
+def doc_scope(D: Doc | None, root: Path) -> str:
+    """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
+    record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
+    document's pins come from its own build, which copies only that folder, so nothing of D lies outside it. '' when
+    D is None (a record whose document is no longer configured - the whole root, as in 0.3.2) or D.src is not under
+    root."""
+    if D is None:
+        return ""
+    try:
+        rel = D.src.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError, RuntimeError):
+        return ""
+    return "" if rel == "." else rel
+
+
+def locate_file(file: object, file_rel: object, root: Path, doc: Doc | None) -> PinLocation | None:
+    """Where a stored absolute path is under the manuscript root on this machine now, by the one rule of ADR-0006
+    (pin_rel_path) - a pin's own `file` (with its file_rel) or a path in its `changes` (none), the tail guess searched
+    in the folder of doc (doc_scope). None for a missing path or one the rule cannot place inside root.
+
+    Only file metadata is read (resolve, is_file) - under root, apart from resolving the stored path itself as 0.3.0's
+    in_tree() did - and never file contents: a line read from outside the tree would leak into the anchor and out
+    through GET /api/pins. The result is checked once more after resolving symlinks, so a link inside the tree cannot
+    lead outside (a tail through such a link is skipped for the next one)."""
     if not isinstance(file, str) or not file:
         return None
     try:
         under = Path(file).resolve().relative_to(root.resolve()).as_posix()
     except (ValueError, OSError, RuntimeError):
         under = None
-    rel = pin_rel_path(file, r.get("file_rel"), under, lambda t: (root / t).is_file() and _within(root / t, root))
+    scope = doc_scope(doc, root) if under is None else ""         # only a moved record needs its document folder
+    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root), scope)
     if rel is None:
         return None
     path = root / rel
     return PinLocation(rel, path) if _within(path, root) else None
+
+
+def pin_location(r: dict, root: Path) -> PinLocation | None:
+    """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
+    the pin's own document folder), or None: a view-only PDF pin, or a file the rule cannot place inside root."""
+    return locate_file(r.get("file"), r.get("file_rel"), root, doc_by_key(pin_doc_key(r)))
 
 
 def stamp_location(r: dict, root: Path) -> PinLocation | None:
@@ -3189,24 +3223,26 @@ def who(actor: dict) -> dict:
 # clean_* validators, and the raising forms _int/_num/safe_src kept for callers not yet moved, raise HTTPError(400).
 
 class InputRejected(NamedTuple):
-    """A request field the server refuses with 400; message is the response's error text, word for word.
+    """A request field the server refuses with 400; message is the response's error text, word for word, and reason
+    its stable code (api.md §오류 응답), which the HTTP answer puts next to it.
 
     A NamedTuple rather than a dataclass, like the other value types here: server.py also runs as a file that is not
     in sys.modules (python .../server.py, the tests' loader), where dataclass() cannot resolve its annotations."""
     message: str
+    reason: str
 
 
 def int_field(v: object, what: str) -> int | InputRejected:
     """An integral JSON number (1 and 1.0 both give 1; a bool, NaN or 1.5 does not) named `what` in the refusal."""
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
-        return InputRejected("%s 는 정수여야 합니다." % what)
+        return InputRejected("%s 는 정수여야 합니다." % what, "not_integer")
     return int(v)
 
 
 def num_field(v: object, what: str) -> float | InputRejected:
     """A finite JSON number other than a bool, as a float, named `what` in the refusal."""
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
-        return InputRejected("%s 는 유한한 숫자여야 합니다." % what)
+        return InputRejected("%s 는 유한한 숫자여야 합니다." % what, "not_number")
     return float(v)
 
 
@@ -3214,7 +3250,7 @@ def _int(v, what: str) -> int:
     """int_field for the callers that still raise (pick): HTTPError(400) with the same message."""
     out = int_field(v, what)
     if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message)
+        raise HTTPError(400, out.message, reason=out.reason)
     return out
 
 
@@ -3222,7 +3258,7 @@ def _num(v, what: str) -> float:
     """num_field for the callers that still raise (pick): HTTPError(400) with the same message."""
     out = num_field(v, what)
     if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message)
+        raise HTTPError(400, out.message, reason=out.reason)
     return out
 
 
@@ -3231,9 +3267,9 @@ def parse_note(v: object) -> str | InputRejected:
     if v is None:
         return ""
     if not isinstance(v, str):
-        return InputRejected("note 는 문자열이어야 합니다.")
+        return InputRejected("note 는 문자열이어야 합니다.", "bad_note")
     if len(v) > NOTE_MAX:
-        return InputRejected("메모가 너무 깁니다(%d자 이하)." % NOTE_MAX)
+        return InputRejected("메모가 너무 깁니다(%d자 이하)." % NOTE_MAX, "note_too_long")
     return v
 
 
@@ -3243,17 +3279,17 @@ def clean_close_body(d: dict) -> tuple:
     reply = d.get("reply")
     if reply is not None:
         if not isinstance(reply, str):
-            raise HTTPError(400, "reply 는 문자열이어야 합니다.")
+            raise HTTPError(400, "reply 는 문자열이어야 합니다.", reason="bad_reply")
         if len(reply) > CLOSE_REPLY_MAX:
-            raise HTTPError(400, "reply 가 너무 깁니다(%d자 이하)." % CLOSE_REPLY_MAX)
+            raise HTTPError(400, "reply 가 너무 깁니다(%d자 이하)." % CLOSE_REPLY_MAX, reason="reply_too_long")
         if not reply.strip():
             reply = None
     ref = d.get("ref")
     if ref is not None:
         if not isinstance(ref, str):
-            raise HTTPError(400, "ref 는 문자열이어야 합니다.")
+            raise HTTPError(400, "ref 는 문자열이어야 합니다.", reason="bad_ref")
         if len(ref) > CLOSE_REF_MAX:
-            raise HTTPError(400, "ref 가 너무 깁니다(%d자 이하)." % CLOSE_REF_MAX)
+            raise HTTPError(400, "ref 가 너무 깁니다(%d자 이하)." % CLOSE_REF_MAX, reason="ref_too_long")
         if not ref.strip():
             ref = None
     return reply, ref
@@ -3267,24 +3303,24 @@ def clean_close_changes(v: object, root: Path) -> Changes | None:
     if v is None:
         return None
     if not isinstance(v, list):
-        raise HTTPError(400, "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.")
+        raise HTTPError(400, "changes 는 [{\"file\", \"lo\", \"hi\"}] 목록이어야 합니다.", reason="bad_changes")
     if len(v) > CLOSE_CHANGES_MAX:
-        raise HTTPError(400, "changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX)
+        raise HTTPError(400, "changes 는 %d개 이하여야 합니다." % CLOSE_CHANGES_MAX, reason="too_many_changes")
     out, base = [], root.resolve()
     for i, c in enumerate(v):
         what = "changes[%d]" % i
         if not isinstance(c, dict) or set(c) != {"file", "lo", "hi"}:
-            raise HTTPError(400, "%s 는 file·lo·hi 세 필드만 가진 객체여야 합니다." % what)
+            raise HTTPError(400, "%s 는 file·lo·hi 세 필드만 가진 객체여야 합니다." % what, reason="bad_changes")
         f, lo, hi = c["file"], c["lo"], c["hi"]
         if not isinstance(f, str) or not f.strip() or len(f) > 1024 or "\x00" in f:
-            raise HTTPError(400, "%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what)
+            raise HTTPError(400, "%s.file 은 비어 있지 않은 경로 문자열이어야 합니다." % what, reason="bad_changes")
         if not (_is_int(lo) and _is_int(hi) and 1 <= lo <= hi <= CHANGE_LINE_MAX):
-            raise HTTPError(400, "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX))
+            raise HTTPError(400, "%s 의 lo·hi 는 1 ≤ lo ≤ hi ≤ %d 인 정수여야 합니다." % (what, CHANGE_LINE_MAX), reason="bad_changes")
         try:
             path = (Path(f) if os.path.isabs(f) else base / f).resolve()
             path.relative_to(base)
         except (ValueError, OSError, RuntimeError):
-            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what) from None
+            raise HTTPError(400, "%s.file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다." % what, reason="change_outside_manuscript") from None
         out.append(CloseChange(str(path), lo, hi))
     return tuple(out) or None
 
@@ -3298,7 +3334,7 @@ def clean_pin_param(v: object) -> int | None:
         return int(v)
     if _is_int(v) and 1 <= v <= 999999999:
         return v
-    raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
+    raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.", reason="bad_pin")
 
 
 def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejected:
@@ -3311,9 +3347,9 @@ def parse_assignee(v: object, known: Collection[str]) -> str | None | InputRejec
     if v == ASSIGNEE_AGENT:
         return ASSIGNEE_AGENT
     if not isinstance(v, str) or not v or v == LOCAL_ACTOR["login"]:
-        return InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.")
+        return InputRejected("assignee 는 'agent' 또는 사람의 로그인(문자열)입니다.", "bad_assignee")
     if v not in known:
-        return InputRejected("담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v)
+        return InputRejected("담당(assignee) '%s' 은(는) 이 뷰어가 아는 사람이 아닙니다 — 'agent' 또는 뷰어를 연 적 있는 테일넷 사람의 로그인을 쓰세요." % v, "unknown_assignee")
     return v
 
 
@@ -3332,7 +3368,7 @@ def parse_kind_req(v: object) -> str | None | InputRejected:
     if v is None:
         return None
     if not isinstance(v, str) or v not in KIND_REQS:
-        return InputRejected("kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS))
+        return InputRejected("kind_req 는 %s 중 하나입니다." % "|".join(KIND_REQS), "bad_kind_req")
     return v
 
 
@@ -3342,17 +3378,17 @@ def clean_thread_text(v, what: str = "text", required: bool = True):
     don't break. After trimming whitespace, an empty result is 400 (when required)."""
     if v is None:
         if required:
-            raise HTTPError(400, "%s 가 필요합니다." % what)
+            raise HTTPError(400, "%s 가 필요합니다." % what, reason="text_required")
         return None
     if not isinstance(v, str):
-        raise HTTPError(400, "%s 는 문자열이어야 합니다." % what)
+        raise HTTPError(400, "%s 는 문자열이어야 합니다." % what, reason="bad_text")
     v = v.replace("\r\n", "\n").replace("\r", "\n")
     v = "".join(ch for ch in v if ch in "\n\t" or not (ord(ch) < 32 or 127 <= ord(ch) < 160)).strip()
     if len(v) > THREAD_TEXT_MAX:
-        raise HTTPError(400, "%s 가 너무 깁니다(%d자 이하)." % (what, THREAD_TEXT_MAX))
+        raise HTTPError(400, "%s 가 너무 깁니다(%d자 이하)." % (what, THREAD_TEXT_MAX), reason="text_too_long")
     if not v:
         if required:
-            raise HTTPError(400, "%s 가 비어 있습니다." % what)
+            raise HTTPError(400, "%s 가 비어 있습니다." % what, reason="text_empty")
         return None
     return v
 
@@ -3376,13 +3412,13 @@ def parse_loc(d: dict) -> dict | InputRejected:
     if isinstance(hi, InputRejected):
         return hi
     if not 1 <= lo <= hi <= max(n, 1):
-        return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi))
+        return InputRejected("줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (n, lo, hi), "range_outside_file")
     out.update(file=str(f), name=f.name, lo=lo, hi=hi)
     page = int_field(d.get("page", 1), "page")
     if isinstance(page, InputRejected):
         return page
     if page < 1:
-        return InputRejected("page 는 1 이상이어야 합니다.")
+        return InputRejected("page 는 1 이상이어야 합니다.", "bad_page")
     out["page"] = page
     for k in ("raw_lo", "raw_hi"):
         if d.get(k) is not None:
@@ -3392,11 +3428,11 @@ def parse_loc(d: dict) -> dict | InputRejected:
             out[k] = raw
     if d.get("kind") is not None:
         if not isinstance(d["kind"], str) or len(d["kind"]) > 80:
-            return InputRejected("kind 가 올바르지 않습니다.")
+            return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
         out["kind"] = d["kind"]
     if d.get("via") is not None:
         if d["via"] not in ("synctex", "text"):
-            return InputRejected("via 는 synctex|text 입니다.")
+            return InputRejected("via 는 synctex|text 입니다.", "bad_via")
         out["via"] = d["via"]
     if d.get("score") is not None:
         score = num_field(d["score"], "score")
@@ -3406,7 +3442,7 @@ def parse_loc(d: dict) -> dict | InputRejected:
     if d.get("frac") is not None:
         fr = d["frac"]
         if not isinstance(fr, list) or len(fr) != 4:
-            return InputRejected("frac 은 숫자 4개 목록입니다.")
+            return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
         nums = [num_field(x, "frac") for x in fr]
         bad = next((x for x in nums if isinstance(x, InputRejected)), None)
         if bad is not None:
@@ -3414,15 +3450,15 @@ def parse_loc(d: dict) -> dict | InputRejected:
         out["frac"] = nums
     if d.get("scope") is not None:
         if d["scope"] not in SCOPES:
-            return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES))
+            return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
         out["scope"] = d["scope"]
     if d.get("quote") is not None:
         if not isinstance(d["quote"], str):
-            return InputRejected("quote 는 문자열입니다.")
+            return InputRejected("quote 는 문자열입니다.", "bad_quote")
         out["quote"] = truncate_quote(d["quote"], 60)
     if d.get("pdf_build") is not None:                # the build on screen at drag time (pdf_build from the pick response)
         if not valid_build_name(d["pdf_build"]):
-            return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+            return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build")
         out["pdf_build"] = d["pdf_build"]
     return out
 
@@ -3435,7 +3471,7 @@ def parse_frac(fr: object) -> list | InputRejected:
     """A view-only pin's region [x, y, w, h] as fractions of the page, checked more strictly than a LaTeX pin's
     frac since it is the pin's only location: 4 finite numbers, inside the page (0..1), with positive area."""
     if not isinstance(fr, list) or len(fr) != 4:
-        return InputRejected("frac 은 숫자 4개 목록 [x, y, w, h](쪽 대비 비율)입니다.")
+        return InputRejected("frac 은 숫자 4개 목록 [x, y, w, h](쪽 대비 비율)입니다.", "bad_frac")
     nums = [num_field(v, "frac") for v in fr]
     bad = next((v for v in nums if isinstance(v, InputRejected)), None)
     if bad is not None:
@@ -3444,7 +3480,7 @@ def parse_frac(fr: object) -> list | InputRejected:
     eps = 1e-6
     if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < w <= 1 + eps and 0 < h <= 1 + eps
             and x + w <= 1 + eps and y + h <= 1 + eps):
-        return InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).")
+        return InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).", "frac_outside_page")
     return [x, y, w, h]
 
 
@@ -3458,17 +3494,17 @@ def parse_region(d: dict) -> dict | InputRejected:
     D = cur_doc()
     for k in ("file", "lo", "hi", "scope"):
         if d.get(k) is not None:
-            return InputRejected("보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (D.key, k))
+            return InputRejected("보기 전용 문서(%s)의 핀에는 %s 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다." % (D.key, k), "no_source_lines")
     out: dict = {"pdf": str(D.main), "name": D.main.name, "kind": "region"}
     page = int_field(d.get("page"), "page")
     if isinstance(page, InputRejected):
         return page
     want = d.get("pdf_build")
     if want is not None and not valid_build_name(want):
-        return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+        return InputRejected("pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", "bad_pdf_build")
     n = len(page_list(pages_dir_for(want)))
     if page < 1 or (n and page > n):
-        return InputRejected("page 는 1..%d 이어야 합니다." % max(n, 1))
+        return InputRejected("page 는 1..%d 이어야 합니다." % max(n, 1), "page_out_of_range")
     out["page"] = page
     frac = parse_frac(d.get("frac"))
     if isinstance(frac, InputRejected):
@@ -3476,22 +3512,22 @@ def parse_region(d: dict) -> dict | InputRejected:
     out["frac"] = frac
     if d.get("quote") is not None:
         if not isinstance(d["quote"], str):
-            return InputRejected("quote 는 문자열입니다.")
+            return InputRejected("quote 는 문자열입니다.", "bad_quote")
         out["quote"] = truncate_quote(norm(d["quote"]), PDF_QUOTE_MAX)
     if want is not None:
         out["pdf_build"] = want
     return out
 
 
-def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
+def request_doc(q: dict, body: dict | None = None, file_hint: object | None = None) -> Doc:
     """The document a request refers to: ?doc= or body doc. If neither is present, guessed from file (agent curl); if that's absent too, the first document.
     An unknown key is 404 - silently falling back to the first document would attach the pin to the wrong document."""
     key = (q.get("doc") or [None])[0] if q else None
     bkey = body.get("doc") if isinstance(body, dict) else None
     if bkey is not None and not isinstance(bkey, str):
-        raise HTTPError(400, "doc 은 문자열이어야 합니다.")
+        raise HTTPError(400, "doc 은 문자열이어야 합니다.", reason="bad_doc")
     if key and bkey and key != bkey:
-        raise HTTPError(400, "doc 이 주소(%s)와 본문(%s)에서 다릅니다." % (key, bkey))
+        raise HTTPError(400, "doc 이 주소(%s)와 본문(%s)에서 다릅니다." % (key, bkey), reason="doc_mismatch")
     key = key or bkey
     if not key:
         if file_hint and multi_doc():
@@ -3499,7 +3535,7 @@ def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
         return DOCS[0]
     D = doc_by_key(key)
     if D is None:
-        raise HTTPError(404, "없는 문서입니다: %s" % hdr_text(key)[:40], docs=[d.key for d in DOCS])
+        raise HTTPError(404, "없는 문서입니다: %s" % hdr_text(key)[:40], docs=[d.key for d in DOCS], reason="unknown_doc")
     return D
 
 
@@ -3646,14 +3682,14 @@ def parse_edit(d: dict, known: Collection[str]) -> EditBody | InputRejected:
     note_append = d.get("note_append")
     if note_append is not None:
         if not isinstance(note_append, str):
-            return InputRejected("note_append 는 문자열이어야 합니다.")
+            return InputRejected("note_append 는 문자열이어야 합니다.", "bad_note_append")
         if not note_append.strip():
-            return InputRejected("덧붙일 메모가 비어 있습니다.")
+            return InputRejected("덧붙일 메모가 비어 있습니다.", "note_append_empty")
         if len(note_append) > 2000:
-            return InputRejected("덧붙일 메모가 너무 깁니다(2000자 이하).")
+            return InputRejected("덧붙일 메모가 너무 깁니다(2000자 이하).", "note_append_too_long")
     loc = d.get("loc")
     if loc is not None and not isinstance(loc, dict):
-        return InputRejected("loc 는 객체여야 합니다.")
+        return InputRejected("loc 는 객체여야 합니다.", "bad_loc")
     lo = int_field(d["lo"], "lo") if d.get("lo") is not None else None
     if isinstance(lo, InputRejected):
         return lo
@@ -3662,10 +3698,10 @@ def parse_edit(d: dict, known: Collection[str]) -> EditBody | InputRejected:
         return hi
     scope = d.get("scope")
     if scope is not None and scope not in SCOPES:
-        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES))
+        return InputRejected("scope 는 %s 중 하나입니다." % "|".join(SCOPES), "bad_scope")
     kind = d.get("kind")
     if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
-        return InputRejected("kind 가 올바르지 않습니다.")
+        return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
     kind_req = parse_kind_req(d.get("kind_req"))   # a note-level value that can be changed even on a closed pin
     if isinstance(kind_req, InputRejected):
         return kind_req
@@ -3677,14 +3713,14 @@ def parse_edit(d: dict, known: Collection[str]) -> EditBody | InputRejected:
         return assignee
     base_given = "base_rev" in d
     if not base_given and note_append is None:
-        return InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).")
+        return InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required")
     base = int_field(d["base_rev"], "base_rev") if base_given else None
     if isinstance(base, InputRejected):
         return base
     moves = loc is not None or lo is not None or hi is not None
     if not (note is not None or moves or scope is not None or kind is not None or note_append is not None
             or kind_req is not None or assignee is not None):
-        return InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).")
+        return InputRejected("바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change")
     return EditBody(loc, EditRequest(base, note, note_append, None, lo, hi, scope, kind, kind_req, assignee,
                                      tuple(hints)))
 
@@ -3726,7 +3762,7 @@ def edit_pin(pid: int, d: dict, actor: dict) -> OpenPin | ReviewPin | DonePin | 
     pdoc = (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or cur_doc()
     if region and (request.lo is not None or request.hi is not None or request.scope is not None
                    or request.kind is not None):
-        return InputRejected(REGION_EDIT_REFUSAL)
+        return InputRejected(REGION_EDIT_REFUSAL, "no_source_lines")
     with using_doc(pdoc):
         place = edit_place(body.loc, region)
     if isinstance(place, InputRejected):
@@ -3961,7 +3997,7 @@ def parse_mention_hints(v: object) -> list | InputRejected:
     if v is None:
         return []
     if not _is_str_list(v) or len(v) > MENTION_MAX:
-        return InputRejected("mentions 는 로그인 문자열 목록(%d개 이하)입니다." % MENTION_MAX)
+        return InputRejected("mentions 는 로그인 문자열 목록(%d개 이하)입니다." % MENTION_MAX, "bad_mentions")
     return v
 
 
@@ -3969,7 +4005,7 @@ def clean_mention_hints(v) -> list:
     """parse_mention_hints for the routes that still raise (reply, close, reopen): HTTPError(400), same message."""
     out = parse_mention_hints(v)
     if isinstance(out, InputRejected):
-        raise HTTPError(400, out.message)
+        raise HTTPError(400, out.message, reason=out.reason)
     return out
 
 
@@ -4150,7 +4186,7 @@ def events_since(actor: dict, cursor) -> dict:
     try:
         cur = int(cursor)
     except (TypeError, ValueError):
-        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.") from None
+        raise HTTPError(400, "ev 는 정수(마지막으로 본 이벤트 seq)입니다.", reason="bad_event_cursor") from None
     me = (actor or {}).get("login")
     if not me or is_agent(actor):
         out["events"] = []
@@ -4255,7 +4291,7 @@ def clean_reopen_flag(d: dict):
     """The reply body's optional reopen - true/false overrides the rule, absent (None) lets the server decide."""
     v = d.get("reopen")
     if v is not None and not isinstance(v, bool):
-        raise HTTPError(400, "reopen 은 true/false 입니다(없으면 서버 규칙을 따릅니다).")
+        raise HTTPError(400, "reopen 은 true/false 입니다(없으면 서버 규칙을 따릅니다).", reason="bad_reopen")
     return v
 
 
@@ -4327,7 +4363,7 @@ def clean_review_flag(d: dict):
     """The close body's optional review - true means awaiting review, false means done right away. None if absent (left to the closer to decide)."""
     v = d.get("review")
     if v is not None and not isinstance(v, bool):
-        raise HTTPError(400, "review 는 true/false 입니다.")
+        raise HTTPError(400, "review 는 true/false 입니다.", reason="bad_review")
     return v
 
 
@@ -4572,10 +4608,10 @@ def _claim_int(d: dict, key: str, lo: int, hi: int):
         return None
     v = d[key]
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
-        raise HTTPError(400, "%s 은 정수여야 합니다." % key)
+        raise HTTPError(400, "%s 은 정수여야 합니다." % key, reason="not_integer")
     v = int(v)
     if v < lo:
-        raise HTTPError(400, "%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi))
+        raise HTTPError(400, "%s 은 %d 이상이어야 합니다(상한 %d 를 넘으면 %d 로 깎아 받습니다)." % (key, lo, hi, hi), reason="too_small")
     return min(v, hi)
 
 
@@ -5098,15 +5134,15 @@ def pick(d: dict) -> dict:
     want = d.get("pdf_build")
     if want is not None:
         if not valid_build_name(want):
-            raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.")
+            raise HTTPError(400, "pdf_build 는 쪽 디렉토리 이름(pages 또는 pages-<시각>)이어야 합니다.", reason="bad_pdf_build")
         if not (cur_doc().dir / want).is_dir():
             return {"error": "화면의 PDF 가 이미 지워진 옛 빌드입니다 — 화면을 새 PDF 로 바꿨으니 다시 고르세요.",
-                    "pdf_build_gone": True}
+                    "reason": "pdf_build_gone", "pdf_build_gone": True}
     pdir = pages_dir_for(want) if want is not None else cur_pages()
     pages = page_list(pdir)
     page = _int(d.get("page"), "page")
     if not 1 <= page <= len(pages):
-        raise HTTPError(400, "page 는 1..%d 이어야 합니다." % len(pages))
+        raise HTTPError(400, "page 는 1..%d 이어야 합니다." % len(pages), reason="page_out_of_range")
     pw, ph = pages[page - 1]["pt_w"], pages[page - 1]["pt_h"]
     xs = sorted(min(max(_num(d.get(k), k), 0.0), pw) for k in ("x0", "x1"))
     ys = sorted(min(max(_num(d.get(k), k), 0.0), ph) for k in ("y0", "y1"))
@@ -5116,7 +5152,7 @@ def pick(d: dict) -> dict:
     if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and
                                  all(not isinstance(v, bool) and isinstance(v, (int, float))
                                      and math.isfinite(v) for v in frac)):
-        raise HTTPError(400, "frac 은 숫자 4개 목록입니다.")
+        raise HTTPError(400, "frac 은 숫자 4개 목록입니다.", reason="bad_frac")
 
     pdf = cur_pdf(pdir)
     rtext = region_text(pdf, page, x0, y0, x1, y1)
@@ -5128,15 +5164,16 @@ def pick(d: dict) -> dict:
     src = to_source(sy[0]) if sy else D.main
     if src.suffix in (".bbl", ".bib"):
         return {"error": "여기는 생성 파일(%s)입니다. 참고문헌은 .bib 나 본문 \\cite 를 고쳐야 합니다."
-                         % src.suffix}
+                         % src.suffix, "reason": "generated_file"}
     try:
         src = safe_src(str(src))
     except HTTPError:
-        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src}
+        return {"error": "SyncTeX 가 원고 밖 파일을 가리킵니다(%s). PDF 재빌드 뒤 다시 골라 보세요." % src,
+                "reason": "synctex_outside"}
 
     lines = tex_lines(src)
     if not lines:
-        return {"error": "원문 파일을 읽지 못했습니다: %s" % src}
+        return {"error": "원문 파일을 읽지 못했습니다: %s" % src, "reason": "source_unreadable"}
     tw = token_weights(rtext, lines, file_key(src))
 
     cands = []
@@ -5146,7 +5183,8 @@ def pick(d: dict) -> dict:
     if alt:
         cands.append(("text", alt[0], alt[1], alt[2]))
     if not cands:
-        return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요."}
+        return {"error": "그 자리에서 원문을 되짚지 못했습니다. 글자가 있는 쪽으로 조금 넓게 잡아 보세요.",
+                "reason": "no_source_here"}
 
     # On a tie, SyncTeX wins - it's the only one that's right in a region with no text (a figure).
     cands.sort(key=lambda c: (-c[3], c[0] != "synctex"))
@@ -5198,17 +5236,19 @@ def _pick_region(D: Doc, pdir: Path, page: int, box: tuple, size: tuple, frac, r
 
 
 def snippet_api(q: dict) -> dict:
+    """GET /api/snippet: the source lines lo..hi of a manuscript file (and with levels=1 the range ladder around them).
+    400 for a view-only document (no_source_lines), a file outside the tree, non-integer lo/hi or a range outside the file."""
     if cur_doc().is_pdf:
-        raise HTTPError(400, "보기 전용 문서(%s)에는 원문 줄이 없습니다." % cur_doc().key)
+        raise HTTPError(400, "보기 전용 문서(%s)에는 원문 줄이 없습니다." % cur_doc().key, reason="no_source_lines")
     f = safe_src((q.get("file") or [""])[0])
     lines = tex_lines(f)
     try:
         lo = int((q.get("lo") or [""])[0])
         hi = int((q.get("hi") or [""])[0])
     except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.") from None
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.", reason="not_integer") from None
     if not 1 <= lo <= hi <= len(lines):
-        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
+        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), reason="range_outside_file")
     out = {"file": str(f), "name": f.name, "lo": lo, "hi": hi, "n": hi - lo + 1,
            "n_lines": len(lines), "snippet": snippet(lines, lo, hi)}
     if (q.get("levels") or ["0"])[0] == "1":
@@ -5230,9 +5270,9 @@ def overlaps_api(q: dict) -> dict:
         lo = int((q.get("lo") or [""])[0])
         hi = int((q.get("hi") or [""])[0])
     except ValueError:
-        raise HTTPError(400, "lo·hi 는 정수여야 합니다.") from None
+        raise HTTPError(400, "lo·hi 는 정수여야 합니다.", reason="not_integer") from None
     if not 1 <= lo <= hi <= len(lines):
-        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi))
+        raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (len(lines), lo, hi), reason="range_outside_file")
     return {"overlaps": overlaps_for_range(str(f), lo, hi)}
 
 
@@ -5525,7 +5565,7 @@ def bearer_of(headers):
         return None
     parts = bearer[0].strip().split(None, 1)
     if len(bearer) > 1 or len(parts) != 2 or not parts[1].strip():
-        raise HTTPError(401, "Authorization: Bearer 헤더가 올바르지 않습니다.")
+        raise HTTPError(401, "Authorization: Bearer 헤더가 올바르지 않습니다.", reason="bad_bearer")
     return parts[1].strip()
 
 
@@ -5745,39 +5785,39 @@ def identify(headers, peer) -> Principal:
     if tok is not None:
         t = token_lookup(tok)
         if t is None:
-            raise HTTPError(401, "토큰이 올바르지 않거나 폐기되었습니다.")
+            raise HTTPError(401, "토큰이 올바르지 않거나 폐기되었습니다.", reason="bad_token")
         return Principal({"login": AGENT_LOGIN_PREFIX + t["name"], "name": t["name"]}, "agent", "token")
     loop = peer_is_loopback(peer)
     if C.auth == "local":
         if loop and came_through_proxy(headers):
             # every local request is the owner - one that came through a proxy is someone else (v0.2.1 hardening)
-            raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
+            raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}), reason="headerless")
         if loop:
             return Principal(local_owner_actor(), "owner", "local-owner")
-        raise HTTPError(401, UNAUTHENTICATED)
+        raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
     if C.auth == "trusted-proxy":
         a = proxy_actor(headers) if peer_is_trusted_proxy(peer) else None
         if a is None or not valid_login(a["login"]):
-            raise HTTPError(401, UNAUTHENTICATED)
+            raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
         return Principal(a, role_of(a["login"]), "header")
     if loop:
         a, via = actor_of(headers)
         if via:
             if not valid_login(a["login"]):
-                raise HTTPError(401, UNAUTHENTICATED)
+                raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
             return Principal(a, role_of(a["login"]), "header")
         if C.agent_loopback:
             if came_through_proxy(headers) and not C.tailnet_agent:
                 # tailscale serve connects from loopback too. Without identity headers such a request is a tagged
                 # device (or anything else behind the proxy) - never the local agent (v0.2.1).
-                raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}))
+                raise HTTPError(403, TAILNET_HEADERLESS, page=("no-identity", {}), reason="headerless")
             warn_loopback_agent_once()
             return Principal(dict(LOCAL_ACTOR), "agent", "loopback-agent")
         if not came_through_proxy(headers):
             # An agent on this machine with the loopback agent off (ADR-0007): say where its token file is.
             f = C.agent_token_file
-            raise HTTPError(401, loopback_refused_text(f, file_present(f), home_or_none()))
-    raise HTTPError(401, UNAUTHENTICATED)
+            raise HTTPError(401, loopback_refused_text(f, file_present(f), home_or_none()), reason="loopback_agent_off")
+    raise HTTPError(401, UNAUTHENTICATED, reason="unauthenticated")
 
 
 # Headers a reverse proxy adds (tailscale serve sets X-Forwarded-For/-Host/-Proto). A local curl sends none of them.
@@ -5815,14 +5855,14 @@ def admit(p: Principal, host, headers=None) -> None:
         if C.members_only:
             if login not in C.allow and login not in people_roles():
                 raise HTTPError(403, "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
-                                page=("not-member", {"login": login}))
+                                page=("not-member", {"login": login}), reason="not_member")
         elif C.allow and login not in C.allow:
-            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}))
+            raise HTTPError(403, "이 뷰어에 허용되지 않은 계정입니다: %s" % login, page=("not-allowed", {"login": login}), reason="not_allowed")
     elif p.via == "loopback-agent" and (C.allow or C.members_only):
         hname, _ = split_host(host or "")
         if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
             raise HTTPError(403, "신원 헤더 없는 테일넷 요청입니다(태그 장치 등). --allow 목록의 계정으로 접속하세요.",
-                            page=("no-identity", {}))
+                            page=("no-identity", {}), reason="headerless")
 
 
 def check_role(p: Principal, path: str) -> None:
@@ -5831,13 +5871,13 @@ def check_role(p: Principal, path: str) -> None:
     do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
     delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call. Other owner-only operations - members, tokens, settings - are CLI/file level."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
-        raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.")
+        raise HTTPError(403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only")
     if p.role == "agent" and re.fullmatch(r"/api/pins/\d+/confirm", path):
-        raise HTTPError(403, CONFIRM_BY_HUMAN)
+        raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
     if path in OWNER_POSTS and p.role != "owner":
-        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.")
+        raise HTTPError(403, "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.", reason="owner_only")
     if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
-        raise HTTPError(403, "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % TRASH_DAYS)
+        raise HTTPError(403, "휴지통에서 영구 삭제는 소유자(owner)만 합니다 — 삭제한 핀은 %d일 뒤 저절로 지워집니다." % TRASH_DAYS, reason="owner_only")
 
 
 # ---------------------------------------------------------------- Viewer
@@ -5865,6 +5905,7 @@ def load_viewer_html(directory: Path) -> str:
 
 HTML = load_viewer_html(VIEWER_DIR)
 HTML = HTML.replace("__PDFJS_VERSION__", PDFJS_VERSION)
+HTML = HTML.replace("__LIMN_MARK__", inline_svg())          # the mark by the label and in the help header (limn.mark)
 HTML = HTML.replace("__LUCIDE_JSON__", json.dumps(LUCIDE, sort_keys=True))
 HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort_keys=True).replace("</", "<\\/"))
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
@@ -5880,11 +5921,11 @@ ERROR_PAGE_TEXT = {
 }
 
 
-# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason or None). The one place they
+# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason). The one place they
 # become responses - Handler._run for requests, the revision worker for the build status it stores. The messages and
 # reasons are part of the agent contract (api.md §핀 단위 변경 보기); tests pin every body.
 SCOPE_REJECTIONS = {
-    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", None),
+    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", "pin_not_in_doc"),
     "scope_unreadable": (422, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
     "scope_mismatch": (422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
     "unsafe_path": (422, "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
@@ -5895,7 +5936,7 @@ SCOPE_REJECTIONS = {
 def scope_http_error(e: ScopeRejected) -> HTTPError:
     """The HTTP form of a pin-scoping refusal, from SCOPE_REJECTIONS. An unknown reason is a bug: KeyError, a 500."""
     code, msg, reason = SCOPE_REJECTIONS[e.reason]
-    return HTTPError(code, msg, reason=reason) if reason else HTTPError(code, msg)
+    return HTTPError(code, msg, reason=reason)
 
 
 def page_lang(headers, query: dict) -> str:
@@ -5979,9 +6020,9 @@ class Handler(BaseHTTPRequestHandler):
             case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
                 return self._json({"ok": True, "pin": public(record)})
             case NotInTrash(pid=pid):
-                raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
+                raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
             case AlreadyLive(pid=pid):
-                raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
+                raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
 
     def _claim_answer(self, result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int,
                       eta: int | None) -> None:
@@ -5992,9 +6033,9 @@ class Handler(BaseHTTPRequestHandler):
             case PinNotFound():
                 out = {"ok": False, "pin": None, "ttl_min_applied": ttl}
             case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "done", pin=public(record))
+                raise HTTPError(409, "done", pin=public(record), reason="done")
             case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
-                raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts)
+                raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts, reason="claimed")
         if eta is not None:
             out["eta_min_applied"] = eta              # the clamped value, if sent above the ceiling (240)
         return self._json(out)
@@ -6017,7 +6058,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "pin": public(record), "msg": msg, "state": pin_state(record),
                                    "reopened": msg.get("ev") == "reopen"})
             case ThreadFull(limit=limit):
-                raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit)
+                raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit, reason="full")
             case PinNotFound():
                 return self._json({"ok": False, "pin": None, "msg": None, "state": None, "reopened": False})
 
@@ -6039,17 +6080,17 @@ class Handler(BaseHTTPRequestHandler):
             case PinNotFound():
                 return self._json({"ok": False, "pin": None, "state": None})
             case AgentCannotConfirm():
-                raise HTTPError(403, CONFIRM_BY_HUMAN)
+                raise HTTPError(403, CONFIRM_BY_HUMAN, reason="confirm_by_human")
             case PinStillOpen(pin=OpenPin(record=record)):
-                raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
+                raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL, reason="open")
 
     def _add_answer(self, result: OpenPin | InputRejected) -> None:
         """Answer POST /api/pin: the new pin's id, or 400 with the refused field's message."""
         match result:
             case OpenPin(record=record):
                 return self._json({"id": record["id"]})
-            case InputRejected(message=message):
-                raise HTTPError(400, message)
+            case InputRejected(message=message, reason=reason):
+                raise HTTPError(400, message, reason=reason)
 
     def _edit_answer(self, result: OpenPin | ReviewPin | DonePin | EditRefusal | InputRejected | PinNotFound) -> None:
         """Answer POST /api/pins/{id}/edit for every outcome, with the statuses and bodies of the agent contract."""
@@ -6057,19 +6098,19 @@ class Handler(BaseHTTPRequestHandler):
             case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
                 return self._json({"ok": True, "pin": public(record)})
             case PinNotFound(pid=pid):
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+                raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
             case ClosedPinReshaped(pin=ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "done", pin=public(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
+                raise HTTPError(409, "done", pin=public(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.", reason="done")
             case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "conflict", pin=public(record))
+                raise HTTPError(409, "conflict", pin=public(record), reason="conflict")
             case NoteTooLong(length=length, limit=limit):
-                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit))
+                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit), reason="note_too_long")
             case PinOutsideTree():
-                raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
+                raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.", reason="pin_outside_manuscript")
             case RangeOutsideFile(lines=lines, lo=lo, hi=hi):
-                raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi))
-            case InputRejected(message=message):
-                raise HTTPError(400, message)
+                raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi), reason="range_outside_file")
+            case InputRejected(message=message, reason=reason):
+                raise HTTPError(400, message, reason=reason)
 
     def _read_raw(self) -> bytes:
         """Reads the request body to completion before any response, on every path (including GET/403/404).
@@ -6079,25 +6120,25 @@ class Handler(BaseHTTPRequestHandler):
         self._raw = b""
         if self.headers.get("Transfer-Encoding") is not None:
             self.close_connection = True
-            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.")
+            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.", reason="transfer_encoding")
         cls = self.headers.get_all("Content-Length") or []
         if len(set(v.strip() for v in cls)) > 1:
             self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 여러 개입니다.")
+            raise HTTPError(400, "Content-Length 가 여러 개입니다.", reason="bad_content_length")
         cl = cls[0].strip() if cls else ""
         if cl == "":
             return b""
         if not re.fullmatch(r"[0-9]+", cl):          # isdigit() would also accept latin-1 digits like '²'
             self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
+            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.", reason="bad_content_length")
         n = int(cl)
         if n > MAX_BODY:
             self.close_connection = True
-            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
+            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).", reason="body_too_large")
         raw = self.rfile.read(n) if n else b""
         if len(raw) != n:                                 # a truncated request - never acted on (including /api/clear)
             self.close_connection = True
-            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).")
+            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).", reason="body_truncated")
         self._raw = raw
         return raw
 
@@ -6115,10 +6156,10 @@ class Handler(BaseHTTPRequestHandler):
         # Checked independent of whether the Tailscale-User-* header is present. That header can also be
         # carried on a same-origin GET from a rebinding page with no preflight, so exempting it via that header would bypass the defense entirely (observed).
         if host is not None and not host_ok(host):
-            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100])
+            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100], reason="bad_host")
         origin = self.headers.get("Origin")
         if origin is not None and not origin_ok(origin, host):
-            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % hdr_text(origin)[:100])
+            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % hdr_text(origin)[:100], reason="bad_origin")
 
     def _guard(self) -> dict:
         """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the principal on
@@ -6160,7 +6201,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
             traceback.print_exc(file=sys.stderr)
             try:
-                self._json({"error": "서버 내부 오류: %s" % e}, 500)
+                self._json({"error": "서버 내부 오류: %s" % e, "reason": "internal"}, 500)
             except OSError:
                 self.close_connection = True
 
@@ -6203,6 +6244,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"people": ppl, "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
+        if path in ("/favicon-32.png", "/apple-touch-icon.png"):   # PNG fallbacks of the SVG favicon, drawn by limn.mark
+            size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
+            return self._send(200, mark_png(size, C.accent, rounded), "image/png", cache="public, max-age=86400")
         if path == "/api/version":                # the installed Limn version - no write
             return self._json({"name": APP_NAME, "version": app_version()})
         if path == "/api/meta":
@@ -6245,7 +6289,7 @@ class Handler(BaseHTTPRequestHandler):
             pid = int(m.group(1))
             rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
             if rec is None:
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
+                raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
             return self._json({"pin": rec})
         if path == "/api/snippet":
             return self._json(snippet_api(q))
@@ -6272,7 +6316,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data is not None:
                     # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
                     return self._send(200, data, VENDOR_MIME[f.suffix], cache="public, max-age=86400")
-            raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100])
+            raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100], reason="not_found")
         if path == "/pdf":
             # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
             # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
@@ -6286,24 +6330,27 @@ class Handler(BaseHTTPRequestHandler):
                     data = None
             if data is None:
                 raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % hdr_text(name)[:60],
-                                pdf_build_gone=bool(name), pages_build=cur_pages().name)
+                                pdf_build_gone=bool(name), pages_build=cur_pages().name,
+                                reason="pdf_build_gone" if name else "pdf_missing")    # no ?build=: nothing is gone
             return self._send(200, data, "application/pdf", cache="private, max-age=600")
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
+        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
     def _body(self) -> dict:
+        """The request body (already read in full) as a JSON object; {} when empty. 415 bad_content_type unless it is
+        application/json (a cross-origin form post needs no preflight), 400 bad_json unless it is a JSON object."""
         raw = self._raw
         if not raw.strip():
             return {}
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             # A cross-origin "simple request" (text/plain form) arrives with no preflight - accepting only JSON closes off that path.
-            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.")
+            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.", reason="bad_content_type")
         try:
             d = json.loads(raw)
         except (ValueError, RecursionError):
-            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.") from None
+            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.", reason="bad_json") from None
         if not isinstance(d, dict):
-            raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
+            raise HTTPError(400, "본문은 JSON 객체여야 합니다.", reason="bad_json")
         return d
 
     def _post(self):
@@ -6339,7 +6386,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._restore_answer(restore_pin(pid, actor))
             if act == "purge":                    # owner only (check_role)
                 if isinstance(purge_pin(pid, actor), NotInTrash):
-                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
+                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
                 return self._json({"ok": True, "purged": pid})
             if act == "edit":
                 return self._edit_answer(edit_pin(pid, d, actor))
@@ -6366,26 +6413,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
             if d.get("confirm") != CLEAR_CONFIRM:
                 raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
-                                % CLEAR_CONFIRM)
+                                % CLEAR_CONFIRM, reason="confirm_required")
             return self._json(dict(clear_pins(actor), ok=True))
         if path == "/api/revision-build":
             if set(d) - {"commit", "doc", "pin"}:
-                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
+                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.", reason="unknown_fields")
             if "pin" in d and not _is_int(d["pin"]):
-                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
+                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.", reason="bad_pin")
             result = revision_start(cur_doc(), d.get("commit"), clean_pin_param(d.get("pin")))
             return self._json(result, 202 if result["state"] == "running" else 200)
         if path == "/api/rebuild":
             if cur_doc().is_pdf:
                 raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."
-                                % cur_doc().key)
+                                % cur_doc().key, reason="view_only_no_rebuild")
             full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
             if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
                 r = build_async()
                 return self._json(r, 409 if r.get("busy") else 202)
             r = build_all()
             return self._json(diet_log(r, full), 409 if r.get("busy") else 200)
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
+        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
 
 # ---------------------------------------------------------------- Entry point

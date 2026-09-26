@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.4 — unreleased
+
+English error messages, a Limn mark, and the two ADR-0006 follow-ups of
+[issue #24](https://github.com/dartworklabs/limn/issues/24). The `pins.md` format and the stored pin record are
+unchanged. The HTTP API adds one field to every error body and two icon routes.
+
+- **Every error body names a stable reason code (API, additive).** Error responses are now
+  `{"error": "<Korean text>", "reason": "<code>"}`; the Korean text is unchanged byte for byte. The 409 bodies whose
+  `error` is already a code (`done`, `conflict`, `open`, `full`, `claimed`) repeat it in `reason`; the comparison PDF
+  status and the `200` refusals of `POST /api/pick` use the same codes. `HTTPError` cannot be built without one. The
+  codes are listed in `docs/handbook/api.md` §오류 응답; agents should branch on `reason`, not on the text.
+- **The English viewer shows API errors in English.** One function, `errText()`, shows every API error: Korean shows
+  the server text as before; English looks up `reason:<code>` in `ui_en.json` (one message per code, tested) and falls
+  back to the server text. It covers the error toasts, the pick error in the composer and the re-place banner, the
+  edit card's source box and the comparison PDF status line. The composer's pick warning (a UI hint the server composes
+  from up to three Korean sentences, not an error body) is shown in English too, sentence by sentence. The English chrome test now drives the common refusals
+  (403 view-only, 409 `base_rev` conflict, 400 validation, 404 pin, 422 pin scope) and checks the toasts carry no
+  Hangul; the Korean run checks they show the server text unchanged.
+- **The Limn mark.** One stroke that starts at a small dot (the pin) and runs into a line (the source line). It replaces
+  the label's first letter in the favicon, sits before the instance label in the top bar and the [More] label chip (in
+  the instance colour) and in the help dialog header (monochrome, follows the theme). Inline SVG coloured by CSS
+  tokens; the geometry lives once in the new pure module `limn.mark`, which also draws the PNG fallbacks at runtime with
+  the standard library (`GET /favicon-32.png`, `GET /apple-touch-icon.png`, keyed by `?c=<accent>`). Browser
+  notifications use the 180px PNG (Android draws no SVG icons).
+- **[View changes] keeps the recorded lines after a move (issue #24 §1).** The absolute paths in a closed pin's `changes`
+  are located on read by the ADR-0006 rule, so a moved or cloned checkout still reports `source: "changes"` instead of
+  inferring the hunks. The stored `changes` and the API's `changes[].file` are unchanged; a path that cannot be placed
+  is dropped as before.
+- **Tails stay in the pin's own document (issue #24 §2).** For a moved record without `file_rel`, the longest existing
+  tail is searched in the pin's document folder (its build root) instead of the whole manuscript folder, so a
+  same-named file of another document is never picked, and a document folder renamed with its `--doc` spec is followed.
+  Instances started without `--doc` behave as before (a single `--doc` pointing at a sub-folder searches only it). No
+  write migration.
+- Rolling back to 0.3.3 is safe: nothing new is stored, so 0.3.3 reads the same state directory. Its error bodies
+  simply have no `reason`, and it serves its own page and favicon.
+
 ## 0.3.3 — unreleased
 
 Agents on the machine that serves an instance get a standard place for their token, so the instance can turn off

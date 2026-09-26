@@ -6,7 +6,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 > **핵심**
 >
-> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. 오류 응답은 언제나 한국어 메시지를 담은 `{"error": ...}` JSON이다. 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다.
+> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. 오류 응답은 언제나 한국어 메시지와 이유 코드를 담은 `{"error": ..., "reason": ...}` JSON이다(§오류 응답). 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다.
 >
 > 접근 제어를 넣은 0.2.0도 이 원칙을 지켰다. 기존 경로, 필드, 상태 이름은 그대로다. 더한 것은 `me`·사람 목록의 `role` 필드, `401` 응답, 역할에 따른 `403` 응답, pins.md 안내 한 줄뿐이다(§인증).
 
@@ -14,7 +14,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 요청 본문은 1 MiB 이하의 JSON 객체여야 하고 `Content-Type: application/json` 을 달아야 한다. 어기면 `400`·`413`·`415` 중 하나가 온다. 본문이 없는 POST는 헤더 없이도 통과한다. 에이전트의 `curl -X POST …/close` 가 이런 요청이다.
 
-오류 응답은 항상 `{"error": "<한국어 메시지>"}` JSON이다. 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다. 기존 경로는 계약을 유지해 왔고, 새 필드·경로는 덧붙이기만 했다.
+오류 응답은 항상 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다. 기존 경로는 계약을 유지해 왔고, 새 필드·경로는 덧붙이기만 했다.
 
 - **본문을 먼저 끝까지 읽는다.** 서버는 어떤 응답보다 먼저 본문을 Content-Length 만큼 읽는다. 오류(`4xx`·`5xx`)를 보낸 뒤에는 연결을 닫는다. 읽지 않은 본문이 남으면 같은 keep-alive 연결의 다음 요청으로 해석된다. 그러면 신원 확인, `--allow`·`--members-only` 입장 검사, 작성자 기록을 우회할 수 있다. `tailscale serve` 는 백엔드 연결을 재사용하므로 이 틈이 실제로 열린다.
 - **`Transfer-Encoding` 요청은 `400`** 이다. Content-Length 가 여러 개이거나 음이 아닌 정수가 아니어도 `400` 이다.
@@ -22,6 +22,36 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 - **교차 출처 `Origin` 과 낯선 `Host` 는 `403`** 이다. 허용하는 Host는 루프백 이름, `*.ts.net`, 그리고 0.2.0부터 `--public-host` 로 준 이름이다. 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사에 있다.
 - **소켓 타임아웃은 30초**다. 본문을 보내다 멈춘 연결과 유휴 keep-alive 연결이 닫힌다. 재빌드처럼 오래 걸리는 처리 시간과는 관계없다.
 - **이 경계를 지난 요청은 신원 확인을 거친다.** 신원을 정하지 못하면 `401`, 들어올 수 없는 사람이면 `403`, 역할이 허락하지 않는 변경이면 `403` 이다. 순서와 규칙은 §인증에 있다.
+
+### 오류 응답
+
+`error` 가 있는 모든 거절은 같은 모양이다.
+
+```json
+{"error": "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", "reason": "viewer_only"}
+```
+
+- `error` 는 사람이 읽는 한국어 문장이고 계약이다. 글자 하나 바꾸지 않는다. `409` 의 `done`·`conflict`·`open`·`full`·`claimed` 처럼 `error` 가 이미 코드인 응답도 그대로다.
+- `reason` 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 0.3.4부터 모든 오류 본문에 붙는다. 덧붙인 필드라 옛 에이전트는 모르고 지나친다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
+- 한 코드가 뜻이 같은 여러 문장을 묶을 수 있다. 예를 들어 `bad_changes` 는 `changes` 모양이 틀린 네 경우다. 거절을 가르는 값(필드 이름, 한도, 줄 수)은 `error` 문장에만 있다.
+- 비교 PDF 상태(`state:"error"`)의 `reason`(§상태와 캐시)과 `POST /api/pick` 이 `200` 으로 돌려주는 `{error, reason}` 도 같은 코드 집합이다.
+- 뷰어는 영어 화면에서 이 코드로 메시지 표(`ui_en.json` 의 `reason:<코드>`)를 찾는다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 서버가 내는 코드마다 영어 문장이 있어야 하고, 서버가 내지 않는 코드의 문장은 없어야 한다(`tests/test_errors.py`).
+
+| 묶음 | 상태 | 코드 |
+| --- | --- | --- |
+| 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_host`·`bad_origin` |
+| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청, ADR-0007)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human` |
+| 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 의 빌드가 없음, pick 의 옛 빌드), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
+| 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서에 줄을 보냄)·`view_only_no_rebuild` |
+| 핀 | `404`·`409` | `pin_not_found`·`not_in_trash`·`pin_exists`, `409` 코드 `done`·`conflict`·`open`·`full`·`claimed` |
+| 핀 입력 | `400` | `not_integer`·`not_number`·`too_small`·`bad_note`·`note_too_long`·`bad_note_append`·`note_append_empty`·`note_append_too_long`·`bad_reply`·`reply_too_long`·`bad_ref`·`ref_too_long`·`bad_changes`·`too_many_changes`·`change_outside_manuscript`·`bad_pin`·`bad_assignee`·`unknown_assignee`·`bad_kind_req`·`bad_kind`·`bad_via`·`bad_scope`·`bad_quote`·`bad_loc`·`bad_mentions`·`bad_event_cursor`·`bad_reopen`·`bad_review`·`text_required`·`bad_text`·`text_too_long`·`text_empty`·`base_rev_required`·`nothing_to_change`·`unknown_fields`·`confirm_required` |
+| 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
+| pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
+| 변경 보기 | `400`·`404`·`503` | `bad_commit`·`no_history`·`commit_not_recent`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing` |
+| 비교 PDF(0.2.2부터 있던 코드) | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
+| 예상 밖 예외 | `500` | `internal` |
+
+코드와 문장의 짝은 `src/limn/server.py` 가 정본이다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
@@ -186,6 +216,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 빈 본문 `204` |
+| `GET` | `/favicon-32.png`, `/apple-touch-icon.png` | 0.3.4. SVG 파비콘을 못 쓰는 브라우저·홈 화면용 PNG 대체본이다. 32×32 둥근 타일과 180×180 네모 타일(iOS가 모서리를 깎는다)을 이 인스턴스의 `--accent` 로 그린다([viewer.md](viewer.md) §마크와 파비콘). `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?c=<색 16진>` 을 붙여 색이 바뀌면 캐시를 가른다. 쿼리는 그 밖의 뜻이 없다. Host·Origin·신원 검사는 다른 `GET` 과 같다 |
 
 ### 빌드
 
@@ -722,10 +753,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 1. 저장된 `file` 이 지금 원고 폴더 안이면(심볼릭 링크를 푼 뒤) 그 경로다. 파일이 지워졌어도 그렇다.
 2. `file_rel` 이 비어 있지 않은 상대 경로이고 `..` 조각이 없으며 저장된 `file` 이 그 경로로 끝나면 `<원고 폴더>/<file_rel>` 이다. 다만 `file` 의 꼬리 가운데 `file_rel` 보다 긴 것이 원고 안에 있으면 그것이다(원고 폴더를 넓힌 경우). 0.3으로 되돌린 동안 위치를 다시 잡으면 `file` 만 바뀌어 둘이 어긋나므로, 낡은 `file_rel` 은 버린다.
-3. 옛 레코드는 `file` 의 꼬리 가운데 원고 폴더 안에 실제로 있는 가장 긴 것이다(`sections/intro.tex` 가 `intro.tex` 보다 앞선다). `..` 조각이 든 꼬리는 보지 않는다.
+3. 옛 레코드는 `file` 의 꼬리 가운데 **핀의 문서 폴더**(그 문서의 빌드 루트) 안에 실제로 있는 가장 긴 것이다(`sections/intro.tex` 가 `intro.tex` 보다 앞선다). `..` 조각이 든 꼬리는 보지 않는다. 0.3.4부터 꼬리를 문서 폴더에 이어 붙여 찾는다([이슈 #24](https://github.com/dartworklabs/limn/issues/24)). 그래서 여러 문서 인스턴스에서 다른 문서의 같은 이름 파일(`response/main.tex`)로 풀리지 않고, `--doc` 과 함께 이름을 바꾼 문서 폴더(`response/` → `reply/`)도 따라간다. `--doc` 없이 띄운 인스턴스는 문서 폴더가 원고 폴더라 0.3.2와 같다. `--doc` 이 하나라도 하위 폴더를 가리키면 그 폴더에서만 찾는다. 레코드의 문서가 지금 설정에 없으면 원고 폴더 전체에서 찾는다. 1·2는 기록된 사실이라 문서 폴더로 좁히지 않는다.
 4. 어느 것도 맞지 않으면 원고 밖이다. 줄 맞춤·`lo`/`hi` 수정(`400`)·`«…»` 인용이 멈추고 그 파일은 읽지 않는다.
 
 1~3의 결과도 심볼릭 링크를 푼 경로가 원고 폴더 안일 때만 쓴다. 원고 안의 링크가 바깥을 가리키면 원고 밖이다. 찾은 경로는 줄 맞춤, 범위 수정, `pins.md` 위치 칸과 인용, 겹침 계산(`rel`·`overlaps`), 핀 단위 변경 보기, 그리고 응답의 `file`·`rel_path` 에 쓴다.
+
+**닫을 때 보낸 `changes` 의 경로(0.3.4).** 핀 단위 변경 보기는 `changes[].file` 도 같은 규칙(1·3·4, 핀의 문서 폴더)으로 지금 원고 폴더에서 찾은 뒤 저장소 기준 경로로 바꾼다([이슈 #24](https://github.com/dartworklabs/limn/issues/24)). 그래서 옮기거나 다른 곳에 클론한 원고에서도 에이전트가 기록한 줄(`source:"changes"`)을 쓴다. 0.3.2는 이 경로를 버리고 추정(`inferred`)으로 갔다. 저장된 `changes` 는 다시 쓰지 않고, 응답의 `changes[].file` 도 저장값 그대로다. 찾지 못한 경로는 예전처럼 버리고 추정한다.
 
 - **쓰기 마이그레이션은 없다.** 읽기가 `file_rel` 을 채우지 않는다. 다른 핀의 변경·닫기·claim 으로 파일을 다시 쓸 때도 그렇다.
 - **줄 맞춤.** 찾은 파일이 저장된 `file` 과 다르면(옮긴 레코드) `synced_at` 은 다른 파일에서 잰 값이다. 그래서 anchor 머리 줄이 기록된 자리에 그대로 있을 때만 줄 맞춤을 건너뛴다. 그대로 옮긴 경우에는 아무것도 쓰지 않는다. 내용이 달라 다시 맞추면 그 파일을 `file` 에 함께 적어, 줄 번호와 `file` 이 같은 파일을 가리키게 한다. anchor 가 없는 옛 핀은 옮긴 파일에서 anchor 를 채우지 않는다.

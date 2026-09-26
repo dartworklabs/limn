@@ -76,6 +76,23 @@ function tl(k,p){let s=k; if(LANG==='en'&&Object.prototype.hasOwnProperty.call(I
   return s.replace(/\{(\w+)\}/g,(m,x)=>p&&p[x]!=null?String(p[x]):m);}
 function trMsg(s){if(LANG!=='en'||typeof s!=='string')return s; const e=tr(s); if(e!==s)return e;
   for(const sep of [' — ',' · ']){if(s.indexOf(sep)>0)return s.split(sep).map(tr).join(sep);} return s;}
+// An API error body {error, reason} as the UI shows it (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때). Korean shows the
+// server's `error` text as is - it is the agent contract (api.md §오류 응답). English looks up the stable reason code
+// ('reason:<code>' in the table) and falls back to the server text through the table. '' when there is no body.
+function errText(d){if(!d)return ''; const s=d.error==null?'':String(d.error);
+  if(LANG==='en'&&typeof d.reason==='string'){const v=I18N_EN['reason:'+d.reason]; if(typeof v==='string')return v;}
+  return trMsg(s);}
+// The pick's `warn` (a Korean UI hint, not an error body) is up to three sentences the server joins with a space, some
+// with numbers. Each Korean template here matches one server sentence ({x} = the number); English fills the table's
+// template through tl(). Korean shows the server text as is; a sentence no template matches stays as it is.
+const PICK_WARNS=['이 영역은 원문 대조가 약합니다({pct}%). 줄 범위를 눈으로 확인하세요.','두 경로가 다른 곳을 가리킵니다(L{a} / L{b}). 확인이 필요합니다.',
+  '화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요.','빌드 중이라 결과가 흔들릴 수 있습니다.',
+  '이 영역에는 글자가 없습니다(그림·스캔본). 메모에 무엇을 가리키는지 적어 주세요.','PDF 가 바뀌어 쪽을 다시 그리는 중입니다 — 끝나면 다시 고르세요.'];
+function warnText(s){s=s==null?'':String(s); if(LANG!=='en'||!s)return s;
+  for(const k of PICK_WARNS){const names=[],lit=k.split(/\{(\w+)\}/).filter((p,i)=>i%2===0||!names.push(p));
+    const re=new RegExp(lit.map(p=>p.replace(/[.*+?^$()|[\]\\{}]/g,'\\$&')).join('(\\d+)'),'g');
+    s=s.replace(re,(...m)=>tl(k,Object.fromEntries(names.map((n,i)=>[n,m[i+1]]))));}
+  return s;}
 function i18nEl(el){for(const a of I18N_ATTRS){const v=el.getAttribute(a); if(v){const e=trMsg(v); if(e!==v)el.setAttribute(a,e);}}}
 function i18nText(n){const p=n.parentNode; if(!p||/^(TEXTAREA|SCRIPT|STYLE)$/.test(p.nodeName))return;
   const e=trMsg(n.nodeValue); if(e!==n.nodeValue)n.nodeValue=e;}
@@ -125,7 +142,7 @@ async function api(url,o){o=o||{};
   try{r=await fetch(url,init);}catch(e){if(!o.silent)toast(failed()+' — '+tr('서버에 닿지 않습니다'),'err');throw e;}
   let d=null; try{d=await r.json();}catch(e){}
   if(r.status>=400&&!(o.expect||[]).includes(r.status)){
-    if(!o.silent)toast(failed()+' — '+((d&&d.error)||('HTTP '+r.status)),'err');
+    if(!o.silent)toast(failed()+' — '+(errText(d)||('HTTP '+r.status)),'err');
     const err=new Error('HTTP '+r.status); err.status=r.status; err.data=d; throw err;}
   return {status:r.status,data:d};
 }
@@ -491,7 +508,7 @@ async function loadRevisionPdf(id,seq,k){
     if(!revisionCurrent(seq,k,id))return;
     if(pin&&status.scope==='pin'&&status.state==='error'){   // the pin's hunks alone did not compile: show the whole commit, say so in one line
       REV_SCOPE.fallback=true;syncRevisionWhole();return loadRevisionPdf(id,seq,k);}
-    if(status.state!=='ready')throw new Error(status.error||tr(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
+    if(status.state!=='ready')throw new Error(errText(status)||tr(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
     if(status.head&&status.head!==id)throw new Error(tr('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings=Array.isArray(status.warnings)?status.warnings:[];
     warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent=tl('빌드 경고 {n}건 보기',{n:warnings.length});
@@ -794,7 +811,7 @@ async function notifyShow(e){const t=notifyText(e);
       :{label:'열기',tip:'그 핀으로 갑니다',fn:()=>openPinFromLink(e.doc,e.pin)};
     toast(t.title+' — '+t.body,e.type==='dropped'?'warn':'ok',act,{keys:[e.type+':'+e.pin],rank:2});return;}
   try{const reg=SW_REG||await navigator.serviceWorker.ready;
-    await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=icon]')||{}).href,
+    await reg.showNotification(t.title,{body:t.body,tag:'pin-'+e.pin,icon:(document.querySelector('link[rel=apple-touch-icon]')||document.querySelector('link[rel=icon]')||{}).href,
       actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[],   // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       data:{pin:e.pin,doc:e.doc,url:'/#doc='+encodeURIComponent(e.doc||'')+'&pin='+e.pin}});}catch(err){}}
 function notifyHandle(d){if(!d||typeof d.ev_seq!=='number')return;
@@ -1543,9 +1560,9 @@ async function pick(r){
   setBusy(false); if(!rp)PICKING=false;
   if(d.error){
     if(d.pdf_build_gone){try{await refreshDoc();}catch(e){} if(rp&&rp.box){rp.box.remove();rp.box=null;} else if(!rp&&PENDING){PENDING.remove();PENDING=null;}}
-    if(rp){bannerRepick(d.error);return;}
+    if(rp){bannerRepick(errText(d));return;}
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
-    CUR=null; clearPendingSave(); $('#c-err').textContent=d.error; $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
+    CUR=null; clearPendingSave(); $('#c-err').textContent=errText(d); $('#c-err').hidden=false; $('#c-body').hidden=true; return;}
   if(rp){rp.cand=d; bannerCompare(); return;}
   CUR=d; CUR.scope=null; if(!isRegion(d)){useLevel(CUR,d.default_level); if(!CUR.scope){CUR.lo=d.lo;CUR.hi=d.hi;}}
   OVERLAP_DISMISSED=null;   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
@@ -1617,7 +1634,7 @@ function renderRegionComposer(d){
   $('#composer').classList.add('region');
   $('#c-loc').textContent=d.name+' · '+tl('쪽 {page} 영역',{page:d.page}); $('#c-loc').dataset.copy=d.name+' 쪽 '+d.page;
   const pg=$('#c-page'); pg.textContent=tr('보기 전용'); pg.dataset.tip='LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
-  $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||''; $('#c-overlap').hidden=true;
+  $('#c-tag').hidden=true; $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn); $('#c-overlap').hidden=true;
   $('#c-levels').innerHTML='';
   const pre=$('#c-snip'); pre.className='wrap open'; pre.textContent=d.quote?tl('영역 글자: {text}',{text:d.quote}):tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden=true;}
@@ -1629,7 +1646,7 @@ function renderComposer(){const d=CUR; if(!d)return;
   const pg=$('#c-page'),pgn=tl('{page}쪽',{page:d.page}); pg.textContent=pgn+(curLevel(d)?'':' · '+tr('줄 직접 지정'));
   pg.dataset.tip=pgn+' · '+scopeLabel(d)+' · '+tl('{n}줄',{n:d.hi-d.lo+1})+' · '+tl('드래그한 줄 {range}',{range:rng(d.raw_lo,d.raw_hi)});
   const v=viaTag(d),tg=$('#c-tag'); tg.hidden=!v; if(v){tg.textContent=v.t;tg.dataset.tip=v.tip;tg.classList.toggle('badge-warning',!!v.low);}
-  $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=d.warn||'';
+  $('#c-warn').hidden=!d.warn; $('#c-warn').textContent=warnText(d.warn);
   renderOverlapBanner();
   $('#c-levels').innerHTML=levelBtns(d,false);
   segReveal($('#c-levels'));
@@ -2390,7 +2407,7 @@ async function editSnip(withLevels){const E=EDIT; if(!E)return;
   try{const {status,data}=await api(dq('/api/snippet?file='+encodeURIComponent(E.file)+'&lo='+E.lo+'&hi='+E.hi+(withLevels?'&levels=1':''),E.doc),
       {what:'원문 읽기',expect:[400]});
     if(EDIT!==E)return;
-    if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+(data&&data.error||'')+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
+    if(status===400){E.snippet=tr('원문을 읽지 못했습니다')+' — '+errText(data)+'\n'+tr('위치 다시 잡기로 고치세요.'); renderEdit(); return;}
     E.snippet=data.snippet; E.n_lines=data.n_lines;
     if(withLevels&&data.levels){E.levels=data.levels; if(!E.scope||!lvOf(E,E.scope)){const cur=E.levels.find(l=>l.lo===E.lo&&l.hi===E.hi);
       if(cur&&!E.scope)E.scope=null;}}

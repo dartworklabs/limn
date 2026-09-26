@@ -47,6 +47,7 @@ catalog_schema: 1
 | `src/limn/server.py` | 빌드 셸·git pull·원격 main 감시·보기 전용 PDF·meta 구역: 요청의 문서로 빌드를 부르고 동기화 | 폴링·추정·동기화 규칙 변경 | build-sync.md |
 | `src/limn/files.py` | 원자적 파일 교체(`atomic_write`): 상태 폴더의 모든 쓰기가 공유 | 쓰기 방식 변경 | domain.md, architecture.md |
 | `src/limn/server.py` | 핀 단위 변경 구역(0.3): hunk 블록 귀속, 핀 hunk diff, 합성 판 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
+| `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`·`app.css`·`app.js` (서버가 한 장의 HTML로 조립) | 레이아웃·토큰·컴포넌트·상호작용 변경 | viewer.md, verification.md |
 | `src/limn/server.py` | Handler와 main: HTTP 경계와 실행 인자 | 경로·응답·인자 추가나 변경 | api.md, operations.md |
 | `src/limn/ui_en.json` | 뷰어 영어 문자열 | UI 문자열 추가·변경 | viewer.md |
@@ -70,7 +71,7 @@ catalog_schema: 1
 | [ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) | 테일넷의 헤더 없는 요청 거부와 소유자 전용 전체 지우기 | 확정·구현 (0.2.1) |
 | [ADR-0004](../adr/0004-one-reply-trash-sections.md) | 답글 하나와 서버 규칙, 휴지통, 접는 목록 구획 | 확정·구현 (0.2.2) |
 | [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 닫을 때의 `changes`와 `PR #번호 (커밋 해시)`, 서버 추정(겹침만), 핀의 hunk만 담은 소스 diff·비교 PDF | 확정·구현 (0.3.0) |
-| [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2) |
+| [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2), 후속 읽기 규칙 (0.3.4, 이슈 #24) |
 | [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
 
 ## 알려진 공백
