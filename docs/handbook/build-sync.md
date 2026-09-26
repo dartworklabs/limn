@@ -4,7 +4,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 재빌드 흐름, 빌드 상태, 폴링 주기, 점선 마크(`est`) 판정을 바꿀 때 이 문서를 읽고 같은 diff에서 고친다. 엔드포인트 목록과 응답 필드 전체는 [api.md](api.md) 에 있다. 뷰어 조작은 [operations.md](operations.md) §뷰어 사용법에 있다.
 
-구현은 세 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`; 2026-09-26부터 셸 없이 문서를 인자로 받는다), `--git-pull`(`git_pull_phase`, 저장소 단위로 나눠 쓰는 `repo_pull`), 원격 main 감시(`sync_main_once`), 보기 전용 PDF가 바뀌었을 때 추적 빌드를 거는 일(`refresh_pdf_doc`)을 맡는다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
+구현은 네 곳이다. 빌드 자체(원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록 `page_list`, 빌드 상태, 빌드 이력 `builds.json`, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기 `render_pdf_doc`·`pdf_changed`, PDF가 바뀌었을 때 추적 빌드를 거는 `refresh_pdf_doc`)는 [`src/limn/build.py`](../../src/limn/build.py) 가 맡는다. 이 모듈은 문서와 설정(`BuildConfig`: 상태 폴더, dpi, 시간 제한)을 인자로 받고, 실행 인자 `C` 나 "지금 요청의 문서"(`cur_doc()`)를 읽지 않는다. 문서별 잠금·빌드 상태·이력 잠금·`src_mtime` 캐시는 문서 객체(`Doc`)가 갖고 있다. `--git-pull` 과 원격 main 감시(2026-09-26 옮김)는 둘로 나뉜다. [`src/limn/pull.py`](../../src/limn/pull.py) 는 순수 규칙이다. pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 그것을 빌드의 `pull` 기록으로 쓰는 일(`pull_record`), git 답 읽기, 감시 상태와 다시 빌드할 문서, `updating` 이 끝나는 조건을 정한다. [`src/limn/gitsync.py`](../../src/limn/gitsync.py) 는 셸이다. git을 차례로 부르고(`pull`), 여러 문서의 pull을 나눠 쓰고(`PullShare`·`repo_pull`), 감시 한 바퀴와 상태·루프(`SyncWatch`)를 돈다. 둘 다 설정·문서·git 실행기·시계를 인자로 받고 서버를 모른다. [`src/limn/server.py`](../../src/limn/server.py) 는 문서를 받아 이 인스턴스의 설정으로 빌드를 묶는 연결(`build_all(D)`, `build_async(D)`, `_build(D)`)과, 프로세스에 하나인 pull 나눠 쓰기(`PULL_SHARE`)·감시 상태(`SYNC_WATCH`)를 만들어 `limn/gitsync.py` 에 넘기는 연결(`repo_pull`·`sync_status`·`sync_main_once`)을 맡고, 감시 스레드와 보기 전용 PDF 감시 스레드를 시작한다. `--git-pull` 과 보기 전용 그리기는 빌드에 단계로 넘겨진다. 폴링이 읽는 응답(`GET /api/meta`·`/api/docs`·`/api/outline-labels`)은 [`src/limn/meta.py`](../../src/limn/meta.py) 가 만든다. 문서·문서 목록·설정(`MetaSettings`)과 `--git-pull` 상태를 인자로 받고 아무것도 쓰지 않는다. 핀 개수(`n_open` 등)는 동기화 쓰기가 있는 `snapshot_pins()` 를 거치므로 조립 지점의 `server.meta()` 가 라이트가 아닐 때만 덧붙인다.
 
 > **한눈에**
 >
@@ -104,7 +104,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 1. `--manuscript` 가 속한 git 저장소 루트를 찾는다(`git -C <ms> rev-parse --show-toplevel`). 저장소가 아니면 `skipped:not_git`.
 2. `git fetch --quiet` 로 업스트림 원격을 받는다(timeout 30초). 실패하면 `error:fetch_failed`, 시간을 넘기면 `error:fetch_timeout`.
 3. 현재 브랜치에 upstream(`@{u}`)이 없으면 `skipped:no_upstream`.
-4. `git status --porcelain --untracked-files=no` 가 비어 있지 않으면 `skipped:dirty`.
+4. `git status --porcelain --untracked-files=no` 가 비어 있지 않으면 `skipped:dirty`. 이 명령 자체가 실패하면 `error:status_failed`. 자동 확인은 이 앞에서 브랜치를 본다(`skipped:not_main`, §자동 확인).
 5. `git merge --ff-only @{u}` 를 한다. 분기해서 실패하면 `skipped:diverged`. 리베이스나 머지 커밋을 대신 만들지 않는다.
 6. 결과 `{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}` 를 빌드 결과의 `pull` 필드에 싣는다. 빌드 결과란 `/api/rebuild` 응답, `/api/build`, `builds.json` 의 마지막 결과다.
 

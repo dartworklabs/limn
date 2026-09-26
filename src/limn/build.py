@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias, TypeGuard
+from typing import Any, Protocol, TypeAlias, TypeGuard, TypeVar
 
 from limn.files import atomic_write
 
@@ -118,6 +118,9 @@ class BuildDoc(Protocol):
     @property
     def mcache(self) -> list[Any]:
         """The src_mtime memo: [key, value, measured-at]."""
+
+
+Doc = TypeVar("Doc", bound=BuildDoc)      # one document type through a call that hands the document back to its caller
 
 
 @dataclass(frozen=True)
@@ -678,6 +681,16 @@ def pdf_changed(D: BuildDoc) -> bool:
     except OSError:
         done = ""
     return sig != done
+
+
+def refresh_pdf_doc(D: Doc, start: Callable[[Doc], BuildResult]) -> bool:
+    """If view-only document D's PDF changed (pdf_changed), start its tracked re-render with `start` (the composition
+    root's background build). True when a render started; False for a LaTeX document, an unchanged or missing PDF, or
+    a render already running (start answered busy)."""
+    if not D.is_pdf or not pdf_changed(D):
+        return False
+    r = start(D)
+    return not r.get("busy")
 
 
 # ---------------------------------------------------------------- Build history (builds.json)

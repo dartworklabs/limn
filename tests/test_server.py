@@ -19,6 +19,8 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build as limn_build
+from limn import gitsync
+from limn.pull import Pulled, PullSkipped, UpToDate
 from limn import locate, mapping
 from limn import meta as limn_meta
 from limn.mapping import find_level
@@ -225,10 +227,7 @@ class Base(unittest.TestCase):
         C.allow = frozenset()
         C.origin_check = True
         C.git_pull = False
-        with ps._SYNC_LOCK:
-            ps._SYNC_STATE.clear()
-            ps._SYNC_STATE.update(state="checking", reason=None, checked_at=None,
-                                  head_before=None, head_after=None)
+        ps.SYNC_WATCH = gitsync.SyncWatch()        # a fresh remote-main watch status ("checking")
         C.pdfjs_dir = None
         C.label, C.accent, C.repo = "원고", ps.ACCENT_PALETTE[0], None
         ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None, seq=0,
@@ -2397,119 +2396,7 @@ class BuildHeadInPinsMd(Base):
 
 # ---------------------------------------------------------------- §P0c-E: --git-pull
 
-class GitPull(unittest.TestCase):
-    """Verify git_pull_phase() against a temporary bare repo + clone — no real manuscript repo is used."""
-
-    def setUp(self):
-        if not shutil.which("git"):
-            self.skipTest("git not available")
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.bare = self.root / "upstream.git"
-        self._run(["git", "init", "--quiet", "--bare", str(self.bare)], self.root)
-        seed = self.root / "_seed"
-        self._run(["git", "clone", "--quiet", str(self.bare), str(seed)], self.root)
-        self._configure(seed)
-        self._run(["git", "checkout", "--quiet", "-b", "main"], seed)
-        (seed / "f.txt").write_text("seed\n", encoding="utf-8")
-        self._run(["git", "add", "-A"], seed)
-        self._run(["git", "commit", "--quiet", "-m", "seed"], seed)
-        self._run(["git", "push", "--quiet", "-u", "origin", "main"], seed)
-        self._run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], self.bare)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _run(self, args, cwd):
-        r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, timeout=30, check=False)
-        if r.returncode != 0:
-            raise AssertionError("%s failed:\n%s%s" % (args, r.stdout, r.stderr))
-        return r.stdout
-
-    def _configure(self, d):
-        self._run(["git", "config", "user.email", "t@example.com"], d)
-        self._run(["git", "config", "user.name", "T"], d)
-
-    def _clone(self, name):
-        d = self.root / name
-        self._run(["git", "clone", "--quiet", str(self.bare), str(d)], self.root)
-        self._configure(d)
-        return d
-
-    def test_state_not_git(self):
-        plain = self.root / "plain"
-        plain.mkdir()
-        r = ps.git_pull_phase(plain)
-        self.assertEqual(r, {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
-
-    def test_state_ok_when_upstream_advanced(self):
-        d = self._clone("c1")
-        other = self._clone("c2")
-        (other / "f.txt").write_text("new\n", encoding="utf-8")
-        self._run(["git", "add", "-A"], other)
-        self._run(["git", "commit", "--quiet", "-m", "more"], other)
-        self._run(["git", "push", "--quiet"], other)
-        r = ps.git_pull_phase(d)
-        self.assertEqual(r["state"], "ok")
-        self.assertIsNotNone(r["head_before"])
-        self.assertIsNotNone(r["head_after"])
-        self.assertNotEqual(r["head_before"], r["head_after"])
-
-    def test_state_up_to_date_when_no_new_commits(self):
-        d = self._clone("c3")
-        r = ps.git_pull_phase(d)
-        self.assertEqual(r["state"], "up_to_date")
-        self.assertEqual(r["head_before"], r["head_after"])
-        self.assertIsNotNone(r["head_before"])
-
-    def test_main_only_rejects_feature_branch(self):
-        d = self._clone("feature")
-        self._run(["git", "checkout", "--quiet", "-b", "feature"], d)
-        self._run(["git", "push", "--quiet", "-u", "origin", "feature"], d)
-        r = ps.git_pull_phase(d, main_only=True)
-        self.assertEqual((r["state"], r["reason"]), ("skipped", "not_main"))
-
-    def test_state_skipped_dirty(self):
-        d = self._clone("c4")
-        (d / "f.txt").write_text("locally modified\n", encoding="utf-8")
-        r = ps.git_pull_phase(d)
-        self.assertEqual(r["state"], "skipped")
-        self.assertEqual(r["reason"], "dirty")
-
-    def test_state_skipped_diverged(self):
-        d = self._clone("c5")
-        (d / "f.txt").write_text("local change\n", encoding="utf-8")
-        self._run(["git", "add", "-A"], d)
-        self._run(["git", "commit", "--quiet", "-m", "local-only"], d)
-        other = self._clone("c6")
-        (other / "g.txt").write_text("remote change\n", encoding="utf-8")
-        self._run(["git", "add", "-A"], other)
-        self._run(["git", "commit", "--quiet", "-m", "remote-only"], other)
-        self._run(["git", "push", "--quiet"], other)
-        r = ps.git_pull_phase(d)
-        self.assertEqual(r["state"], "skipped")
-        self.assertEqual(r["reason"], "diverged")
-
-    def test_state_skipped_no_upstream(self):
-        d = self._clone("c7")
-        self._run(["git", "checkout", "--quiet", "-b", "untracked"], d)
-        r = ps.git_pull_phase(d)
-        self.assertEqual(r["state"], "skipped")
-        self.assertEqual(r["reason"], "no_upstream")
-
-    def test_repo_root_found_from_subdirectory(self):
-        d = self._clone("c8")
-        sub = d / "manuscript" / "1st"
-        sub.mkdir(parents=True)
-        r = ps.git_pull_phase(sub)
-        self.assertEqual(r["state"], "up_to_date")
-
-    def test_no_shell_no_user_input_in_argv(self):
-        # security: subprocess.run runs with list arguments (no shell) — _git()'s signature itself is that contract.
-        import inspect
-        src = inspect.getsource(ps._git)
-        self.assertIn("subprocess.run([\"git\"]", src)
-        self.assertNotIn("shell=True", src)
+# The pull against real repositories (every outcome, main-only, a subfolder, no shell) is tests/test_gitsync.py.
 
 
 class GitPullBuildIntegration(Base):
@@ -2581,34 +2468,37 @@ class GitPullBuildIntegration(Base):
 
 
 class AutomaticMainSync(Base):
+    """The remote-main watch as the server wires it: sync_main_once() and sync_status() over limn.gitsync, with the
+    pull stubbed by its outcome value."""
+
     def test_new_head_schedules_each_tex_document_once(self):
+        """A fast-forward starts one build per LaTeX document (never the view-only PDF), pulling main only."""
         docs = [ps.Doc("ms", "본문", src=self.src, main=self.main, paths=ps.C),
                 ps.Doc("hl", "하이라이트", src=self.src, main=self.main, paths=ps.C),
                 ps.Doc("pdf", "참고", kind="pdf", src=self.src, main=self.src / "ref.pdf", paths=ps.C)]
         ps.set_docs(docs)
         ps.C.git_pull = True
-        pull = {"state": "ok", "reason": None, "head_before": "a" * 40, "head_after": "b" * 40}
-        with mock.patch.object(ps, "git_pull_phase", return_value=pull) as git_pull, \
+        with mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull, \
              mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
             out = ps.sync_main_once()
-        git_pull.assert_called_once_with(self.src, main_only=True)
+        git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
         self.assertEqual(build.call_count, 2)
         self.assertEqual(out["state"], "updating")
 
     def test_current_head_still_rebuilds_old_pdf_on_startup(self):
+        """Nothing new upstream, but the PDF was built from another commit: it is rebuilt (a restart after a move)."""
         ps.C.git_pull = True
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
-        pull = {"state": "up_to_date", "reason": None, "head_before": "b" * 40, "head_after": "b" * 40}
-        with mock.patch.object(ps, "git_pull_phase", return_value=pull), \
+        with mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)), \
              mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build:
             out = ps.sync_main_once()
         build.assert_called_once()
         self.assertEqual(out["state"], "updating")
 
     def test_dirty_checkout_is_visible_and_never_rebuilt(self):
+        """A refused pull is shown as blocked with its reason in GET /api/meta's sync, and builds nothing."""
         ps.C.git_pull = True
-        pull = {"state": "skipped", "reason": "dirty", "head_before": "a" * 40, "head_after": "a" * 40}
-        with mock.patch.object(ps, "git_pull_phase", return_value=pull), \
+        with mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)), \
              mock.patch.object(ps, "build_async") as build:
             out = ps.sync_main_once()
         build.assert_not_called()
@@ -2616,16 +2506,18 @@ class AutomaticMainSync(Base):
         self.assertEqual(ps.meta(ps.DOCS[0], dict(ps.LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
 
     def test_updating_clears_when_pdf_reaches_synced_head(self):
+        """An "updating" status turns "current" once the PDF was built from the pulled commit."""
         ps.C.git_pull = True
-        with ps._SYNC_LOCK:
-            ps._SYNC_STATE.update(state="updating", reason=None, head_after="b" * 40)
+        with ps.SYNC_WATCH.lock:
+            ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
         self.assertEqual(ps.sync_status()["state"], "current")
 
     def test_failed_pdf_build_reports_error(self):
+        """An "updating" status turns error/build_failed when a document still behind the commit failed its build."""
         ps.C.git_pull = True
-        with ps._SYNC_LOCK:
-            ps._SYNC_STATE.update(state="updating", reason=None, head_after="b" * 40)
+        with ps.SYNC_WATCH.lock:
+            ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with ps.DOCS[0].bstate_lock:
             ps.DOCS[0].bstate["state"] = "fail"
@@ -4635,16 +4527,23 @@ class MultiDoc(Base):
         self.assertEqual(ps.build_state_snapshot(self.rv)["state"], "idle")      # build state is per-document too
 
     def test_git_pull_is_shared_across_docs(self):
+        """With several documents one pull serves the builds within the share window (shared=True); a single document
+        pulls on every build."""
         calls = []
-        with mock.patch.object(ps, "git_pull_phase", side_effect=lambda m: calls.append(m) or {"state": "up_to_date"}):
-            ps._PULL_LAST.update(at=0.0, res=None)
+
+        def fake_pull(m, main_only, git):
+            """Count the pull; it finds nothing new."""
+            calls.append(m)
+            return UpToDate(None)
+        with mock.patch.object(gitsync, "pull", side_effect=fake_pull), \
+             mock.patch.object(ps, "PULL_SHARE", gitsync.PullShare()):
             a = ps.repo_pull()
             b = ps.repo_pull()
         self.assertEqual(len(calls), 1)                                         # once per repository
         self.assertNotIn("shared", a)
         self.assertTrue(b["shared"])
         ps.set_docs(None)
-        with mock.patch.object(ps, "git_pull_phase", side_effect=lambda m: calls.append(m) or {"state": "ok"}):
+        with mock.patch.object(gitsync, "pull", side_effect=fake_pull):
             ps.repo_pull(), ps.repo_pull()
         self.assertEqual(len(calls), 3)                                         # single document: once per build (unchanged from before)
 
@@ -4657,7 +4556,7 @@ class MultiDoc(Base):
         first = ps.cur_pages(rv).name
         self.assertTrue((ps.cur_pages(rv) / "review.pdf").is_file())
         self.assertFalse(ps.pdf_changed(rv))
-        self.assertFalse(ps.refresh_pdf_doc(rv))                      # unchanged, so it doesn't redraw
+        self.assertFalse(limn_build.refresh_pdf_doc(rv, ps.build_async))   # unchanged, so it doesn't redraw
         self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
         self.assertTrue(ps.pdf_changed(rv))
