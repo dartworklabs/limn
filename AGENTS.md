@@ -10,7 +10,7 @@ Limn은 LaTeX 원고 PDF에서 드래그한 영역을 `.tex` 파일·줄 범위�
 | --- | --- |
 | 무엇이든 처음 | [purpose.md](docs/handbook/purpose.md) — 목적과 영역별 진실 소스 |
 | 코드를 놓을 자리, 의존성·저장·보안 경계 | [architecture.md](docs/handbook/architecture.md) — 불변식과 멈춤 신호 |
-| 코드를 쓰거나 리뷰 | [code-style-roadmap.md](docs/handbook/code-style-roadmap.md) — 코딩 규칙 우선순위와 단계 |
+| 코드를 쓰거나 리뷰 | [code-style-roadmap.md](docs/handbook/code-style-roadmap.md) — 코딩 규칙 (R1–R10)과 지금 코드의 예 |
 | 핀 규칙·위치 계산 | [domain.md](docs/handbook/domain.md) |
 | 뷰어 화면 | [viewer.md](docs/handbook/viewer.md) |
 | 빌드·동기화 | [build-sync.md](docs/handbook/build-sync.md) |
@@ -42,7 +42,7 @@ uv run shellcheck src/limn/instances.sh tests/test_instances.sh
 uv run mypy
 ```
 
-현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다.
+현재 상태를 바꾼 변경은 해당 Handbook topic을 같은 변경에서 고친다. topic은 현재형으로 쓰고, 날짜·전후 수치·진행 기록·모듈별 줄 수는 PR·CHANGELOG·ADR에 둔다([workflow.md](docs/handbook/workflow.md) §문서 동기화).
 
 ## 스킬
 

@@ -78,7 +78,7 @@ claim 한 뒤, `reply`(무엇을 고쳤는지)와 `ref`(커밋·PR)를 남겨 �
 | | |
 |---|---|
 | [skill/SKILL.ko.md](skill/SKILL.ko.md) | 에이전트 절차(에이전트 런타임에 스킬로 설치) |
-| [docs/handbook/](docs/handbook/index.md) | System Handbook: 목적·구조·핀 도메인·뷰어·빌드와 동기화·HTTP API 와 `pins.md` 형식·운영·인스턴스·검증·변경 흐름·코딩 로드맵 |
+| [docs/handbook/](docs/handbook/index.md) | System Handbook: 목적·구조·핀 도메인·뷰어·빌드와 동기화·HTTP API 와 `pins.md` 형식·운영·인스턴스·검증·변경 흐름·코딩 규칙 |
 | [docs/adr/](docs/adr/) | 설계 결정 기록(ADR) |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) | |
 

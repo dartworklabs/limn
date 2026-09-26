@@ -73,7 +73,8 @@ from limn.access import (
     hdr_text as hdr_text,
     home_or_none,
     load_tokens,
-    roles_of,
+    people_roles_of,
+    person_role,
 )
 from limn.args import serve_parser
 from limn.audit import append_audit, audit_entry
@@ -709,18 +710,22 @@ def edit_pin(
 PEOPLE_LOCK = threading.Lock()
 EVENTS_LOCK = threading.Lock()
 _PEOPLE_SEEN: people.SeenMemo = {}  # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
+PEOPLE_WARNING = people.UnreadableWarning()  # warns once per breakage of an unusable people.json, for every reader
 _EVENTS_CACHE: events.ReadCache = {}  # events.jsonl as last read, keyed by its mtime/size
 
 
 def people_book() -> people.PeopleBook:
-    """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock and last-written memo.
-    Made per call, like pin_store(), so a test or main() that changes C.state is seen at once."""
-    return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN)
+    """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock, last-written memo and
+    unreadable-file warning. Made per call, like pin_store(), so a test or main() that changes C.state is seen at once."""
+    return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN, PEOPLE_WARNING)
 
 
-def load_people() -> list[Row]:
-    """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing or unreadable."""
-    return people.load_people(C.people_file)
+def load_people() -> list[Row] | people.PeopleUnreadable:
+    """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing, PeopleUnreadable
+    (warned about once, PEOPLE_WARNING) when it exists but cannot be used."""
+    rows = people.load_people(C.people_file)
+    PEOPLE_WARNING.note(C.people_file, rows)
+    return rows
 
 
 def record_person(actor: Json, now: float | None = None, role: str | None = None) -> bool:
@@ -736,9 +741,11 @@ def record_person(actor: Json, now: float | None = None, role: str | None = None
 
 def known_people(rows: list[Row] | None = None) -> dict[str, Row]:
     """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (rows, or the
-    stored pins when None), agents excluded (limn.people.known_people)."""
+    stored pins when None), agents excluded (limn.people.known_people). An unusable people.json adds no one: the
+    candidates are then the people on the pins."""
     ppl = load_people()
-    return people.known_people(ppl, rows if rows is not None else read_pins()[0], is_agent)
+    listed = [] if isinstance(ppl, people.PeopleUnreadable) else ppl
+    return people.known_people(listed, rows if rows is not None else read_pins()[0], is_agent)
 
 
 def event_log() -> events.EventLog:
@@ -1022,8 +1029,8 @@ def overlaps_api(rng: locate.SourceLines) -> Json:
 
 # tokens.json's valid entries as this process last read them
 TOKENS_CACHE: access.FileCache[list[Json]] = access.FileCache()
-# {login: role} of people.json as this process last read it
-ROLES_CACHE: access.FileCache[dict[str, str]] = access.FileCache()
+# {login: role} of people.json as this process last read it, or PeopleUnreadable (no one gets a role from it)
+ROLES_CACHE: access.FileCache[access.PeopleRoles] = access.FileCache()
 LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
 
 
@@ -1049,15 +1056,17 @@ def current_tokens() -> list[Json]:
     return TOKENS_CACHE.get(C.tokens_file, lambda: load_tokens(C.state), [])
 
 
-def people_roles() -> dict[str, str]:
-    """{login: role} for everyone in people.json, re-read whenever the file changes - so `limn member role` and
-    `limn member remove` take effect on the running server's next request."""
-    return ROLES_CACHE.get(C.people_file, lambda: roles_of(load_people()), {})
+def people_roles() -> access.PeopleRoles:
+    """{login: role} for everyone in people.json, or PeopleUnreadable while it cannot be used, re-read whenever the
+    file changes - so `limn member role` and `limn member remove`, and a repaired file, take effect on the running
+    server's next request."""
+    return ROLES_CACHE.get(C.people_file, lambda: people_roles_of(load_people()), {})
 
 
 def role_of(login: str) -> str:
-    """The people.json role of login; editor for someone people.json does not list."""
-    return people_roles().get(login, DEFAULT_ROLE)
+    """The people.json role of login (limn.access.person_role): editor for someone people.json does not list, viewer
+    for everyone while it cannot be used."""
+    return person_role(people_roles(), login)
 
 
 def access_lookups() -> access.AccessLookups:

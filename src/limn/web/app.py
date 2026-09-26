@@ -8,8 +8,8 @@ rebind on their server copy (mock.patch.object(ps, "build_async")) is the one th
 
 The members are server.py's services and wirings. The handler finds the request's document (request_doc) and passes
 it to every member that acts on one - there is no "current document" - and it parses what a route takes from the
-request (limn.web.parse) and passes the parsed values. Some members still read the run settings C themselves;
-stage 6's second half (docs/handbook/code-style-roadmap.md) narrows them to explicit arguments.
+request (limn.web.parse) and passes the parsed values. Some members still read the run settings C themselves; making
+the run settings and the application explicit values is open work (docs/handbook/code-style-roadmap.md §다음).
 
 The run settings, a document and a principal are server.py's own types (limn.config.Cfg, limn.documents.Doc,
 limn.access.Principal), not narrower views of them: server.py's members take those types, and mypy checks server.py's
@@ -130,8 +130,8 @@ class App(Protocol):
         """The installed Limn version."""
         ...
 
-    def people_roles(self) -> dict[str, str]:
-        """{login: role} from people.json."""
+    def people_roles(self) -> access.PeopleRoles:
+        """{login: role} from people.json, or PeopleUnreadable while it cannot be used."""
         ...
 
     def known_people(self, rows: list[Json] | None = None) -> dict[str, Json]:
