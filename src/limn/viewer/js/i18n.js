@@ -1,4 +1,4 @@
-// ------------------------------------------------ Preferences (merged save)
+// ------------------------------------------------ UI language (Korean source, English table)
 // UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English
 // mode tr()/trMsg() look them up in I18N_EN (src/limn/ui_en.json) and a MutationObserver translates text
 // nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.

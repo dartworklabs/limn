@@ -1,3 +1,4 @@
+// ------------------------------------------------ Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
   if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}

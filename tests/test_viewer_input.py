@@ -940,25 +940,29 @@ class FoldOverlay(ViewerBase):
         self.assertIn("pan-y", css[2])
 
     def test_double_tap_on_the_pdf_toggles_fit_width_and_2x_around_the_point(self):
-        """Outside [선택] mode: fit -> 2x keeping the tapped spot under the finger, then back to fit."""
+        """Outside [선택] mode: fit -> 2x keeping the tapped spot under the finger, then back to fit.
+
+        The page clock is paused around the taps. The viewer counts a double tap by performance.now() (second pointerup
+        within 300ms of the first), and each CDP touch event is a synchronous round trip from this process: under CPU load
+        the two taps used to land more than 300ms apart on the page's clock, so the second tap started a new double tap and
+        W never changed (about 1 run in 5 with 80 busy processes). The 300ms/24px window itself is GestureLogic's test;
+        this one checks the wiring - tap to zoom around the point - so it holds the page's time still and waits for W."""
         page = self.view(FOLD)
         cdp = self.cdp(page)
         w0 = page.evaluate("W")
         at = "(()=>{const a=zoomAnchor(300,400);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];})()"
         before = page.evaluate(at)
+        page.clock.install()
+        page.clock.pause_at(time.time() * 1000 + 1000)   # performance.now() and the long-press timer stand still
         self.tap(cdp, 300, 400)
-        time.sleep(0.1)
         self.tap(cdp, 300, 400)
-        page.wait_for_timeout(400)
-        self.assertAlmostEqual(page.evaluate("W"), w0 * 2, delta=2)
+        page.wait_for_function("w=>Math.abs(W-w)<=2", arg=w0 * 2, timeout=10000)
         after = page.evaluate(at)
         self.assertEqual(after[0], before[0])
         self.assertAlmostEqual(after[1], before[1], delta=0.01)
         self.tap(cdp, 300, 400)
-        time.sleep(0.1)
         self.tap(cdp, 300, 400)
-        page.wait_for_timeout(400)
-        self.assertAlmostEqual(page.evaluate("W"), w0, delta=2)
+        page.wait_for_function("w=>Math.abs(W-w)<=2", arg=w0, timeout=10000)
         self.assertFalse(page.evaluate("ZOOMED"))
 
     def test_back_gesture_closes_the_overlay_first_without_leaving(self):
