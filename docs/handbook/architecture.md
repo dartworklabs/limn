@@ -41,6 +41,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 | [`src/limn/build.py`](../../src/limn/build.py) | 1,044 | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리 교체와 쪽 목록(`page_list`), 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기(`render_pdf_doc`·`pdf_changed`, 2026-09-26 옮김)와 PDF가 바뀌면 부르는 쪽이 준 시작 함수로 다시 그리기를 거는 `refresh_pdf_doc`(같은 날 옮김). 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고 `C`·`cur_doc()`을 읽지 않는다 (`tests/test_build.py`가 검사). 문서별 잠금·상태는 문서 객체가 갖는다 |
 | [`src/limn/revisions.py`](../../src/limn/revisions.py) | 1,087 | 원고 이력의 git 쪽(2026-09-26 옮김): 최근 커밋, 한 커밋의 소스 diff(핀 단위 포함), 비교 PDF 빌드(스냅숏·격리 실행·캐시·작업 스레드). 문서와 `RevisionContext`(핀 목록, 옮긴 경로 찾기, 프로세스의 범위 캐시와 작업 목록, 실패 문구)를 인자로 받고, 거절과 실패를 값으로 돌려준다. `C`·`cur_doc()`·서버·HTTP 층을 모른다 (`tests/test_scope.py`가 검사) |
 | [`src/limn/gitsync.py`](../../src/limn/gitsync.py) | 281 | `--git-pull`과 원격 main 감시의 셸(2026-09-26 옮김): git 호출 순서(`pull`, 기대하는 실패는 결과 값), 빌드의 pull과 여러 문서의 나눠 쓰기(`PullShare`·`repo_pull`), 감시 한 바퀴·상태·루프(`SyncWatch`: 문서 잠금을 모두 쥔 채 당기고, 뒤처진 LaTeX 문서의 빌드를 넘겨받은 함수로 건다). 원고 폴더·문서 목록·`--git-pull`·git 실행기(`limn.revisions.git`)·시계를 인자로 받는다. `C`·서버·HTTP 층을 모른다 (`tests/test_gitsync.py`가 검사) |
+| [`src/limn/gitrun.py`](../../src/limn/gitrun.py) | 81 | git 프로세스를 띄우는 유일한 자리: 인자 목록(`git_command`, 문자열은 거절), stdin 없음·새 세션(제어 터미널 없음), `GIT_TERMINAL_PROMPT=0`, 서버의 `GIT_*` 변수를 뺀 환경(ssh 전송 설정만 남긴다, `git_env`), 호출마다 시간 제한. 전체 출력을 읽는 `run_git`, 흘려 읽는 `open_git`. 이력·diff·pull·빌드 `head`·origin URL·토큰 파일 저장소 확인이 모두 이것을 쓴다 (`tests/test_gitrun.py`가 검사) |
 | [`src/limn/pull.py`](../../src/limn/pull.py) | 218 | `--git-pull`과 원격 main 감시의 순수 규칙(2026-09-26 옮김): pull 결과 값(`Pulled`·`UpToDate`·거절 `PullRefusal = PullSkipped \| PullFailed`)과 빌드의 `pull` 기록(`pull_record`), git 답 읽기, 감시 상태·다시 빌드할 문서·`updating`이 끝나는 조건. git·파일·시계·스레드를 모른다 (`tests/test_pull.py`가 import를 검사) |
 | [`src/limn/scope.py`](../../src/limn/scope.py) | 614 | 핀 단위 변경의 순수 판단(ADR-0005, 2026-09-26 옮김): 블록 파싱, 핀에 블록 귀속, 핀 hunk diff, 합성 판 계획. 거절은 경우마다 한 값(`ScopeRefusal`)이다. 파일·프로세스·시계·HTTP를 모른다 (`tests/test_scope.py`가 import를 검사) |
 | [`src/limn/documents.py`](../../src/limn/documents.py) | 317 | 문서(`Doc`, 2026-09-26 옮김): 문서마다 빌드 루트·메인·상태 폴더와 빌드 잠금·상태를 갖고, 실행 경로는 만들 때 받은 `RunPaths`(조립 지점의 `C`)에서 읽는다. 문서 키 규칙과 조회 결과 값(`DocNotFound`)도 여기 있다. 문서 목록을 인자로 받는 조회(키·파일·핀의 문서, 요청의 문서 `request_doc`), 파서가 읽는 원고 사실(`DocumentFacts`), SyncTeX 경로를 원고로 되돌리는 `to_source`도 같은 날 옮겼다. `C`·`cur_doc()`·서버를 모른다 (`tests/test_meta.py`가 검사) |
@@ -172,7 +173,7 @@ src/limn/
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 
-빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 셸 없이 `subprocess.run([...])`로 하고 사용자 입력을 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md)다.
+빌드는 사본에서 하고, `--git-pull`은 `main`에서 `--ff-only`만 한다. rebase나 merge 커밋을 대신 만들지 않는다. git 호출은 모두 `limn/gitrun.py`를 거친다. 셸 없이 인자 목록으로, stdin과 제어 터미널 없이, `GIT_TERMINAL_PROMPT=0`과 서버의 `GIT_*` 변수를 뺀 환경에서, 시간 제한을 두고 돈다. 사용자 입력은 인자에 끼워 넣지 않는다. 상세는 [build-sync.md](build-sync.md) §git 프로세스다.
 
 ### 6. 옛 상태 디렉터리는 쓰기 마이그레이션 없이 읽는다
 

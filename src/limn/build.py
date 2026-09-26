@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias, TypeGuard, TypeVar
 
 from limn.files import atomic_write
+from limn.gitrun import run_git
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -688,13 +689,7 @@ def commit_pages(D: BuildDoc, newdir: Path) -> str:
             shutil.rmtree(d, ignore_errors=True)
     atomic_write(D.dir / "built_at.txt", datetime.now().astimezone().isoformat(timespec="seconds"))
     try:
-        head = subprocess.run(
-            ["git", "-C", str(D.src), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
+        head = run_git(["-C", str(D.src), "rev-parse", "--short", "HEAD"], D.src, 10)
         head_short = head.stdout.strip() or "-"
     except (OSError, subprocess.SubprocessError):
         head_short = "-"

@@ -26,6 +26,7 @@ from typing import Any, NamedTuple, TypeAlias
 
 from limn import __version__
 from limn.audit import append_audit, audit_entry, os_actor
+from limn.gitrun import run_git
 
 HERE = Path(__file__).resolve().parent
 
@@ -244,23 +245,19 @@ def git_tree_holding(path: Path) -> tuple[str | None, str | None]:
     (dubious ownership, a broken repository), so the caller can refuse rather than guess.
 
     Symlinks are resolved first, so a config folder linked into a repository is judged by that repository. The folder
-    may not exist yet: its nearest existing parent is asked. GIT_* variables of the caller (GIT_DIR, GIT_WORK_TREE)
-    are dropped - they would point git at another repository - and messages are read in the C locale."""
-    git = shutil.which("git")
-    if not git:
+    may not exist yet: its nearest existing parent is asked. git runs through limn.gitrun, which drops the caller's
+    GIT_* variables (GIT_DIR, GIT_WORK_TREE would point git at another repository) and never prompts; messages are
+    read in the C locale."""
+    if not shutil.which("git"):
         return None, None
     folder = path.parent
     while not folder.is_dir() and folder != folder.parent:
         folder = folder.parent
     real = folder.resolve() / path.parent.relative_to(folder) / path.name
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    env["LC_ALL"] = "C"
 
     def git_in(*args: str) -> subprocess.CompletedProcess[str]:
-        """One git command in the resolved folder, with the cleaned environment; never raises on git's status."""
-        return subprocess.run(
-            [git, "-C", str(folder.resolve()), *args], capture_output=True, text=True, env=env, timeout=30, check=False
-        )
+        """One git command in the resolved folder (limn.gitrun.run_git, LC_ALL=C); never raises on git's status."""
+        return run_git(["-C", str(folder.resolve()), *args], folder.resolve(), 30, extra_env={"LC_ALL": "C"})
 
     top = git_in("rev-parse", "--show-toplevel")
     if top.returncode != 0:

@@ -52,16 +52,14 @@ class ModuleBoundary(unittest.TestCase):
         self.assertFalse(names & {"C", "DOCS", "cur_doc", "build_async", "multi_doc", "now_str", "_git"})
 
     def test_git_runs_without_a_shell(self):
-        """The runner the server passes (limn.revisions.git) takes a list and never a shell - the security contract
-        of every pull step, whose arguments hold no request input."""
+        """The runner the server passes (limn.revisions.git) goes through limn.gitrun.run_git, which takes a list and
+        never a shell - the security contract of every pull step, whose arguments hold no request input
+        (tests/test_gitrun.py pins run_git itself)."""
         src = inspect.getsource(revisions.git)
-        # The call is read from the AST, not the source text, so the check does not depend on the call's layout.
-        runs = [
-            n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and ast.unparse(n.func) == "subprocess.run"
-        ]
-        self.assertEqual(len(runs), 1)
-        self.assertTrue(ast.unparse(runs[0].args[0]).startswith("['git']"))
-        self.assertNotIn("shell", {k.arg for k in runs[0].keywords})
+        # The calls are read from the AST, not the source text, so the check does not depend on the call's layout.
+        calls = {ast.unparse(n.func) for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call)}
+        self.assertIn("run_git", calls)
+        self.assertFalse({"subprocess.run", "subprocess.Popen"} & calls)
         self.assertNotIn("shell=True", src)
 
 

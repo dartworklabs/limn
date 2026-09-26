@@ -50,6 +50,7 @@ from limn.access import (
 )
 from limn.config import ACCENT_PALETTE, Cfg
 from limn.documents import DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, RunPaths
+from limn.gitrun import run_git
 from limn.mapping import truncate_quote
 
 APP_NAME = "limn"
@@ -648,13 +649,7 @@ def git_remote_url(src: Path) -> str | None:
     if not shutil.which("git"):
         return None
     try:
-        r = subprocess.run(
-            ["git", "-C", str(src), "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        r = run_git(["-C", str(src), "remote", "get-url", "origin"], src, 5)
     except (OSError, subprocess.SubprocessError):
         return None
     url = r.stdout.strip()

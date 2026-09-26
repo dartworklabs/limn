@@ -48,6 +48,7 @@ catalog_schema: 1
 | `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리와 쪽 목록, 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |
 | `src/limn/server.py` | 빌드 연결·`--git-pull` 연결·보기 전용 PDF 감시 스레드·문서 목록 구역: 요청의 문서로 빌드를 부르고, 프로세스의 pull 나눠 쓰기(`PULL_SHARE`)와 감시 상태(`SYNC_WATCH`)를 만들어 `limn/gitsync.py`에 문서 목록·설정·git 실행기·시계를 넘기고(`repo_pull`·`sync_status`·`sync_main_once`), 감시 스레드를 시작한다. 문서 목록과 설정을 조회·meta에 넘긴다 | 연결·스레드 시작 변경 | build-sync.md |
 | `src/limn/gitsync.py` | `--git-pull`과 원격 main 감시의 셸: git 호출 순서(`pull`, 결과는 값), 여러 문서의 pull 나눠 쓰기(`PullShare`·`repo_pull`), 감시 한 바퀴·상태·루프(`SyncWatch`). 설정·문서·git 실행기·시계를 인자로 받는다 | pull 단계·감시 주기·나눠 쓰기 변경 | build-sync.md §재빌드 전 원격 main 당겨오기 (`--git-pull`) |
+| `src/limn/gitrun.py` | git 프로세스를 띄우는 방식: 인자 목록, stdin·터미널 없음, `GIT_TERMINAL_PROMPT=0`, 서버의 `GIT_*` 변수 빼기, 시간 제한 | git 호출 방식이나 넘기는 환경 변경 | build-sync.md §git 프로세스, verification.md |
 | `src/limn/pull.py` | `--git-pull`과 원격 main 감시의 순수 규칙: pull 결과 값(`Pulled`·`UpToDate`·`PullSkipped`·`PullFailed`)과 빌드의 `pull` 기록, git 답 읽기, 감시 상태·다시 빌드할 문서·`updating`이 끝나는 조건 | pull 결과·사유·감시 상태 이름 변경(계약) | build-sync.md, api.md |
 | `src/limn/meta.py` | 뷰어가 폴링하는 읽기: `/api/meta` 본문, `/api/docs`, `pins_rev`, 화면 빌드의 `.aux`에서 읽는 목차 라벨. 문서·목록·설정을 인자로 받고 쓰지 않는다 | meta·docs 응답 필드, 폴링 규칙 변경 | api.md, build-sync.md §자동 동기화 (가벼운 meta 폴링) |
 | `src/limn/outline.py` | `.aux` 목차 줄의 순수 파서(번호·제목·인쇄 쪽 번호·계층) | 목차 라벨 변환 규칙 변경 | api.md, viewer.md |
