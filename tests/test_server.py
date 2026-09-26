@@ -117,6 +117,12 @@ def shut_wr(sock: socket.socket) -> None:
             raise
 
 
+def record_of(outcome) -> dict:
+    """The pin as the API returns it, from a close/reopen outcome (a state type, or AlreadyClosed carrying one)."""
+    pin = getattr(outcome, "pin", outcome)
+    return ps.public(pin.record)
+
+
 TEX = """\\documentclass{article}
 \\begin{document}
 \\section{Intro}
@@ -1544,15 +1550,15 @@ class CloseReplyRef(Base):
 
     def test_close_with_reply_and_ref_is_stored(self):
         pid = self.add()
-        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR),
-                        *ps.clean_close_body({"reply": "제목을 고침", "ref": "PR #227"}))
+        p = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR),
+                        *ps.clean_close_body({"reply": "제목을 고침", "ref": "PR #227"})))
         self.assertEqual(p["close_reply"], "제목을 고침")
         self.assertEqual(p["close_ref"], "PR #227")
         self.assertTrue(p["done"])
 
     def test_close_without_body_behaves_as_before(self):
         pid = self.add()
-        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR)))
         self.assertNotIn("close_reply", p)
         self.assertNotIn("close_ref", p)
 
@@ -1599,9 +1605,9 @@ class CloseIdempotent(Base):
 
     def test_second_close_does_not_overwrite_closed_by_or_rev(self):
         pid = self.add()
-        first = ps.set_done(pid, True, {"login": "alice", "name": "Wendy"})
+        first = record_of(ps.set_done(pid, True, {"login": "alice", "name": "Wendy"}))
         self.assertEqual(first["rev"], 1)
-        second = ps.set_done(pid, True, {"login": "bob", "name": "Bob"})
+        second = record_of(ps.set_done(pid, True, {"login": "bob", "name": "Bob"}))
         self.assertEqual(second["closed_by"]["login"], "alice")
         self.assertEqual(second["rev"], first["rev"])
         self.assertEqual(second["done_at"], first["done_at"])
@@ -1609,7 +1615,7 @@ class CloseIdempotent(Base):
     def test_second_close_with_reply_does_not_apply(self):
         pid = self.add()
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "first"}))
-        again = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"}))
+        again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"})))
         self.assertEqual(again["close_reply"], "first")
 
     def test_reopen_then_close_allows_new_reply(self):
@@ -1619,7 +1625,7 @@ class CloseIdempotent(Base):
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
-        closed_again = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"}))
+        closed_again = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR), *ps.clean_close_body({"reply": "second"})))
         self.assertEqual(closed_again["close_reply"], "second")
         self.assertNotIn("close_ref", closed_again)
 
@@ -2247,7 +2253,7 @@ class Claim(Base):
     def test_close_clears_claim(self):
         pid = self.add()
         ps.claim_pin(pid, dict(ps.LOCAL_ACTOR), 120)
-        p = ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
+        p = record_of(ps.set_done(pid, True, dict(ps.LOCAL_ACTOR)))
         self.assertNotIn("claimed_by", p)
 
     def test_drop_clears_claim_even_in_dropped_record(self):
@@ -4997,7 +5003,7 @@ class ClaimEta(Base):
             pid = self.add()
             ps.claim_pin(pid, self.A, *ps.clean_claim_body({"eta_min": 10}))
             if how == "close":
-                rec = ps.set_done(pid, True, self.A)
+                rec = record_of(ps.set_done(pid, True, self.A))
             elif how == "unclaim":
                 rec = ps.unclaim_pin(pid, self.A)
             else:

@@ -10,7 +10,10 @@ import unittest
 from pathlib import Path
 
 import limn.pins
-from limn.pins.lifecycle import AgentCannotConfirm, AlreadyDone, PinStillOpen, confirm, confirmer, thread_message
+from limn.pins.lifecycle import (
+    AgentCannotConfirm, AlreadyClosed, AlreadyDone, CloseRequest, PinClosed, PinReopened, PinStillOpen, confirm, confirmer,
+    decide_close, decide_reopen, evolve_close, evolve_reopen, reopen_request, thread_message,
+)
 from limn.pins.model import Agent, DonePin, OpenPin, Person, ReviewPin, parse_pin
 
 PINS_DIR = Path(limn.pins.__file__).parent
@@ -126,6 +129,87 @@ class Confirm(unittest.TestCase):
         record = review_record()
         del record["rev"]
         self.assertEqual(confirm(ReviewPin(record), ALICE, AT).record["rev"], 1)
+
+
+AGENT = Agent("local", "agent")
+
+
+def open_record(**extra):
+    """An open pin with a claim in progress and one earlier reply."""
+    record = {"id": 9, "file": "main.tex", "lo": 1, "hi": 2, "note": "n", "done": False,
+              "claimed_by": {"login": "local"}, "claim_until": 1.0,
+              "thread": [{"id": 4, "by": {"login": "x", "name": "X"}, "at": "t0", "text": "hi"}], "rev": 5}
+    record.update(extra)
+    return record
+
+
+class Close(unittest.TestCase):
+    """decide_close/evolve_close: who closes decides review; a closed pin is left alone."""
+
+    def test_agent_close_awaits_review(self):
+        """An agent's close without a review choice goes to review; a person's is done."""
+        pin = OpenPin(open_record())
+        self.assertTrue(decide_close(pin, AGENT, AT, CloseRequest()).review)
+        self.assertFalse(decide_close(pin, ALICE, AT, CloseRequest()).review)
+
+    def test_request_review_overrides_the_closer(self):
+        """A remote agent arriving with a person's identity sends review=true; an agent may send false."""
+        pin = OpenPin(open_record())
+        self.assertTrue(decide_close(pin, ALICE, AT, CloseRequest(review=True)).review)
+        self.assertFalse(decide_close(pin, AGENT, AT, CloseRequest(review=False)).review)
+
+    def test_closed_pin_is_already_closed(self):
+        """Closing again changes nothing, so the first closer stays on record."""
+        for pin in (ReviewPin(review_record()), DonePin({"id": 1, "done": True})):
+            self.assertEqual(decide_close(pin, ALICE, AT, CloseRequest(reply="again")), AlreadyClosed(pin))
+
+    def test_evolve_close_records_the_close_and_clears_the_claim(self):
+        """done/done_at/closed_by, reply/ref/changes with changes_at = done_at, an ev=close entry, no claim, rev + 1."""
+        pin = OpenPin(open_record())
+        event = PinClosed(ALICE, AT, "fixed", "PR #3 (abc)", ({"file": "/m/main.tex", "lo": 1, "hi": 1},), review=False)
+        closed = evolve_close(pin, event)
+        self.assertIsInstance(closed, DonePin)
+        r = closed.record
+        self.assertEqual((r["done"], r["done_at"], r["closed_by"]), (True, AT, {"login": "alice@example.com", "name": "Alice Kim"}))
+        self.assertEqual((r["close_reply"], r["close_ref"], r["changes_at"]), ("fixed", "PR #3 (abc)", AT))
+        self.assertEqual(r["changes"], [{"file": "/m/main.tex", "lo": 1, "hi": 1}])
+        self.assertNotIn("claimed_by", r)
+        self.assertNotIn("claim_until", r)
+        self.assertEqual(r["thread"][-1]["id"], 5)
+        self.assertEqual((r["thread"][-1]["ev"], r["thread"][-1]["text"], r["thread"][-1]["ref"]), ("close", "fixed", "PR #3 (abc)"))
+        self.assertEqual(r["rev"], 6)
+
+    def test_evolve_close_into_review(self):
+        """review=True yields a ReviewPin with the review flag stored."""
+        closed = evolve_close(OpenPin(open_record()), PinClosed(AGENT, AT, None, None, (), review=True))
+        self.assertIsInstance(closed, ReviewPin)
+        self.assertIs(closed.record["review"], True)
+        self.assertNotIn("close_reply", closed.record)
+
+
+class Reopen(unittest.TestCase):
+    """decide_reopen/evolve_reopen: a reopen forgets the last close; only a closed pin gets a thread entry."""
+
+    def test_reopening_a_closed_pin_records_reason_and_mentions(self):
+        """Close fields, review and confirmation go; an ev=reopen entry carries the reason and its mentions."""
+        pin = DonePin({**review_record(), "review": False, "close_reply": "x", "close_ref": "y",
+                       "changes": [], "changes_at": "t", "confirmed_by": {"login": "b"}, "confirmed_at": "t"})
+        event = decide_reopen(pin, ALICE, AT, "still wrong @Bob", ("bob@example.com",))
+        self.assertEqual(event, PinReopened(ALICE, AT, "still wrong @Bob", ("bob@example.com",), was_closed=True))
+        r = evolve_reopen(pin, event).record
+        for key in ("close_reply", "close_ref", "changes", "changes_at", "review", "confirmed_by", "confirmed_at"):
+            self.assertNotIn(key, r)
+        self.assertEqual((r["done"], r["reopened_at"], r["reopened_by"]["login"]), (False, AT, "alice@example.com"))
+        self.assertEqual((r["thread"][-1]["ev"], r["thread"][-1]["mentions"]), ("reopen", ["bob@example.com"]))
+        self.assertEqual(r["rev"], 2)                     # evolve_reopen leaves rev to the caller
+
+    def test_reopening_an_open_pin_adds_no_entry_but_the_request_bumps_rev(self):
+        """An open pin gets who/when but no thread entry; POST /reopen still bumps rev, as before."""
+        pin = OpenPin(open_record())
+        event = decide_reopen(pin, ALICE, AT, "why", ())
+        self.assertFalse(event.was_closed)
+        self.assertEqual(len(evolve_reopen(pin, event).record["thread"]), 1)
+        self.assertEqual(reopen_request(pin, event).record["rev"], 6)
 
 
 class ThreadMessage(unittest.TestCase):
