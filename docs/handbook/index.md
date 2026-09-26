@@ -38,7 +38,8 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 핀 조작 구역과 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`), `pins.md` 렌더 입력 조립(`pins_md_input`), 계산 필드·겹침 연결(`pins_payload`·`dropped_payload`·`overlaps_by_id`: 이 인스턴스의 협력자를 `limn/pins/view.py`·`limn/locate.py`에 넘긴다) | 상태·전이·레코드 필드 변경, 렌더가 읽는 값 변경 | domain.md, api.md, architecture.md |
+| `src/limn/server.py` | 핀 저장소 조립(`pin_store`, `PIN_LOCK`, 레코드 검사 `valid_rec`)과 핀 서비스 연결(`pin_context`: 저장소·시계·알림·감사·@태그 조회·파일 위치·설정 값을 `limn/service/`에 넘긴다), `pins.md` 렌더 입력 조립(`pins_md_input`), 계산 필드·겹침 연결(`pins_payload`·`dropped_payload`·`overlaps_by_id`: 이 인스턴스의 협력자를 `limn/pins/view.py`·`limn/locate.py`에 넘긴다) | 상태·전이·레코드 필드 변경, 렌더가 읽는 값 변경 | domain.md, api.md, architecture.md |
+| `src/limn/service/*` | 핀 서비스(가장자리 셸): 추가·편집(`add_edit.py`), 답글·닫기·다시 열기·확인(`transitions.py`), 처리 중 표시(`claim.py`), 휴지통·영구 삭제·clear(`trash.py`). 잠금 아래 읽고 `limn.pins` 규칙에 묻고 받아들일 때만 쓴 뒤 알림·감사를 남긴다. 협력자는 `PinContext`(`context.py`)로 받는다 | 핀 조작의 쓰기·알림·감사 순서 변경, 서비스가 받는 협력자 변경 | domain.md, api.md, architecture.md 불변식 4 |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
 | `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 옮겨진 전이, 편집 판단과 새 핀 레코드, 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지, 한 줄 줄이기 `flat`), API의 계산 필드(`view.py`: `state`·`GET /api/pins`·휴지통 본문) | 상태·전이·거절 규칙, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
 | `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |

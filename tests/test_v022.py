@@ -21,6 +21,7 @@ from pathlib import Path
 
 from limn import access
 from limn.pins.model import OpenPin, ReviewPin
+from limn.pins import position
 from limn.pins import render as md_render
 from limn import store as limn_store
 from limn.store import dump_jsonl
@@ -279,7 +280,7 @@ class Trash(AccessBase):
     def test_trash_listing_carries_the_purge_time(self):
         self.put_dropped(70, 10)
         rec = ps.dropped_payload()[0]
-        self.assertAlmostEqual(rec["expires_ts"], ps._epoch(rec["dropped_at"]) + 30 * 86400, delta=1)
+        self.assertAlmostEqual(rec["expires_ts"], position.epoch(rec["dropped_at"]) + 30 * 86400, delta=1)
         self.assertNotIn("expires_ts", ps.read_jsonl(ps.C.dropped)[0][0])   # computed, never stored
 
     def test_iso_timestamps_with_an_offset_expire_too(self):

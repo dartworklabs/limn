@@ -50,25 +50,23 @@ if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
-    AgentCannotConfirm, AlreadyClosed, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, ClaimRequest,
-    CloseRequest, NotClaimed, NotInTrash, PinReopened, PinStillOpen, Replied, ThreadFull, claim, claim_holds,
-    confirm, confirmer, decide_close, decide_reopen, decide_reply, drop, evolve_close, evolve_reopen, evolve_reply,
-    find_trashed, reopen_request, reopens_on_reply, restore, unclaim,
+    AgentCannotConfirm, AlreadyDone, AlreadyLive, ClaimClosedPin, ClaimedByOther, NotClaimed, NotInTrash,
+    PinStillOpen, ThreadFull, claim_holds, reopens_on_reply,
 )
-from limn.pins.edit import (  # noqa: E402 - after the path bootstrap above
-    ASSIGNEE_AGENT, KIND_REQS, NOTE_MAX, AddRequest, Anchoring, EditRefusal, EditRequest,
-    LinePlace, Located, PinEdited, RegionPlace, decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
-)
+from limn.pins.edit import KIND_REQS, NOTE_MAX, AddRequest, EditRefusal, EditRequest  # noqa: E402,F401 - NOTE_MAX is ps.NOTE_MAX to the tests
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
-    Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, is_region_pin, parse_pin,
+    DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin, is_region_pin, parse_pin,
 )
+# The pin services (add, edit, reply, close/reopen, confirm, claim, the Trash, clear); pin_context() wires them.
+from limn.service import add_edit, claim, trash, transitions  # noqa: E402 - after the path bootstrap above
+from limn.service.context import PinContext, is_agent  # noqa: E402 - is_agent is an App member
 from limn import build  # noqa: E402 - after the path bootstrap above
 from limn.build import BuildConfig  # noqa: E402 - after the path bootstrap above
 from limn.files import atomic_write, file_in_tree, store_lock, tex_lines, vendor_file as find_vendor_file  # noqa: E402,F401 - tex_lines is ps.tex_lines to the tests
 from limn import events, people  # noqa: E402 - after the path bootstrap above
 from limn.audit import AUDIT_FILE, append_audit, audit_entry, os_actor  # noqa: E402 - after the path bootstrap above
 from limn.events import EVENTS_KEEP  # noqa: E402 - after the path bootstrap above
-from limn.mentions import (  # noqa: E402 - after the path bootstrap above
+from limn.mentions import (  # noqa: E402,F401 - pin_mentions_all, resolve_mentions are ps.* to the tests
     NoteTags, addressed_to, fyi_mentions_to, note_mention_targets, pin_mentions_all,
     resolve_mentions, tag_note, thread_round,
 )
@@ -86,18 +84,18 @@ from limn.meta import MetaSettings, outline_labels  # noqa: E402,F401 - outline_
 from limn.build import build_pdf, cur_pages, pdf_changed, state_snapshot as build_state_snapshot  # noqa: E402,F401
 from limn.revisions import git as _git, revision_history  # noqa: E402,F401 - after the path bootstrap; revision_history is an App member
 from limn.scope import valid_changes  # noqa: E402 - after the path bootstrap above
-from limn.mapping import (  # noqa: E402 - after the path bootstrap above
+from limn.mapping import (  # noqa: E402,F401 - anchor_of is ps.anchor_of to the tests
     anchor_of, truncate_quote,
 )
 from limn import locate  # noqa: E402 - after the path bootstrap above
 from limn.locate import PinLocation, est_context, locate_file  # noqa: E402 - after the path bootstrap above
 from limn.pins import view  # noqa: E402 - after the path bootstrap above
 from limn.pins.view import pin_state  # noqa: E402,F401 - an App member (web/app.py)
-from limn.pins.position import EstContext, epoch as _epoch  # noqa: E402 - after the path bootstrap above
+from limn.pins.position import EstContext  # noqa: E402 - after the path bootstrap above
 from limn.mark import favicon_svg, inline_svg  # noqa: E402
 from limn import access  # noqa: E402 - after the path bootstrap above
 from limn.access import (  # noqa: E402 - after the path bootstrap above
-    AGENT_LOGIN_PREFIX, AUTH_PROVIDERS, DEFAULT_ROLE, HEADER_NAME_RE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
+    AUTH_PROVIDERS, DEFAULT_ROLE, HEADER_NAME_RE, LOCAL_ACTOR, LOOPBACK_AGENT_DEPRECATION,
     file_present, home_or_none, is_loopback_bind, load_tokens, local_owner_actor, parse_networks, parse_public_hosts,
     roles_of, valid_login,
 )
@@ -1110,82 +1108,30 @@ def document_facts(D: Doc) -> DocumentFacts:
 
 # ---------------------------------------------------------------- Pin operations
 #
-# Adding and editing a pin (docs/handbook/api.md §핀 만들기, §핀 고치기). The handler parses the body
-# (limn.web.parse.parse_add, parse_edit and parse_edit_place); the shell reads what only the disk and the clock know
-# under the pin lock, and leaves the rules and the record to limn.pins.edit. Each returns an outcome value that the
-# HTTP layer answers (limn.web.answers.add_answer, edit_answer).
+# The pin services - add, edit, reply, close/reopen, confirm, claim, the Trash and clear - are limn/service/: the
+# shells that load the pins under the pin lock, ask limn.pins' rules, write only on success and then emit the notices
+# and audit lines. What they need from this instance comes in a PinContext that pin_context() makes per call; the
+# functions below keep the names, arguments and outcomes the handler (web/app.py) and the tests call.
 
-def located(loc: PinLocation | None) -> Located | None:
-    """A pin location found on disk (pin_location) as the value limn.pins.edit records: absolute path and rel."""
-    return None if loc is None else Located(str(loc.path), loc.rel)
+def pin_context() -> PinContext:
+    """The pin services' view of this instance (limn.service.context.PinContext), made per call like pin_store(), so a
+    test (or main()) that changes C, THREAD_MAX or TRASH_DAYS, or freezes now_str or time.time, is seen at once."""
+    return PinContext(
+        store=pin_store(), now=now_str, epoch=time.time, hm=lambda: datetime.now().astimezone().strftime("%H:%M"),
+        make_event=make_event, emit_events=emit_events, who=who, audit=http_audit, known_people=known_people,
+        note_tags=note_tags, role_of=role_of, person_name=_person_name, locate=pin_locator(),
+        stamp=lambda r: stamp_location(r, C.src), thread_max=THREAD_MAX, trash_days=TRASH_DAYS,
+        trash_checked=_TRASH_CHECKED)
+
+
+def http_audit(action: str, by: dict, details: dict) -> bool:
+    """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
+    return append_audit(C.state, audit_entry(action, by, "http", details, time.time()))
 
 
 def add_pin(D: Doc, request: AddRequest, actor: dict) -> OpenPin:
-    """Saves a new pin in document D from a parsed POST /api/pin body (limn.web.parse.parse_add) -> the new open pin. A
-    LaTeX document gets a line pin with its anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the
-    absolute file; a view-only document gets a region pin. Queues mention/assigned notices and emits them after the
-    write."""
-    match request.place:
-        case LinePlace() as place:
-            return _add_line_pin(place, request, actor, D)
-        case RegionPlace() as place:
-            return _add_region_pin(place, request, actor, D)
-
-
-def _add_line_pin(place: LinePlace, request: AddRequest, actor: dict, D: Doc) -> OpenPin:
-    """Append a new line pin to document D under the pin lock and emit its notices.
-
-    The file's lines are read before the lock (as always); under it the shell takes the time, the next id (pins.seq),
-    the note's @-tags, the anchor over those lines with the file's mtime, the current build and where the file is now,
-    and limn.pins.edit.new_line_pin() builds the record. The notices are made from the finished record, so they name
-    the pin's own document D.
-    """
-    f = Path(place.fields["file"])
-    lines = tex_lines(f)
-    evs = []
-
-    def fn(rows):
-        """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
-        at = now_str()
-        pid = next_id(rows)
-        tags = note_tags(request.note, "", rows, request.hints, actor, pid)
-        anchoring = Anchoring(anchor_of(lines, place.fields["lo"], place.fields["hi"]),
-                              f.stat().st_mtime if f.exists() else 0)
-        # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation): the
-        # viewer echoes pdf_build from the pick response; a call without it (agent curl) takes the current build.
-        pin = new_line_pin(place, request, pid, at, actor, tags.mentions, anchoring, build.cur_pages(D).name, D.key,
-                           located(pin_location({"file": place.fields["file"]}, C.src)))
-        rows.append(dict(pin.record))
-        evs.append(make_event("mention", pin.record, actor, tags.notify, text=request.note))
-        if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
-            evs.append(make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
-        return pin, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
-
-
-def _add_region_pin(place: RegionPlace, request: AddRequest, actor: dict, D: Doc) -> OpenPin:
-    """Append a new pin on view-only document D under the pin lock and emit its notices: {doc, pdf, name, page, frac,
-    kind: 'region', quote?, note, pdf_build}, built by limn.pins.edit.new_region_pin(). No lines, no anchor."""
-    evs = []
-
-    def fn(rows):
-        """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
-        at = now_str()
-        pid = next_id(rows)
-        tags = note_tags(request.note, "", rows, request.hints, actor, pid)
-        pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build.cur_pages(D).name, D.key)
-        rows.append(dict(pin.record))
-        evs.append(make_event("mention", pin.record, actor, tags.notify, text=request.note))
-        if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
-            evs.append(make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
-        return pin, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
+    """POST /api/pin: a new pin in document D (limn.service.add_edit.add_pin)."""
+    return add_edit.add_pin(pin_context(), D, request, actor)
 
 
 def edit_scope(pid: int) -> tuple:
@@ -1198,52 +1144,9 @@ def edit_scope(pid: int) -> tuple:
 
 def edit_pin(pid: int, request: EditRequest, actor: dict,
              region: bool = False) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-    """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
-
-    request is the parsed body with its loc already placed against the pin's own document (limn.web.parse.parse_edit
-    and parse_edit_place, with region and the document from edit_scope()); region says the pin is a view-only one,
-    whose file is never located. Under the pin lock the shell reads where the pin's file will be and - for a lo/hi
-    edit - its line count, and limn.pins.edit.decide_edit() refuses or accepts: a closed pin cannot be reshaped, a
-    stale base_rev is a conflict (so a pin the agent closed, or one line matching moved, is never silently overwritten
-    with stale lo/hi), a merged note_append must fit NOTE_MAX, lo/hi must fit the file. Refusals write nothing of their
-    own. An accepted edit gets a new anchor when its range changed, the note's @-tags, edited_at/by and rev
-    (evolve_edit); mention/assigned notices are emitted after the write.
-    """
-    clock = datetime.now().astimezone().strftime("%H:%M") if request.note_append is not None else ""
-    evs = []
-
-    def fn(rows):
-        """The transact() step: decide the edit on pin pid and, if accepted, write it in place and queue its notices."""
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        pin = parse_pin(r)
-        where = None if region else pin_location(file_after(r, request), C.src)   # ADR-0006: an edit records where the file is now
-        count = len(tex_lines(where.path)) if where is not None and request.sets_lines() else None
-        event = decide_edit(pin, request, typed_actor(actor), now_str(), clock, count, NOTE_MAX)
-        if not isinstance(event, PinEdited):
-            return event, False
-        span = event.span()
-        anchoring = None
-        if span is not None and where is not None:
-            f = where.path
-            anchoring = Anchoring(anchor_of(tex_lines(f), *span), f.stat().st_mtime if f.exists() else 0)
-        tags = None if event.note is None else note_tags(event.note, str(r.get("note") or ""), rows, request.hints,
-                                                         actor, pid)
-        assigns = request.assignee not in (None, ASSIGNEE_AGENT) and r.get("assignee") != request.assignee
-        edited = evolve_edit(pin, event, located(where), anchoring, None if tags is None else tags.mentions,
-                             _person_name(request.assignee) if assigns else None)
-        r.clear()
-        r.update(edited.record)
-        if tags is not None:
-            evs.append(make_event("mention", r, actor, tags.notify, text=r.get("note")))
-        if assigns:
-            evs.append(make_event("assigned", r, actor, [request.assignee], text=r.get("note")))
-        return edited, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
+    """POST /api/pins/{id}/edit: pin pid edited in place (limn.service.add_edit.edit_pin); region and the placed loc
+    come from edit_scope()."""
+    return add_edit.edit_pin(pin_context(), pid, request, actor, region)
 
 
 def thread_replies(r: dict) -> list:
@@ -1375,385 +1278,98 @@ def reply_reopens(r: dict, human: bool, mentioned, reopen=None) -> bool:
 
 def reply_pin(pid: int, text: str, actor: dict, hints=None, reopen=None,
               human=None) -> OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound:
-    """One reply (from a person or an agent); the pin as it stands after it is returned, its new entry last in the thread.
-
-    Whether it also reopens the pin is decided by limn.pins.lifecycle.reopens_on_reply() - the viewer only previews it.
-    `human` is whether the poster is a person (the handler also counts a person with the agent role as an agent); None
-    means "not an agent actor". A reopening reply is recorded exactly like POST /reopen with the reply as its reason
-    (ev=reopen, the same notices), so the pin returns to the open table of pins.md with that reason. Otherwise it is a
-    plain reply, refused as ThreadFull when the thread is full; every @-tag in it is a mention (whether or not tagged
-    before), and the author plus everyone previously tagged on this pin who is not tagged here gets a replied notice.
-    The poster themself gets neither.
-    """
-    evs = []
-    human = (not is_agent(actor)) if human is None else human
-
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        ment = resolve_mentions(text, known_people(rows), hints, exclude=(actor or {}).get("login"))
-        persons = [lg for lg in ment if role_of(lg) != "agent"]     # tagging an agent-role account is not asking a person
-        pin = parse_pin(r)
-        event = decide_reply(pin, typed_actor(actor), now_str(), text, tuple(ment),
-                             reopens_on_reply(pin, human, persons, reopen), THREAD_MAX)
-        author = (r.get("author") or {}).get("login")
-        before = pin_mentions_all(r)
-        match event:
-            case ThreadFull():
-                return event, False
-            case PinReopened():
-                replied = reopen_request(pin, event)
-                r.clear()
-                r.update(replied.record)
-                msg = r["thread"][-1]
-                _reopen_notices(r, actor, ment, msg, evs)
-                # Everyone else tagged on the pin earlier would have heard of a plain reply (replied) - reopening must
-                # not silence them.
-                evs.append(make_event("replied", r, actor, [lg for lg in sorted(before) if lg != author and lg not in ment],
-                                      msg=msg))
-            case Replied():
-                replied = evolve_reply(pin, event)
-                r.clear()
-                r.update(replied.record)
-                msg = r["thread"][-1]
-                # Every @-tag in this reply is a mention, even for someone tagged earlier on the pin (observed in the
-                # v0.2.0 QA: a second "@Bob ..." reached nobody). Everyone else involved gets replied - never both.
-                evs.append(make_event("mention", r, actor, ment, msg=msg))
-                evs.append(make_event("replied", r, actor, [lg for lg in [author] + sorted(before) if lg not in ment],
-                                      msg=msg))
-        return replied, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
-
-
-def is_agent(actor: dict) -> bool:
-    """An agent actor: a headerless loopback request (LOCAL_ACTOR, login "local") or an API-token principal (login "agent:<name>").
-    Picks defaults (a close goes to review, never recorded in people.json) and refuses confirm; the role check in the
-    handler (check_role) additionally covers people whose people.json role is agent."""
-    login = (actor or {}).get("login", "local")
-    return login == LOCAL_ACTOR["login"] or str(login).startswith(AGENT_LOGIN_PREFIX)
+    """POST /api/pins/{id}/reply (limn.service.transitions.reply_pin)."""
+    return transitions.reply_pin(pin_context(), pid, text, actor, hints, reopen, human)
 
 
 def set_done(pid: int, done: bool, actor: dict, reply: str | None = None, ref: str | None = None,
              review: bool | None = None, reason: str | None = None, hints=None, changes=None):
-    """Close (done=True) or reopen (done=False) - the single entry POST /close and /reopen and older callers use.
-
-    `reply`/`ref`/`changes` (already parsed by limn.web.parse.parse_close_body/parse_close_changes: changes is a
-    sequence of CloseChange, each giving its stored form by .record()) and `review` belong to a close; `reason` and
-    `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
-    """
-    if done:
-        return close_pin(pid, actor, CloseRequest(reply, ref, tuple(c.record() for c in changes or ()), review))
-    return reopen_pin(pid, actor, reason, hints)
-
-
-def close_pin(pid: int, actor: dict, request: CloseRequest) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """Close pin pid under the pin lock, then tell the author when it now awaits review (docs/handbook/api.md §닫기).
-
-    Re-closing a closed pin changes nothing (AlreadyClosed) - a second close must not overwrite done_at/closed_by
-    and erase who closed it first (observed defect). An agent's close awaits review unless the request says:
-    out of 42 observed cases an author reopened an agent-closed pin twice with no record that a person had looked.
-    A person with the agent role closes into review because the handler sets request.review for them.
-    """
-    evs = []
-
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        pin = parse_pin(r)
-        event = decide_close(pin, typed_actor(actor), now_str(), request)
-        if isinstance(event, AlreadyClosed):
-            return event, False
-        closed = evolve_close(pin, event)
-        r.clear()
-        r.update(closed.record)
-        if isinstance(closed, ReviewPin):
-            evs.append(make_event("review_requested", r, actor, [(r.get("author") or {}).get("login")],
-                                  msg=r["thread"][-1]))
-        return closed, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
-
-
-def reopen_pin(pid: int, actor: dict, reason: str | None, hints) -> OpenPin | PinNotFound:
-    """Reopen pin pid under the pin lock; a closed pin records the reason and notifies (see _reopen). rev goes up
-    even for a pin that was already open, as before."""
-    evs = []
-
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        opened = _reopen(r, rows, actor, reason, hints, evs, request=True)
-        return opened, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
-
-
-def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list, request: bool = False) -> OpenPin:
-    """Reopens r in place (inside transact) by limn.pins.lifecycle's rule, and - if the pin was closed - queues a
-    mention for everyone the reason @-tags and reopened for the author. Shared by POST /reopen (request=True, which
-    also bumps rev) and a reopening reply (which bumps rev once for the reply itself). Returns the reopened pin."""
-    pin = parse_pin(r)
-    ment = resolve_mentions(reason or "", known_people(rows), hints, exclude=(actor or {}).get("login")) \
-        if not isinstance(pin, OpenPin) else []
-    event = decide_reopen(pin, typed_actor(actor), now_str(), reason, tuple(ment))
-    opened = reopen_request(pin, event) if request else evolve_reopen(pin, event)
-    r.clear()
-    r.update(opened.record)
-    if event.was_closed:
-        _reopen_notices(r, actor, ment, r["thread"][-1], evs)
-    return opened
-
-
-def _reopen_notices(r: dict, actor: dict, ment: list, msg: dict, evs: list) -> None:
-    """Queue the notices of a reopen: a mention for everyone the reason @-tags, reopened for the author otherwise."""
-    evs.append(make_event("mention", r, actor, ment, msg=msg))    # same rule as a reply: every @-tag here
-    evs.append(make_event("reopened", r, actor, [lg for lg in [(r.get("author") or {}).get("login")]
-                                                 if lg not in ment], msg=msg))
-
-
-def typed_actor(actor: dict) -> Actor:
-    """The typed actor of a request's actor dict: an Agent when is_agent() says so, otherwise a Person."""
-    login, name = actor.get("login", "local"), actor.get("name", "")
-    if is_agent(actor):
-        return Agent(login, name)
-    pic = actor.get("pic")
-    return Person(login, name, pic if isinstance(pic, str) and pic else None)
+    """POST /api/pins/{id}/close (done=True) and /reopen (done=False) (limn.service.transitions.set_done)."""
+    return transitions.set_done(pin_context(), pid, done, actor, reply, ref, review, reason, hints, changes)
 
 
 def confirm_pin(pid: int, actor: dict) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
-    """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
-
-    An agent is refused before the store is touched, as before. Otherwise the pin is loaded under the pin lock
-    (transact) and lifecycle.confirm() decides; only a new DonePin is written, in place, so the saved line
-    keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer.
-    """
-    by = confirmer(typed_actor(actor))
-    if isinstance(by, AgentCannotConfirm):
-        return by
-
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        result = confirm(parse_pin(r), by, now_str())
-        if isinstance(result, DonePin):
-            r.clear()
-            r.update(result.record)
-            return result, True
-        return result, False
-    return transact(fn)[1]
+    """POST /api/pins/{id}/confirm (limn.service.transitions.confirm_pin)."""
+    return transitions.confirm_pin(pin_context(), pid, actor)
 
 
 def drop_pin(pid: int, actor: dict) -> TrashedPin | PinNotFound:
-    """Removes a pin from pins.jsonl and moves it to the Trash (pins.dropped.jsonl). restore brings the same id back.
-
-    The author is told when someone else deletes their pin (a `dropped` event, with [Restore] in the viewer). Expired
-    Trash entries are purged in the same write (purge_trash)."""
-    evs = []
-
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        rows.remove(r)
-        trashed = drop(parse_pin(r), typed_actor(actor), now_str())
-        old, bad = read_jsonl(C.dropped)
-        write_dropped(_unexpired(old) + [dict(trashed.record)], bad)
-        evs.append(make_event("dropped", r, actor, [(r.get("author") or {}).get("login")], text=r.get("note")))
-        return trashed, True
-    with PIN_LOCK:
-        out = transact(fn)[1]
-        emit_events(evs)
-    return out
+    """POST /api/pins/{id}/drop: the pin moves to the Trash (limn.service.trash.drop_pin)."""
+    return trash.drop_pin(pin_context(), pid, actor)
 
 
 # ---------------------------------------------------------------- Trash (pins.dropped.jsonl, docs/handbook/domain.md §전이와 할 수 있는 쪽)
 #
-# A dropped pin stays restorable for TRASH_DAYS, counted from dropped_at (local time, like every *_at string). Reading
-# never writes: GET /api/pins/dropped only hides expired entries; the file is rewritten without them at startup, on
-# every drop/restore, and by the owner's permanent delete. An entry without a readable dropped_at is kept - its age
-# cannot be known, and guessing would delete data. ids stay reserved in pins.seq, so a purged number is never reused.
+# The Trash's rules and writes are limn/service/trash.py: a dropped pin stays restorable for TRASH_DAYS from dropped_at,
+# reading never writes, and the file is rewritten without expired entries at startup, on every drop/restore, hourly on
+# the reads that already write, and by the owner's permanent delete. The process's memo of the last lazy check is here.
 
-def trash_expires_ts(r: dict):
-    """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
-    t = _epoch(r.get("dropped_at"))
-    return None if t is None else t + TRASH_DAYS * 86400
-
-
-def trash_expired(r: dict, now: float = None) -> bool:
-    t = trash_expires_ts(r)
-    return t is not None and (time.time() if now is None else now) > t
-
-
-def write_dropped(rows: list, bad=None) -> None:
-    """Rewrites pins.dropped.jsonl, keeping a .corrupt-*.bak of unreadable lines first (PinStore.write_dropped)."""
-    pin_store().write_dropped(rows, bad)
-
-
-def _unexpired(rows: list, now: float = None) -> list:
-    return [r for r in rows if not trash_expired(r, now)]
-
-
-def purge_trash(now: float = None) -> int:
-    """Rewrites pins.dropped.jsonl without the entries older than TRASH_DAYS. Returns how many went (0 = no write, or the
-    write failed - reads hide expired entries anyway, so a failure is only a warning)."""
-    _TRASH_CHECKED[0] = time.time() if now is None else now      # any check (startup, drop, restore) restarts the hourly clock
-    with PIN_LOCK:
-        rows, bad = read_jsonl(C.dropped)
-        keep = _unexpired(rows, now)
-        n = len(rows) - len(keep)
-        if n:
-            try:
-                write_dropped(keep, bad)
-            except OSError as e:                      # e.g. a read-only state dir: expired entries stay hidden, the server still starts
-                print("warning: could not purge the Trash: %s" % e, file=sys.stderr)
-                return 0
-    if n:
-        print("trash: purged %d pin(s) deleted more than %d days ago" % (n, TRASH_DAYS), file=sys.stderr)
-        sys.stderr.flush()
-    return n
-
-
-TRASH_CHECK_EVERY_S = 3600          # a long-running server also drops expired Trash entries during normal reads, at most this often
 _TRASH_CHECKED = [0.0]              # epoch of the last lazy check (per process)
 
 
+def trash_expires_ts(r: dict):
+    """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
+    return trash.expires_ts(r, TRASH_DAYS)
+
+
+def trash_expired(r: dict, now: float = None) -> bool:
+    """Is Trash entry r past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
+    return trash.expired(r, TRASH_DAYS, time.time() if now is None else now)
+
+
+def _unexpired(rows: list, now: float = None) -> list:
+    """The Trash entries of rows still restorable at now (default: the clock)."""
+    return trash.unexpired(rows, TRASH_DAYS, time.time() if now is None else now)
+
+
+def purge_trash(now: float = None) -> int:
+    """Rewrites the Trash without entries older than TRASH_DAYS -> how many went (limn.service.trash.purge_trash)."""
+    return trash.purge_trash(pin_context(), now)
+
+
 def maybe_purge_trash() -> int:
-    """The lazy expiry: called from the reads that already write (GET /api/pins, /pins.md - they re-sync line numbers),
-    never from the write-free light poll. One cheap clock comparison; at most once per TRASH_CHECK_EVERY_S it reads the
-    Trash and rewrites it only if something expired."""
-    now = time.time()
-    if now - _TRASH_CHECKED[0] < TRASH_CHECK_EVERY_S:
-        return 0
-    _TRASH_CHECKED[0] = now
-    return purge_trash(now)
+    """The hourly lazy expiry on the reads that already write (limn.service.trash.maybe_purge_trash)."""
+    return trash.maybe_purge_trash(pin_context())
 
 
 def purge_pin(pid: int, actor: dict) -> TrashedPin | NotInTrash:
-    """The owner's permanent delete from the Trash (POST /api/pins/{id}/purge; check_role refuses everyone else).
-    Returns the purged entry, or NotInTrash (nothing written) if the pin is not in the Trash - an open or closed pin
-    must be dropped first; the handler answers that with 404. Leaves a `purged` audit event (to: [], like `cleared`), a `purged` line
-    in audit.jsonl (v0.3.1, never rotated out) and a log line, since it cannot be undone."""
-    with PIN_LOCK:
-        rows, bad = read_jsonl(C.dropped)
-        found = find_trashed(_unexpired(rows), pid)
-        if isinstance(found, NotInTrash):
-            return found
-        write_dropped(_unexpired([r for r in rows if r.get("id") != pid]), bad)
-        emit_events([{"type": "purged", "to": [], "pin": pid, "by": who(actor)}])
-    append_audit(C.state, audit_entry("purged", who(actor), "http", {"pin": pid}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
-    print("trash: pin #%d deleted permanently by %s" % (pid, (actor or {}).get("login")), file=sys.stderr)
-    sys.stderr.flush()
-    return found
+    """POST /api/pins/{id}/purge: the owner's permanent delete (limn.service.trash.purge_pin)."""
+    return trash.purge_pin(pin_context(), pid, actor)
 
 
 # ---------------------------------------------------------------- In-progress marker (claim, §P0c-C)
 #
 # A co-author and their agent can work on the same pin at the same time. A TTL'd optimistic marker reduces
 # conflicts - it's a signal, not a lock: nothing stops closing or force-claiming a pin another identity holds a valid claim on.
+# Claiming and unclaiming are limn/service/claim.py; claim_active is the read the pin list computes claim_ts from.
 
 def claim_active(r: dict) -> bool:
     """Does this pin have an unexpired claim now? limn.pins.lifecycle.claim_holds() at the current epoch."""
     return claim_holds(r, time.time())
 
 
-
-
 def claim_pin(pid: int, actor: dict, ttl_min: int,
               eta_min: int = None) -> OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound:
-    """Place or extend the in-progress marker (docs/handbook/api.md §처리 중 표시) under the pin lock.
-
-    The rule is limn.pins.lifecycle.claim(): a closed pin or another identity's live claim is refused (409 over HTTP),
-    the same identity extends. The clock is read once here - epoch and store string of the same moment.
-    """
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        result = claim(parse_pin(r), typed_actor(actor), time.time(), now_str(), ClaimRequest(ttl_min, eta_min),
-                       _epoch(r.get("claimed_at")))
-        if isinstance(result, OpenPin):
-            r.clear()
-            r.update(result.record)
-            return result, True
-        return result, False
-    return transact(fn)[1]
+    """POST /api/pins/{id}/claim: place or extend the in-progress marker (limn.service.claim.claim_pin)."""
+    return claim.claim_pin(pin_context(), pid, actor, ttl_min, eta_min)
 
 
 def unclaim_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
-    """Clear the in-progress marker, whoever asks; written only when there was a claim."""
-    def fn(rows):
-        r = find_pin(rows, pid)
-        if r is None:
-            return PinNotFound(pid), False
-        result = unclaim(parse_pin(r))
-        if isinstance(result, NotClaimed):
-            return result, False
-        r.clear()
-        r.update(result.record)
-        return result, True
-    return transact(fn)[1]
+    """POST /api/pins/{id}/unclaim (limn.service.claim.unclaim_pin)."""
+    return claim.unclaim_pin(pin_context(), pid, actor)
 
 
 def restore_pin(pid: int, actor: dict) -> OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive:
-    """Writes to pins.jsonl first, and only removes it from the dropped record once that succeeds.
-
-    Reversing the order means a crash between the two writes makes the pin vanish from both files (observed).
-    With this order, the worst case is "present in both", which is recoverable."""
-    with PIN_LOCK:                                   # RLock - bundles transact and cleaning up the dropped record together
-        result = transact(lambda rows: _restore(rows, pid, actor))[1]
-        if isinstance(result, (NotInTrash, AlreadyLive)):
-            return result                            # refused: the Trash file is left as it was
-        old, bad = read_jsonl(C.dropped)
-        write_dropped(_unexpired([r for r in old if r.get("id") != pid]), bad)
-        return result
-
-
-def _restore(rows: list, pid: int, actor: dict):
-    """The transact() step of restore_pin: puts the newest unexpired Trash copy of pin pid back into rows, re-synced and
-    with rel_path and the current file recorded (ADR-0006). The rule is limn.pins.lifecycle.restore(); NotInTrash
-    (404) and AlreadyLive (409) leave rows unchanged."""
-    old, _ = read_jsonl(C.dropped)
-    trashed = find_trashed(_unexpired(old), pid)
-    if isinstance(trashed, NotInTrash):
-        return trashed, False
-    result = restore(trashed, find_pin(rows, pid) is not None, typed_actor(actor), now_str())
-    if isinstance(result, AlreadyLive):
-        return result, False
-    rec = dict(result.record)
-    sync_all([rec])
-    stamp_location(rec, C.src)                       # ADR-0006: a restored pin records where its file is now
-    rows.append(rec)
-    rows.sort(key=lambda r: r["id"])
-    return parse_pin(rec), True
+    """POST /api/pins/{id}/restore: the pin comes back from the Trash (limn.service.trash.restore_pin)."""
+    return trash.restore_pin(pin_context(), pid, actor)
 
 
 CLEAR_CONFIRM = "clear all pins"
 
 
 def clear_pins(actor: dict | None = None) -> dict:
-    """Archives everything to pins_<ts>.jsonl.bak and clears it. pins.seq is untouched, so ids keep incrementing.
-    Records a `cleared` event (who, how many, which archive), a `cleared` line in audit.jsonl (v0.3.1 - the event can
-    rotate out of events.jsonl, the audit line does not) and a log line - the only bulk-destructive operation, so it
-    always leaves a trace. Returns {"cleared": n, "archive": <file name or None>}."""
-    by = who(actor or LOCAL_ACTOR)
-    with PIN_LOCK:
-        n, archive = pin_store().clear()             # never over an earlier archive of the same second
-        emit_events([{"type": "cleared", "to": [], "by": by, "n": n, "archive": archive}])
-    append_audit(C.state, audit_entry("cleared", by, "http", {"n": n, "archive": archive}, time.time()))   # outside PIN_LOCK: it flocks and fsyncs
-    print("clear: %d pin(s) archived to %s by %s" % (n, archive or "-", (actor or LOCAL_ACTOR).get("login")), file=sys.stderr)
-    sys.stderr.flush()
-    return {"cleared": n, "archive": archive}
+    """POST /api/clear: archive and clear every pin, with its notice and audit line (limn.service.trash.clear_pins)."""
+    return trash.clear_pins(pin_context(), actor)
 
 
 def render_pins_md(rows: list) -> None:

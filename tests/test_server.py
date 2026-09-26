@@ -1129,7 +1129,7 @@ class Estimate(Base):
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
         (ps.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
-        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, ps._epoch("2026-09-22T09:30:00+09:00"))
+        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, position.epoch("2026-09-22T09:30:00+09:00"))
         ctx = ps.est_context(ps.DOCS[0])
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
         self.assertTrue(position.pin_est(old, ctx))
@@ -1143,12 +1143,12 @@ class Estimate(Base):
         with mock.patch.dict(os.environ, {"TZ": "America/New_York"}):
             time.tzset()
             try:
-                ny = ps._epoch("2026-09-22T09:00:00+09:00")
+                ny = position.epoch("2026-09-22T09:00:00+09:00")
             finally:
                 pass
         with mock.patch.dict(os.environ, {"TZ": "Asia/Seoul"}):
             time.tzset()
-            seoul = ps._epoch("2026-09-22T09:00:00+09:00")
+            seoul = position.epoch("2026-09-22T09:00:00+09:00")
         time.tzset()
         self.assertEqual(ny, seoul)
 
@@ -5170,7 +5170,7 @@ class ClaimEta(Base):
             r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
             ps.write_pins(rows)
         rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
-        self.assertAlmostEqual(rec["claim_ts"], ps._epoch("2026-09-23 20:02:00"), delta=0.01)
+        self.assertAlmostEqual(rec["claim_ts"], position.epoch("2026-09-23 20:02:00"), delta=0.01)
         self.assertNotIn("claim_ts", ps.find_pin(ps.read_pins()[0], pid))   # a computed field — not stored
 
     def test_pins_md_claim_text(self):
