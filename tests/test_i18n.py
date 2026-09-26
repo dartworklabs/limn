@@ -291,6 +291,66 @@ class ComposedMessages(unittest.TestCase):
                                "Same range as #4", "Done", "없는 키 1"])
 
 
+def pick_warning_sentences():
+    """The Korean sentences pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
+    import ast
+    tree = ast.parse(Path(ps.__file__).read_text(encoding="utf-8"))
+    out = set()
+    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("pick", "_pick_region")):
+        for asg in (n for n in ast.walk(fn) if isinstance(n, ast.Assign)):
+            if not any(isinstance(t, ast.Name) and t.id in ("warn", "stale_note") for t in asg.targets):
+                continue
+            for n in ast.walk(asg.value):
+                if isinstance(n, ast.Constant) and isinstance(n.value, str) and HANGUL.search(n.value):
+                    out.add(re.sub(r"%(?:\.0f|d)", "{x}", n.value).replace("%%", "%"))
+    return out
+
+
+class PickWarnings(unittest.TestCase):
+    """The pick's `warn` is a Korean UI hint (not an error body) that the server composes from up to three sentences.
+    warnText() shows it in English by matching each sentence to its template in PICK_WARNS and filling it via tl()."""
+
+    def run_js(self, lang, body):
+        """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available")
+        table = re.search(r"const PICK_WARNS=\[.*?\];", ps.HTML, re.S)
+        self.assertIsNotNone(table)
+        js = "\n".join(["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                        table.group(0), extract_js_fn("tr"), extract_js_fn("tl"), extract_js_fn("warnText"),
+                        "console.log(JSON.stringify(%s));" % body])
+        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_every_server_sentence_has_a_template_with_english(self):
+        """Each warning sentence in pick()/_pick_region() is in PICK_WARNS (placeholders aside) and in the table."""
+        table = re.search(r"const PICK_WARNS=\[(.*?)\];", ps.HTML, re.S)
+        self.assertIsNotNone(table)
+        templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))
+        self.assertEqual(sorted(re.sub(r"\{\w+\}", "{x}", t) for t in templates), sorted(pick_warning_sentences()))
+        self.assertEqual([t for t in templates if not isinstance(ps.UI_EN.get(t), str)], [])
+
+    def test_english_translates_each_joined_sentence(self):
+        """A warning of three joined sentences, with its numbers, comes out as three English sentences, no Hangul."""
+        warn = ("화면의 PDF 가 지금 원고보다 낡았습니다 — [PDF 재빌드] 뒤에 다시 고르세요. "
+                "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다.")
+        out = self.run_js("en", "[warnText(%s),warnText('두 경로가 다른 곳을 가리킵니다(L12 / L480). 확인이 필요합니다.'),"
+                                "warnText(''),warnText('모르는 문장입니다.')]" % json.dumps(warn, ensure_ascii=False))
+        self.assertFalse(HANGUL.search(out[0]), out[0])
+        self.assertIn("23%", out[0])
+        self.assertIn("L12", out[1])
+        self.assertIn("L480", out[1])
+        self.assertFalse(HANGUL.search(out[1]), out[1])
+        self.assertEqual(out[2:], ["", "모르는 문장입니다."])
+
+    def test_korean_shows_the_server_warning_unchanged(self):
+        """ko: exactly the server's text."""
+        warn = "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요. 빌드 중이라 결과가 흔들릴 수 있습니다."
+        self.assertEqual(self.run_js("ko", "warnText(%s)" % json.dumps(warn, ensure_ascii=False)), warn)
+
+
 def _png(w, h):
     """A white 8-bit grayscale PNG (the viewer only needs real page images and their size)."""
     def chunk(tag, data):
