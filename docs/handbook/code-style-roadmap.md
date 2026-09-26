@@ -411,7 +411,12 @@ def now_str() -> str:
 
 **바꾼 모습.** `Path | None = None`처럼 적는다. 경계를 넘는 구조화된 값(빌드 결과, 메타 응답 등)은 `TypedDict`나 `dataclass`로 모양을 드러낸다. 타입 검사기(pyright 또는 mypy)는 새 모듈부터 켜고 옮기는 대로 넓힌다.
 
-**확인하는 법.** 타입 검사기가 새 모듈에서 오류 0으로 끝난다. 일부러 `match`의 상태 하나를 빼 보았을 때 검사기가 알려 주는지 한 번 확인한다.
+**지금 모습 (7단계 착수, 2026-09-26).** 타입 검사기는 mypy다. 옮긴 모듈(`limn/pins/`, `mapping.py`)을 strict 모드와 `exhaustive-match`로 검사하고, CI `lint` 작업이 `uv run mypy`를 돌린다 ([verification.md](verification.md) §9에 고른 이유와 게이트). 검사를 켜면서 두 모듈의 오류 35건을 동작을 바꾸지 않고 정리했다.
+
+- `mapping.py` (33건): 표기 없는 인자·반환, 타입 인자 없는 `list`·`dict`·`tuple`, `Any` 반환에 타입을 적었다. 읽기만 하는 줄 목록은 `Sequence[str]`, 토큰 가중치는 `TokenWeights`, 범위 사다리의 한 단은 `Level`로 이름을 붙였다. `find_line()`은 문자열이 아닌 needle도 받는 계약이라 `needle: object`로 적었다. `compute_levels()`에서 `None`일 수 있다던 기본 단 3건은, `para` 단이 늘 있으므로 `assert`로 좁혔다.
+- `pins/lifecycle.py` (2건): `_is_num()`을 `TypeGuard[int | float]`로 적어 `claim_holds()`의 `float(until)`을 좁혔다. `restore()`의 `AlreadyLive`에는 저장된 id를 그대로 넘기며 `cast(int, ...)`로 검사기에만 알렸다 (휴지통 사본의 id는 `find_trashed()`가 맞춰 본 값이다).
+
+**확인하는 법.** 타입 검사기가 옮긴 모듈에서 오류 0으로 끝난다. 일부러 `match`의 상태 하나를 빼 보았을 때 검사기가 알려 주는지 한 번 확인한다 (2026-09-26 `confirm()`에서 `case DonePin():`을 지워 확인, [verification.md](verification.md) §9).
 
 ## R9 동작을 이름과 docstring으로 말하는 테스트
 
@@ -474,6 +479,6 @@ def now_str() -> str:
 | 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 편집·추가가 남음 |
 | 5 역변환과 빌드 | 진행 중 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). `build/`는 남음 |
 | 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
-| 7 타입 검사 확대 | 시작 전 | — |
+| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. `server.py`는 남음 |
 
 이 문서의 수치(줄 수, 함수 수, docstring 수, Ruff 건수)는 2026-09-25 Limn 0.2.2 기준 실측이다. 단계를 끝낼 때 새로 재서 고친다.
