@@ -1,19 +1,26 @@
 """limn.pins.render - pins.md from one explicit input, tested directly with records and no server, files or clock.
 
-The whole-server contract (pins.md on disk after a write, GET /pins.md, the guidance lines agents match) is pinned in
-test_server.py, test_access.py, test_token_file.py and the version suites; here the renderer is fed PinsMdInput
-values and its output checked on its own (coding rule R1).
+The whole-server contract (pins.md on disk after a write, GET /pins.md, the guidance lines agents match) is pinned
+through server.py at the end of this file (PinsMdV2, BuildHeadInPinsMd, AuthorPrefixInPinsMd, InstanceIdInPinsMd), and
+in test_server.py, test_access.py, test_token_file.py and the version suites. The classes above feed the renderer
+PinsMdInput values and check its output on its own (coding rule R1).
 
 Run: uv run pytest -q tests/test_pins_render.py
 """
 import ast
 import copy
 import dataclasses
+import re
 import unittest
 from pathlib import Path
 
+from limn import mapping
+from limn.access import LOCAL_ACTOR
 from limn.pins import render
+from limn.pins import render as md_render
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
+
+from helpers import add_pin, Base, ps, req
 
 RENDER_PY = Path(render.__file__)
 T = 1_790_000_000.0
@@ -272,6 +279,284 @@ class Helpers(unittest.TestCase):
         """A frac that is not four numbers reads as zeros instead of failing the whole sheet."""
         self.assertEqual(render.region_text_of({"page": 2, "frac": ["x", 0, 0, 0]}), "쪽 2, 영역 가로 0–0% 세로 0–0%")
         self.assertEqual(render.region_text_of({}), "쪽 ?, 영역 가로 0–0% 세로 0–0%")
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# Pins.md as the server writes it after a pin write. These classes load server.py (helpers.ps) and drive the module
+# through its bindings; the tests above call the module on its own.
+
+# ---------------------------------------------------------------- pins.md v2 · quote (docs/handbook/api.md §메모 칸의 덧붙임)
+
+class PinsMdV2(Base):
+    def test_relative_path_for_included_file(self):
+        sub = self.src / "sections"
+        sub.mkdir()
+        f = sub / "intro.tex"
+        f.write_text("line one\nline two\n", encoding="utf-8")
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(LOCAL_ACTOR)).record["id"]
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("`sections/intro.tex L1-L1`", md)
+        self.assertEqual(self.pin(pid)["lo"], 1)
+
+    def test_root_file_location_matches_basename(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("`main.tex L4-L5`", md)
+
+    def test_closed_pins_do_not_grow_pins_md(self):
+        self.add(4, 5)
+        before = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
+        for i in range(20):
+            pid = self.add(4, 5, note="c%d" % i)
+            ps.set_done(pid, True, {"login": "a@x.com", "name": "A"})   # closed by a human = done (if an agent closes it, it stays in the table as awaiting review)
+        after = len(ps.C.pins_md.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(before, after)
+        self.assertIn("닫힌 핀 20건", ps.C.pins_md.read_text(encoding="utf-8"))
+
+    def test_newline_in_note_becomes_line_separator(self):
+        self.add(4, 5, note="첫줄\n둘째줄")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("첫줄 ⏎ 둘째줄", md)
+        self.assertNotIn("첫줄\n둘째줄", md)
+        for line in md.splitlines():
+            if line.startswith("| ") and "⏎" in line:
+                self.assertEqual(line.count("|"), 6)   # 5-column table: 6 pipes
+
+    def test_overlap_symbol_in_number_column(self):
+        p1 = self.add(4, 9)
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("#%d 범위 안" % p1, md)
+        self.assertNotIn("⊂", md)
+
+    def test_close_guidance_shows_reply_ref_body(self):
+        """pins.md shows a close example with a body (reply, ref, changes) - an agent reading only pins.md must see how to close."""
+        # bug: the close guidance in pins.md only showed a body-less curl, so an agent reading only this
+        # file had no way to know how to leave a reply/ref (§Leaving a reason when closing — it must match the same shape as SKILL.md).
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("curl -X POST -H 'Content-Type: application/json'", md)
+        self.assertIn('-d \'{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)",'
+                      '"changes":[{"file":"main.tex","lo":12,"hi":14}]}\'', md)   # v0.3: one commit per pin, optional changes
+        self.assertIn("http://127.0.0.1:%d/api/pins/N/close" % ps.C.port, md)
+        self.assertIn("본문 생략", md)   # notes that the old way of omitting the body still works
+
+    def test_quote_shown_only_for_single_long_raw_line(self):
+        long_line = "x" * 650
+        f = self.src / "long.tex"
+        f.write_text(long_line + "\n", encoding="utf-8")
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
+                          "quote": "짧은 인용"}, dict(LOCAL_ACTOR)).record["id"]
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("«짧은 인용»", md)
+        # a short line (<=600 chars) doesn't get a quote attached even if one is present
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid:
+                r["lo"] = r["hi"] = 4
+                r["quote"] = "안 보여야 함"
+                r["file"] = str(self.main)
+        ps.write_pins(rows)
+        md2 = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("«안 보여야 함»", md2)
+
+    def test_truncate_quote_appends_ellipsis_only_when_cut(self):
+        self.assertEqual(mapping.truncate_quote("짧음", 60), "짧음")
+        self.assertNotIn("…", mapping.truncate_quote("짧음", 60))
+        long = "x" * 90
+        cut = mapping.truncate_quote(long, 60)
+        self.assertEqual(cut, "x" * 59 + "…")
+        self.assertEqual(len(cut), 60)   # bug: it used to come out to 61 chars (60 + …) — the design calls for <=60 chars
+        self.assertEqual(mapping.truncate_quote("x" * 60, 60), "x" * 60)   # exactly at the boundary, nothing is appended
+
+    def test_quote_truncated_with_ellipsis_in_pins_md(self):
+        # bug: when a quote was cut past 60 chars, the missing ellipsis made it look like a complete sentence.
+        long_line = "y" * 650
+        f = self.src / "long2.tex"
+        f.write_text(long_line + "\n", encoding="utf-8")
+        pid = add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n", "scope": "raw",
+                          "quote": "가" * 90}, dict(LOCAL_ACTOR)).record["id"]
+        stored = self.pin(pid)["quote"]
+        self.assertEqual(stored, "가" * 59 + "…")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("«" + stored + "»", md)   # render_quote doesn't re-truncate a value that already has … appended
+
+    def test_location_col_escapes_pipe_in_filename(self):
+        # bug: a pipe in the filename in the location column could break the table's column structure (note/quote were already escaped).
+        sub = self.src / "a|b"
+        sub.mkdir()
+        f = sub / "c.tex"
+        f.write_text("line one\n", encoding="utf-8")
+        add_pin({"file": str(f), "lo": 1, "hi": 1, "page": 1, "note": "n"}, dict(LOCAL_ACTOR)).record["id"]
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("a\\|b/c.tex L1-L1", md)
+        for line in md.splitlines():
+            if "a\\|b" in line:
+                # 6 separators for a 5-column table + 1 escaped pipe in the filename ("\|" is still a '|' character) = 7.
+                self.assertEqual(line.count("|"), 7)
+                self.assertNotIn("a|b/c.tex", line)     # the unescaped original fragment must not appear
+
+    def test_range_col_escapes_pipe_in_env_kind(self):
+        # bug (should): the location column (loc_label) and quote (render_quote) escaped pipes,
+        # but the range column (range_label) returned the env name as-is — so storing kind='env:x|y'
+        # made the pins.md table row exceed 6 columns instead of staying at 6, breaking the table.
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n",
+                          "scope": "env", "kind": "env:x|y"}, dict(LOCAL_ACTOR)).record["id"]
+        self.assertEqual(md_render.range_label(self.pin(pid)), "env:x\\|y")
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        for line in md.splitlines():
+            if "env:x" in line:
+                self.assertIn("env:x\\|y", line)
+                # 6 separators for a 5-column table + 1 escaped pipe in the range column = 7 (same arithmetic as the filename-column test).
+                self.assertEqual(line.count("|"), 7)
+
+    def test_every_cell_escapes_pipe_and_newline(self):
+        # design 5: exhaustively cover every column — kind (range column, both env and non-env branches),
+        # filename, note, quote. Any column breaks the row if a raw '|' or newline gets through.
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "a|b\nc",
+                    "scope": "env", "kind": "env:x|y\nz"}, dict(LOCAL_ACTOR)).record["id"]
+        add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "n", "kind": "k|1\r\nk2"},
+                   dict(LOCAL_ACTOR)).record["id"]
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        rows = [ln for ln in md.splitlines() if ln.startswith("| ") and "main.tex" in ln]
+        self.assertEqual(len(rows), 2)
+        for ln in rows:
+            unescaped = re.sub(r"\\\|", "", ln)
+            self.assertEqual(unescaped.count("|"), 6, ln)
+        self.assertIn("env:x\\|y z", rows[0])
+        self.assertIn("a\\|b ⏎ c", rows[0])
+        self.assertIn("k\\|1 k2", rows[1])
+        self.assertEqual(md_render.md_cell("a|b\r\nc"), "a\\|b c")
+
+    def test_legend_absent_when_no_symbols(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기호:", md)
+
+    def test_open_pins_table_has_five_columns(self):
+        self.add(4, 5)
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        for line in md.splitlines():
+            if line.startswith("| ") and "쪽" not in line and "#" not in line[:4]:
+                self.assertEqual(line.count("|"), 6)
+
+
+# ---------------------------------------------------------------- base commit/build at the top of pins.md (docs/handbook/api.md §머리줄)
+
+class BuildHeadInPinsMd(Base):
+    def test_head_line_present_when_head_and_built_at_known(self):
+        (ps.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("기준: abc1234 · 빌드 2026-09-22 10:00:00", md)
+        self.assertIn("다른 체크아웃에서 처리하면 먼저 `git rev-parse --short HEAD` 가 같은지 확인", md)
+
+    def test_head_line_omitted_when_files_missing(self):
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기준:", md)
+        self.assertNotIn("다른 체크아웃에서", md)
+
+    def test_head_line_omitted_for_dash_placeholder(self):
+        # _build() writes '-' to head.txt when it's not a git repo — in that case there's nothing to show for "기준" (base).
+        (ps.C.state / "head.txt").write_text("-", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("기준:", md)
+
+    def test_head_block_adds_at_most_two_lines(self):
+        without = ps.pins_md_text([]).splitlines()
+        (ps.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
+        (ps.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
+        withit = ps.pins_md_text([]).splitlines()
+        self.assertLessEqual(len(withit) - len(without), 2)
+
+
+# ---------------------------------------------------------------- showing the author only when needed (docs/handbook/api.md §메모 칸의 덧붙임)
+
+class AuthorPrefixInPinsMd(Base):
+    # the author prefix has the form '[name] ' (§api.md note has [author] up front) — the old '@name: '
+    # shape was misread as an @-mention (observed: '@Wendy Kim: …' in pins.md looked like a mention).
+    def test_single_author_has_no_prefix(self):
+        self.add(note="n", actor={"login": "alice@x.com", "name": "Wendy"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("[Wendy]", md)
+
+    def test_multiple_authors_get_prefix(self):
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("[Wendy] n1", md)
+        self.assertIn("[Bob] n2", md)
+
+    def test_same_author_twice_does_not_trigger_prefix(self):
+        self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
+        self.add(8, 8, note="n2", actor={"login": "alice@x.com", "name": "Wendy"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("[Wendy]", md)
+
+    def test_legacy_pin_without_author_counts_as_one_group(self):
+        pid1 = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "legacy"},
+                          dict(LOCAL_ACTOR)).record["id"]
+        rows = ps.snapshot_pins()
+        for r in rows:
+            if r["id"] == pid1:
+                r.pop("author", None)
+        ps.write_pins(rows)
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("[Bob] n2", md)
+        self.assertNotIn("[None]", md)
+        self.assertIn("legacy", md)
+
+    def test_closed_pins_excluded_from_author_count(self):
+        # a closed pin's author isn't shown in the open table, so it must be excluded from the count too (judged by open pins only).
+        pid = self.add(4, 5, note="n1", actor={"login": "alice@x.com", "name": "Wendy"})
+        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        self.add(8, 8, note="n2", actor={"login": "bob@x.com", "name": "Bob"})
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("[Bob]", md)
+
+
+class InstanceIdInPinsMd(Base):
+    def test_disk_header_has_paper_and_repo_line(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        lines = md.splitlines()
+        src_idx = next(i for i, ln in enumerate(lines) if ln.startswith("원고: `"))
+        self.assertEqual(lines[src_idx + 1],
+                         "논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git")
+
+    def test_header_shows_placeholder_without_repo(self):
+        ps.C.label, ps.C.repo = "paper-a", None
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("논문: paper-a · 저장소: (없음)", md)
+
+    def test_guidance_mentions_remote_check_only_when_repo_known(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertIn("git remote get-url origin", md)
+        self.assertIn("다르면 다른 논문의 핀이니 멈춘다", md)
+
+    def test_guidance_omits_remote_check_without_repo(self):
+        ps.C.label, ps.C.repo = "paper-a", None
+        self.add()
+        md = ps.C.pins_md.read_text(encoding="utf-8")
+        self.assertNotIn("git remote get-url origin", md)
+
+    def test_get_pins_md_endpoint_also_has_id_line(self):
+        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        self.add()
+        out = self.talk(req("GET", "/pins.md"))
+        body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
+        self.assertIn("논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git", body)
+
 
 
 if __name__ == "__main__":

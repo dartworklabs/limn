@@ -26,7 +26,7 @@ from unittest import mock
 from limn import access, config
 from limn.web.answers import CONFIRM_BY_HUMAN
 from limn.pins import render as md_render
-from test_server import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
+from helpers import Base, extract_js_fn, ps, req, run_node, shut_wr, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

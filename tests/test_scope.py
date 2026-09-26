@@ -1,7 +1,7 @@
 """limn.scope and limn.revisions on their own: which module may do what, and the refusal values of pin scoping.
 
 The attribution rules themselves (blocks, hunks, the synthetic tree) are tested in test_v03.py, and every revision
-route end to end through the handler in test_server.py and test_v03.py. Here: limn.scope stays pure (no file, process,
+route end to end through the handler in test_revisions.py and test_v03.py. Here: limn.scope stays pure (no file, process,
 clock or HTTP import), neither module reads the server's globals or imports server.py or the HTTP layer, and a
 refusal is a returned value of the ScopeRefusal set.
 

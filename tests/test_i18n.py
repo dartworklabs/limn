@@ -27,7 +27,7 @@ from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
-from test_server import add_pin, shut_wr
+from helpers import add_pin, shut_wr
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"

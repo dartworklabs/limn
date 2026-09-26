@@ -30,7 +30,7 @@ from limn import revisions
 from limn import scope as scoping
 from limn.web import parse
 from test_qa_021 import BrowserBase, actor
-from test_server import add_pin, extract_js_fn, ps, req, revision_spec, run_node, split_resp
+from helpers import add_pin, extract_js_fn, ps, req, revision_spec, run_node, split_resp
 
 HANGUL = re.compile(r"[가-힣]")
 A = actor(ALICE)

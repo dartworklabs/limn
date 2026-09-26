@@ -18,7 +18,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from limn.viewer import assemble
-from test_server import PKG, ps
+from helpers import PKG, ps
 
 VIEWER = PKG / "viewer"
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}

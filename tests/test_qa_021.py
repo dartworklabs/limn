@@ -26,7 +26,7 @@ from limn import access, config, mapping, startup
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins import render as md_render
 from test_access import ALICE, BOB, CAROL, AccessBase, member_add, reset_access, talk_to, token_create
-from test_server import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
+from helpers import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

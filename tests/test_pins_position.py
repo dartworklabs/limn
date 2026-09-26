@@ -1,7 +1,8 @@
 """limn.pins.position - the pure rules of a stored pin's position: estimation, overlap and anchor re-sync.
 
 These tests call the module directly with values: no server, files, clock or subprocess. The same rules are also
-pinned through the server in test_server.py (GET /api/pins's est and rel, re-sync after an edit of the manuscript);
+pinned through the server in test_locate.py (GET /api/pins's est, re-sync after an edit of the manuscript) and
+test_server.py (rel);
 here each rule's own contract is checked, and that the module stays pure.
 
 Run: uv run pytest -q tests/test_pins_position.py

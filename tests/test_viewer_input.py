@@ -4,7 +4,7 @@ The owner-approved findings of the 2026-09-26 input review (docs/handbook/viewer
 §모바일 레이아웃, §알림(토스트), §뜻과 모양). Two kinds of test:
 
 - ``...Logic`` classes run the pure decision functions of ``app.js`` under node (skipped without node), in the style of
-  ``test_server.FrontendPanelWidthLogic``: where a handle drag lands, which keys do what, how a swipe or a sheet drag ends.
+  ``test_viewer.FrontendPanelWidthLogic``: where a handle drag lands, which keys do what, how a swipe or a sheet drag ends.
 - The browser classes drive the real viewer against the in-process server (``test_qa_021.BrowserBase``) at desktop
   1400x850 and 1280x720 (mouse), an unfolded Fold 842x758 and a phone 384x832 (touch, CDP touch events), in Korean and
   English, light and dark, and with reduced motion.
@@ -18,7 +18,7 @@ import unittest
 
 from test_qa_021 import BrowserBase, actor
 from test_access import ALICE
-from test_server import add_pin, extract_js_fn, ps, run_node
+from helpers import add_pin, extract_js_fn, ps, run_node
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}

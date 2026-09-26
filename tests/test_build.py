@@ -1,13 +1,15 @@
 """limn.build - the manuscript build, driven by the document and settings it is given (coding rule R5).
 
-The server-level build behaviour (phases, history, the "manuscript modified" badge, --git-pull) is pinned through
-the server in test_server.py and test_build_copy.py. Here the module is called directly, with no server, no run
-arguments and no "current document": it must not read them, and two documents must be able to build at the same
-time, each into its own folders. latexmk and pdftoppm are small fakes on PATH, so no TeX installation is needed.
+The server-level build behaviour is pinned through server.py: the tracked build and the legacy page folder at the end
+of this file (AsyncBuild, Legacy), build history in test_locate.py (Estimate), the "manuscript modified" badge in
+test_meta.py (LightMeta), --git-pull in test_gitsync.py and the copy step in test_build_copy.py. The classes above
+call the module directly, with no server, no run arguments and no "current document": it must not read them, and two
+documents must be able to build at the same time, each into its own folders. latexmk and pdftoppm are small fakes on PATH, so no TeX installation is needed.
 
 Run: uv run pytest -q tests/test_build.py
 """
 import ast
+import json
 import os
 import tempfile
 import threading
@@ -18,6 +20,10 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build, files
+from limn import build as limn_build
+from limn import meta as limn_meta
+
+from helpers import Base, ps, req
 
 BUILD_PY = Path(build.__file__)
 FILES_PY = Path(files.__file__)
@@ -180,6 +186,172 @@ class TwoDocumentsAtOnce(unittest.TestCase):
                 self.assertEqual(sorted(p.name for p in D.build.iterdir() if p.suffix == ".tex"), [key + ".tex"])
         self.assertNotEqual(build.load_builds(a)["by"][build.cur_pages(a).name]["src_hash"],
                             build.load_builds(b)["by"][build.cur_pages(b).name]["src_hash"])
+
+
+# ---------------------------------------------------------------- through server.py's wiring
+#
+# The tracked build (build_all/build_async over a stubbed _build) and the single document's legacy page folder. These
+# classes load server.py (helpers.ps) and drive the module through its bindings; the tests above call the module on
+# its own.
+
+class Legacy(Base):
+    def test_migrate_copies_pdf_next_to_pages(self):
+        (ps.C.state / "pages").mkdir()
+        (ps.C.state / "pages" / "page-01.png").write_bytes(b"png")
+        ps.C.build.mkdir()
+        (ps.C.build / "main.pdf").write_bytes(b"%PDF-old")
+        (ps.C.build / "main.synctex.gz").write_bytes(b"syn-old")
+        limn_build.migrate_pages(ps.DOCS[0])
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]), ps.C.state / "pages" / "main.pdf")
+        (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")       # even though the rebuild overwrites build/
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")  # pick reads the PDF paired with the screen
+        self.assertEqual((ps.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
+        limn_build.migrate_pages(ps.DOCS[0])                                        # calling it twice doesn't overwrite either
+        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
+
+
+# ---------------------------------------------------------------- async build (docs/handbook/build-sync.md §비동기 재빌드)
+
+class AsyncBuild(Base):
+    def tearDown(self):
+        if ps.BUILD_LOCK.locked():
+            ps.BUILD_LOCK.release()
+        ps.BUILD_STATE.update(state="idle", phase=None, started_at=None, start_ts=None)
+        super().tearDown()
+
+    def test_async_returns_running_then_409_while_busy(self):
+        ev = threading.Event()
+
+        def fake_build(D=None):
+            ev.wait(5)
+            return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.01, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            r1 = ps.build_async(ps.DOCS[0])
+            self.assertEqual(r1, {"state": "running"})
+            self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "running")
+            r2 = ps.build_async(ps.DOCS[0])
+            self.assertEqual(r2, {"state": "running", "busy": True})
+            ev.set()
+            for _ in range(200):
+                if not ps.BUILD_LOCK.locked():
+                    break
+                time.sleep(0.02)
+        self.assertFalse(ps.BUILD_LOCK.locked())
+        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "ok")
+
+    def test_phase_copy_observed_before_build_runs(self):
+        seen = []
+
+        def fake_build(D=None):
+            seen.append(limn_build.state_snapshot(ps.DOCS[0])["phase"])
+            return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.0, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all(ps.DOCS[0])
+        self.assertEqual(seen, ["copy"])
+        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["phase"], None)   # phase is cleared when it finishes
+
+    def test_ok_errors_state_surfaces_in_build_state(self):
+        def fake_build(D=None):
+            return {"ok": True, "state": "ok_errors", "errors": [{"line": 412, "msg": "Undefined control sequence"}],
+                    "log": "boom", "elapsed_s": 1.2, "pages": 3}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all(ps.DOCS[0])
+        st = limn_build.state_snapshot(ps.DOCS[0])
+        self.assertEqual(st["state"], "ok_errors")
+        self.assertEqual(st["errors"][0]["line"], 412)
+
+    def test_ok_errors_commits_built_src_mtime(self):
+        def fake_build(D=None):
+            return {"ok": True, "state": "ok_errors", "errors": [{"line": 1, "msg": "x"}],
+                    "log": "", "elapsed_s": 0.0, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build):
+            ps.build_all(ps.DOCS[0])
+        self.assertIsNotNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+
+    def test_failed_build_does_not_commit_built_src_mtime(self):
+        # bug: built_src_mtime used to be written at build "start" and stayed even on failure — the screen
+        # still showed the old PDF but the "manuscript modified" badge turned off. It should only be
+        # committed on ok|ok_errors.
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+
+        def fake_build_fail(D=None):
+            return {"ok": False, "state": "fail", "errors": [], "log": "boom", "elapsed_s": 0.1, "pages": 0}
+        with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
+            ps.build_all(ps.DOCS[0])
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))          # still None because it failed
+        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "fail")
+
+        def fake_build_ok(D=None):
+            return {"ok": True, "state": "ok", "errors": [], "log": "", "elapsed_s": 0.1, "pages": 1}
+        with mock.patch.object(ps, "_build", side_effect=fake_build_ok):
+            ps.build_all(ps.DOCS[0])
+        first_ok = limn_build.read_built_src_mtime(ps.DOCS[0])
+        self.assertIsNotNone(first_ok)                        # only committed once it succeeds
+
+        with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
+            ps.build_all(ps.DOCS[0])
+        self.assertEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), first_ok)  # a subsequent failure doesn't touch the committed value
+
+    def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
+        # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
+        with mock.patch.object(ps, "_build", side_effect=RuntimeError("boom")):
+            r = ps.build_async(ps.DOCS[0])
+            self.assertEqual(r, {"state": "running"})
+            for _ in range(200):
+                if not ps.BUILD_LOCK.locked():
+                    break
+                time.sleep(0.02)
+        self.assertFalse(ps.BUILD_LOCK.locked())
+        st = limn_build.state_snapshot(ps.DOCS[0])
+        self.assertEqual(st["state"], "fail")
+        self.assertIn("boom", st.get("log_tail") or "")
+
+    def test_rebuild_async_endpoint_202_then_409(self):
+        ps.BUILD_LOCK.acquire()
+        try:
+            out = self.talk(req("POST", "/api/rebuild?async=1"))
+            self.assertIn(b" 409 ", out)
+        finally:
+            ps.BUILD_LOCK.release()
+
+    def test_get_api_build_reports_known_state(self):
+        out = self.talk(req("GET", "/api/build"))
+        self.assertIn(b" 200 ", out)
+        data = json.loads(out.split(b"\r\n\r\n", 1)[1])
+        self.assertIn(data["state"], ("idle", "running", "ok", "ok_errors", "fail"))
+        self.assertIn("phase", data)
+        self.assertIn("log_tail", data)
+
+    def test_real_build_progresses_through_all_phases(self):
+        """Run once with the real latexmk/pdftoppm and observe the copy->latex->render order (only when the tools exist)."""
+        import shutil as _sh
+        if not (_sh.which("latexmk") and _sh.which("pdftoppm")):
+            self.skipTest("latexmk/pdftoppm not available")
+        seen = []
+        stop = threading.Event()
+
+        def poll():
+            while not stop.is_set():
+                ph = limn_build.state_snapshot(ps.DOCS[0])["phase"]
+                if ph and (not seen or seen[-1] != ph):
+                    seen.append(ph)
+                time.sleep(0.01)
+        t = threading.Thread(target=poll, daemon=True)
+        t.start()
+        res = ps.build_all(ps.DOCS[0])
+        stop.set()
+        t.join(2)
+        self.assertEqual(res["state"], "ok")
+        self.assertIn("latex", seen)
+        self.assertIn("render", seen)
+        self.assertTrue(limn_build.cur_pdf(ps.DOCS[0]).exists())
+        aux = limn_build.cur_pages(ps.DOCS[0]) / "main.aux"
+        self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")
+        labels = limn_meta.outline_labels(ps.DOCS[0])
+        self.assertEqual(labels["build"], res["build"])
+        self.assertEqual([(row["number"], row["title"]) for row in labels["labels"][:2]],
+                         [("1", "Intro"), ("1.1", "Next")])
+
 
 
 if __name__ == "__main__":
