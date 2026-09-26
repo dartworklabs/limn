@@ -251,17 +251,13 @@ def _build(D: Doc) -> BuildResult:
 
 > **예시**
 >
-> 저장소의 쓰기 순서 계약이다. 무엇을 하는지보다 언제 쓰고 언제 쓰지 않는지를 말한다.
+> 핀 상태를 정하는 규칙 하나의 계약이다. 무엇을 하는지뿐 아니라 무엇을 읽지 않는지, 누가 기대는지를 말한다.
 
 ```python
-def transact(self, fn: Callable[[list[Row]], tuple[T, bool]]) -> tuple[list[Row], T]:
-    """The write-order invariant: with the lock -> read -> sync -> fn applies the change -> write_pins.
-
-    fn(rows) changes rows in place, only after its own checks pass, and returns (result, whether it changed
-    rows). The change is applied after sync, so a caller-supplied lo/hi is never reverted by a stale anchor.
-    The file is written when sync or fn changed rows - a read-only step still writes a re-sync. If fn raises
-    refusal, the re-sync (if any) is written and the exception propagates; any other exception writes nothing.
-    Returns (rows as written or read, fn's result)."""
+def state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]:
+    """The state type a stored record is in - the one rule of a pin's state, never stored: not done is open; done
+    with review true is awaiting review; any other done (a legacy done:true without review too) is done. Reads only
+    done and review, so it is cheap enough for every pin of every read (limn.pins.view.pin_state)."""
 ```
 
 **확인하는 법.** 리뷰에서 docstring을 구현·테스트와 대조해, 말과 코드가 다르면 둘 중 틀린 쪽을 고친다. 누락을 잡는 정량 게이트는 아직 없다(Ruff `D`, §다음).
@@ -272,7 +268,7 @@ def transact(self, fn: Callable[[list[Row]], tuple[T, bool]]) -> tuple[list[Row]
 
 **업계에서 부르는 이름.** 점진적 타입 지정(gradual typing, PEP 484). `X | None` 표기는 PEP 604다.
 
-**지금 코드.** 타입 검사기는 mypy strict이고, `src/limn/` 아래의 모든 파이썬 파일을 검사한다(`[tool.mypy]`의 `files = ["src/limn"]`). 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다. 설정의 정본은 `pyproject.toml`이고, 고른 이유와 게이트는 [verification.md](verification.md) §9에 있다. 옮긴 모듈은 옆 모듈과 모양을 맞춰 `from __future__ import annotations`로 시작한다.
+**지금 코드.** 타입 검사기는 mypy strict이고, `src/limn/` 아래의 모든 파이썬 파일을 검사한다(`[tool.mypy]`의 `files = ["src/limn"]`). 합 타입에 대한 `match`가 경우 하나를 빠뜨리면 `exhaustive-match`로 실패한다. 설정의 정본은 `pyproject.toml`이고, 고른 이유와 게이트는 [verification.md](verification.md) §9에 있다. `from __future__ import annotations`는 실제로 필요한 곳(자기 타입을 가리키는 표기 등)에만 쓴다.
 
 > **예시**
 >
