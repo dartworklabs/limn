@@ -5,6 +5,7 @@ Instance management lives in the bash script instances.sh next to this file. Thi
 the paths it needs (interpreter, server, unit template, the limn executable) and the version via
 environment variables, then execs bash. `limn token` and `limn member` are Python: they edit the
 instance's state directory through the store helpers in server.py (the server stays one module).
+server.py is imported only by the commands that need it, so `limn version` and the instance commands stay fast.
 """
 from __future__ import annotations
 
@@ -15,8 +16,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple, TypeAlias
 
 from limn import __version__
 
@@ -47,6 +49,10 @@ Instances (one systemd user unit limn@<name> per manuscript):
 INSTANCE_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 TOKEN_LINE_RE = re.compile(r"limn_[A-Za-z0-9_-]+")   # what a token file holds: server.TOKEN_PREFIX + token_urlsafe
 
+# One extra argparse option of split_target(): (flags, add_argument keyword arguments),
+# e.g. (("--name",), {"help": "..."}).
+OptionSpec: TypeAlias = tuple[tuple[str, ...], dict[str, Any]]
+
 
 def limn_bin() -> str:
     """The limn executable to put into the systemd unit's ExecStart — prefer the one running now."""
@@ -57,7 +63,10 @@ def limn_bin() -> str:
     return shutil.which("limn") or str(Path.home() / ".local" / "bin" / "limn")
 
 
-def instances_env() -> dict:
+def instances_env() -> dict[str, str]:
+    """The environment instances.sh runs in: the caller's, plus where this install keeps its interpreter, server,
+    unit template and limn executable (LIMN_PYTHON, LIMN_SERVER, LIMN_UNIT_TEMPLATE, LIMN_BIN; a value the caller
+    already set wins), and LIMN_VERSION, which is always this package's version."""
     env = dict(os.environ)
     env.setdefault("LIMN_PYTHON", sys.executable)
     env.setdefault("LIMN_SERVER", str(HERE / "server.py"))
@@ -67,7 +76,10 @@ def instances_env() -> dict:
     return env
 
 
-def run_instances(args: list) -> int:
+def run_instances(args: Sequence[str]) -> int:
+    """Replace this process with `bash instances.sh <args...>` in instances_env(). Returns 1 only when bash is not
+    installed (after saying so on stderr); otherwise it never returns - the script's exit status is the process's.
+    os.execve raises OSError if bash cannot be executed."""
     bash = shutil.which("bash")
     if not bash:
         print("limn: bash is required", file=sys.stderr)
@@ -79,10 +91,11 @@ def run_instances(args: list) -> int:
 # ---------------------------------------------------------------- instance -> state dir (same rules as instances.sh)
 
 class CliError(Exception):
-    pass
+    """A refusal of `limn token` / `limn member` the user can act on; main() prints its message as one
+    `limn: ...` line on stderr and exits with status 1."""
 
 
-def env_get(path: Path, key: str):
+def env_get(path: Path, key: str) -> str | None:
     """One KEY=VALUE from an instance config, read without a shell — the same rules as env_get in instances.sh:
     the last matching line wins, leading whitespace before KEY and trailing whitespace are dropped, and one layer
     of matching single or double quotes is removed. None if the key is absent."""
@@ -101,6 +114,7 @@ def env_get(path: Path, key: str):
 
 
 def xdg(var: str, default: str) -> Path:
+    """The XDG base folder in environment variable var, or ~/<default> when it is unset or empty."""
     return Path(os.environ.get(var) or (Path.home() / default))
 
 
@@ -134,10 +148,14 @@ def instance_state_dir(name: str) -> Path:
     return data_root / name
 
 
-def split_target(prog: str, argv: list, npos: int, extra: list | None = None) -> tuple:
+def split_target(prog: str, argv: Sequence[str], npos: int,
+                 extra: Sequence[OptionSpec] | None = None) -> tuple[Path, list[str], argparse.Namespace]:
     """Parses '<instance> <positionals...> [options]' or '--state-dir DIR <positionals...> [options]'
     -> (state dir, positionals, options namespace). The namespace's `instance` is the instance name, None for
-    --state-dir (a plain `limn serve` has no instance, so no token file)."""
+    --state-dir (a plain `limn serve` has no instance, so no token file). extra adds options (OptionSpec).
+
+    Wrong usage - no instance, or not exactly npos positionals - exits through argparse (usage on stderr, status 2);
+    an invalid or unconfigured instance name raises CliError."""
     ap = argparse.ArgumentParser(prog=prog)
     ap.add_argument("--state-dir", help="state directory of a plain `limn serve` instead of an instance name")
     for args, kw in extra or []:
@@ -156,11 +174,6 @@ def split_target(prog: str, argv: list, npos: int, extra: list | None = None) ->
     if len(pos) != npos:
         ap.error("expected %d argument(s) after the instance, got %d: %s" % (npos, len(pos), " ".join(pos) or "(none)"))
     return state, pos, ns
-
-
-def server_module():
-    from limn import server
-    return server
 
 
 # ---------------------------------------------------------------- the agent token file (docs/adr/0007-agent-token-file.md)
@@ -198,7 +211,7 @@ def save_refusal(target: SaveTarget, path: Path, force: bool) -> str | None:
     return None
 
 
-def git_tree_holding(path: Path) -> tuple:
+def git_tree_holding(path: Path) -> tuple[str | None, str | None]:
     """(work tree, None) when a git work tree holds path's folder and does not ignore path; (None, None) when none
     does, git is not installed, or it is macOS's stub without developer tools; (None, why) when git fails otherwise
     (dubious ownership, a broken repository), so the caller can refuse rather than guess.
@@ -216,7 +229,7 @@ def git_tree_holding(path: Path) -> tuple:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["LC_ALL"] = "C"
 
-    def git_in(*args: str) -> subprocess.CompletedProcess:
+    def git_in(*args: str) -> subprocess.CompletedProcess[str]:
         """One git command in the resolved folder, with the cleaned environment; never raises on git's status."""
         return subprocess.run([git, "-C", str(folder.resolve()), *args], capture_output=True, text=True, env=env,
                               timeout=30, check=False)
@@ -291,7 +304,7 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
 
     Every check runs before the token exists, and a failed write revokes the new token again, so a failure never
     leaves a valid token nobody holds. The token is printed only with --print."""
-    ps = server_module()
+    from limn import server as ps
     if ns.instance is None:
         raise CliError("--save needs an instance name: the token file is <config dir>/<instance>.token "
                        "(see limn token path <instance>)")
@@ -327,7 +340,7 @@ def create_saved_token(state: Path, ns: argparse.Namespace) -> int:
     return 0
 
 
-def forget_saved_token(path: Path, revoked: dict, token_hash) -> str | None:
+def forget_saved_token(path: Path, revoked: Mapping[str, Any], token_hash: Callable[[str], str]) -> str | None:
     """After a revoke: remove the token file if it held the revoked token (an agent would only get 401 from it) and
     say so; say that a file holding another token, or one it cannot read, was kept; None when there is no token file."""
     if not os.path.lexists(path):
@@ -341,12 +354,12 @@ def forget_saved_token(path: Path, revoked: dict, token_hash) -> str | None:
     return "kept %s - it holds another token" % path
 
 
-def cmd_token(argv: list) -> int:
+def cmd_token(argv: Sequence[str]) -> int:
     """`limn token create|path|list|revoke ...` -> exit status. Edits <state>/tokens.json through the store helpers in
     server.py and, for an instance, its token file (ADR-0007). Refusals raise CliError; main() prints them."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    ps = server_module()
+    from limn import server as ps
     if sub == "create":
         state, _, ns = split_target("limn token create", rest, 0, [
             (("--name",), {"help": "token name (default agent, agent-2, ...)"}),
@@ -400,10 +413,14 @@ def cmd_token(argv: list) -> int:
     raise CliError("limn token create|path|list|revoke <instance> ... (unknown subcommand: '%s')" % sub)
 
 
-def cmd_member(argv: list) -> int:
+def cmd_member(argv: Sequence[str]) -> int:
+    """`limn member add|list|remove|role ...` -> exit status. Edits <state>/people.json through the store helpers in
+    server.py; a running server applies the change from its next request. A missing member or an unknown subcommand
+    raises CliError; an invalid login or role, an existing member, or an unreadable people.json raises ValueError
+    from the store helpers; main() prints both."""
     sub = argv[0] if argv else ""
     rest = argv[1:]
-    ps = server_module()
+    from limn import server as ps
     note = "the running server applies it from the next request"
     if sub == "add":
         state, pos, ns = split_target("limn member add", rest, 1, [
@@ -434,15 +451,15 @@ def cmd_member(argv: list) -> int:
         return 0
     if sub == "role":
         state, pos, _ = split_target("limn member role", rest, 2)
-        e = ps.member_set_role(state, pos[0], pos[1])
-        if e is None:
+        changed = ps.member_set_role(state, pos[0], pos[1])
+        if changed is None:
             raise CliError("%s is not in %s (add it with `limn member add`)" % (pos[0], state / "people.json"))
-        print("%s is now %s — %s" % (e["login"], e["role"], note))
+        print("%s is now %s — %s" % (changed["login"], changed["role"], note))
         return 0
     raise CliError("limn member add|list|remove|role <instance> ... (unknown subcommand: '%s')" % sub)
 
 
-def main(argv: list | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """The `limn` entry point -> exit status. serve, version, migrate, token and member run here in Python; every
     other command execs instances.sh (so this returns only for those). A CliError, bad value, OS or subprocess error
     of `token` / `member` is one `limn: ...` line on stderr and status 1."""

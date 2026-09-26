@@ -24,6 +24,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
@@ -38,11 +39,14 @@ HISTORY = ("This repository moved here on 2026-09-25 from the manuscript-pin-pic
 
 
 def xdg(var: str, default: str) -> Path:
+    """The XDG base folder in environment variable var, or ~/<default> when it is unset or empty."""
     v = os.environ.get(var)
     return Path(v) if v else Path.home() / default
 
 
 def unquote(v: str) -> str:
+    """A config value as instances.sh reads it: surrounding whitespace dropped, then one layer of matching single or
+    double quotes removed. Nothing inside is unescaped."""
     v = v.strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
         return v[1:-1]
@@ -50,14 +54,16 @@ def unquote(v: str) -> str:
 
 
 def emit(key: str, val: str) -> str:
+    """One KEY=VALUE config line; the value is wrapped in double quotes when it holds whitespace or '#', so unquote()
+    and instances.sh read it back unchanged (a value containing '"' is not escaped)."""
     if re.search(r"[\s#]", val):
         return '%s="%s"' % (key, val)
     return "%s=%s" % (key, val)
 
 
-def parse(text: str) -> dict:
+def parse(text: str) -> dict[str, str]:
     """KEY -> value. A repeated key keeps its last value (same rule as systemd and instances.sh)."""
-    vals = {}
+    vals: dict[str, str] = {}
     for ln in text.splitlines():
         m = KEY_RE.match(ln.rstrip("\r"))
         if m:
@@ -66,6 +72,10 @@ def parse(text: str) -> dict:
 
 
 def render(name: str, text: str, state_dir: str, had_state: bool) -> str:
+    """The new config for instance name from the old config text: a fresh two-line header dated today, then the old
+    lines in order - comments that mention the old name (and an old copy of HEADER_2) dropped, every STATE_DIR line
+    rewritten to state_dir, other lines kept as they were (a trailing CR removed). Without had_state (the old config
+    set no non-empty STATE_DIR) a STATE_DIR line is appended, so the pins stay where the old install kept them."""
     out = ["# %s@%s — written by `limn migrate` on %s. Keys: docs/handbook/instances.md." % (
         NEW, name, date.today().isoformat()), HEADER_2]
     for ln in text.splitlines():
@@ -82,7 +92,10 @@ def render(name: str, text: str, state_dir: str, had_state: bool) -> str:
 
 
 def set_state(text: str, state_dir: str) -> str:
-    out, done = [], False
+    """text with every STATE_DIR line replaced by STATE_DIR=state_dir, or such a line appended if there was none.
+    Other lines are kept; the result ends in one newline."""
+    out: list[str] = []
+    done = False
     for ln in text.splitlines():
         m = KEY_RE.match(ln)
         if m and m.group(1) == "STATE_DIR":
@@ -96,6 +109,8 @@ def set_state(text: str, state_dir: str) -> str:
 
 
 def unit_active(unit: str) -> bool:
+    """Whether the systemd user unit is running or changing state (active, activating, reloading, deactivating).
+    False when systemctl is missing, fails or times out (10 s) - a machine without systemd has no running unit."""
     try:
         r = subprocess.run(["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.SubprocessError):
@@ -104,6 +119,8 @@ def unit_active(unit: str) -> bool:
 
 
 def port_busy(port: str) -> bool:
+    """Whether something accepts TCP connections on 127.0.0.1:port (0.5 s timeout). False for an empty or
+    non-numeric port - there is nothing to check."""
     if not port.isdigit():
         return False
     with socket.socket() as s:
@@ -112,6 +129,7 @@ def port_busy(port: str) -> bool:
 
 
 def under(p: Path, root: Path) -> bool:
+    """Whether p is root or inside it, after resolving symlinks on both sides."""
     try:
         p.resolve().relative_to(root.resolve())
         return True
@@ -119,7 +137,18 @@ def under(p: Path, root: Path) -> bool:
         return False
 
 
-def main(argv: list | None = None) -> int:
+def without_state(vals: dict[str, str]) -> dict[str, str]:
+    """vals without its STATE_DIR key: a new config that differs from the wanted one only in STATE_DIR - because an
+    earlier --move-state moved the state dir to the new data root - still counts as migrated."""
+    return {k: v for k, v in vals.items() if k != "STATE_DIR"}
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """`limn migrate [names...] [options]` -> exit status: 0 when every named instance is migrated or already was
+    (or there is nothing to migrate), 1 when a name has no old config or an instance needs a check by hand (a new
+    config with different values, a state dir that could not be moved). The steps and guarantees are in the module
+    docstring. Prints a report per instance on stdout; with --dry-run it writes nothing. Bad arguments exit through
+    argparse (status 2)."""
     ap = argparse.ArgumentParser(
         prog="limn migrate",
         description="Move instance configs (and optionally state dirs) from the old %s install to Limn. "
@@ -169,8 +198,8 @@ def main(argv: list | None = None) -> int:
         # 1. config
         if dst.exists():
             cur, new = parse(dst.read_text(encoding="utf-8")), parse(want)
-            strip = lambda d: {k: v for k, v in d.items() if k != "STATE_DIR"}  # noqa: E731
-            if cur == new or (strip(cur) == strip(new) and cur.get("STATE_DIR") == str(a.data_root / n)):
+            if cur == new or (without_state(cur) == without_state(new)
+                              and cur.get("STATE_DIR") == str(a.data_root / n)):
                 print("  new config  %s — already migrated" % dst)
             else:
                 print("  new config  %s — exists with different values; left alone (check by hand)" % dst)
