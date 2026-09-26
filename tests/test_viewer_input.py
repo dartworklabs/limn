@@ -176,6 +176,29 @@ class GestureLogic(unittest.TestCase):
         self.assertEqual(got, ["side", None, "side", None, "outline", None])
 
 
+class DraftLogic(unittest.TestCase):
+    """draftKey()/draftRestore(): where a composer draft is kept per tab (sessionStorage) and what a reload brings back."""
+
+    def run_js(self, expr):
+        """Evaluate expr (JSON) with draftKey and draftRestore from the shipped source."""
+        js = "\n".join([extract_js_fn("draftKey"), extract_js_fn("draftRestore"), "console.log(JSON.stringify(%s));" % expr])
+        return node_or_skip(self, js)
+
+    def test_key_is_per_instance_label_and_document(self):
+        """Two instances (labels) and two documents never share a draft."""
+        self.assertEqual(self.run_js("[draftKey('A-DEMO','ms'),draftKey('A:B','hl'),draftKey('','ms')]"),
+                         ["limnDraft:A-DEMO:ms", "limnDraft:A%3AB:hl", "limnDraft::ms"])
+
+    def test_restore_is_full_on_the_same_build_note_only_on_another_and_nothing_for_another_doc(self):
+        """The box's coordinates only mean something on the build it was drawn on; a note is worth keeping anyway."""
+        rec = "{v:1,doc:'ms',build:'p1',cur:{lo:3},note:'메모'}"
+        got = self.run_js("[draftRestore(%s,'ms','p1'),draftRestore(%s,'ms','p2'),draftRestore(%s,'hl','p1'),"
+                          "draftRestore({v:1,doc:'ms',build:'p1',cur:null,note:'메모'},'ms','p1'),"
+                          "draftRestore({v:1,doc:'ms',build:'p2',cur:{lo:3},note:'  '},'ms','p1'),"
+                          "draftRestore(null,'ms','p1'),draftRestore({v:2,doc:'ms',build:'p1',cur:{},note:'x'},'ms','p1')]" % (rec, rec, rec))
+        self.assertEqual(got, ["full", "note", None, "note", None, None, None])
+
+
 # ---------------------------------------------------------------- browser harness
 
 class ViewerBase(BrowserBase):
@@ -581,6 +604,134 @@ class ReviewRegressions(ViewerBase):
         self.assertEqual(page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--swipe-x').trim()||'0px'"), "0px")
         if page.evaluate("SIDE_OPEN"):
             self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842)
+
+
+DRAFT_KEYS = "Object.keys(sessionStorage).filter(k=>k.startsWith('limnDraft:'))"
+BOOTED = "typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=3&&META"
+
+
+class DraftPersistence(ViewerBase):
+    """A composer draft survives leaving the tab's page (reload, history back, the second back gesture): it is kept in
+    sessionStorage per instance and document on every edit and restored with '작성 중이던 메모를 되살렸습니다 · [버리기]'.
+    Saving clears it; discarding clears it once the undo window is over (coordinator decision 2026-09-26)."""
+
+    def reload(self, page):
+        """Reload and wait for the viewer to boot again."""
+        page.reload()
+        page.wait_for_function(BOOTED, timeout=20000)
+        page.wait_for_timeout(400)
+
+    def draft(self, page, note, question=False):
+        """Pick with the mouse, write a note (and switch to a question), then give the debounced save time."""
+        self.mouse_pick(page)
+        page.locator('#note').fill(note)
+        if question:
+            page.locator('#c-kind [data-kind="question"]').click()
+        page.wait_for_timeout(600)
+        return page.evaluate("CUR.lo")
+
+    def restored(self, page):
+        """[composer shown, CUR.lo, note, kind, pending box, the restore toast's text]."""
+        return page.evaluate("""() => [!document.querySelector('#composer').hidden, CUR&&CUR.lo, document.querySelector('#note').value,
+          KIND_NEW, !!document.querySelector('.sel.pending'),
+          [...document.querySelectorAll('#toasts .toast .t-title')].map(t=>t.textContent).join('|')]""")
+
+    def test_a_reload_restores_the_selection_note_kind_and_box_with_a_discard_toast(self):
+        """Korean and English: everything comes back, and the toast offers [버리기] / [Discard]."""
+        for lang, title, button in (("ko", "작성 중이던 메모를 되살렸습니다", "버리기"), ("en", None, None)):
+            with self.subTest(lang=lang):
+                page = self.view(DESK, lang=lang)
+                lo = self.draft(page, "다시 올 메모", question=True)
+                self.reload(page)
+                got = self.restored(page)
+                self.assertEqual(got[:5], [True, lo, "다시 올 메모", "question", True])
+                if lang == "ko":
+                    self.assertIn(title, got[5])
+                    self.assertTrue(page.locator("#toasts .toast button", has_text=button).is_visible())
+                else:
+                    self.assertTrue(got[5])
+                    self.assertFalse(HANGUL.search(got[5]), got[5])
+
+    def test_leaving_by_the_second_back_and_coming_back_restores_the_draft(self):
+        """Phone, history fallback: the first back closes the sheet, the second leaves Limn; forward brings the draft back."""
+        page = self.view(PHONE, init=NO_CLOSE_WATCHER)
+        cdp = self.cdp(page)
+        self.long_press_pick(cdp, page)
+        lo = page.evaluate("CUR.lo")
+        page.locator('#note').fill("폰에서 쓰던 메모")
+        page.wait_for_timeout(600)
+        page.go_back()
+        page.wait_for_function("!SIDE_OPEN")
+        page.go_back()
+        page.wait_for_timeout(300)
+        self.assertNotIn("viewer.test", page.url)
+        page.go_forward()
+        page.wait_for_function(BOOTED, timeout=20000)
+        page.wait_for_timeout(400)
+        got = self.restored(page)
+        self.assertEqual(got[:3], [True, lo, "폰에서 쓰던 메모"])
+        self.assertTrue(page.evaluate("SIDE_OPEN"))                              # a restored draft opens the collapsed sheet
+
+    def test_discard_on_the_restore_toast_clears_the_draft_after_its_undo_window(self):
+        """[버리기] goes through the usual discard (with its own undo); once that toast is gone nothing is kept."""
+        page = self.view(DESK)
+        self.draft(page, "버릴 메모")
+        self.reload(page)
+        page.locator("#toasts button", has_text="버리기").click()
+        self.assertEqual(page.evaluate("[document.querySelector('#composer').hidden, document.querySelector('#note').value]"), [True, ""])
+        undo = page.locator("#toasts .toast", has_text="선택 취소됨")
+        self.assertTrue(undo.is_visible())
+        self.assertEqual(len(page.evaluate(DRAFT_KEYS)), 1)                      # still restorable during the undo window
+        undo.locator("button[aria-label]").click()                              # [x] ends the window
+        page.wait_for_timeout(400)
+        self.assertEqual(page.evaluate(DRAFT_KEYS), [])
+        self.reload(page)
+        self.assertEqual(self.restored(page)[:3], [False, None, ""])
+
+    def test_a_discard_left_within_its_undo_window_comes_back_but_not_after_it(self):
+        """Esc with a note, then reload at once: the draft is back. Esc again and let the window end: gone."""
+        page = self.view(DESK)
+        lo = self.draft(page, "되돌릴 수 있던 메모")
+        page.keyboard.press("Escape")
+        self.reload(page)
+        self.assertEqual(self.restored(page)[:3], [True, lo, "되돌릴 수 있던 메모"])
+        page.locator('#note').focus()
+        page.keyboard.press("Escape")
+        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        page.wait_for_timeout(400)
+        self.reload(page)
+        self.assertEqual(self.restored(page)[:3], [False, None, ""])
+
+    def test_a_saved_pin_leaves_no_draft(self):
+        """Save and reload right away: no composer, no toast, nothing in sessionStorage."""
+        page = self.view(DESK)
+        self.draft(page, "저장할 메모")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function("OPEN_ALL.length===4")
+        self.assertEqual(page.evaluate(DRAFT_KEYS), [])
+        self.reload(page)
+        self.assertEqual(self.restored(page), [False, None, "", "fix", False, ""])
+
+    def test_a_draft_from_another_build_brings_back_only_the_note(self):
+        """After a rebuild the box would point at the wrong spot: the note returns for the next pick, and the toast says so."""
+        page = self.view(DESK)
+        self.draft(page, "빌드가 바뀐 메모")
+        page.evaluate("CUR.pdf_build='pages-old'; syncDraft()")                  # a draft drawn on a build that has since been replaced
+        self.assertIn('"build":"pages-old"', page.evaluate("sessionStorage.getItem(%s[0])" % DRAFT_KEYS))
+        self.reload(page)
+        got = self.restored(page)
+        self.assertEqual(got[:3], [False, None, "빌드가 바뀐 메모"])
+        self.assertIn("작성 중이던 메모를 되살렸습니다", got[5])
+        self.mouse_pick(page)
+        self.assertEqual(page.evaluate("document.querySelector('#note').value"), "빌드가 바뀐 메모")
+
+    def test_a_restored_draft_opens_a_collapsed_wide_panel_without_remembering(self):
+        """Wide with the panel collapsed: the restored draft opens it; pinPrefs.sideClosed stays true."""
+        page = self.view(DESK)
+        self.draft(page, "접힌 패널의 메모")
+        page.evaluate("savePrefs({sideClosed:true})")
+        self.reload(page)
+        self.assertEqual(page.evaluate("[SIDE_OPEN, prefs().sideClosed]"), [True, True])
 
 
 class DesktopPersistence(ViewerBase):
