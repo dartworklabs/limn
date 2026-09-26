@@ -21,7 +21,7 @@ from pathlib import Path
 from limn import mapping
 from limn.store import dump_jsonl
 from test_access import AccessBase, configure, mask
-from test_server import ps
+from test_server import add_pin, ps
 from test_v03 import ScopedRepo
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -115,7 +115,7 @@ class MovedManuscriptBase(AccessBase):
         self.use_root(self.a)
         self.p_new = self.pin_at("sections/x.tex", 5, 6)
         self.p_old = self.pin_at("sections/x.tex", 10, 11)
-        self.p_quote = ps.add_pin({"file": str(self.a / "sections" / "long.tex"), "lo": 1, "hi": 1, "scope": "raw",
+        self.p_quote = add_pin({"file": str(self.a / "sections" / "long.tex"), "lo": 1, "hi": 1, "scope": "raw",
                                    "quote": "Long line word word", "note": "q"}, dict(ps.LOCAL_ACTOR)).record["id"]
         self.make_legacy(self.p_old, self.p_quote)            # as 0.3.0 wrote them: no file_rel
 
@@ -124,7 +124,7 @@ class MovedManuscriptBase(AccessBase):
         ps.C.src, ps.C.main = root, root / "main.tex"
 
     def pin_at(self, rel, lo, hi, note="n"):
-        return ps.add_pin({"file": str(ps.C.src / rel), "lo": lo, "hi": hi, "note": note}, dict(ps.LOCAL_ACTOR)).record["id"]
+        return add_pin({"file": str(ps.C.src / rel), "lo": lo, "hi": hi, "note": note}, dict(ps.LOCAL_ACTOR)).record["id"]
 
     def stored(self):
         return {r["id"]: r for r in ps.read_pins()[0]}

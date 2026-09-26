@@ -18,7 +18,7 @@ import unittest
 
 from test_qa_021 import BrowserBase, actor
 from test_access import ALICE
-from test_server import extract_js_fn, ps, run_node
+from test_server import add_pin, extract_js_fn, ps, run_node
 
 HANGUL = re.compile(r"[가-힣]")
 DESK = {"viewport": {"width": 1400, "height": 850}}
@@ -208,9 +208,9 @@ class ViewerBase(BrowserBase):
     def setUp(self):
         super().setUp()
         for lo, y in ((4, 0.2), (8, 0.35), (12, 0.5)):
-            ps.add_pin({"file": str(self.main), "lo": lo, "hi": lo + 1, "page": 1, "note": "메모 %d" % lo,
+            add_pin({"file": str(self.main), "lo": lo, "hi": lo + 1, "page": 1, "note": "메모 %d" % lo,
                         "frac": [0.15, y, 0.5, 0.04]}, actor(ALICE))
-        rid = ps.add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
+        rid = add_pin({"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
                          actor(ALICE)).record["id"]   # add_pin returns the new OpenPin (limn.pins.edit)
         ps.set_done(rid, True, dict(ps.LOCAL_ACTOR), reply="고침")
 

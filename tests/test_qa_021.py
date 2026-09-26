@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from test_access import ALICE, BOB, CAROL, AccessBase, reset_access, talk_to
-from test_server import Base, extract_js_fn, ps, req, run_node, split_resp
+from test_server import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -73,7 +73,7 @@ class MentionRules(Base):
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_note_mention_then_reply_mention(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단"}, self.A).record["id"]
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단"}, self.A).record["id"]
         n = self.n()
         ps.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("replied", ["alice@example.com"])])
@@ -89,7 +89,7 @@ class MentionRules(Base):
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_mention_plus_other_participants_nobody_gets_both(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Carol Lee 참고"}, self.A).record["id"]
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Carol Lee 참고"}, self.A).record["id"]
         ps.reply_pin(pid, "@Bob Park 의견?", self.A)
         n = self.n()
         ps.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
@@ -100,7 +100,7 @@ class MentionRules(Base):
         self.assertEqual(len(to), len(set(to)))                           # one event per person per reply
 
     def test_reopen_reason_re_mention_notifies(self):
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
         ps.set_done(pid, True, dict(ps.LOCAL_ACTOR))
         n = self.n()
         ps.set_done(pid, False, self.C, reason="@Bob Park 다시 봐 주세요")
@@ -118,15 +118,15 @@ class MentionRules(Base):
         from unittest import mock
         t0 = float(int(time.time()))                                       # whole seconds: ts is stored rounded to ms
         with mock.patch.object(ps.time, "time", return_value=t0):
-            pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
+            pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단 줄여 주세요"}, self.A).record["id"]
             n = self.n()
-            ps.edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
+            edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
             self.assertEqual(self.events_after(n), [])
         with mock.patch.object(ps.time, "time", return_value=t0 + ps.NOTE_MENTION_COOLDOWN_S):
-            ps.edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
+            edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
-            ps.edit_pin(pid, {"note": ps.find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
+            edit_pin(pid, {"note": ps.find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
             self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
 
 
@@ -673,9 +673,9 @@ class ViewerRoleUi(BrowserBase):
         ps.C.people_file.write_text(json.dumps({"version": 1, "people": [
             {"login": "alice@example.com", "name": "Alice Kim"},
             {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}]}), encoding="utf-8")
-        pid = ps.add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)).record["id"]
+        pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)).record["id"]
         ps.reply_pin(pid, "답글", actor(ALICE))
-        rid = ps.add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record["id"]
+        rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record["id"]
         ps.set_done(rid, True, dict(ps.LOCAL_ACTOR), reply="고침")
 
     def visible_acts(self, page):
