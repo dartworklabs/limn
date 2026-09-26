@@ -562,7 +562,7 @@ class FoldOverlay(ViewerBase):
         self.assertTrue(page.evaluate("prefs().midClosed"))
 
     def test_short_slow_swipe_springs_back_and_a_quick_flick_closes(self):
-        """60px slowly stays open; 40px fast closes (velocity)."""
+        """60px slowly stays open; the same 60px flicked closes (velocity)."""
         page = self.view(FOLD)
         cdp = self.cdp(page)
         self.open_panel(page, cdp)
@@ -571,7 +571,7 @@ class FoldOverlay(ViewerBase):
         page.wait_for_timeout(400)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842)
-        self.swipe(cdp, x, y, x + 45, y, steps=3, dt=0.01)
+        self.swipe(cdp, x, y, x + 60, y, steps=2, dt=0)                            # CDP moves land ~30ms apart: ~0.9px/ms
         page.wait_for_function("!SIDE_OPEN")
 
     def test_a_draft_rubber_bands_the_swipe_and_never_closes(self):
@@ -797,7 +797,7 @@ class PhoneSheet(ViewerBase):
         page.wait_for_function("SIDE_OPEN")
         page.wait_for_timeout(300)
         x, y = self.center(page, '#sheet-grip')
-        self.swipe(cdp, x, y, x, y - 40, steps=3, dt=0.01)
+        self.swipe(cdp, x, y, x, y - 60, steps=2, dt=0)
         page.wait_for_timeout(300)
         self.assertAlmostEqual(page.evaluate("prefs().sheetF"), 0.64, delta=0.01)
         x, y = self.center(page, '#sheet-grip')

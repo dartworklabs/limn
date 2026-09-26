@@ -3109,11 +3109,13 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("var(--kb,0px)", css)
         # touch-action: the PDF area (#left) allows only scroll and blocks browser pinch (two fingers do
         # app-level zoom, §PDF 영역 전용 확대). A page in selection mode is none (one-finger drag = select).
-        # Everything else is just the width/height grips (none so they don't fight scroll while dragging).
-        # The sidebar/sheet are left untouched.
+        # The width/height grips are none so they don't fight scroll while dragging. The panel is pan-y pinch-zoom
+        # (a horizontal drag stays a pointer stream for the overlay's swipe; pinch keeps the browser's zoom), and
+        # the narrow sheet's tool bar is none - the whole bar drags the sheet (input review 2026-09-26).
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertEqual([x.strip() for x in re.findall(r"([^{}]*)\{[^{}]*touch-action", css_nc)],
-                     ["#left", "#outline-grip", "#grip", "body.selmode .pg", "body.lay-narrow #sheet-grip"])
+                     ["#left", "#outline-grip", "#grip", "#right", "body.selmode .pg", "body.lay-narrow #sheet-grip", "body.lay-narrow #bar1"])
+        self.assertRegex(css_nc, r"\n#right\{[^}]*touch-action:pan-y pinch-zoom\}")
         self.assertRegex(css_nc, r"\n#left\{[^}]*touch-action:pan-x pan-y\}")
         self.assertIn("body.selmode .pg{touch-action:none", css)
         self.assertNotIn("touch-action:pinch-zoom", css)

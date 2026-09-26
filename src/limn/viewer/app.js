@@ -948,6 +948,7 @@ function applyOutlineState(){
   document.body.classList.toggle('outline-collapsed',closed);
   const t=$('#nav-toc-toggle');t.setAttribute('aria-expanded',String(!closed));t.setAttribute('aria-label',closed?'목차 펼치기':'목차 접기');
   if(LAYOUT!=='narrow')showOutlineWidth(typeof p.outlineWidth==='number'?p.outlineWidth:240);
+  syncBackLayer();   // the mid outline overlay is a layer the back gesture closes
 }
 function setOutlineWidth(w){if(LAYOUT==='narrow')return;w=showOutlineWidth(w);savePrefs({outlineWidth:w});relayout();}
 function toggleOutline(){const a=topAnchor(),closed=!document.body.classList.contains('outline-collapsed');
@@ -1350,7 +1351,7 @@ function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen()
     t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
   $('#nav-side').hidden=!(LAYOUT==='wide'&&!open);
   $('#side-arrow').innerHTML=ic(LAYOUT==='narrow'?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
-  gripAria(); updateReviewCount(); if(typeof syncBackLayer==='function')syncBackLayer();}
+  gripAria(); updateReviewCount(); syncBackLayer();}
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed wide panel's
 // handle is the rail at the right edge, and its hint says how to bring the panel back.
 const GRIP_TIP=$('#grip').dataset.tip;
@@ -1430,8 +1431,10 @@ function setSelMode(on){SELMODE=!!on; document.body.classList.toggle('selmode',S
 function openMore(){const d=$('#more'); if(d.open)return; hideTip(); renderSizeSeg(); d.showModal(); toastHost();}
 // Expanding done/dropped pins from [⋯] opens the panel and scrolls to that list.
 function revealList(sel,shown){if(!shown)return; setSide(true); requestAnimationFrame(()=>{const t=$(sel); if(t)t.scrollIntoView({block:'start'});});}
-// Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its box rectangle.
-$('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)return; const r=d.getBoundingClientRect();
+// Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that falls outside its
+// box rectangle. The same for [더보기], help and the documents sheet (and the Trash, below); help and the documents sheet used to
+// stay open (input review 2026-09-26).
+for(const sel of ['#more','#help','#docs-menu'])$(sel).addEventListener('click',e=>{const d=e.currentTarget; if(e.target!==d)return; const r=d.getBoundingClientRect();
   if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();});
 
 // Panel width handle - mouse/touch/pen all share one Pointer Events path (replacing the old desktop-only mousedown
@@ -1491,28 +1494,135 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
     const next={ArrowLeft:w-16,ArrowRight:w+16,Home:b.min,End:b.max}[e.key];
     if(next!==undefined){e.preventDefault();setOutlineWidth(next);}});
 })();
-// Sheet height handle (narrow) - dragging up raises it (a collapsed sheet expands); dropping it below 25% of the screen collapses it. A tap cycles presets.
-(function(){const g=$('#sheet-grip'); let D=null;
-  g.addEventListener('pointerdown',e=>{if(LAYOUT!=='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
-    e.preventDefault(); D={id:e.pointerId,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false};
-    try{g.setPointerCapture(e.pointerId);}catch(_){}
-    g.classList.add('on'); document.body.classList.add('resizing');});
-  g.addEventListener('pointermove',e=>{if(!D||e.pointerId!==D.id)return; const dy=D.y-e.clientY;
-    if(!D.moved&&Math.abs(dy)<6)return; D.moved=true;
+// The release speed of a drag from its last 100ms of samples [[t, pos], ...], in px/ms (positive = toward larger pos).
+function dragSpeed(pts){if(pts.length<2)return 0; const a=pts[0],b=pts[pts.length-1]; return (b[1]-a[1])/Math.max(1,b[0]-a[0]);}
+function dragSample(pts,t,pos){pts.push([t,pos]); while(pts.length>2&&t-pts[0][0]>100)pts.shift();}
+// Where the phone sheet settles when a drag ends (docs/handbook/viewer.md §패널 폭과 시트 높이). f = the sheet height as a fraction
+// of the screen, dy = the whole move (down positive), v = the release speed (px/ms, down positive). Below 25% or a downward fling
+// (more than 24px at 0.5px/ms or faster) collapses it - or, while a draft is open, stops it at 30% (a drag never hides a draft);
+// an upward fling goes to the next height stop; otherwise it stays where it was let go. Returns {close:true} or {f}.
+function sheetRelease(f,dy,v,composing){
+  if(f<SHEET_CLOSE_F||(dy>24&&v>=0.5))return composing?{f:SHEET_MIN_F}:{close:true};
+  if(dy<-24&&v<=-0.5){const n=SHEET_F.find(x=>x>f+0.02); return {f:n===undefined?1:n};}
+  return {f:Math.max(SHEET_MIN_F,Math.min(1,f))};}
+function settleSheet(f,dy,v){const r=sheetRelease(f,dy,v,draftOpen()); if(r.close){applySheet(); setSide(false,true);} else setSheetF(r.f);}
+// The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway.
+function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',String(Math.max(draftOpen()?SHEET_MIN_F:0.12,h/innerHeight)));}
+// Sheet height (narrow): the top-edge handle and the whole tool bar move the sheet. On the handle a drag starts at once (6px); on
+// the tool bar a vertical move of more than 8px on a button turns into a sheet drag and swallows that button's click. Dragging
+// up opens a collapsed sheet; the release is sheetRelease(). A tap on the handle opens it or cycles the heights, and swallows the
+// ghost click that would otherwise land on whatever moved under the finger.
+(function(){const g=$('#sheet-grip'),bar=$('#bar1'); let D=null;
+  const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
+  const down=(e,lazy)=>{if(LAYOUT!=='narrow'||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
+    if(lazy&&e.target.closest&&e.target.closest('input,textarea,select'))return;
+    D={id:e.pointerId,x:e.clientX,y:e.clientY,h:$('#right').getBoundingClientRect().height,moved:false,lazy,el:lazy?bar:g,pts:[]};
+    if(!lazy){e.preventDefault(); grab(e);}};
+  g.addEventListener('pointerdown',e=>down(e,false));
+  bar.addEventListener('pointerdown',e=>down(e,true));
+  window.addEventListener('pointermove',e=>{if(!D||e.pointerId!==D.id)return; const dy=D.y-e.clientY;
+    if(!D.moved){if(Math.abs(dy)<(D.lazy?8:6))return;
+      if(D.lazy&&Math.abs(e.clientX-D.x)>Math.abs(dy)){D=null; return;}
+      D.moved=true; if(D.lazy){grab(e); hideTip(); endPress();}}
+    dragSample(D.pts,performance.now(),e.clientY);
     if(!SIDE_OPEN&&dy>0)setSide(true);
-    if(SIDE_OPEN)document.documentElement.style.setProperty('--sheet-f',String(Math.max(0.12,(D.h+dy)/innerHeight)));});
-  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing');
-    if(e.type==='pointercancel'){applySheet(); return;}
-    if(!d.moved){if(Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); return;}
+    if(SIDE_OPEN)dragSheetTo(D.h+dy);});
+  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; d.el.classList.remove('on'); document.body.classList.remove('resizing');
+    if(e.type==='pointercancel'){if(d.moved)applySheet(); return;}
+    if(!d.moved){if(d.lazy||Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); SWALLOW_CLICK=Date.now()+400; return;}
+    SWALLOW_CLICK=Date.now()+400;   // a drag that started on a tool-bar button never also presses it
     if(!SIDE_OPEN){applySheet(); return;}
-    const f=$('#right').getBoundingClientRect().height/innerHeight;
-    if(f<SHEET_CLOSE_F){applySheet(); setSide(false,true); return;}
-    setSheetF(f);};
-  g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
+    settleSheet($('#right').getBoundingClientRect().height/innerHeight,e.clientY-d.y,dragSpeed(d.pts));};
+  window.addEventListener('pointerup',end); window.addEventListener('pointercancel',end);
   g.addEventListener('keydown',e=>{if(LAYOUT!=='narrow')return; const f=sheetF();
     if(e.key==='ArrowUp'){e.preventDefault(); setSheetF(f+0.05);} else if(e.key==='ArrowDown'){e.preventDefault(); setSheetF(f-0.05);}
     else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSheet();}});
 })();
+// A pull-down that a scroll box at its top hands to its sheet (the phone sheet's content, the documents sheet): touch events,
+// because the browser cancels a pointer stream as soon as it starts its own scroll. The first move decides - down, mostly
+// vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move is the sheet's
+// (preventDefault). ok(e) filters the touchstart; onMove(dy) follows; onEnd(dy, v) settles (dy null = cancelled; v px/ms, down +).
+function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
+  box.addEventListener('touchstart',e=>{P=null; const t=e.touches[0];
+    if(e.touches.length!==1||!ok(e)||(e.target.closest&&e.target.closest('textarea,input,select,pre,.seg')))return;
+    P={x:t.clientX,y:t.clientY,on:false,pts:[]};},{passive:true});
+  box.addEventListener('touchmove',e=>{if(!P)return; const t=e.touches[0],dx=t.clientX-P.x,dy=t.clientY-P.y;
+    if(!P.on){if(Math.hypot(dx,dy)<8)return;
+      if(!(dy>0&&dy>Math.abs(dx)&&box.scrollTop<=0&&e.cancelable)){P=null; return;}
+      P.on=true; onStart();}
+    e.preventDefault(); dragSample(P.pts,performance.now(),t.clientY); onMove(dy);},{passive:false});
+  const end=e=>{if(!P)return; const p=P; P=null; if(!p.on)return;
+    onEnd(e.type==='touchcancel'?null:e.changedTouches[0].clientY-p.y,dragSpeed(p.pts));};
+  box.addEventListener('touchend',end); box.addEventListener('touchcancel',end);}
+// The phone sheet: pulling its content down at the top lowers the sheet (nested scroll hand-off); the release is sheetRelease().
+(function(){let h=0;
+  pullDown($('#right'),e=>LAYOUT==='narrow'&&SIDE_OPEN&&!e.target.closest('#bar1,#sheet-grip'),
+    ()=>{h=$('#right').getBoundingClientRect().height; document.body.classList.add('resizing'); hideTip(); endPress();},
+    dy=>dragSheetTo(h-dy),
+    (dy,v)=>{document.body.classList.remove('resizing'); if(dy===null){applySheet(); return;}
+      SWALLOW_CLICK=Date.now()+400; settleSheet($('#right').getBoundingClientRect().height/innerHeight,dy,v);});
+})();
+// The documents sheet follows a pull-down and closes on a release past 35% of its height or a flick (dismissOutcome).
+(function(){const d=$('#docs-menu');
+  pullDown(d,()=>d.open,()=>{},dy=>{d.style.transform='translateY('+Math.max(0,Math.round(dy))+'px)';},
+    (dy,v)=>{const close=dy!==null&&dismissOutcome(dy,d.getBoundingClientRect().height,v)==='close'; d.style.transform=''; if(close)d.close();});
+})();
+
+// ------------------------------------------------ The overlay panel's swipe (701-900px, touch)
+// The overlay panel is dismissed by a rightward swipe (docs/handbook/viewer.md §펼친 화면 레이아웃). swipeAxis() waits for 10px and
+// then takes only a mostly horizontal, rightward drag; the panel follows the finger through right (never a transform, which would
+// move the fixed tool bar with it), and dismissOutcome() decides the release: slide out (remembered like [핀]) or spring back,
+// 0.18s each. A draft only rubber-bands (swipeFollow). Gestures that start in a horizontal scroller (.seg, pre.nowrap), a text field,
+// the handle or the tool bar are theirs, and a press held still for 450ms is a text selection. 901-1099px (beside the document) has
+// no swipe - only the handle - and outside taps never close the overlay (it is not modal, and a long-press re-pick needs the PDF).
+function swipeAxis(dx,dy){if(Math.hypot(dx,dy)<10)return null; return dx>0&&Math.abs(dx)>1.5*Math.abs(dy)?'x':'none';}
+// How far the panel follows a rightward drag: the finger itself, or while a draft is open a rubber band (a quarter, at most 24px).
+function swipeFollow(dx,composing){dx=Math.max(0,dx); return composing?Math.min(24,dx*0.25):dx;}
+// A dismiss gesture's release (the panel swipe, the documents sheet): d = the distance moved toward closing, size = the panel's
+// size along it, v = the release speed toward closing in px/ms. Past 35% of the size, or a fling (more than 24px at 0.5px/ms or faster), closes.
+function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'back';}
+(function(){const R=$('#right'),SKIP='.seg,pre.nowrap,textarea,input,select,#grip,#bar1'; let S=null;
+  const setX=px=>document.documentElement.style.setProperty('--swipe-x',Math.round(px)+'px');
+  const settle=out=>{const b=document.body,ms=MQ_REDUCED.matches?0:SLIDE_MS; b.classList.remove('side-swiping');
+    const done=()=>{b.classList.remove('side-settling'); if(out==='close'){setSide(false,true); focusSideToggle();} setX(0);};
+    if(!ms){done(); return;} b.classList.add('side-settling'); setX(out==='close'?curSideW():0); setTimeout(done,ms);};
+  R.addEventListener('pointerdown',e=>{S=null; if(e.pointerType==='mouse'||!e.isPrimary||!(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN))return;
+    if(e.target.closest&&e.target.closest(SKIP))return;
+    S={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),axis:null,w:0,pts:[]};});
+  window.addEventListener('pointermove',e=>{if(!S||e.pointerId!==S.id)return; const dx=e.clientX-S.x,dy=e.clientY-S.y,now=performance.now();
+    if(!S.axis){const a=swipeAxis(dx,dy); if(a===null)return;
+      if(a!=='x'||now-S.t>=LONGPRESS_MS){S=null; return;}   // a scroll, a leftward drag, or a still press that selects text
+      S.axis=a; S.w=curSideW(); document.body.classList.add('side-swiping'); hideTip(); endPress();}
+    dragSample(S.pts,now,e.clientX); setX(swipeFollow(dx,draftOpen()));});
+  const end=e=>{if(!S||e.pointerId!==S.id)return; const s=S; S=null; if(s.axis!=='x')return;
+    if(e.type==='pointercancel'||draftOpen()){settle('back'); return;}
+    settle(dismissOutcome(Math.max(0,e.clientX-s.x),s.w,dragSpeed(s.pts)));};
+  window.addEventListener('pointerup',end); window.addEventListener('pointercancel',end);
+})();
+
+// ------------------------------------------------ The back gesture closes the top layer (touch)
+// On a phone or tablet the system back gesture closes the top layer first (docs/handbook/viewer.md §모바일 레이아웃) instead of
+// leaving Limn with a draft on screen. While the narrow sheet, the 701-900px overlay panel or the mid outline is open, one
+// CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher, one history
+// entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press, and document
+// switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is registered there.
+let BACK=null,BACK_SKIP=false;
+// Which layer covers the document: the narrow sheet, the 701-900px overlay panel, or the mid outline overlay ('side'|'outline'|null).
+function backLayer(layout,overlay,sideOpen,outlineOpen){if(layout==='narrow')return sideOpen?'side':null;
+  if(layout==='mid'){if(outlineOpen)return 'outline'; if(overlay&&sideOpen)return 'side';} return null;}
+function syncBackLayer(){const want=MQ_COARSE.matches&&!!backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
+  if(want&&!BACK)armBack(); else if(!want&&BACK)disarmBack();}
+function armBack(){
+  if(window.CloseWatcher){try{const w=new CloseWatcher(); BACK={kind:'watcher',w}; w.onclose=()=>{if(BACK&&BACK.w===w){BACK=null; closeTopLayer();}}; return;}catch(e){}}
+  history.pushState({limnLayer:1},'',location.href); BACK={kind:'history'};}
+function disarmBack(){const b=BACK; BACK=null;
+  if(b.kind==='watcher'){b.w.destroy(); return;}
+  if(history.state&&history.state.limnLayer){BACK_SKIP=true; history.back();}}
+function closeTopLayer(){const k=backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_MID_OPEN);
+  if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
+window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==='history'); if(!ours)return;
+  if(DOC)setHash(DOC);   // the entry below may carry an older #doc= - the document on screen stays
+  if(BACK_SKIP){BACK_SKIP=false; return;} BACK=null; closeTopLayer();});
 
 // ------------------------------------------------ Drag selection (mouse/touch/pen - one Pointer Events path)
 // Mouse: press and drag draws a rectangle, as before. Touch/pen: a drag draws a rectangle only in selection mode
@@ -1532,9 +1642,13 @@ function cancelDrag(){if(DRAG&&DRAG.box)DRAG.box.remove(); DRAG=null;}
 function cancelLP(){if(LP){clearTimeout(LP.t); LP=null;}}
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), as the old mousedown did - the note field's focus is preserved.
 $('#doc').addEventListener('mousedown',e=>{if(e.button===0&&e.target.closest('.pg'))e.preventDefault();});
+// A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click that follows
+// the touch would land on it (it opened edits, switched the kind, focused the note) - that one click is swallowed (SWALLOW_CLICK).
+// LP_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap zoom (touch, outside [선택] mode).
+let LP_PICKED=null,TAP=null,LAST_TAP=null;
 $('#doc').addEventListener('pointerdown',e=>{
   if(e.target.closest('.mark b'))return;
-  if(!e.isPrimary){cancelDrag(); cancelLP(); return;}   // a second finger = a pinch - the box being drawn is discarded
+  if(!e.isPrimary){cancelDrag(); cancelLP(); TAP=null; LAST_TAP=null; return;}   // a second finger = a pinch - the box being drawn is discarded
   const pg=e.target.closest('.pg'); if(!pg)return;
   const mouse=e.pointerType==='mouse';
   if(mouse&&e.button!==0)return;
@@ -1542,21 +1656,31 @@ $('#doc').addEventListener('pointerdown',e=>{
     DRAG={pg,sx,sy,id:e.pointerId,mouse,cx:e.clientX,cy:e.clientY,box:mouse?newBox(pg):null};
     if(!mouse){try{pg.setPointerCapture(e.pointerId);}catch(_){}}
     return;}
-  cancelLP();
-  LP={id:e.pointerId,pg,cx:e.clientX,cy:e.clientY,t:setTimeout(()=>{const L=LP; LP=null; if(L)quickPick(L.pg,L.cx,L.cy);},LONGPRESS_MS)};
+  cancelLP(); TAP={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now()};
+  LP={id:e.pointerId,pg,cx:e.clientX,cy:e.clientY,t:setTimeout(()=>{const L=LP; LP=null; if(L){LP_PICKED=L.id; quickPick(L.pg,L.cx,L.cy);}},LONGPRESS_MS)};
 });
 window.addEventListener('pointermove',e=>{
   if(LP&&e.pointerId===LP.id&&Math.hypot(e.clientX-LP.cx,e.clientY-LP.cy)>10)cancelLP();
+  if(TAP&&e.pointerId===TAP.id&&Math.hypot(e.clientX-TAP.x,e.clientY-TAP.y)>TAP_SLOP)TAP=null;
   if(!DRAG||e.pointerId!==DRAG.id)return;
   if(!DRAG.box){if(Math.hypot(e.clientX-DRAG.cx,e.clientY-DRAG.cy)<TAP_SLOP)return; DRAG.box=newBox(DRAG.pg);}
   const [x,y]=fracAt(DRAG.pg,e.clientX,e.clientY); drawBox(DRAG.box,DRAG.sx,DRAG.sy,x,y);});
 window.addEventListener('pointerup',e=>{
   if(LP&&e.pointerId===LP.id)cancelLP();
+  if(LP_PICKED===e.pointerId){LP_PICKED=null; SWALLOW_CLICK=Date.now()+400;}
+  if(TAP&&e.pointerId===TAP.id){const tp=TAP,now=performance.now(); TAP=null;
+    if(now-tp.t<300){const cur={t:now,x:e.clientX,y:e.clientY}; if(isDoubleTap(LAST_TAP,cur)){LAST_TAP=null; doubleTapZoom(cur.x,cur.y);} else LAST_TAP=cur;}}
   if(!DRAG||e.pointerId!==DRAG.id)return;
   const D=DRAG; DRAG=null;
-  if(!D.box){quickPick(D.pg,e.clientX,e.clientY);return;}   // a tap in selection mode = quick selection
+  if(!D.box){quickPick(D.pg,e.clientX,e.clientY); SWALLOW_CLICK=Date.now()+400; return;}   // a tap in selection mode = quick selection
   const [x,y]=fracAt(D.pg,e.clientX,e.clientY); finishRect(D.pg,D.box,D.sx,D.sy,x,y);});
-window.addEventListener('pointercancel',e=>{if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();});
+window.addEventListener('pointercancel',e=>{if(LP&&e.pointerId===LP.id)cancelLP(); if(DRAG&&e.pointerId===DRAG.id)cancelDrag();
+  if(TAP&&e.pointerId===TAP.id)TAP=null; if(LP_PICKED===e.pointerId)LP_PICKED=null;});
+// Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap within 300ms
+// and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around the tapped point.
+function isDoubleTap(a,b){return !!a&&!!b&&b.t-a.t<=300&&Math.hypot(b.x-a.x,b.y-a.y)<=24;}
+function doubleTapWidth(w,fit){return Math.abs(w-fit)<=fit*0.05?fit*2:fit;}
+function doubleTapZoom(x,y){const fit=fitWidth(),w=doubleTapWidth(W,fit); zoomTo(w,x,y); if(w===fit&&LAYOUT!=='wide')ZOOMED=false;}
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (page width +-7%, height
 // +-0.6% ~ one line). The server's default level is used as-is - 'paragraph' in body text, 'environment' inside a
 // figure/table - and then widened or narrowed via the range ladder.
