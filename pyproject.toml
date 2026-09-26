@@ -53,7 +53,7 @@ select = ["F", "E4", "E7", "E9", "B", "PLW1510"]
 # `limn` command (cli.py, migrate.py, the package files) are type-checked strictly; the list widens as modules move.
 # `uv run mypy` reports errors in exactly these files. cli.py imports server.py: mypy reads its signatures to check the
 # calls, but does not report server.py's own errors.
-files = ["src/limn/pins", "src/limn/mapping.py", "src/limn/build.py", "src/limn/files.py", "src/limn/store.py", "src/limn/mark.py", "src/limn/web", "src/limn/scope.py", "src/limn/revisions.py", "src/limn/documents.py", "src/limn/cli.py", "src/limn/migrate.py", "src/limn/__init__.py", "src/limn/__main__.py"]
+files = ["src/limn/pins", "src/limn/people.py", "src/limn/mentions.py", "src/limn/events.py", "src/limn/audit.py", "src/limn/mapping.py", "src/limn/build.py", "src/limn/files.py", "src/limn/store.py", "src/limn/mark.py", "src/limn/web", "src/limn/scope.py", "src/limn/revisions.py", "src/limn/documents.py", "src/limn/cli.py", "src/limn/migrate.py", "src/limn/__init__.py", "src/limn/__main__.py"]
 mypy_path = "src"
 python_version = "3.10"
 strict = true

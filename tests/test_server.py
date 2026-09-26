@@ -24,6 +24,7 @@ from limn.pins.edit import NoteTooLong, PinOutsideTree
 from limn.pins.lifecycle import CLAIM_FIELDS, AgentCannotConfirm, ClaimClosedPin, ClaimedByOther, ThreadFull
 from limn.pins.model import PinNotFound
 from limn.store import PinStore
+from limn.events import NOTIFY_TYPES
 from limn import revisions
 from limn import scope as scoping
 from limn.web import answers, parse
@@ -6413,7 +6414,7 @@ class MentionsPeopleEvents(Base):
         self.assertEqual(code, 400)
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
-        self.assertIn("assigned", ps.NOTIFY_TYPES)
+        self.assertIn("assigned", NOTIFY_TYPES)
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))

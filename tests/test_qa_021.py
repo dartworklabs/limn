@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlparse
 
+from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from test_access import ALICE, BOB, CAROL, AccessBase, reset_access, talk_to
 from test_server import add_pin, Base, edit_pin, extract_js_fn, ps, req, run_node, split_resp
 
@@ -122,7 +123,7 @@ class MentionRules(Base):
             n = self.n()
             edit_pin(pid, {"note": "@Bob Park 이 문단을 줄여 주세요", "base_rev": 0}, self.A)    # typo fix only
             self.assertEqual(self.events_after(n), [])
-        with mock.patch.object(ps.time, "time", return_value=t0 + ps.NOTE_MENTION_COOLDOWN_S):
+        with mock.patch.object(ps.time, "time", return_value=t0 + NOTE_MENTION_COOLDOWN_S):
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)                    # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()

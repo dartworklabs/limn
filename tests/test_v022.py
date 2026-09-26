@@ -22,6 +22,7 @@ from pathlib import Path
 from limn.pins.model import OpenPin, ReviewPin
 from limn import store as limn_store
 from limn.store import dump_jsonl
+from limn.events import EVENT_TYPES, NOTIFY_TYPES
 from test_access import ALICE, BOB, CAROL, AccessBase
 from test_qa_021 import BrowserBase, actor
 from test_server import add_pin, Base, extract_js_fn, js_i18n, js_icons, ps, run_node
@@ -305,7 +306,7 @@ class Trash(AccessBase):
         evs = ps._read_events()[0][n:]
         self.assertEqual([(e["type"], e["to"], e["by"]["login"], e["pin"]) for e in evs],
                          [("dropped", ["alice@example.com"], "bob@example.com", pid)])
-        self.assertIn("dropped", ps.NOTIFY_TYPES)
+        self.assertIn("dropped", NOTIFY_TYPES)
         m = self.call("GET", "/api/meta?light=1&ev=%d" % (evs[0]["seq"] - 1), headers=ALICE)[1]
         self.assertEqual([e["type"] for e in m["events"]], ["dropped"])
 
@@ -419,7 +420,7 @@ class ViewerMarkup(unittest.TestCase):
 
     def test_dropped_is_a_notification_type(self):
         self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
-        self.assertIn("dropped", ps.EVENT_TYPES)
+        self.assertIn("dropped", EVENT_TYPES)
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
