@@ -8,6 +8,8 @@ function ic(n){const b=ICONS[n]; return b?'<svg class="ic ic-'+n+'" viewBox="0 0
 const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const IS_MAC=/Mac|iPhone|iPad/i.test(navigator.platform||navigator.userAgent||'');
 const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth';
+// Reduced motion (live, not only at load): the panel's slides are skipped, but thresholds and previews stay (§패널 폭과 시트 높이).
+const MQ_REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const MQ=matchMedia('(prefers-color-scheme: light)');
 let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null,PICKING=false,PEND_SAVE=false;
 let SNIP_OPEN=false,W=900,WRAP=true;
@@ -216,9 +218,12 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
     // instead covered the sheet's own tool bar ([더보기] etc.), making it unpressable (a touch regression). In that case, it's placed inside the
     // sheet near the bottom, above the save/cancel row if that's visible.
     if(top<vh*0.3){top=vh; const ca=$('#c-actions'); if(shown(ca))top=ca.getBoundingClientRect().top;}}
-  else{const open=LAYOUT==='wide'||SIDE_OPEN,rr=right.getBoundingClientRect();
-    if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);} else w=Math.min(360,innerWidth-24);
-    ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],LAYOUT==='mid'&&!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
+  else{const open=SIDE_OPEN,rr=right.getBoundingClientRect();
+    if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);}
+    else if(LAYOUT==='wide'){const L=$('#left'),lr=L.getBoundingClientRect();   // collapsed wide: the PDF area's bottom-right, left of its scrollbar
+      r=Math.max(gap,innerWidth-(lr.left+L.clientLeft+L.clientWidth)+12); w=Math.min(360,L.clientWidth-24);}
+    else w=Math.min(360,innerWidth-24);
+    ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
       if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
   R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
 let TOAST_WATCH=0;
@@ -958,10 +963,31 @@ function clampSide(w,b){return Math.round(Math.min(b.max,Math.max(b.min,w)));}
 // Cycles through preset steps: the next step wider than the current width, wrapping to the narrowest if already at the widest. presetIndex is the step within +-4px (or -1 if none matches).
 function nextPreset(presets,w){const n=presets.find(p=>p>w+4); return n===undefined?presets[0]:n;}
 function presetIndex(presets,w){return presets.findIndex(p=>Math.abs(p-w)<=4);}
+// Where a handle drag lands (docs/handbook/viewer.md §패널 폭과 시트 높이). wRaw = the width the pointer asks for: the drag-start
+// width plus how far it moved left, unclamped (a drag from the collapsed rail starts at 0). T = half the minimum, rounded down.
+// Returns {w: the width to show, zone}: 'follow' at or above the minimum (the width follows, up to the maximum); 'min' from T up
+// to the minimum (it stops at the minimum and the handle turns primary); 'collapse' below T (a release collapses the panel);
+// 'blocked' there while a draft is open (composing/editing/replying/relocating - it stops at the minimum instead).
+function snapSide(wRaw,b,composing){const T=Math.floor(b.min/2);
+  if(wRaw>=b.min)return {w:Math.min(b.max,Math.round(wRaw)),zone:'follow'};
+  if(wRaw>=T)return {w:b.min,zone:'min'};
+  return {w:b.min,zone:composing?'blocked':'collapse'};}
+// The handle's keys as a WAI-ARIA window splitter whose primary pane is the panel (aria-valuenow = its width). Open: Enter
+// collapses, Space cycles the presets, Home/End go to the minimum/maximum, ←/→ widen/narrow by 16px within the bounds (never
+// below the minimum - collapsing is Enter's job). Collapsed: Enter/Space open to the saved width, Home/← open at the minimum,
+// End at the maximum; → does nothing. Returns {act:'collapse'|'cycle'|'open'} or {act:'width', w}, or null for any other key.
+function gripKey(key,w,b,collapsed){
+  if(collapsed){if(key==='Enter'||key===' ')return {act:'open'}; if(key==='Home'||key==='ArrowLeft')return {act:'width',w:b.min};
+    return key==='End'?{act:'width',w:b.max}:null;}
+  if(key==='Enter')return {act:'collapse'}; if(key===' ')return {act:'cycle'};
+  const to={Home:b.min,End:b.max,ArrowLeft:w+16,ArrowRight:w-16}[key];
+  return to===undefined?null:{act:'width',w:clampSide(to,b)};}
 function sideKey(){return LAYOUT==='mid'?'sideMid':'side';}
 function curSideW(){return Math.round($('#right').getBoundingClientRect().width);}
+// The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
+let SIDE_SHOWN=null;
 function showSideW(w,b){$('#right').style.width=w+'px'; document.documentElement.style.setProperty('--side-w',w+'px');
-  const g=$('#grip'); g.setAttribute('aria-valuenow',w); g.setAttribute('aria-valuemin',b.min); g.setAttribute('aria-valuemax',b.max);}
+  SIDE_SHOWN={w,min:b.min,max:b.max}; if(SIDE_OPEN)gripAria();}
 function applySideWidth(){
   if(LAYOUT==='narrow'){$('#right').style.width=''; applySheet(); return;}
   const b=sideBounds(LAYOUT,innerWidth),p=prefs()[sideKey()];
@@ -1303,22 +1329,65 @@ function wheelFactor(dy,mode){if(!dy)return 1;
 // a bottom sheet, collapsed by default. If the width changes partway through a collapse/expand, the layout is re-chosen
 // and the page width is re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the page, so they fall back into place automatically once the page width is fit.
 function layoutFor(){const w=innerWidth; if(w<=700)return 'narrow'; if(w<1100)return 'mid'; return 'wide';}
+// Picks the layout for the window width and its panel state: wide follows the per-device pinPrefs.sideClosed (open by default),
+// mid its midClosed (else open beside the document, collapsed as an overlay), narrow starts collapsed. An open draft keeps it open.
 function applyLayout(){const L=layoutFor(),overlay=L==='mid'&&innerWidth<=900; if(L===LAYOUT&&overlay===MID_OVERLAY)return false;
-  LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false;
+  LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   ['wide','mid','narrow'].forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!=='wide');
-  SIDE_OPEN=L==='wide'?true:(L==='mid'?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
-  if(L!=='wide'&&!REPICK&&(CUR||EDIT||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit is never left hidden collapsed
+  SIDE_OPEN=L==='wide'?p.sideClosed!==true:(L==='mid'?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
+  if(!REPICK&&(CUR||EDIT||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   applySide(); stickTop(); return true;}
-function applySide(){const open=LAYOUT==='wide'||SIDE_OPEN;
-  document.body.classList.toggle('side-open',open);
-  const btn=$('#btn-side'); btn.setAttribute('aria-expanded',String(open));
+// A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
+// drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
+function draftOpen(){return !$('#composer').hidden||!!EDIT||!!REPLY||!!REPICK;}
+// Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes, both [핀 N] toggles - the tool bar's and,
+// for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
+// layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
+function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length;
+  b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',!$('#composer').hidden);
+  const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(dot?' · '+tr('작성 중'):'');
+  for(const t of [$('#btn-side'),$('#nav-side')]){t.setAttribute('aria-expanded',String(open)); t.setAttribute('aria-label',label);
+    t.querySelector('.side-n').textContent=n; t.querySelector('.c-dot').hidden=!dot;}
+  $('#nav-side').hidden=!(LAYOUT==='wide'&&!open);
   $('#side-arrow').innerHTML=ic(LAYOUT==='narrow'?(open?'chevron-down':'chevron-up'):(open?'chevron-right':'chevron-left'));
-  btn.setAttribute('aria-label',tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n:PINS.length}));}
-// remember: only remembers a manual collapse/expand by the user in mid (narrow always starts collapsed).
-function setSide(open,remember){if(LAYOUT==='wide')return; open=!!open;
+  gripAria(); updateReviewCount(); if(typeof syncBackLayer==='function')syncBackLayer();}
+// The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed wide panel's
+// handle is the rail at the right edge, and its hint says how to bring the panel back.
+const GRIP_TIP=$('#grip').dataset.tip;
+function gripAria(){const g=$('#grip'),s=SIDE_SHOWN;
+  if(!SIDE_OPEN){g.setAttribute('aria-valuenow','0'); g.setAttribute('aria-valuemin','0'); g.setAttribute('aria-label',tr('패널 폭')+' · '+tr('접힘'));
+    g.dataset.tip=tr('끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다'); return;}
+  g.setAttribute('aria-label',tr('패널 폭')); g.dataset.tip=tr(GRIP_TIP);
+  if(s){g.setAttribute('aria-valuenow',s.w); g.setAttribute('aria-valuemin',s.min); g.setAttribute('aria-valuemax',s.max);}}
+// Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow sheet).
+// remember = the user did it (a toggle, Ctrl+\, a handle drag or key, a swipe): wide keeps it per device in pinPrefs.sideClosed,
+// mid in midClosed; narrow always starts collapsed. slide = move with the 0.18s slide where the layout has one (wide, and the
+// 701-900px overlay, whose opening slide is CSS's own); things that merely need the panel (a pick, a link) open it at once.
+// Opening the mid panel closes the mid outline (one overlay at a time). Collapsing never touches the saved width - once
+// collapsed, the panel's width is put back to it for the next opening.
+function setSide(open,remember,slide){open=!!open;
   if(open&&LAYOUT==='mid'){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
-  if(SIDE_OPEN===open)return; SIDE_OPEN=open; applySide(); hideTip();}
+  if(remember&&LAYOUT==='wide')savePrefs({sideClosed:!open});
+  if(SIDE_OPEN===open)return; SIDE_OPEN=open; endSideSlide();
+  const ms=slideMs(); if(ms&&slide)startSideSlide(open?'opening':'closing',ms);
+  applySide(); hideTip(); if(!open&&!SIDE_SLIDE)applySideWidth();}
+// The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page re-fits instead).
+// While it slides out the body keeps side-open, so the layout does not jump until it is gone.
+const SLIDE_MS=180; let SIDE_SLIDE=null;
+function slideMs(){return MQ_REDUCED.matches||!(LAYOUT==='wide'||MID_OVERLAY)?0:SLIDE_MS;}
+function startSideSlide(kind,ms){document.body.classList.add('side-'+kind);
+  SIDE_SLIDE={kind,t:setTimeout(()=>{endSideSlide(); applySide(); if(!SIDE_OPEN)applySideWidth();},ms)};}
+function endSideSlide(){if(!SIDE_SLIDE)return; clearTimeout(SIDE_SLIDE.t); SIDE_SLIDE=null; document.body.classList.remove('side-closing','side-opening');}
+// After a collapse, a focus left inside the hidden panel (or on the mid handle, which hides with it) moves to the [핀 N] that
+// reopens it. Compact keeps its tool bar and status chips visible, so a focus there stays.
+function focusSideToggle(){const a=document.activeElement; if(SIDE_OPEN||!a)return;
+  const hidden=(a===$('#grip')&&LAYOUT!=='wide')||($('#right').contains(a)&&!$('#bar2').contains(a)&&!(LAYOUT!=='wide'&&$('#bar1').contains(a)));
+  if(hidden)(LAYOUT==='wide'?$('#nav-side'):$('#btn-side')).focus({preventScroll:true});}
+// Ctrl/⌘+\ and the handle's Enter: collapse with the slide, or open.
+function toggleSide(){const open=!SIDE_OPEN; setSide(open,true,true); if(!open)focusSideToggle();}
+// The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
+function coachSideCollapsed(){if(LAYOUT==='wide'&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
 function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, below the
 // sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
@@ -1368,23 +1437,46 @@ $('#more').addEventListener('click',e=>{const d=$('#more'); if(e.target!==d)retu
 // Panel width handle - mouse/touch/pen all share one Pointer Events path (replacing the old desktop-only mousedown
 // implementation). The handle has touch-action:none, so dragging it never fights browser scrolling, and
 // setPointerCapture keeps tracking it even outside the handle. While dragging, only the width changes (the body's
-// page width stays put); relayout runs once on release. A tap (double-click for mouse) cycles presets, Left/Right moves
-// 16px, Home/End go to the limits, and Enter/Space cycles presets.
+// page width stays put); relayout runs once on release. Where the drag lands is snapSide(): the width follows, stops at
+// the minimum (the handle turns primary), or - past half the minimum - previews a collapse (the panel's contents at 40%,
+// a w-resize cursor) that a release carries out; a draft blocks that zone (not-allowed cursor, release = minimum).
+// A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum opens
+// the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap on an open
+// handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
 (function(){const g=$('#grip'); let D=null;
+  // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's contents
+  // (never #right itself - see §펼친 화면 레이아웃) and the blocked zone shows not-allowed.
+  const cue=(zone,rail)=>{const b=document.body; g.classList.toggle('snap-min',!!zone&&zone!=='follow'&&!(rail&&(zone==='collapse'||zone==='blocked')));
+    b.classList.toggle('side-snap-collapse',zone==='collapse'&&!rail); b.classList.toggle('side-snap-blocked',zone==='blocked'&&!rail);};
+  // A drag from the rail shows the panel without deciding anything yet (the release does).
+  const preview=on=>{document.body.classList.toggle('side-open',on);};
   g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
-    e.preventDefault(); D={id:e.pointerId,x:e.clientX,w:curSideW(),moved:false,mouse:e.pointerType==='mouse'};
+    e.preventDefault(); hideTip(); endSideSlide();
+    D={id:e.pointerId,x:e.clientX,w:SIDE_OPEN?curSideW():0,rail:!SIDE_OPEN,moved:false,mouse:e.pointerType==='mouse',zone:null};
     try{g.setPointerCapture(e.pointerId);}catch(_){}
     g.classList.add('on'); document.body.classList.add('resizing');});
   g.addEventListener('pointermove',e=>{if(!D||e.pointerId!==D.id)return; const dx=D.x-e.clientX;
-    if(!D.moved&&Math.abs(dx)<4)return; D.moved=true; const b=sideBounds(LAYOUT,innerWidth); showSideW(clampSide(D.w+dx,b),b);});
-  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing');
-    if(e.type==='pointercancel'){applySideWidth(); relayout(); return;}
-    if(d.moved)setSideWidth(curSideW()); else if(!d.mouse&&Date.now()>=SWALLOW_CLICK)cycleSideWidth();};
+    if(!D.moved&&Math.abs(dx)<4)return; D.moved=true;
+    const b=sideBounds(LAYOUT,innerWidth),s=snapSide(D.w+dx,b,draftOpen()); D.zone=s.zone;
+    if(D.rail)preview(s.zone==='follow'||s.zone==='min');
+    showSideW(s.w,b); cue(s.zone,D.rail);});
+  const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing'); cue(null);
+    if(e.type==='pointercancel'){applySide(); applySideWidth(); relayout(); return;}   // back to exactly how it was before the drag
+    if(!d.moved){if(d.mouse||Date.now()<SWALLOW_CLICK)return;
+      if(d.rail)setSide(true,true,true); else cycleSideWidth();
+      SWALLOW_CLICK=Date.now()+400;   // the tap moved the panel: the click that follows would land on whatever is under the finger now
+      return;}
+    if(d.rail){if(d.zone==='collapse'||d.zone==='blocked'){applySide(); applySideWidth(); return;}
+      setSide(true,true); setSideWidth(curSideW()); return;}
+    if(d.zone==='collapse'){SWALLOW_CLICK=Date.now()+400; setSide(false,true,true); focusSideToggle(); coachSideCollapsed(); return;}
+    setSideWidth(curSideW());};
   g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
-  g.addEventListener('dblclick',()=>cycleSideWidth());
-  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return; const b=sideBounds(LAYOUT,innerWidth),w=curSideW();
-    const k={ArrowLeft:w+16,ArrowRight:w-16,Home:b.max,End:b.min}[e.key];
-    if(k!==undefined){e.preventDefault(); setSideWidth(k);} else if(e.key==='Enter'||e.key===' '){e.preventDefault(); cycleSideWidth();}});
+  g.addEventListener('dblclick',()=>{if(SIDE_OPEN)cycleSideWidth(); else setSide(true,true,true);});
+  g.addEventListener('keydown',e=>{if(LAYOUT==='narrow')return; const k=gripKey(e.key,curSideW(),sideBounds(LAYOUT,innerWidth),!SIDE_OPEN);
+    if(!k)return; e.preventDefault();
+    if(k.act==='collapse'||k.act==='open')toggleSide();
+    else if(k.act==='cycle')cycleSideWidth();
+    else{if(!SIDE_OPEN)setSide(true,true,true); setSideWidth(k.w);}});
 })();
 // Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
 (function(){const g=$('#outline-grip');let D=null;
@@ -1551,11 +1643,12 @@ async function pick(r){
   // this window (~1.1s) never silently saves the stale CUR, and instead goes through the PEND_SAVE queue (§P0c) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
   if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
-    if(LAYOUT!=='wide'){setSide(true); $('#right').scrollTop=0; revealBox(PENDING);}}
+    setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
+    if(LAYOUT!=='wide'){$('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){PICKING=false; clearPendingSave();}
-    if(rp){bannerRepick();} else {if(PENDING){PENDING.remove();PENDING=null;} if(!CUR)$('#composer').hidden=true;} return;}
+    if(rp){bannerRepick();} else {if(PENDING){PENDING.remove();PENDING=null;} if(!CUR){$('#composer').hidden=true; applySide();}} return;}
   if(seq!==PICKSEQ)return;
   setBusy(false); if(!rp)PICKING=false;
   if(d.error){
@@ -1674,7 +1767,7 @@ function looksQuestion(text){let t=String(text||'').trim();
 function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestion(text);}
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;}
   OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
-  if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false);}
+  if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false); applySide();}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -2030,9 +2123,10 @@ function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
-function updateReviewCount(){const n=REVIEW_ALL.length,pill=$('#side-rv'),chip=$('#rv-chip');
-  pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));
-  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
+// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the chip is the open wide panel's.
+function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
+  for(const pill of $$('#btn-side .rv-n,#nav-side .rv-n')){pill.hidden=!n; pill.textContent=n; pill.setAttribute('aria-label',tl('검토 대기 {n}',{n}));}
+  const here=listReview().length; chip.hidden=!n||LAYOUT!=='wide'||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 function gotoReview(){if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:SMOOTH});});}
@@ -2112,7 +2206,7 @@ $('#doc').addEventListener('mousedown',e=>{
 // Expands the section that holds pin id if it is collapsed (a mark click, a notification, [검토 대기 N]). Returns true if it changed.
 function secOpenFor(id){const p=findAnyPin(id); if(!p)return false; const st=pinState(p),key=st==='review'?'review':st==='done'?'done':'open';
   if(SEC[key])return false; SEC[key]=true; savePrefs({sec:SEC}); return true;}
-function revealCard(id){if(secOpenFor(id))drawPins(); if(LAYOUT==='wide')return; setSide(true);
+function revealCard(id){if(secOpenFor(id))drawPins(); setSide(true); if(LAYOUT==='wide')return;
   if(!OPEN_CARDS.has(id)&&(PINS.some(p=>p.id===id)||REVIEW_ALL.some(p=>p.id===id))){OPEN_CARDS.add(id); drawPins();}}
 function jumpToCard(id){if(secOpenFor(id))drawPins();
   const el=document.querySelector('.pin[data-id="'+id+'"]'); if(!el)return;
@@ -2127,7 +2221,7 @@ function gotoPinRef(id){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id==
   const st=pinState(p);
   if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
   if(st==='done')SEC.done=true; else{OPEN_CARDS.add(id); SEC[st==='review'?'review':'open']=true;} savePrefs({sec:SEC});
-  if(LAYOUT!=='wide')setSide(true); drawPins();
+  setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"]'); if(!el)return;
     el.scrollIntoView({behavior:SMOOTH,block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     clearTimeout(el._flT); el._flT=setTimeout(()=>el.classList.remove('flash'),1200);});}
@@ -2341,7 +2435,7 @@ function openReply(id){
   if(REPLY&&REPLY.id===id){const t=REPLY.el.querySelector('textarea'); if(t)t.focus(); return;}
   if(REPLY)closeReply(false);
   const p=findAnyPin(id);
-  REPLY={id,flip:false,toggle:null,el:replyEl(p)}; OPEN_CARDS.add(id); if(LAYOUT!=='wide')setSide(true); drawPins();
+  REPLY={id,flip:false,toggle:null,el:replyEl(p)}; OPEN_CARDS.add(id); setSide(true); drawPins();
   const ta=REPLY.el.querySelector('textarea'); ta.value=REPLY_DRAFT.get('reply:'+id)||''; autoGrow(ta); mentionPreview(ta); renderReplyOutcome(); ta.focus();
   REPLY.el.scrollIntoView({block:'nearest'});}
 function closeReply(redraw){if(!REPLY)return; const ta=REPLY.el.querySelector('textarea');
@@ -2521,7 +2615,7 @@ document.addEventListener('click',e=>{
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   switch(a.dataset.act){
-    case 'side':setSide(!SIDE_OPEN,true);break;
+    case 'side':setSide(!SIDE_OPEN,true,true);break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT==='narrow'&&!CUR&&!EDIT)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(+a.dataset.i);break;
@@ -2604,6 +2698,8 @@ document.addEventListener('keydown',e=>{
     if(e.ctrlKey&&!e.altKey&&!e.metaKey&&(e.key==='PageUp'||e.key==='PageDown')){e.preventDefault(); cycleDoc(e.key==='PageDown'?1:-1); return;}
     if(e.altKey&&!e.ctrlKey&&!e.metaKey&&/^Digit[1-9]$/.test(e.code||'')){const d=DOCS[+e.code.slice(5)-1]; if(d){e.preventDefault(); switchDoc(d.key);} return;}
   }
+  // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&(e.code==='Backslash'||e.key==='\\')){e.preventDefault(); toggleSide(); return;}
   if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){
     if(t&&(t.id==='note'||(t.closest&&t.closest('#composer')&&!$('#composer').hidden&&!inField))){e.preventDefault(); if(!viewerBlocked())savePin();}
     else if(t&&t.classList&&t.classList.contains('e-note')){e.preventDefault();saveEdit();}
@@ -2615,11 +2711,14 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open)return;
     if(!TIP.hidden){hideTip(); if(!inField)return;}
+    // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(LAYOUT==='mid'&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
-    if(REPICK){cancelRepick();return;}
-    if(REPLY){closeReply();return;}
-    if(EDIT){cancelEdit();return;}
-    if(CUR||!$('#composer').hidden){cancelSelection(true);return;}
+    if(REPICK){e.preventDefault();cancelRepick();return;}
+    if(REPLY){e.preventDefault();closeReply();return;}
+    if(EDIT){e.preventDefault();cancelEdit();return;}
+    if(CUR||!$('#composer').hidden){e.preventDefault();cancelSelection(true);return;}
+    // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
+    if(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN){e.preventDefault();setSide(false,true,true);focusSideToggle();return;}
     return;}
   if(e.key==='?'&&!inField&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();openHelp();}
 });

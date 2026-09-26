@@ -5321,7 +5321,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
-            function setBusy(){} function renderComposer(){} function overlapsFor(){return [];}
+            function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
@@ -5623,7 +5623,7 @@ class FrontendResponsiveBrowser(unittest.TestCase):
         self.assertGreaterEqual(page.locator('#pdf-center').bounding_box()['width'], 480)
         self.assertEqual(page.evaluate("prefs().sideMid"), 600)
         page.locator('#grip').focus()
-        page.keyboard.press('End')
+        page.keyboard.press('Home')   # the window-splitter key for the panel's minimum (End is its maximum)
         self.assertEqual(page.locator('#right').bounding_box()['width'], 300)
         page = self.open_viewer(390, True)
         self.assertFalse(page.locator('#doc-nav').is_visible())
@@ -5840,7 +5840,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
         self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
-        self.assertIn("if(REPLY){closeReply();return;}", ps.HTML)          # Esc closes the input field first
+        self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", ps.HTML)   # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
         self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)   # one path; the server decides
