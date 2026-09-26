@@ -1,4 +1,4 @@
-// ------------------------------------------------ Multiple documents - list/tabs/switching (docs/handbook/domain.md §여러 문서)
+// ------------------------------------------------ Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
 function pdoc(p){return (p&&p.doc)||DEFAULT_DOC;}

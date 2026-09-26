@@ -1,4 +1,4 @@
-// ------------------------------------------------ Pin list
+// ------------------------------------------------ Pin card parts: people, badges, claims, @-tags and #refs in text, the thread
 function who(a){if(a&&a.login==='local')return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.

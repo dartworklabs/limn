@@ -1,3 +1,4 @@
+// ------------------------------------------------ Switching documents - the documents sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
 function drawDocsMenu(){
   $('#docs-menu-list').innerHTML=DOCS.map(d=>{const on=d.key===DOC;
     return '<button class="dm-item'+(on?' on':'')+'" role="option" aria-selected="'+on+'" data-act="doc" data-doc="'+esc(d.key)+'" data-close="1">'+
