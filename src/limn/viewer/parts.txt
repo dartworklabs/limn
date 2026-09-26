@@ -1,6 +1,6 @@
 # The viewer's stylesheet and script parts, in page order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
 #
-# At import, load_viewer_html() in server.py joins the files listed under each marker, in this order and byte for
+# At import, load_viewer_html() in assemble.py joins the files listed under each marker, in this order and byte for
 # byte, and puts the result where index.html has that marker: the CSS parts become its one <style>, the JS parts its
 # one <script>. There is no build step, bundler or module loader. All JS parts share one classic-script scope, as the
 # single app.js did: a function declared in any part is visible to every part, but top-level code (a let or const, a

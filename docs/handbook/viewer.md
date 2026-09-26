@@ -16,7 +16,7 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 별도 프런트엔드 프로젝트가 아니다. [`src/limn/viewer/`](../../src/limn/viewer/parts.txt)의 파일 — 마크업 `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각의 순서를 적은 `parts.txt` — 이 전부이고, 빌드 단계·번들러·모듈 로더·CDN이 없다. 서버는 시작할 때 `parts.txt`에 적힌 순서대로 조각을 바이트 그대로 이어 붙여 `index.html`의 `__APP_CSS__`·`__APP_JS__` 자리에 끼우고(`server.py`의 `load_viewer_html()`), 그렇게 만든 한 장의 HTML(`HTML`)에 버전·아이콘·영어 표·라벨 자리 표시자를 채워 내보낸다. 그래서 페이지에는 `<style>` 하나와 주 `<script>` 하나가 있고, 화면 규칙을 바꾸는 일은 곧 이 파일들을 고치는 일이다. 표식은 `index.html`에 한 번씩만 있어야 하고, 어기면 서버가 시작하지 않는다 (`tests/test_viewer_files.py`).
+뷰어는 별도 프런트엔드 프로젝트가 아니다. [`src/limn/viewer/`](../../src/limn/viewer/parts.txt)의 파일 — 마크업 `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각의 순서를 적은 `parts.txt` — 이 전부이고, 빌드 단계·번들러·모듈 로더·CDN이 없다. 서버는 시작할 때 `parts.txt`에 적힌 순서대로 조각을 바이트 그대로 이어 붙여 `index.html`의 `__APP_CSS__`·`__APP_JS__` 자리에 끼우고(`limn/viewer/assemble.py`의 `load_viewer_html()`), 그렇게 만든 한 장의 HTML에 버전·아이콘·영어 표 자리 표시자를 채운다(`viewer_html()`, 입력은 모두 인자다). `server.py`는 그 결과를 `HTML`로 두고, 실행 인자가 정해지면 라벨·색 자리 표시자를 채워(`build_html()`) 내보낸다. 그래서 페이지에는 `<style>` 하나와 주 `<script>` 하나가 있고, 화면 규칙을 바꾸는 일은 곧 이 파일들을 고치는 일이다. 표식은 `index.html`에 한 번씩만 있어야 하고, 어기면 서버가 시작하지 않는다 (`tests/test_viewer_files.py`).
 
 **조각은 책임별로 나누고, 순서는 `parts.txt` 하나가 정한다.** 2026-09-26 한 파일이던 `app.js`(2,985줄)와 `app.css`(902줄)를 변경 이유가 다른 조각 45개로 나눴다([code-style-roadmap.md](code-style-roadmap.md) R6). 나눈 자리는 원래 파일의 구역 배너와 같고, 나눌 때는 조각을 목록 순서대로 이으면 원래 파일과 바이트 단위로 같았다. 그래서 나누기 전후 `HTML`과 `build_html()` 결과의 sha256이 같았다. 조각마다 맡은 일은 `parts.txt`의 각 줄에 적혀 있고, 흐름은 이렇다.
 
@@ -37,7 +37,7 @@
 
 **UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/ui_en.json`](../../src/limn/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 
-- `server.py`를 읽어 들일 때 `load_ui_messages()`가 표를 읽고, `HTML`의 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다.
+- `server.py`를 읽어 들일 때 `load_ui_messages()`(`limn/viewer/assemble.py`)가 표를 읽어 `UI_EN`에 두고, `viewer_html()`이 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다. 거부된 첫 화면도 같은 `UI_EN`을 읽는다.
 - 영어 모드에서 `tr()`·`trMsg()`가 표를 찾는다. `trMsg()`는 문자열 전체가 표에 없으면 ` — ` 또는 ` · `로 나눈 조각마다 다시 찾는다. 그래서 조합한 문구도 조각 단위로 번역된다.
 - `MutationObserver`가 새로 그려지는 글자 노드와 UI 속성(`data-tip`·`aria-label`·`title`·`placeholder`)을 번역한다. 알림(`toast`)도 `trMsg`를 거친다.
 - 실행 중에 조합하는 문구는 `tl('<한국어 틀>', {값})`으로 만든다. 틀 안의 `{name}` 자리에 값을 넣는다(예: `tl('{n}쪽', {n: 3})`). 영어 값은 `{"one": ..., "other": ...}` 복수형일 수 있고, `n`으로 고른다. 문서 탭 이름·메모·답글·원고처럼 사용자가 쓴 글은 번역하지 않는다.
@@ -781,7 +781,7 @@
 
 이모지와 기본 문자 아이콘(⏳ ▾ ▸ ☾ ◐ ✓ ✎ ⚠ ⧉ ⋯ ＋ ×)은 기기·글꼴마다 모양이 달라 보기 흉했다(저자 지적 2026-09-23). 전부 없애고, 꼭 필요한 곳에만 [Lucide](https://github.com/lucide-icons/lucide)(ISC) 아이콘을 쓴다. 출처·버전·아이콘 목록은 [`src/limn/vendor/lucide/README.md`](../../src/limn/vendor/lucide/README.md)에 있다.
 
-- `lucide-static` npm 원본의 `<svg>` 안 요소만 `src/limn/server.py`의 `LUCIDE`에 인라인으로 넣는다. 외부 CDN은 없다.
+- `lucide-static` npm 원본의 `<svg>` 안 요소만 `src/limn/viewer/assemble.py`의 `LUCIDE`에 인라인으로 넣는다. 외부 CDN은 없다.
 - `stroke="currentColor"`·`stroke-width="2"`(24 격자)·16px이라 글자색을 따른다. 배지·행 안에서는 12–14px이다.
 - 서버가 `{{ic:이름}}` 자리를 채우고, JS는 `ic(이름)`으로 같은 모양을 그린다.
 - 아이콘 없이 뜻이 분명한 버튼은 글자만 둔다. 카드의 [보기]·[수정]·[풀기]·[삭제]·[완료], 보관함 [답글]·[되살리기], 휴지통 [영구 삭제], [원문 펼치기], [더보기] 안의 [축소]·[확대]·[폭 맞춤]·[테마] 등이다.

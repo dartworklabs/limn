@@ -17,7 +17,6 @@ import time
 import unittest
 import struct
 import zlib
-from unittest import mock
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,6 +24,7 @@ from urllib.parse import urlparse
 from limn import access
 from limn import locate
 from limn.scope import ScopeUnreadable
+from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
 from test_server import add_pin, shut_wr
@@ -133,14 +133,12 @@ class MessageTable(unittest.TestCase):
 
     def test_plural_values_are_rejected_when_malformed(self):
         path = PKG / "ui_en.json"
-        good = ps.load_ui_messages()
+        good = assemble.load_ui_messages(path)
         self.assertEqual(good["{n}줄"], {"one": "{n} line", "other": "{n} lines"})
         with tempfile.TemporaryDirectory() as d:
-            fake = Path(d) / "server.py"
             (Path(d) / "ui_en.json").write_text(json.dumps({"가": "A", "{n}나": {"one": "x"}, "{n}다": {"other": "y", "few": "z"}},
                                                            ensure_ascii=False), encoding="utf-8")
-            with mock.patch.object(ps, "__file__", str(fake)):
-                self.assertEqual(ps.load_ui_messages(), {"가": "A"})
+            self.assertEqual(assemble.load_ui_messages(Path(d) / "ui_en.json"), {"가": "A"})
         self.assertTrue(path.exists())
 
     def test_every_composed_key_has_a_translation(self):
