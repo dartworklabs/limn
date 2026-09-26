@@ -835,11 +835,11 @@ class PhoneSheet(ViewerBase):
         self.assertEqual([c for c in page.evaluate("window.__clicks") if c != "sheet-grip"], [])
 
     def test_right_swipe_on_the_pdf_never_navigates_back(self):
-        """s05e phone."""
+        """s05e phone: a right swipe across the PDF (200 -> 450, as the diagnosis did) used to go back and leave Limn."""
         page = self.view(PHONE)
         navs = []
         page.on("framenavigated", lambda f: navs.append(f.url))
-        self.swipe(self.cdp(page), 200, 300, 380, 310)
+        self.swipe(self.cdp(page), 200, 300, 450, 310)
         page.wait_for_timeout(500)
         self.assertEqual(navs, [])
 
