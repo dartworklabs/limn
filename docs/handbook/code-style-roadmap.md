@@ -165,16 +165,18 @@ def confirm_pin(pid, actor) -> DonePin | AlreadyDone | PinStillOpen | AgentCanno
         return result, False
     return transact(fn)[1]
 
-# HTTP 처리기 — 모든 결과에 응답 하나. 상태 코드와 본문은 에이전트 계약 그대로
-match result:
-    case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
-        return self._json({"ok": True, "pin": public(record), "state": "done"})
-    case PinNotFound():
-        return self._json({"ok": False, "pin": None, "state": None})
-    case AgentCannotConfirm():
-        raise HTTPError(403, CONFIRM_BY_HUMAN)
-    case PinStillOpen(pin=OpenPin(record=record)):
-        raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
+# HTTP 층 (limn/web/answers.py, 6단계에서 처리기 메서드에서 옮김) — 모든 결과에 응답 하나.
+# 상태 코드와 본문은 에이전트 계약 그대로. show는 server.py의 public()이다
+def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound, show: Show) -> Body:
+    match result:
+        case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
+            return {"ok": True, "pin": show(record), "state": "done"}
+        case PinNotFound():
+            return {"ok": False, "pin": None, "state": None}
+        case AgentCannotConfirm():
+            raise HTTPError(403, CONFIRM_BY_HUMAN)
+        case PinStillOpen(pin=OpenPin(record=record)):
+            raise HTTPError(409, "open", pin=show(record), detail=CONFIRM_OPEN_DETAIL)
 ```
 
 이제 규칙 테스트는 파일 없이 `confirmer(Agent(...)) == AgentCannotConfirm()` 한 줄로 끝난다 (`tests/test_pins_lifecycle.py`). 처리기 테스트는 상태 코드와 저장만 확인한다.
@@ -270,7 +272,7 @@ def clean_note(v) -> str:
 
 이렇게 되면 같은 규칙을 HTTP가 아닌 입구(예: 앞으로의 CLI 명령이나 백그라운드 작업)에서 쓰기 어렵다. 한국어 오류 문구도 48곳에 흩어진다.
 
-**바꾼 모습.** 요청 파싱은 `http/` 층이 맡는다. `parse_note(v) -> NoteText | InputRejected`처럼 검증된 값이나 이유가 붙은 거절 값을 돌려준다. 도메인은 `ConfirmRejected("open")`처럼 이유를 담은 값을 **돌려준다**. HTTP 층은 `match`로 받아 이유별 상태 코드와 한국어 문구를 **한 표**에서 고른다. `sys.exit()`는 `main()` 한 곳에서만 부르고, 안쪽 함수는 시작 실패 이유를 값으로 돌려준다.
+**바꾼 모습.** 요청 파싱은 HTTP 층(`web/`)이 맡는다. `parse_note(v) -> NoteText | InputRejected`처럼 검증된 값이나 이유가 붙은 거절 값을 돌려준다. 도메인은 `ConfirmRejected("open")`처럼 이유를 담은 값을 **돌려준다**. HTTP 층은 `match`로 받아 이유별 상태 코드와 한국어 문구를 **한 표**에서 고른다. `sys.exit()`는 `main()` 한 곳에서만 부르고, 안쪽 함수는 시작 실패 이유를 값으로 돌려준다.
 
 0.3의 핀 단위 변경 코드는 이미 거절을 이유(`ScopeRejected(reason)`)와 표 하나(`SCOPE_REJECTIONS`)로 모았다. 다만 예외로 던지므로, 모듈로 옮길 때 반환값으로 바꾼다. 이유마다 데이터나 응답이 다르면 그때 경우별 타입으로 나눈다 (R1 §결과 타입을 고르는 법).
 
@@ -462,7 +464,7 @@ def now_str() -> str:
 
 **착수 조건**은 앞 단계가 끝났다는 것에 더해, 그 단계가 굳히는 영역이 더 움직이지 않는다는 신호다. 1·2단계는 구조를 고정하지 않으므로 조건 없이 0단계와 나란히 한다 ([ADR-0001](../adr/0001-blueprint.md) §결과). 3~6단계의 조건은 2026-09-26 소유자 결정으로 충족됐다 (§두 층).
 
-실행 순서는 표의 번호와 조금 다르다. `server.py`를 빨리 가볍게 하려고 기계적으로 옮길 수 있는 것부터 한다: 3단계(뷰어) → 5단계 앞부분(`mapping.py`, 거의 순수) → 4단계(`store`·핀 모델·전이) → 5단계 나머지(`build/`) → 6단계(`http/`, 조립 지점). 포매팅 커밋은 옮기기가 끝난 뒤에 한 번에 한다.
+실행 순서는 표의 번호와 조금 다르다. `server.py`를 빨리 가볍게 하려고 기계적으로 옮길 수 있는 것부터 한다: 3단계(뷰어) → 5단계 앞부분(`mapping.py`, 거의 순수) → 4단계(`store`·핀 모델·전이) → 5단계 나머지(`build/`) → 6단계(`web/`, 조립 지점). 포매팅 커밋은 옮기기가 끝난 뒤에 한 번에 한다.
 
 | 단계 | 목표 | 착수 조건 | 하는 일 | 끝났다는 증거 | 하지 않는 일 |
 | --- | --- | --- | --- | --- | --- |
@@ -472,7 +474,7 @@ def now_str() -> str:
 | 3 | 뷰어 분리 | 충족: 빌드 없는 정적 파일로 정함 (2026-09-26) | `HTML` 문자열을 `viewer/` 패키지 데이터 파일로 옮긴다. 서버가 조립한 `HTML`은 그대로라 테스트는 계속 `ps.HTML`을 읽는다 | 내보내는 HTML이 바이트 단위로 같다. 설치 스모크 녹색 | 뷰어 동작·디자인 변경 |
 | 4 | 핀 수명 주기 | 충족: 소유자 결정 (2026-09-26) | 계약 스냅숏 테스트(`pins.md`, 주요 API 응답)와 레코드 왕복 테스트를 먼저 만든다. 그다음 `pins/model.py`·`lifecycle.py`로 R1~R3을 적용한다. 전이 함수는 거절을 반환값으로 돌려준다 | 스냅숏·왕복 테스트 녹색. 전이마다 순수 테스트 | 저장 형식·API 변경 |
 | 5 | 역변환과 빌드 | 충족: 소유자 결정 (2026-09-26) | `mapping/`(순수 계산)과 `build/`(부수효과)를 꺼내며 그 안의 전역 참조를 걷어 낸다 (R5) | 옮긴 모듈에 `C.`·`cur_doc()` 참조 없음. 여러 문서 동시 빌드 테스트 녹색 | 빌드 동작 변경 |
-| 6 | HTTP와 조립 지점 | 4·5단계가 끝났다 | 라우팅 표, 요청 파싱, 오류 매핑을 `http/`로 모으고, `main()`을 조립 지점으로 정리한다 | `server.py`에는 조립 코드만 남는다 | 새 엔드포인트 |
+| 6 | HTTP와 조립 지점 | 4·5단계가 끝났다 | 라우팅 표, 요청 파싱, 오류 매핑을 `web/`(표준 모듈 `http`를 가리지 않는 이름, [architecture.md](architecture.md) §현재 구조)으로 모으고, `main()`을 조립 지점으로 정리한다 | `server.py`에는 조립 코드만 남는다 | 새 엔드포인트 |
 | 7 | 타입 검사 확대 | 옮긴 모듈이 있다 | 타입 검사기를 옮긴 모든 모듈로 넓히고 CI 게이트로 만든다 | 타입 검사 CI 단계 녹색 | — |
 
 > **예시**
@@ -489,7 +491,7 @@ def now_str() -> str:
 | 3 뷰어 분리 | 완료 | 2026-09-26. `server.py` 10,973 → 7,378행. 출력 바이트 동일 |
 | 4 핀 수명 주기 | 진행 중 | 2026-09-26 `limn/pins/`(상태 타입 `OpenPin`·`ReviewPin`·`DonePin`)와 확인(confirm) 전이. 같은 날 닫기·다시 열기(`decide`/`evolve`로 사실과 새 상태를 나누고, 알림은 셸이 사실에서 만든다). 이어서 답글(다시 여는 답글은 다시 열기 사실을 그대로 쓰고, 스레드 가득 참은 `ThreadFull` 값). 옛 코드와 응답·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인. 이어서 claim·unclaim(시계는 셸이 한 번 읽어 넘긴다). 이어서 휴지통(`TrashedPin`, 되살리기 거절은 값이라 휴지통 파일을 건드리지 않음). 이어서 편집·추가(`limn/pins/edit.py`: `decide_edit`가 닫힌 핀의 위치 변경·낡은 `base_rev`·덧붙인 메모 길이·파일 밖 줄 범위를 값으로 돌려주고, `evolve_edit`·`new_line_pin`·`new_region_pin`이 레코드를 옛 필드 순서 그대로 만든다. 본문 파서 `parse_edit`·`parse_add`는 `InputRejected` 값을 돌려주고 처리기가 옛 문구로 답한다). 이로써 핀 조작의 전이는 모두 옮겼다. 이어서 핀 저장소를 `limn/store.py`로 꺼냈다: `PinStore`가 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기와 손상 원본 보존, `pins.seq`, clear 보관을 맡고, 파일 위치·잠금·레코드 검사·줄 맞춤·`pins.md` 렌더·거절 예외는 조립 지점 `server.pin_store()`가 호출마다 인자로 넘긴다(서버를 가져오지 않음, `tests/test_store.py`가 검사). 옛 이름 `transact`·`read_pins`·`write_pins` 등은 `server.py`에 남아 저장소에 넘긴다. 옛 코드와 응답·상태 디렉터리 전체 바이트(손상 백업·clear 보관 이름 포함)가 같음을 차등 비교로 확인. 남은 일: 상태에만 있는 필드를 상태 타입의 속성으로 올리기(R2 §다음 단계) |
 | 5 역변환과 빌드 | 완료 | 2026-09-26 `mapping.py` 분리 (순수, `C.envs` → 인자). 같은 날 `build.py` 분리: 문서(`BuildDoc`)와 설정(`BuildConfig`)을 인자로 받고, `--git-pull`과 보기 전용 그리기는 단계로 넘겨받는다. `C.`·`cur_doc()` 없음(`tests/test_build.py`), 두 문서 동시 빌드 테스트 녹색. 옛 코드와 응답·빌드 상태·상태 디렉터리 전체 바이트가 같음을 차등 비교로 확인(성공, LaTeX 오류, PDF 없음, SyncTeX 없음, pdftoppm 실패, 복사 실패, 시간 초과, 빌드 예외, 두 LaTeX 문서와 보기 전용 PDF). `--git-pull`·원격 main 감시는 문서 여럿을 묶는 일이라 `server.py`에 남고, `server.py`의 옛 이름 셸은 6단계에서 없앤다 |
-| 6 HTTP와 조립 지점 | 시작 전 | 4·5단계 뒤 |
-| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. 같은 날 `build.py`·`files.py`를 더했다(표기만 고침, 동작 그대로). 이어서 `store.py`를 더했다. `server.py`는 남음 |
+| 6 HTTP와 조립 지점 | 진행 중 | 2026-09-26 소유자 결정으로 4단계의 `store.py`와 나란히 시작. 앞부분: HTTP 처리기(`Handler`·`Server`·`Server6`, 본문 읽기와 1 MiB 한도, Host/Origin 검사 호출, GET/POST 경로 분기), 결과별 응답(옛 `_*_answer`·`_*_reply` 메서드 → `limn/web/answers.py`의 함수), `HTTPError`·`InputRejected`·`SCOPE_REJECTIONS`·거부된 첫 화면을 `limn/web/`로 옮겼다. 처리기는 `server.py`를 가져오지 않는다. `server.py`가 자기 전역을 요청 때 그대로 읽는 보기(`_ModuleApp`)로 하위 클래스 `Handler`를 묶고, 처리기가 부르는 서비스 목록은 `web/app.py`의 `App` 프로토콜이다. 신원·역할·Host/Origin 판단(`identify`·`admit`·`check_role`·`host_ok`·`origin_ok`)은 보안 경계라 `server.py`에 그대로 두었다. 경로 표는 만들지 않았다 — 분기 순서가 응답을 정하므로(`/pages/`가 404로 떨어지는 길, `/api/pins/dropped`가 `/api/pins/N`보다 먼저) 이번에는 옮기기만 했다. 옛 코드와 응답(상태, Date·Server를 뺀 헤더, 본문)과 상태 디렉터리 전체 바이트가 같음을 160개 경우의 차등 비교로 확인(모든 핀 조작과 거절, 잘못된 JSON·본문 한도·`Transfer-Encoding`, 잘못된 Host·Origin, 테일넷의 헤더 없는 요청, 토큰 에이전트, 역할별 403, 거부된 첫 화면 ko·en, 500, 핀 단위 변경 거절 표). 남은 일(뒷부분): `App`의 셸이 `C`·`cur_doc()`을 읽지 않고 인자를 받게 하기, 요청 파서(`parse_*`·`clean_*`)를 `web/`로 옮기고 서비스는 파싱된 값을 받기, 서비스가 `HTTPError`를 던지지 않고 결과 값을 돌려주기, 신원 헤더 읽기의 자리 정하기, `main()`에 조립 코드만 남기기 |
+| 7 타입 검사 확대 | 진행 중 | 2026-09-26 옮긴 모듈(`limn/pins/`, `mapping.py`)부터 mypy strict를 CI 게이트로 켰다 (R8). 모듈을 옮기는 대로 `[tool.mypy]`의 `files`에 더한다. 같은 날 `build.py`·`files.py`를 더했다(표기만 고침, 동작 그대로). 이어서 `store.py`를 더했다. 이어서 `web/`을 더했다(처리기가 부르는 서비스는 `App` 프로토콜로 적고, `cast` 한 곳에 이유를 단다). `server.py`는 남음 |
 
 이 문서의 수치(줄 수, 함수 수, docstring 수, Ruff 건수)는 2026-09-25 Limn 0.2.2 기준 실측이다. 단계를 끝낼 때 새로 재서 고친다.

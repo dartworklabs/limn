@@ -54,12 +54,11 @@ import traceback
 from collections import Counter
 from datetime import datetime
 from email.header import decode_header, make_header
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from collections.abc import Callable, Collection, Sequence, Set as AbstractSet
 from dataclasses import replace
 from typing import Literal, NamedTuple, TypedDict
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import quote, urlparse
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
@@ -71,9 +70,8 @@ from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
     find_trashed, next_rev, reopen_request, reopens_on_reply, restore, unclaim,
 )
 from limn.pins.edit import (  # noqa: E402 - after the path bootstrap above
-    ASSIGNEE_AGENT, AddRequest, Anchoring, ClosedPinReshaped, EditRefusal, EditRequest, LinePlace, Located,
-    NoteTooLong, PinEdited, PinOutsideTree, RangeOutsideFile, RegionPlace, StaleEdit, decide_edit, evolve_edit,
-    file_after, new_line_pin, new_region_pin,
+    ASSIGNEE_AGENT, AddRequest, Anchoring, EditRefusal, EditRequest, LinePlace, Located, PinEdited, RegionPlace,
+    decide_edit, evolve_edit, file_after, new_line_pin, new_region_pin,
 )
 from limn.pins.model import (  # noqa: E402 - after the path bootstrap above
     Actor, Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin,
@@ -86,6 +84,9 @@ from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
 )
+from limn.web.answers import CONFIRM_BY_HUMAN  # noqa: E402 - after the path bootstrap above
+from limn.web.errors import HTTPError, InputRejected, scope_http_error  # noqa: E402 - after the path bootstrap above
+from limn.web.handler import Handler as WebHandler, Server, Server6  # noqa: E402 - after the path bootstrap above
 
 APP_NAME = "limn"
 
@@ -198,7 +199,6 @@ def icon_svg(name: str) -> str:
             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">%s</svg>'
             % (name, LUCIDE[name]))
 
-MAX_BODY = 1 << 20
 NOTE_MAX = 4000
 CLOSE_REPLY_MAX = 500              # what-was-fixed note left when closing (§P0b-보완 C)
 CLOSE_REF_MAX = 80                 # reference (e.g. PR number) - matching values let the UI group closed pins together
@@ -236,8 +236,6 @@ ADD_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "v
               "frac", "note", "scope", "quote", "pdf_build")
 LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
-CONFIRM_BY_HUMAN = "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요."
-CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다."
 # Label shown so tabs don't get confused when multiple manuscript viewers are open at once (§Running multiple manuscript instances at once).
 # The length cap is a safeguard so the tool bar / tab title doesn't grow unbounded from one long paper name.
 LABEL_MAX = 40
@@ -440,16 +438,6 @@ def _fresh_build_state() -> dict:
     return {"state": "idle", "phase": None, "started_at": None, "start_ts": None,
             "last_s": None, "pages": 0, "errors": [], "log_tail": "", "built_at": None,
             "seq": 0, "finished_at": None, "last": None, "head": None, "pull": None}
-
-
-class HTTPError(Exception):
-    """The handler turns this directly into a JSON error response."""
-
-    def __init__(self, code: int, msg: str, page=None, **extra):
-        super().__init__(msg)
-        self.code = code
-        self.body = dict({"error": msg}, **extra)
-        self.page = page            # (kind, params) for the readable HTML page a browser gets on GET / (error_page_html)
 
 
 def now_str() -> str:
@@ -839,8 +827,9 @@ _U0_HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
 
 
 class ScopeRejected(Exception):
-    """An expected refusal while scoping a commit to one pin. reason is one of the keys of SCOPE_REJECTIONS, which the
-    HTTP layer (Handler._run) and the build worker turn into the status code, Korean message and API reason."""
+    """An expected refusal while scoping a commit to one pin. reason is one of the keys of SCOPE_REJECTIONS
+    (limn.web.errors), which the HTTP layer (limn.web.handler.Handler._run) and the build worker turn into the status
+    code, Korean message and API reason."""
 
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -3188,14 +3177,6 @@ def who(actor: dict) -> dict:
 # or an InputRejected carrying the exact 400 message of the agent contract, and never raises for bad input. The older
 # clean_* validators, and the raising forms _int/_num/safe_src kept for callers not yet moved, raise HTTPError(400).
 
-class InputRejected(NamedTuple):
-    """A request field the server refuses with 400; message is the response's error text, word for word.
-
-    A NamedTuple rather than a dataclass, like the other value types here: server.py also runs as a file that is not
-    in sys.modules (python .../server.py, the tests' loader), where dataclass() cannot resolve its annotations."""
-    message: str
-
-
 def int_field(v: object, what: str) -> int | InputRejected:
     """An integral JSON number (1 and 1.0 both give 1; a bool, NaN or 1.5 does not) named `what` in the refusal."""
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
@@ -3507,7 +3488,7 @@ def request_doc(q: dict, body: dict = None, file_hint=None) -> Doc:
 #
 # Adding and editing a pin (docs/handbook/api.md §핀 만들기, §핀 고치기). The shell parses the body (parse_add,
 # parse_edit), reads what only the disk and the clock know under the pin lock, and leaves the rules and the record to
-# limn.pins.edit. Each returns an outcome value that the HTTP handler answers (Handler._add_answer, _edit_answer).
+# limn.pins.edit. Each returns an outcome value the HTTP layer answers (limn.web.answers.add_answer, edit_answer).
 
 def parse_add(d: dict, region: bool, known: Collection[str]) -> AddRequest | InputRejected:
     """A POST /api/pin body for the current document -> the new pin's validated place and fields, or the first field
@@ -5870,522 +5851,31 @@ HTML = HTML.replace("__UI_EN_JSON__", json.dumps(UI_EN, ensure_ascii=False, sort
 HTML = ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1)), HTML)
 
 
-# A browser that opens the viewer (GET / asking for HTML) and is refused gets a short page instead of raw JSON (v0.2.1).
-# The Korean text is the key into the viewer's message table (ui_en.json), so the page follows the same ko/en table.
-ERROR_PAGE_TEXT = {
-    "not-member": ("이 뷰어의 멤버가 아닙니다: {login}", "이 뷰어의 소유자에게 멤버로 추가해 달라고 요청하세요: limn member add <인스턴스> {login}"),
-    "not-allowed": ("이 뷰어에 허용되지 않은 계정입니다: {login}", "이 뷰어의 소유자에게 --allow 목록에 넣어 달라고 요청하세요"),
-    "no-identity": ("신원을 확인할 수 없는 요청입니다",
-                    "사람 계정으로 로그인한 장치에서 여세요. 에이전트는 토큰(Authorization: Bearer)을 씁니다: limn token create <인스턴스>"),
-}
+# ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)
 
+class _ModuleApp:
+    """This module's live globals as attributes: the limn.web.app.App the HTTP handler calls.
 
-# Expected refusals of pin scoping (ScopeRejected.reason) -> (status, message, API reason or None). The one place they
-# become responses - Handler._run for requests, the revision worker for the build status it stores. The messages and
-# reasons are part of the agent contract (api.md §핀 단위 변경 보기); tests pin every body.
-SCOPE_REJECTIONS = {
-    "pin_not_in_doc": (404, "이 문서의 핀이 아닙니다.", None),
-    "scope_unreadable": (422, "이 핀의 변경만 골라 적용하지 못했습니다.", "scope_failed"),
-    "scope_mismatch": (422, "이 핀의 변경을 커밋에서 다시 찾지 못했습니다.", "scope_failed"),
-    "unsafe_path": (422, "사본에 허용되지 않는 경로가 있습니다.", "unsafe_snapshot"),
-    "scope_unwritable": (422, "이 핀의 변경만 넣은 사본을 쓰지 못했습니다.", "scope_failed"),
-}
+    Read at call time and never copied, so main() rebinding HTML and a test rebinding a service on its copy of this
+    module (mock.patch.object(ps, "build_async")) both reach the handler. A view over globals() rather than the module
+    object: server.py also runs where it is not in sys.modules (loaded by path, as the tests and tools do)."""
+    __slots__ = ("_ns",)
 
+    def __init__(self, ns: dict) -> None:
+        """Wrap the namespace dict itself (this module's globals()), not a snapshot of it."""
+        self._ns = ns
 
-def scope_http_error(e: ScopeRejected) -> HTTPError:
-    """The HTTP form of a pin-scoping refusal, from SCOPE_REJECTIONS. An unknown reason is a bug: KeyError, a 500."""
-    code, msg, reason = SCOPE_REJECTIONS[e.reason]
-    return HTTPError(code, msg, reason=reason) if reason else HTTPError(code, msg)
-
-
-def page_lang(headers, query: dict) -> str:
-    """ko or en for a server-rendered page: ?lang=, else the first Accept-Language tag (ko* -> ko), else en - the viewer's rule."""
-    v = (query.get("lang") or [""])[0]
-    if v in ("ko", "en"):
-        return v
-    first = (headers.get("Accept-Language") or "").split(",")[0].strip().lower()
-    return "ko" if first.startswith("ko") else "en"
-
-
-def ui_text(key: str, lang: str, **params) -> str:
-    """One message from the viewer's table, filled in (the server-side twin of the viewer's tl())."""
-    v = UI_EN.get(key, key) if lang == "en" else key
-    if isinstance(v, dict):
-        v = v.get("other", key)
-    for k, x in params.items():
-        v = v.replace("{%s}" % k, str(x))
-    return v
-
-
-def error_page_html(e: HTTPError, lang: str) -> str:
-    kind, params = e.page or ("", {})
-    if kind in ERROR_PAGE_TEXT:
-        head, hint = (ui_text(k, lang, **params) for k in ERROR_PAGE_TEXT[kind])
-        detail = ""
-    else:
-        head, hint = ui_text("이 뷰어를 열 수 없습니다 ({code})", lang, code=e.code), ""
-        detail = str(e.body.get("error") or "")
-    other = "en" if lang == "ko" else "ko"
-    esc = html.escape
-    return ("<!doctype html><html lang=\"%s\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Limn · %s</title>"
-            "<style>body{font:15px/1.6 -apple-system,BlinkMacSystemFont,\"Pretendard\",\"Noto Sans KR\",sans-serif;max-width:36rem;"
-            "margin:15vh auto;padding:0 1.25rem;color:#18181b;background:#fafafa}h1{font-size:1.15rem;margin:0 0 .6rem}"
-            "p{margin:.4rem 0;color:#3f3f46}code,.d{font:13px ui-monospace,monospace;word-break:break-all}"
-            "a{color:#1860cf}@media(prefers-color-scheme:dark){body{color:#fafafa;background:#09090b}p{color:#a1a1aa}a{color:#6ea8fe}}"
-            "</style></head><body><h1>%s</h1>%s%s<p><a href=\"/?lang=%s\">%s</a></p></body></html>"
-            % (lang, esc(str(e.code)), esc(head), "<p>%s</p>" % esc(hint) if hint else "",
-               "<p class=\"d\">%s</p>" % esc(detail) if detail else "", other, "English" if other == "en" else "한국어"))
-
-
-class Server(ThreadingHTTPServer):
-    daemon_threads = True
-    request_queue_size = 128          # so dozens of concurrent requests don't stall a second at a time on SYN retransmits
-
-
-class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-    # If the body arrives shorter than Content-Length and the connection never closes, the read would hang forever. Idle keep-alive connections are also closed after this time.
-    timeout = 30
-
-    def log_message(self, *a):
-        pass
-
-    def _send(self, code, body: bytes, ctype: str, cache: str = None):
-        if code >= 400:
-            # The connection is closed after an error. The request may not have been read to completion, and
-            # if the leftover bytes get read as the next request, they'd bypass --allow and author attribution (request smuggling).
-            self.close_connection = True
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        if cache is None or code >= 400:
-            cache = "public, max-age=600" if ctype == "image/png" and code < 400 else "no-store"
-        self.send_header("Cache-Control", cache)
-        self.send_header("X-Content-Type-Options", "nosniff")
-        if code == 401:
-            self.send_header("WWW-Authenticate", 'Bearer realm="limn"')
-        if self.close_connection:
-            self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _json(self, obj, code=200):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
-
-    def _restore_answer(self, result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyLive) -> None:
-        """Answer POST /api/pins/{id}/restore: the pin back in the list, or 404/409 with the old messages."""
-        match result:
-            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-                return self._json({"ok": True, "pin": public(record)})
-            case NotInTrash(pid=pid):
-                raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid)
-            case AlreadyLive(pid=pid):
-                raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid)
-
-    def _claim_answer(self, result: OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, ttl: int,
-                      eta: int | None) -> None:
-        """Answer POST /api/pins/{id}/claim: the pin and the ttl/eta actually applied (clamped values), or a 409."""
-        match result:
-            case OpenPin(record=record):
-                out = {"ok": True, "pin": public(record), "ttl_min_applied": ttl}
-            case PinNotFound():
-                out = {"ok": False, "pin": None, "ttl_min_applied": ttl}
-            case ClaimClosedPin(pin=ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "done", pin=public(record))
-            case ClaimedByOther(claimed_by=holder, claim_until=until, eta_ts=eta_ts):
-                raise HTTPError(409, "claimed", claimed_by=holder, claim_until=until, eta_ts=eta_ts)
-        if eta is not None:
-            out["eta_min_applied"] = eta              # the clamped value, if sent above the ceiling (240)
-        return self._json(out)
-
-    def _unclaim_answer(self, result: OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound) -> None:
-        """Answer POST /api/pins/{id}/unclaim: the pin as it stands (no claim), or ok:false for an unknown id."""
-        match result:
-            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-                return self._json({"ok": True, "pin": public(record)})
-            case NotClaimed(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-                return self._json({"ok": True, "pin": public(record)})
-            case PinNotFound():
-                return self._json({"ok": False, "pin": None})
-
-    def _reply_answer(self, result: OpenPin | ReviewPin | DonePin | ThreadFull | PinNotFound) -> None:
-        """Answer POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
-        match result:
-            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-                msg = record["thread"][-1]
-                return self._json({"ok": True, "pin": public(record), "msg": msg, "state": pin_state(record),
-                                   "reopened": msg.get("ev") == "reopen"})
-            case ThreadFull(limit=limit):
-                raise HTTPError(409, "full", detail="스레드가 가득 찼습니다(답글 %d건). 새 핀으로 이어 가세요." % limit)
-            case PinNotFound():
-                return self._json({"ok": False, "pin": None, "msg": None, "state": None, "reopened": False})
-
-    def _state_reply(self, result: OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound) -> None:
-        """Answer POST /api/pins/{id}/close and /reopen: the pin as it stands now and its state, or ok:false."""
-        match result:
-            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-                return self._json({"ok": True, "pin": public(record), "state": pin_state(record)})
-            case AlreadyClosed(pin=ReviewPin(record=record) | DonePin(record=record)):
-                return self._json({"ok": True, "pin": public(record), "state": pin_state(record)})
-            case PinNotFound():
-                return self._json({"ok": False, "pin": None, "state": None})
-
-    def _confirm_reply(self, result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound) -> None:
-        """Answer POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract."""
-        match result:
-            case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
-                return self._json({"ok": True, "pin": public(record), "state": "done"})
-            case PinNotFound():
-                return self._json({"ok": False, "pin": None, "state": None})
-            case AgentCannotConfirm():
-                raise HTTPError(403, CONFIRM_BY_HUMAN)
-            case PinStillOpen(pin=OpenPin(record=record)):
-                raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
-
-    def _add_answer(self, result: OpenPin | InputRejected) -> None:
-        """Answer POST /api/pin: the new pin's id, or 400 with the refused field's message."""
-        match result:
-            case OpenPin(record=record):
-                return self._json({"id": record["id"]})
-            case InputRejected(message=message):
-                raise HTTPError(400, message)
-
-    def _edit_answer(self, result: OpenPin | ReviewPin | DonePin | EditRefusal | InputRejected | PinNotFound) -> None:
-        """Answer POST /api/pins/{id}/edit for every outcome, with the statuses and bodies of the agent contract."""
-        match result:
-            case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-                return self._json({"ok": True, "pin": public(record)})
-            case PinNotFound(pid=pid):
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
-            case ClosedPinReshaped(pin=ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "done", pin=public(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.")
-            case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-                raise HTTPError(409, "conflict", pin=public(record))
-            case NoteTooLong(length=length, limit=limit):
-                raise HTTPError(400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit))
-            case PinOutsideTree():
-                raise HTTPError(400, "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.")
-            case RangeOutsideFile(lines=lines, lo=lo, hi=hi):
-                raise HTTPError(400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi))
-            case InputRejected(message=message):
-                raise HTTPError(400, message)
-
-    def _read_raw(self) -> bytes:
-        """Reads the request body to completion before any response, on every path (including GET/403/404).
-
-        Responding without reading it first would let the same connection's leftover bytes be interpreted
-        as a "local request with no headers" - since tailscale serve reuses the backend connection, a tailnet user could slip through that gap."""
-        self._raw = b""
-        if self.headers.get("Transfer-Encoding") is not None:
-            self.close_connection = True
-            raise HTTPError(400, "Transfer-Encoding 은 받지 않습니다. Content-Length 로 보내세요.")
-        cls = self.headers.get_all("Content-Length") or []
-        if len(set(v.strip() for v in cls)) > 1:
-            self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 여러 개입니다.")
-        cl = cls[0].strip() if cls else ""
-        if cl == "":
-            return b""
-        if not re.fullmatch(r"[0-9]+", cl):          # isdigit() would also accept latin-1 digits like '²'
-            self.close_connection = True
-            raise HTTPError(400, "Content-Length 가 음이 아닌 정수가 아닙니다.")
-        n = int(cl)
-        if n > MAX_BODY:
-            self.close_connection = True
-            raise HTTPError(413, "요청 본문이 너무 큽니다(1 MiB 이하).")
-        raw = self.rfile.read(n) if n else b""
-        if len(raw) != n:                                 # a truncated request - never acted on (including /api/clear)
-            self.close_connection = True
-            raise HTTPError(400, "요청 본문이 Content-Length 보다 짧습니다(연결이 끊겼습니다).")
-        self._raw = raw
-        return raw
-
-    def _check_origin(self) -> None:
-        """Blocks cross-origin requests (CSRF) and DNS rebinding.
-
-        - Host: every request must have a loopback name (':' then a port) or *.ts.net.
-          DNS rebinding is a browser reaching 127.0.0.1 via evil.example, which shows up in Host.
-        - Origin: if present, must be loopback when Host is loopback (port irrelevant - SSH -L), or the same
-          origin as that host when Host is *.ts.net (origin_ok).
-          A browser always attaches Origin to a cross-origin POST. curl/agents send no Origin, so this has no effect on them."""
-        if not C.origin_check:                        # --no-origin-check: an escape hatch for when the observed path differs from expectations
-            return
-        host = self.headers.get("Host")
-        # Checked independent of whether the Tailscale-User-* header is present. That header can also be
-        # carried on a same-origin GET from a rebinding page with no preflight, so exempting it via that header would bypass the defense entirely (observed).
-        if host is not None and not host_ok(host):
-            raise HTTPError(403, "허용되지 않은 Host 입니다: %s" % hdr_text(host)[:100])
-        origin = self.headers.get("Origin")
-        if origin is not None and not origin_ok(origin, host):
-            raise HTTPError(403, "다른 출처의 요청은 받지 않습니다: %s" % hdr_text(origin)[:100])
-
-    def _guard(self) -> dict:
-        """Every request: read the body, check Host/Origin, identify (401), admit (403). Leaves the principal on
-        self.principal and returns its actor (what pins record)."""
-        self._read_raw()
-        self._check_origin()
-        peer = self.client_address[0] if isinstance(self.client_address, tuple) and self.client_address else ""
-        p = identify(self.headers, peer)
-        admit(p, self.headers.get("Host"), self.headers)
-        self.principal = p
-        return p.actor
-
-    def _record(self, actor) -> None:
-        """people.json for a person who opened the viewer or wrote something (agents never). The local owner is recorded as owner."""
-        record_person(actor, role="owner" if self.principal.via == "local-owner" else None)
-
-    def _me(self, actor) -> dict:
-        return dict(actor, role=self.principal.role)
-
-    def _wants_page(self) -> bool:
-        """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
-        return (self.command == "GET" and urlparse(self.path).path == "/"
-                and "text/html" in (self.headers.get("Accept") or ""))
-
-    def _run(self, fn):
-        """Runs one request handler and turns its refusal into the response: HTTPError as is, ScopeRejected through
-        the SCOPE_REJECTIONS table (one table for every pin-scoping refusal), a dropped connection silently, anything
-        else as a 500 with the traceback on stderr. A browser opening / gets an HTML page instead of JSON."""
+    def __getattr__(self, name: str):
+        """The current value of global `name`; AttributeError when this module has none."""
         try:
-            fn()
-        except (HTTPError, ScopeRejected) as err:
-            e = err if isinstance(err, HTTPError) else scope_http_error(err)
-            if self._wants_page():
-                lang = page_lang(self.headers, parse_qs(urlparse(self.path).query))
-                return self._send(e.code, error_page_html(e, lang).encode("utf-8"), "text/html; charset=utf-8")
-            self._json(e.body, e.code)
-        except (BrokenPipeError, ConnectionResetError, socket.timeout):
-            self.close_connection = True
-        except Exception as e:                            # noqa: BLE001 — reports as JSON instead of dropping the connection
-            traceback.print_exc(file=sys.stderr)
-            try:
-                self._json({"error": "서버 내부 오류: %s" % e}, 500)
-            except OSError:
-                self.close_connection = True
+            return self._ns[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
-    def do_GET(self):
-        self._run(self._get)
 
-    def do_POST(self):
-        self._run(self._post)
-
-    def _get(self):
-        actor = self._guard()
-        u = urlparse(self.path)
-        path, q = u.path, parse_qs(u.query)
-        # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        with using_doc(request_doc(q)):
-            return self._get_doc(actor, path, q)
-
-    def _get_revision(self, path: str, D: Doc, q: dict) -> None:
-        """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
-        optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
-        and refusals (HTTPError, ScopeRejected) propagate to _run."""
-        commit, pin = (q.get("commit") or [""])[0], clean_pin_param((q.get("pin") or [None])[0])
-        if path == "/api/revision-diff":
-            return self._json(revision_diff(D, commit, pin))
-        if path == "/api/revision-build":
-            return self._json(revision_status(D, commit, pin))
-        return self._send(200, revision_pdf(D, commit, pin), "application/pdf", cache="private, max-age=600")
-
-    def _get_doc(self, actor, path, q):
-        """GET routes that act on the request's document (?doc=, bound by using_doc in _get): the viewer page, people,
-        pins and pins.md, meta, snippets, builds and the revision routes. Returns after sending one response; refusals
-        propagate to _run as HTTPError (or ScopeRejected from the revision routes)."""
-        if path == "/":
-            self._record(actor)                   # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
-            return self._send(200, HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":                 # @-tag autocomplete candidates (no write). role: people.json role, editor if absent
-            roles = people_roles()
-            ppl = sorted(known_people(snapshot_pins()).values(), key=lambda x: (x.get("last_seen") is None, x["name"].lower()))
-            ppl = [dict(x, role=roles.get(x["login"], DEFAULT_ROLE)) for x in ppl]
-            return self._json({"people": ppl, "me": self._me(actor)})
-        if path == "/favicon.ico":
-            return self._send(204, b"", "image/x-icon")
-        if path == "/api/version":                # the installed Limn version - no write
-            return self._json({"name": APP_NAME, "version": app_version()})
-        if path == "/api/meta":
-            light = (q.get("light") or ["0"])[0] == "1"
-            if not light:
-                self._record(actor)
-            out = meta(actor, light=light)
-            out["me"] = self._me(actor)           # + role (additive)
-            out.update(events_since(actor, (q.get("ev") or [None])[0]))   # browser notifications - no write
-            return self._json(out)
-        if path == "/sw.js":                      # the service worker for browser notifications (app data is never cached)
-            return self._send(200, SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
-        if path == "/api/revisions":
-            return self._json(revision_history(cur_doc()))
-        if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
-            return self._get_revision(path, cur_doc(), q)
-        if path == "/api/outline-labels":
-            return self._json(outline_labels(cur_doc()))
-        if path == "/api/build":
-            full = (q.get("log") or ["0"])[0] == "1"
-            return self._json(diet_log(build_state_snapshot(), full))
-        if path == "/pins.md":                    # §P0c-B: entry point for a remote agent - the same sync path as GET /api/pins
-            maybe_purge_trash()
-            base = remote_base_for(self.headers.get("Host") or "")
-            text = pins_md_text(snapshot_pins(), base=base)
-            return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
-        if path == "/api/pins":
-            maybe_purge_trash()                   # hourly Trash expiry on a long-running server (this path already writes)
-            allp = (q.get("all") or ["0"])[0] == "1"
-            rows = pins_payload(snapshot_pins(), allp)
-            if q.get("doc"):                          # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
-                rows = [r for r in rows if r["doc"] == cur_doc().key]
-            return self._json(rows)
-        if path == "/api/docs":
-            return self._json(docs_payload())
-        if path == "/api/pins/dropped":
-            return self._json({"dropped": dropped_payload()})
-        m = re.fullmatch(r"/api/pins/(\d+)", path)
-        if m:                                     # one pin (including its thread) - for when an agent needs to read a long thread in full
-            pid = int(m.group(1))
-            rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
-            if rec is None:
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid)
-            return self._json({"pin": rec})
-        if path == "/api/snippet":
-            return self._json(snippet_api(q))
-        if path == "/api/overlaps":
-            return self._json(overlaps_api(q))
-        if path.startswith("/pages/"):
-            name = os.path.basename(path)
-            if PAGE_FILE_RE.fullmatch(name):
-                f = cur_pages() / name
-                try:
-                    data = f.read_bytes()
-                except OSError:
-                    data = None
-                if data is not None:
-                    return self._send(200, data, "image/png")
-        if path.startswith("/vendor/pdfjs/"):
-            # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
-            f = vendor_file(path[len("/vendor/pdfjs/"):])
-            if f is not None:
-                try:
-                    data = f.read_bytes()
-                except OSError:
-                    data = None
-                if data is not None:
-                    # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
-                    return self._send(200, data, VENDOR_MIME[f.suffix], cache="public, max-age=86400")
-            raise HTTPError(404, "없는 vendor 파일입니다: %s" % hdr_text(path)[:100])
-        if path == "/pdf":
-            # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
-            # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
-            name = (q.get("build") or [""])[0]
-            f = build_pdf(name)
-            data = None
-            if f is not None:
-                try:
-                    data = f.read_bytes()
-                except OSError:
-                    data = None
-            if data is None:
-                raise HTTPError(404, "그 빌드의 PDF 가 없습니다: %s" % hdr_text(name)[:60],
-                                pdf_build_gone=bool(name), pages_build=cur_pages().name)
-            return self._send(200, data, "application/pdf", cache="private, max-age=600")
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
-
-    def _body(self) -> dict:
-        raw = self._raw
-        if not raw.strip():
-            return {}
-        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        if ctype != "application/json":
-            # A cross-origin "simple request" (text/plain form) arrives with no preflight - accepting only JSON closes off that path.
-            raise HTTPError(415, "본문은 Content-Type: application/json 으로 보내세요.")
-        try:
-            d = json.loads(raw)
-        except (ValueError, RecursionError):
-            raise HTTPError(400, "본문이 올바른 JSON 이 아닙니다.") from None
-        if not isinstance(d, dict):
-            raise HTTPError(400, "본문은 JSON 객체여야 합니다.")
-        return d
-
-    def _post(self):
-        actor = self._guard()
-        u = urlparse(self.path)
-        path = u.path
-        check_role(self.principal, path)          # the one place roles are enforced, before any state change
-        self._record(actor)
-        d = self._body()
-        if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
-            q = parse_qs(u.query)
-            D = request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
-            with using_doc(D):
-                return self._post_doc(actor, path, u, d)
-        return self._post_doc(actor, path, u, d)
-
-    def _post_doc(self, actor, path, u, d):
-        """POST routes that act on the request's document: pin changes (close takes the optional v0.3 `changes`,
-        parsed against the manuscript folder), pick, new pins, clear, the revision build and rebuilds. d is the parsed
-        JSON body; refusals propagate to _run."""
-        m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
-        if m:
-            pid, act = int(m.group(1)), m.group(2)
-            if act == "reply":
-                text, hints, reopen = clean_thread_text(d.get("text")), clean_mention_hints(d.get("mentions")), clean_reopen_flag(d)
-                human = not is_agent(actor) and self.principal.role != "agent"
-                return self._reply_answer(reply_pin(pid, text, actor, hints, reopen=reopen, human=human))
-            if act == "confirm":
-                return self._confirm_reply(confirm_pin(pid, actor))
-            if act == "drop":
-                return self._json({"ok": isinstance(drop_pin(pid, actor), TrashedPin)})
-            if act == "restore":
-                return self._restore_answer(restore_pin(pid, actor))
-            if act == "purge":                    # owner only (check_role)
-                if isinstance(purge_pin(pid, actor), NotInTrash):
-                    raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid)
-                return self._json({"ok": True, "purged": pid})
-            if act == "edit":
-                return self._edit_answer(edit_pin(pid, d, actor))
-            if act == "claim":
-                ttl, eta = clean_claim_body(d)
-                return self._claim_answer(claim_pin(pid, actor, ttl, eta), ttl, eta)
-            if act == "unclaim":
-                return self._unclaim_answer(unclaim_pin(pid, actor))
-            reply = ref = review = reason = changes = None
-            if act == "close":
-                reply, ref = clean_close_body(d)
-                changes = clean_close_changes(d.get("changes"), C.src)
-                review = clean_review_flag(d)
-                if review is None and self.principal.role == "agent":
-                    review = True                 # a person with the agent role closes into review like any agent
-            else:                                 # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
-                reason = clean_thread_text(d.get("reason"), "reason", required=False)
-            return self._state_reply(set_done(pid, act == "close", actor, reply, ref, review=review, reason=reason,
-                                              hints=clean_mention_hints(d.get("mentions")), changes=changes))
-        if path == "/api/pick":
-            return self._json(pick(d))
-        if path == "/api/pin":
-            return self._add_answer(add_pin(d, actor))
-        if path == "/api/clear":                  # owner only (check_role), and only with the confirmation phrase
-            if d.get("confirm") != CLEAR_CONFIRM:
-                raise HTTPError(400, "모든 핀을 지우려면 본문에 {\"confirm\": \"%s\"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다)."
-                                % CLEAR_CONFIRM)
-            return self._json(dict(clear_pins(actor), ok=True))
-        if path == "/api/revision-build":
-            if set(d) - {"commit", "doc", "pin"}:
-                raise HTTPError(400, "허용되지 않는 비교 PDF 요청 필드입니다.")
-            if "pin" in d and not _is_int(d["pin"]):
-                raise HTTPError(400, "pin 은 핀 번호(양의 정수)여야 합니다.")
-            result = revision_start(cur_doc(), d.get("commit"), clean_pin_param(d.get("pin")))
-            return self._json(result, 202 if result["state"] == "running" else 200)
-        if path == "/api/rebuild":
-            if cur_doc().is_pdf:
-                raise HTTPError(400, "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다."
-                                % cur_doc().key)
-            full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
-            if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
-                r = build_async()
-                return self._json(r, 409 if r.get("busy") else 202)
-            r = build_all()
-            return self._json(diet_log(r, full), 409 if r.get("busy") else 200)
-        raise HTTPError(404, "없는 경로입니다: %s" % path)
+class Handler(WebHandler):
+    """The HTTP handler of this server: limn.web.handler.Handler bound to this module's services (_ModuleApp)."""
+    app = _ModuleApp(globals())
 
 
 # ---------------------------------------------------------------- Entry point
@@ -6599,10 +6089,6 @@ def access_log_lines() -> list:
                    "as the agent - anyone who can reach the tailnet address without an identity can change pins. Give "
                    "remote agents a token (limn token create <instance>) and drop TAILNET_AGENT")
     return out
-
-
-class Server6(Server):
-    address_family = socket.AF_INET6
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
