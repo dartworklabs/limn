@@ -305,7 +305,9 @@ function isRegion(p){return !!p&&(p.kind==='region'||(!p.file&&!!p.pdf));}
 // Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
 function dq(u,k){k=k||DOC; if(!k)return u; return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function hashDoc(){const m=/(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash||''); return m?m[1]:null;}
-function setHash(k){if(!multiDoc())return; const h='#doc='+k; if(location.hash!==h)history.replaceState(null,'',location.pathname+location.search+h);}
+// Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the back
+// layer's pushed entry must stay recognizable after a document switch.
+function setHash(k){if(!multiDoc())return; const h='#doc='+k; if(location.hash!==h)history.replaceState(history.state,'',location.pathname+location.search+h);}
 // The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first document.
 function initialDoc(){const h=hashDoc(); if(h&&docInfo(h))return h; const l=prefs().lastDoc; if(l&&docInfo(l))return l;
   return DOCS.length?DOCS[0].key:null;}
@@ -628,6 +630,8 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
 
 // ------------------------------------------------ Document
+// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, the first-visit hint (touch or mouse),
+// polling and notifications, then a pin link from the hash (#doc=&pin=) if there was one.
 async function boot(){i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
   // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
@@ -875,7 +879,7 @@ function hashPin(){const m=/(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash|
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link restored a pin someone had deleted again - PR #11 review).
 function takeLinkHash(){const link={pin:hashPin(),doc:hashDoc(),restore:/(?:^#|[#&])act=restore(?:&|$)/.test(location.hash||'')};
-  if(link.pin)history.replaceState(null,'',location.pathname+location.search+(link.doc?'#doc='+link.doc:''));
+  if(link.pin)history.replaceState(history.state,'',location.pathname+location.search+(link.doc?'#doc='+link.doc:''));
   return link;}
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
 async function openPinFromLink(doc,pin,restore){if(!pin)return; if(doc&&doc!==DOC&&docInfo(doc)){await switchDoc(doc); if(DOC!==doc)return;}
@@ -1390,26 +1394,32 @@ function setSide(open,remember,slide){open=!!open;
   if(open&&LAYOUT==='mid'){OUTLINE_MID_OPEN=false;applyOutlineState();}
   if(remember&&LAYOUT==='mid')savePrefs({midClosed:!open});
   if(remember&&LAYOUT==='wide')savePrefs({sideClosed:!open});
-  if(SIDE_OPEN===open)return; SIDE_OPEN=open; endSideSlide();
+  if(SIDE_OPEN===open)return; SIDE_OPEN=open; const cut=!!SIDE_SLIDE&&SIDE_SLIDE.kind==='closing'; endSideSlide();
+  if(open)document.documentElement.style.setProperty('--swipe-x','0px');   // never reopen an overlay still offset by a swipe
   const ms=slideMs(); if(ms&&slide)startSideSlide(open?'opening':'closing',ms);
-  applySide(); hideTip(); if(!open&&!SIDE_SLIDE)applySideWidth();}
+  applySide(); hideTip(); if((!open&&!SIDE_SLIDE)||(open&&cut))applySideWidth();}   // reopened mid-slide: back from a drag's minimum to the saved width
 // The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page re-fits instead).
 // While it slides out the body keeps side-open, so the layout does not jump until it is gone.
 const SLIDE_MS=180; let SIDE_SLIDE=null;
-// The slide's length for this layout in ms: 0 with reduced motion and beside the document (901-1099px).
+// The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow sheet.
 function slideMs(){return MQ_REDUCED.matches||!(LAYOUT==='wide'||MID_OVERLAY)?0:SLIDE_MS;}
 // Starts the 'opening'/'closing' slide; when it ends the panel settles (a collapsed one gets its saved width back).
-function startSideSlide(kind,ms){document.body.classList.add('side-'+kind);
-  SIDE_SLIDE={kind,t:setTimeout(()=>{endSideSlide(); applySide(); if(!SIDE_OPEN)applySideWidth();},ms)};}
-// Stops a running slide at once (a new toggle, a layout change, a new handle drag).
+function startSideSlide(kind,ms){document.body.classList.add('side-'+kind); SIDE_SLIDE={kind,t:setTimeout(finishSideSlide,ms)};}
+// Ends a running slide now and settles the panel as the slide's end would (a collapsed one gets its saved width back) - a handle
+// pressed mid-slide starts from the settled state, not from a half-slid one.
+function finishSideSlide(){if(!SIDE_SLIDE)return; endSideSlide(); applySide(); if(!SIDE_OPEN)applySideWidth();}
+// Stops a running slide at once without settling anything - the caller re-applies the panel (setSide, applyLayout); a handle
+// drag uses finishSideSlide() instead.
 function endSideSlide(){if(!SIDE_SLIDE)return; clearTimeout(SIDE_SLIDE.t); SIDE_SLIDE=null; document.body.classList.remove('side-closing','side-opening');}
 // After a collapse, a focus left inside the hidden panel (or on the mid handle, which hides with it) moves to the [핀 N] that
 // reopens it. Compact keeps its tool bar and status chips visible, so a focus there stays.
 function focusSideToggle(){const a=document.activeElement; if(SIDE_OPEN||!a)return;
   const hidden=(a===$('#grip')&&LAYOUT!=='wide')||($('#right').contains(a)&&!$('#bar2').contains(a)&&!(LAYOUT!=='wide'&&$('#bar1').contains(a)));
   if(hidden)(LAYOUT==='wide'?$('#nav-side'):$('#btn-side')).focus({preventScroll:true});}
-// Ctrl/⌘+\ and the handle's Enter: collapse with the slide, or open.
-function toggleSide(){const open=!SIDE_OPEN; setSide(open,true,true); if(!open)focusSideToggle();}
+// [핀 N], Ctrl/⌘+\ and the handle's Enter: collapse with the slide, or open. Collapsing moves a focus out of the hidden panel;
+// opening from the nav bar's [핀 N] (which hides as the panel opens) moves the focus to the handle beside the panel.
+function toggleSide(){const open=!SIDE_OPEN,a=document.activeElement; setSide(open,true,true);
+  if(!open)focusSideToggle(); else if(a===$('#nav-side'))$('#grip').focus({preventScroll:true});}
 // The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
 function coachSideCollapsed(){if(LAYOUT==='wide'&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
 function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
@@ -1477,7 +1487,7 @@ for(const sel of ['#more','#help','#docs-menu'])$(sel).addEventListener('click',
   // A drag from the rail shows the panel without deciding anything yet (the release does).
   const preview=on=>{document.body.classList.toggle('side-open',on);};
   g.addEventListener('pointerdown',e=>{if(LAYOUT==='narrow'||(e.pointerType==='mouse'&&e.button!==0))return;
-    e.preventDefault(); hideTip(); endSideSlide();
+    e.preventDefault(); hideTip(); finishSideSlide();
     D={id:e.pointerId,x:e.clientX,w:SIDE_OPEN?curSideW():0,rail:!SIDE_OPEN,moved:false,mouse:e.pointerType==='mouse',zone:null};
     try{g.setPointerCapture(e.pointerId);}catch(_){}
     g.classList.add('on'); document.body.classList.add('resizing');});
@@ -1486,6 +1496,8 @@ for(const sel of ['#more','#help','#docs-menu'])$(sel).addEventListener('click',
     const b=sideBounds(LAYOUT,innerWidth),s=snapSide(D.w+dx,b,draftOpen()); D.zone=s.zone;
     if(D.rail)preview(s.zone==='follow'||s.zone==='min');
     showSideW(s.w,b); cue(s.zone,D.rail);});
+  // The release: a cancel restores the state before the drag; a tap opens the rail or cycles the presets; a rail drag opens past T;
+  // an open drag collapses in the collapse zone and otherwise saves the width (the minimum in the min and blocked zones).
   const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; g.classList.remove('on'); document.body.classList.remove('resizing'); cue(null);
     if(e.type==='pointercancel'){applySide(); applySideWidth(); relayout(); return;}   // back to exactly how it was before the drag
     if(!d.moved){if(d.mouse||Date.now()<SWALLOW_CLICK)return;
@@ -1538,6 +1550,8 @@ function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',S
 // up opens a collapsed sheet; the release is sheetRelease(). A tap on the handle opens it or cycles the heights, and swallows the
 // ghost click that would otherwise land on whatever moved under the finger.
 (function(){const g=$('#sheet-grip'),bar=$('#bar1'); let D=null;
+  // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move is vertical
+  // (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab=e=>{try{D.el.setPointerCapture(e.pointerId);}catch(_){} D.el.classList.add('on'); document.body.classList.add('resizing');};
   const down=(e,lazy)=>{if(LAYOUT!=='narrow'||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
     if(lazy&&e.target.closest&&e.target.closest('input,textarea,select'))return;
@@ -1568,7 +1582,7 @@ function dragSheetTo(h){document.documentElement.style.setProperty('--sheet-f',S
 // vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move is the sheet's
 // (preventDefault). ok(e) filters the touchstart; onMove(dy) follows; onEnd(dy, v) settles (dy null = cancelled; v px/ms, down +).
 function pullDown(box,ok,onStart,onMove,onEnd){let P=null;
-  box.addEventListener('touchstart',e=>{P=null; const t=e.touches[0];
+  box.addEventListener('touchstart',e=>{if(P&&P.on)onEnd(null,0); P=null; const t=e.touches[0];   // a second finger cancels a pull
     if(e.touches.length!==1||!ok(e)||(e.target.closest&&e.target.closest('textarea,input,select,pre,.seg')))return;
     P={x:t.clientX,y:t.clientY,on:false,pts:[]};},{passive:true});
   box.addEventListener('touchmove',e=>{if(!P)return; const t=e.touches[0],dx=t.clientX-P.x,dy=t.clientY-P.y;
@@ -1607,11 +1621,14 @@ function swipeFollow(dx,composing){dx=Math.max(0,dx); return composing?Math.min(
 // size along it, v = the release speed toward closing in px/ms. Past 35% of the size, or a fling (more than 24px at 0.5px/ms or faster), closes.
 function dismissOutcome(d,size,v){return d>=0.35*size||(d>24&&v>=0.5)?'close':'back';}
 (function(){const R=$('#right'),SKIP='.seg,pre.nowrap,textarea,input,select,#grip,#bar1'; let S=null;
+  // setX moves the panel (and handle) by px through --swipe-x; settle ends a swipe - 'close' slides it out and collapses it
+  // (remembered), 'back' springs it back - and always leaves --swipe-x at 0.
   const setX=px=>document.documentElement.style.setProperty('--swipe-x',Math.round(px)+'px');
   const settle=out=>{const b=document.body,ms=MQ_REDUCED.matches?0:SLIDE_MS; b.classList.remove('side-swiping');
     const done=()=>{b.classList.remove('side-settling'); if(out==='close'){setSide(false,true); focusSideToggle();} setX(0);};
     if(!ms){done(); return;} b.classList.add('side-settling'); setX(out==='close'?curSideW():0); setTimeout(done,ms);};
-  R.addEventListener('pointerdown',e=>{S=null; if(e.pointerType==='mouse'||!e.isPrimary||!(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN))return;
+  R.addEventListener('pointerdown',e=>{if(!e.isPrimary){if(S&&S.axis==='x')settle('back'); S=null; return;}   // a second finger ends the swipe
+    S=null; if(e.pointerType==='mouse'||!(LAYOUT==='mid'&&MID_OVERLAY&&SIDE_OPEN))return;
     if(e.target.closest&&e.target.closest(SKIP))return;
     S={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),axis:null,w:0,pts:[]};});
   window.addEventListener('pointermove',e=>{if(!S||e.pointerId!==S.id)return; const dx=e.clientX-S.x,dy=e.clientY-S.y,now=performance.now();
@@ -1651,7 +1668,9 @@ function closeTopLayer(){const k=backLayer(LAYOUT,MID_OVERLAY,SIDE_OPEN,OUTLINE_
   if(k==='outline')toggleOutline(); else if(k==='side'){setSide(false,true,true); focusSideToggle();}}
 window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==='history'); if(!ours)return;
   if(DOC)setHash(DOC);   // the entry below may carry an older #doc= - the document on screen stays
-  if(BACK_SKIP){BACK_SKIP=false; return;} BACK=null; closeTopLayer();});
+  if(BACK_SKIP){BACK_SKIP=false; return;} BACK=null;
+  const d=document.querySelector('dialog[open]'); if(d){d.close(); syncBackLayer(); return;}   // a dialog over the sheet closes first
+  closeTopLayer();});
 
 // ------------------------------------------------ Drag selection (mouse/touch/pen - one Pointer Events path)
 // Mouse: press and drag draws a rectangle, as before. Touch/pen: a drag draws a rectangle only in selection mode
@@ -1940,7 +1959,7 @@ function selectionSnapshot(){if(!CUR&&!PICKING&&$('#composer').hidden)return nul
 function restoreSelection(snap){if(!snap||CUR||PICKING||REPICK||!$('#composer').hidden)return false;
   const n=$('#note'); n.value=snap.note; n._mentions=snap.mentions; setKind(snap.kind); Object.assign(ASSIGN_NEW,snap.assign);
   renderAssignNew(); mentionPreview(n); autoGrow(n);
-  if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build))return true;
+  if(!(snap.cur&&snap.doc===DOC&&META&&snap.build===META.pages_build)){toast('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','warn'); return true;}
   if(PENDING)PENDING.remove(); PENDING=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){PENDING=snap.box; snap.page.appendChild(snap.box);}
   CUR=snap.cur; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
@@ -1949,7 +1968,7 @@ function restoreSelection(snap){if(!snap||CUR||PICKING||REPICK||!$('#composer').
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the toast offers
 // [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation.
 function discardSelection(){const snap=selectionSnapshot(); cancelSelection(true);
-  if(snap&&snap.note.trim())toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});}
+  if(snap&&snap.cur&&snap.note.trim())toast('선택 취소됨','ok',{label:'되돌리기',tip:'선택과 메모를 되살립니다',fn:()=>restoreSelection(snap)});}
 async function appendToPin(id,text){
   const prior=PINS.find(p=>p.id===id); const priorNote=prior?(prior.note||''):'';
   try{const {data}=await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:text},what:'메모 덧붙이기'});
@@ -2802,7 +2821,7 @@ document.addEventListener('click',e=>{
   const fromMore=!!a.closest('#more');
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   switch(a.dataset.act){
-    case 'side':setSide(!SIDE_OPEN,true,true);break;
+    case 'side':toggleSide();break;
     case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT==='narrow'&&!CUR&&!EDIT)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(+a.dataset.i);break;
@@ -2868,7 +2887,7 @@ document.addEventListener('click',e=>{
     case 'done-toggle':toggleSec('done');if(fromMore)revealList('#done-toggle',SEC.done);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
     case 'err-close':hideBuildErr();break;
-    case 'build-err-reopen':if(LAST_BUILD_ERR)showBuildErr(LAST_BUILD_ERR);break;
+    case 'build-err-reopen':if(LAST_BUILD_ERR){setSide(true); showBuildErr(LAST_BUILD_ERR);} break;   // the chip floats on a collapsed panel; the log is inside it
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
@@ -2898,7 +2917,7 @@ document.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&t&&t.getAttribute&&/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act&&!inField){e.preventDefault();t.click();return;}
   if(e.key==='Escape'){
     if($('#help').open||$('#more').open||$('#docs-menu').open||$('#trash').open)return;
-    if(!TIP.hidden){hideTip(); if(!inField)return;}
+    if(!TIP.hidden){hideTip(); if(!inField){e.preventDefault(); return;}}
     // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
     if(LAYOUT==='mid'&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
     if(REPICK){e.preventDefault();cancelRepick();return;}

@@ -505,6 +505,84 @@ class DesktopPanelCollapse(ViewerBase):
                 self.assertEqual(bool(HANGUL.search(label + page.locator('#grip').get_attribute("aria-label"))), lang == "ko")
 
 
+class ReviewRegressions(ViewerBase):
+    """Findings of the code review of this change (fail before their fix): interrupted slides, a second finger mid-gesture,
+    the back layer's history entry surviving a hash rewrite, and focus when reopening from the nav bar."""
+
+    def test_a_handle_press_mid_slide_settles_the_collapsed_panel(self):
+        """Ctrl+\\ starts the 0.18s slide; a click on the handle during it used to leave side-open on a collapsed panel."""
+        page = self.view(DESK)
+        page.evaluate("""() => {const g = document.querySelector('#grip'), r = g.getBoundingClientRect(),
+          o = {pointerId: 7, pointerType: 'mouse', button: 0, bubbles: true, clientX: r.left + 3, clientY: 300};
+          toggleSide(); g.dispatchEvent(new PointerEvent('pointerdown', o)); g.dispatchEvent(new PointerEvent('pointerup', o));}""")
+        page.wait_for_timeout(400)
+        self.assertEqual(page.evaluate("[SIDE_OPEN, document.body.classList.contains('side-open')]"), [False, False])
+        self.assertTrue(page.locator('#nav-side').is_visible())
+
+    def test_reopening_right_after_a_drag_collapse_shows_the_saved_width(self):
+        """A drag-collapse leaves the panel at the minimum while it slides out; reopening within the slide used to keep it."""
+        page = self.view(DESK, prefs={"side": 400})
+        g = page.locator('#grip').bounding_box()
+        page.mouse.move(g["x"] + 3, 300)
+        page.mouse.down()
+        page.mouse.move(g["x"] + 350, 300, steps=4)
+        page.mouse.up()
+        page.keyboard.press("Control+Backslash")
+        page.wait_for_function("SIDE_OPEN&&!document.body.classList.contains('side-opening')")
+        self.assertEqual(page.evaluate(PROBE)["w"], 400)
+
+    def test_opening_from_the_nav_toggle_moves_focus_to_the_handle(self):
+        """[핀 N] in the nav bar hides as the panel opens; the keyboard focus used to fall to <body>."""
+        page = self.view(DESK, prefs={"sideClosed": True})
+        page.locator('#nav-side').focus()
+        page.keyboard.press("Enter")
+        page.wait_for_function("SIDE_OPEN")
+        self.assertEqual(page.evaluate("document.activeElement.id"), "grip")
+
+    def test_a_hash_rewrite_keeps_the_back_layers_history_entry(self):
+        """setHash() used replaceState(null): after a document switch the pushed entry was no longer recognized as ours."""
+        page = self.view(PHONE, init=NO_CLOSE_WATCHER)
+        cdp = self.cdp(page)
+        self.tap(cdp, *self.center(page, '#btn-side'))
+        page.wait_for_function("SIDE_OPEN&&BACK&&BACK.kind==='history'")
+        page.evaluate("DOCS=[{key:'main',name:'A',path:'a.tex'},{key:'other',name:'B',path:'b.tex'}]; setHash('other')")
+        self.assertTrue(page.evaluate("!!(history.state&&history.state.limnLayer)"))
+
+    def test_a_second_finger_ends_a_pull_down_and_an_overlay_swipe_cleanly(self):
+        """A second finger mid-gesture used to leave body.resizing on (a dead PDF) or the overlay offset by --swipe-x."""
+        page = self.view(PHONE)
+        cdp = self.cdp(page)
+        self.tap(cdp, *self.center(page, '#btn-side'))
+        page.wait_for_function("SIDE_OPEN")
+        page.wait_for_timeout(300)
+        y = page.locator('#list').bounding_box()["y"] + 40
+        self.touch(cdp, "touchStart", [(190, y)])
+        for i in range(1, 6):
+            self.touch(cdp, "touchMove", [(190, y + 20 * i)])
+            time.sleep(0.02)
+        self.touch(cdp, "touchStart", [(190, y + 100), (300, y + 60)])
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_timeout(300)
+        self.assertFalse(page.evaluate("document.body.classList.contains('resizing')"))
+        page = self.view(FOLD)
+        cdp = self.cdp(page)
+        self.tap(cdp, *self.center(page, '#btn-side'))
+        page.wait_for_function("SIDE_OPEN&&MID_OVERLAY")
+        page.wait_for_timeout(300)
+        r = page.locator('#right').bounding_box()
+        x, y = r["x"] + 40, r["y"] + 150
+        self.touch(cdp, "touchStart", [(x, y)])
+        for i in range(1, 8):
+            self.touch(cdp, "touchMove", [(x + 12 * i, y)])
+            time.sleep(0.02)
+        self.touch(cdp, "touchStart", [(x + 84, y), (x + 20, y + 200)])
+        self.touch(cdp, "touchEnd", [])
+        page.wait_for_timeout(400)
+        self.assertEqual(page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--swipe-x').trim()||'0px'"), "0px")
+        if page.evaluate("SIDE_OPEN"):
+            self.assertEqual(page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842)
+
+
 class DesktopPersistence(ViewerBase):
     """The collapsed state is a per-device choice (pinPrefs.sideClosed) that survives a reload; the width is separate."""
 

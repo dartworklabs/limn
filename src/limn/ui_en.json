@@ -464,6 +464,7 @@
  "메모를 되돌렸습니다": "Reverted the note",
  "메모를 먼저 써야 덧붙일 수 있습니다": "Write a note first before you can append",
  "메모를 쓰고": "Write a note and",
+ "메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다": "Only the note is back — the PDF changed, so pick the spot again",
  "메모에 덧붙이기": "Append to note",
  "메모와 범위를 고칩니다. 번호는 그대로입니다": "Edits the note and range. The number stays the same",
  "메모와 위치를 핀으로 저장해 pins.md에 올립니다. 에이전트는 이 파일을 읽고 작업합니다 (⌘ Enter / Ctrl+Enter)": "Saves the note and location as a pin in pins.md. The agent reads this file to do the work (⌘ Enter / Ctrl+Enter)",
