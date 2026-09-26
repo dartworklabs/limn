@@ -62,6 +62,10 @@ from urllib.parse import parse_qs, quote, urlparse
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from limn.pins.lifecycle import (  # noqa: E402 - after the path bootstrap above
+    AgentCannotConfirm, AlreadyDone, PinStillOpen, confirm, confirmer, thread_message,
+)
+from limn.pins.model import Actor, Agent, DonePin, OpenPin, Person, PinNotFound, parse_pin  # noqa: E402
 from limn.mapping import (  # noqa: E402 - after the path bootstrap above
     anchor_holds, anchor_of, by_text, compute_levels, densest, find_line, norm, pin_rel_path, score_range, snippet,
     truncate_quote,
@@ -220,6 +224,7 @@ LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "v
 LOCAL_ACTOR = {"login": "local", "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"      # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 CONFIRM_BY_HUMAN = "확인은 사람이 합니다 — 테일넷 신원으로 접속해 뷰어에서 [확인]을 누르세요."
+CONFIRM_OPEN_DETAIL = "열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다."
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
 # list - a latexdiff artifact changing must not turn on "manuscript modified" / location re-estimation
 # when it isn't part of the build (observed: 17 PDFs under diff/).
@@ -4287,14 +4292,7 @@ def _thread_append(r: dict, actor: dict, text: str = "", ev: str = None, ref: st
 
     ev (close/reopen/confirm) is a state-transition record - the close reason (reply) and reopen reason are recorded in the same single-line history as replies."""
     th = r.get("thread") if isinstance(r.get("thread"), list) else []
-    mid = max((m.get("id", 0) for m in th if isinstance(m, dict) and _is_int(m.get("id"))), default=0) + 1
-    msg = {"id": mid, "by": _msg_by(actor), "at": now_str(), "text": text or ""}
-    if ev:
-        msg["ev"] = ev
-    if ref:
-        msg["ref"] = ref
-    if mentions:
-        msg["mentions"] = list(mentions)
+    msg = thread_message(th, _msg_by(actor), now_str(), text, ev=ev, ref=ref, mentions=mentions)
     r["thread"] = th + [msg]
     return msg
 
@@ -4930,30 +4928,36 @@ def _reopen(r: dict, rows: list, actor: dict, reason, hints, evs: list):
     return msg
 
 
-def confirm_pin(pid: int, actor: dict):
-    """Awaiting review -> done. **Only a person** can press this (the viewer merely suggests the author as reviewer - it's a trust model.
-    A request with no identity header (agent/local curl) gets 403 - awaiting review exists specifically as a
-    record that a person looked at a pin the agent closed, so an agent confirming its own work would defeat
-    the point). Records confirmed_by/confirmed_at and appends ev=confirm to the thread. Already done changes
-    nothing and just returns as-is (idempotent, like close). 409 open for an open pin. An unknown id returns None."""
+def typed_actor(actor: dict) -> Actor:
+    """The typed actor of a request's actor dict: an Agent when is_agent() says so, otherwise a Person."""
+    login, name = actor.get("login", "local"), actor.get("name", "")
     if is_agent(actor):
-        raise HTTPError(403, CONFIRM_BY_HUMAN)
+        return Agent(login, name)
+    pic = actor.get("pic")
+    return Person(login, name, pic if isinstance(pic, str) and pic else None)
+
+
+def confirm_pin(pid: int, actor: dict) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:
+    """Awaiting review -> done, by a person only (docs/handbook/api.md §검토 대기).
+
+    An agent is refused before the store is touched, as before. Otherwise the pin is loaded under the pin lock
+    (transact) and lifecycle.confirm() decides; only a new DonePin is written, in place, so the saved line
+    keeps its field order. Every other outcome is returned unchanged for the HTTP layer to answer.
+    """
+    by = confirmer(typed_actor(actor))
+    if isinstance(by, AgentCannotConfirm):
+        return by
 
     def fn(rows):
         r = find_pin(rows, pid)
         if r is None:
-            return None, False
-        st = pin_state(r)
-        if st == "open":
-            raise HTTPError(409, "open", pin=public(r), detail="열린 핀은 확인할 것이 없습니다 — 닫힌 뒤 검토 대기일 때 확인합니다.")
-        if st == "done":
-            return public(r), False
-        r.pop("review", None)
-        r["confirmed_by"] = who(actor)
-        r["confirmed_at"] = now_str()
-        _thread_append(r, actor, "", ev="confirm")
-        r["rev"] = int(r.get("rev") or 0) + 1
-        return public(r), True
+            return PinNotFound(pid), False
+        result = confirm(parse_pin(r), by, now_str())
+        if isinstance(result, DonePin):
+            r.clear()
+            r.update(result.record)
+            return result, True
+        return result, False
     return transact(fn)[1]
 
 
@@ -6438,6 +6442,18 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _confirm_reply(self, result: DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound) -> None:
+        """Answer POST /api/pins/{id}/confirm for every outcome, with the statuses and bodies of the agent contract."""
+        match result:
+            case DonePin(record=record) | AlreadyDone(pin=DonePin(record=record)):
+                return self._json({"ok": True, "pin": public(record), "state": "done"})
+            case PinNotFound():
+                return self._json({"ok": False, "pin": None, "state": None})
+            case AgentCannotConfirm():
+                raise HTTPError(403, CONFIRM_BY_HUMAN)
+            case PinStillOpen(pin=OpenPin(record=record)):
+                raise HTTPError(409, "open", pin=public(record), detail=CONFIRM_OPEN_DETAIL)
+
     def _read_raw(self) -> bytes:
         """Reads the request body to completion before any response, on every path (including GET/403/404).
 
@@ -6701,8 +6717,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": pin is not None, "pin": pin, "msg": msg, "state": pin_state(pin) if pin else None,
                                    "reopened": bool(msg and msg.get("ev") == "reopen")})
             if act == "confirm":
-                pin = confirm_pin(pid, actor)
-                return self._json({"ok": pin is not None, "pin": pin, "state": pin_state(pin) if pin else None})
+                return self._confirm_reply(confirm_pin(pid, actor))
             if act == "drop":
                 return self._json({"ok": drop_pin(pid, actor)})
             if act == "restore":
