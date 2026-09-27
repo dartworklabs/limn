@@ -3,15 +3,19 @@
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
 and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
 handler sees a name rebound on the server module), the import direction (limn.web never imports server.py), the
-package name (server.py still runs as a file), and the answers and error pages as plain functions.
+package name (server.py still runs as a file), the handler's shape read from its source (no route reads the body or
+query itself; it raises only its own transport refusals), the order of the guard checks on every route, and the answers
+and error pages as plain functions.
 
 Run: uv run pytest -q tests/test_web.py
 """
 
 import ast
 import dataclasses
+import re
 import subprocess
 import sys
+import types
 import typing
 import unittest
 from email.message import Message
@@ -29,6 +33,7 @@ from limn.web.app import App
 from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
 from helpers import ps
+from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
@@ -146,6 +151,125 @@ class HandlerStructure(unittest.TestCase):
         for name, exc in raised:
             with self.subTest(route=name):
                 self.assertIn("reason='not_found'", exc)
+
+
+# One request per route of the handler (a /pages/ and a /vendor/pdfjs/ name stand for their prefixes, pin 1 for an
+# id). GuardOrder checks the lists against the handler's source, so a route added without a guard test fails there.
+PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "unclaim", "reply", "confirm")
+GET_ROUTES = (
+    "/",
+    "/api/people",
+    "/favicon.ico",
+    "/favicon-32.png",
+    "/apple-touch-icon.png",
+    "/api/version",
+    "/api/meta",
+    "/sw.js",
+    "/api/revisions",
+    "/api/revision-diff",
+    "/api/revision-build",
+    "/api/revision-pdf",
+    "/api/outline-labels",
+    "/api/build",
+    "/pins.md",
+    "/api/pins",
+    "/api/docs",
+    "/api/pins/dropped",
+    "/api/pins/1",
+    "/api/snippet",
+    "/api/overlaps",
+    "/pages/page-1.png",
+    "/vendor/pdfjs/pdf.min.mjs",
+    "/pdf",
+    "/no-such-path",
+)
+POST_ROUTES = (
+    "/api/pick",
+    "/api/pin",
+    "/api/rebuild",
+    "/api/revision-build",
+    "/api/clear",
+    *("/api/pins/1/" + act for act in PIN_ACTIONS),
+    "/api/no-such-path",
+)
+
+
+class Recorder:
+    """The App a recorded handler calls: every member it reads is logged by name, in order, then read from the real
+    one (server.py's live globals)."""
+
+    def __init__(self, inner, log):
+        """Wrap inner (server.Handler.app) and append to log."""
+        self._inner, self._log = inner, log
+
+    def __getattr__(self, name):
+        """Log the member's name, then give the real member."""
+        self._log.append(name)
+        return getattr(self._inner, name)
+
+
+class GuardOrder(AccessBase):
+    """Every route passes the same checks in the same order before it touches anything: the body is read (size and
+    framing) before the handler reads any App member, then Host/Origin, identify, admit and - for a POST -
+    check_role, and no other member is read before them (docs/handbook/architecture.md, the access boundary)."""
+
+    def send(self, method, path, headers=None, body=b"", peer="127.0.0.1"):
+        """One request through server.Handler with its App recorded -> (status, the members it read)."""
+        log = []
+        handler = type("RecordedHandler", (ps.Handler,), {"app": Recorder(ps.Handler.app, log)})
+        h = {"Host": "127.0.0.1:18999", **(headers or {})}
+        if body:
+            h.setdefault("Content-Length", str(len(body)))
+            h.setdefault("Content-Type", "application/json")
+        head = "%s %s HTTP/1.1\r\n" % (method, path) + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n"
+        out = talk_to(types.SimpleNamespace(Handler=handler), head.encode() + body, peer)
+        return int(out.split(b" ", 2)[1]), log
+
+    def routes(self):
+        """(method, path) of every route."""
+        return [("GET", p) for p in GET_ROUTES] + [("POST", p) for p in POST_ROUTES]
+
+    def test_the_route_lists_cover_the_handler(self):
+        """Every path the handler compares against, every prefix it serves and every pin action is in the lists."""
+        literals = set(re.findall(r'path == "([^"]+)"', HANDLER_SOURCE))
+        literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', HANDLER_SOURCE))
+        for group in re.findall(r"path in \(([^)]*)\)", HANDLER_SOURCE):
+            literals |= set(re.findall(r'"([^"]+)"', group))
+        self.assertGreater(len(literals), 20)
+        routes = GET_ROUTES + POST_ROUTES
+        for literal in sorted(literals):
+            with self.subTest(literal=literal):
+                self.assertTrue(any(r == literal or (literal.endswith("/") and r.startswith(literal)) for r in routes))
+        acts = re.search(r"/api/pins/\(\\d\+\)/\(([a-z|]+)\)", HANDLER_SOURCE).group(1).split("|")
+        self.assertEqual(sorted(acts), sorted(PIN_ACTIONS))
+
+    def test_every_route_checks_host_identity_admission_and_role_first(self):
+        """An admitted request reads C (origin check on), host_ok, [origin_ok], identify, admit and, for a POST,
+        check_role - before any other member."""
+        for origin in (None, "http://127.0.0.1:18999"):
+            for method, path in self.routes():
+                with self.subTest(method=method, path=path, origin=origin):
+                    headers = {"Origin": origin} if origin else {}
+                    _, log = self.send(method, path, headers, b"{}" if method == "POST" else b"")
+                    first = ["C", "host_ok"] + (["origin_ok"] if origin else []) + ["identify", "admit"]
+                    first += ["check_role"] if method == "POST" else []
+                    self.assertEqual(log[: len(first)], first)
+
+    def test_a_refused_request_reaches_no_route(self):
+        """Each refusal on each route stops where it is raised: an oversized body before any member is read, a
+        foreign Host after host_ok, an unidentified tailnet peer at identify, a viewer's change at check_role."""
+        member_add(ps.C.state, "carol@example.com", "viewer")
+        carol = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
+        for method, path in self.routes():
+            with self.subTest(method=method, path=path):
+                self.assertEqual(self.send(method, path, {"Content-Length": str((1 << 20) + 1)}), (413, []))
+                self.assertEqual(self.send(method, path, {"Host": "evil.example"}), (403, ["C", "host_ok", "hdr_text"]))
+                self.assertEqual(self.send(method, path, peer="100.64.0.9"), (401, ["C", "host_ok", "identify"]))
+                if method == "POST" and path not in ("/api/pick", "/api/revision-build"):
+                    self.assertEqual(
+                        self.send(method, path, carol, b"{}"),
+                        (403, ["C", "host_ok", "identify", "admit", "check_role"]),
+                    )
 
 
 class Answers(unittest.TestCase):

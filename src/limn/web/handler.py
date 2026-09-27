@@ -21,7 +21,8 @@ import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, ClassVar
+from pathlib import Path
+from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 from limn.mark import png as mark_png
@@ -35,6 +36,29 @@ MAX_BODY = 1 << 20
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
 VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
+
+
+class Reply(NamedTuple):
+    """One complete response a GET route answers with, for Handler._send: status, body, Content-Type and
+    Cache-Control (None: _send's default)."""
+
+    code: int
+    body: bytes
+    ctype: str
+    cache: str | None = None
+
+
+def _json_reply(obj: object, code: int = 200) -> Reply:
+    """obj as a UTF-8 JSON response (non-ASCII kept as is)."""
+    return Reply(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+
+
+def _read(path: Path) -> bytes | None:
+    """A served file's bytes, or None when it cannot be read (the route then answers 404 or falls through)."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
 
 
 class Server(ThreadingHTTPServer):
@@ -97,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj: object, code: int = 200) -> None:
         """Send obj as a UTF-8 JSON response (non-ASCII kept as is)."""
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        self._send(*_json_reply(obj, code))
 
     def _read_raw(self) -> bytes:
         """Reads the request body to completion before any response, on every path (including GET/403/404).
@@ -235,41 +259,39 @@ class Handler(BaseHTTPRequestHandler):
             D = answers.found_doc(app.request_doc(choice.body_key), app.hdr_text)
         return D
 
-    def _get_revision(self, path: str, D: Document, q: Query) -> None:
-        """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
-        optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
-        and every refusal is answered through answers.revision_answer (HTTPError to _run)."""
-        app = self.app
-        commit, pin = accepted(parse.parse_revision_query(q))
-        if path == "/api/revision-diff":
-            return self._json(answers.revision_answer(app.revision_diff(D, commit, pin)))
-        if path == "/api/revision-build":
-            return self._json(answers.revision_answer(app.revision_status(D, commit, pin)))
-        return self._send(
-            200,
-            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
-            "application/pdf",
-            cache="private, max-age=600",
-        )
-
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
-        """GET routes that act on the request's document D (?doc=, found in _get): the viewer page, people,
-        pins and pins.md, meta, snippets, builds and the revision routes. Returns after sending one response; refusals
-        propagate to _run as HTTPError."""
+        """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
+        the routes have always been matched (a /pages/ name with no image falls through to the rest): the viewer
+        shell, the document's history and build, the pins, the source, the files. Sends the one response the matching
+        route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
+        reply = (
+            self._get_viewer(actor, path, q, D)
+            or self._get_document(path, q, D)
+            or self._get_pins(path, q, D)
+            or self._get_source(path, q, D)
+            or self._get_files(path, q, D)
+        )
+        if reply is None:
+            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+        self._send(*reply)
+
+    def _get_viewer(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
+        """The viewer shell: the page, its @-tag people, icons, version, meta (with the browser's notifications) and
+        service worker. None for any other path."""
         app = self.app
         if path == "/":
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
-            return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
+            return Reply(200, app.HTML.encode(), "text/html; charset=utf-8")
         if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
-            return self._json({"people": app.people_payload(), "me": self._me(actor)})
+            return _json_reply({"people": app.people_payload(), "me": self._me(actor)})
         if path == "/favicon.ico":
-            return self._send(204, b"", "image/x-icon")
+            return Reply(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
             size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
-            return self._send(200, mark_png(size, app.C.accent, rounded), "image/png", cache="public, max-age=86400")
+            return Reply(200, mark_png(size, app.C.accent, rounded), "image/png", "public, max-age=86400")
         if path == "/api/version":  # the installed Limn version - no write
-            return self._json({"name": app.APP_NAME, "version": app.app_version()})
+            return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
             light = parse.parse_flag(q, "light")
             if not light:
@@ -278,79 +300,107 @@ class Handler(BaseHTTPRequestHandler):
             out["me"] = self._me(actor)  # + role (additive)
             # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
             out.update(app.events_since(actor, accepted(parse.parse_events_query(q))))
-            return self._json(out)
+            return _json_reply(out)
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
-            return self._send(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
+            return Reply(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", "no-cache")
+        return None
+
+    def _get_document(self, path: str, q: Query, D: Document) -> Reply | None:
+        """Document D's history and build: its recent commits, a commit's changes (revision routes), its outline labels
+        and its build state. None for any other path."""
+        app = self.app
         if path == "/api/revisions":
-            return self._json(app.revision_history(D))
+            return _json_reply(app.revision_history(D))
         if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
             return self._get_revision(path, D, q)
         if path == "/api/outline-labels":
-            return self._json(app.outline_labels(D))
+            return _json_reply(app.outline_labels(D))
         if path == "/api/build":
-            return self._json(answers.diet_log(app.build_state_snapshot(D), parse.parse_flag(q, "log")))
+            return _json_reply(answers.diet_log(app.build_state_snapshot(D), parse.parse_flag(q, "log")))
+        return None
+
+    def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
+        """The three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An optional &pin=
+        scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked, and every refusal
+        is answered through answers.revision_answer (HTTPError to _run)."""
+        app = self.app
+        commit, pin = accepted(parse.parse_revision_query(q))
+        if path == "/api/revision-diff":
+            return _json_reply(answers.revision_answer(app.revision_diff(D, commit, pin)))
+        if path == "/api/revision-build":
+            return _json_reply(answers.revision_answer(app.revision_status(D, commit, pin)))
+        return Reply(
+            200,
+            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
+            "application/pdf",
+            "private, max-age=600",
+        )
+
+    def _get_pins(self, path: str, q: Query, D: Document) -> Reply | None:
+        """The pins: pins.md (the remote agent's entry point), the list (all documents, or D's with ?doc=), the
+        documents, the Trash and one pin. None for any other path."""
+        app = self.app
         # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
         if path == "/pins.md":
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)
-            return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
+            return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             app.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
             pins = parse.parse_pins_query(q)
             rows = app.pins_payload(app.snapshot_pins(), pins.all)
             if pins.doc_scoped:  # only that document's pins (overlap/estimation stay computed globally)
                 rows = [r for r in rows if r["doc"] == D.key]
-            return self._json(rows)
+            return _json_reply(rows)
         if path == "/api/docs":
-            return self._json(app.docs_payload())
+            return _json_reply(app.docs_payload())
         if path == "/api/pins/dropped":
-            return self._json({"dropped": app.dropped_payload()})
+            return _json_reply({"dropped": app.dropped_payload()})
         m = re.fullmatch(r"/api/pins/(\d+)", path)
         if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
-            return self._json(answers.pin_answer(app.pin_payload(int(m.group(1)))))
+            return _json_reply(answers.pin_answer(app.pin_payload(int(m.group(1)))))
+        return None
+
+    def _get_source(self, path: str, q: Query, D: Document) -> Reply | None:
+        """A range of D's manuscript: its snippet (with the range ladder on ?levels=1) and the pins overlapping it.
+        None for any other path."""
+        app = self.app
         if path == "/api/snippet":
             rng = accepted(parse.parse_snippet(q, app.document_facts(D)))
-            return self._json(app.snippet_api(rng, parse.parse_flag(q, "levels")))
+            return _json_reply(app.snippet_api(rng, parse.parse_flag(q, "levels")))
         if path == "/api/overlaps":
-            return self._json(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
+            return _json_reply(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
+        return None
+
+    def _get_files(self, path: str, q: Query, D: Document) -> Reply | None:
+        """Files: D's page images (a name with no image falls through), the bundled PDF.js (404 for any other name) and
+        the PDF of a build (404 through answers.build_pdf_gone). None for any other path."""
+        app = self.app
         if path.startswith("/pages/"):
             name = os.path.basename(path)
             if PAGE_FILE_RE.fullmatch(name):
-                f = app.cur_pages(D) / name
-                try:
-                    data = f.read_bytes()
-                except OSError:
-                    data = None
+                data = _read(app.cur_pages(D) / name)
                 if data is not None:
-                    return self._send(200, data, "image/png")
+                    return Reply(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
             # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
             vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
-            if vf is not None:
-                try:
-                    data = vf.read_bytes()
-                except OSError:
-                    data = None
-                if data is not None:
-                    # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
-                    return self._send(200, data, VENDOR_MIME[vf.suffix], cache="public, max-age=86400")
+            data = None if vf is None else _read(vf)
+            if vf is not None and data is not None:
+                # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
+                return Reply(200, data, VENDOR_MIME[vf.suffix], "public, max-age=86400")
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
         if path == "/pdf":
-            # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
-            # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
+            # The PDF matching the page images' build (for vector rendering). It never falls back to a different
+            # build (the viewer falls back to PNG and re-reads /api/meta instead).
             name = parse.parse_build_name(q)
             pf = app.build_pdf(D, name)
-            data = None
-            if pf is not None:
-                try:
-                    data = pf.read_bytes()
-                except OSError:
-                    data = None
+            data = None if pf is None else _read(pf)
             if data is None:
                 answers.build_pdf_gone(name, app.cur_pages(D).name, app.hdr_text)
-            return self._send(200, data, "application/pdf", cache="private, max-age=600")
-        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+            return Reply(200, data, "application/pdf", "private, max-age=600")
+        return None
 
     def _body(self) -> Json:
         """The request body (already read in full) as a JSON object; {} when empty. 415 bad_content_type unless it is
