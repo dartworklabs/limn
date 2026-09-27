@@ -25,21 +25,19 @@ from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree, tree_part
 from limn.mapping import norm, truncate_quote
 from limn.pins.edit import (
     ASSIGNEE_AGENT,
-    KIND_REQS,
     LOCAL_LOGIN,
     NOTE_MAX,
     PDF_QUOTE_MAX,
     SCOPES,
     AddRequest,
     EditRequest,
-    KindReq,
     LinePlace,
     Place,
     RegionPlace,
     Scope,
-    is_kind_req,
     is_scope,
 )
+from limn.pins.model import KIND_REQS, KindReq, is_kind_req
 from limn.pins.shapes import is_int
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected

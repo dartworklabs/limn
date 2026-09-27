@@ -182,8 +182,8 @@ UI_EN: Messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
 # The settings the pin services get from this instance (pin_context), module globals so a test can patch them. The
-# rules they bound live with the rules: the request limits in limn/web/parse.py, NOTE_MAX and KIND_REQS in
-# limn/pins/edit.py, the thread marks a record may carry in limn/pins/record.py, PEOPLE_TOUCH_S in limn.people,
+# rules they bound live with the rules: the request limits in limn/web/parse.py, NOTE_MAX in limn/pins/edit.py,
+# KIND_REQS and the thread marks a record may carry in limn/pins/model.py, PEOPLE_TOUCH_S in limn.people,
 # EVENTS_KEEP in limn.events, NOTE_MENTION_COOLDOWN_S in limn.mentions (docs/handbook/api.md §스레드, §@태그·사람·이벤트).
 THREAD_MAX = 200  # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
 TRASH_DAYS = 30  # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
