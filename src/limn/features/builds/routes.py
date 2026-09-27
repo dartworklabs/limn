@@ -4,8 +4,11 @@ from collections.abc import Callable
 
 from limn.documents import Doc
 from limn.features.builds import http
-from limn.web.parse import Query
+from limn.features.builds.service import BuildRequests
+from limn.web.parse import Json, Query
 from limn.web.reply import Reply, json_reply
+
+POST_PATH = "/api/rebuild"
 
 
 def get(path: str, query: Query, doc: Doc, text: Callable[[object], str]) -> Reply | None:
@@ -19,3 +22,8 @@ def get(path: str, query: Query, doc: Doc, text: Callable[[object], str]) -> Rep
     if path == "/pdf":
         return Reply(200, http.pdf(doc, query, text), "application/pdf", "private, max-age=600")
     return None
+
+
+def post(query: Query, _body: Json, doc: Doc, requests: BuildRequests) -> tuple[dict[str, object], int]:
+    """Answer the registered rebuild POST route for this document."""
+    return http.rebuild(requests, doc, query)

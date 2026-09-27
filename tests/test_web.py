@@ -332,6 +332,11 @@ class GuardOrder(AccessBase):
         for literal in sorted(literals):
             with self.subTest(literal=literal):
                 self.assertTrue(any(r == literal or (literal.endswith("/") and r.startswith(literal)) for r in routes))
+        post_paths = set()
+        for source in (BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE):
+            post_paths |= set(re.findall(r'^POST_PATH = "([^"]+)"', source, re.M))
+        self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build"})
+        self.assertTrue(post_paths <= set(POST_ROUTES))
         acts = re.search(r"/api/pins/\(\\d\+\)/\(([a-z|]+)\)", HANDLER_SOURCE).group(1).split("|")
         self.assertEqual(sorted(acts), sorted(PIN_ACTIONS))
 

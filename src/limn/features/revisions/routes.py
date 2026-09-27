@@ -3,8 +3,10 @@
 from limn.documents import Doc
 from limn.features.revisions import http
 from limn.features.revisions.service import RevisionRequests
-from limn.web.parse import Query
+from limn.web.parse import Json, Query
 from limn.web.reply import Reply, json_reply
+
+POST_PATH = "/api/revision-build"
 
 
 def get(path: str, query: Query, doc: Doc, requests: RevisionRequests) -> Reply | None:
@@ -18,3 +20,8 @@ def get(path: str, query: Query, doc: Doc, requests: RevisionRequests) -> Reply 
     if path == "/api/revision-pdf":
         return Reply(200, http.pdf(requests, doc, query), "application/pdf", "private, max-age=600")
     return None
+
+
+def post(_query: Query, body: Json, doc: Doc, requests: RevisionRequests) -> tuple[dict[str, object], int]:
+    """Answer the registered comparison-build POST route for this document."""
+    return http.start(requests, doc, body)

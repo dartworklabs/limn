@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from limn.features.builds import http as builds_http
 from limn.features.collaboration import http as collaboration_http
 from limn.features.document_views import http as document_views_http
 from limn.features.pins.claims import http as claims_http
@@ -32,7 +31,6 @@ from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http
 from limn.features.pins.trash import http as trash_http
-from limn.features.revisions import http as revisions_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
@@ -377,10 +375,13 @@ class Handler(BaseHTTPRequestHandler):
         self.app.check_role(self.principal, path)  # the one place roles are enforced, before any state change
         self._record(actor)
         d = self._body()
-        if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
+        registered = next((route for route in self.app.post_doc_routes if route.path == path), None)
+        if path in ("/api/pick", "/api/pin") or registered is not None:
             q = parse_qs(u.query)
             D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=path == "/api/pin")))
-            return self._post_doc(actor, path, q, d, D)
+            if registered is not None:
+                return self._json(*registered.action(q, d, D))
+            return self._post_pin_doc(actor, path, d, D)
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
@@ -393,19 +394,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(trash_http.clear(self.app, actor, d))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
-    def _post_doc(self, actor: Json, path: str, q: Query, d: Json, D: Document) -> None:
-        """POST routes that act on the request's document D: pick, new pins, the revision build and rebuilds. d is the
-        parsed JSON body and q the query; each route parses its fields in the order the server has always checked
-        them; refusals propagate to _run."""
+    def _post_pin_doc(self, actor: Json, path: str, d: Json, D: Document) -> None:
+        """The two pin creation routes still matched by the handler: pick and new pin."""
         app = self.app
         if path == "/api/pick":
             return self._json(location_http.pick(app, D, d))
-        if path == "/api/pin":
-            return self._json(editing_http.add(app, D, actor, d))
-        if path == "/api/revision-build":
-            return self._json(*revisions_http.start(app.revision_requests, D, d))
-        # /api/rebuild (the only route left; _post sends only these four here)
-        return self._json(*builds_http.rebuild(app.build_requests, D, q))
+        return self._json(editing_http.add(app, D, actor, d))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call

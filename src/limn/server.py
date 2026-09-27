@@ -127,7 +127,7 @@ from limn.viewer.assemble import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.routes import GetRoute
+from limn.web.routes import GetRoute, PostDocRoute
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -331,6 +331,7 @@ class ServerApplication:
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
     get_routes: tuple[GetRoute, ...] = field(init=False)
+    post_doc_routes: tuple[PostDocRoute, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -408,6 +409,16 @@ class ServerApplication:
         self.get_routes = (
             lambda path, query, doc: build_routes.get(path, query, doc, self.hdr_text),
             lambda path, query, doc: revision_routes.get(path, query, doc, self.revision_requests),
+        )
+        self.post_doc_routes = (
+            PostDocRoute(
+                build_routes.POST_PATH,
+                lambda query, body, doc: build_routes.post(query, body, doc, self.build_requests),
+            ),
+            PostDocRoute(
+                revision_routes.POST_PATH,
+                lambda query, body, doc: revision_routes.post(query, body, doc, self.revision_requests),
+            ),
         )
 
     APP_NAME = APP_NAME

@@ -38,7 +38,7 @@ from limn.features.revisions.service import RevisionRequests
 from limn.pins.model import Pin, Record
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts
-from limn.web.routes import GetRoute
+from limn.web.routes import GetRoute, PostDocRoute
 
 Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
 Query: TypeAlias = dict[str, list[str]]  # parse_qs() of the request's query string
@@ -67,6 +67,7 @@ class App(Protocol):
     document_views: DocumentViews
     revision_requests: RevisionRequests
     get_routes: tuple[GetRoute, ...]
+    post_doc_routes: tuple[PostDocRoute, ...]
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
