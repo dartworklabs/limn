@@ -8,13 +8,12 @@ a returned value in the annotation, never an exception (docs/handbook/code-style
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import isfinite
 from posixpath import isabs
 from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
 from limn.pins.lifecycle import PinT, author, rev_after, signature, thread_message, with_entry
 from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin
-from limn.pins.shapes import is_int, is_num
+from limn.pins.shapes import is_finite_num, is_int
 
 # The assignee value that hands a pin to the agent rather than to a person (docs/handbook/api.md §담당).
 ASSIGNEE_AGENT = "agent"
@@ -93,11 +92,11 @@ class LinePlace:
             raise ValueError("line place kind must be a short string")
         if "via" in fields and fields["via"] not in ("synctex", "text"):
             raise ValueError("line place via must name a location method")
-        if "score" in fields and not (is_num(fields["score"]) and isfinite(fields["score"])):
+        if "score" in fields and not is_finite_num(fields["score"]):
             raise ValueError("line place score must be a finite number")
         if "frac" in fields:
             frac = fields["frac"]
-            if not (isinstance(frac, list) and len(frac) == 4 and all(is_num(x) and isfinite(x) for x in frac)):
+            if not (isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(x) for x in frac)):
                 raise ValueError("line place frac must contain four finite numbers")
         if "scope" in fields and not is_scope(fields["scope"]):
             raise ValueError("line place scope must name a range level")
@@ -140,7 +139,7 @@ class RegionPlace:
             and fields.get("kind") == "region"
             and isinstance(frac, list)
             and len(frac) == 4
-            and all(is_num(value) and isfinite(value) for value in frac)
+            and all(is_finite_num(value) for value in frac)
         ):
             raise ValueError("region place requires an absolute PDF, name, page and four finite coordinates")
         x, y, w, h = frac

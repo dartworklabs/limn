@@ -806,6 +806,19 @@ class ProcessRuntime(unittest.TestCase):
         self.assertGreater(len(rounds), 0)
         rt.stop(timeout=0)
 
+    def test_failed_watch_start_does_not_mask_error_during_cleanup(self):
+        """A second watch that cannot start is not joined, while the first started watch still stops."""
+        rt = self.runtime()
+        rt.start_thread(rt.stopping.wait)
+        with (
+            mock.patch.object(threading.Thread, "start", side_effect=RuntimeError("cannot start watch")),
+            self.assertRaisesRegex(RuntimeError, "cannot start watch"),
+        ):
+            rt.start_thread(rt.stopping.wait)
+        rt.stop()
+        self.assertEqual(len(rt.threads), 1)
+        self.assertFalse(rt.threads[0].is_alive())
+
     def test_main_stops_the_runtime_when_serving_ends(self):
         """main() stops the Runtime whatever ends serve_forever (Ctrl-C here), and lets that end propagate."""
 
@@ -1048,6 +1061,7 @@ class MultiDoc(Base):
             {"file": "main.tex"},
             {"frac": [0.9, 0.2, 0.5, 0.1]},
             {"frac": [0.1, 0.2, 0, 0.1]},
+            {"frac": [0.1, 0.2, 10**400, 0.1]},
             {"frac": None},
             {"page": 9},
         ):

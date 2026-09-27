@@ -12,7 +12,6 @@ file, that a page is in the build. They read those facts through DocumentFacts, 
 a named path against the tree (limn.files.file_in_tree and the close's `changes`).
 """
 
-import math
 import os
 import re
 from collections.abc import Collection, Mapping
@@ -39,7 +38,7 @@ from limn.pins.edit import (
 )
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.model import KIND_REQS, KindReq, Record, is_kind_req
-from limn.pins.shapes import is_int
+from limn.pins.shapes import is_finite_num, is_int
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 
@@ -156,14 +155,14 @@ def parse_flag(q: Query, name: str) -> bool:
 
 def int_field(v: object, what: str) -> int | InputRejected:
     """An integral JSON number (1 and 1.0 both give 1; a bool, NaN or 1.5 does not) named `what` in the refusal."""
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
+    if not is_finite_num(v) or int(v) != v:
         return InputRejected("%s 는 정수여야 합니다." % what, "not_integer")
     return int(v)
 
 
 def num_field(v: object, what: str) -> float | InputRejected:
     """A finite JSON number other than a bool, as a float, named `what` in the refusal."""
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+    if not is_finite_num(v):
         return InputRejected("%s 는 유한한 숫자여야 합니다." % what, "not_number")
     return float(v)
 
@@ -429,7 +428,7 @@ def _claim_int(d: Json, key: str, lo: int, hi: int) -> int | None | InputRejecte
     if key not in d:
         return None
     v = d[key]
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or int(v) != v:
+    if not is_finite_num(v) or int(v) != v:
         return InputRejected("%s 은 정수여야 합니다." % key, "not_integer")
     n = int(v)
     if n < lo:
@@ -1048,10 +1047,6 @@ def parse_pick(d: Json, facts: DocumentFacts) -> PickRequest | PickBuildGone | I
     x0, x1 = sorted(clamped[:2])
     y0, y1 = sorted(clamped[2:])
     frac = d.get("frac")
-    if frac is not None and not (
-        isinstance(frac, list)
-        and len(frac) == 4
-        and all(not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v) for v in frac)
-    ):
+    if frac is not None and not (isinstance(frac, list) and len(frac) == 4 and all(is_finite_num(v) for v in frac)):
         return InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac")
     return PickRequest(pdir, page, (x0, y0, x1, y1), (pw, ph), frac)

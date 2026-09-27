@@ -57,6 +57,8 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 2. **문서는 인자다.** 처리기가 요청의 문서를 찾아(`request_doc`) 서비스마다 넘기고, 빌드 스레드는 자기 문서를 갖고 시작하며, 기동은 문서 목록을 돈다. "지금 문서" 같은 스레드 지역 값은 없다.
 3. **프로세스 자원은 런타임 값 하나가 갖는다.** 요청 사이에 프로세스가 들고 있는 것 - 핀 잠금, `people.json`·`events.jsonl` 잠금과 캐시, `tokens.json`·`people.json` 역할 캐시, loopback 에이전트 경고, 휴지통 정리 시계, 커밋 범위 캐시와 비교 PDF 작업 목록, pull 나눠 쓰기와 원격 main 감시 상태, 단어 가중치 캐시, 내보내는 뷰어 페이지, 오래 사는 스레드 둘(보기 전용 PDF 감시, 원격 main 감시)과 그 멈춤 신호 - 는 `server.py`의 `Runtime` 값 하나에 있다. `start()`가 실행 설정을 묶은 뒤 `new_runtime()`으로 만들어 `RT`로 한 번 묶고, import만으로는 아무 자원도 생기지 않는다. `main()`은 서버가 멈추면 `RT.stop()`으로 두 스레드를 끝낸다. 저장소(`limn/store.py`)는 잠금을 만들지 않고 `pin_store()`가 넘기는 `RT.pin_lock`을 쓴다. 문서마다의 빌드 잠금과 빌드 상태는 단일 문서까지 모두 문서 객체(`limn/documents.py`의 `Doc`)가 갖는다. 테스트는 매번 새 런타임을 묶는다(`tests/helpers.py`의 `fresh_runtime`).
 
+`Runtime.start_thread()`는 실제 시작에 성공한 감시 스레드만 종료 대상에 등록한다. 기동 도중 다음 스레드 시작이 실패해도 `stop()`은 먼저 시작한 스레드를 끝내고 원래의 시작 오류를 가리지 않는다.
+
 핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다.
 
 > **참고**

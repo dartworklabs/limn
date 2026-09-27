@@ -195,7 +195,7 @@ class Fields(unittest.TestCase):
     """The field parsers that read the request alone."""
 
     def test_numbers(self):
-        """An integral number (1.0 too) or a finite one; bools, strings, NaN and infinity are refused."""
+        """An integral number (1.0 too) or a finite one; invalid and oversized numbers get a refusal."""
         self.assertEqual(parse.int_field(3.0, "lo"), 3)
         self.assertEqual(parse.int_field(True, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
         self.assertEqual(parse.int_field(1.5, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
@@ -203,6 +203,9 @@ class Fields(unittest.TestCase):
             parse.num_field(float("inf"), "x0"), InputRejected("x0 는 유한한 숫자여야 합니다.", "not_number")
         )
         self.assertEqual(parse.num_field(2, "x0"), 2.0)
+        self.assertEqual(parse.int_field(10**400, "lo"), InputRejected("lo 는 정수여야 합니다.", "not_integer"))
+        self.assertEqual(parse.num_field(10**400, "x0"), InputRejected("x0 는 유한한 숫자여야 합니다.", "not_number"))
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 10**400}).reason, "not_integer")
 
     def test_closed_sets_come_back_narrowed_or_refused(self):
         """kind_req and scope: a member of the set comes back as is (typed as its Literal), None when absent, and

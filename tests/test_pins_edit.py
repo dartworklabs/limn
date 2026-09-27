@@ -108,12 +108,20 @@ class PlaceInvariants(unittest.TestCase):
     def test_places_reject_state_fields_and_malformed_optional_values(self):
         """A caller cannot put state or malformed coordinate fields into a location later copied to a pin record."""
         line = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
-        for extra in ({"done": True}, {"frac": [0, 0, float("inf"), 1]}, {"via": "unknown"}):
+        for extra in (
+            {"done": True},
+            {"frac": [0, 0, float("inf"), 1]},
+            {"frac": [0, 0, 10**400, 1]},
+            {"score": 10**400},
+            {"via": "unknown"},
+        ):
             with self.subTest(extra=extra), self.assertRaises(ValueError):
                 LinePlace({**line, **extra}, frozenset())
         region = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 1, "frac": [0, 0, 1, 1]}
         with self.assertRaises(ValueError):
             RegionPlace({**region, "thread": []})
+        with self.assertRaises(ValueError):
+            RegionPlace({**region, "frac": [0, 0, 10**400, 1]})
 
 
 class DecideEdit(unittest.TestCase):
