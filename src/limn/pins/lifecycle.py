@@ -7,7 +7,7 @@ annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias, TypeVar, cast, get_args
+from typing import Any, TypeVar, cast
 
 from limn.pins.model import (
     Actor,
@@ -19,18 +19,14 @@ from limn.pins.model import (
     Pin,
     Record,
     ReviewPin,
+    ThreadEntry,
+    ThreadEv,
     TrashedPin,
     claim_unexpired,
     parse_pin,
 )
-from limn.pins.shapes import is_int
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
-
-# The mark a thread entry may carry (ev): the close, reopen and confirm transitions here and an assignee change
-# (limn.pins.edit). A reply has none. limn.pins.record accepts no other stored value.
-ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
-THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
 
 # The in-progress marker's fields (docs/handbook/api.md §처리 중 표시); a close clears them.
 CLAIM_FIELDS = ("claimed_by", "claimed_at", "claim_ts", "claim_until", "eta_ts")
@@ -86,8 +82,8 @@ def confirm_review(pin: ReviewPin, by: Person, at: str) -> DonePin:
     record = {key: value for key, value in pin.record.items() if key != "review"}
     record["confirmed_by"] = signature(by)
     record["confirmed_at"] = at
-    record["thread"] = [*thread_of(pin.record), thread_message(pin.record.get("thread"), author(by), at, ev="confirm")]
-    record["rev"] = next_rev(pin.record)
+    record["thread"] = with_entry(pin.core.thread, thread_message(pin.core.thread, author(by), at, ev="confirm"))
+    record["rev"] = rev_after(pin.core.rev)
     return DonePin.from_record(record)
 
 
@@ -150,15 +146,13 @@ def evolve_close(pin: Pin, event: PinClosed) -> ReviewPin | DonePin:
         record["changes_at"] = event.at
     if event.review:
         record["review"] = True
-    record["thread"] = [
-        *thread_of(pin.record),
-        thread_message(
-            pin.record.get("thread"), author(event.by), event.at, event.reply or "", ev="close", ref=event.ref
-        ),
-    ]
+    record["thread"] = with_entry(
+        pin.core.thread,
+        thread_message(pin.core.thread, author(event.by), event.at, event.reply or "", ev="close", ref=event.ref),
+    )
     for key in CLAIM_FIELDS:
         record.pop(key, None)
-    record["rev"] = next_rev(pin.record)
+    record["rev"] = rev_after(pin.core.rev)
     if record.get("review") is True:  # parse_pin()'s rule, done now true
         return ReviewPin.from_record(record)
     return DonePin.from_record(record)
@@ -191,17 +185,12 @@ def evolve_reopen(pin: Pin, event: PinReopened) -> OpenPin:
     for key in CLOSE_FIELDS:
         record.pop(key, None)
     if event.was_closed:
-        record["thread"] = [
-            *thread_of(pin.record),
+        record["thread"] = with_entry(
+            pin.core.thread,
             thread_message(
-                pin.record.get("thread"),
-                author(event.by),
-                event.at,
-                event.reason or "",
-                ev="reopen",
-                mentions=event.mentions,
+                pin.core.thread, author(event.by), event.at, event.reason or "", ev="reopen", mentions=event.mentions
             ),
-        ]
+        )
     return OpenPin.from_record(record)
 
 
@@ -209,7 +198,7 @@ def reopen_request(pin: Pin, event: PinReopened) -> OpenPin:
     """POST /reopen: apply the reopen and bump rev - also for a pin that was already open, which a reopen request
     rewrites all the same."""
     opened = evolve_reopen(pin, event)
-    return OpenPin.from_record({**opened.record, "rev": next_rev(pin.record)})
+    return OpenPin.from_record({**opened.record, "rev": rev_after(pin.core.rev)})
 
 
 @dataclass(frozen=True)
@@ -244,7 +233,7 @@ def reopens_on_reply(pin: Pin, human: bool, mentioned: Sequence[str], reopen: bo
         case ReviewPin() | DonePin():
             if reopen is not None:
                 return bool(reopen)
-            if pin.record.get("kind_req") == "question" or not human:
+            if pin.core.kind_req == "question" or not human:
                 return False
             return not mentioned
 
@@ -258,7 +247,7 @@ def decide_reply(
     """
     if reopens:
         return decide_reopen(pin, by, at, text, mentions)
-    if len(replies_of(pin.record)) >= limit:
+    if len(replies(pin.core.thread)) >= limit:
         return ThreadFull(limit)
     return Replied(by, at, text, mentions)
 
@@ -266,17 +255,17 @@ def decide_reply(
 def evolve_reply(pin: PinT, event: Replied) -> PinT:
     """Apply a plain reply: one thread entry with its mentions, and rev bumped. The pin keeps its state."""
     record = dict(pin.record)
-    record["thread"] = [
-        *thread_of(pin.record),
-        thread_message(pin.record.get("thread"), author(event.by), event.at, event.text, mentions=event.mentions),
-    ]
-    record["rev"] = next_rev(pin.record)
+    record["thread"] = with_entry(
+        pin.core.thread,
+        thread_message(pin.core.thread, author(event.by), event.at, event.text, mentions=event.mentions),
+    )
+    record["rev"] = rev_after(pin.core.rev)
     return type(pin).from_record(record)
 
 
-def replies_of(record: Record) -> list[Any]:
-    """The thread's replies, without state-transition entries (ev close/reopen/confirm)."""
-    return [m for m in thread_of(record) if isinstance(m, dict) and not m.get("ev")]
+def replies(thread: Sequence[ThreadEntry] | None) -> list[ThreadEntry]:
+    """The thread's replies, without state-transition entries (ev close/reopen/confirm/assign); none for no thread."""
+    return [entry for entry in thread or () if entry.ev is None]
 
 
 @dataclass(frozen=True)
@@ -360,7 +349,7 @@ def claim_open(
     record["claim_until"] = now + request.ttl_min * 60
     if request.eta_min is not None:
         record["eta_ts"] = now + request.eta_min * 60
-    record["rev"] = next_rev(pin.record)
+    record["rev"] = rev_after(pin.core.rev)
     return OpenPin.from_record(record)
 
 
@@ -373,7 +362,7 @@ def unclaim(pin: Pin) -> OpenPin | NotClaimed:
     cleared = {key: value for key, value in pin.record.items() if key not in CLAIM_FIELDS}
     match pin:
         case OpenPin(claim=Claim()):
-            cleared["rev"] = next_rev(pin.record)
+            cleared["rev"] = rev_after(pin.core.rev)
             return OpenPin.from_record(cleared)
         case OpenPin() | ReviewPin() | DonePin():
             return NotClaimed(type(pin).from_record(cleared))
@@ -414,16 +403,22 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
     """
     if live:
         # A Trash copy carries the id find_trashed() matched; the cast informs the checker, the value is as stored.
-        return AlreadyLive(cast(int, trashed.record.get("id")))
+        return AlreadyLive(cast(int, trashed.pin.core.id))
     record = {key: value for key, value in trashed.record.items() if key not in ("dropped_at", "dropped_by")}
     record["restored_at"] = at
     record["restored_by"] = signature(by)
-    record["rev"] = next_rev(trashed.record)
+    record["rev"] = rev_after(trashed.pin.core.rev)
     return parse_pin(record)
 
 
+def rev_after(rev: int | None) -> int:
+    """The revision after a change to a pin at `rev` (PinCore.rev): a missing rev counts as 0."""
+    return (rev or 0) + 1
+
+
 def next_rev(record: Record) -> int:
-    """The revision after a change: the store's rule counts a missing or empty rev as 0."""
+    """rev_after() for a stored record as the store reads it (limn.pins.position's re-sync of a row): a missing or
+    empty rev counts as 0."""
     return int(record.get("rev") or 0) + 1
 
 
@@ -447,7 +442,7 @@ def thread_of(record: Record) -> list[Any]:
 
 
 def thread_message(
-    thread: Sequence[Any] | None,
+    thread: Sequence[ThreadEntry] | None,
     by: dict[str, str],
     at: str,
     text: str = "",
@@ -455,12 +450,12 @@ def thread_message(
     ref: str | None = None,
     mentions: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """The next thread entry: its id is one past the largest integer id already there (ids are never reused).
+    """The next thread entry, as stored: its id is one past the largest integer id already in thread (ids are never
+    reused; no thread counts as empty).
 
-    ev marks a state-transition record (close, reopen, confirm); ref and mentions are kept only when given.
+    ev marks a state-transition record (close, reopen, confirm, assign); ref and mentions are kept only when given.
     """
-    entries = thread if isinstance(thread, list) else []
-    mid = max((m.get("id", 0) for m in entries if isinstance(m, dict) and is_int(m.get("id"))), default=0) + 1
+    mid = max((entry.id for entry in thread or () if entry.id is not None), default=0) + 1
     msg: dict[str, Any] = {"id": mid, "by": by, "at": at, "text": text or ""}
     if ev:
         msg["ev"] = ev
@@ -469,6 +464,11 @@ def thread_message(
     if mentions:
         msg["mentions"] = list(mentions)
     return msg
+
+
+def with_entry(thread: Sequence[ThreadEntry] | None, message: Record) -> list[Any]:
+    """The stored thread with `message` (thread_message's) appended: every earlier entry written back as stored."""
+    return [*(entry.record for entry in thread or ()), message]
 
 
 def round_marks(record: Record) -> tuple[int, int]:

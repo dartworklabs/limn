@@ -10,8 +10,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
-from limn.pins.lifecycle import PinT, author, next_rev, signature, thread_message, thread_of
-from limn.pins.model import Actor, DonePin, OpenPin, Pin, Record, ReviewPin
+from limn.pins.lifecycle import PinT, author, rev_after, signature, thread_message, with_entry
+from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin
 
 # The assignee value that hands a pin to the agent rather than to a person (docs/handbook/api.md §담당).
 ASSIGNEE_AGENT = "agent"
@@ -19,9 +19,6 @@ ASSIGNEE_AGENT = "agent"
 LOCAL_LOGIN = "local"
 # A pin's note, in characters: the limit a new or replaced note must fit, and a note_append merged into it.
 NOTE_MAX = 4000
-# kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
-KindReq: TypeAlias = Literal["fix", "question"]
-KIND_REQS: tuple[KindReq, ...] = get_args(KindReq)
 # scope: which rung of the range ladder a line pin was placed at (limn.mapping.compute_levels: raw drag, paragraph,
 # the innermost environment and up to two outer ones, or plain lines).
 Scope: TypeAlias = Literal["raw", "para", "env", "env2", "env3", "lines"]
@@ -33,11 +30,6 @@ PDF_QUOTE_MAX = 160
 LOC_FIELDS = ("file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "frac", "scope", "quote")
 # The fields a view-only PDF pin's new region may set; a region without a quote drops the old one.
 REGION_PLACE_FIELDS = ("page", "frac", "quote", "pdf_build")
-
-
-def is_kind_req(v: object) -> TypeGuard[KindReq]:
-    """Is v one of KIND_REQS? The check a request parser and the stored-record check share."""
-    return v in KIND_REQS
 
 
 def is_scope(v: object) -> TypeGuard[Scope]:
@@ -205,28 +197,30 @@ def decide_edit(
     A closed pin refuses a reshaping edit; a base_rev other than the pin's rev is stale; a note_append is merged
     under the note (or under the note this request replaces it with) after a "(추가 HH:MM)" stamp - clock is HH:MM -
     and refused if the result exceeds note_max. A lo/hi edit needs line_count, the line count of the pin's file
-    (None when the file is outside the manuscript tree): the range must lie in 1..max(line_count, 1). The range counts
-    as changed when it differs from the stored one or the pin had lost its place (stale).
+    (None when the file is outside the manuscript tree), and a pin placed on lines (core.place a LineSpan): the range
+    must lie in 1..max(line_count, 1). The range counts as changed when it differs from the stored one or the pin had
+    lost its place (core.stale).
     """
     if request.reshapes() and isinstance(pin, (ReviewPin, DonePin)):
         return ClosedPinReshaped(pin)
-    if request.base_rev is not None and int(pin.record.get("rev") or 0) != request.base_rev:
+    if request.base_rev is not None and (pin.core.rev or 0) != request.base_rev:
         return StaleEdit(pin)
     note = request.note
     if request.note_append is not None:
-        base = request.note if request.note is not None else str(pin.record.get("note") or "")
+        base = request.note if request.note is not None else pin.core.note or ""
         note = base + ("\n" if base else "") + "(추가 %s) " % clock + request.note_append
         if len(note) > note_max:
             return NoteTooLong(len(note), note_max)
     lines, changed = None, isinstance(request.place, LinePlace)
     if request.sets_lines():
-        lo = request.lo if request.lo is not None else pin.record["lo"]
-        hi = request.hi if request.hi is not None else pin.record["hi"]
-        if line_count is None:
+        span = pin.core.place
+        if line_count is None or not isinstance(span, LineSpan):
             return PinOutsideTree()
+        lo = request.lo if request.lo is not None else span.lo
+        hi = request.hi if request.hi is not None else span.hi
         if not 1 <= lo <= hi <= max(line_count, 1):
             return RangeOutsideFile(line_count, lo, hi)
-        changed = (lo, hi) != (pin.record["lo"], pin.record["hi"]) or bool(pin.record.get("stale"))
+        changed = (lo, hi) != (span.lo, span.hi) or bool(pin.core.stale)
         lines = (lo, hi)
     return PinEdited(
         by, at, note, request.place, lines, changed, request.scope, request.kind, request.kind_req, request.assignee
@@ -295,21 +289,15 @@ def evolve_edit(
         record["kind_req"] = event.kind_req
     if mentions is not None:
         _set_mentions(record, mentions)
-    if event.assignee is not None and record.get("assignee") != event.assignee:
+    if event.assignee is not None and pin.core.assignee != event.assignee:
         record["assignee"] = event.assignee
-        record["thread"] = [
-            *thread_of(pin.record),
-            thread_message(
-                pin.record.get("thread"),
-                author(event.by),
-                event.at,
-                assignment_text(event.assignee, assignee_name),
-                ev="assign",
-            ),
-        ]
+        text = assignment_text(event.assignee, assignee_name)
+        record["thread"] = with_entry(
+            pin.core.thread, thread_message(pin.core.thread, author(event.by), event.at, text, ev="assign")
+        )
     record["edited_at"] = event.at
     record["edited_by"] = signature(event.by)
-    record["rev"] = next_rev(pin.record)
+    record["rev"] = rev_after(pin.core.rev)
     return type(pin).from_record(record)
 
 
