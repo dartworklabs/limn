@@ -34,6 +34,7 @@ from unittest import mock
 from limn import build as limn_build, files, gitsync, locate, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
+from limn.features.pins.editing import input as editing_input
 from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
@@ -1320,7 +1321,7 @@ class MultiDoc(Base):
         rev = self.pin(pid)["rev"]
         self.assertEqual(
             edit_pin(pid, {"lo": 2, "hi": 3, "base_rev": rev}, dict(LOCAL_ACTOR)),
-            InputRejected(parse.REGION_EDIT_REFUSAL, "no_source_lines"),
+            InputRejected(editing_input.REGION_EDIT_REFUSAL, "no_source_lines"),
         )
         # even without doc in the request, it resolves via the pin's own document
         p = record_of(edit_pin(pid, {"note": "b", "base_rev": rev}, dict(LOCAL_ACTOR)))

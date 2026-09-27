@@ -27,6 +27,7 @@ from unittest import mock
 from limn import locate, mapping
 from limn.documents import DocNotFound
 from limn.features.pins.claims import http as claims_http
+from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.trash import http as trash_http
 from limn.pins.edit import StaleEdit
@@ -519,7 +520,7 @@ class Answers(unittest.TestCase):
     def test_add_and_edit_answer_a_rejected_field_with_its_message(self):
         """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale
         edit is 409 conflict."""
-        self.assertEqual(answers.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
+        self.assertEqual(editing_http.add_answer(OpenPin.from_record({"id": 9})), {"id": 9})
         self.assertEqual(answers.accepted(9), 9)
         self.assert_refused(
             lambda: answers.accepted(InputRejected("lo 는 정수여야 합니다.", "not_integer")),
@@ -527,12 +528,12 @@ class Answers(unittest.TestCase):
             {"error": "lo 는 정수여야 합니다.", "reason": "not_integer"},
         )
         self.assert_refused(
-            lambda: answers.edit_answer(PinNotFound(4), show),
+            lambda: editing_http.edit_answer(PinNotFound(4), show),
             404,
             {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"},
         )
         self.assert_refused(
-            lambda: answers.edit_answer(
+            lambda: editing_http.edit_answer(
                 StaleEdit(ReviewPin.from_record({"id": 4, "done": True, "review": True})), show
             ),
             409,

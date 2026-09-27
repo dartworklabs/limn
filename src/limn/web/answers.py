@@ -35,8 +35,7 @@ from limn.locate import (
     SourceUnreadable,
     SynctexOutside,
 )
-from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
-from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
+from limn.pins.model import PinNotFound, Record
 from limn.revisions import (
     AllSlotsBusy,
     CommitNotRecent,
@@ -207,38 +206,6 @@ def _region_body(r: PickedRegion) -> Body:
         "overlaps": [],
         "pdf_build": r.pdf_build,
     }
-
-
-def add_answer(result: OpenPin) -> Body:
-    """POST /api/pin: the new pin's id (a refused field was answered by accepted() before the pin was made)."""
-    return {"id": result.core.id}
-
-
-def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, show: Show) -> Body:
-    """POST /api/pins/{id}/edit for every outcome, with the statuses and bodies of the agent contract."""
-    match result:
-        case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-            return {"ok": True, "pin": show(record)}
-        case PinNotFound(pid=pid):
-            raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
-        case ClosedPinReshaped(pin=ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "done", pin=show(record), detail="닫힌 핀은 메모만 고칠 수 있습니다.", reason="done")
-        case StaleEdit(pin=OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record)):
-            raise HTTPError(409, "conflict", pin=show(record), reason="conflict")
-        case NoteTooLong(length=length, limit=limit):
-            raise HTTPError(
-                400, "덧붙이면 메모가 너무 깁니다(%d자, %d자 이하)." % (length, limit), reason="note_too_long"
-            )
-        case PinOutsideTree():
-            raise HTTPError(
-                400,
-                "원고 디렉토리 밖을 가리키는 핀입니다 — 위치 다시 잡기(loc)로 고치세요.",
-                reason="pin_outside_manuscript",
-            )
-        case RangeOutsideFile(lines=lines, lo=lo, hi=hi):
-            raise HTTPError(
-                400, "줄 범위가 파일(%d줄) 밖입니다: L%d-L%d" % (lines, lo, hi), reason="range_outside_file"
-            )
 
 
 def revision_refused(result: RevisionRefusal) -> NoReturn:

@@ -25,6 +25,7 @@ from limn import mentions, service
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.claims.service import PinClaims
+from limn.features.pins.editing import service as add_edit
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.trash import service as trash
@@ -48,7 +49,6 @@ from limn.pins.lifecycle import (
 from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin
 from limn.pins.record import Broken
 from limn.pins.view import pin_state
-from limn.service import add_edit
 from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
 from limn.store import PinFiles, PinStore, find_pin
 from limn.web.errors import InputRejected

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims import input as claims_input
+from limn.features.pins.editing import input as editing_input, location as editing_location
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.trash import input as trash_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
@@ -483,7 +484,7 @@ class Locations(Tree):
     def test_line_location_is_typed_and_stored_in_the_old_key_order(self):
         """parse_loc gives a LineLoc; its record has file, name, lo, hi, page, then the sent optional fields in the
         order records have always had, whatever order the request sent them in, and nothing for a null."""
-        loc = parse.parse_loc(
+        loc = editing_location.parse_loc(
             {
                 "pdf_build": "pages",
                 "quote": "q",
@@ -500,7 +501,7 @@ class Locations(Tree):
             },
             self.facts,
         )
-        self.assertIsInstance(loc, parse.LineLoc)
+        self.assertIsInstance(loc, editing_location.LineLoc)
         self.assertEqual((loc.frac, loc.raw_lo, loc.page), ((0.0, 0.0, 1.0, 1.0), None, 1))
         record = loc.to_record()
         self.assertEqual(
@@ -523,11 +524,11 @@ class Locations(Tree):
         )
         self.assertEqual((record["frac"], record["score"]), ([0.0, 0.0, 1.0, 1.0], 1.0))
         self.assertEqual(
-            parse.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1, "x"]}, self.facts),
+            editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1, "x"]}, self.facts),
             InputRejected("frac 는 유한한 숫자여야 합니다.", "not_number"),
         )
         self.assertEqual(
-            parse.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1]}, self.facts),
+            editing_location.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1]}, self.facts),
             InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"),
         )
 
@@ -535,22 +536,22 @@ class Locations(Tree):
         """parse_region gives a RegionLoc; its record is pdf, name, kind region, page, frac, then quote and pdf_build
         only when present."""
         facts = Facts(self.root, is_pdf=True)
-        loc = parse.parse_region({"frac": [0.1, 0.1, 0.2, 0.2], "page": 2}, facts)
-        self.assertIsInstance(loc, parse.RegionLoc)
+        loc = editing_location.parse_region({"frac": [0.1, 0.1, 0.2, 0.2], "page": 2}, facts)
+        self.assertIsInstance(loc, editing_location.RegionLoc)
         self.assertEqual(list(loc.to_record()), ["pdf", "name", "kind", "page", "frac"])
         self.assertEqual(loc.to_record()["frac"], [0.1, 0.1, 0.2, 0.2])
         self.assertEqual(
-            parse.parse_frac([0.5, 0, 0.6, 1]),
+            editing_location.parse_frac([0.5, 0, 0.6, 1]),
             InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).", "frac_outside_page"),
         )
 
     def test_add_checks_the_location_before_the_note(self):
         """A line pin's range is checked against the file's lines before any other field."""
         self.assertEqual(
-            parse.parse_add({"file": "main.tex", "lo": 2, "hi": 9, "note": 3}, (), self.facts),
+            editing_input.parse_add({"file": "main.tex", "lo": 2, "hi": 9, "note": 3}, (), self.facts),
             InputRejected("줄 범위가 파일(5줄) 밖입니다: L2-L9", "range_outside_file"),
         )
-        request = parse.parse_add(
+        request = editing_input.parse_add(
             {"file": "main.tex", "lo": 2, "hi": 3, "note": "n", "quote": "q" * 70}, (), self.facts
         )
         self.assertIsInstance(request.place, LinePlace)
@@ -559,9 +560,11 @@ class Locations(Tree):
             (2, "…", frozenset({"file", "lo", "hi", "note", "quote"})),
         )
         # an unreadable file counts as one line (L1 still fits), as the server has always done
-        self.assertIsInstance(parse.parse_add({"file": "bin.tex", "lo": 1, "hi": 1}, (), self.facts).place, LinePlace)
+        self.assertIsInstance(
+            editing_input.parse_add({"file": "bin.tex", "lo": 1, "hi": 1}, (), self.facts).place, LinePlace
+        )
         self.assertEqual(
-            parse.parse_add({"file": "bin.tex", "lo": 1, "hi": 2}, (), self.facts),
+            editing_input.parse_add({"file": "bin.tex", "lo": 1, "hi": 2}, (), self.facts),
             InputRejected("줄 범위가 파일(0줄) 밖입니다: L1-L2", "range_outside_file"),
         )
 
@@ -569,16 +572,16 @@ class Locations(Tree):
         """file/lo/hi/scope are refused naming the document; page is checked against the named build's pages."""
         facts = Facts(self.root, is_pdf=True, pages={"pages": [(1, 1)] * 2, "pages-20260101000000": [(1, 1)] * 5})
         self.assertEqual(
-            parse.parse_add({"lo": 1, "page": 1, "frac": [0, 0, 1, 1]}, (), facts),
+            editing_input.parse_add({"lo": 1, "page": 1, "frac": [0, 0, 1, 1]}, (), facts),
             InputRejected(
                 "보기 전용 문서(rev)의 핀에는 lo 가 없습니다 — 쪽(page)과 영역(frac)만 받습니다.", "no_source_lines"
             ),
         )
         self.assertEqual(
-            parse.parse_add({"page": 3, "frac": [0, 0, 1, 1]}, (), facts),
+            editing_input.parse_add({"page": 3, "frac": [0, 0, 1, 1]}, (), facts),
             InputRejected("page 는 1..2 이어야 합니다.", "page_out_of_range"),
         )
-        request = parse.parse_add(
+        request = editing_input.parse_add(
             {"page": 3, "frac": [0, 0, 1, 1], "pdf_build": "pages-20260101000000", "quote": " a  b "}, (), facts
         )
         self.assertIsInstance(request.place, RegionPlace)
@@ -598,24 +601,31 @@ class Locations(Tree):
     def test_edit_place_refuses_lines_on_a_region_pin_and_defaults_the_build(self):
         """A region pin refuses lo/hi/scope/kind before its loc is read; a loc that re-places frac takes the build on
         screen unless it names one, and a loc without frac drops pdf_build."""
-        body = parse.parse_edit({"lo": 1, "loc": {"page": 99}, "base_rev": 0}, ())
+        body = editing_input.parse_edit({"lo": 1, "loc": {"page": 99}, "base_rev": 0}, ())
         self.assertEqual(
-            parse.parse_edit_place(body, True, self.facts), InputRejected(parse.REGION_EDIT_REFUSAL, "no_source_lines")
+            editing_input.parse_edit_place(body, True, self.facts),
+            InputRejected(editing_input.REGION_EDIT_REFUSAL, "no_source_lines"),
         )
-        body = parse.parse_edit(
+        body = editing_input.parse_edit(
             {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": [0, 0, 1, 1]}, "base_rev": 0}, ()
         )
-        self.assertEqual(parse.parse_edit_place(body, False, self.facts).fields["pdf_build"], "pages")
-        body = parse.parse_edit(
+        self.assertEqual(editing_input.parse_edit_place(body, False, self.facts).fields["pdf_build"], "pages")
+        body = editing_input.parse_edit(
             {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "pdf_build": "pages"}, "base_rev": 0}, ()
         )
-        self.assertNotIn("pdf_build", parse.parse_edit_place(body, False, self.facts).fields)
-        self.assertIsNone(parse.parse_edit_place(parse.parse_edit({"note": "x", "base_rev": 0}, ()), False, self.facts))
+        self.assertNotIn("pdf_build", editing_input.parse_edit_place(body, False, self.facts).fields)
+        self.assertIsNone(
+            editing_input.parse_edit_place(
+                editing_input.parse_edit({"note": "x", "base_rev": 0}, ()), False, self.facts
+            )
+        )
 
     def test_null_fraction_does_not_re_place_a_line_pin_fraction(self):
         """A null frac is absent, so an edit keeps the stored coordinates and their build identity."""
-        body = parse.parse_edit({"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": None}, "base_rev": 0}, ())
-        place = parse.parse_edit_place(body, False, self.facts)
+        body = editing_input.parse_edit(
+            {"loc": {"file": "main.tex", "lo": 1, "hi": 2, "frac": None}, "base_rev": 0}, ()
+        )
+        place = editing_input.parse_edit_place(body, False, self.facts)
         self.assertIsInstance(place, LinePlace)
         self.assertNotIn("frac", place.fields)
         self.assertNotIn("frac", place.named)
@@ -634,8 +644,8 @@ class Locations(Tree):
 
         def after(loc: dict) -> dict:
             """Apply a parsed re-placement to the same pin, retaining record field order for comparison."""
-            edit = parse.parse_edit({"loc": loc, "base_rev": 0}, ())
-            replacement = parse.parse_edit_place(edit, False, self.facts)
+            edit = editing_input.parse_edit({"loc": loc, "base_rev": 0}, ())
+            replacement = editing_input.parse_edit_place(edit, False, self.facts)
             event = PinEdited(Agent("local", "Local"), "now", None, replacement, None, True, None, None, None, None)
             return evolve_edit(OpenPin.from_record(record), event, None, None, None, None).record
 
@@ -731,7 +741,7 @@ class EditAddParsing(Base):
 
     def test_parse_edit_returns_the_request_or_the_first_refusal(self):
         """A valid body becomes an EditRequest (place still unset); the first bad field wins, before base_rev and emptiness."""
-        body = parse.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
+        body = editing_input.parse_edit({"note": "n", "lo": 3.0, "scope": "para", "base_rev": 2, "mentions": ["a"]}, ())
         self.assertIsNone(body.loc)
         self.assertEqual(
             (
@@ -744,22 +754,24 @@ class EditAddParsing(Base):
             ),
             ("n", 3, "para", 2, ("a",), None),
         )
-        self.assertEqual(parse.parse_edit({"note": 3}, ()), InputRejected("note 는 문자열이어야 합니다.", "bad_note"))
         self.assertEqual(
-            parse.parse_edit({"note": "n"}, ()),
+            editing_input.parse_edit({"note": 3}, ()), InputRejected("note 는 문자열이어야 합니다.", "bad_note")
+        )
+        self.assertEqual(
+            editing_input.parse_edit({"note": "n"}, ()),
             InputRejected("base_rev 가 필요합니다(카드를 열 때 받은 rev).", "base_rev_required"),
         )
         self.assertEqual(
-            parse.parse_edit({"base_rev": 0}, ()),
+            editing_input.parse_edit({"base_rev": 0}, ()),
             InputRejected(
                 "바꿀 필드가 없습니다(note, lo, hi, scope, loc, note_append, kind_req, assignee).", "nothing_to_change"
             ),
         )
         # the assignee refusal comes before base_rev's
-        unknown = parse.parse_edit({"assignee": "carol@example.com"}, ())
+        unknown = editing_input.parse_edit({"assignee": "carol@example.com"}, ())
         self.assertTrue(unknown.message.startswith("담당(assignee) 'carol@example.com'"))
         # note_append alone needs no base_rev
-        self.assertIsNone(parse.parse_edit({"note_append": "x"}, ()).request.base_rev)
+        self.assertIsNone(editing_input.parse_edit({"note_append": "x"}, ()).request.base_rev)
 
     def test_parse_assignee_checks_known_people_only_for_a_person(self):
         """ "agent" needs no lookup; a person must be among the known logins; local is never an assignee."""
@@ -775,12 +787,12 @@ class EditAddParsing(Base):
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
         self.assertEqual(
-            parse.parse_add(
+            editing_input.parse_add(
                 {"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.APP.document_facts(ps.APP.docs[0])
             ),
             InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"),
         )
-        request = parse.parse_add(
+        request = editing_input.parse_add(
             {"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.APP.document_facts(ps.APP.docs[0])
         )
         self.assertEqual(

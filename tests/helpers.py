@@ -32,6 +32,7 @@ import pytest
 from limn import config, revisions
 from limn.access import LOCAL_ACTOR
 from limn.config import AccessOptions, RunConfig
+from limn.features.pins.editing import input as editing_input
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
 from limn.store import find_pin
@@ -293,7 +294,7 @@ def shut_wr(sock: socket.socket) -> None:
 
 def add_pin(d: dict, actor: dict, mod=None, doc=None):
     """What POST /api/pin does below its HTTP answer (limn.web.handler) for the request's document doc (default the
-    first): the body's doc wins over it, the body is parsed against that document (limn.web.parse.parse_add), and the
+    first): the body's doc wins over it, the body is parsed against that document (limn.features.pins.editing.input.parse_add), and the
     service saves it. Returns the new open pin, or the InputRejected of the first refused field. mod is the server copy
     to use (default ps)."""
     mod = (mod or ps).APP
@@ -301,22 +302,22 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
     want = d.get("doc")
     if isinstance(want, str) and want != D.key:
         D = mod.request_doc(want)
-    request = parse.parse_add(d, mod.assignee_people(d), mod.document_facts(D))
-    return request if isinstance(request, InputRejected) else mod.add_pin(D, request, actor)
+    request = editing_input.parse_add(d, mod.assignee_people(d), mod.document_facts(D))
+    return request if isinstance(request, InputRejected) else mod.pin_editing.add_pin(D, request, actor)
 
 
 def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
     document (edit_scope), then edit. Returns the edit's outcome, or the InputRejected of the first refused field."""
     mod = (mod or ps).APP
-    body = parse.parse_edit(d, mod.assignee_people(d))
+    body = editing_input.parse_edit(d, mod.assignee_people(d))
     if isinstance(body, InputRejected):
         return body
     region, pdoc = mod.edit_scope(pid)
-    place = parse.parse_edit_place(body, region, mod.document_facts(pdoc))
+    place = editing_input.parse_edit_place(body, region, mod.document_facts(pdoc))
     if isinstance(place, InputRejected):
         return place
-    return mod.edit_pin(pid, dataclasses.replace(body.request, place=place), actor, region)
+    return mod.pin_editing.edit_pin(pid, dataclasses.replace(body.request, place=place), actor, region)
 
 
 def pick(d: dict, mod=None, doc=None):

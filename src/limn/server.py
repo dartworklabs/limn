@@ -88,6 +88,7 @@ from limn.documents import (
 )
 from limn.events import EVENTS_KEEP, EventType
 from limn.features.pins.claims.service import PinClaims
+from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.trash import service as trash_service
 from limn.features.pins.trash.service import PinTrash
@@ -106,7 +107,6 @@ from limn.mentions import (
 from limn.meta import MetaSettings, outline_labels as outline_labels
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
-from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     claim_holds,
     pin_reopened_in_round,
@@ -119,7 +119,6 @@ from limn.pins.model import (
     PinNotFound,
     Record,
     Region,
-    ReviewPin,
     TrashedPin,
     is_region_pin,
     parse_pin,
@@ -144,7 +143,6 @@ from limn.revisions import (
     git as _git,
     revision_history as revision_history,
 )
-from limn.service import add_edit
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index
@@ -355,12 +353,14 @@ class ServerApplication:
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
+    pin_editing: PinEditing = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
+        self.pin_editing = PinEditing(self.pin_context)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -693,10 +693,6 @@ class ServerApplication:
         """Appends one audit.jsonl line for a change made over HTTP (limn.audit), stamped by the clock read now."""
         return append_audit(self.C.state, audit_entry(action, by, "http", details, time.time()))
 
-    def add_pin(self, D: Doc, request: AddRequest, actor: Json) -> OpenPin:
-        """POST /api/pin: a new pin in document D (limn.service.add_edit.add_pin)."""
-        return add_edit.add_pin(self.pin_context(), D, request, actor)
-
     def edit_scope(self, pid: int) -> tuple[bool, Doc]:
         """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
         view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
@@ -706,13 +702,6 @@ class ServerApplication:
             return False, self.docs[0]
         pin = pins[i]
         return isinstance(pin.core.place, Region), self.doc_by_key(self.pin_doc_key(pin.record)) or self.docs[0]
-
-    def edit_pin(
-        self, pid: int, request: EditRequest, actor: Json, region: bool = False
-    ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """POST /api/pins/{id}/edit: pin pid edited in place (limn.service.add_edit.edit_pin); region and the placed loc
-        come from edit_scope()."""
-        return add_edit.edit_pin(self.pin_context(), pid, request, actor, region)
 
     def people_book(self) -> people.PeopleBook:
         """people.json of the current run (limn.people.PeopleBook): C.state with the Runtime's lock, last-written memo and

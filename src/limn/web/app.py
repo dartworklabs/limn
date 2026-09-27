@@ -26,11 +26,11 @@ from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
 from limn.features.pins.claims.service import PinClaims
+from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.trash.service import PinTrash
 from limn.locate import Picked, PickedRegion, PickRefusal
-from limn.pins.edit import AddRequest, EditRefusal, EditRequest
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin
+from limn.pins.model import Pin, PinNotFound, Record
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts, PickRequest, SourceRange
@@ -53,6 +53,7 @@ class App(Protocol):
     pin_lifecycle: PinLifecycle
     pin_claims: PinClaims
     pin_trash: PinTrash
+    pin_editing: PinEditing
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -218,16 +219,6 @@ class App(Protocol):
         ...
 
     # ---- changes
-
-    def edit_pin(
-        self, pid: int, request: EditRequest, actor: Json, region: bool = False
-    ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
-        """POST /api/pins/{id}/edit."""
-        ...
-
-    def add_pin(self, D: Document, request: AddRequest, actor: Json) -> OpenPin:
-        """POST /api/pin."""
-        ...
 
     def pick(self, D: Document, request: PickRequest) -> Picked | PickedRegion | PickRefusal:
         """POST /api/pick: a dragged region -> source lines."""

@@ -19,13 +19,13 @@ import socket
 import sys
 import traceback
 from collections.abc import Callable, Mapping
-from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 from limn.features.pins.claims import http as claims_http
+from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
@@ -459,8 +459,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(answers.pick_build_gone())
             return self._json(answers.pick_answer(app.pick(D, accepted(selection))))
         if path == "/api/pin":
-            request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
-            return self._json(answers.add_answer(app.add_pin(D, request, actor)))
+            return self._json(editing_http.add(app, D, actor, d))
         if path == "/api/revision-build":
             commit, pin = accepted(parse.parse_revision_build(d))
             return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
@@ -485,13 +484,7 @@ class Handler(BaseHTTPRequestHandler):
         if act == "purge":  # owner only (check_role)
             return self._json(trash_http.purge(app, pid, actor))
         if act == "edit":
-            # loc is checked against the pin's own document, found before the edit is decided (as always)
-            body = accepted(parse.parse_edit(d, app.assignee_people(d)))
-            region, pdoc = app.edit_scope(pid)
-            place = accepted(parse.parse_edit_place(body, region, app.document_facts(pdoc)))
-            return self._json(
-                answers.edit_answer(app.edit_pin(pid, replace(body.request, place=place), actor, region), app.public)
-            )
+            return self._json(editing_http.edit(app, pid, actor, d))
         if act == "claim":
             return self._json(claims_http.claim(app, pid, actor, d))
         if act == "unclaim":

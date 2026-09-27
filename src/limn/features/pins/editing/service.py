@@ -1,11 +1,12 @@
 """Adding a pin and editing one in place (docs/handbook/api.md §핀 만들기와 상태 바꾸기, §핀 수정).
 
-The handler parses the body (limn.web.parse.parse_add, parse_edit and parse_edit_place); these shells read what only
+The handler parses the body (limn.features.pins.editing.input); these shells read what only
 the disk and the clock know under the pin lock, and leave the rules and the record to limn.pins.edit. Each returns an
-outcome value that the HTTP layer answers (limn.web.answers.add_answer, edit_answer).
+outcome value that the HTTP layer answers (limn.features.pins.editing.http).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ def located(loc: PinLocation | None) -> Located | None:
 
 
 def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, Any]) -> OpenPin:
-    """Saves a new pin in document D from a parsed POST /api/pin body (limn.web.parse.parse_add) -> the new open pin. A
+    """Saves a new pin in document D from a parsed POST /api/pin body (limn.features.pins.editing.input.parse_add) -> the new open pin. A
     LaTeX document gets a line pin with its anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the
     absolute file; a view-only document gets a region pin. Queues mention/assigned notices and emits them after the
     write."""
@@ -92,7 +93,7 @@ def edit_pin(
 ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
     """Edits pin pid's note, range, location and note-level fields in place; id/at/done never change.
 
-    request is the parsed body with its loc already placed against the pin's own document (limn.web.parse.parse_edit
+    request is the parsed body with its loc already placed against the pin's own document (limn.features.pins.editing.input.parse_edit
     and parse_edit_place, with region and the document from server.edit_scope()); region says the pin is a view-only
     one, whose file is never located. The 'HH:MM' an appended note is stamped with is read before the lock. Under the
     pin lock the shell reads where the pin's file will be and - for a lo/hi edit - its line count, and
@@ -167,3 +168,20 @@ def _with_edit(
             return evolve_edit(pin, event, where, anchoring, mentions, assignee_name)
         case DonePin():
             return evolve_edit(pin, event, where, anchoring, mentions, assignee_name)
+
+
+@dataclass(frozen=True)
+class PinEditing:
+    """Pin creation and editing bound to one application's context factory."""
+
+    context: Callable[[], PinContext]
+
+    def add_pin(self, D: Doc, request: AddRequest, actor: Mapping[str, Any]) -> OpenPin:
+        """Create one pin and emit notices after its transaction."""
+        return add_pin(self.context(), D, request, actor)
+
+    def edit_pin(
+        self, pid: int, request: EditRequest, actor: Mapping[str, Any], region: bool = False
+    ) -> OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound:
+        """Edit one pin under the store lock and emit accepted notices."""
+        return edit_pin(self.context(), pid, request, actor, region)
