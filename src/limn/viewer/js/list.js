@@ -2,22 +2,42 @@
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
   if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}
-async function loadPins(){let d;
-  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
-  loadPeople();
-  let dropped=[];
-  try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
-  // Multiple documents: the fetched list is for every document (diffToast also sees all of it too). PINS/DONE are only the current document's; if SHOW_ALL, only the rendered list shows everything.
+// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
+let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+// Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.
+function derivePinLists(rows,doc,defaultDoc){
+  const openAll=[],reviewAll=[],doneAll=[],openHere=[],doneHere=[];
+  for(const pin of rows){const state=pinState(pin),here=!doc||(pin.doc||defaultDoc)===doc;
+    if(state===PIN_STATE.OPEN){openAll.push(pin); if(here)openHere.push(pin);}
+    else if(state===PIN_STATE.REVIEW)reviewAll.push(pin);
+    else if(state===PIN_STATE.DONE){doneAll.push(pin); if(here)doneHere.push(pin);}}
+  return {openAll,reviewAll,doneAll,openHere,doneHere};
+}
+// Applies an accepted snapshot: announces transitions, keeps active editors honest, then redraws the current document.
+function applyPinLists(rows,dropped,lists){
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
-  const nextOpen=d.filter(p=>pinState(p)===PIN_STATE.OPEN); REVIEW_ALL=d.filter(p=>pinState(p)===PIN_STATE.REVIEW); DONE_ALL=d.filter(p=>pinState(p)===PIN_STATE.DONE); DROPPED=dropped;
-  diffToast(prevOpen,d,dropped); reviewToast(prevReview,d);
-  OPEN_ALL=nextOpen; PINS=nextOpen.filter(p=>pdoc(p)===DOC||!DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC||!DOC);
+  diffToast(prevOpen,rows,dropped); reviewToast(prevReview,rows);
+  OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
+  PINS=lists.openHere; DONE=lists.doneHere;
   if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:EDIT.id}),'warn'); EDIT=null;}
-  if(REPLY&&!d.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
+  if(REPLY&&!rows.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
+}
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it.
+async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
+  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return false;}
+  if(seq<PINS_APPLIED_SEQ)return false;
+  loadPeople();
+  let dropped=[];
+  try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
+  if(seq<PINS_APPLIED_SEQ)return false;
+  // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
+  applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC));
+  PINS_APPLIED_SEQ=seq;
+  return true;
 }
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
