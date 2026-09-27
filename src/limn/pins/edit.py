@@ -72,6 +72,8 @@ class LinePlace:
             raise ValueError("line place fields must be a record")
         if not fields.keys() <= set(LOC_FIELDS + ("pdf_build",)):
             raise ValueError("line place contains fields outside its location")
+        if "frac" in named and "frac" not in fields:
+            raise ValueError("a named frac requires replacement coordinates")
         file, name, lo, hi, page = (fields.get(key) for key in ("file", "name", "lo", "hi", "page"))
         if not (
             isinstance(file, str)

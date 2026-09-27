@@ -84,6 +84,12 @@ class PlaceInvariants(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 LinePlace({**valid, **bad}, frozenset())
 
+    def test_line_place_requires_a_named_fraction_to_exist(self):
+        """A direct caller cannot claim a replacement frac that would erase the old build identity without coordinates."""
+        fields = {"file": "/ms/main.tex", "name": "main.tex", "lo": 2, "hi": 3, "page": 1}
+        with self.assertRaises(ValueError):
+            LinePlace(fields, frozenset({"frac"}))
+
     def test_region_place_rejects_missing_or_invalid_required_fields(self):
         """A region always has an absolute PDF, page and a positive area inside that page."""
         valid = {"pdf": "/ms/r.pdf", "name": "r.pdf", "kind": "region", "page": 2, "frac": [0.1, 0.1, 0.2, 0.2]}
