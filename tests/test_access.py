@@ -557,7 +557,7 @@ class Roles(AccessBase):
                 }
             ]
         )
-        self.assertTrue(ps.APP.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
+        self.assertTrue(ps.APP.people_directory.record({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
         p = self.people_file()[0]
         self.assertEqual((p["role"], p["name"], p["first_seen"]), ("viewer", "Bob P.", "2026-09-01 10:00:00"))
 

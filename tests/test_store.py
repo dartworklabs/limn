@@ -694,7 +694,7 @@ class LegacyMentionsNotRewritten(Base):
 
     def test_legacy_pins_read_without_rewrite(self):
         """Mention inference on old records remains a read-time view, not a stored migration."""
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.S))
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record[
             "id"
         ]

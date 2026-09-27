@@ -33,14 +33,14 @@ class MentionRules(Base):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL, DAVE):
-            ps.APP.record_person(actor(h))
+            ps.APP.people_directory.record(actor(h))
         self.A, self.B, self.C, self.D = (actor(h) for h in (ALICE, BOB, CAROL, DAVE))
 
     def events_after(self, n):
-        return [(e["type"], sorted(e["to"])) for e in ps.APP._read_events()[0][n:]]
+        return [(e["type"], sorted(e["to"])) for e in ps.APP.notices.read()[0][n:]]
 
     def n(self):
-        return len(ps.APP._read_events()[0])
+        return len(ps.APP.notices.read()[0])
 
     def test_first_mention_in_a_reply(self):
         pid = self.add(actor=self.A)
@@ -79,7 +79,7 @@ class MentionRules(Base):
         ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park 의견?", self.A)
         n = self.n()
         ps.APP.pin_lifecycle.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
-        evs = ps.APP._read_events()[0][n:]
+        evs = ps.APP.notices.read()[0][n:]
         self.assertEqual(
             [(e["type"], sorted(e["to"])) for e in evs],
             [("mention", ["bob@example.com", "carol@example.com"]), ("replied", ["alice@example.com"])],
@@ -130,12 +130,12 @@ class NoteMentionCooldown(Base):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.APP.record_person(actor(h))
+            ps.APP.people_directory.record(actor(h))
         self.A, self.B, self.C = (actor(h) for h in (ALICE, BOB, CAROL))
         self.t0 = float(int(time.time()))  # whole seconds: events.jsonl rounds ts to milliseconds
 
     def mentions_to_bob(self):
-        return [e for e in ps.APP._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
+        return [e for e in ps.APP.notices.read()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
 
     def edit_note(self, pid, note, who):
         return edit_pin(pid, {"note": note, "base_rev": find_record(ps.APP.snapshot_pins(), pid)["rev"]}, who)
@@ -225,7 +225,7 @@ class MentionEvents(Base):
         super().setUp()
 
     def events(self):
-        return ps.APP._read_events()[0]
+        return ps.APP.notices.read()[0]
 
     def post(self, path, body=None, headers=None):
         h = {"Content-Type": "application/json"} if body is not None else {}
@@ -236,7 +236,7 @@ class MentionEvents(Base):
         return code, json.loads(raw)
 
     def test_mentions_stored_on_pin_and_message_with_events(self):
-        ps.APP.record_person(dict(self.W))
+        ps.APP.people_directory.record(dict(self.W))
         code, d = self.post(
             "/api/pin",
             {
@@ -289,8 +289,8 @@ class MentionEvents(Base):
         self.assertEqual(seqs, list(range(1, len(seqs) + 1)))
 
     def test_assignee_validation_and_events(self):
-        ps.APP.record_person(dict(self.W))
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.W))
+        ps.APP.people_directory.record(dict(self.S))
         base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
         for bad in ("nobody@example.com", "local", 3, ""):
             code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
@@ -340,7 +340,7 @@ class EventCursor(Base):
         return code, h, raw
 
     def test_event_cursor_in_light_meta(self):
-        ps.APP.emit_events(
+        ps.APP.notices.emit_events(
             [
                 {
                     "type": "mention",

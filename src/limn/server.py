@@ -53,7 +53,6 @@ from limn import (
 )
 from limn.access import (
     DEFAULT_ROLE as DEFAULT_ROLE,
-    LOCAL_ACTOR,
     LOOPBACK_AGENT_DEPRECATION,
     file_present,
     hdr_text as hdr_text,
@@ -79,10 +78,10 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.events import EVENTS_KEEP, EventType
 from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.service import BuildRequests
-from limn.features.collaboration.service import PeopleList
+from limn.features.collaboration.directory import PeopleDirectory
+from limn.features.collaboration.notices import Notices
 from limn.features.document_views.reads import MetaSettings
 from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
@@ -103,11 +102,6 @@ from limn.features.sync.service import SyncContext, SyncService
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
-from limn.mentions import (
-    NoteTags,
-    note_mention_targets,
-    tag_note,
-)
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.lifecycle import (
@@ -124,7 +118,7 @@ from limn.pins.model import (
 from limn.pins.position import EstContext
 from limn.pins.record import Broken
 from limn.pins.view import pin_state as pin_state
-from limn.service.context import Event, Json, PinContext, is_agent, who
+from limn.service.context import Json, PinContext, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index
 from limn.viewer.assemble import (
@@ -338,19 +332,41 @@ class ServerApplication:
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
-    people_list: PeopleList = field(init=False)
+    people_directory: PeopleDirectory = field(init=False)
+    notices: Notices = field(init=False)
     document_views: DocumentViews = field(init=False)
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
+        self.people_directory = PeopleDirectory(
+            state=lambda: self.C.state,
+            people_file=lambda: self.C.people_file,
+            lock=lambda: self.RT.people_lock,
+            seen=lambda: self.RT.people_seen,
+            warning=lambda: self.RT.people_warning,
+            read_pins=self.read_pins,
+            snapshot_pins=self.snapshot_pins,
+            roles=self.people_roles,
+            clock=lambda: time.time(),
+        )
+        self.notices = Notices(
+            path=lambda: self.C.events_file,
+            lock=lambda: self.RT.events_lock,
+            cache=lambda: self.RT.events_cache,
+            clock=lambda: time.time(),
+            stamp=lambda: self.now_str(),
+            pin_doc_key=self.pin_doc_key,
+            docs=lambda: self.docs,
+            known_people=self.people_directory.known,
+        )
         self.pin_lifecycle = PinLifecycle(self.pin_context)
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
         self.pin_editing = PinEditing(self.pin_context)
         self.pin_listing = PinListing(self, TRASH_DAYS)
-        self.pin_markdown = PinMarkdown(self)
+        self.pin_markdown = PinMarkdown(self, self.people_directory.known)
         self.location_service = PinLocationService(
             lambda: pick_resolve.PickContext(
                 self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range
@@ -359,7 +375,6 @@ class ServerApplication:
         self.build_requests = BuildRequests(
             lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
         )
-        self.people_list = PeopleList(self.people_roles, self.snapshot_pins, self.known_people)
         self.sync_service = SyncService(
             lambda: SyncContext(
                 manuscript=self.C.src,
@@ -388,7 +403,7 @@ class ServerApplication:
             read_pins=self.read_pins,
             snapshot_pins=self.snapshot_pins,
             pin_doc_key=self.pin_doc_key,
-            events_since=self.events_since,
+            events_since=self.notices.since,
             now=lambda: time.time(),
         )
         self.revision_requests = RevisionRequests(self.revision_context)
@@ -561,11 +576,11 @@ class ServerApplication:
     def assignee_people(self, d: Mapping[str, Any]) -> Collection[str]:
         """The logins limn.web.parse.parse_assignee checks against: known_people() when the body names an assignee, else
         none (no read)."""
-        return self.known_people() if d.get("assignee") is not None else ()
+        return self.people_directory.known() if d.get("assignee") is not None else ()
 
     def _person_name(self, login: str) -> str:
         """A known person's display name, or the login itself for someone the viewer does not know."""
-        return (self.known_people().get(login) or {}).get("name") or login
+        return (self.people_directory.known().get(login) or {}).get("name") or login
 
     def request_doc(self, key: str | None, file_hint: object | None = None) -> Doc | DocNotFound:
         """The document of this instance that key names, else the one holding file_hint, else the first; DocNotFound for a
@@ -585,12 +600,12 @@ class ServerApplication:
             now=self.now_str,
             epoch=time.time,
             hm=lambda: datetime.now().astimezone().strftime("%H:%M"),
-            make_event=self.make_event,
-            emit_events=self.emit_events,
+            make_event=self.notices.make_event,
+            emit_events=self.notices.emit_events,
             who=who,
             audit=self.http_audit,
-            known_people=self.known_people,
-            note_tags=self.note_tags,
+            known_people=self.people_directory.known,
+            note_tags=self.notices.note_tags,
             role_of=self.role_of,
             person_name=self._person_name,
             locate=self.record_locator(),
@@ -613,95 +628,6 @@ class ServerApplication:
             return False, self.docs[0]
         pin = pins[i]
         return isinstance(pin.core.place, Region), self.doc_by_key(self.pin_doc_key(pin.record)) or self.docs[0]
-
-    def people_book(self) -> people.PeopleBook:
-        """people.json of the current run (limn.people.PeopleBook): C.state with the Runtime's lock, last-written memo and
-        unreadable-file warning. Made per call, like pin_store(), so a test that replaces this application's C is seen at once."""
-        return people.PeopleBook(self.C.state, self.RT.people_lock, self.RT.people_seen, self.RT.people_warning)
-
-    def load_people(self) -> list[Row] | people.PeopleUnreadable:
-        """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing, PeopleUnreadable
-        (warned about once, RT.people_warning) when it exists but cannot be used."""
-        rows = people.load_people(self.C.people_file)
-        self.RT.people_warning.note(self.C.people_file, rows)
-        return rows
-
-    def record_person(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Records a tailnet person into people.json (limn.people.record_person: a new person, a name/picture change, or
-        last_seen stale past PEOPLE_TOUCH_S). Local/agent and an actor without a login are never recorded. The request
-        continues even if the write fails (only a warning). Returns True if it wrote. A person seen for the first time gets
-        no role field (= DEFAULT_ROLE) unless `role` is given (the local owner is recorded as owner)."""
-        login = (actor or {}).get("login")
-        if not login or is_agent(actor):
-            return False
-        return people.record_person(self.people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
-
-    def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Row]:
-        """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (pins, or the
-        stored pins when None), agents excluded (limn.people.known_people, which scans each pin's stored actor fields in
-        stored order - the first one seen names a login). An unusable people.json adds no one: the candidates are then
-        the people on the pins."""
-        ppl = self.load_people()
-        listed = [] if isinstance(ppl, people.PeopleUnreadable) else ppl
-        on = pins if pins is not None else self.read_pins()[0]
-        return people.known_people(listed, (pin.record for pin in on), is_agent)
-
-    def event_log(self) -> events.EventLog:
-        """events.jsonl of the current run (limn.events.EventLog) with the Runtime's lock and read cache, stamped by
-        time.time() and now_str() - looked up when the value is made, so a test that freezes either reaches the records."""
-        return events.EventLog(self.C.events_file, self.RT.events_lock, self.RT.events_cache, time.time, self.now_str)
-
-    def make_event(
-        self,
-        typ: EventType,
-        r: Mapping[str, Any],
-        actor: Mapping[str, Any],
-        to: Iterable[str | None] | None,
-        msg: Mapping[str, Any] | None = None,
-        text: str | None = None,
-    ) -> Event | None:
-        """One events.jsonl line about pin r by actor (limn.events.make_event; seq/at are filled in by emit_events). The
-        actor themselves and local are removed from to - None (not recorded) if that leaves it empty."""
-        return events.make_event(typ, r, actor, to, who, self.pin_doc_key, LOCAL_ACTOR["login"], msg, text)
-
-    def emit_events(self, evs: list[Event | None]) -> None:
-        """Appends notices to events.jsonl, keeping the newest EVENTS_KEEP (limn.events.EventLog.emit). Only called after
-        the pin write has committed (prevents phantom events); a failure is just a warning."""
-        self.event_log().emit(evs, EVENTS_KEEP)
-
-    def _read_events(self) -> tuple[list[Row], events.Signature | None]:
-        """(event list, file signature) of events.jsonl, cached by mtime/size (limn.events.EventLog.read)."""
-        return self.event_log().read()
-
-    def note_tags(
-        self,
-        note: str,
-        old_note: str,
-        pins: Sequence[Pin],
-        hints: Sequence[str] | None,
-        actor: Mapping[str, Any],
-        pid: object,
-    ) -> NoteTags:
-        """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
-
-        Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
-        new pin) is notified - unless this actor's note already notified them about this pin within
-        NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
-        inside transact(): the caller emits the event under the same RT.pin_lock, so the next save sees it."""
-        me = (actor or {}).get("login")
-        tags = tag_note(note, old_note, self.known_people(pins), hints, me)
-        if not tags.notify:
-            return tags
-        return tags._replace(notify=note_mention_targets(tags.notify, self._read_events()[0], me, pid, time.time()))
-
-    def events_since(self, actor: Json, cursor: int | None) -> Json:
-        """Notification material carried in /api/meta polling (limn.events.events_since): ev_seq always, and with a cursor
-        the events after it addressed to the requester's tailnet login - nothing for local/agent. Read-only."""
-        rows, _ = self._read_events()
-        me = (actor or {}).get("login")
-        return events.events_since(
-            rows, None if not me or is_agent(actor) else me, cursor, {d.key: d.name for d in self.docs}
-        )
 
     def reply_reopens(self, r: Record, human: bool, mentioned: Sequence[str], reopen: bool | None = None) -> bool:
         """Does a reply reopen stored pin r? limn.pins.lifecycle.reopens_on_reply() on the record's state; the viewer's
@@ -728,7 +654,7 @@ class ServerApplication:
         """{login: role} for everyone in people.json, or PeopleUnreadable while it cannot be used, re-read whenever the
         file changes - so `limn member role` and `limn member remove`, and a repaired file, take effect on the running
         server's next request."""
-        return self.RT.roles_cache.get(self.C.people_file, lambda: people_roles_of(self.load_people()), {})
+        return self.RT.roles_cache.get(self.C.people_file, lambda: people_roles_of(self.people_directory.load()), {})
 
     def role_of(self, login: str) -> access.Role:
         """The people.json role of login (limn.access.person_role): editor for someone people.json does not list, viewer

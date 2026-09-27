@@ -1014,11 +1014,11 @@ class MentionsOnEdit(Base):
         super().setUp()
 
     def events(self):
-        return ps.APP._read_events()[0]
+        return ps.APP.notices.read()[0]
 
     def test_edit_adds_mention_event_only_for_new_names(self):
-        ps.APP.record_person(dict(self.W))
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.W))
+        ps.APP.people_directory.record(dict(self.S))
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(LOCAL_ACTOR)
         ).record["id"]
@@ -1044,8 +1044,8 @@ class MentionsOnEdit(Base):
         self.assertIn("다시 열림", row)
 
     def test_self_mention_never_becomes_addressed(self):
-        ps.APP.record_person(dict(self.W))
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.W))
+        ps.APP.people_directory.record(dict(self.S))
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그", "kind_req": "question"},
             dict(self.W),

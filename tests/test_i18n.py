@@ -476,7 +476,7 @@ class EnglishChrome(ChromiumTestCase):
             (D.dir / "head.txt").write_text("abc1234")
         agent = dict(LOCAL_ACTOR)
         for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
-            ps.APP.record_person(who)
+            ps.APP.people_directory.record(who)
         access.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
         ms, rr = ps.APP.docs
 

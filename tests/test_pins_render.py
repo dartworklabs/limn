@@ -860,7 +860,7 @@ class AddressedInPinsMd(Base):
         super().setUp()
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
-        ps.APP.record_person(dict(self.W))
+        ps.APP.people_directory.record(dict(self.W))
         a = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 이 구간 맞나요?", "kind_req": "question"},
             dict(self.S),
@@ -876,8 +876,8 @@ class AddressedInPinsMd(Base):
 
     # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
     def test_assignee_person_is_addressed_agent_is_fyi_and_legacy_falls_back(self):
-        ps.APP.record_person(dict(self.W))
-        ps.APP.record_person(dict(self.S))
+        ps.APP.people_directory.record(dict(self.W))
+        ps.APP.people_directory.record(dict(self.S))
         note = "이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다"
         legacy = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": note}, dict(self.W)).record["id"]
         person = add_pin(

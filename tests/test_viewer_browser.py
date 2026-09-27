@@ -109,7 +109,7 @@ class ViewerFlows(BrowserBase):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.APP.record_person(actor(h))
+            ps.APP.people_directory.record(actor(h))
         self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record[
             "id"
         ]
@@ -875,7 +875,7 @@ class PreviewEqualsServer(BrowserBase):
     def setUp(self):
         super().setUp()
         for p in (A, self.LEE, self.PARK):
-            ps.APP.record_person(p)
+            ps.APP.people_directory.record(p)
         self.pins = []
         for i in range(5):
             pid = add_pin(
@@ -902,7 +902,11 @@ class PreviewEqualsServer(BrowserBase):
         settle(page)  # the reply the dismissed toast sends has been answered
         r = find_record(ps.APP.snapshot_pins(), pid)
         last = r["thread"][-1]
-        return preview, not r.get("done"), [ps.APP.known_people()[lg]["name"] for lg in last.get("mentions") or []]
+        return (
+            preview,
+            not r.get("done"),
+            [ps.APP.people_directory.known()[lg]["name"] for lg in last.get("mentions") or []],
+        )
 
     def test_preview_matches_the_server_for_ambiguous_partial_and_edited_names(self):
         page = self.open(0)
@@ -931,7 +935,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
         ps.APP.pin_lifecycle.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
@@ -984,7 +988,7 @@ class RestoreLinkRunsOnce(BrowserBase):
     WHO = ALICE
 
     def test_reload_does_not_restore_again(self):
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         keep = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
         ps.APP.pin_trash.drop_pin(pid, B)
@@ -1036,7 +1040,7 @@ class ScopedViewer(BrowserBase):
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         self.repo = self.main.parent.parent
         self.main.write_text(OLD, encoding="utf-8")
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
@@ -1263,7 +1267,7 @@ class ViewerTrashControls(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(A)
+        ps.APP.people_directory.record(A)
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {
@@ -1340,7 +1344,7 @@ class ViewerRoleUi(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.APP.record_person(actor(ALICE))
+        ps.APP.people_directory.record(actor(ALICE))
         ps.APP.C.people_file.write_text(
             json.dumps(
                 {

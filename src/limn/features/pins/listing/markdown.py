@@ -1,7 +1,7 @@
 """Assemble the run-specific facts that the pure pins.md renderer consumes."""
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,16 +45,13 @@ class MarkdownDeps(Protocol):
         """The document that owns this pin."""
         ...
 
-    def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
-        """People whose names or @tags the Markdown may show."""
-        ...
-
 
 @dataclass
 class PinMarkdown:
     """One run's pins.md input assembly and rendering."""
 
     deps: MarkdownDeps
+    known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
 
     def current_text(self, base: str) -> str:
         """GET /pins.md after its shared guards and remote base calculation."""
@@ -105,7 +102,7 @@ class PinMarkdown:
             label=self.deps.C.label,
             repo=self.deps.C.repo,
             docs=docs,
-            people=self.deps.known_people(pins),
+            people=self.known_people(pins),
             now=time.time(),
             updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
             token_file=self.existing_token_file_shown(self.deps.C.access.agent_token_file),

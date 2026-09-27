@@ -16,7 +16,7 @@ ServerApplication against this Protocol in server.py, so a missing or wrongly ty
 tests/test_web.py checks at run time that the bound application provides every member.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
@@ -25,7 +25,7 @@ from limn import access
 from limn.config import RunConfig
 from limn.documents import Doc, DocNotFound
 from limn.features.builds.service import BuildRequests
-from limn.features.collaboration.service import PeopleList
+from limn.features.collaboration.directory import PeopleDirectory
 from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
@@ -62,7 +62,7 @@ class App(Protocol):
     pin_markdown: PinMarkdown
     location_service: PinLocationService
     build_requests: BuildRequests
-    people_list: PeopleList
+    people_directory: PeopleDirectory
     document_views: DocumentViews
     revision_requests: RevisionRequests
     APP_NAME: str
@@ -99,10 +99,6 @@ class App(Protocol):
         """The role rule for a POST to path; raises HTTPError 403."""
         ...
 
-    def record_person(self, actor: Json, now: float | None = None, role: access.Role | None = None) -> bool:
-        """Record a person in people.json (never an agent)."""
-        ...
-
     # ---- the request's document
 
     def request_doc(self, key: str | None, file_hint: object = None) -> Document | DocNotFound:
@@ -133,16 +129,8 @@ class App(Protocol):
         """{login: role} from people.json, or PeopleUnreadable while it cannot be used."""
         ...
 
-    def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
-        """@-tag candidates {login: {login, name, pic?, last_seen?}}."""
-        ...
-
     def snapshot_pins(self) -> list[Pin]:
         """The pins, parsed, re-synced and saved under the pin lock."""
-        ...
-
-    def events_since(self, actor: Json, cursor: int | None) -> Json:
-        """Browser notification material after cursor."""
         ...
 
     def remote_base_for(self, host_raw: str) -> str:

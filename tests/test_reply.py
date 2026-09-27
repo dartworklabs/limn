@@ -35,7 +35,7 @@ class ReplyApi(AccessBase):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.APP.record_person(actor(h))
+            ps.APP.people_directory.record(actor(h))
 
     def review_pin(self, kind="fix", author=A):
         pid = add_pin(
@@ -55,7 +55,7 @@ class ReplyApi(AccessBase):
         return self.call("POST", "/api/pins/%d/reply" % pid, body, headers, token=token)
 
     def events(self):
-        return [(e["type"], sorted(e["to"])) for e in ps.APP._read_events()[0]]
+        return [(e["type"], sorted(e["to"])) for e in ps.APP.notices.read()[0]]
 
     def test_human_reply_on_review_pin_reopens_with_the_reply_as_reason(self):
         pid = self.review_pin()

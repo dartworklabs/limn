@@ -198,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _record(self, actor: Json) -> None:
         """people.json for a person who opened the viewer or wrote something (agents never). The local owner is recorded as owner."""
-        self.app.record_person(actor, role="owner" if self.principal.via == "local-owner" else None)
+        self.app.people_directory.record(actor, role="owner" if self.principal.via == "local-owner" else None)
 
     def _wants_page(self) -> bool:
         """A browser opening the viewer itself (GET / for HTML) - it gets a readable page on a refusal, not JSON."""
@@ -286,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             self._record(actor)
             return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
         if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
-            return _json_reply(collaboration_http.people_list(app.people_list, actor, self.principal.role))
+            return _json_reply(collaboration_http.people_list(app.people_directory, actor, self.principal.role))
         if path == "/favicon.ico":
             return Reply(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark

@@ -112,14 +112,14 @@ class AuditLogServer(AccessBase):
         """Issue #10 L5: after EVENTS_KEEP + 1 other events the `cleared` record is gone from events.jsonl but kept in audit.jsonl."""
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual(code, 200, d)
-        self.assertEqual(ps.APP._read_events()[0][-1]["type"], "cleared")  # still written for compatibility
-        ps.APP.emit_events(
+        self.assertEqual(ps.APP.notices.read()[0][-1]["type"], "cleared")  # still written for compatibility
+        ps.APP.notices.emit_events(
             [
                 {"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
                 for _ in range(EVENTS_KEEP + 1)
             ]
         )
-        self.assertNotIn("cleared", {e["type"] for e in ps.APP._read_events()[0]})
+        self.assertNotIn("cleared", {e["type"] for e in ps.APP.notices.read()[0]})
         rows = audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual(set(rows[0]), {"at", "ts", "action", "by", "via", "details"})

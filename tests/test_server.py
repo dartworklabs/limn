@@ -1214,7 +1214,7 @@ class MultiDoc(Base):
 
     def _notices(self, since=0):
         """The (type, doc) of every events.jsonl record after the first `since` ones, in order."""
-        return [(e["type"], e["doc"]) for e in ps.APP._read_events()[0][since:]]
+        return [(e["type"], e["doc"]) for e in ps.APP.notices.read()[0][since:]]
 
     def test_new_line_pin_notices_name_the_pins_own_document(self):
         """A new line pin in the second document queues its mention and assigned notices with that document's key.
@@ -1222,7 +1222,7 @@ class MultiDoc(Base):
         Regression: the notices were built before the record had its doc, so pin_doc_key read the first document (ms)
         and the viewer opened a notice about a pin in rr on the wrong document.
         """
-        ps.APP.record_person(dict(self.WENDY))
+        ps.APP.people_directory.record(dict(self.WENDY))
         pin = add_pin(
             {
                 "file": str(self.rr),
@@ -1241,11 +1241,11 @@ class MultiDoc(Base):
     def test_later_notices_about_a_pin_name_its_document(self):
         """Edit, reply, close and reopen notices about a pin in the second document carry that document's key: they
         are made from the stored record, which has its doc."""
-        ps.APP.record_person(dict(self.WENDY))
+        ps.APP.people_directory.record(dict(self.WENDY))
         pid = add_pin(
             {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(BOB_ACTOR)
         ).record["id"]
-        n = len(ps.APP._read_events()[0])
+        n = len(ps.APP.notices.read()[0])
         edit = {"base_rev": 0, "note": "@Wendy Kim 정의 확인", "assignee": self.WENDY["login"]}
         self.assertEqual(edit_pin(pid, edit, dict(BOB_ACTOR)).record["doc"], "rr")
         self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reply" % pid, {"text": "봤어요"})))[0], 200)

@@ -466,7 +466,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 @태그는 뷰어 안에서만 사람을 부른다. GitHub, Telegram, 메일 같은 바깥 알림은 보내지 않는다. 대신 나중에 붙일 수 있게 `events.jsonl` 에 적어 둔다.
 
-공통 사실은 세 모듈이 맡는다. [`src/limn/people.py`](../../src/limn/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/mentions.py`](../../src/limn/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/events.py`](../../src/limn/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`features/collaboration/`](../../src/limn/features/collaboration/http.py)은 `GET /api/people`의 현재 역할·핀 스냅숏과 응답을 조립한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
+공통 사실은 세 모듈이 맡는다. [`src/limn/people.py`](../../src/limn/people.py) 가 `people.json` 의 항목 검사·저장 형식·기록(`record_person`)과 @태그 후보(`known_people`·`candidates`)를, [`src/limn/mentions.py`](../../src/limn/mentions.py) 가 `@이름` 풀기(`resolve_mentions`·`mention_hits`), 지금 차례(`thread_round`), `addressed`·`fyi`, 메모 태그와 재알림 간격(`tag_note`·`note_mention_targets`)을, [`src/limn/events.py`](../../src/limn/events.py) 가 이벤트 한 건과 받는 사람(`make_event`), 폴링이 고르는 이벤트(`events_since`), `events.jsonl` 쓰기·읽기(`EventLog`)를 맡는다. [`features/collaboration/`](../../src/limn/features/collaboration/directory.py)은 실행별 사람 파일·멘션 알림·이벤트 폴링과 `GET /api/people`의 역할·핀 스냅숏·응답을 연결한다. 파일 위치·잠금·시계는 `server.py` 가 넘긴다.
 
 ### 사람 목록
 

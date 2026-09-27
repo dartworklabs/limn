@@ -33,7 +33,7 @@ limn serve  ──(1)──▶  <manuscript_dir> 사본을 별도 빌드 디렉�
 
 ## 현재 구조
 
-Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
+Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 라이브러리만 쓰는 모듈**로 나뉜다. 핀 수명 주기, 처리 중 표시, 휴지통, 만들기·편집, JSON 조회와 PDF 선택은 `features/pins/`의 각 기능 패키지가 입력·HTTP 응답·실행별 협력자를 소유한다. 빌드 상태·PDF·쪽 이미지 읽기와 재빌드 요청은 `features/builds/`가, 원격 Git 동기화와 감시는 `features/sync/`가, Git 이력·비교 PDF의 요청·응답은 `features/revisions/`가, 사람 파일·멘션 알림의 실행별 연결과 목록 조회는 `features/collaboration/`이, 문서 상태·목차 조회는 `features/document_views/`가 소유한다. 나머지는 아직 책임별 모듈에 있다. 경로마다의 책임과 함께 볼 topic은 [index.md](index.md) §파일 지도가 정본이다.
 
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 기능 슬라이스 | `features/pins/location/`의 `input.py`·`http.py`·`service.py`·`resolve.py`·`source.py`·`range.py` | PDF 선택과 원문 구간 조회·겹침 조회의 입력 검사·응답·실행별 협력자, SyncTeX·텍스트 역변환과 토큰 캐시. 저장된 핀의 공통 위치 규칙은 `locate.py`에 남는다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/builds/`의 `input.py`·`answer.py`·`http.py`·`service.py`·`run.py`·`engine.py` | 빌드 조회·재빌드 요청의 입력·응답(`input.py`·`answer.py`·`http.py`), 실행별 선택(`service.py`), 잠금·상태·이력 기록(`run.py`), 원고 복사·컴파일·PDF 렌더(`engine.py`). 공통 산출물·원본 지문·이력 사실은 `build.py`가 소유한다 | `server.py`. 문서와 실행 함수를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/sync/`의 `rules.py`·`run.py`·`service.py` | `--git-pull`과 원격 main 감시의 순수 판단·상태 값(`rules.py`), Git 호출·pull 공유 잠금·감시 루프(`run.py`), 실행별 설정·문서·빌드 시작 연결(`service.py`) | `server.py`. 현재 문맥을 호출 시점에 받고 감시 자원은 런타임이 소유한다 |
-| 기능 슬라이스 | `features/collaboration/`의 `service.py`·`http.py` | `/api/people`의 역할·핀·사람 목록 조회 순서와 응답 본문. 공통 사람 파일 규칙은 `people.py`, 역할 판단은 `access.py`가 소유한다 | `server.py`. 실행별 조회 협력자를 명시적으로 받는다 |
+| 기능 슬라이스 | `features/collaboration/`의 `directory.py`·`notices.py`·`http.py` | 사람 파일·후보·기록, 이벤트 파일·멘션 재알림·폴링을 실행별 잠금·캐시·시계에 묶고 `/api/people` 본문을 만든다. 공통 파일 형식과 순수 규칙은 `people.py`·`events.py`·`mentions.py`에 있다 | `server.py`. 실행별 협력자를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/document_views/`의 `input.py`·`reads.py`·`service.py`·`http.py` | meta 이벤트 커서 입력, 문서·빌드·목차 읽기, 실행별 핀·동기화·이벤트 조합과 세 조회 응답 | `server.py`. 문서와 실행별 협력자를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/revisions/`의 `input.py`·`answer.py`·`http.py`·`service.py`·`core.py`·`execution.py`·`jobs.py` | Git 이력·비교 PDF의 요청 검사, 거절·성공 응답과 실행별 비교 문맥 연결. Git 이력·diff와 공통 결과 타입은 `core.py`, 스냅숏·격리 실행은 `execution.py`, 비교 캐시·작업 상태는 `jobs.py`가 소유한다 | `server.py`. 실행별 문맥을 함수로 받는다 |
 | 공통 HTTP | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사·경로 분기와 아직 옮기지 않은 경로의 파싱·응답. 옮긴 경로는 각 기능 패키지의 HTTP 입구를 부른다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |

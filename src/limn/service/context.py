@@ -24,7 +24,7 @@ Event: TypeAlias = dict[str, Any]  # one events.jsonl record before emit fills i
 
 
 class MakeEvent(Protocol):
-    """One notice about pin r by actor for the logins in to, or None when nobody is left to tell (server.make_event)."""
+    """One notice about pin r by actor for the logins in to, or None when nobody is left to tell."""
 
     def __call__(
         self,
@@ -40,7 +40,7 @@ class MakeEvent(Protocol):
 
 
 class NoteTagger(Protocol):
-    """The saved note's @-tags and whom this save notifies (server.note_tags: people plus the recent notices)."""
+    """The saved note's @-tags and whom this save notifies from people and recent notices."""
 
     def __call__(
         self,

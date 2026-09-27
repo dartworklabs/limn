@@ -244,18 +244,18 @@ class Log(unittest.TestCase):
 
 
 class EventLogCap(Base):
-    """events.jsonl keeps the newest EVENTS_KEEP events while seq keeps rising (through server.py's emit_events)."""
+    """events.jsonl keeps the newest EVENTS_KEEP events while seq keeps rising through collaboration notices."""
 
     def setUp(self):
         super().setUp()
 
     def events(self):
-        return ps.APP._read_events()[0]
+        return ps.APP.notices.read()[0]
 
     def test_events_are_capped_but_seq_keeps_rising(self):
-        with mock.patch.object(ps, "EVENTS_KEEP", 3):
+        with mock.patch.object(events, "EVENTS_KEEP", 3):
             for i in range(5):
-                ps.APP.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
+                ps.APP.notices.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
         self.assertEqual([e["seq"] for e in self.events()], [3, 4, 5])
 
 
