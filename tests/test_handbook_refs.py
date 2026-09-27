@@ -22,7 +22,7 @@ PARTICLE = re.compile(r"(에서|에|으로|로|을|를|이|가|은|는|과|와|�
 PATH = re.compile(r"`((?:src|tests)/[^`*<\s]+)`")
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 # Topics not yet brought to the present-tense rule; the documentation pass that cleans one removes it from this set.
-DATES_PENDING = {"api.md", "viewer.md", "domain.md", "operations.md"}
+DATES_PENDING: set[str] = set()
 
 
 def prose_lines(path: Path) -> list[tuple[int, str]]:

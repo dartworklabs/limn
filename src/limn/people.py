@@ -7,8 +7,8 @@ then os.replace'd (atomic) - readers only ever see the old file or the new one.
 What lives here: the record check of a people.json entry (valid_people, is_actor), its stored text (people_text), its
 read (load_people: the rows, or PeopleUnreadable for a file that exists but cannot be used - fail closed, never "no
 one"), the warning about such a file (UnreadableWarning), the running server's write (record_person, through a
-PeopleBook; never over an unusable file) and the @-tag candidates made from people.json rows and the pins
-(known_people, pure).
+PeopleBook; never over an unusable file), the @-tag candidates made from people.json rows and the pins
+(known_people, pure) and their order and roles as GET /api/people lists them (candidates, pure).
 
 The module knows no run arguments, no HTTP and no server. The composition root (server.people_book()) passes where the
 file is, the process's lock and its last-written memo, the clock, and the rule that tells an agent from a person.
@@ -202,3 +202,11 @@ def known_people(people: Iterable[Row], pins: Iterable[Row], is_agent: Callable[
         for m in r.get("thread") or []:
             add(m.get("by"))
     return out
+
+
+def candidates(known: Mapping[str, Row], role_of: Callable[[str], str]) -> list[Row]:
+    """GET /api/people's list: the known people (known_people) ordered with everyone who has opened the viewer (a
+    last_seen) first, then by name ignoring case, each a copy carrying its role (role_of: the login's role, which the
+    caller reads from people.json - limn.access.person_role). Pure."""
+    ordered = sorted(known.values(), key=lambda x: (x.get("last_seen") is None, x["name"].lower()))
+    return [dict(x, role=role_of(x["login"])) for x in ordered]

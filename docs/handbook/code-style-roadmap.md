@@ -113,7 +113,7 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **업계에서 부르는 이름.** Make illegal states unrepresentable (Yaron Minsky, "Effective ML"). Scott Wlaschin의 책 *Domain Modeling Made Functional*이 같은 방법을 자세히 다룬다.
 
-**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6).
+**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`limn/revisions.py`](../../src/limn/revisions.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
 
 > **예시**
 >
@@ -159,7 +159,7 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 
 **업계에서 부르는 이름.** Parse, don't validate (Alexis King).
 
-**지금 코드.** 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 층(`web/`)과 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
+**지금 코드.** 요청 본문과 쿼리의 파서는 [`limn/web/parse.py`](../../src/limn/web/parse.py)에 있다. 처리기의 경로는 본문과 쿼리를 통째로 파서에 넘기고 필드를 직접 읽지 않는다. 경로마다 요청 타입(`ReplyRequest`, `DocChoice`, `RebuildQuery` 등)이 있고, 쿼리 스위치는 `parse_flag` 하나가 읽는다. 핀 위치도 사전이 아니라 타입(`LineLoc`, `RegionLoc`)이고, 저장할 때 `to_record()`가 늘 쓰던 키 순서로 바꾼다. 처리기는 파서가 돌려준 거절을 `accepted()`로 400 문장 그대로 답하고, 서비스에는 파싱된 값(`AddRequest`, `EditRequest` 등)만 넘긴다. 모든 거절 본문에는 안정 코드 `reason`이 붙는다([api.md](api.md) §오류 응답). `HTTPError`를 만드는 곳은 HTTP 층(`web/`)과 신원·입장·역할 판단([`limn/access.py`](../../src/limn/access.py), R10)뿐이다. 시작 단계의 거절은 `StartupRefused` 값이고 `sys.exit`은 `server.main()` 한 곳에만 있다([`limn/startup.py`](../../src/limn/startup.py)).
 
 > **예시**
 >
@@ -335,8 +335,7 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 아직 하지 않은 일이다. 위에서부터 한다. 각 일은 동작을 바꾸지 않는 구조 변경이라 [verification.md](verification.md) §구조 이동의 동작 불변 증명(차등 비교)으로 증명하고, 끝나면 해당 규칙 절의 "지금 코드"를 고친다.
 
 1. **실행 설정과 런타임을 값으로.** 전역 `C`와 프로세스 자원(잠금·캐시·작업 목록)을 조립 지점이 만드는 두 값, 곧 실행 설정(`RunConfig`)과 런타임(`Runtime`)으로 모은다(R5).
-2. **처리기의 요청 해석을 파서로.** 처리기 안에서 쿼리 플래그(`?light=1`, `?log=1`, `?all=1` 등)와 경로 조각을 직접 읽는 곳을 `web/parse.py`의 파서로 옮긴다(R3).
-3. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+2. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
 
 그 밖에 둘이 남았다.
 

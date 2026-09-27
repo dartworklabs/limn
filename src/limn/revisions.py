@@ -6,7 +6,9 @@ state folder, and runs one build per job in a worker thread. Which hunks belong 
 limn.scope. Everything a request can be refused for is a returned value (the refusal sets below); the HTTP layer
 answers each (limn.web.answers.revision_answer). A failed comparison build is recorded in its cache as an "error"
 status with the text the RevisionContext's describe() gives - the texts are the agent contract's, kept in
-limn.web.errors next to the HTTP answers.
+limn.web.errors next to the HTTP answers. The status of one comparison is a type (IdleComparison, RunningComparison,
+ReadyComparison, FailedComparison); the pure answered_from_cache decides when a request is answered from the cache,
+and status_body gives the JSON each status is answered with.
 
 Nothing here reads server.py's settings or the thread's current document: the document is an argument, and what the
 instance supplies - its pins, where a recorded path is now, the process's scope cache and job registry, the build
@@ -210,6 +212,14 @@ class StepFailed:
 BuildFailure: TypeAlias = StepFailed | ScopeRefusal
 
 
+@dataclass(frozen=True)
+class ComparisonBuilt:
+    """A comparison build succeeded: its PDF is jobdir/revision.pdf, and warnings are what its "ready" status shows
+    (the fixed notes first, then the final engine log's warning lines)."""
+
+    warnings: list[str]
+
+
 class ScopeCache:
     """Pin scopes already decided, keyed by (repo, base, head, pin facts) - commits are immutable, so an entry stays
     right until evicted (oldest first beyond keep). Holds only complete answers: a commit that could not be read
@@ -264,7 +274,7 @@ class RevisionJobs:
     def __init__(self, slots: int = 2) -> None:
         """No job running, `slots` builds allowed at once."""
         self.lock = threading.RLock()
-        self.active: dict[str, Json] = {}
+        self.active: dict[str, RunningComparison] = {}
         self.slots = threading.BoundedSemaphore(slots)
 
 
@@ -673,6 +683,58 @@ def git_exec(args: Sequence[str], cwd: Path, timeout: float, limit: int) -> tupl
     return revision_exec(git_command(args), cwd, timeout, limit, env=git_env())
 
 
+@dataclass(frozen=True)
+class TreeFile:
+    """One regular file of a commit's build root as `git ls-tree -r -l -z` lists it: its path relative to the build
+    root (relative, no ".", ".." or ".git" part, no backslash or control character), its blob id and its size in
+    bytes."""
+
+    path: Path
+    oid: str
+    size: int
+
+
+@dataclass(frozen=True)
+class UnsafeTreeRow:
+    """An ls-tree row a snapshot never writes: not a regular file (a symlink, a submodule), outside the build root, a
+    name that could leave or confuse the snapshot folder, or a row that does not parse. The snapshot is refused
+    (StepFailed("unsafe_snapshot"))."""
+
+
+def parse_ls_tree_row(row: bytes, prefix: str) -> TreeFile | UnsafeTreeRow:
+    """One row of `git ls-tree -r -l -z` (the text between two NULs: "<mode> <type> <oid> <size>\\t<name>") read as a
+    file under the build root prefix ("" for the repository root, else "<folder>/"), or UnsafeTreeRow. Pure: it only
+    looks at the bytes; the name is UTF-8 and the object id ASCII, as git writes them."""
+    meta, tab, rawname = row.partition(b"\t")
+    fields = meta.split()
+    if not tab or len(fields) != 4:
+        return UnsafeTreeRow()
+    mode, kind, oid, size = fields
+    try:
+        name = rawname.decode("utf-8")
+        oid_text = oid.decode("ascii")
+    except UnicodeError:
+        return UnsafeTreeRow()
+    if not name.startswith(prefix):
+        return UnsafeTreeRow()
+    name = name[len(prefix) :]
+    path = Path(name)
+    if (
+        mode not in (b"100644", b"100755")
+        or kind != b"blob"
+        or path.is_absolute()
+        or not name
+        or any(p in (".", "..", ".git") for p in name.split("/"))
+        or "\\" in name
+        or any(ord(c) < 32 for c in name)
+    ):
+        return UnsafeTreeRow()
+    try:
+        return TreeFile(path, oid_text, int(size))
+    except ValueError:
+        return UnsafeTreeRow()
+
+
 def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | StepFailed:
     """Write the build root of commit (spec.source) into the new folder dest from git objects - regular files only,
     within the file-count and size limits - and check that spec.main is there. The step failure otherwise."""
@@ -686,49 +748,35 @@ def revision_snapshot(spec: RevisionSpec, commit: str, dest: Path) -> None | Ste
     rc, tree, _ = ran
     if rc != 0:
         return StepFailed("snapshot_read")
-    entries, total = [], 0
+    entries: list[TreeFile] = []
+    total = 0
     for row in tree.split(b"\0"):
         if not row:
             continue
-        try:
-            meta, rawname = row.split(b"\t", 1)
-            mode, kind, oid, size = meta.split()
-            name = rawname.decode("utf-8")
-            if not name.startswith(prefix):
-                raise ValueError()
-            name = name[len(prefix) :]
-            path = Path(name)
-            if (
-                mode not in (b"100644", b"100755")
-                or kind != b"blob"
-                or path.is_absolute()
-                or not name
-                or any(p in (".", "..", ".git") for p in name.split("/"))
-                or "\\" in name
-                or any(ord(c) < 32 for c in name)
-            ):
-                raise ValueError()
-            n = int(size)
-        except (ValueError, UnicodeError):
+        entry = parse_ls_tree_row(row, prefix)
+        if isinstance(entry, UnsafeTreeRow):
             return StepFailed("unsafe_snapshot")
-        total += n
-        entries.append((path, oid.decode("ascii"), n))
-        if n > REVISION_FILE_MAX or total > REVISION_TREE_MAX or len(entries) > REVISION_FILES_MAX:
+        total += entry.size
+        entries.append(entry)
+        if entry.size > REVISION_FILE_MAX or total > REVISION_TREE_MAX or len(entries) > REVISION_FILES_MAX:
             return StepFailed("snapshot_size")
     dest.mkdir(parents=True)
     deadline = time.monotonic() + 60
-    for path, oid_text, n in entries:
+    for entry in entries:
         if time.monotonic() >= deadline:
             return StepFailed("snapshot_timeout")
         ran = git_exec(
-            ["cat-file", "blob", oid_text], spec.repo, min(15, max(0.01, deadline - time.monotonic())), n + 4096
+            ["cat-file", "blob", entry.oid],
+            spec.repo,
+            min(15, max(0.01, deadline - time.monotonic())),
+            entry.size + 4096,
         )
         if isinstance(ran, StepFailed):
             return ran
         rc, data, _ = ran
-        if rc != 0 or len(data) != n:
+        if rc != 0 or len(data) != entry.size:
             return StepFailed("snapshot_blob")
-        target = dest / path
+        target = dest / entry.path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     if not (dest / spec.main).is_file():
@@ -815,10 +863,10 @@ def revision_sandbox(work: Path, main_parent: Path, tool: str, args: list[str]) 
     return cmd + ["--", str(exe)] + args
 
 
-def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Json | BuildFailure:
+def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> ComparisonBuilt | BuildFailure:
     """Builds the comparison PDF of spec into jobdir/revision.pdf (and jobdir/build.log) inside the bwrap sandbox:
     snapshots of both sides - for a pin scope, old + only its blocks (revision_apply_scope) - then latexdiff, then
-    latexmk with timeout seconds. Returns the "ready" status fields with warnings, or the first step that failed (a
+    latexmk with timeout seconds. Returns ComparisonBuilt with the warnings to show, or the first step that failed (a
     StepFailed as before 0.3, or a ScopeRefusal from the scope step); the worker records either."""
     warnings = [
         "수식 내부와 같은 파일명의 그림 내용 변경은 강조되지 않을 수 있습니다. 그림·서지·스타일 변경은 소스 변경사항도 확인하세요."
@@ -897,7 +945,7 @@ def revision_compile(spec: RevisionSpec, jobdir: Path, timeout: int) -> Json | B
         ]
         warnings += list(dict.fromkeys(warning_lines))[:12]
         os.replace(pdf, jobdir / "revision.pdf")
-    return {"state": "ready", "warnings": warnings, "error": None, "reason": None}
+    return ComparisonBuilt(warnings)
 
 
 def revision_cache_root(D: RevisionDoc) -> Path | UnsafeCache:
@@ -916,35 +964,108 @@ def _without_meta(d: Mapping[str, Any]) -> Json:
     return {k: v for k, v in d.items() if k not in SCOPE_META}
 
 
-def revision_cached(spec: RevisionSpec, root: Path) -> Json:
-    """The finished status of spec from its cache folder under root ("ready" only with a PDF of sane size), else an
-    "idle" status; always with spec's identity and, for a pin request, its per-request fields. Reads files only;
-    a corrupt, oversized, symlinked or expired entry is a miss."""
+# ---------------------------------------------------------------- the status of one comparison
+
+
+@dataclass(frozen=True)
+class IdleComparison:
+    """No usable comparison of a spec in the cache - never built, expired, or an entry that is corrupt, oversized, a
+    symlink, not finished, or "ready" without a sane PDF. Answered as state "idle"."""
+
+
+@dataclass(frozen=True)
+class RunningComparison:
+    """A comparison this process is building. fields is its status as answered (state "running"), without the
+    per-request pin fields (SCOPE_META); RevisionJobs.active holds it until the worker finishes."""
+
+    fields: Json
+
+
+@dataclass(frozen=True)
+class ReadyComparison:
+    """A finished comparison whose PDF is in the cache. fields is its status.json as stored (state "ready"), without
+    the per-request pin fields; the spec's identity is laid over it when answered."""
+
+    fields: Json
+
+
+@dataclass(frozen=True)
+class FailedComparison:
+    """A finished comparison that failed. fields is its status.json as stored (state "error", the failure's text and
+    API reason), without the per-request pin fields."""
+
+    fields: Json
+
+    @property
+    def reason(self) -> object:
+        """The stored API reason of the failure (compile_failed, timeout, build_failed, ...), as read."""
+        return self.fields.get("reason")
+
+
+CachedComparison: TypeAlias = IdleComparison | ReadyComparison | FailedComparison
+ComparisonStatus: TypeAlias = CachedComparison | RunningComparison
+
+# Failures a pin subset meets again on every build of it (two SHA-1s and a fixed pipeline): answered from the cache.
+DETERMINISTIC_FAILURES = ("compile_failed", "diff_failed", "scope_failed")
+
+
+def answered_from_cache(cached: CachedComparison, scoped: bool) -> bool:
+    """Whether POST /api/revision-build answers with the cached comparison instead of building it (scoped: the spec
+    applies a pin's blocks only). A finished PDF is answered. A pin subset that failed deterministically
+    (DETERMINISTIC_FAILURES) would fail the same way again, so its failure is answered too and the viewer falls back at
+    once instead of spending a build slot; any other failure - a whole commit's included - builds again, and so does a
+    miss. Pure."""
+    match cached:
+        case ReadyComparison():
+            return True
+        case FailedComparison():
+            return scoped and cached.reason in DETERMINISTIC_FAILURES
+        case IdleComparison():
+            return False
+
+
+def status_body(status: ComparisonStatus, spec: RevisionSpec) -> Json:
+    """The JSON a revision-build route answers with for spec in status: the stored or running fields with spec's
+    identity (job_id, base, head, engine) and, for a pin request, its per-request fields (spec.meta). A running job's
+    fields already carry the identity. Pure."""
+    meta: Mapping[str, Any] = spec.meta or {}
+    identity = dict({"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **meta)
+    match status:
+        case RunningComparison(fields=fields):
+            return dict(_without_meta(fields), **meta)
+        case ReadyComparison(fields=fields) | FailedComparison(fields=fields):
+            return dict(fields, **identity)
+        case IdleComparison():
+            return dict(identity, state="idle", warnings=[], error=None, reason=None)
+
+
+def revision_cached(spec: RevisionSpec, root: Path) -> CachedComparison:
+    """The finished comparison of spec in its cache folder under root: ReadyComparison only with a PDF of sane size,
+    FailedComparison for a stored failure, else IdleComparison. Reads files only; a corrupt, oversized, symlinked or
+    expired entry is a miss."""
     path = root / spec.key
-    identity = dict(
-        {"job_id": spec.key, "base": spec.base, "head": spec.head, "engine": "pdflatex"}, **(spec.meta or {})
-    )
+    status = path / "status.json"
     try:
-        status = path / "status.json"
         if path.is_symlink() or status.is_symlink() or status.stat().st_size > 32768:
-            raise ValueError()
+            return IdleComparison()
         data = json.loads(status.read_text(encoding="utf-8"))
-        if (
-            not isinstance(data, dict)
-            or data.get("state") not in ("ready", "error")
-            or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL
-        ):
-            raise ValueError()
-        if data["state"] == "ready":
-            pdf = path / "revision.pdf"
-            if pdf.is_symlink() or not 0 < pdf.stat().st_size <= REVISION_PDF_MAX:
-                raise ValueError()
-        return dict(_without_meta(data), **identity)
+        if not isinstance(data, dict) or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL:
+            return IdleComparison()
+        match data.get("state"):
+            case "ready":
+                pdf = path / "revision.pdf"
+                if pdf.is_symlink() or not 0 < pdf.stat().st_size <= REVISION_PDF_MAX:
+                    return IdleComparison()
+                return ReadyComparison(_without_meta(data))
+            case "error":
+                return FailedComparison(_without_meta(data))
+            case _:
+                return IdleComparison()
     except (OSError, ValueError, TypeError):
-        return dict(identity, state="idle", warnings=[], error=None, reason=None)
+        return IdleComparison()
 
 
-def revision_prune(root: Path, keep_key: str, running: Mapping[str, Json]) -> None:
+def revision_prune(root: Path, keep_key: str, running: Mapping[str, RunningComparison]) -> None:
     """Removes expired comparisons and, newest first, those beyond the limits - REVISION_CACHE_KEEP whole-commit and
     REVISION_SCOPED_KEEP pin-scoped ones (SCOPED_MARK), counted apart so pins never push out whole-commit PDFs. The
     entry about to be built (keep_key, counted as one whole-commit slot as before) and running jobs are kept."""
@@ -972,105 +1093,110 @@ def revision_status(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionC
         root = revision_cache_root(D)
         if isinstance(root, UnsafeCache):
             return root
-        active = ctx.jobs.active.get(str(root / spec.key))
-        return dict(_without_meta(active), **(spec.meta or {})) if active else revision_cached(spec, root)
+        running = ctx.jobs.active.get(str(root / spec.key))
+        return status_body(running if running is not None else revision_cached(spec, root), spec)
 
 
 def revision_start(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | StartRefusal:
-    """POST /api/revision-build: returns the running or cached status, or starts a worker thread and returns
-    "running". A pin subset that failed deterministically is answered from the cache. Refused when both build slots
-    or this document's lock are taken, for an unsafe cache folder, and for what revision_spec refuses."""
+    """POST /api/revision-build: returns the running job's status, or the cached one when answered_from_cache says so,
+    or starts a worker thread and returns "running". Refused when both build slots or this document's lock are taken,
+    for an unsafe cache folder, and for what revision_spec refuses."""
     spec = revision_spec(D, commit, pin, ctx)
     if not isinstance(spec, RevisionSpec):
         return spec
-    jobs = ctx.jobs
-    with jobs.lock:
+    with ctx.jobs.lock:
         root = revision_cache_root(D)
         if isinstance(root, UnsafeCache):
             return root
-        jobdir, jobkey = root / spec.key, str(root / spec.key)
-        if jobkey in jobs.active:
-            return dict(_without_meta(jobs.active[jobkey]), **(spec.meta or {}))
+        running = ctx.jobs.active.get(str(root / spec.key))
+        if running is not None:
+            return status_body(running, spec)
         cached = revision_cached(spec, root)
-        if cached["state"] == "ready":
-            return cached
-        # A pin's subset that did not compile will not compile next time either (two SHA-1s, a fixed pipeline): answer
-        # from the cache so the viewer falls back at once instead of spending a build slot again. Whole commits retry.
-        if (
-            spec.scope
-            and cached["state"] == "error"
-            and cached.get("reason") in ("compile_failed", "diff_failed", "scope_failed")
-        ):
-            return cached
+        if answered_from_cache(cached, bool(spec.scope)):
+            return status_body(cached, spec)
+        started = _start_job(spec, root, cached, ctx)
+        return status_body(started, spec) if isinstance(started, RunningComparison) else started
+
+
+def _start_job(
+    spec: RevisionSpec, root: Path, cached: CachedComparison, ctx: RevisionContext
+) -> RunningComparison | AllSlotsBusy | DocumentBusy | UnsafeCache:
+    """Claims one of the process's build slots and the document's build lock, prunes the cache, makes spec's empty job
+    folder and starts the worker thread, which owns the claims from then on (_run_job frees them). Every return or
+    exception before the thread starts frees what was claimed so far, in reverse order (ExitStack). The caller holds
+    ctx.jobs.lock; cached is the status the job replaces (its fields seed the running status)."""
+    jobs, jobdir = ctx.jobs, root / spec.key
+    with contextlib.ExitStack() as claimed:
         if not jobs.slots.acquire(blocking=False):
             return AllSlotsBusy()
-        lock = None
+        claimed.callback(jobs.slots.release)
+        # A second server sharing a state directory must not prune or replace this job.
+        lock = claimed.enter_context((root / "build.lock").open("a"))
         try:
-            # A second server sharing a state directory must not prune or replace this job.
-            lock = (root / "build.lock").open("a")
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                lock.close()
-                jobs.slots.release()
-                return DocumentBusy()
-            revision_prune(root, spec.key, jobs.active)
-            if jobdir.is_symlink():
-                lock.close()
-                jobs.slots.release()
-                return UnsafeCache()
-            if jobdir.exists():
-                shutil.rmtree(jobdir)
-            jobdir.mkdir()
-            if spec.scope:
-                (jobdir / SCOPED_MARK).write_text("")
-            running = dict(_without_meta(cached), state="running", error=None, reason=None, warnings=[])
-            jobs.active[jobkey] = running
-            timeout = min(180, max(1, ctx.timeout))
-        except BaseException:
-            if lock is not None and not lock.closed:
-                lock.close()
-            jobs.slots.release()
-            raise
-        held = lock
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return DocumentBusy()
+        revision_prune(root, spec.key, jobs.active)
+        if jobdir.is_symlink():
+            return UnsafeCache()
+        if jobdir.exists():
+            shutil.rmtree(jobdir)
+        jobdir.mkdir()
+        if spec.scope:
+            (jobdir / SCOPED_MARK).write_text("")
+        running = RunningComparison(
+            dict(_without_meta(status_body(cached, spec)), state="running", error=None, reason=None, warnings=[])
+        )
+        jobs.active[str(jobdir)] = running
+        claimed.callback(jobs.active.pop, str(jobdir), None)
+        timeout = min(180, max(1, ctx.timeout))
+        owned = claimed.pop_all()  # from here the worker frees the slot, the lock and the active entry
+    try:
+        threading.Thread(target=_run_job, args=(spec, jobdir, timeout, running, ctx, owned), daemon=True).start()
+    except BaseException:
+        owned.close()
+        raise
+    return running
 
-        def worker() -> None:
-            """Runs the build, stores its final status in jobdir/status.json, and frees the slot and lock. An expected
-            failure becomes an "error" status with the text ctx.describe gives it; anything else is build_failed."""
-            try:
-                built = revision_compile(spec, jobdir, timeout)
-                if isinstance(built, dict):
-                    result: Json = built
-                else:
-                    message, reason = ctx.describe(built)
-                    result = {"state": "error", "error": message, "reason": reason, "warnings": []}
-            except Exception:
-                traceback.print_exc()
-                result = {
-                    "state": "error",
-                    "error": "비교 PDF를 만들지 못했습니다.",
-                    "reason": "build_failed",
-                    "warnings": [],
-                }
-            try:
-                result = dict(running, **result)  # running carries no per-request pin fields (SCOPE_META)
-                atomic_write(jobdir / "status.json", json.dumps(result, ensure_ascii=False))
-            except OSError:
-                pass
-            finally:
-                with jobs.lock:
-                    jobs.active.pop(jobkey, None)
-                    held.close()
-                    jobs.slots.release()
 
+def _finished(built: ComparisonBuilt | BuildFailure, running: RunningComparison, ctx: RevisionContext) -> Json:
+    """The final status fields of a job whose build returned: running's fields with the build's warnings ("ready"), or
+    with the text and API reason ctx.describe gives the failure ("error")."""
+    if isinstance(built, ComparisonBuilt):
+        return {**running.fields, "state": "ready", "warnings": built.warnings, "error": None, "reason": None}
+    message, reason = ctx.describe(built)
+    return {**running.fields, "state": "error", "error": message, "reason": reason, "warnings": []}
+
+
+def _run_job(
+    spec: RevisionSpec,
+    jobdir: Path,
+    timeout: int,
+    running: RunningComparison,
+    ctx: RevisionContext,
+    owned: contextlib.ExitStack,
+) -> None:
+    """The worker thread of one comparison: runs the build, stores its final status in jobdir/status.json, and frees
+    what _start_job claimed for it (owned: the active entry, the document's build lock, the slot) under ctx.jobs.lock.
+    An expected failure becomes an "error" status with the text ctx.describe gives it; anything else is build_failed.
+    A status that cannot be written leaves the entry uncached (the next request builds again)."""
+    try:
         try:
-            threading.Thread(target=worker, daemon=True).start()
-        except BaseException:
-            jobs.active.pop(jobkey, None)
-            held.close()
-            jobs.slots.release()
-            raise
-        return dict(running, **(spec.meta or {}))
+            result = _finished(revision_compile(spec, jobdir, timeout), running, ctx)
+        except Exception:
+            traceback.print_exc()
+            result = {
+                **running.fields,
+                "state": "error",
+                "error": "비교 PDF를 만들지 못했습니다.",
+                "reason": "build_failed",
+                "warnings": [],
+            }
+        with contextlib.suppress(OSError):
+            atomic_write(jobdir / "status.json", json.dumps(result, ensure_ascii=False))
+    finally:
+        with ctx.jobs.lock:
+            owned.close()
 
 
 def revision_pdf(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> bytes | PdfRefusal:
@@ -1083,7 +1209,7 @@ def revision_pdf(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCont
         root = revision_cache_root(D)
         if isinstance(root, UnsafeCache):
             return root
-        if revision_cached(spec, root)["state"] != "ready":
+        if not isinstance(revision_cached(spec, root), ReadyComparison):
             return RevisionNotReady()
         try:
             return (root / spec.key / "revision.pdf").read_bytes()

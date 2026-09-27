@@ -9,6 +9,7 @@ Run: uv run pytest tests/test_revisions.py
 """
 
 import errno
+import fcntl
 import json
 import os
 import shutil
@@ -220,7 +221,7 @@ class ManuscriptRevisions(Base):
             entered.set()
             release.wait(3)
             (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4\nrevision")
-            return {"state": "ready", "warnings": ["test warning"], "error": None, "reason": None}
+            return revisions.ComparisonBuilt(["test warning"])
 
         body = json.dumps({"commit": self.latest}).encode()
         request = req("POST", "/api/revision-build", body, {"Content-Type": "application/json"})
@@ -373,6 +374,131 @@ class ManuscriptRevisions(Base):
             )
         self.assertEqual(killpg.call_count, 2)
 
+    def test_comparison_build_runs_exactly_these_sandbox_commands(self):
+        """The bwrap argv of both comparison steps (latexdiff, then latexmk), byte for byte: the read-only system
+        folders that exist, private /proc, /dev and /tmp, the job's work folder as /work, a cleared environment with
+        only TeX's variables, then the tool's resolved path under /usr and its arguments. Pinned so that a refactor
+        cannot loosen the sandbox unnoticed. The tools are placed in a /usr folder that does not exist (so resolve()
+        keeps the path on every host), which of the bind sources exist is fixed, and git runs for real."""
+        fake = "/usr/limn-test-sandbox"
+        binds = (
+            "/usr",
+            "/bin",
+            "/lib",
+            "/lib64",
+            "/etc/fonts",
+            "/etc/texmf",
+            "/var/lib/texmf",
+            "/var/cache/fontconfig",
+        )
+        present = {"/usr", "/bin", "/lib", "/etc/fonts", "/var/lib/texmf"}
+        real_which, real_exists, real_exec = shutil.which, Path.exists, revisions.revision_exec
+        calls = []
+
+        def which(name, *args, **kwargs):
+            """The sandbox tools under the fake /usr folder; anything else as the host finds it."""
+            return fake + "/" + name if name in ("bwrap", "latexdiff", "latexmk") else real_which(name, *args, **kwargs)
+
+        def exists(path, *args, **kwargs):
+            """The fixed set of bind sources that exist; any other path as the file system says."""
+            return str(path) in present if str(path) in binds else real_exists(path, *args, **kwargs)
+
+        def run(cmd, cwd, timeout, limit=8 * 1024 * 1024, env=None):
+            """git for real; a sandboxed step recorded and answered like a successful tool."""
+            if cmd[0] != fake + "/bwrap":
+                return real_exec(cmd, cwd, timeout, limit, env=env)
+            calls.append((cmd, cwd, timeout, env))
+            if cmd[cmd.index("--") + 1].endswith("latexdiff"):
+                return (0, b"\\begin{document}\\DIFaddbegin x\\DIFaddend\\end{document}", b"")
+            (Path(cwd) / "new" / "pin_revision.pdf").write_bytes(b"%PDF-1.4\n")
+            return (0, b"", b"")
+
+        def sandbox(work, tool, args):
+            """The expected bwrap command running tool with args on work."""
+            return [
+                fake + "/bwrap", "--unshare-all", "--die-with-parent", "--clearenv",
+                "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--ro-bind", "/lib", "/lib",
+                "--ro-bind", "/etc/fonts", "/etc/fonts", "--ro-bind", "/var/lib/texmf", "/var/lib/texmf",
+                "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", str(work), "/work",
+                "--chdir", "/work/new/.",
+                "--setenv", "PATH", fake + ":/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--setenv", "LANG", "C.UTF-8",
+                "--setenv", "TEXMFVAR", "/tmp/texmf-var", "--setenv", "TEXMFCONFIG", "/tmp/texmf-config",
+                "--setenv", "openin_any", "p", "--setenv", "openout_any", "p",
+                "--", fake + "/" + tool,
+            ] + args  # fmt: skip
+
+        jobdir = self.repo / "job"
+        jobdir.mkdir()
+        with (
+            mock.patch.object(shutil, "which", side_effect=which),
+            mock.patch.object(Path, "exists", exists),
+            mock.patch.object(revisions, "revision_exec", side_effect=run),
+        ):
+            built = revisions.revision_compile(revision_spec(self.latest), jobdir, 30)
+        self.assertIsInstance(built, revisions.ComparisonBuilt)
+        work = calls[0][1]
+        latexdiff = [
+            "--encoding=utf8", "--flatten", "--math-markup=off", "--add-to-config", "ARRENV=tabularx;tabular;tabular[*]",
+            "--label", self.first[:8], "--label", self.latest[:8], "/work/old/main.tex", "/work/new/main.tex",
+        ]  # fmt: skip
+        latexmk = [
+            "-norc",
+            "-pdf",
+            "-no-shell-escape",
+            "-interaction=nonstopmode",
+            "-halt-on-error",
+            "pin_revision.tex",
+        ]
+        self.assertEqual(
+            calls,
+            [
+                (sandbox(work, "latexdiff", latexdiff), work, 60, None),
+                (sandbox(work, "latexmk", latexmk), work, 30, None),
+            ],
+        )
+
+    def assert_claims_freed(self):
+        """No job is registered, both build slots are free, and nothing holds the document's build lock (a lock the
+        server still held would refuse this second open file of the same process)."""
+        jobs = ps.REVISION_JOBS
+        self.assertEqual(jobs.active, {})
+        got = [jobs.slots.acquire(blocking=False) for _ in range(2)]
+        for held in got:
+            if held:
+                jobs.slots.release()
+        self.assertEqual(got, [True, True])
+        with (revisions.revision_cache_root(ps.DOCS[0]) / "build.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def test_a_start_that_is_refused_or_fails_frees_its_slot_and_lock(self):
+        """Every way revision_start can stop after claiming a build slot - the document's lock held by another
+        process, a symlinked job folder, an error while preparing the job, a thread that cannot start - gives the slot
+        and the lock back and leaves no job registered; so does a worker that finished."""
+        root = revisions.revision_cache_root(ps.DOCS[0])
+        with (root / "build.lock").open("a") as other:
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(ps.revision_start(ps.DOCS[0], self.latest), revisions.DocumentBusy())
+        self.assert_claims_freed()
+        jobdir = root / revision_spec(self.latest).key
+        jobdir.symlink_to(self.repo)
+        self.assertEqual(ps.revision_start(ps.DOCS[0], self.latest), revisions.UnsafeCache())
+        self.assert_claims_freed()
+        jobdir.unlink()
+        with mock.patch.object(revisions, "revision_prune", side_effect=OSError("disk")), self.assertRaises(OSError):
+            ps.revision_start(ps.DOCS[0], self.latest)
+        self.assert_claims_freed()
+        with (
+            mock.patch.object(revisions.threading.Thread, "start", side_effect=RuntimeError("can't start")),
+            self.assertRaises(RuntimeError),
+        ):
+            ps.revision_start(ps.DOCS[0], self.latest)
+        self.assert_claims_freed()
+        with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")):
+            self.assertEqual(ps.revision_start(ps.DOCS[0], self.latest)["state"], "running")
+            self.assertEqual(self._wait_revision()["reason"], "timeout")
+        self.assert_claims_freed()
+
     def test_outline_complex_titles_keep_alignment_and_http_build_identity(self):
         pages = ps.C.state / "pages"
         pages.mkdir()
@@ -425,7 +551,7 @@ class ManuscriptRevisions(Base):
         dest = self.repo / "actual-job"
         dest.mkdir()
         status = revisions.revision_compile(revision_spec(head), dest, 30)
-        self.assertEqual(status["state"], "ready")
+        self.assertIsInstance(status, revisions.ComparisonBuilt)
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("Old", text)
         self.assertIn("New", text)
@@ -782,7 +908,7 @@ class ScopedPdf(ScopedRepo):
 
         def compile(spec, jobdir, timeout):
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
-            return {"state": "ready", "warnings": [], "error": None, "reason": None}
+            return revisions.ComparisonBuilt([])
 
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
             # shares the whole key
@@ -832,7 +958,7 @@ class ScopedPdf(ScopedRepo):
         def compile(spec, jobdir, timeout):
             seen.append(spec.scope)
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
-            return {"state": "ready", "warnings": [], "error": None, "reason": None}
+            return revisions.ComparisonBuilt([])
 
         with mock.patch.object(revisions, "revision_compile", side_effect=compile):
             code, d = self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
@@ -869,7 +995,7 @@ class ScopedPdf(ScopedRepo):
         dest = self.repo / "job-beta"
         dest.mkdir()
         status = revisions.revision_compile(revision_spec(self.fix, self.p2), dest, 60)
-        self.assertEqual(status["state"], "ready", status)
+        self.assertIsInstance(status, revisions.ComparisonBuilt, status)
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("blueberries", text)
         self.assertIn("bananas", text)
@@ -909,7 +1035,7 @@ class ScopedPdf(ScopedRepo):
         )
         whole = self.repo / "job-both"
         whole.mkdir()
-        self.assertEqual(revisions.revision_compile(revision_spec(both), whole, 60)["state"], "ready")
+        self.assertIsInstance(revisions.revision_compile(revision_spec(both), whole, 60), revisions.ComparisonBuilt)
 
 
 class ScopeReviewRegressions(AccessBase):
@@ -1133,6 +1259,111 @@ class ScopeReviewRegressions(AccessBase):
         revisions.revision_apply_scope(spec, dest)
         self.assertFalse((dest / "sec.tex").is_symlink())
         self.assertEqual((dest / "sec.tex").read_text(), "Section text.\n")
+
+
+# ---------------------------------------------------------------- pure rules of the comparison build and its status
+
+
+class LsTreeRows(unittest.TestCase):
+    """parse_ls_tree_row reads one `git ls-tree -r -l -z` row into a file of the build root, or refuses it."""
+
+    OID = "a" * 40
+
+    def row(self, name: bytes, mode: bytes = b"100644", kind: bytes = b"blob", size: bytes = b"12") -> bytes:
+        """A row as git writes it: mode, type, object id and size, a tab, then the name."""
+        return b"%s %s %s %s\t%s" % (mode, kind, self.OID.encode(), size.rjust(7), name)
+
+    def test_regular_files_under_the_build_root_are_read_relative_to_it(self):
+        """A regular or executable blob under the prefix gives its path below the prefix, its id and its size; at the
+        repository root (empty prefix) the name is the path."""
+        for row, prefix, path in (
+            (self.row(b"ms/main.tex"), "ms/", "main.tex"),
+            (self.row(b"ms/sub/run.tex", mode=b"100755", size=b"0"), "ms/", "sub/run.tex"),
+            (self.row(b"main.tex"), "", "main.tex"),
+            (self.row("ms/한글 이름.tex".encode()), "ms/", "한글 이름.tex"),
+        ):
+            with self.subTest(row=row):
+                size = 0 if b"run.tex" in row else 12
+                self.assertEqual(
+                    revisions.parse_ls_tree_row(row, prefix), revisions.TreeFile(Path(path), self.OID, size)
+                )
+
+    def test_rows_a_snapshot_must_not_write_are_unsafe(self):
+        """Symlinks, submodules, names outside the prefix or that could escape or confuse the snapshot folder, and
+        rows that do not parse are all UnsafeTreeRow."""
+        unsafe = revisions.UnsafeTreeRow()
+        for row, prefix in (
+            (self.row(b"ms/link.tex", mode=b"120000"), "ms/"),
+            (self.row(b"ms/module", mode=b"160000", kind=b"commit", size=b"-"), "ms/"),
+            (self.row(b"other/main.tex"), "ms/"),
+            (self.row(b"ms/"), "ms/"),
+            (self.row(b"ms/../x.tex"), "ms/"),
+            (self.row(b"ms/./x.tex"), "ms/"),
+            (self.row(b"ms/.git/config"), "ms/"),
+            (self.row(b"/abs.tex"), ""),
+            (self.row(b"ms/back\\slash.tex"), "ms/"),
+            (self.row(b"ms/ctrl\x01.tex"), "ms/"),
+            (self.row(b"ms/tab\tin name.tex"), "ms/"),
+            (self.row(b"ms/bad\xff.tex"), "ms/"),
+            (self.row(b"ms/x.tex", size=b"many"), "ms/"),
+            (b"100644 blob %s 12 ms/no-tab.tex" % self.OID.encode(), "ms/"),
+            (b"100644 blob 12\tms/three-fields.tex", "ms/"),
+            (b"100644 blob \xff\xfe 12\tms/x.tex", "ms/"),
+        ):
+            with self.subTest(row=row):
+                self.assertEqual(revisions.parse_ls_tree_row(row, prefix), unsafe)
+
+
+class ComparisonStatusRules(unittest.TestCase):
+    """answered_from_cache (when POST answers without building) and status_body (the JSON a status is answered
+    with), both pure."""
+
+    SPEC = revisions.RevisionSpec(Path("/repo"), "ms", Path("main.tex"), "b" * 40, "c" * 40, "k" * 64)
+    META = {"scope": "pin", "pin": 7, "source": "changes", "hunks": 1, "other": 2}
+
+    def test_a_ready_pdf_is_answered_and_a_miss_builds(self):
+        """A finished PDF is answered from the cache for any spec; no entry always builds."""
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                self.assertTrue(revisions.answered_from_cache(revisions.ReadyComparison({"state": "ready"}), scoped))
+                self.assertFalse(revisions.answered_from_cache(revisions.IdleComparison(), scoped))
+
+    def test_only_a_pin_subsets_deterministic_failure_is_answered_from_the_cache(self):
+        """compile_failed, diff_failed and scope_failed of a pin subset would fail again, so they are answered; the
+        same failures of a whole commit, and any other failure of either, build again."""
+        for reason in ("compile_failed", "diff_failed", "scope_failed", "timeout", "build_failed", None):
+            failed = revisions.FailedComparison({"state": "error", "reason": reason})
+            with self.subTest(reason=reason):
+                self.assertFalse(revisions.answered_from_cache(failed, scoped=False))
+                self.assertEqual(
+                    revisions.answered_from_cache(failed, scoped=True), reason in revisions.DETERMINISTIC_FAILURES
+                )
+
+    def test_a_stored_status_is_answered_as_stored_with_the_specs_identity_over_it(self):
+        """A finished status keeps its stored fields and their order; the spec's identity replaces what the file says
+        and the request's pin fields come last."""
+        stored = {"z": 1, "state": "error", "job_id": "old", "reason": "timeout", "warnings": []}
+        body = revisions.status_body(revisions.FailedComparison(stored), self.SPEC._replace(meta=self.META))
+        self.assertEqual(
+            list(body.items()),
+            [("z", 1), ("state", "error"), ("job_id", "k" * 64), ("reason", "timeout"), ("warnings", [])]
+            + [("base", "b" * 40), ("head", "c" * 40), ("engine", "pdflatex")]
+            + list(self.META.items()),
+        )
+
+    def test_a_miss_and_a_running_job_have_their_own_bodies(self):
+        """A miss is "idle" with the spec's identity; a running job's stored fields get only the request's pin
+        fields (a running status never carries another request's)."""
+        self.assertEqual(
+            revisions.status_body(revisions.IdleComparison(), self.SPEC),
+            {"job_id": "k" * 64, "base": "b" * 40, "head": "c" * 40, "engine": "pdflatex"}
+            | {"state": "idle", "warnings": [], "error": None, "reason": None},
+        )
+        running = revisions.RunningComparison({"job_id": "k" * 64, "state": "running", "pin": 3})
+        self.assertEqual(
+            revisions.status_body(running, self.SPEC._replace(meta=self.META)),
+            {"job_id": "k" * 64, "state": "running"} | self.META,
+        )
 
 
 if __name__ == "__main__":

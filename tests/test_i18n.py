@@ -29,7 +29,7 @@ from limn.web.errors import scope_http_error
 
 from helpers import add_pin, blank_png, edit_stored, extract_js_fn, run_node, shut_wr
 from helpers_access import ALICE_ACTOR
-from helpers_browser import ChromiumTestCase
+from helpers_browser import ChromiumTestCase, booted, settle, watch_idle
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "src" / "limn"
@@ -543,17 +543,17 @@ class EnglishChrome(ChromiumTestCase):
         )
 
     def open(self, lang, **device):
+        """Open the viewer in lang on a new context and return the page once boot() has finished and it has settled."""
         context = self.browser.new_context(**device)
         self.addCleanup(context.close)
+        watch_idle(context)
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s#doc=ms" % lang)
-        page.wait_for_function(
-            "typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=6&&REVIEW_ALL.length===2", timeout=20000
-        )
-        page.wait_for_timeout(300)
+        page.wait_for_function(booted(6) + "&&REVIEW_ALL.length===2", timeout=20000)
+        settle(page)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
 
@@ -573,7 +573,7 @@ class EnglishChrome(ChromiumTestCase):
         self.assert_english(page, "desktop Trash")
         page.click("#trash [data-act=trash-close]")
         page.evaluate("openEdit(PINS.find(p=>p.note==='Tighten this sentence').id)")
-        page.wait_for_timeout(300)
+        settle(page)
         self.assert_english(page, "desktop edit")
         page.evaluate("openReply(REVIEW_ALL[0].id)")
         page.fill("#review-pins textarea.r-text", "x")
@@ -588,7 +588,7 @@ class EnglishChrome(ChromiumTestCase):
                 page = self.open("en", **device)
                 self.assert_english(page, name)
                 page.evaluate("setSide(true)")
-                page.wait_for_timeout(200)
+                settle(page)
                 self.assert_english(page, name + " panel open")
                 page.click("#btn-more")
                 self.assert_english(page, name + " more menu")

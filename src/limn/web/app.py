@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from limn import access
-from limn.build import BuildBusy, BuildStarted, FinishedBuild
+from limn.build import BuildBusy, BuildStarted, FinishedBuild, ViewOnlyNoRebuild
 from limn.config import Cfg
 from limn.documents import Doc, DocNotFound
 from limn.locate import Picked, PickedRegion, PickRefusal
@@ -135,6 +135,10 @@ class App(Protocol):
         """@-tag candidates {login: {login, name, pic?, last_seen?}}."""
         ...
 
+    def people_payload(self) -> list[Json]:
+        """GET /api/people: the @-tag candidates in their order, each with its people.json role."""
+        ...
+
     def snapshot_pins(self) -> list[Pin]:
         """The pins, parsed, re-synced and saved under the pin lock."""
         ...
@@ -189,6 +193,10 @@ class App(Protocol):
 
     def docs_payload(self) -> Json:
         """GET /api/docs."""
+        ...
+
+    def pin_payload(self, pid: int) -> Json | PinNotFound:
+        """GET /api/pins/{id}: one pin as GET /api/pins?all=1 lists it, or PinNotFound."""
         ...
 
     def dropped_payload(self, now: float | None = None) -> list[Json]:
@@ -295,11 +303,12 @@ class App(Protocol):
         """POST /api/revision-build."""
         ...
 
-    def build_all(self, D: Document) -> FinishedBuild | BuildBusy:
-        """POST /api/rebuild: build document D now, or BuildBusy when it is already building."""
+    def rebuild(self, D: Document) -> FinishedBuild | BuildBusy | ViewOnlyNoRebuild:
+        """POST /api/rebuild: build document D now, BuildBusy when it is already building, or ViewOnlyNoRebuild for a
+        view-only document."""
         ...
 
-    def build_async(self, D: Document) -> BuildStarted | BuildBusy:
-        """POST /api/rebuild?async=1: start document D's build in the background, or BuildBusy when it is already
-        building."""
+    def rebuild_async(self, D: Document) -> BuildStarted | BuildBusy | ViewOnlyNoRebuild:
+        """POST /api/rebuild?async=1: start document D's build in the background, BuildBusy when it is already
+        building, or ViewOnlyNoRebuild for a view-only document."""
         ...

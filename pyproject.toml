@@ -39,6 +39,7 @@ include = ["src/limn", "tests", "docs", "skill", "README.md", "README.ko.md", "L
 testpaths = ["tests"]
 markers = [
     "tex: runs real TeX-side tools (tests/helpers.py needs_tex); the CI tex job selects these with -m tex",
+    "browser: launches Chromium (every tests/helpers_browser.py ChromiumTestCase class); -m 'not browser' runs the rest",
 ]
 
 [tool.ruff]
