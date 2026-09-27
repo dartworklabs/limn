@@ -5,6 +5,7 @@
 > **한눈에**
 >
 > - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크
+> - 불안정한 테스트를 막는 규칙(상태를 기다리고, 시계를 얼린다): §브라우저 테스트의 기다림
 > - 사람이 확인하는 게이트: §4 에이전트 계약 호환, §5 화면 실측
 > - 아직 없는 게이트: §6 정량 게이트가 없는 영역
 > - 문서 출판: §7 Handbook 출판
@@ -28,11 +29,24 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | --- | --- |
 | 측정 대상 | 서버 동작(저장소·역변환·빌드·API 경계·보안 검사·접근 제어), CLI, migrate, 뷰어 정적 구조와 JS 순수 함수, 디자인 토큰 가드, UI 영어 대응표, 이름·개인정보 위생, Handbook 참조 |
 | 적용 조건 | `src/`, `tests/`, `docs/`, `skill/`, `README*.md`를 건드리는 모든 변경 |
-| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 레이아웃 테스트까지 돌리려면 먼저 `uv run playwright install chromium` |
+| 실행 | `uv sync --group dev` 뒤 `uv run pytest -q -rs`. 브라우저 테스트까지 돌리려면 먼저 `uv run playwright install chromium`. Chromium을 띄우는 테스트(`browser` 마커)를 빼고 빠르게 돌리려면 `uv run pytest -q -m "not browser"`, 그것만 돌리려면 `uv run pytest -q -m browser` |
 | 합격 기준 | 실패 0. CI에서는 `LIMN_TEST_REQUIRE_BROWSER=1`이라 Chromium을 못 띄우면 건너뛰지 않고 **실패**다. 같은 작업에 `LIMN_TEST_REQUIRE_NODE=1`도 있어서, node가 없으면 뷰어 스크립트 문법 검사(`test_viewer_files`)도 **실패**다. Python 3.10과 3.12 두 행렬 모두 통과해야 한다. CI `macos` 작업이 macOS에서도 같은 테스트를 돌린다. 거기서는 TeX·Chromium 테스트가 건너뛰어지고, `/bin/bash` 3.2가 PATH 맨 앞이다. 실제 TeX 도구가 필요한 테스트(`tex` 마커)는 CI `tex` 작업이 따로 돌린다. 그 작업에서는 `LIMN_TEST_REQUIRE_TEX=1`이라 도구가 없으면 **실패**다 |
 | 보장 범위 | 테스트가 고정한 동작만 보장한다. CI의 테스트 작업은 전체 이력(`fetch-depth: 0`)을 받아, 옛 릴리스를 `git show` 로 불러 비교하는 테스트(v0.1.0 이관, v0.2.2 이벤트 대조)도 돈다. 얕은 클론에서는 건너뛴다. `test`·`macos` 작업에는 TeX와 Poppler가 없어서 실제 빌드가 필요한 테스트는 거기서 `skipped`로 남는다. `-rs`가 건너뛴 이유를 출력하니 확인한다. 그 테스트는 CI `tex` 작업이 돌린다(아래) |
 
 **TeX 테스트와 CI `tex` 작업.** 실제 `latexmk` 빌드·쪽 렌더, pick 끝까지, `--git-pull` 빌드, 보기 전용 PDF 렌더, bwrap 격리 비교 빌드를 돌리는 테스트는 [`tests/helpers.py`](../../tests/helpers.py)의 `needs_tex(*도구)` 데코레이터를 단다. 데코레이터는 도구가 PATH에 없으면 무엇이 없는지 적고 건너뛰고(`LIMN_TEST_REQUIRE_TEX=1`이면 실패), pytest 마커 `tex`를 붙인다. 새 TeX 테스트도 이 데코레이터를 쓴다. 그래야 `tex` 작업이 고른다.
+
+**브라우저 테스트와 `browser` 마커.** 실제 Chromium을 띄우는 테스트 클래스는 모두 [`tests/helpers_browser.py`](../../tests/helpers_browser.py)의 `ChromiumTestCase`(또는 그것을 이은 `BrowserBase`)를 잇는다. `ChromiumTestCase`가 pytest 마커 `browser`를 달고, pytest는 클래스 계층을 따라 마커를 읽으므로 하위 클래스가 모두 고른다. 새 브라우저 테스트도 이 클래스를 잇는다. 그래야 `-m "not browser"`가 빠르고 브라우저 없는 묶음이 된다. CI는 마커로 나누지 않고 전부 돌린다.
+
+### 브라우저 테스트의 기다림
+
+불안정한 테스트는 느린 기계에서 먼저 드러난다. 고정된 시간을 기다리는 테스트는 부하가 걸리면 그 시간 안에 페이지가 따라오지 못해 실패한다. 그래서 테스트는 시간이 아니라 상태를 기다린다.
+
+- 다음 단계가 읽는 상태를 기다린다. 뷰어가 세우는 값(`page.wait_for_function("SIDE_OPEN")`), 요소(`wait_for_selector`, 로케이터 기대), URL(`wait_for_url`)이 그것이다. 저장한 초안처럼 값이 분명하면 그 값을 기다린다.
+- 기다릴 값 하나가 없으면 `settle(page)`로 페이지가 가라앉기를 기다린다. 1초 이하 타이머가 남지 않고, 진행 중인 fetch가 없고, 끝이 있는 CSS 애니메이션·전환이 돌지 않는 상태가 애니메이션 프레임 두 번 이어지면 가라앉은 것이다. 타이머와 fetch는 `watch_idle(context)`가 컨텍스트에 심는 init script가 센다. `BrowserBase.open`과 `settle`을 쓰는 컨텍스트는 모두 이것을 심는다. "아무 일도 일어나지 않았다"는 단언도 `settle` 뒤에 읽는다. 그 일을 일으킬 수 있던 요청·타이머·전환이 모두 끝난 뒤다. 서버 쪽 상태를 볼 때도 같다. 처리기는 Playwright가 도는 동안에만 요청에 답하므로, `settle`이 끝나면 페이지가 보낸 요청은 모두 답을 받았다.
+- 부정 기다림은 하나만 남는다. 탭 뒤에 브라우저가 합성하는 클릭, 스와이프가 시작하는 뒤로 가기처럼 브라우저만 보낼 수 있는 사건은 알려 주는 페이지 상태가 없다. 그 사건이 오지 않았음을 확인할 때만 `nothing_follows(page)`가 `settle` 뒤 500ms를 더 기다린다. 이 기다림은 확인의 범위를 정할 뿐이고, 다음 단계의 전제 조건 대신 쓰지 않는다.
+- 손가락의 시간은 기다림이 아니라 입력이다. 스와이프의 이동 간격, 움직이기 전의 정지, 같은 자리를 다시 탭하기 전의 쉼(`before_next_tap`)이 그렇다. 하한만 뜻이 있어서 부하가 시간을 늘여도 결과가 바뀌지 않는다. 길게 누르기는 고정 시간 대신 뷰어의 길게 누르기 타이머가 고를 때까지(`LP_PICKED`) 손가락을 둔다.
+- 벽시계 임계값으로 단언하지 않는다. 시각에서 나오는 값은 시계를 얼려 정확히 비교한다. `server.pin_context()`는 만들 때마다 `time.time`을 읽으므로 `mock.patch("time.time", return_value=...)`가 claim의 시작·예상·기한까지 닿는다. 초 단위 이름을 위해 1초를 자지도 않는다. 쪽 폴더 이름(`pages-<초>`)은 같은 초의 재빌드에 `-<n>` 접미사를 붙여 저마다 다르다.
+- 테스트가 가끔 실패하면 기제(상태·시간·순서·동시성·수명·환경)를 찾아 고친다. 재시도와 긴 타임아웃은 영향을 줄일 뿐 수정의 증거가 아니다. 기다림을 바꾼 PR은 코어마다 `yes > /dev/null`을 띄운 부하 아래 반복 실행으로 전후 실패율을 재어 PR 설명에 남긴다.
 
 | 항목 | 내용 |
 | --- | --- |
@@ -59,7 +73,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 테스트 파일 이름에 릴리스·이슈 번호를 쓰지 않는다. 릴리스나 결함의 회귀 테스트도 지키는 모듈이나 기능의 파일에 두고, 그 출처(릴리스·이슈·QA 결함)는 절 주석과 클래스 docstring에 남긴다. 옛 릴리스와의 호환을 보는 테스트는 이름에 그 릴리스를 적는다(`RollbackToV030`, `test_reopening_reply_events_equal_the_released_v0_2_2`).
 
-테스트 파일은 서로를 픽스처로 가져오지 않는다. 공용 도구는 [`tests/helpers.py`](../../tests/helpers.py)(서버 사본, `Base`, 뷰어 원문 `viewer_text`, 쪽 그림 `blank_png`, 뷰어의 `esc`를 그대로 꺼내는 `js_esc`, 뷰어 함수를 떼어 내는 `extract_js_fn`, 답글 규칙 표 `RULE_CASES`, 비교 보기용 `minimal_pdf`), [`tests/helpers_js.py`](../../tests/helpers_js.py)(JS 토크나이저와 최상위 함수·닫힌 값 표 찾기), [`tests/helpers_access.py`](../../tests/helpers_access.py)(신원 `ALICE`·`BOB`·`CAROL`·`DAVE`, `AccessBase`, 토큰·멤버 도우미, `ScopedRepo`, `MovedManuscriptBase`), [`tests/helpers_browser.py`](../../tests/helpers_browser.py)(Chromium 실행기 `ChromiumTestCase`, `BrowserBase`)에만 둔다. 테스트를 파일 사이로 옮기거나 클래스 이름을 바꾸는 변경은 [`tools/test_id_map.py`](../../tools/test_id_map.py)로 잃은 테스트가 없음을 보인다: `uv run python tools/test_id_map.py --ref origin/main --map <이름표>`가 수집한 테스트 ID를 파일을 뺀 (클래스, 테스트) 키로 맞춰 보고, 이름표(옛 이름 -> 새 이름, `+` 새 테스트)에 없는 잃음·중복·새 테스트가 하나라도 있으면 0이 아닌 값으로 끝난다. `--results`에 두 실행의 JUnit XML과 `-rA` 출력을 주면 통과·건너뜀·subtest 수도 맞춰 본다.
+테스트 파일은 서로를 픽스처로 가져오지 않는다. 공용 도구는 [`tests/helpers.py`](../../tests/helpers.py)(서버 사본, `Base`, 뷰어 원문 `viewer_text`, 쪽 그림 `blank_png`, 뷰어의 `esc`를 그대로 꺼내는 `js_esc`, 뷰어 함수를 떼어 내는 `extract_js_fn`, 답글 규칙 표 `RULE_CASES`, 비교 보기용 `minimal_pdf`), [`tests/helpers_js.py`](../../tests/helpers_js.py)(JS 토크나이저와 최상위 함수·닫힌 값 표 찾기), [`tests/helpers_access.py`](../../tests/helpers_access.py)(신원 `ALICE`·`BOB`·`CAROL`·`DAVE`, `AccessBase`, 토큰·멤버 도우미, `ScopedRepo`, `MovedManuscriptBase`), [`tests/helpers_browser.py`](../../tests/helpers_browser.py)(Chromium 실행기 `ChromiumTestCase`와 `browser` 마커, `BrowserBase`, 기다림 도우미 `watch_idle`·`settle`·`nothing_follows`)에만 둔다. 테스트를 파일 사이로 옮기거나 클래스 이름을 바꾸는 변경은 [`tools/test_id_map.py`](../../tools/test_id_map.py)로 잃은 테스트가 없음을 보인다: `uv run python tools/test_id_map.py --ref origin/main --map <이름표>`가 수집한 테스트 ID를 파일을 뺀 (클래스, 테스트) 키로 맞춰 보고, 이름표(옛 이름 -> 새 이름, `+` 새 테스트)에 없는 잃음·중복·새 테스트가 하나라도 있으면 0이 아닌 값으로 끝난다. `--results`에 두 실행의 JUnit XML과 `-rA` 출력을 주면 통과·건너뜀·subtest 수도 맞춰 본다.
 
 > **주의**
 >

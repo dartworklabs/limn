@@ -579,6 +579,10 @@ class CloseIdempotent(Base):
 
 # ---------------------------------------------------------------- in-progress indicator (docs/handbook/api.md §처리 중 표시 (claim))
 
+# The epoch the claim tests freeze time.time() at (2026-09-26 10:00:00 +09:00): pin_context() reads time.time when it
+# is made, so a claim's start, estimate and deadline come out exact instead of within a few seconds of the wall clock.
+CLAIM_CLOCK = 1790384400.0
+
 
 class Claim(Base):
     def test_claim_sets_fields_and_bumps_rev(self):
@@ -589,10 +593,12 @@ class Claim(Base):
         self.assertTrue(ps.claim_active(self.pin(pid)))
 
     def test_default_ttl_used_when_body_omits_it(self):
+        """A claim body without ttl_min holds the pin for the default TTL from the moment of the claim (clock frozen)."""
         pid = self.add()
-        before = time.time()
-        p = record_of(ps.claim_pin(pid, dict(LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
-        self.assertAlmostEqual(p["claim_until"], before + parse.CLAIM_TTL_DEFAULT * 60, delta=5)
+        before = CLAIM_CLOCK
+        with mock.patch("time.time", return_value=before):
+            p = record_of(ps.claim_pin(pid, dict(LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
+        self.assertEqual(p["claim_until"], before + parse.CLAIM_TTL_DEFAULT * 60)
 
     def test_claim_conflict_from_other_identity_is_409(self):
         pid = self.add()
@@ -774,34 +780,41 @@ class ClaimEstimate(Base):
     B = {"login": "bob@example.com", "name": "Bob"}
 
     def test_claim_stores_eta_and_start(self):
+        """A claim with eta_min stores its start, its estimate and its deadline, all measured from the claim's moment
+        (clock frozen)."""
         pid = self.add()
-        t0 = time.time()
-        p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
-        self.assertAlmostEqual(p["eta_ts"], t0 + 15 * 60, delta=5)
-        self.assertAlmostEqual(p["claim_ts"], t0, delta=5)
-        self.assertAlmostEqual(p["claim_until"], t0 + 30 * 60, delta=5)
+        t0 = CLAIM_CLOCK
+        with mock.patch("time.time", return_value=t0):
+            p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
+        self.assertEqual(p["eta_ts"], t0 + 15 * 60)
+        self.assertEqual(p["claim_ts"], t0)
+        self.assertEqual(p["claim_until"], t0 + 30 * 60)
         self.assertIsInstance(p["claimed_at"], str)
         rows, _ = ps.read_pins()  # it's a stored value (not a computed field)
         self.assertIn("eta_ts", find_pin(rows, pid))
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
+        """The same identity claiming again keeps the start and measures the new estimate and deadline from now (clock
+        frozen); a claim with no estimate keeps the previous one."""
         pid = self.add()
-        first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
-        with ps.PIN_LOCK:  # move it back to having been claimed 10 minutes ago
-            rows, _ = ps.read_pins()
-            r = find_pin(rows, pid)
-            for k in ("claim_ts", "eta_ts", "claim_until"):
-                r[k] -= 600
-            ps.write_pins(rows)
-        second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
-        self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
-        self.assertEqual(second["claimed_at"], first["claimed_at"])
-        self.assertAlmostEqual(second["eta_ts"], time.time() + 20 * 60, delta=5)  # the new estimate starts from now
-        self.assertAlmostEqual(second["claim_until"], time.time() + 40 * 60, delta=5)
-        # extending with no new estimate keeps the previous one
-        third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
-        self.assertEqual(third["eta_ts"], second["eta_ts"])
-        self.assertEqual(third["rev"], second["rev"] + 1)
+        now = CLAIM_CLOCK
+        with mock.patch("time.time", return_value=now):
+            first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
+            with ps.PIN_LOCK:  # move it back to having been claimed 10 minutes ago
+                rows, _ = ps.read_pins()
+                r = find_pin(rows, pid)
+                for k in ("claim_ts", "eta_ts", "claim_until"):
+                    r[k] -= 600
+                ps.write_pins(rows)
+            second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
+            self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
+            self.assertEqual(second["claimed_at"], first["claimed_at"])
+            self.assertEqual(second["eta_ts"], now + 20 * 60)  # the new estimate starts from now
+            self.assertEqual(second["claim_until"], now + 40 * 60)
+            # extending with no new estimate keeps the previous one
+            third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
+            self.assertEqual(third["eta_ts"], second["eta_ts"])
+            self.assertEqual(third["rev"], second["rev"] + 1)
 
     def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
         pid = self.add()
