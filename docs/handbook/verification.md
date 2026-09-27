@@ -125,7 +125,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 영역 | 현재 상태 | 계획 |
 | --- | --- | --- |
-| docstring | 정량 게이트 없음. Ruff의 `D` 규칙은 켜지 않았다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) §다음: 새 모듈부터 켜고, 손대는 모듈마다 넓힌다 |
+| docstring | 프로덕션 파이썬의 공개 항목 누락은 Ruff `D100`–`D107`이 검사한다. private 도우미·기존 테스트 파일의 누락과 계약 내용의 정확성은 정량 검사가 없다 (§8) | [code-style-roadmap.md](code-style-roadmap.md) §다음: 테스트의 누락을 정리하며 검사 범위를 넓힌다 |
 | 테스트 파일의 타입 | `tests/`는 타입 검사 대상이 아니다. 패키지(`src/limn/`)는 전부 §9가 검사한다 | 테스트가 타입으로 잡을 결함을 놓치는 일이 생기면 대상에 더하는 것을 검토 |
 | 실제 LaTeX 빌드 | CI `tex` 작업이 Ubuntu 패키지 TeX Live의 pdfLaTeX로 픽스처 원고만 빌드한다 (§1). macOS·MacTeX와 다른 엔진은 로컬에서만 돈다 | 그 환경의 결함이 나오면 해당 러너·엔진을 `tex` 작업에 더하는 것을 검토 |
 | Handbook 형식 | §7 출판기 `check`가 검사하지만 CI에서는 돌리지 않는다. 파일 사이의 `§절 제목` 참조, topic이 적은 경로, topic 산문의 날짜는 §1의 `tests/test_handbook_refs.py`가 CI에서 본다 | 폰트를 CI에 준비할 방법을 정한 뒤 출판 검사를 CI에 추가 검토 |
@@ -145,11 +145,11 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 파이썬: 문법 오류, 쓰지 않는 import, 정의되지 않은 이름, 흔한 버그 패턴(`B`), 종료 코드를 정하지 않은 `subprocess.run`(`PLW1510`), 스타일 규칙(`E`·`W`, import 순서 `I`, 옛 문법 `UP`, 단순화 `SIM`), 그리고 코드 모양이 `ruff format`의 출력과 같은지. 셸: `instances.sh`와 `test_instances.sh`의 ShellCheck 경고 |
+| 측정 대상 | 파이썬: 문법 오류, 쓰지 않는 import, 정의되지 않은 이름, 흔한 버그 패턴(`B`), 종료 코드를 정하지 않은 `subprocess.run`(`PLW1510`), 스타일 규칙(`E`·`W`, import 순서 `I`, 옛 문법 `UP`, 단순화 `SIM`), 프로덕션 공개 항목의 docstring 누락(`D100`–`D107`), 그리고 코드 모양이 `ruff format`의 출력과 같은지. 셸: `instances.sh`와 `test_instances.sh`의 ShellCheck 경고 |
 | 적용 조건 | 모든 변경. CI `lint` 작업이 항상 돈다 |
 | 실행 | `uv sync --group dev` 뒤 `uv run ruff check`, `uv run ruff format --check`, `uv run shellcheck src/limn/instances.sh tests/test_instances.sh`. 포매팅이 어긋나면 `uv run ruff format`이 고친다. 두 도구 모두 개발 의존성이라 로컬과 CI가 `uv.lock`의 같은 버전을 쓴다 |
 | 합격 기준 | 세 명령이 0으로 끝난다. 규칙을 끄려면 그 줄에 이유를 적은 주석과 함께 끈다 (예: `# shellcheck disable=SC2016` 위에 이유 한 줄). 포매터를 `# fmt: off`로 끄는 것은 정말 표 모양인 데이터에만 쓴다 |
-| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring(`D`)은 아직 검사하지 않는다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를 본다 |
+| 보장 범위 | 켠 규칙만이다. 규칙 목록과 끈 규칙은 `pyproject.toml`의 `[tool.ruff.lint]`가 정본이고, 끈 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4에 있다. docstring은 프로덕션 공개 항목의 누락만 검사하며 private 도우미와 기존 테스트 파일은 제외한다 (§6). 타입은 §9가 본다. 뷰어 JS에는 린터가 없고, §1의 `test_viewer_files`가 node로 문법을, `test_viewer_source`가 토큰으로 죽은 함수·주석에 삼켜진 문장·닫힌 값 표를 본다 |
 
 ## 9. 타입 검사
 

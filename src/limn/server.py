@@ -269,6 +269,7 @@ C: RunConfig
 
 
 def now_str() -> str:
+    """Return the local timestamp used for a build's start time."""
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -446,6 +447,7 @@ def set_docs(docs: Iterable[Doc] | None = None) -> None:
 
 
 def multi_doc() -> bool:
+    """Whether this server instance exposes more than one document."""
     return len(DOCS) > 1
 
 
