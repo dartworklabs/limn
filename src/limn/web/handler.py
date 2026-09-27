@@ -24,6 +24,7 @@ from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
 from limn.features.builds import http as builds_http
+from limn.features.collaboration import http as collaboration_http
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
@@ -288,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             self._record(actor)
             return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
         if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
-            return _json_reply({"people": app.people_payload(), "me": self._me(actor)})
+            return _json_reply(collaboration_http.people_list(app.people_list, actor, self.principal.role))
         if path == "/favicon.ico":
             return Reply(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark

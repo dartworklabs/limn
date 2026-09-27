@@ -83,6 +83,7 @@ from limn.documents import (
 from limn.events import EVENTS_KEEP, EventType
 from limn.features.builds import engine as build_engine, run as build_run
 from limn.features.builds.service import BuildRequests
+from limn.features.collaboration.service import PeopleList
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
@@ -337,6 +338,7 @@ class ServerApplication:
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
+    people_list: PeopleList = field(init=False)
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
 
@@ -356,6 +358,7 @@ class ServerApplication:
         self.build_requests = BuildRequests(
             lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
         )
+        self.people_list = PeopleList(self.people_roles, self.snapshot_pins, self.known_people)
         self.sync_service = SyncService(
             lambda: SyncContext(
                 manuscript=self.C.src,
@@ -641,12 +644,6 @@ class ServerApplication:
         if not login or is_agent(actor):
             return False
         return people.record_person(self.people_book(), actor, time.time() if now is None else now, role, DEFAULT_ROLE)
-
-    def people_payload(self) -> list[Json]:
-        """GET /api/people's candidates (limn.people.candidates): people.json's roles read first, then the known people
-        over the pins re-synced and saved (snapshot_pins), each with its role (limn.access.person_role)."""
-        roles = self.people_roles()
-        return people.candidates(self.known_people(self.snapshot_pins()), lambda login: person_role(roles, login))
 
     def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Row]:
         """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (pins, or the
