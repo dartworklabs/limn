@@ -1140,7 +1140,7 @@ class MultiDoc(Base):
 
     def test_single_doc_mode_keeps_legacy_paths(self):
         ps.APP.set_docs(None)
-        self.assertFalse(ps.APP.multi_doc())
+        self.assertEqual(len(ps.APP.docs), 1)
         self.assertTrue(ps.APP.docs[0].legacy)
         self.assertEqual(limn_build.cur_pages(ps.APP.docs[0]), ps.APP.C.state / "pages")
         self.assertEqual(ps.APP.docs[0].build, ps.APP.C.build)
@@ -1410,14 +1410,14 @@ class MultiDoc(Base):
             return UpToDate(None)
 
         with mock.patch.object(gitsync, "pull", side_effect=fake_pull):  # the fresh Runtime's pull share (Base)
-            a = ps.APP.repo_pull()
-            b = ps.APP.repo_pull()
+            a = ps.APP.sync_service.repo_pull()
+            b = ps.APP.sync_service.repo_pull()
         self.assertEqual(len(calls), 1)  # once per repository
         self.assertNotIn("shared", a)
         self.assertTrue(b["shared"])
         ps.APP.set_docs(None)
         with mock.patch.object(gitsync, "pull", side_effect=fake_pull):
-            ps.APP.repo_pull(), ps.APP.repo_pull()
+            ps.APP.sync_service.repo_pull(), ps.APP.sync_service.repo_pull()
         self.assertEqual(len(calls), 3)  # single document: once per build (unchanged from before)
 
     @needs_tex("pdftoppm")

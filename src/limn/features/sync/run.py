@@ -7,7 +7,7 @@ the watch checks remote main right after startup and every SYNC_EVERY_S, rebuild
 behind (SyncWatch). What git's answers mean and what the watch does next are limn.features.sync.rules's pure rules; this module runs
 git and keeps the process's state.
 
-Nothing here reads server.py's settings or document list: the composition root passes the manuscript folder, the
+Nothing here reads server.py's settings or document list: the sync service passes the manuscript folder, the
 documents, whether --git-pull is on, the git runner (limn.features.revisions.core.git over limn.gitrun: no shell, no prompt, a
 timeout per call), the clock and the build starter on every call, and owns the one PullShare and SyncWatch of the process.
 """

@@ -97,6 +97,7 @@ from limn.features.revisions.core import (
 )
 from limn.features.revisions.service import RevisionRequests
 from limn.features.sync import run as gitsync
+from limn.features.sync.service import SyncContext, SyncService
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
@@ -336,6 +337,7 @@ class ServerApplication:
     pin_markdown: PinMarkdown = field(init=False)
     location_service: PinLocationService = field(init=False)
     build_requests: BuildRequests = field(init=False)
+    sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
 
     def __post_init__(self) -> None:
@@ -353,6 +355,19 @@ class ServerApplication:
         )
         self.build_requests = BuildRequests(
             lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
+        )
+        self.sync_service = SyncService(
+            lambda: SyncContext(
+                manuscript=self.C.src,
+                enabled=self.C.git_pull,
+                docs=self.docs,
+                share=self.RT.pull_share,
+                watch=self.RT.sync_watch,
+                start_build=self.build_requests.build_async,
+                git=_git,
+                clock=time.time,
+                stamp=gitsync.local_stamp,
+            )
         )
         self.revision_requests = RevisionRequests(self.revision_context)
 
@@ -405,42 +420,16 @@ class ServerApplication:
             describe=revision_failure_text,
         )
 
-    def repo_pull(self) -> Json:
-        """A build's --git-pull, as its `pull` record (limn.features.sync.run.repo_pull): one document pulls on every build; several
-        share one pull per repository within limn.features.sync.run.PULL_SHARE_S."""
-        return gitsync.repo_pull(
-            self.RT.pull_share, self.multi_doc(), lambda: gitsync.pull(self.C.src, main_only=False, git=_git), time.time
-        )
-
-    def sync_status(self) -> Json:
-        """GET /api/meta's `sync` - the remote-main watch status (limn.features.sync.run.SyncWatch.status)."""
-        return self.RT.sync_watch.status(self.docs, self.C.git_pull)
-
-    def sync_main_once(self) -> Json:
-        """One remote-main round (limn.features.sync.run.SyncWatch.once): pull main, then start the builds of the documents the
-        pull left behind. The watch thread runs it, and a --no-build startup through it."""
-        return self.RT.sync_watch.once(
-            self.docs,
-            self.C.git_pull,
-            lambda: gitsync.pull(self.C.src, main_only=True, git=_git),
-            self.RT.pull_share,
-            self.build_requests.build_async,
-            gitsync.local_stamp,
-            time.time,
-        )
-
     def _build(self, D: Doc) -> FinishedBuild:
         """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.features.builds.engine.compile_tex)."""
-        return build_engine.compile_tex(D, self.build_config(), self.repo_pull if self.C.git_pull else None)
+        return build_engine.compile_tex(
+            D, self.build_config(), self.sync_service.repo_pull if self.C.git_pull else None
+        )
 
     def set_docs(self, docs: Iterable[Doc] | None = None) -> None:
         """Change the document list (prepare()/tests). With none, the single document of a run without --doc: legacy
         (the manuscript and main file are C's) over C.paths, with its own build lock and state like any document."""
         self.docs[:] = list(docs) if docs else [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=self.C.paths)]
-
-    def multi_doc(self) -> bool:
-        """Whether this server instance exposes more than one document."""
-        return len(self.docs) > 1
 
     def doc_by_key(self, key: object) -> Doc | None:
         """The document of this instance whose key is `key`, or None (limn.documents.doc_by_key)."""
@@ -472,7 +461,7 @@ class ServerApplication:
     def meta(self, D: Doc, actor: Json, light: bool = False) -> Json:
         """GET /api/meta for document D: its pages, builds, staleness and settings for the viewer (limn.meta.meta); with
         light (polling) the pin counts are left out, and with them the sync write of snapshot_pins()."""
-        out = meta_reads.meta(D, actor, self.meta_settings(), self.docs, self.sync_status(), time.time())
+        out = meta_reads.meta(D, actor, self.meta_settings(), self.docs, self.sync_service.status(), time.time())
         if light:  # polling only - skips the sync write in snapshot_pins()
             return out
         out.update(meta_reads.pin_counts([pin.state for pin in self.snapshot_pins()]))
@@ -853,13 +842,7 @@ class ServerApplication:
                 )
             self.RT.start_thread(self.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
-            self.RT.start_thread(
-                self.RT.sync_watch.watch,
-                self.RT.stopping,
-                gitsync.SYNC_EVERY_S,
-                self.sync_main_once,
-                gitsync.local_stamp,
-            )
+            self.RT.start_thread(self.sync_service.watch, self.RT.stopping)
         with self.RT.pin_lock:
             self.render_pins_md(self.read_pins()[0])
         startup.tighten_state_perms(self.C.people_file)

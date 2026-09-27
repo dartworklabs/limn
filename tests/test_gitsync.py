@@ -464,7 +464,7 @@ class GitPullBuildIntegration(Base):
             os.utime(self.main, (time.time() + 50, time.time() + 50))
             return {"state": "ok", "head_before": "aaa1111", "head_after": "bbb2222"}
 
-        with mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull):
+        with mock.patch.object(ps.APP.sync_service, "repo_pull", side_effect=fake_pull):
             res = ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
         ps.APP.docs[0].mcache[2] = 0.0
@@ -496,7 +496,7 @@ class GitPullBuildIntegration(Base):
             return {"state": "up_to_date", "head_before": "aaa1111", "head_after": "aaa1111"}
 
         with (
-            mock.patch.object(ps.APP, "repo_pull", side_effect=fake_pull),
+            mock.patch.object(ps.APP.sync_service, "repo_pull", side_effect=fake_pull),
             mock.patch.object(build_engine, "run_logged", side_effect=bump_then_run),
         ):
             res = ps.APP.build_requests.build_all(ps.APP.docs[0])
@@ -507,7 +507,7 @@ class GitPullBuildIntegration(Base):
 
 
 class AutomaticMainSync(Base):
-    """The remote-main watch as the server wires it: sync_main_once() and sync_status() over limn.features.sync.run, with the
+    """The remote-main watch as the server wires it: the sync service's once() and status(), with the
     pull stubbed by its outcome value."""
 
     def test_new_head_schedules_each_tex_document_once(self):
@@ -523,7 +523,7 @@ class AutomaticMainSync(Base):
             mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
             mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
         self.assertEqual(build.call_count, 2)
         self.assertEqual(out["state"], "updating")
@@ -536,7 +536,7 @@ class AutomaticMainSync(Base):
             mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
             mock.patch.object(ps.APP.build_requests, "build_async", return_value=BuildStarted()) as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         build.assert_called_once()
         self.assertEqual(out["state"], "updating")
 
@@ -547,7 +547,7 @@ class AutomaticMainSync(Base):
             mock.patch.object(gitsync, "pull", return_value=PullSkipped("dirty", "a" * 40)),
             mock.patch.object(ps.APP.build_requests, "build_async") as build,
         ):
-            out = ps.APP.sync_main_once()
+            out = ps.APP.sync_service.once()
         build.assert_not_called()
         self.assertEqual(out["state"], "blocked")
         self.assertEqual(ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)["sync"]["reason"], "dirty")
@@ -558,7 +558,7 @@ class AutomaticMainSync(Base):
         with ps.APP.RT.sync_watch.lock:
             ps.APP.RT.sync_watch.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.APP.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
-        self.assertEqual(ps.APP.sync_status()["state"], "current")
+        self.assertEqual(ps.APP.sync_service.status()["state"], "current")
 
     def test_failed_pdf_build_reports_error(self):
         """An "updating" status turns error/build_failed when a document still behind the commit failed its build."""
@@ -568,7 +568,7 @@ class AutomaticMainSync(Base):
         (ps.APP.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with ps.APP.docs[0].bstate_lock:
             ps.APP.docs[0].bstate["state"] = "fail"
-        status = ps.APP.sync_status()
+        status = ps.APP.sync_service.status()
         self.assertEqual((status["state"], status["reason"]), ("error", "build_failed"))
 
 
