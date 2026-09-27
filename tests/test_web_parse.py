@@ -400,8 +400,139 @@ class Fields(unittest.TestCase):
         )
 
 
+class RouteRequests(unittest.TestCase):
+    """The per-route request parsers the handler calls instead of reading a body field or a query parameter itself."""
+
+    def test_a_flag_is_on_only_for_a_first_value_of_one(self):
+        """parse_flag keeps the old `(q.get(x) or ["0"])[0] == "1"`: "1" first is on; absent, "0", "true", "" or a
+        later "1" are off."""
+        self.assertTrue(parse.parse_flag({"log": ["1", "0"]}, "log"))
+        for q in ({}, {"log": ["0"]}, {"log": ["true"]}, {"log": [""]}, {"log": ["0", "1"]}, {"all": ["1"]}):
+            with self.subTest(q=q):
+                self.assertFalse(parse.parse_flag(q, "log"))
+
+    def test_route_queries(self):
+        """GET /api/pins, POST /api/rebuild, GET /pdf and GET /api/meta read their query only through these; none but
+        the event cursor refuses anything."""
+        self.assertEqual(parse.parse_pins_query({"all": ["1"], "doc": ["rev"]}), parse.PinsQuery(True, True))
+        self.assertEqual(parse.parse_pins_query({}), parse.PinsQuery(False, False))
+        self.assertEqual(parse.parse_rebuild_query({"async": ["1"]}), parse.RebuildQuery(False, True))
+        self.assertEqual(parse.parse_rebuild_query({"log": ["1"], "async": ["0"]}), parse.RebuildQuery(True, False))
+        self.assertEqual(parse.parse_build_name({"build": ["pages-x", "y"]}), "pages-x")
+        self.assertEqual(parse.parse_build_name({}), "")
+        self.assertEqual(parse.parse_events_query({"ev": ["4"]}), 4)
+        self.assertIsNone(parse.parse_events_query({}))
+        self.assertEqual(
+            parse.parse_events_query({"ev": ["x"]}),
+            InputRejected("ev 는 정수(마지막으로 본 이벤트 seq)입니다.", "bad_event_cursor"),
+        )
+
+    def test_reply_checks_text_then_mentions_then_reopen(self):
+        """The first refused field of a reply is answered, in the order the server has always checked them."""
+        self.assertEqual(
+            parse.parse_reply({"text": "  hi\r\n", "mentions": ["bob@example.com"], "reopen": False}),
+            parse.ReplyRequest("hi", ["bob@example.com"], False),
+        )
+        self.assertEqual(parse.parse_reply({"text": "hi"}), parse.ReplyRequest("hi", [], None))
+        self.assertEqual(
+            parse.parse_reply({"mentions": 1, "reopen": 1}), InputRejected("text 가 필요합니다.", "text_required")
+        )
+        self.assertEqual(parse.parse_reply({"text": "x", "mentions": 1, "reopen": 1}).reason, "bad_mentions")
+        self.assertEqual(parse.parse_reply({"text": "x", "reopen": 1}).reason, "bad_reopen")
+
+    def test_clear_needs_the_exact_phrase(self):
+        """Only confirm == CLEAR_CONFIRM clears; anything else is the contract's 400 naming the phrase."""
+        self.assertEqual(parse.parse_clear({"confirm": "clear all pins", "x": 1}), parse.ClearConfirmed())
+        for body in ({}, {"confirm": "Clear all pins"}, {"confirm": ["clear all pins"]}):
+            with self.subTest(body=body):
+                self.assertEqual(
+                    parse.parse_clear(body),
+                    InputRejected(
+                        '모든 핀을 지우려면 본문에 {"confirm": "clear all pins"} 를 보내세요'
+                        "(보관본 pins_<시각>.jsonl.bak 이 남습니다).",
+                        "confirm_required",
+                    ),
+                )
+
+    def test_doc_choice_carries_a_new_pins_file_and_own_doc(self):
+        """Every route gets the agreed key; only POST /api/pin also gets the body's file and its string doc."""
+        self.assertEqual(parse.parse_doc_choice({"doc": ["rev"]}), parse.DocChoice("rev"))
+        self.assertEqual(parse.parse_doc_choice({}, {"doc": "rev", "file": "a.tex"}), parse.DocChoice("rev"))
+        self.assertEqual(
+            parse.parse_doc_choice({"doc": ["main"]}, {"doc": "", "file": 3}, new_pin=True),
+            parse.DocChoice("main", 3, ""),
+        )
+        self.assertEqual(parse.parse_doc_choice({}, {"file": "a.tex"}, new_pin=True), parse.DocChoice(None, "a.tex"))
+        self.assertEqual(parse.parse_doc_choice({}, {"doc": 3}, new_pin=True).reason, "bad_doc")
+        self.assertEqual(parse.parse_doc_choice({"doc": ["a"]}, {"doc": "b"}, new_pin=True).reason, "doc_mismatch")
+
+
 class Locations(Tree):
     """The parsers that check a request against the manuscript through DocumentFacts."""
+
+    def test_line_location_is_typed_and_stored_in_the_old_key_order(self):
+        """parse_loc gives a LineLoc; its record has file, name, lo, hi, page, then the sent optional fields in the
+        order records have always had, whatever order the request sent them in, and nothing for a null."""
+        loc = parse.parse_loc(
+            {
+                "pdf_build": "pages",
+                "quote": "q",
+                "scope": "para",
+                "frac": [0, 0, 1, 1],
+                "score": 1,
+                "via": "text",
+                "kind": "para",
+                "raw_hi": 3,
+                "raw_lo": None,
+                "hi": 3,
+                "lo": 2,
+                "file": "main.tex",
+            },
+            self.facts,
+        )
+        self.assertIsInstance(loc, parse.LineLoc)
+        self.assertEqual((loc.frac, loc.raw_lo, loc.page), ((0.0, 0.0, 1.0, 1.0), None, 1))
+        record = loc.to_record()
+        self.assertEqual(
+            list(record),
+            [
+                "file",
+                "name",
+                "lo",
+                "hi",
+                "page",
+                "raw_hi",
+                "kind",
+                "via",
+                "score",
+                "frac",
+                "scope",
+                "quote",
+                "pdf_build",
+            ],
+        )
+        self.assertEqual((record["frac"], record["score"]), ([0.0, 0.0, 1.0, 1.0], 1.0))
+        self.assertEqual(
+            parse.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1, "x"]}, self.facts),
+            InputRejected("frac 는 유한한 숫자여야 합니다.", "not_number"),
+        )
+        self.assertEqual(
+            parse.parse_loc({"file": "main.tex", "lo": 1, "hi": 1, "frac": [0, 0, 1]}, self.facts),
+            InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"),
+        )
+
+    def test_region_location_is_typed_and_stored_in_the_old_key_order(self):
+        """parse_region gives a RegionLoc; its record is pdf, name, kind region, page, frac, then quote and pdf_build
+        only when present."""
+        facts = Facts(self.root, is_pdf=True)
+        loc = parse.parse_region({"frac": [0.1, 0.1, 0.2, 0.2], "page": 2}, facts)
+        self.assertIsInstance(loc, parse.RegionLoc)
+        self.assertEqual(list(loc.to_record()), ["pdf", "name", "kind", "page", "frac"])
+        self.assertEqual(loc.to_record()["frac"], [0.1, 0.1, 0.2, 0.2])
+        self.assertEqual(
+            parse.parse_frac([0.5, 0, 0.6, 1]),
+            InputRejected("frac 이 쪽 밖입니다(0..1, 넓이 > 0).", "frac_outside_page"),
+        )
 
     def test_add_checks_the_location_before_the_note(self):
         """A line pin's range is checked against the file's lines before any other field."""

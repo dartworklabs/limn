@@ -8,6 +8,7 @@ package name (server.py still runs as a file), and the answers and error pages a
 Run: uv run pytest -q tests/test_web.py
 """
 
+import ast
 import dataclasses
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_
 from helpers import ps
 
 SRC = Path(__file__).resolve().parent.parent / "src"
+HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
 
 
 def app_members() -> list:
@@ -104,6 +106,28 @@ class ImportDirection(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(r.stdout.startswith("limn "), r.stdout)
+
+
+class HandlerStructure(unittest.TestCase):
+    """What the handler's source may and may not do, checked on its syntax tree (a violation added later fails here)."""
+
+    def test_routes_read_no_body_field_or_query_parameter_themselves(self):
+        """The routes pass the body (d) and the query (q) whole to limn.web.parse (or to a member that supplies a
+        parser's facts); none reads a field with .get() or [...] - so every value a route uses was parsed at the
+        boundary."""
+        raw = [
+            "%d: %s" % (n.lineno, ast.unparse(n))
+            for n in ast.walk(ast.parse(HANDLER_SOURCE))
+            if (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "get"
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id in ("d", "q", "body")
+            )
+            or (isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name) and n.value.id in ("d", "q", "body"))
+        ]
+        self.assertEqual(raw, [])
 
 
 class Answers(unittest.TestCase):

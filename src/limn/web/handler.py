@@ -3,9 +3,9 @@
 Every request reads its body to completion, passes the Host/Origin check, is identified and admitted (and, for a
 POST, role-checked) before any route runs; a refusal anywhere becomes one response in _run. The routes parse what
 they take from the body or query string (limn.web.parse) and answer a refused field at once, then call the application
-through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; the
-answers for pin outcomes are in limn.web.answers and the errors in limn.web.errors. Statuses, headers and bodies are
-the agent contract (docs/handbook/api.md).
+through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; no route
+reads a body field or a query parameter itself. The answers for pin outcomes are in limn.web.answers and the errors
+in limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handbook/api.md).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
-from urllib.parse import ParseResult, parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse
 
 from limn.access import person_role
 from limn.documents import DocNotFound
@@ -33,18 +33,10 @@ from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
-# The phrase POST /api/clear must carry as its body's `confirm` before every pin is archived and cleared.
-CLEAR_CONFIRM = "clear all pins"
 # A page image name GET /pages/<name> serves: the page-N.png files a build writes into the page directory (limn.build).
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
 VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
-
-
-def _first(q: Query, key: str) -> str | None:
-    """The first value of query parameter `key`, or None when the query has none."""
-    values = q.get(key)
-    return values[0] if values else None
 
 
 class Server(ThreadingHTTPServer):
@@ -232,12 +224,17 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        return self._get_doc(actor, path, q, self._request_doc(q))
+        return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
-    def _request_doc(self, q: Query, body: Json | None = None, file_hint: object = None) -> Document:
-        """The document a request names: ?doc= or the body's doc, parsed here (400 bad_doc or doc_mismatch), then found
-        by the server (the first document, or the one holding file_hint, when neither names one; 404 unknown_doc)."""
-        return self._found(self.app.request_doc(accepted(parse.parse_doc_key(q, body)), file_hint))
+    def _request_doc(self, choice: parse.DocChoice) -> Document:
+        """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
+        the one holding the file hint, when neither ?doc= nor the body names one. A new pin's own doc in the body then
+        wins over ?doc= when it names another (as it always has). 404 unknown_doc for a key this instance does not
+        serve."""
+        D = self._found(self.app.request_doc(choice.key, choice.file_hint))
+        if choice.body_key is not None and choice.body_key != D.key:
+            D = self._found(self.app.request_doc(choice.body_key))
+        return D
 
     def _found(self, found: Document | DocNotFound) -> Document:
         """The document a lookup found, or the 404 for a key this instance does not serve, listing the keys it does."""
@@ -292,13 +289,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/version":  # the installed Limn version - no write
             return self._json({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
-            light = (q.get("light") or ["0"])[0] == "1"
+            light = parse.parse_flag(q, "light")
             if not light:
                 self._record(actor)
             out = app.meta(D, actor, light=light)
             out["me"] = self._me(actor)  # + role (additive)
             # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
-            out.update(app.events_since(actor, accepted(parse.parse_event_cursor(_first(q, "ev")))))
+            out.update(app.events_since(actor, accepted(parse.parse_events_query(q))))
             return self._json(out)
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
             return self._send(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
@@ -309,8 +306,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/outline-labels":
             return self._json(app.outline_labels(D))
         if path == "/api/build":
-            full = (q.get("log") or ["0"])[0] == "1"
-            return self._json(answers.diet_log(app.build_state_snapshot(D), full))
+            return self._json(answers.diet_log(app.build_state_snapshot(D), parse.parse_flag(q, "log")))
         # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
         if path == "/pins.md":
             app.maybe_purge_trash()
@@ -319,9 +315,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             app.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
-            allp = (q.get("all") or ["0"])[0] == "1"
-            rows = app.pins_payload(app.snapshot_pins(), allp)
-            if q.get("doc"):  # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
+            pins = parse.parse_pins_query(q)
+            rows = app.pins_payload(app.snapshot_pins(), pins.all)
+            if pins.doc_scoped:  # only that document's pins (overlap/estimation stay computed globally)
                 rows = [r for r in rows if r["doc"] == D.key]
             return self._json(rows)
         if path == "/api/docs":
@@ -337,7 +333,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"pin": rec})
         if path == "/api/snippet":
             rng = accepted(parse.parse_snippet(q, app.document_facts(D)))
-            return self._json(app.snippet_api(rng, (q.get("levels") or ["0"])[0] == "1"))
+            return self._json(app.snippet_api(rng, parse.parse_flag(q, "levels")))
         if path == "/api/overlaps":
             return self._json(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
         if path.startswith("/pages/"):
@@ -365,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/pdf":
             # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
             # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
-            name = (q.get("build") or [""])[0]
+            name = parse.parse_build_name(q)
             pf = app.build_pdf(D, name)
             data = None
             if pf is not None:
@@ -413,8 +409,8 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body()
         if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
             q = parse_qs(u.query)
-            D = self._request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
-            return self._post_doc(actor, path, u, d, D)
+            D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=path == "/api/pin")))
+            return self._post_doc(actor, path, q, d, D)
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
@@ -425,20 +421,14 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
-            if d.get("confirm") != CLEAR_CONFIRM:
-                raise HTTPError(
-                    400,
-                    '모든 핀을 지우려면 본문에 {"confirm": "%s"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다).'
-                    % CLEAR_CONFIRM,
-                    reason="confirm_required",
-                )
+            accepted(parse.parse_clear(d))
             return self._json(dict(app.clear_pins(actor), ok=True))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
-    def _post_doc(self, actor: Json, path: str, u: ParseResult, d: Json, D: Document) -> None:
+    def _post_doc(self, actor: Json, path: str, q: Query, d: Json, D: Document) -> None:
         """POST routes that act on the request's document D: pick, new pins, the revision build and rebuilds. d is the
-        parsed JSON body; each route parses its fields in the order the server has always checked them; refusals
-        propagate to _run."""
+        parsed JSON body and q the query; each route parses its fields in the order the server has always checked
+        them; refusals propagate to _run."""
         app = self.app
         if path == "/api/pick":
             selection = parse.parse_pick(d, app.document_facts(D))
@@ -446,10 +436,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(answers.pick_build_gone())
             return self._json(answers.pick_answer(app.pick(D, accepted(selection))))
         if path == "/api/pin":
-            want = d.get("doc")
-            if isinstance(want, str) and want != D.key:
-                # the body's doc wins, as it always has: "" names the first document
-                D = self._found(app.request_doc(want))
             request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/revision-build":
@@ -463,23 +449,23 @@ class Handler(BaseHTTPRequestHandler):
                 "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % D.key,
                 reason="view_only_no_rebuild",
             )
-        full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
-        if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
+        rebuild = parse.parse_rebuild_query(q)
+        if rebuild.background:
             return self._json(*answers.rebuild_started_answer(app.build_async(D)))
-        return self._json(*answers.rebuild_answer(app.build_all(D), full))
+        return self._json(*answers.rebuild_answer(app.build_all(D), rebuild.full_log))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
         its service with the parsed values and answer its outcome. Refusals propagate to _run."""
         app = self.app
         if act == "reply":
-            text = accepted(parse.parse_reply_text(d.get("text")))
-            hints = accepted(parse.parse_mention_hints(d.get("mentions")))
-            reopen = accepted(parse.parse_reopen_flag(d))
+            reply = accepted(parse.parse_reply(d))
             human = self.principal.is_human()
             return self._json(
                 answers.reply_answer(
-                    app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human), app.public, app.pin_state
+                    app.reply_pin(pid, reply.text, actor, reply.hints, reopen=reply.reopen, human=human),
+                    app.public,
+                    app.pin_state,
                 )
             )
         if act == "confirm":
