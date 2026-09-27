@@ -174,10 +174,10 @@ class ReplyApi(AccessBase):
 
     def test_reopened_pin_shows_in_open_table_with_reply_as_reason(self):
         pid = self.review_pin()
-        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
         self.assertNotRegex(md, r"\n\| %d · " % pid)  # awaiting review: not in the open table
         self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
-        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d · " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀립니다", row)
@@ -232,7 +232,7 @@ class AgentAsPerson(AccessBase):
         self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
 
     def test_the_instruction_is_in_pins_md_skill_and_api(self):
-        md = ps.APP.pins_md_text(ps.APP.snapshot_pins()).splitlines()
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins()).splitlines()
         i = md.index(md_render.TOKEN_GUIDANCE)
         self.assertEqual(md[i + 1], md_render.REPLY_GUIDANCE)  # additive line after the token line
         self.assertIn('`"reopen":false`', md_render.REPLY_GUIDANCE)

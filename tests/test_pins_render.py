@@ -649,10 +649,10 @@ class BuildHeadInPinsMd(Base):
         self.assertNotIn("기준:", md)
 
     def test_head_block_adds_at_most_two_lines(self):
-        without = ps.APP.pins_md_text([]).splitlines()
+        without = ps.APP.pin_markdown.pins_md_text([]).splitlines()
         (ps.APP.C.state / "head.txt").write_text("abc1234", encoding="utf-8")
         (ps.APP.C.state / "built_at.txt").write_text("2026-09-22 10:00:00", encoding="utf-8")
-        withit = ps.APP.pins_md_text([]).splitlines()
+        withit = ps.APP.pin_markdown.pins_md_text([]).splitlines()
         self.assertLessEqual(len(withit) - len(without), 2)
 
 

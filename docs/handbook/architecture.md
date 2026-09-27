@@ -43,9 +43,9 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 기능 슬라이스 | `features/pins/claims/`의 `input.py`·`http.py`·`service.py` | 처리 중 표시·해제의 시간 입력, 409 응답, 잠금 아래 claim 기록. 순수 규칙은 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/trash/`의 `input.py`·`http.py`·`service.py` | 삭제·복원·영구 삭제·전체 비우기의 입력·응답, 잠금 아래 휴지통 변경과 기동·주기 정리. 순수 핀 전이는 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/editing/`의 `location.py`·`input.py`·`http.py`·`service.py` | 핀 만들기·편집의 위치·본문 검사, 응답, 저장과 알림. 순수 편집 규칙은 `pins/edit.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
-| 기능 슬라이스 | `features/pins/listing/`의 `input.py`·`http.py`·`service.py` | 핀 목록·한 핀·휴지통의 JSON 조회, 응답과 실행별 읽기. 순수 응답 필드 규칙은 공통 `pins/view.py`가 소유한다 | `server.py`. 필요한 조회 사실은 좁은 계약으로 받는다 |
+| 기능 슬라이스 | `features/pins/listing/`의 `input.py`·`http.py`·`service.py`·`markdown.py` | 핀 목록·한 핀·휴지통의 JSON 조회와 `pins.md`의 요청·저장 렌더 입력 조립. 순수 필드·문장 규칙은 `pins/view.py`·`pins/render.py`가 소유한다 | `server.py`. 필요한 조회 사실은 좁은 계약으로 받는다 |
 | 공통 HTTP | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사·경로 분기와 아직 옮기지 않은 경로의 파싱·응답. 옮긴 핀 경로는 각 기능 패키지의 HTTP 입구를 부른다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
-| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 핀 변경 협력자에 `pin_context` 생성 함수를, `PinListing`에 필요한 조회 사실을 묶는다 | — |
+| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 핀 변경 협력자에 `pin_context` 생성 함수를, `PinListing`·`PinMarkdown`에 필요한 조회 사실을 묶는다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
 

@@ -60,7 +60,6 @@ from limn.access import (
     LOOPBACK_AGENT_DEPRECATION,
     file_present,
     hdr_text as hdr_text,
-    home_or_none,
     load_tokens,
     people_roles_of,
     person_role,
@@ -90,49 +89,33 @@ from limn.events import EVENTS_KEEP, EventType
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
 from limn.features.pins.trash.service import PinTrash
-from limn.files import tex_lines, vendor_file as find_vendor_file
-from limn.guidance import shell_path
+from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
 from limn.mentions import (
     NoteTags,
-    addressed_to,
-    fyi_mentions_to,
     note_mention_targets,
     tag_note,
-    thread_round,
 )
 from limn.meta import MetaSettings, outline_labels as outline_labels
 from limn.people import is_actor as _is_actor
 from limn.pins import record, view
 from limn.pins.lifecycle import (
     claim_holds,
-    pin_reopened_in_round,
     reopens_on_reply,
 )
 from limn.pins.model import (
-    DonePin,
-    OpenPin,
     Pin,
     Record,
     Region,
     TrashedPin,
-    is_region_pin,
     parse_pin,
-    state_of,
 )
 from limn.pins.position import EstContext
 from limn.pins.record import Broken
-from limn.pins.render import (
-    DocHeading,
-    PinFacts,
-    PinsMdInput,
-    pins_md_text as render_pins_md_text,
-    rel_badge,
-)
-from limn.pins.shapes import is_int
 from limn.pins.view import pin_state as pin_state
 from limn.revisions import (
     DiffRefusal,
@@ -354,6 +337,7 @@ class ServerApplication:
     pin_trash: PinTrash = field(init=False)
     pin_editing: PinEditing = field(init=False)
     pin_listing: PinListing = field(init=False)
+    pin_markdown: PinMarkdown = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -362,6 +346,7 @@ class ServerApplication:
         self.pin_trash = PinTrash(self.pin_context)
         self.pin_editing = PinEditing(self.pin_context)
         self.pin_listing = PinListing(self, TRASH_DAYS)
+        self.pin_markdown = PinMarkdown(self)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -574,7 +559,7 @@ class ServerApplication:
             self.parse_record,
             self.parse_trashed,
             self.sync_all,
-            self.pins_md_text,
+            self.pin_markdown.pins_md_text,
         )
 
     def read_pins(self) -> tuple[list[Pin], list[int]]:
@@ -783,82 +768,6 @@ class ServerApplication:
     def render_pins_md(self, pins: Sequence[Pin]) -> None:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
         self.pin_store().render_md(pins)
-
-    def pins_md_text(self, pins: Sequence[Pin], base: str | None = None) -> str:
-        """pins.md's text for pins: limn.pins.render.pins_md_text over pins_md_input(pins, base). The store renders with
-        this after every write (base None: the file on disk) and GET /pins.md with the request's base."""
-        return render_pins_md_text(self.pins_md_input(pins, base))
-
-    def pins_md_input(self, pins: Sequence[Pin], base: str | None = None) -> PinsMdInput:
-        """Everything one rendering of pins.md reads, gathered at the edge: this application's run settings, the documents and their
-        build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
-        file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
-
-        Reads files (people.json, the build stamps, whether the token file exists, and the source file of each open
-        one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
-        rows = [pin.record for pin in pins]
-        rel = self.overlaps_by_id(pins)
-        by_id = {r["id"]: r for r in rows}
-        sources: dict[Path, list[str]] = {}
-        facts: dict[int, PinFacts] = {}
-        for pin in pins:
-            r = pin.record
-            if state_of(r) is DonePin:
-                continue
-            location, line_len = "", None
-            if not is_region_pin(r):
-                loc = self.pin_location(
-                    r, self.C.src, self.C.state
-                )  # ADR-0006: still relative after the checkout moved
-                location = (
-                    loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
-                )
-                lo, hi = r.get("lo"), r.get("hi")
-                if (
-                    loc is not None
-                    and state_of(r) is OpenPin
-                    and r.get("quote")
-                    and is_int(lo)
-                    and is_int(hi)
-                    and lo == hi
-                ):
-                    if loc.path not in sources:  # outside the tree (loc None) is never read
-                        sources[loc.path] = tex_lines(loc.path)
-                    lines = sources[loc.path]
-                    line_len = len(lines[lo - 1]) if 1 <= lo <= len(lines) else None
-            facts[r["id"]] = PinFacts(
-                doc_key=self.pin_doc_key(r),
-                location=location,
-                line_len=line_len,
-                badge=rel_badge(rel.get(r["id"], []), by_id, r),
-                reopened=pin_reopened_in_round(pin.core.thread),
-                addressed=tuple(addressed_to(pin)),
-                fyi=tuple(fyi_mentions_to(pin)),
-                round=tuple(thread_round(pin.core.thread)),
-            )
-        docs = tuple(
-            DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d))
-            for d in self.docs
-        )
-        return PinsMdInput(
-            rows=rows,
-            facts=facts,
-            base=base,
-            port=self.C.port,
-            manuscript=str(self.C.src),
-            label=self.C.label,
-            repo=self.C.repo,
-            docs=docs,
-            people=self.known_people(pins),
-            now=time.time(),
-            updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
-            token_file=self.existing_token_file_shown(self.C.access.agent_token_file),
-        )
-
-    def existing_token_file_shown(self, f: Path | None) -> str | None:
-        """The shell path of token file f when it exists, else None - the edge half of
-        limn.pins.render.token_guidance_line(): one stat per render, never a read of the file."""
-        return shell_path(f, home_or_none()) if file_present(f) else None
 
     def pick_context(self) -> locate.PickContext:
         """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the

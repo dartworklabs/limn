@@ -44,7 +44,7 @@ Limn의 백엔드는 단일 서버 파일에서 책임별 모듈로 이동했다
 
 ### 현재 상태 투영
 
-- **영향받는 현재 권위:** `src/limn/`의 백엔드 구조와 이를 검증하는 테스트. 핀 수명 주기, claim·unclaim, 휴지통, 만들기·편집, JSON 조회는 `features/pins/`의 각 패키지가 소유하고, 나머지 동작은 아직 책임별 모듈 구조다.
+- **영향받는 현재 권위:** `src/limn/`의 백엔드 구조와 이를 검증하는 테스트. 핀 수명 주기, claim·unclaim, 휴지통, 만들기·편집, JSON 조회와 `pins.md` 조립은 `features/pins/`의 각 패키지가 소유하고, 나머지 동작은 아직 책임별 모듈 구조다.
 - **갱신할 Handbook role/path:** architecture `docs/handbook/architecture.md`, purpose의 정본 안내 `docs/handbook/purpose.md`(위치가 바뀔 때), 관련 일반 topic과 `docs/handbook/index.md` 파일 지도, verification `docs/handbook/verification.md`(게이트가 바뀔 때).
 - **효력 형태:** 단계적 migration.
 - **완료 증거:** 모든 백엔드 동작의 슬라이스 소유권, 평면 앱 전달 표면 제거, 요청·저장 차등 비교, 적용 게이트 통과, Handbook의 현재 구조와 코드 일치.

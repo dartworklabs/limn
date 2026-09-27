@@ -508,7 +508,7 @@ class Store(Base):
         self.add()
         before = ps.APP.C.pins_jsonl.read_text()
         with (
-            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("boom")),
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("boom")),
             self.assertRaises(RuntimeError),
         ):
             self.add(note="x")

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from limn.features.pins.listing import input as listing_input
+from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
 from limn.pins.model import PinNotFound
 from limn.web.errors import HTTPError
@@ -13,6 +14,7 @@ class ListingApp(Protocol):
     """The run-bound listing collaborator."""
 
     pin_listing: PinListing
+    pin_markdown: PinMarkdown
 
 
 def pins(app: ListingApp, q: Mapping[str, list[str]], doc_key: str) -> list[dict[str, Any]]:
@@ -29,6 +31,11 @@ def one(app: ListingApp, pid: int) -> dict[str, object]:
 def dropped(app: ListingApp) -> dict[str, object]:
     """The visible Trash entries."""
     return {"dropped": app.pin_listing.dropped_payload()}
+
+
+def markdown(app: ListingApp, base: str) -> str:
+    """Render the current pins.md with the request's remote base."""
+    return app.pin_markdown.current_text(base)
 
 
 def pin_answer(result: dict[str, Any] | PinNotFound) -> dict[str, object]:

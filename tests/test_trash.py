@@ -343,7 +343,7 @@ class TrashRecovery(AccessBase):
         pid = self.pin_id(ALICE)
         before_live = ps.APP.C.pins_jsonl.read_bytes()
         with (
-            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
             ps.APP.pin_trash.drop_pin(pid, B)
@@ -353,7 +353,7 @@ class TrashRecovery(AccessBase):
         ps.APP.pin_trash.drop_pin(pid, B)
         before_trash = ps.APP.C.dropped.read_bytes()
         with (
-            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
             ps.APP.pin_trash.restore_pin(pid, A)
@@ -629,7 +629,7 @@ class ClearEndpoint(AccessBase):
         before_trash = ps.APP.C.dropped.read_bytes()
         before_live = ps.APP.C.pins_jsonl.read_bytes()
         with (
-            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("render failed")),
+            mock.patch.object(ps.APP.pin_markdown, "pins_md_text", side_effect=RuntimeError("render failed")),
             self.assertRaisesRegex(RuntimeError, "render failed"),
         ):
             ps.APP.pin_trash.clear_pins(dict(A))
@@ -672,7 +672,7 @@ class ClearEndpoint(AccessBase):
         fresh = ps.ServerApplication(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
         with mock.patch.object(ps.build, "needs_build", return_value=False):
             self.assertIsNone(fresh.prepare(None, True))
-        self.assertEqual(fresh.C.pins_md.read_text(encoding="utf-8"), fresh.pins_md_text([]))
+        self.assertEqual(fresh.C.pins_md.read_text(encoding="utf-8"), fresh.pin_markdown.pins_md_text([]))
         self.assertEqual((fresh.C.state / archives[0]).read_bytes(), before_live)
 
     def test_local_owner_may_clear(self):

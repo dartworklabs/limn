@@ -1159,7 +1159,7 @@ class CloseChanges(AccessBase):
         # decided after review (ADR-0005, accepted): paper repos squash-merge and agents close after the merge, so the
         # line asks for `changes` in the numbering of the commit `ref` names, and ref = "PR #N (<hash>)"; per-pin commits
         # help but are optional
-        text = ps.APP.pins_md_text(ps.APP.snapshot_pins())
+        text = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
         line = next(ln for ln in text.splitlines() if ln.startswith("처리한 핀은 닫는다"))
         self.assertTrue(
             line.startswith(

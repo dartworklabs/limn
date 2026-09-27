@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn import build as limn_build, people as limn_people
+from limn.features.pins.listing import markdown as listing_markdown
 
 from helpers import ps
 from helpers_access import ALICE, BOB, AccessBase
@@ -74,6 +75,7 @@ class ContractSnapshot(AccessBase):
             mock.patch("time.time", return_value=T0),
             mock.patch("time.strftime", frozen_strftime),
             mock.patch.object(ps, "datetime", FrozenDateTime),
+            mock.patch.object(listing_markdown, "datetime", FrozenDateTime),
             mock.patch.object(limn_build, "datetime", FrozenDateTime),
             mock.patch.object(limn_people, "datetime", FrozenDateTime),
         ):

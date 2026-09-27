@@ -28,6 +28,7 @@ from limn.documents import Doc, DocNotFound
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
 from limn.features.pins.trash.service import PinTrash
 from limn.locate import Picked, PickedRegion, PickRefusal
@@ -56,6 +57,7 @@ class App(Protocol):
     pin_trash: PinTrash
     pin_editing: PinEditing
     pin_listing: PinListing
+    pin_markdown: PinMarkdown
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -174,10 +176,6 @@ class App(Protocol):
 
     def remote_base_for(self, host_raw: str) -> str:
         """The base URL for GET /pins.md's guidance."""
-        ...
-
-    def pins_md_text(self, pins: Sequence[Pin], base: str | None = None) -> str:
-        """The pins.md text."""
         ...
 
     def docs_payload(self) -> Json:

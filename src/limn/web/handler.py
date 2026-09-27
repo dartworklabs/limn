@@ -348,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/pins.md":
             app.pin_trash.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
-            text = app.pins_md_text(app.snapshot_pins(), base=base)
+            text = listing_http.markdown(app, base)
             return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)

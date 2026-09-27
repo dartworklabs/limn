@@ -1144,7 +1144,7 @@ class MultiDoc(Base):
         self.assertEqual(ps.APP.docs[0].paths, ps.APP.C.paths)  # the frozen run paths it was made with
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
-        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
         self.assertNotIn("## ", md)  # the old look, no subsections
         self.assertIn("| # | 쪽 | 위치 | 범위 | 메모 |", md)
 
@@ -1299,7 +1299,7 @@ class MultiDoc(Base):
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
         self.assertEqual(code, 400)
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(LOCAL_ACTOR)).record["id"]
-        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.snapshot_pins())
         self.assertIn("## 본문 · `ms` · `main.tex`", md)
         self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
         self.assertIn(
@@ -1349,7 +1349,7 @@ class MultiDoc(Base):
         self.assertFalse(fits(dict(base, doc="Bad Key")))
         # a pin for a document not in config surfaces separately in pins.md (it's not hidden)
         ps.APP.C.pins_jsonl.write_text(json.dumps(base) + "\n")
-        md = ps.APP.pins_md_text(ps.APP.read_pins()[0])
+        md = ps.APP.pin_markdown.pins_md_text(ps.APP.read_pins()[0])
         self.assertIn("## 설정에 없는 문서 · `gone`", md)
 
     def test_sync_and_overlaps_skip_region_pins(self):
