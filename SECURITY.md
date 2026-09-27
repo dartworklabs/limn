@@ -35,6 +35,13 @@ What the server does defend against:
   under a dot-named part of it (`.git`, `.env`, `.ssh`, `.latexmkrc`, …): those hold repository and machine secrets,
   not manuscript text, and a `viewer` could otherwise read `.git/config` through a snippet. The refusal is the one for
   a file outside the manuscript (`400 file_outside_manuscript` / `change_outside_manuscript`).
+- The state folder is never manuscript. Keep `--state-dir` outside `--manuscript` (the default and `limn add` do). If
+  it points inside, under any name, the routes above refuse every file in it the same way — `people.json`,
+  `tokens.json` (hashes), `audit.jsonl`, `events.jsonl` and the pin files — also through a link, the build copy leaves
+  it out, and the server prints one warning at startup; keep such a folder out of git and file sync. A state folder
+  that would hold a served document's main file (the manuscript folder itself, say) refuses to start.
+- Roles, identity providers and how a principal was identified are closed types in the code, so a mistyped comparison
+  fails the type check; a `people.json` role Limn does not know is a `viewer`.
 - An unusable `people.json` fails closed. If it exists but cannot be read or is not a Limn people file (truncated,
   empty, invalid JSON, wrong shape, no read permission), every person identified by a header is a `viewer`,
   `--members-only` admits no one from it (only `--allow` logins, which do not depend on the file), and the server never

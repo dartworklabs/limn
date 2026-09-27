@@ -185,10 +185,40 @@ class DotPaths(unittest.TestCase):
             (root / ".git").mkdir()
             (root / ".git" / "config").write_text("[remote]\n", encoding="utf-8")
             (root / "main.tex").write_text("x\n", encoding="utf-8")
-            self.assertIsNone(locate.locate_file(str(root / ".git" / "config"), None, root, None))
-            self.assertIsNone(locate.locate_file("/old/place/.git/config", ".git/config", root, None))
-            self.assertIsNone(locate.locate_file("/old/place/.git/config", None, root, None))
-            self.assertEqual(locate.locate_file("/old/place/main.tex", None, root, None).rel, "main.tex")
+            self.assertIsNone(
+                locate.locate_file(str(root / ".git" / "config"), None, root, root.parent / "state", None)
+            )
+            self.assertIsNone(
+                locate.locate_file("/old/place/.git/config", ".git/config", root, root.parent / "state", None)
+            )
+            self.assertIsNone(locate.locate_file("/old/place/.git/config", None, root, root.parent / "state", None))
+            self.assertEqual(
+                locate.locate_file("/old/place/main.tex", None, root, root.parent / "state", None).rel, "main.tex"
+            )
+
+
+class StateFolderPaths(unittest.TestCase):
+    """locate_file keeps the state-folder part of the tree rule: with --state-dir inside the manuscript, a stored path
+    into it is not in the tree."""
+
+    def test_a_recorded_path_in_the_state_folder_is_not_located(self):
+        """A pin recorded on audit.jsonl before the rule - as stored, through file_rel, by the tail guess of a moved
+        checkout, or through a normal-looking link - is not located, so its lines never reach a re-sync, pins.md or
+        a comparison; main.tex still is."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            state = root / "limn-state"
+            state.mkdir()
+            (state / "audit.jsonl").write_text('{"action": "token_created"}\n', encoding="utf-8")
+            (root / "main.tex").write_text("x\n", encoding="utf-8")
+            (root / "notes.tex").symlink_to(state / "audit.jsonl")
+            self.assertIsNone(locate.locate_file(str(state / "audit.jsonl"), None, root, state, None))
+            self.assertIsNone(
+                locate.locate_file("/old/place/limn-state/audit.jsonl", "limn-state/audit.jsonl", root, state, None)
+            )
+            self.assertIsNone(locate.locate_file("/old/place/limn-state/audit.jsonl", None, root, state, None))
+            self.assertIsNone(locate.locate_file(str(root / "notes.tex"), None, root, state, None))
+            self.assertEqual(locate.locate_file("/old/place/main.tex", None, root, state, None).rel, "main.tex")
 
 
 # ---------------------------------------------------------------- through server.py's wiring
