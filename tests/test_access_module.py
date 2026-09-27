@@ -16,6 +16,7 @@ import json
 import stat
 import tempfile
 import threading
+import typing
 import unittest
 from email.message import Message
 from pathlib import Path, PurePath
@@ -446,6 +447,64 @@ class CheckRole(RefusalCase):
             [access.role_value(v) for v in (None, "owner", "admin", 3, [])],
             ["editor", "owner", "viewer", "viewer", "viewer"],
         )
+
+
+class ClosedValues(unittest.TestCase):
+    """Role, Via and AuthProvider are closed Literal types; the tuples the runtime checks read are the same sets, and
+    text from outside becomes one of them only through is_role / is_auth_provider."""
+
+    def test_the_tuples_are_the_literal_types(self):
+        """ROLES and AUTH_PROVIDERS list exactly the members of Role and AuthProvider, in order."""
+        self.assertEqual(access.ROLES, typing.get_args(access.Role))
+        self.assertEqual(access.ROLES, ("owner", "editor", "viewer", "agent"))
+        self.assertEqual(access.AUTH_PROVIDERS, ("tailscale", "local", "trusted-proxy"))
+        self.assertEqual(typing.get_args(access.Via), ("header", "token", "loopback-agent", "local-owner"))
+        self.assertIn(access.DEFAULT_ROLE, access.ROLES)
+
+    def test_only_the_exact_names_parse(self):
+        """No case folding, padding or non-string passes: 'Owner', ' owner', b'owner' and None are not roles."""
+        self.assertTrue(all(access.is_role(r) for r in access.ROLES))
+        for bad in ("Owner", " owner", "admin", b"owner", None, 1, ["owner"]):
+            self.assertFalse(access.is_role(bad), bad)
+        self.assertTrue(all(access.is_auth_provider(a) for a in access.AUTH_PROVIDERS))
+        for bad in ("Tailscale", "trusted_proxy", "", None):
+            self.assertFalse(access.is_auth_provider(bad), bad)
+
+
+class PrincipalQuestions(unittest.TestCase):
+    """Principal.is_human and Principal.review_on_close: the two role questions the handler asks about an action."""
+
+    CASES = {
+        "person": Principal({"login": "bob@example.com", "name": "Bob"}, "editor", "header"),
+        "owner": Principal({"login": "dana", "name": "dana"}, "owner", "local-owner"),
+        "agent-role person": Principal({"login": "bob@example.com", "name": "Bob"}, "agent", "header"),
+        "token": Principal({"login": "agent:ci", "name": "ci"}, "agent", "token"),
+        "loopback agent": Principal(dict(access.LOCAL_ACTOR), "agent", "loopback-agent"),
+        "local owner named local": Principal({"login": "local", "name": "local"}, "owner", "local-owner"),
+    }
+
+    def test_only_a_person_without_the_agent_role_is_human(self):
+        """A person and the owner are human; the agent role, a token, the loopback agent and an actor whose login is
+        the agent's 'local' are not."""
+        self.assertEqual(
+            {name: p.is_human() for name, p in self.CASES.items()},
+            {
+                "person": True,
+                "owner": True,
+                "agent-role person": False,
+                "token": False,
+                "loopback agent": False,
+                "local owner named local": False,
+            },
+        )
+
+    def test_a_close_asks_review_for_the_agent_role_unless_the_request_says(self):
+        """An explicit review flag always wins; without one the agent role closes into review (True) and everyone
+        else leaves it to the close service (None)."""
+        for name, p in self.CASES.items():
+            self.assertEqual(p.review_on_close(False), False, name)
+            self.assertEqual(p.review_on_close(True), True, name)
+            self.assertEqual(p.review_on_close(None), True if p.role == "agent" else None, name)
 
 
 class Hosts(unittest.TestCase):

@@ -5,8 +5,9 @@ request, another process, an agent reading pins.md - must only ever see the old 
 half-written file. What gets written is the caller's business. store_lock serialises one read-modify-write of a
 state file across processes (the server and the `limn member` / `limn token` commands).
 
-tree_part is the one rule for what belongs to the manuscript tree (under the root, symlinks resolved, and under no
-dot-named part such as .git or .env). file_in_tree applies it to a path a request or SyncTeX names: the request
+tree_part is the one rule for what belongs to the manuscript tree (under the root, symlinks resolved, under no
+dot-named part such as .git or .env, and not in the state folder when --state-dir puts it inside the manuscript).
+file_in_tree applies it to a path a request or SyncTeX names: the request
 parsers (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own
 message. A close's recorded changes (limn.web.parse) and a stored pin path (limn.locate) are judged by tree_part too.
 
@@ -68,8 +69,8 @@ class BadPath:
 
 @dataclass(frozen=True)
 class OutsideTree:
-    """The path, symlinks resolved, lies outside the tree, lies under a dot-named part of it (tree_part), or cannot be
-    resolved at all."""
+    """The path, symlinks resolved, lies outside the tree, under a dot-named part of it or in the state folder
+    (tree_part), or cannot be resolved at all."""
 
 
 @dataclass(frozen=True)
@@ -80,34 +81,42 @@ class NotAFile:
 TreePathRefusal: TypeAlias = BadPath | OutsideTree | NotAFile
 
 
-def tree_part(p: Path, root: Path) -> Path | None:
+def tree_part(p: Path, root: Path, state: Path) -> Path | None:
     """p relative to the manuscript tree `root`, both with symlinks resolved, when p belongs to the tree; else None.
 
-    The tree is what lies under root minus every dot-named part below it: .git, .env, .ssh, .latexmkrc and the like
-    hold repository or machine secrets, never manuscript text, and a route that reads a named file (snippets,
-    overlaps, a pin's first line in pins.md) must not quote them. Only parts below root are judged, after resolving,
-    so a normal name that is a link into .git is refused and a root that itself lies under ~/.local is fine. None too
-    when either path cannot be resolved. Reads file metadata only; p need not exist."""
+    The tree is what lies under root minus every dot-named part below it and minus the instance's state folder
+    `state`. .git, .env, .ssh, .latexmkrc and the like hold repository or machine secrets, and a state folder that
+    --state-dir puts inside the manuscript holds people.json, tokens.json (hashes), audit.jsonl and events.jsonl -
+    never manuscript text, and a route that reads a named file (snippets, overlaps, a pin's first line in pins.md)
+    must not quote them. Only parts below root are judged, after resolving, so a normal name that is a link into .git
+    or the state folder is refused, a root that itself lies under ~/.local is fine, and a state folder above or beside
+    root takes nothing away (a state folder that is root itself takes everything). None too when a path cannot be
+    resolved. Reads file metadata only; p need not exist."""
     try:
-        rel = p.resolve().relative_to(root.resolve())
+        base = root.resolve()
+        real = p.resolve()
+        rel = real.relative_to(base)
+        held = state.resolve()
     except (ValueError, OSError, RuntimeError):
         return None
     if any(part.startswith(".") for part in rel.parts):
         return None
+    if held.is_relative_to(base) and real.is_relative_to(held):
+        return None
     return rel
 
 
-def file_in_tree(p: object, root: Path) -> Path | TreePathRefusal:
+def file_in_tree(p: object, root: Path, state: Path) -> Path | TreePathRefusal:
     """The real file inside the tree `root` that p names (absolute, or relative to root) as root / <relative path>, or
-    why not. Anything outside the tree (tree_part: outside root or under a dot-named part) is refused - its first line
-    would otherwise leak into pins.md. Resolving symlinks and checking the file read file metadata only, never
-    contents."""
+    why not. Anything outside the tree (tree_part: outside root, under a dot-named part or in the state folder `state`)
+    is refused - its first line would otherwise leak into pins.md. Resolving symlinks and checking the file read file
+    metadata only, never contents."""
     if not isinstance(p, str) or not p or "\x00" in p or len(p) > PATH_MAX_CHARS:
         return BadPath()
     q = Path(p)
     if not q.is_absolute():
         q = root / q
-    rel = tree_part(q, root)
+    rel = tree_part(q, root, state)
     if rel is None:
         return OutsideTree()
     out = root / rel

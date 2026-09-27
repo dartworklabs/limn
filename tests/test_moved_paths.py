@@ -219,8 +219,8 @@ class ChangesAfterAClone(ScopedRepo):
         clone = self.clone()
         (clone / "ms" / "linked").symlink_to(outside, target_is_directory=True)
         self.assertTrue((ps.C.src / "linked" / "only.tex").is_file())
-        self.assertIsNone(locate_file("/old/place/linked/only.tex", None, ps.C.src, None))
-        self.assertEqual(locate_file("/old/place/linked/main.tex", None, ps.C.src, None).rel, "main.tex")
+        self.assertIsNone(locate_file("/old/place/linked/only.tex", None, ps.C.src, ps.C.state, None))
+        self.assertEqual(locate_file("/old/place/linked/main.tex", None, ps.C.src, ps.C.state, None).rel, "main.tex")
 
 
 # ---------------------------------------------------------------- moving the manuscript between two server runs (v0.3.2, issue #7)

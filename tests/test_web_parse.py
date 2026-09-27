@@ -22,13 +22,16 @@ from limn.web.errors import InputRejected
 
 from helpers import Base, jreq, ps, split_resp
 
+# A state folder outside every temporary tree here: the tree rule then takes nothing away for it.
+NO_STATE = Path("/nonexistent-limn-state")
+
 
 class Facts:
     """A DocumentFacts over a real temporary manuscript tree, with the pages and builds given in memory."""
 
     def __init__(self, root: Path, is_pdf: bool = False, pages: dict | None = None, current: str = "pages"):
         """root is the tree; pages maps a build name to its page sizes; current names the build on screen."""
-        self.key, self.is_pdf, self.root = "rev" if is_pdf else "main", is_pdf, root
+        self.key, self.is_pdf, self.root, self.state = "rev" if is_pdf else "main", is_pdf, root, NO_STATE
         self.pdf = root / "review.pdf"
         self._pages = pages if pages is not None else {"pages": [(600.0, 800.0), (600.0, 800.0)]}
         self._current = current
@@ -77,14 +80,14 @@ class FileInTree(Tree):
 
     def test_a_file_in_the_tree_or_why_not(self):
         """Absolute and relative names give root/<rel>; a bad value, a path outside and a missing file are refused apart."""
-        self.assertEqual(file_in_tree("main.tex", self.root), self.root / "main.tex")
-        self.assertEqual(file_in_tree(str(self.root / "main.tex"), self.root), self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, NO_STATE), self.root / "main.tex")
+        self.assertEqual(file_in_tree(str(self.root / "main.tex"), self.root, NO_STATE), self.root / "main.tex")
         for bad in (None, 3, "", "a\x00b", "x" * 4097):
-            self.assertEqual(file_in_tree(bad, self.root), BadPath(), bad)
-        self.assertEqual(file_in_tree("/etc/passwd", self.root), OutsideTree())
-        self.assertEqual(file_in_tree("../x", self.root), OutsideTree())
-        self.assertEqual(file_in_tree("nope.tex", self.root), NotAFile())
-        self.assertEqual(file_in_tree(".", self.root), NotAFile())
+            self.assertEqual(file_in_tree(bad, self.root, NO_STATE), BadPath(), bad)
+        self.assertEqual(file_in_tree("/etc/passwd", self.root, NO_STATE), OutsideTree())
+        self.assertEqual(file_in_tree("../x", self.root, NO_STATE), OutsideTree())
+        self.assertEqual(file_in_tree("nope.tex", self.root, NO_STATE), NotAFile())
+        self.assertEqual(file_in_tree(".", self.root, NO_STATE), NotAFile())
 
     def test_a_dot_named_part_is_outside_the_tree(self):
         """A path whose part below the root starts with '.' (.git, .env, .ssh, .latexmkrc, ...) is OutsideTree even
@@ -102,9 +105,9 @@ class FileInTree(Tree):
         (Path(outside.name) / "secret.txt").write_text("s\n", encoding="utf-8")
         (self.root / "away.tex").symlink_to(Path(outside.name) / "secret.txt")
         for name in (".git/config", "sub/.git/config", ".env", "notes.tex", "away.tex", str(self.root / ".env")):
-            self.assertEqual(file_in_tree(name, self.root), OutsideTree(), name)
+            self.assertEqual(file_in_tree(name, self.root, NO_STATE), OutsideTree(), name)
         self.assertEqual(
-            parse.source_file(".git/config", self.root),
+            parse.source_file(".git/config", self.root, NO_STATE),
             InputRejected("원고 디렉토리 밖의 파일입니다: .git/config", "file_outside_manuscript"),
         )
 
@@ -112,21 +115,76 @@ class FileInTree(Tree):
         """Only a part below the root is judged: a dotted file name (a.b.tex) and a root that itself lies under a
         dot folder (~/.local/paper) still name files in the tree."""
         (self.root / "a.b.tex").write_text("x\n", encoding="utf-8")
-        self.assertEqual(file_in_tree("a.b.tex", self.root), self.root / "a.b.tex")
+        self.assertEqual(file_in_tree("a.b.tex", self.root, NO_STATE), self.root / "a.b.tex")
         hidden_root = self.root / ".local" / "paper"
         hidden_root.mkdir(parents=True)
         (hidden_root / "main.tex").write_text("x\n", encoding="utf-8")
-        self.assertEqual(file_in_tree("main.tex", hidden_root), hidden_root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", hidden_root, NO_STATE), hidden_root / "main.tex")
+
+    def test_the_state_folder_inside_the_tree_is_outside_it(self):
+        """--state-dir inside the manuscript under a normal name: every path in that folder (by relative or absolute
+        name, through '..', or through a normal-looking link) is OutsideTree - it holds people.json, tokens.json's
+        hashes, audit.jsonl and events.jsonl. The folder's neighbours stay in the tree, a same-prefixed sibling
+        (limn-state2) included, because the rule compares path parts, not strings."""
+        state = self.root / "limn-state"
+        (state / "docs" / "main").mkdir(parents=True)
+        for name in ("people.json", "tokens.json", "audit.jsonl", "events.jsonl", "docs/main/builds.json"):
+            (state / name).write_text("{}\n", encoding="utf-8")
+        (self.root / "notes.tex").symlink_to(state / "people.json")
+        (self.root / "limn-state2").mkdir()
+        (self.root / "limn-state2" / "a.tex").write_text("x\n", encoding="utf-8")
+        for name in (
+            "limn-state/people.json",
+            "limn-state/tokens.json",
+            "limn-state/audit.jsonl",
+            "limn-state/events.jsonl",
+            "limn-state/docs/main/builds.json",
+            "limn-state/../limn-state/people.json",
+            str(state / "tokens.json"),
+            "notes.tex",
+            "limn-state",
+        ):
+            self.assertEqual(file_in_tree(name, self.root, state), OutsideTree(), name)
+        self.assertEqual(file_in_tree("main.tex", self.root, state), self.root / "main.tex")
+        self.assertEqual(file_in_tree("limn-state2/a.tex", self.root, state), self.root / "limn-state2" / "a.tex")
+        self.assertEqual(
+            parse.source_file("limn-state/people.json", self.root, state),
+            InputRejected("원고 디렉토리 밖의 파일입니다: limn-state/people.json", "file_outside_manuscript"),
+        )
+
+    def test_a_state_folder_reached_through_a_link_is_judged_resolved(self):
+        """A --state-dir given as a link that resolves inside the tree is the same folder: its files are refused by
+        their real names too."""
+        (self.root / "real-state").mkdir()
+        (self.root / "real-state" / "people.json").write_text("{}\n", encoding="utf-8")
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        link = Path(elsewhere.name) / "state-link"
+        link.symlink_to(self.root / "real-state")
+        self.assertEqual(file_in_tree("real-state/people.json", self.root, link), OutsideTree())
+
+    def test_a_state_folder_beside_or_above_the_root_takes_nothing_away(self):
+        """Only a state folder inside the tree is cut out of it. One beside the manuscript changes nothing, and so
+        does one that holds the manuscript (--state-dir ~/work, --manuscript ~/work/paper): the state files are
+        then outside the tree already. A state folder that is the root itself leaves nothing in the tree."""
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        beside = Path(elsewhere.name)
+        self.assertEqual(file_in_tree("main.tex", self.root, beside), self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, self.root.parent), self.root / "main.tex")
+        self.assertEqual(file_in_tree("main.tex", self.root, self.root), OutsideTree())
 
     def test_source_file_answers_each_refusal_with_its_message(self):
         """The 400 texts name the path as sent."""
-        self.assertEqual(parse.source_file(3, self.root), InputRejected("file 이 올바르지 않습니다.", "bad_file"))
         self.assertEqual(
-            parse.source_file("/etc/passwd", self.root),
+            parse.source_file(3, self.root, NO_STATE), InputRejected("file 이 올바르지 않습니다.", "bad_file")
+        )
+        self.assertEqual(
+            parse.source_file("/etc/passwd", self.root, NO_STATE),
             InputRejected("원고 디렉토리 밖의 파일입니다: /etc/passwd", "file_outside_manuscript"),
         )
         self.assertEqual(
-            parse.source_file("nope.tex", self.root),
+            parse.source_file("nope.tex", self.root, NO_STATE),
             InputRejected("원고 안에 그런 파일이 없습니다: nope.tex", "file_not_found"),
         )
 
@@ -190,13 +248,13 @@ class Fields(unittest.TestCase):
         """Paths are resolved against the root and must stay in it; the first bad item is named."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            got = parse.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 2}], root)
+            got = parse.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 2}], root, NO_STATE)
             self.assertEqual(got, (parse.CloseChange(str(root / "a.tex"), 1, 2),))
             self.assertEqual(got[0].record(), {"file": str(root / "a.tex"), "lo": 1, "hi": 2})
-            self.assertIsNone(parse.parse_close_changes([], root))
+            self.assertIsNone(parse.parse_close_changes([], root, NO_STATE))
             self.assertEqual(
                 parse.parse_close_changes(
-                    [{"file": "a.tex", "lo": 1, "hi": 1}, {"file": "../b", "lo": 1, "hi": 1}], root
+                    [{"file": "a.tex", "lo": 1, "hi": 1}, {"file": "../b", "lo": 1, "hi": 1}], root, NO_STATE
                 ),
                 InputRejected(
                     "changes[1].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.", "change_outside_manuscript"
@@ -210,13 +268,33 @@ class Fields(unittest.TestCase):
             root = Path(tmp).resolve()
             for name in (".env", "sub/.git/config", str(root / ".git" / "HEAD")):
                 self.assertEqual(
-                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root),
+                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, NO_STATE),
                     InputRejected(
                         "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
                         "change_outside_manuscript",
                     ),
                     name,
                 )
+
+    def test_close_changes_refuse_a_path_in_the_state_folder(self):
+        """A recorded change in a state folder inside the manuscript is refused like one outside the folder; a
+        change beside it is recorded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            state = root / "limn-state"
+            for name in ("limn-state/people.json", str(state / "audit.jsonl")):
+                self.assertEqual(
+                    parse.parse_close_changes([{"file": name, "lo": 1, "hi": 1}], root, state),
+                    InputRejected(
+                        "changes[0].file 은 원고 폴더(--manuscript) 안의 파일이어야 합니다.",
+                        "change_outside_manuscript",
+                    ),
+                    name,
+                )
+            self.assertEqual(
+                parse.parse_close_changes([{"file": "a.tex", "lo": 1, "hi": 1}], root, state),
+                (parse.CloseChange(str(root / "a.tex"), 1, 1),),
+            )
 
     def test_claim_body_checks_eta_first_and_clamps(self):
         """eta_min is refused before ttl_min; values above the ceiling are clamped; ttl follows eta when absent."""

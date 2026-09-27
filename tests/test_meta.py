@@ -284,7 +284,7 @@ class DocumentFactsReads(Fixture):
         old = self.pages(self.ms, "pages-20260101000000")
         new = self.pages(self.ms, "pages-20260102000000")
         (new / "page-2.png").write_bytes(PNG)
-        facts = documents.DocumentFacts(self.ms, self.src, 150)
+        facts = documents.DocumentFacts(self.ms, self.src, self.state, 150)
         self.assertEqual((facts.current_build(), facts.page_count(None), facts.page_count(old.name)), (new.name, 2, 1))
         self.assertEqual(facts.pick_pages(None), (new, [(144.0, 72.0), (144.0, 72.0)]))
         self.assertIsNone(facts.pick_pages("pages-20250101000000"))
