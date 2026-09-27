@@ -77,8 +77,8 @@ class DocumentVisitActions(unittest.TestCase):
               await switchDoc('third');await switchDoc('other');
               firstOtherResolve({data:{pages:[],pages_build:'same'}});
               await old;
-              console.log(JSON.stringify({doc:DOC,target:REV_TARGET,modeCalls}));
+              console.log(JSON.stringify({doc:DOC,target:REV_TARGET,back:REV_BACK,modeCalls}));
             })();
             """,
         )
-        self.assertEqual(result, {"doc": "other", "target": None, "modeCalls": 0})
+        self.assertEqual(result, {"doc": "other", "target": None, "back": None, "modeCalls": 0})

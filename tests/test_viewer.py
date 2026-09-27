@@ -1641,7 +1641,7 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
         self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
-        self.assertIn("REV_BACK=DOC", extract_js_fn("showChange"))
+        self.assertIn("if(fromManuscript)REV_BACK=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_source_diff_wrap_toggle_defaults_on_touch(self):
