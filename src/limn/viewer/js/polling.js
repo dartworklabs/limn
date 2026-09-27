@@ -39,8 +39,9 @@ async function pollLightOnce(){
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
-  if(LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME)) await loadPins();
-  LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;
+  // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
+  const needsPins=LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME);
+  if(!needsPins||await loadPins()){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).
   if(d.build&&d.build.state===BUILD_STATE.RUNNING&&!BUILD_TIMER)pollBuild();
@@ -101,4 +102,3 @@ function reviewToast(prev,d){if(!prev||!prev.length)return; const known=new Map(
   prev.forEach(p=>{const n=known.get(p.id); if(!n)return; const st=pinState(n); if(st===PIN_STATE.REVIEW)return; if(consumeMine(p.id))return;
     if(st===PIN_STATE.DONE)toast(tl('#{id} 확인됨',{id:p.id})+(n.confirmed_by?' · '+who(n.confirmed_by):''),'ok');
     else toast(tl('#{id} 다시 열림',{id:p.id})+(n.reopened_by?' · '+who(n.reopened_by):''),'warn',null,{keys:[EVENT_TYPE.REOPENED+':'+p.id]});});}
-

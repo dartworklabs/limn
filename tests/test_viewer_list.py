@@ -42,7 +42,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0;
+                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
                 const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],toasts=[];
                 let firstTrash;
                 function api(url){
@@ -86,7 +86,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0;
+                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
                 const SEC_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
                 function api(url){
@@ -124,6 +124,55 @@ class PinListLoading(unittest.TestCase):
                 "trashReads": 1,
                 "calls": [["diff", [2]], ["review", [2]], ["draw", [2]]],
             },
+        )
+
+    def test_failed_newer_poll_keeps_older_success_and_retries_revision(self):
+        """A failed newer pin fetch cannot discard an older success or mark its meta revision as loaded."""
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("derivePinLists"),
+                extract_js_fn("applyPinLists"),
+                extract_js_fn("loadPins"),
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
+                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',LAST_BUILD_SEQ=0,BUILD_TIMER=null,POLL_FAILS=0;
+                const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
+                const document={hidden:false};
+                let pinReads=0,firstTrash;
+                function api(url){
+                  if(url==='/api/pins?all=1'){
+                    pinReads++;
+                    return pinReads===1 ? Promise.resolve({data:[{id:1}]})
+                      : Promise.reject(Error('offline'));
+                  }
+                  if(url==='/api/pins/dropped')return new Promise(resolve=>{firstTrash=resolve;});
+                  if(url==='/api/meta?light=1')return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:0}});
+                  throw Error(url);
+                }
+                function dq(url){return url;} function notifyQuery(){return '';}
+                function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
+                function noteOtherDocs(){} function loadPeople(){} function pollBuild(){}
+                function $(sel){return {hidden:true};}
+                function diffToast(){} function reviewToast(){}
+                function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
+                function marks(){} function drawDocTabs(){} function docTitle(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                const old=loadPins();
+                setImmediate(async()=>{
+                  await pollLightOnce();
+                  firstTrash({data:{dropped:[]}}); await old;
+                  console.log(JSON.stringify({open:OPEN_ALL.map(p=>p.id),rev:LAST_PINS_REV,
+                    src:LAST_SRC_MTIME,drawn}));
+                });
+                """,
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            {"open": [1], "rev": "old", "src": "old-src", "drawn": [[1]]},
         )
 
     def test_cached_document_switch_shows_its_done_rows_before_refresh(self):

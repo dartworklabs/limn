@@ -2,8 +2,8 @@
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name.
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
   if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE); PEOPLE=r.people; if(JSON.stringify(PEOPLE)!==was)drawPins();}}catch(e){}}
-// A refresh that started earlier must not replace the rows or transition notices from a newer request.
-let PINS_LOAD_SEQ=0;
+// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
+let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.
 function derivePinLists(rows,doc,defaultDoc){
   const openAll=[],reviewAll=[],doneAll=[],openHere=[],doneHere=[];
@@ -26,16 +26,18 @@ function applyPinLists(rows,dropped,lists){
   if(CUR){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
 }
-// Fetches one pin snapshot and its Trash, accepting it only while this remains the latest refresh.
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it.
 async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
-  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return;}
-  if(seq!==PINS_LOAD_SEQ)return;
+  try{d=(await api('/api/pins?all=1',{what:'핀 읽기'})).data;}catch(e){return false;}
+  if(seq<PINS_APPLIED_SEQ)return false;
   loadPeople();
   let dropped=[];
   try{dropped=(await api('/api/pins/dropped',{what:'삭제한 핀',silent:true})).data.dropped||[];}catch(e){}
-  if(seq!==PINS_LOAD_SEQ)return;
+  if(seq<PINS_APPLIED_SEQ)return false;
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
   applyPinLists(d,dropped,derivePinLists(d,DOC,DEFAULT_DOC));
+  PINS_APPLIED_SEQ=seq;
+  return true;
 }
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
 function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
