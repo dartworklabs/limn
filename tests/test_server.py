@@ -486,7 +486,7 @@ class OverlapRoutes(Base):
         self.assertEqual(d["pdf_build"], limn_build.cur_pages(ps.DOCS[0]).name)
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
-        time.sleep(1.1)
+        # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
         self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
@@ -1085,7 +1085,7 @@ class MultiDoc(Base):
         self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
         self.assertTrue(limn_build.pdf_changed(rv))
-        time.sleep(1.1)  # page directory names are second-granularity
+        # a render within the same second still gets a page directory of its own (test_build.Outcomes)
         res = ps._build_tracked(rv)
         self.assertIsInstance(res, BuildOk)
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
@@ -1119,25 +1119,28 @@ class ClaimEta(Base):
             self.assertEqual(split_resp(out)[0], 400, bad)
 
     def test_http_claim_clamps_over_limit_values_for_old_agents(self):
-        # an agent that claimed with ttl_min=480 per the old skill procedure doesn't break when extending with the same value (200, applied as 120).
+        """An agent that claims with ttl_min=480 (the old skill procedure) gets 200 with 120 applied, and extending with
+        the same values clamps eta_min to 240; deadlines are measured from the frozen clock, so they are exact."""
         pid = self.add()
         hj = {"Content-Type": "application/json"}
-        t0 = time.time()
-        out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480}).encode(), hj))
+        t0 = 1790384400.0  # 2026-09-26 10:00:00 +09:00
+        with mock.patch("time.time", return_value=t0):
+            out = self.talk(req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480}).encode(), hj))
         code, _, body = split_resp(out)
         self.assertEqual(code, 200)
         got = json.loads(body)
         self.assertEqual(got["ttl_min_applied"], 120)
         self.assertNotIn("eta_min_applied", got)
-        self.assertAlmostEqual(got["pin"]["claim_until"], t0 + 120 * 60, delta=5)
-        out = self.talk(
-            req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480, "eta_min": 300}).encode(), hj)
-        )
+        self.assertEqual(got["pin"]["claim_until"], t0 + 120 * 60)
+        with mock.patch("time.time", return_value=t0):
+            out = self.talk(
+                req("POST", "/api/pins/%d/claim" % pid, json.dumps({"ttl_min": 480, "eta_min": 300}).encode(), hj)
+            )
         code, _, body = split_resp(out)
         self.assertEqual(code, 200)  # extending under the same identity (no header = local/agent)
         got = json.loads(body)
         self.assertEqual((got["ttl_min_applied"], got["eta_min_applied"]), (120, 240))
-        self.assertAlmostEqual(got["pin"]["eta_ts"], time.time() + 240 * 60, delta=5)
+        self.assertEqual(got["pin"]["eta_ts"], t0 + 240 * 60)
 
 
 class ClaimEtaDocs(unittest.TestCase):

@@ -22,9 +22,11 @@ from limn.pins.lifecycle import CloseRequest
 
 from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
-from helpers_browser import BrowserBase
+from helpers_browser import BrowserBase, booted, nothing_follows, settle, watch_idle
 
 HANGUL = re.compile(r"[가-힣]")
+# boot() has finished on the ViewerBase fixture (three open pins).
+BOOTED = booted(3)
 DESK = {"viewport": {"width": 1400, "height": 850}}
 LAP = {"viewport": {"width": 1280, "height": 720}}
 FOLD = {"viewport": {"width": 842, "height": 758}, "is_mobile": True, "has_touch": True}
@@ -309,7 +311,8 @@ class ViewerBase(BrowserBase):
         ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
-        """Open the viewer on a device preset. prefs = pinPrefs before boot (coach marks are pre-seen unless given)."""
+        """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.
+        prefs = pinPrefs before boot (coach marks are pre-seen unless given)."""
         p = {"coach": {"touch": 1, "mouse": 1, "sel": 1}}
         p.update(prefs or {})
         if dark:
@@ -322,13 +325,14 @@ class ViewerBase(BrowserBase):
         )
         if init:
             context.add_init_script(init)
+        watch_idle(context)
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
         page.goto("http://viewer.test/?lang=%s%s" % (lang, hash_))
-        page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=3&&META", timeout=20000)
-        page.wait_for_timeout(300)
+        page.wait_for_function(BOOTED, timeout=20000)
+        settle(page)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
 
@@ -346,7 +350,10 @@ class ViewerBase(BrowserBase):
         )
 
     def swipe(self, cdp, x0, y0, x1, y1, steps=12, dt=0.016, hold=0.0):
-        """A one-finger drag from (x0,y0) to (x1,y1) in steps, dt seconds apart (hold = still time before moving)."""
+        """A one-finger drag from (x0,y0) to (x1,y1) in steps, dt seconds apart (hold = still time before moving).
+
+        The sleeps are the finger's timing, not waits for the page: dt sets the drag's speed and hold a still press, and
+        only their lower bound matters - a loaded machine stretches them, the way a slower finger would."""
         self.touch(cdp, "touchStart", [(x0, y0)])
         if hold:
             time.sleep(hold)
@@ -356,10 +363,18 @@ class ViewerBase(BrowserBase):
         self.touch(cdp, "touchEnd", [])
 
     def tap(self, cdp, x, y, hold=0.05):
-        """A short tap (hold = how long the finger stays down)."""
+        """A short tap (hold = how long the finger stays down - the finger's timing, as in swipe(), not a wait)."""
         self.touch(cdp, "touchStart", [(x, y)])
         time.sleep(hold)
         self.touch(cdp, "touchEnd", [])
+
+    @staticmethod
+    def before_next_tap(page):
+        """The finger's pause before tapping the same spot again: 500ms, past the browser's double-tap window and the
+        viewer's 400ms swallow window (SWALLOW_CLICK), so the next tap is a new single tap, as a person's would be. Like
+        swipe()'s dt this is input timing, not a wait for the page: only its lower bound matters (each CDP touch event
+        returns once the page has handled it, so the pause starts after the previous tap landed)."""
+        page.wait_for_timeout(500)
 
     @staticmethod
     def center(page, sel):
@@ -374,14 +389,18 @@ class ViewerBase(BrowserBase):
         return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
 
     def long_press_pick(self, cdp, page, x=None, y=None):
-        """A long-press quick selection at (x, y) (default: a clear spot near the top of page 1); waits for the composer."""
+        """A long-press quick selection at (x, y) (default: a clear spot near the top of page 1); waits for the composer.
+
+        The finger stays down until the long-press timer has picked (LP_PICKED is its pointer), as a person holds until
+        the selection appears. A fixed 0.6s hold raced the 450ms timer on a loaded machine: the lift could reach the page
+        before the late timer ran and cancel the press."""
         if x is None:
             x, y = self.on_page(page, 0.3, 0.1)
         self.touch(cdp, "touchStart", [(x, y)])
-        time.sleep(0.6)
+        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
         self.touch(cdp, "touchEnd", [])
         page.wait_for_function("CUR&&CUR.lo&&!document.querySelector('#composer').hidden", timeout=8000)
-        page.wait_for_timeout(300)
+        settle(page)
 
     def mouse_pick(self, page):
         """A mouse drag on page 1 (clear of the marks) through the real pick path; the in-process server answers /api/pick."""
@@ -393,7 +412,7 @@ class ViewerBase(BrowserBase):
         page.mouse.move(x1, y1, steps=5)
         page.mouse.up()
         page.wait_for_function("CUR&&CUR.lo&&!document.querySelector('#composer').hidden", timeout=8000)
-        page.wait_for_timeout(100)
+        settle(page)
 
 
 # ---------------------------------------------------------------- A. collapsing the panel with a mouse (wide)
@@ -485,7 +504,7 @@ class DesktopPanelCollapse(ViewerBase):
         (s,) = self.drag_grip(page, [300], release=False)
         self.assertEqual((s["blocked"], s["preview"], s["gripCursor"], s["w"]), (True, False, "not-allowed", 280))
         page.mouse.up()
-        page.wait_for_timeout(400)
+        settle(page)
         s = page.evaluate(PROBE)
         self.assertEqual((s["open"], s["w"]), (True, 280))
         self.assertEqual(page.locator("#toasts .toast").count(), 0)
@@ -499,7 +518,7 @@ class DesktopPanelCollapse(ViewerBase):
             "document.querySelector('#grip').dispatchEvent(new PointerEvent('pointercancel',{pointerId:window.__pid,bubbles:true}))"
         )
         page.mouse.up()
-        page.wait_for_timeout(300)
+        settle(page)
         s = page.evaluate(PROBE)
         self.assertEqual((s["open"], s["w"], s["preview"]), (True, 380, False))
 
@@ -537,7 +556,7 @@ class DesktopPanelCollapse(ViewerBase):
         self.mouse_pick(page)
         page.locator("#note").focus()
         page.keyboard.press("Control+Backslash")
-        page.wait_for_timeout(200)
+        settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN"))  # ignored inside a text field
 
     def test_ctrl_backslash_works_at_every_width(self):
@@ -649,7 +668,7 @@ class ReviewRegressions(ViewerBase):
         page.evaluate("""() => {const g = document.querySelector('#grip'), r = g.getBoundingClientRect(),
           o = {pointerId: 7, pointerType: 'mouse', button: 0, bubbles: true, clientX: r.left + 3, clientY: 300};
           toggleSide(); g.dispatchEvent(new PointerEvent('pointerdown', o)); g.dispatchEvent(new PointerEvent('pointerup', o));}""")
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertEqual(page.evaluate("[SIDE_OPEN, document.body.classList.contains('side-open')]"), [False, False])
         self.assertTrue(page.locator("#nav-side").is_visible())
 
@@ -688,30 +707,30 @@ class ReviewRegressions(ViewerBase):
         cdp = self.cdp(page)
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
-        page.wait_for_timeout(300)
+        settle(page)
         y = page.locator("#list").bounding_box()["y"] + 40
         self.touch(cdp, "touchStart", [(190, y)])
         for i in range(1, 6):
             self.touch(cdp, "touchMove", [(190, y + 20 * i)])
-            time.sleep(0.02)
+            time.sleep(0.02)  # the finger's timing, as in swipe()
         self.touch(cdp, "touchStart", [(190, y + 100), (300, y + 60)])
         self.touch(cdp, "touchEnd", [])
-        page.wait_for_timeout(300)
+        settle(page)
         self.assertFalse(page.evaluate("document.body.classList.contains('resizing')"))
         page = self.view(FOLD)
         cdp = self.cdp(page)
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN&&MID_OVERLAY")
-        page.wait_for_timeout(300)
+        settle(page)
         r = page.locator("#right").bounding_box()
         x, y = r["x"] + 40, r["y"] + 150
         self.touch(cdp, "touchStart", [(x, y)])
         for i in range(1, 8):
             self.touch(cdp, "touchMove", [(x + 12 * i, y)])
-            time.sleep(0.02)
+            time.sleep(0.02)  # the finger's timing, as in swipe()
         self.touch(cdp, "touchStart", [(x + 84, y), (x + 20, y + 200)])
         self.touch(cdp, "touchEnd", [])
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertEqual(
             page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--swipe-x').trim()||'0px'"),
             "0px",
@@ -723,7 +742,8 @@ class ReviewRegressions(ViewerBase):
 
 
 DRAFT_KEYS = "Object.keys(sessionStorage).filter(k=>k.startsWith('limnDraft:'))"
-BOOTED = "typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=3&&META"
+# The debounced draft save has run and stored a draft whose note is the argument (no save left pending).
+DRAFT_SAVED = "n=>DRAFT_T===0&&%s.some(k=>JSON.parse(sessionStorage.getItem(k)).note===n)" % DRAFT_KEYS
 
 
 class DraftPersistence(ViewerBase):
@@ -732,18 +752,18 @@ class DraftPersistence(ViewerBase):
     Saving clears it; discarding clears it once the undo window is over (coordinator decision 2026-09-26)."""
 
     def reload(self, page):
-        """Reload and wait for the viewer to boot again."""
+        """Reload and wait for the viewer to boot again (its draft restored) and settle."""
         page.reload()
         page.wait_for_function(BOOTED, timeout=20000)
-        page.wait_for_timeout(400)
+        settle(page)
 
     def draft(self, page, note, question=False):
-        """Pick with the mouse, write a note (and switch to a question), then give the debounced save time."""
+        """Pick with the mouse, write a note (and switch to a question), then wait for the debounced save to store it."""
         self.mouse_pick(page)
         page.locator("#note").fill(note)
         if question:
             page.locator('#c-kind [data-kind="question"]').click()
-        page.wait_for_timeout(600)
+        page.wait_for_function(DRAFT_SAVED, arg=note)
         return page.evaluate("CUR.lo")
 
     def restored(self, page):
@@ -775,15 +795,15 @@ class DraftPersistence(ViewerBase):
         self.long_press_pick(cdp, page)
         lo = page.evaluate("CUR.lo")
         page.locator("#note").fill("폰에서 쓰던 메모")
-        page.wait_for_timeout(600)
+        page.wait_for_function(DRAFT_SAVED, arg="폰에서 쓰던 메모")
         page.go_back()
         page.wait_for_function("!SIDE_OPEN")
         page.go_back()
-        page.wait_for_timeout(300)
+        page.wait_for_url(lambda url: "viewer.test" not in url)
         self.assertNotIn("viewer.test", page.url)
         page.go_forward()
         page.wait_for_function(BOOTED, timeout=20000)
-        page.wait_for_timeout(400)
+        settle(page)
         got = self.restored(page)
         self.assertEqual(got[:3], [True, lo, "폰에서 쓰던 메모"])
         self.assertTrue(page.evaluate("SIDE_OPEN"))  # a restored draft opens the collapsed sheet
@@ -802,7 +822,7 @@ class DraftPersistence(ViewerBase):
         self.assertTrue(undo.is_visible())
         self.assertEqual(len(page.evaluate(DRAFT_KEYS)), 1)  # still restorable during the undo window
         undo.locator("button[aria-label]").click()  # [x] ends the window
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertEqual(page.evaluate(DRAFT_KEYS), [])
         self.reload(page)
         self.assertEqual(self.restored(page)[:3], [False, None, ""])
@@ -817,7 +837,7 @@ class DraftPersistence(ViewerBase):
         page.locator("#note").focus()
         page.keyboard.press("Escape")
         page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
-        page.wait_for_timeout(400)
+        settle(page)
         self.reload(page)
         self.assertEqual(self.restored(page)[:3], [False, None, ""])
 
@@ -891,7 +911,7 @@ class FoldOverlay(ViewerBase):
         """Tap [핀 N] and wait for the overlay."""
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN&&MID_OVERLAY")
-        page.wait_for_timeout(250)
+        settle(page)
 
     def panel_point(self, page):
         """A point on the list inside the panel, clear of buttons."""
@@ -907,7 +927,7 @@ class FoldOverlay(ViewerBase):
         self.touch(cdp, "touchStart", [(x, y)])
         for i in range(1, 7):
             self.touch(cdp, "touchMove", [(x + 10 * i, y + 1)])
-            time.sleep(0.03)
+            time.sleep(0.03)  # the finger's timing, as in swipe()
         followed = page.evaluate("document.querySelector('#right').getBoundingClientRect().right")
         self.assertGreater(followed, 842 + 40)  # right: -dx, not a transform
         for i in range(7, 16):
@@ -924,7 +944,7 @@ class FoldOverlay(ViewerBase):
         self.open_panel(page, cdp)
         x, y = self.panel_point(page)
         self.swipe(cdp, x, y, x + 60, y, steps=12, dt=0.06)
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
         self.assertEqual(
             page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right)"), 842
@@ -941,25 +961,26 @@ class FoldOverlay(ViewerBase):
         self.touch(cdp, "touchStart", [(x, y)])
         for i in range(1, 16):
             self.touch(cdp, "touchMove", [(x + 15 * i, y)])
-            time.sleep(0.02)
+            time.sleep(0.02)  # the finger's timing, as in swipe()
         shift = page.evaluate("842-document.querySelector('#right').getBoundingClientRect().right")
         self.assertGreaterEqual(shift, -24.5)
         self.assertLess(shift, 0)
         self.touch(cdp, "touchEnd", [])
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN&&!document.querySelector('#composer').hidden"))
 
     def follow_during(self, page, cdp, x, y, dx, dy=0, hold=0.0):
-        """Drag from (x,y) by (dx,dy) and report how far the panel's right edge moved before the finger lifts."""
+        """Drag from (x,y) by (dx,dy) and report how far the panel's right edge moved before the finger lifts (hold = a
+        still press before moving; the sleeps are the finger's timing, as in swipe())."""
         self.touch(cdp, "touchStart", [(x, y)])
         if hold:
             time.sleep(hold)
         for i in range(1, 11):
             self.touch(cdp, "touchMove", [(x + dx * i / 10, y + dy * i / 10)])
-            time.sleep(0.02)
+            time.sleep(0.02)  # the finger's timing, as in swipe()
         moved = page.evaluate("Math.round(document.querySelector('#right').getBoundingClientRect().right-innerWidth)")
         self.touch(cdp, "touchEnd", [])
-        page.wait_for_timeout(350)
+        settle(page)
         return moved
 
     def test_swipes_starting_on_scrollers_fields_or_after_a_still_press_are_ignored(self):
@@ -996,7 +1017,7 @@ class FoldOverlay(ViewerBase):
         page.evaluate("document.querySelector('#left').scrollTop=0")
         p1 = page.locator("#p1").bounding_box()
         self.long_press_pick(cdp, page, p1["x"] + p1["width"] * 0.78, p1["y"] + 300)
-        page.wait_for_timeout(400)
+        settle(page)
         box = page.locator(".sel.pending").bounding_box()
         panel = page.locator("#right").bounding_box()
         self.assertLessEqual(box["x"] + box["width"], panel["x"])
@@ -1008,11 +1029,14 @@ class FoldOverlay(ViewerBase):
         self.open_panel(page, cdp)
         page.evaluate(CLICKS)
         widths = []
-        for _ in range(4):
+        for i in range(4):
+            if i:
+                self.before_next_tap(page)
             g = page.locator("#grip").bounding_box()
             self.tap(cdp, g["x"] + g["width"] / 2, 240)
-            page.wait_for_timeout(500)
+            settle(page)
             widths.append(page.evaluate(PROBE)["w"])
+        nothing_follows(page)  # the taps' ghost clicks
         self.assertEqual(len(set(widths)), 3)
         self.assertEqual([c for c in page.evaluate("window.__clicks") if c != "grip"], [])
         self.assertEqual(page.evaluate("[...document.querySelectorAll('.pin.editing')].length"), 0)
@@ -1024,11 +1048,12 @@ class FoldOverlay(ViewerBase):
                 page = self.view(dev)
                 cdp = self.cdp(page)
                 self.tap(cdp, *self.center(page, "#btn-select"))
-                page.wait_for_timeout(300)
+                page.wait_for_function("SELMODE")  # the tap's click reached [선택]
+                settle(page)
                 page.evaluate(CLICKS)
                 self.tap(cdp, x, y)
                 page.wait_for_function("CUR&&CUR.lo", timeout=8000)
-                page.wait_for_timeout(400)
+                nothing_follows(page)  # the tap-pick's ghost click and focus
                 self.assertEqual(page.evaluate("window.__clicks"), [])
                 self.assertEqual(page.evaluate("KIND_NEW"), "fix")
                 self.assertNotEqual(page.evaluate("document.activeElement.id"), "note")
@@ -1051,10 +1076,10 @@ class FoldOverlay(ViewerBase):
         cdp = self.cdp(page)
         for start in ((200, 300), (20, 300)):
             self.swipe(cdp, start[0], start[1], start[0] + 250, start[1] + 10)
-            page.wait_for_timeout(500)
+            nothing_follows(page)  # a back navigation the swipe would start
         self.open_panel(page, cdp)
         self.swipe(cdp, 200, 300, 450, 310)
-        page.wait_for_timeout(500)
+        nothing_follows(page)
         self.assertEqual(navs, [])
         css = page.evaluate(
             "[getComputedStyle(document.documentElement).overscrollBehaviorX,getComputedStyle(document.body).overscrollBehaviorX,"
@@ -1106,7 +1131,7 @@ class FoldOverlay(ViewerBase):
         cdp = self.cdp(page)
         r = page.locator("#right").bounding_box()
         self.swipe(cdp, r["x"] + 30, r["y"] + 150, r["x"] + 330, r["y"] + 150, steps=6, dt=0.01)
-        page.wait_for_timeout(400)
+        settle(page)
         self.assertTrue(page.evaluate("SIDE_OPEN"))
 
 
@@ -1125,7 +1150,7 @@ class PhoneSheet(ViewerBase):
         page.evaluate(CLICKS)
         x, y = self.center(page, "#btn-select")
         self.swipe(cdp, x, y, x, y - 350, steps=10)
-        page.wait_for_timeout(400)
+        settle(page)
         s = page.evaluate(self.SH)
         self.assertTrue(s["open"])
         self.assertLess(s["top"], 500)
@@ -1141,11 +1166,11 @@ class PhoneSheet(ViewerBase):
         cdp = self.cdp(page)
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
-        page.wait_for_timeout(300)
+        settle(page)
         top0 = page.evaluate(self.SH)["top"]
         y = page.locator("#list").bounding_box()["y"] + 60
         self.swipe(cdp, 190, y, 190, y + 120, steps=12, dt=0.03)
-        page.wait_for_timeout(300)
+        settle(page)
         s = page.evaluate(self.SH)
         self.assertTrue(s["open"])
         self.assertGreater(s["top"], top0 + 80)
@@ -1159,10 +1184,10 @@ class PhoneSheet(ViewerBase):
         cdp = self.cdp(page)
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
-        page.wait_for_timeout(300)
+        settle(page)
         x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, y - 60, steps=2, dt=0)
-        page.wait_for_timeout(300)
+        settle(page)
         self.assertAlmostEqual(page.evaluate("prefs().sheetF"), 0.64, delta=0.01)
         x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, y + 70, steps=3, dt=0.01)
@@ -1175,7 +1200,7 @@ class PhoneSheet(ViewerBase):
         self.long_press_pick(cdp, page)
         x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, 825, steps=14)
-        page.wait_for_timeout(400)
+        settle(page)
         s = page.evaluate(self.SH)
         self.assertTrue(s["open"])
         self.assertAlmostEqual(s["h"] / 832, 0.3, delta=0.02)
@@ -1186,10 +1211,13 @@ class PhoneSheet(ViewerBase):
         page = self.view(PHONE)
         cdp = self.cdp(page)
         page.evaluate(CLICKS)
-        for _ in range(5):
+        for i in range(5):
+            if i:
+                self.before_next_tap(page)
+            settle(page)  # the sheet has stopped where the last tap moved it
             x, y = self.center(page, "#sheet-grip")
             self.tap(cdp, x, y)
-            page.wait_for_timeout(500)
+        nothing_follows(page)  # the taps' ghost clicks
         self.assertEqual([c for c in page.evaluate("window.__clicks") if c != "sheet-grip"], [])
 
     def test_right_swipe_on_the_pdf_never_navigates_back(self):
@@ -1198,7 +1226,7 @@ class PhoneSheet(ViewerBase):
         navs = []
         page.on("framenavigated", lambda f: navs.append(f.url))
         self.swipe(self.cdp(page), 200, 300, 450, 310)
-        page.wait_for_timeout(500)
+        nothing_follows(page)  # a back navigation the swipe would start
         self.assertEqual(navs, [])
 
     def test_back_gesture_closes_the_sheet_first_and_toggling_adds_no_history(self):
@@ -1211,7 +1239,9 @@ class PhoneSheet(ViewerBase):
             page.wait_for_function("SIDE_OPEN")
             self.tap(cdp, *self.center(page, "#btn-side"))
             page.wait_for_function("!SIDE_OPEN")
-            page.wait_for_timeout(200)
+            # closing pops the layer's history entry with history.back(), which lands later (popstate clears BACK_SKIP)
+            page.wait_for_function("!BACK_SKIP&&!(history.state&&history.state.limnLayer)")
+            settle(page)
         self.assertLessEqual(page.evaluate("history.length"), n0 + 1)
         boot = page.evaluate("window.__pinViewerBoot")
         self.tap(cdp, *self.center(page, "#btn-side"))
