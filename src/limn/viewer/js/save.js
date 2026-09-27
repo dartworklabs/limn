@@ -33,10 +33,10 @@ async function savePin(){
   body.doc=d.doc||DOC||undefined;
   body.kind_req=KIND_NEW;
   const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;
-  renderAssignNew(); body.assignee=ASSIGN_NEW.v||'agent';   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
+  renderAssignNew(); body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;   // a pin created by the viewer always records an assignee (otherwise a legacy pin's inference rule applies)
   const snap=selectionSnapshot();   // [되돌리기] takes the pin back and hands this selection and note back for another try
   try{const {data}=await api('/api/pin',{method:'POST',body,what:'핀 저장'});
-    const id=data.id,q=KIND_NEW==='question'; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove(); syncDraft();   // a saved pin leaves no draft
+    const id=data.id,q=KIND_NEW===KIND_REQ.QUESTION; const box=PENDING; PENDING=null; cancelSelection(true); if(box)box.remove(); syncDraft();   // a saved pin leaves no draft
     if(SEC_SEEN.open)SEC_SEEN.open.add(id);   // my own new pin is never 'new' on a collapsed header
     toast(tl(q?'질문 #{id} 저장됨 · pins.md 갱신':'핀 #{id} 저장됨 · pins.md 갱신',{id}),'ok',{label:'되돌리기',fn:()=>{dropPin(id,true); restoreSelection(snap);}});
     await loadPins();

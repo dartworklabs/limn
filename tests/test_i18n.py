@@ -10,7 +10,6 @@ import json
 import re
 import shutil
 import socket
-import subprocess
 import tempfile
 import threading
 import time
@@ -28,7 +27,7 @@ from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
-from helpers import add_pin, blank_png, shut_wr
+from helpers import add_pin, blank_png, extract_js_fn, run_node, shut_wr
 from helpers_access import ALICE_ACTOR
 from helpers_browser import ChromiumTestCase
 
@@ -261,28 +260,12 @@ class BrowserLanguage(ChromiumTestCase):
         self.assertEqual(page2.evaluate("LANG"), "ko")
 
 
-def extract_js_fn(name: str) -> str:
-    """One 'function NAME(...){...}' definition out of the viewer script (braces balanced as written)."""
-    src = ps.HTML
-    i = src.index("function %s(" % name)
-    j = src.index("{", i)
-    depth, k = 0, j
-    while True:
-        if src[k] == "{":
-            depth += 1
-        elif src[k] == "}":
-            depth -= 1
-            if depth == 0:
-                return src[i : k + 1]
-        k += 1
-
-
 class ComposedMessages(unittest.TestCase):
     """tl(): Korean template in ko, the table's English template (or plural form) in en."""
 
     def run_js(self, lang, body):
-        node = shutil.which("node")
-        if not node:
+        """Run the viewer's real tr/tl under node in lang; the JSON of body."""
+        if not shutil.which("node"):
             self.skipTest("node not available")
         js = "\n".join(
             [
@@ -292,9 +275,7 @@ class ComposedMessages(unittest.TestCase):
                 "console.log(JSON.stringify(%s));" % body,
             ]
         )
-        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return json.loads(r.stdout)
+        return json.loads(run_node(js))
 
     def test_korean_fills_the_key_itself(self):
         out = self.run_js(
@@ -340,8 +321,7 @@ class PickWarnings(unittest.TestCase):
 
     def run_js(self, lang, body):
         """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
-        node = shutil.which("node")
-        if not node:
+        if not shutil.which("node"):
             self.skipTest("node not available")
         table = re.search(r"const PICK_WARNS=\[.*?\];", ps.HTML, re.S)
         self.assertIsNotNone(table)
@@ -355,9 +335,7 @@ class PickWarnings(unittest.TestCase):
                 "console.log(JSON.stringify(%s));" % body,
             ]
         )
-        r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, check=False)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return json.loads(r.stdout)
+        return json.loads(run_node(js))
 
     def test_every_server_sentence_has_a_template_with_english(self):
         """Each warning sentence of answers.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""

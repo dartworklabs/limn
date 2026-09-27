@@ -7,9 +7,9 @@ function card(p){
   if(claimed)tags.push(claimTag(p));
   if(p.edited_at)tags.push('<span class="badge" data-tip="'+esc(tl('저장한 뒤 메모나 범위를 고쳤습니다({when})',{when:p.edited_at.slice(11,16)+
     (p.edited_by?' · '+who(p.edited_by):'')}))+'">'+ic('pencil')+esc(tr('수정됨'))+'</span>');
-  const closedCard=pinState(p)!=='open';   // overlap/location-confidence badges are meaningless on an awaiting-review/done card (line matching doesn't run, QA)
+  const closedCard=pinState(p)!==PIN_STATE.OPEN;   // overlap/location-confidence badges are meaningless on an awaiting-review/done card (line matching doesn't run, QA)
   const rb=closedCard?null:relBadge(p.rel,p);
-  if(rb)tags.push('<span class="badge" data-tip="'+esc(tl(rb.rel==='partial'?'핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
+  if(rb)tags.push('<span class="badge" data-tip="'+esc(tl(rb.rel===RANGE_REL.PARTIAL?'핀 #{id}{p} 줄 범위가 일부 겹칩니다. 참고만 하고 따로 고쳐도 됩니다':
     '핀 #{id}{p} 같은 곳을 가리킵니다. 한 번에 고치고 함께 닫는 편이 낫습니다',{id:rb.id,p:josa(rb.id,'과','와')}))+'">'+esc(rb.label)+'</span>');
   const v=closedCard?null:viaTag(p); if(v)tags.push('<span class="badge'+(v.low?' badge-warning':'')+'" data-tip="'+esc(v.tip)+'">'+esc(v.t)+'</span>');
   const tip=esc(authorTip(p));
@@ -28,14 +28,14 @@ function card(p){
   if(isQuestion(p))tags.unshift('<span class="badge badge-question" data-tip="'+esc(T.question)+'">'+ic('circle-question-mark')+'질문</span>');
   const adr=p.assignee?'':addressedTag(p); if(adr)tags.push(adr);   // a pin with a recorded assignee already says the same thing via the header's assignee chip
   const fyi=fyiTag(p); if(fyi)tags.push(fyi);   // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
-  const rv=pinState(p)==='review';
+  const rv=pinState(p)===PIN_STATE.REVIEW;
   if(rv)tags.unshift('<span class="badge badge-review" data-tip="'+esc(tr(T.review)+' · '+tl('닫은 쪽: {name}',{name:who(p.closed_by)||'?'})+' · '+(p.done_at||''))+'">'+ic('eye')+esc(reviewerLabel(p))+'</span>');
   const ro=!rv&&reopenedTurn(p);
   if(ro)tags.unshift('<span class="badge badge-reopen" data-tip="'+esc(tl('검토에서 되돌아온 핀 — {name} · {time}',{name:who(ro.by)||'?',time:arcTime(ro.at)})+(ro.text?' · '+tl('이유: {text}',{text:ro.text}):''))+'">'+ic('rotate-ccw')+'다시 열림</span>');
   const nr=replyCount(p);
   const thn=nr?'<span class="th-n" role="button" tabindex="0" data-act="reply-open" aria-label="'+esc(tl('답글 {n}건 — 답글 쓰기',{n:nr}))+'" data-tip="'+esc(tl('이 핀의 답글 {n}건 — 누르면 카드를 펴고 답글 칸을 엽니다',{n:nr}))+'">'+ic('message-square')+nr+'</span>':'';
   if(rv)return '<div class="pin card review'+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
-    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:p.page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
@@ -43,14 +43,14 @@ function card(p){
     sum+
     '<div class="tags">'+tags.join('')+'</div>'+
     '<div class="note">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
-    threadHtml(p,LAYOUT==='wide')+
+    threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
     '<div class="acts">'+
     '<button class="btn-sm b-change" data-act="change" data-tip="'+esc(T.change)+'">변경 보기</button>'+
     '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
     '<button class="btn-sm b-confirm'+(isMe(p.author)?' btn-soft':'')+'" data-act="confirm" data-tip="'+esc(T.confirm)+'">확인</button>'+
     '</div></div>';
   return '<div class="pin card'+(p.stale?' st':'')+(claimed?' claimed':'')+(editing?' editing':'')+(open?' open':'')+'" data-id="'+p.id+'" data-doc="'+esc(pdoc(p))+'">'+
-    '<div class="row head">'+stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
+    '<div class="row head">'+stDot(rv?CARD_DOT.REVIEW:p.stale?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)+'<span class="n go" role="button" tabindex="0" data-act="view" data-tip="'+esc(T.n)+'">#'+p.id+'</span>'+docChip(p)+
     '<span class="loc" tabindex="0" data-copy="'+esc(isRegion(p)?locCopy(p):name+' '+loc)+'" data-tip="'+esc(isRegion(p)?'영역이 있는 PDF 쪽. 클릭하면 복사':T.loc)+'">'+locText(p)+'</span>'+
     '<span class="pg-link" tabindex="0" data-act="view" data-tip="클릭하면 그 쪽으로 이동">'+esc(tl('{page}쪽',{page:p.page}))+'</span>'+
     '<span class="sp"></span><span class="h-meta">'+assignChip(p)+thn+au+'</span>'+
@@ -59,7 +59,7 @@ function card(p){
     '<div class="tags">'+tags.join('')+'</div>'+
     (editing?'<div class="edit-slot"></div>':
     '<div class="note" data-act="edit" data-tip="클릭하면 메모와 범위를 고칩니다">'+(p.note?fmtText(p.note,p.mentions):'<span class="dim">(메모 없음)</span>')+'</div>'+
-    threadHtml(p,LAYOUT==='wide')+
+    threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)+
     '<div class="acts"><button class="btn-sm b-view" data-act="view" data-tip="'+esc(T.view)+'">보기</button>'+
     '<button class="btn-sm b-edit" data-act="edit" data-tip="'+esc(T.edit)+'">수정</button>'+
     '<button class="btn-sm b-reply" data-act="reply-open" data-tip="'+esc(T.reply)+'">답글</button>'+
@@ -113,7 +113,7 @@ const TRASH_DAYS=30;
 function trashDaysLeft(at,now,exp){if(typeof exp==='number')return Math.max(0,Math.ceil((exp*1000-(now==null?Date.now():now))/86400000));
   const m=/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at||'')); if(!m)return null;
   const t=new Date(+m[1],+m[2]-1,+m[3],+m[4],+m[5]).getTime(); return Math.max(0,Math.ceil(TRASH_DAYS-((now==null?Date.now():now)-t)/86400000));}
-function isOwner(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role==='owner');}
+function isOwner(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.OWNER);}
 function droppedCard(p){
   const line=p.note?arcLine('d:'+p.id,p.note,'삭제한 핀의 메모 — 누르면 펼치고 접습니다',p.mentions):'<span class="arc-reply none">(메모 없음)</span>';
   const left=trashDaysLeft(p.dropped_at,null,p.expires_ts);

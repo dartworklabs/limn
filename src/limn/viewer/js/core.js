@@ -11,9 +11,32 @@ const SMOOTH=matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smoo
 // Reduced motion (live, not only at load): the panel's slides are skipped, but thresholds and previews stay (§패널 폭과 시트 높이).
 const MQ_REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const MQ=matchMedia('(prefers-color-scheme: light)');
+// Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is a
+// member of one frozen table here, never a string literal at the comparison. The first group comes from the server and
+// must equal its strings exactly (tests/test_viewer_source.py compares each table with the server's Literal or producer);
+// the second is the viewer's own. Free text (messages, reasons, DOM and key names) is not tabled.
+const PIN_STATE=Object.freeze({OPEN:'open',REVIEW:'review',DONE:'done'});   // a pin's `state` (pins.model.StateName); read it with pinState()
+const BUILD_STATE=Object.freeze({IDLE:'idle',RUNNING:'running',OK:'ok',OK_ERRORS:'ok_errors',FAIL:'fail'});   // GET /api/build `state`, meta `last_state`
+const PULL_STATE=Object.freeze({OK:'ok',UP_TO_DATE:'up_to_date',SKIPPED:'skipped',ERROR:'error'});   // a build's `pull.state` (pull.pull_record)
+const SYNC_STATE=Object.freeze({DISABLED:'disabled',CHECKING:'checking',DEFERRED:'deferred',UPDATING:'updating',UPDATED:'updated',CURRENT:'current',BLOCKED:'blocked',ERROR:'error'});   // meta `sync.state`
+const REVISION_STATE=Object.freeze({IDLE:'idle',RUNNING:'running',READY:'ready',ERROR:'error'});   // a comparison PDF's status `state`
+const SCOPE_MODE=Object.freeze({PIN:'pin',COMMIT:'commit'});   // a pin's change scope `mode` / a comparison's `scope` (scope.ScopeMode)
+const SCOPE_SOURCE=Object.freeze({CHANGES:'changes',INFERRED:'inferred',NONE:'none'});   // where a pin's change scope came from (scope.ScopeSource)
+const THREAD_EV=Object.freeze({CLOSE:'close',REOPEN:'reopen',CONFIRM:'confirm',ASSIGN:'assign'});   // a thread record's `ev` (pins.model.ThreadEv)
+const RANGE_REL=Object.freeze({EQUAL:'equal',INSIDE:'inside',CONTAINS:'contains',PARTIAL:'partial'});   // how two line ranges overlap (pins.position.selection_rel)
+const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kind_req` (pins.model.KindReq)
+const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
+const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
+const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
+const LAYOUT_MODE=Object.freeze({WIDE:'wide',MID:'mid',NARROW:'narrow'});   // LAYOUT, by window width (layoutFor)
+const CARD_DOT=Object.freeze({OPEN:'open',CLAIMED:'claimed',REVIEW:'review',LOST:'lost'});   // a card's status dot (stDot); also its CSS class
+const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes view's tab (REVISION_FORMAT); index.html data-format
+const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
+const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
+const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
 let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null,PICKING=false,PEND_SAVE=false;
 let SNIP_OPEN=false,W=900,WRAP=true;
-// Mobile: LAYOUT is 'wide'|'mid'|'narrow', SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
+// Mobile: LAYOUT is a LAYOUT_MODE (wide|mid|narrow), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
 const MQ_COARSE=matchMedia('(pointer:coarse)');
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
@@ -24,7 +47,7 @@ const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
 // input field {id,mode,el} (holds onto the DOM like EDIT does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's draft text ('reply:12').
-let KIND_NEW='fix',REPLY=null;
+let KIND_NEW=KIND_REQ.FIX,REPLY=null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE=[],MENTION_ONLY=false;
 const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
@@ -33,7 +56,7 @@ const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
 let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
-// Awaiting review (a pin closed by an agent, waiting for a person's [확인], state==='review'). Never put into DONE_ALL - drawn separately from the done archive.
+// Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL=[];
 const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
 window.__pinViewerBoot=Date.now();   // a marker for checking reload status from outside

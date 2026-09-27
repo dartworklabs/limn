@@ -288,7 +288,7 @@ latexdiff --flatten --math-markup=off
 latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 ```
 
-격리 실행이 불가능하면 실패한다. 격리 없이 다시 시도하지 않는다. 현재 비교 엔진은 pdfLaTeX다. XeLaTeX·LuaLaTeX 전용 원고는 소스 변경사항으로 확인한다. kotex 같은 원고 패키지를 임의로 제거하지 않는다.
+격리 실행이 불가능하면 실패한다. 격리 없이 다시 시도하지 않는다. Ubuntu 24.04처럼 AppArmor가 권한 없는 사용자 네임스페이스를 막는 호스트(`kernel.apparmor_restrict_unprivileged_userns=1`)에서는 `/usr/bin/bwrap`에 `userns`를 허용하는 AppArmor 프로필이 있어야 bwrap이 뜬다. CI `tex` 작업이 그 프로필을 설치한다([verification.md](verification.md) §1 파이썬 테스트). 현재 비교 엔진은 pdfLaTeX다. XeLaTeX·LuaLaTeX 전용 원고는 소스 변경사항으로 확인한다. kotex 같은 원고 패키지를 임의로 제거하지 않는다.
 
 ### 한도
 

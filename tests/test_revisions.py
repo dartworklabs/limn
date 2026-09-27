@@ -24,7 +24,7 @@ from limn.documents import Doc
 from limn.web import parse
 from limn.web.errors import InputRejected
 
-from helpers import TEX, Base, ps, req, revision_spec, split_resp
+from helpers import TEX, Base, needs_tex, ps, req, revision_spec, split_resp
 
 
 class ManuscriptRevisions(Base):
@@ -385,15 +385,13 @@ class ManuscriptRevisions(Base):
             return subprocess.CompletedProcess(cmd, 0)
 
         with mock.patch.object(subprocess, "run", side_effect=render):
-            pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
-        self.assertIsNone(error)
+            pages = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
+        self.assertIsInstance(pages, Path, pages)
         (ps.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")
         self.assertEqual(limn_meta.outline_labels(ps.DOCS[0])["labels"][0]["title"], "Before")
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_actual_sandbox_build_tracks_changed_input_and_preserves_sources(self):
         self.main.write_text("\\documentclass{article}\n\\begin{document}\n\\input{section}\n\\end{document}\n")
         section = self.src / "section.tex"

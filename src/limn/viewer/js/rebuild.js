@@ -15,7 +15,7 @@ async function refreshDoc(){const a=topAnchor(),k=DOC;
 // On ok_errors|fail, the panel itself is opened right away, not just a toast - once the toast disappeared after 6
 // seconds there used to be no way to see it again. Even after closing it, #build-err-chip remains to reopen it (as long as LAST_BUILD_ERR exists).
 function showBuildErr(r){LAST_BUILD_ERR=r; if(DOC)BUILD_ERR_BY.set(DOC,r); const b=$('#build-err');
-  const title=tr(r.state==='fail'?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다');
+  const title=tr(r.state===BUILD_STATE.FAIL?'빌드 실패 — 화면은 이전 PDF입니다':'PDF를 재빌드했지만 LaTeX 오류가 있습니다');
   b.innerHTML='<div class="row"><b>'+esc(title)+'</b><span class="sp"></span>'+
     '<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button></div>'+
     (r.errors||[]).map(e=>'<div class="dim">'+(e.line?'L'+e.line+' · ':'')+esc(e.msg)+'</div>').join('')+

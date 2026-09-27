@@ -66,6 +66,7 @@ class FrontendLogic(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("selRel"),
+                extract_js_fn("pinState"),
                 extract_js_fn("overlapsFor"),
                 r"""
             const PINS=[{id:1,file:'/a.tex',lo:4,hi:9},{id:2,file:'/b.tex',lo:4,hi:9},{id:3,file:'/a.tex',lo:4,hi:9,done:true},
@@ -108,6 +109,7 @@ class FrontendLogic(unittest.TestCase):
             let CUR=null, PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             """,
                 extract_js_fn("selRel"),
+                extract_js_fn("pinState"),
                 extract_js_fn("overlapsFor"),
                 extract_js_fn("pickOverlap"),
                 extract_js_fn("josa"),
@@ -273,6 +275,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
                 extract_js_fn("diffToast"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
@@ -307,6 +310,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
                 extract_js_fn("diffToast"),
                 r"""
             diffToast([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
@@ -328,6 +332,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
                 extract_js_fn("diffToast"),
                 r"""
             diffToast([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
@@ -354,6 +359,7 @@ class FrontendLogic(unittest.TestCase):
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
                 extract_js_fn("diffToast"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
@@ -402,7 +408,7 @@ class FrontendStructure(unittest.TestCase):
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
         m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", ps.HTML, re.S)
         body = m.group(1).replace(" ", "")
-        self.assertIn("d.build&&d.build.state==='running'", body)
+        self.assertIn("d.build&&d.build.state===BUILD_STATE.RUNNING", body)
         self.assertIn("d.build_seq!==LAST_BUILD_SEQ", body)
         self.assertIn("pollBuild()", body)
 
@@ -1143,7 +1149,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", ps.HTML)
 
     def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
-        self.assertIn("function sideKey(){return LAYOUT==='mid'?'sideMid':'side';}", ps.HTML)
+        self.assertIn("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}", ps.HTML)
         m = re.search(r"\nfunction setSideWidth\(w\)\{(.*?)\}\n", ps.HTML, re.S)
         self.assertIsNotNone(m)
         self.assertIn("savePrefs({[sideKey()]:w})", m.group(1))
@@ -1443,7 +1449,7 @@ class FrontendToasts(unittest.TestCase):
         self.assertNotRegex(self.css, r"body\.lay-mid #toasts\{[^}]*top:")  # formerly: top-left of the body
         body = extract_js_fn("placeToasts")
         self.assertIn("'#c-actions'", body)  # doesn't cover the save/cancel buttons
-        self.assertIn("LAYOUT==='mid'?['#bar1']", body)  # doesn't cover the bottom toolbar
+        self.assertIn("LAYOUT===LAYOUT_MODE.MID?['#bar1']", body)  # doesn't cover the bottom toolbar
         self.assertIn("right.getBoundingClientRect().top", body)  # narrow: above the sheet
         self.assertIn("innerWidth-rr.right+12", body)  # right edge inside the panel column
         # a nearly-full sheet: drop down so it doesn't cover the toolbar
@@ -1579,8 +1585,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
         self.assertIn("{keys:[e.type+':'+e.pin],rank:2}", extract_js_fn("notifyShow"))
-        self.assertIn("{keys:reviewed.map(i=>'review_requested:'+i)}", extract_js_fn("diffToast"))
-        self.assertIn("{keys:['reopened:'+p.id]}", extract_js_fn("reviewToast"))
+        self.assertIn("{keys:reviewed.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i)}", extract_js_fn("diffToast"))
+        self.assertIn("{keys:[EVENT_TYPE.REOPENED+':'+p.id]}", extract_js_fn("reviewToast"))
 
     def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
         body = extract_js_fn("card")
@@ -1835,7 +1841,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [True, False, False, False])
 
     def test_pin_actions_restore_pdf_from_revision_view(self):
-        self.assertIn("setViewMode('manuscript')", extract_js_fn("jumpPin"))
+        self.assertIn("setViewMode(VIEW_MODE.MANUSCRIPT)", extract_js_fn("jumpPin"))
         self.assertIn("jumpPin(id)", extract_js_fn("openEdit"))
 
     def test_revision_diff_rows_have_line_semantics_and_escape_source(self):
@@ -2215,7 +2221,7 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(css.count("--status-claimed:"), 2)  # both dark and light
         body = extract_js_fn("card")
         self.assertIn("(claimed?' claimed':'')", body)
-        self.assertIn("stDot(rv?'review':p.stale?'lost':claimed?'claimed':'open')", body)
+        self.assertIn("stDot(rv?CARD_DOT.REVIEW:p.stale?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body)
         self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
         self.assertIn('role="img" aria-label="\'+t+\'"', extract_js_fn("stDot"))  # not distinguished by color alone
         self.assertIn("ic('rotate-ccw')+'다시 열림", body)
@@ -2767,7 +2773,7 @@ class FrontendThread(unittest.TestCase):
         body = extract_js_fn("card")
         self.assertIn("if(isQuestion(p))tags.unshift(", body)
         self.assertIn('data-act="reply-open"', body)
-        self.assertIn("threadHtml(p,LAYOUT==='wide')", body)
+        self.assertIn("threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)", body)
         self.assertIn("ic('message-square')", body)
 
     def test_reply_editor_survives_redraw_and_save_sends_kind(self):
@@ -2776,8 +2782,8 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("slot.replaceWith(REPLY.el)", dp)
         self.assertIn("rta.focus()", dp)
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
-        self.assertIn("setKind('fix')", extract_js_fn("cancelSelection"))
-        self.assertIn("KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
+        self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
+        self.assertIn("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
         self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", ps.HTML)  # Esc closes the input field first
         self.assertIn('id="c-kind"', ps.HTML)
         send = extract_js_fn("sendReply")
@@ -2846,6 +2852,7 @@ class FrontendReview(unittest.TestCase):
             """,
                 extract_js_fn("markMine"),
                 extract_js_fn("consumeMine"),
+                extract_js_fn("pinState"),
                 extract_js_fn("diffToast"),
                 extract_js_fn("pinState"),
                 extract_js_fn("reviewToast"),
@@ -2868,8 +2875,8 @@ class FrontendReview(unittest.TestCase):
             ],
         )
         body = extract_js_fn("loadPins")
-        self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)==='review')", body)
-        self.assertIn("DONE_ALL=d.filter(p=>pinState(p)==='done')", body)
+        self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)===PIN_STATE.REVIEW)", body)
+        self.assertIn("DONE_ALL=d.filter(p=>pinState(p)===PIN_STATE.DONE)", body)
         self.assertIn('id="sec-review"', ps.HTML)
         self.assertIn('id="side-rv"', ps.HTML)
 
@@ -2939,7 +2946,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn('data-act="change"', extract_js_fn("card"))
         self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
         self.assertIn('id="revision-pin"', h)
-        self.assertIn("showRevision(pick.id,'source')", extract_js_fn("loadRevisions"))
+        self.assertIn("showRevision(pick.id,DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
         self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)
@@ -2963,7 +2970,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;", h)
         src = extract_js_fn("loadRevisionSource")
         self.assertIn("'&pin='+tg0.id", src)  # a pin's view asks for its scope; plain browsing does not
-        self.assertIn("r.scope.mode==='pin'", src)
+        self.assertIn("r.scope.mode===SCOPE_MODE.PIN", src)
         pdf = extract_js_fn("loadRevisionPdf")
         self.assertIn("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null", pdf)
         self.assertIn("REV_SCOPE.fallback=true", pdf)  # a subset that does not compile falls back once
@@ -3138,7 +3145,7 @@ class FrontendMentions(unittest.TestCase):
         h = ps.HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn('\'<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\'', h)
-        self.assertIn("body.assignee=ASSIGN_NEW.v||'agent';", extract_js_fn("savePin"))
+        self.assertIn("body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;", extract_js_fn("savePin"))
         self.assertIn(
             "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")
         )
@@ -3401,7 +3408,7 @@ class FrontendQuestionHint(unittest.TestCase):
         qh = extract_js_fn("qHint")
         self.assertNotIn("setKind", qh)  # only suggests
         self.assertNotIn("kind_req=", qh)
-        self.assertIn("kind==='question'", qh)  # hidden if it's already a question
+        self.assertIn("kind===KIND_REQ.QUESTION", qh)  # hidden if it's already a question
 
 
 class FrontendNotify(unittest.TestCase):

@@ -10,7 +10,7 @@ async function pick(r){
   if(rp){banner('<span>되짚는 중…</span>');} else {CUR=null; $('#composer').hidden=false; setBusy(true); PICKING=true; $('#c-err').hidden=true; $('#c-body').hidden=false;
     setSide(true); applySide();   // a collapsed panel opens for a new selection in every layout (wide included)
     if(MID_OVERLAY)relayout();    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
-    if(LAYOUT!=='wide'){$('#right').scrollTop=0; revealBox(PENDING);}}
+    if(LAYOUT!==LAYOUT_MODE.WIDE){$('#right').scrollTop=0; revealBox(PENDING);}}
   let d;
   try{d=(await api('/api/pick',{method:'POST',body:r,what:'위치 찾기'})).data;}
   catch(e){if(seq!==PICKSEQ)return; setBusy(false); if(!rp){PICKING=false; clearPendingSave();}
@@ -30,7 +30,7 @@ async function pick(r){
   if((d.overlaps||[]).some(o=>!PINS.some(p=>p.id===o.id)))loadPins();
   SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; renderComposer();
   $('#composer').scrollTop=0;   // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
-  if(LAYOUT!=='wide')$('#right').scrollTop=0;
+  if(LAYOUT!==LAYOUT_MODE.WIDE)$('#right').scrollTop=0;
   // Drag -> straight into the note field. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and page.
   if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});
   // If [핀 저장] was pressed while pick was still slow (~1.1s), the queued save runs here (CUR has just been filled in).
@@ -44,25 +44,25 @@ async function pick(r){
 // test compares them): equal (same range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
 function selRel(lo,hi,blo,bhi){
   if(hi<blo||bhi<lo)return null;
-  if(lo===blo&&hi===bhi)return 'equal';
-  if(blo<=lo&&hi<=bhi)return 'inside';
-  if(lo<=blo&&bhi<=hi)return 'contains';
-  return 'partial';
+  if(lo===blo&&hi===bhi)return RANGE_REL.EQUAL;
+  if(blo<=lo&&hi<=bhi)return RANGE_REL.INSIDE;
+  if(lo<=blo&&bhi<=hi)return RANGE_REL.CONTAINS;
+  return RANGE_REL.PARTIAL;
 }
 function overlapsFor(o,pins){const out=[]; if(!o||!o.file)return out;   // a selection on a view-only PDF has no line
-  (pins||[]).forEach(p=>{if(p.done||p.file!==o.file)return; const rel=selRel(o.lo,o.hi,p.lo,p.hi);
+  (pins||[]).forEach(p=>{if(pinState(p)!==PIN_STATE.OPEN||p.file!==o.file)return; const rel=selRel(o.lo,o.hi,p.lo,p.hi);
     if(rel)out.push({id:p.id,lo:p.lo,hi:p.hi,rel:rel});});
   return out;}
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap (the smallest id).
 function pickOverlap(ovs){
   if(!ovs||!ovs.length)return null;
-  const eq=ovs.filter(o=>o.rel==='equal');
+  const eq=ovs.filter(o=>o.rel===RANGE_REL.EQUAL);
   if(eq.length)return eq.reduce((a,b)=>b.id<a.id?b:a);
-  const insides=ovs.filter(o=>o.rel==='inside');
+  const insides=ovs.filter(o=>o.rel===RANGE_REL.INSIDE);
   if(insides.length)return insides.reduce((a,b)=>(b.hi-b.lo)<(a.hi-a.lo)?b:a);
-  const contains=ovs.filter(o=>o.rel==='contains');
+  const contains=ovs.filter(o=>o.rel===RANGE_REL.CONTAINS);
   if(contains.length)return contains.reduce((a,b)=>(b.hi-b.lo)>(a.hi-a.lo)?b:a);
-  const partials=ovs.filter(o=>o.rel==='partial');
+  const partials=ovs.filter(o=>o.rel===RANGE_REL.PARTIAL);
   if(partials.length)return partials.reduce((a,b)=>b.id<a.id?b:a);
   return null;
 }
@@ -70,7 +70,7 @@ function pickOverlap(ovs){
 // The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range as open pin #4'.
 function overlapText(rel,id){const k={equal:'열린 핀 #{id}{p} 같은 범위입니다',inside:'열린 핀 #{id} 범위 안입니다',contains:'열린 핀 #{id}{p} 감쌉니다',
     partial:'열린 핀 #{id}{p} 일부 겹칩니다'}[rel]||'열린 핀 #{id}{p} 겹칩니다';
-  return tl(k,{id,p:rel==='contains'?josa(id,'을','를'):josa(id,'과','와')});}
+  return tl(k,{id,p:rel===RANGE_REL.CONTAINS?josa(id,'을','를'):josa(id,'과','와')});}
 // [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes the
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
 let OVERLAP_DISMISSED=null;
@@ -120,9 +120,9 @@ function renderComposer(){const d=CUR; if(!d)return; saveDraftSoon();
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
-function setKind(k){KIND_NEW=k==='question'?'question':'fix'; saveDraftSoon();
+function setKind(k){KIND_NEW=k===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; saveDraftSoon();
   $$('#c-kind button').forEach(b=>{const on=b.dataset.kind===KIND_NEW; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on));});
-  $('#note').placeholder=KIND_NEW==='question'?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
+  $('#note').placeholder=KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요':'메모: 여기를 어떻게 고칠지 (비워도 됩니다)'; renderAssignNew(); qHint($('#c-qhint'),$('#note').value,KIND_NEW);}
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
@@ -132,12 +132,12 @@ function looksQuestion(text){let t=String(text||'').trim();
 // If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. Never
 // auto-changes it - only changes on click (author feedback 2026-09-25: "...표현한 의도가 있는건가?" got saved as a fix
 // request). Disappears once it becomes a question or the text no longer reads like one.
-function qHint(box,text,kind){if(box)box.hidden=kind==='question'||!looksQuestion(text);}
+function qHint(box,text,kind){if(box)box.hidden=kind===KIND_REQ.QUESTION||!looksQuestion(text);}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one.
 function cancelSelection(clearNote){CUR=null; PICKSEQ++; PICKING=false; clearPendingSave(); if(PENDING){PENDING.remove();PENDING=null;} saveDraftSoon();
-  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind('fix');}
-  if(!REPICK)setSelMode(false); if(LAYOUT==='narrow'&&!EDIT)setSide(false); applySide();}
+  OVERLAP_DISMISSED=null; setBusy(false); $('#composer').hidden=true; if(clearNote){$('#note').value=''; $('#note')._mentions=null; ASSIGN_NEW.touched=false; mentionPreview($('#note')); setKind(KIND_REQ.FIX);}
+  if(!REPICK)setSelMode(false); if(LAYOUT===LAYOUT_MODE.NARROW&&!EDIT)setSide(false); applySide();}
 // What a discarded or saved selection needs to come back (restoreSelection): the pick (CUR), its box on the page, the note with its
 // @-tag hints, the kind and the assignee choice, and the document/build the box belongs to. null when there is no selection.
 function selectionSnapshot(){if(!CUR&&!PICKING&&$('#composer').hidden)return null; const n=$('#note');
@@ -154,7 +154,7 @@ function restoreSelection(snap){if(!snap||CUR||PICKING||REPICK||!$('#composer').
   if(PENDING)PENDING.remove(); PENDING=null;
   if(snap.box&&snap.page&&document.contains(snap.page)){PENDING=snap.box; snap.page.appendChild(snap.box);}
   CUR=snap.cur; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
-  renderComposer(); setSide(true); applySide(); if(LAYOUT!=='wide')revealBox(PENDING); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
+  renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(PENDING); if(LAST_PTR==='mouse')n.focus({preventScroll:true});
   return true;}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text the toast offers
 // [되돌리기] for its 6 seconds, bringing back the selection, the note and the box - an undo instead of a confirmation. The stored

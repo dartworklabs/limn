@@ -1,4 +1,4 @@
-let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='',REVISION_COMMIT='',REVISION_SOURCE_COMMIT='',REVISION_FORMAT='pdf';
+let REVISION_SEQ=0,REVISION_FILES=[],REVISION_WHOLE='',REVISION_COMMIT='',REVISION_SOURCE_COMMIT='',REVISION_FORMAT=DIFF_FORMAT.PDF;
 // v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REVISION_SCOPE is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
 let REVISION_SCOPE=null,REVISION_OTHER='';
@@ -38,20 +38,20 @@ function renderRevisionFile(){const v=$('#revision-file').value,i=Number(v);
 // The rest of the commit, folded under one control (v0.3). Hidden when the pin owns the whole commit or the view is not a pin's.
 function drawRevisionOther(sc){const b=$('#revision-other-toggle'),o=$('#revision-other');
   o.hidden=true;o.innerHTML='';b.setAttribute('aria-expanded','false');
-  REVISION_OTHER=sc&&sc.mode==='pin'?String(sc.other_diff||'')+(sc.other_truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):''):'';
+  REVISION_OTHER=sc&&sc.mode===SCOPE_MODE.PIN?String(sc.other_diff||'')+(sc.other_truncated?'\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.'):''):'';
   b.hidden=!REVISION_OTHER;if(REVISION_OTHER)b.querySelector('span').textContent=tl('이 커밋의 다른 변경 {n}곳',{n:sc.other});}
 function toggleRevisionOther(){const b=$('#revision-other-toggle'),o=$('#revision-other'),open=b.getAttribute('aria-expanded')!=='true';
   b.setAttribute('aria-expanded',String(open));o.hidden=!open;
   if(open&&!o.innerHTML)o.innerHTML=renderRevisionDiff(REVISION_OTHER);}
 // [커밋 전체 비교]: shown only for the PDF of a pin that owns part of the commit, and not after a fallback (there is nothing to switch to).
 function syncRevisionWhole(){const b=$('#revision-whole');
-  b.hidden=!(REVISION_FORMAT==='pdf'&&revisionPinFor(REVISION_COMMIT)&&REV_SCOPE.partial&&!REV_SCOPE.fallback);
+  b.hidden=!(REVISION_FORMAT===DIFF_FORMAT.PDF&&revisionPinFor(REVISION_COMMIT)&&REV_SCOPE.partial&&!REV_SCOPE.fallback);
   b.setAttribute('aria-pressed',String(REV_SCOPE.whole));}
 // The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
 // chosen in the list is shown whole (review M1 - another commit's lines are not this pin's).
 function revisionPinFor(id){const tg=REV_TARGET; return tg&&!tg.region&&tg.commit&&id===tg.commit?tg:null;}
 function setRevisionWhole(on){REV_SCOPE.whole=!!on;++REVISION_SEQ;REVISION_PDF_COMMIT='';
-  clearRevisionPdf();$('#revision-warning').hidden=true;setRevisionFormat('pdf');}
+  clearRevisionPdf();$('#revision-warning').hidden=true;setRevisionFormat(DIFF_FORMAT.PDF);}
 function revisionCurrent(seq,k,id){return seq===REVISION_SEQ&&k===DOC&&id===REVISION_COMMIT&&document.body.classList.contains('revision-open');}
 function clearRevisionPdf(){
   if(REV_PDF.observer){REV_PDF.observer.disconnect();REV_PDF.observer=null;}
@@ -59,20 +59,20 @@ function clearRevisionPdf(){
   if(REV_PDF.loading){try{REV_PDF.loading.destroy();}catch(e){}REV_PDF.loading=null;}
   REV_PDF.doc=null;$('#revision-pdf').replaceChildren();
 }
-function setRevisionFormat(format){REVISION_FORMAT=format==='source'?'source':'pdf';
-  $('#revision-pdf-tab').setAttribute('aria-pressed',String(REVISION_FORMAT==='pdf'));
-  $('#revision-source-tab').setAttribute('aria-pressed',String(REVISION_FORMAT==='source'));
-  $('#revision-pdf').hidden=REVISION_FORMAT!=='pdf';$('#revision-source').hidden=REVISION_FORMAT!=='source';
-  if(REVISION_FORMAT==='source'&&REVISION_COMMIT&&REVISION_SOURCE_COMMIT!==REVISION_COMMIT)
+function setRevisionFormat(format){REVISION_FORMAT=format===DIFF_FORMAT.SOURCE?DIFF_FORMAT.SOURCE:DIFF_FORMAT.PDF;
+  $('#revision-pdf-tab').setAttribute('aria-pressed',String(REVISION_FORMAT===DIFF_FORMAT.PDF));
+  $('#revision-source-tab').setAttribute('aria-pressed',String(REVISION_FORMAT===DIFF_FORMAT.SOURCE));
+  $('#revision-pdf').hidden=REVISION_FORMAT!==DIFF_FORMAT.PDF;$('#revision-source').hidden=REVISION_FORMAT!==DIFF_FORMAT.SOURCE;
+  if(REVISION_FORMAT===DIFF_FORMAT.SOURCE&&REVISION_COMMIT&&REVISION_SOURCE_COMMIT!==REVISION_COMMIT)
     loadRevisionSource(REVISION_COMMIT,REVISION_SEQ,DOC);
   // The comparison PDF is only built when that format is actually viewed - [변경 보기] goes straight to the source diff, so it never wastes a latexdiff build.
-  if(REVISION_FORMAT==='pdf'&&REVISION_COMMIT&&REVISION_PDF_COMMIT!==REVISION_COMMIT){REVISION_PDF_COMMIT=REVISION_COMMIT;
+  if(REVISION_FORMAT===DIFF_FORMAT.PDF&&REVISION_COMMIT&&REVISION_PDF_COMMIT!==REVISION_COMMIT){REVISION_PDF_COMMIT=REVISION_COMMIT;
     $('#revision-status').textContent='비교 PDF 상태를 확인하는 중입니다.'; loadRevisionPdf(REVISION_COMMIT,REVISION_SEQ,DOC);}
   syncRevisionWhole();
   if(REV_TARGET)revTargetNote();
 }
 function setViewMode(mode){
-  const revisions=mode==='revisions'; document.body.classList.toggle('revision-open',revisions);
+  const revisions=mode===VIEW_MODE.REVISIONS; document.body.classList.toggle('revision-open',revisions);
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions)REV_TARGET=null;
@@ -91,7 +91,7 @@ async function loadRevisions(){
   if(!data.revisions.length){list.textContent='이 문서의 최근 변경사항이 없습니다.'; if(tg)revTargetNote('이 문서의 최근 12개 커밋에 변경이 없습니다.'); return;}
   list.innerHTML='<label class="sr-only" for="revision-select">비교할 커밋</label><select id="revision-select" aria-label="비교할 커밋">'+data.revisions.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.subject)+' · '+esc(r.date)+' · '+esc(r.id.slice(0,8))+'</option>').join('')+'</select>';
   if(tg){const pick=await pickRevisionFor(tg,data.revisions,seq,k); if(seq!==REVISION_SEQ||k!==DOC||REV_TARGET!==tg)return;
-    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,'source'); return;}
+    tg.commit=pick.id; tg.via=pick.via; tg.hit=pick.hit; showRevision(pick.id,DIFF_FORMAT.SOURCE); return;}
   showRevision(data.revisions.some(r=>r.id===REVISION_COMMIT)?REVISION_COMMIT:data.revisions[0].id);
 }
 async function showRevision(id,format){
@@ -100,7 +100,7 @@ async function showRevision(id,format){
   REVISION_SCOPE=null;REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false;drawRevisionOther(null);
   $('#revision-diff').textContent='';$('#revision-file-row').hidden=true;$('#revision-warning').hidden=true;
   $('#revision-status').textContent='';
-  setRevisionFormat(format||'pdf');
+  setRevisionFormat(format||DIFF_FORMAT.PDF);
 }
 async function loadRevisionSource(id,seq,k){
   const out=$('#revision-diff');out.textContent='소스 변경 내용을 읽는 중입니다.';$('#revision-file-row').hidden=true;
@@ -108,7 +108,7 @@ async function loadRevisionSource(id,seq,k){
   try{const r=(await api(dq('/api/revision-diff?commit='+encodeURIComponent(id)+pq,k),{what:'변경 내용 읽기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
     // v0.3: a pin's own hunks when it owns part of the commit; otherwise the whole commit exactly as before
-    const sc=r.scope&&r.scope.mode==='pin'?r.scope:null;REVISION_SCOPE=r.scope||null;
+    const sc=r.scope&&r.scope.mode===SCOPE_MODE.PIN?r.scope:null;REVISION_SCOPE=r.scope||null;
     if(sc){REV_SCOPE.partial=true;syncRevisionWhole();}
     const cut='\n\n'+tr('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.');
     REVISION_WHOLE=sc?sc.diff+(sc.truncated?cut:''):(r.diff||tr('이 커밋에서 표시할 원고 텍스트 변경이 없습니다.'))+(r.truncated?cut:'');
@@ -146,9 +146,9 @@ async function pickRevisionFor(tg,revs,seq,k){
 function revTargetNote(msg){const tg=REV_TARGET,box=$('#revision-pin'); if(!tg){box.hidden=true;return;}
   const via={sha:tl('참조의 커밋 {tok}',{tok:tg.tokOf||''}),pr:tr('참조의 PR'),lines:tr('이 줄을 바꾼 가장 최근 커밋'),latest:tr('참조로 커밋을 찾지 못해 가장 최근 커밋')}[tg.via]||'';
   const where=tg.region?tl('쪽 {page} 영역',{page:tg.page}):tg.name+' '+rng(tg.lo,tg.hi);
-  const sc=REVISION_FORMAT==='source'&&REVISION_SCOPE&&REVISION_SCOPE.mode==='pin'?REVISION_SCOPE:null;
-  const scopeMsg=sc?tl('이 핀의 변경 {n}곳만 보입니다',{n:sc.hunks})+' ('+tr(sc.source==='changes'?'에이전트가 기록한 줄':'핀 자리로 추정')+') · ':'';
-  let t=msg?tr(msg):scopeMsg+(REVISION_FORMAT==='pdf'?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
+  const sc=REVISION_FORMAT===DIFF_FORMAT.SOURCE&&REVISION_SCOPE&&REVISION_SCOPE.mode===SCOPE_MODE.PIN?REVISION_SCOPE:null;
+  const scopeMsg=sc?tl('이 핀의 변경 {n}곳만 보입니다',{n:sc.hunks})+' ('+tr(sc.source===SCOPE_SOURCE.CHANGES?'에이전트가 기록한 줄':'핀 자리로 추정')+') · ':'';
+  let t=msg?tr(msg):scopeMsg+(REVISION_FORMAT===DIFF_FORMAT.PDF?tl('비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',{page:tg.page}):
     tr(tg.hit===false?'이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다':
      tg.near?'핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다':'강조한 줄이 핀 범위입니다'));
   const back=REV_BACK&&REV_BACK!==DOC&&docInfo(REV_BACK)?docInfo(REV_BACK).name:null;
@@ -165,13 +165,13 @@ function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=nu
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
 let REV_BACK=null;   // the document being viewed when [변경 보기] was pressed - [원고로] returns to that document (QA: opening it from a cover-letter pin used to leave you stuck on the cover letter)
 // [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
-function revBack(){const b=REV_BACK; REV_BACK=null; setViewMode('manuscript'); if(b&&b!==DOC&&docInfo(b))switchDoc(b);}
+function revBack(){const b=REV_BACK; REV_BACK=null; setViewMode(VIEW_MODE.MANUSCRIPT); if(b&&b!==DOC&&docInfo(b))switchDoc(b);}
 async function showChange(id){const p=findAnyPin(id); if(!p)return; const k=pdoc(p); if(!document.body.classList.contains('revision-open'))REV_BACK=DOC;
   if(k!==DOC&&docInfo(k)){await switchDoc(k); if(DOC!==k)return;}
   REV_TARGET={id:p.id,file:p.file||p.pdf||'',name:p.name||String(p.file||p.pdf||'').split('/').pop(),lo:p.lo,hi:p.hi,page:p.page,ref:p.close_ref||'',region:isRegion(p)};
   const m=/\b[0-9a-f]{7,40}\b/.exec(REV_TARGET.ref); REV_TARGET.tokOf=m?m[0]:'';
-  if(LAYOUT==='narrow')setSide(false);
-  if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode('revisions');}
+  if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);
+  if(document.body.classList.contains('revision-open'))loadRevisions(); else setViewMode(VIEW_MODE.REVISIONS);}
 async function loadRevisionPdf(id,seq,k){
   const statusBox=$('#revision-status'),warningBox=$('#revision-warning'),tg=REV_TARGET;
   // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
@@ -179,8 +179,8 @@ async function loadRevisionPdf(id,seq,k){
   try{
     let status=(await api('/api/revision-build',{method:'POST',body:pin?{commit:id,doc:k,pin}:{commit:id,doc:k},what:'비교 PDF 만들기',silent:true})).data;
     if(!revisionCurrent(seq,k,id))return;
-    if(pin&&status.scope){REV_SCOPE.partial=status.scope==='pin';syncRevisionWhole();}
-    for(let tries=0;status.state==='running'&&tries<180;tries++){
+    if(pin&&status.scope){REV_SCOPE.partial=status.scope===SCOPE_MODE.PIN;syncRevisionWhole();}
+    for(let tries=0;status.state===REVISION_STATE.RUNNING&&tries<180;tries++){
       if(!revisionCurrent(seq,k,id))return;
       statusBox.textContent='선택 커밋의 비교 PDF를 만드는 중입니다. 원고와 핀은 그대로 사용할 수 있습니다.';
       await new Promise(resolve=>setTimeout(resolve,1000));
@@ -188,9 +188,9 @@ async function loadRevisionPdf(id,seq,k){
       status=(await api(dq('/api/revision-build?commit='+encodeURIComponent(id)+pq,k),{what:'비교 PDF 상태',silent:true})).data;
     }
     if(!revisionCurrent(seq,k,id))return;
-    if(pin&&status.scope==='pin'&&status.state==='error'){   // the pin's hunks alone did not compile: show the whole commit, say so in one line
+    if(pin&&status.scope===SCOPE_MODE.PIN&&status.state===REVISION_STATE.ERROR){   // the pin's hunks alone did not compile: show the whole commit, say so in one line
       REV_SCOPE.fallback=true;syncRevisionWhole();return loadRevisionPdf(id,seq,k);}
-    if(status.state!=='ready')throw new Error(errText(status)||tr(status.state==='running'?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
+    if(status.state!==REVISION_STATE.READY)throw new Error(errText(status)||tr(status.state===REVISION_STATE.RUNNING?'비교 PDF 대기 시간이 지났습니다. 다시 열어 재시도하세요.':'비교 PDF를 만들지 못했습니다.'));
     if(status.head&&status.head!==id)throw new Error(tr('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings=Array.isArray(status.warnings)?status.warnings:[];
     warningBox.hidden=!warnings.length;warningBox.querySelector('summary').textContent=tl('빌드 경고 {n}건 보기',{n:warnings.length});
@@ -206,7 +206,7 @@ async function loadRevisionPdf(id,seq,k){
     const pdf=await loading.promise;
     if(!revisionCurrent(seq,k,id)){try{loading.destroy();}catch(e){}return;}
     REV_PDF.doc=pdf;
-    const lead=pin&&status.scope==='pin'?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
+    const lead=pin&&status.scope===SCOPE_MODE.PIN?tl('핀 #{id}의 변경만',{id:pin})+' · ':REV_SCOPE.fallback&&tg?tr('이 핀의 변경만으로는 비교 PDF를 만들지 못해 커밋 전체를 비교합니다')+' · ':'';
     statusBox.textContent=lead+tl('첫 부모 {base} → {head} · {n}쪽 · 읽기 전용 · 빨강 삭제 / 파랑 추가',{base:String(status.base||'').slice(0,8),head:id.slice(0,8),n:pdf.numPages});
     const box=$('#revision-pdf');box.innerHTML=Array.from({length:pdf.numPages},(_,i)=>'<div class="revision-page" data-page="'+(i+1)+'" aria-label="'+esc(tl('비교 PDF {page}쪽',{page:i+1}))+'"></div>').join('');
     if(window.IntersectionObserver){REV_PDF.observer=new IntersectionObserver(rows=>{for(const row of rows)if(row.isIntersecting){

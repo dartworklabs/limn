@@ -1,8 +1,8 @@
 // ------------------------------------------------ Pin card parts: people, badges, claims, @-tags and #refs in text, the thread
-function who(a){if(a&&a.login==='local')return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
+function who(a){if(a&&a.login===LOCAL_LOGIN)return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 const BADPIC=new Set();   // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
-function isAgent(a){return !!a&&(a.login==='local'||String(a.login).startsWith('agent:'));}
+function isAgent(a){return !!a&&(a.login===LOCAL_LOGIN||String(a.login).startsWith('agent:'));}
 function avatar(a){if(!a||!(a.name||a.login))return ''; if(isAgent(a))return '<span class="av i agent" aria-hidden="true">'+ic('bot')+'</span>';
   const ini=esc((who(a).trim()[0]||'?').toUpperCase());
   return a.pic&&!BADPIC.has(a.pic)?'<img class="av" src="'+esc(a.pic)+'" alt="" referrerpolicy="no-referrer" data-ini="'+ini+'">'
@@ -21,16 +21,16 @@ function relBadge(rel,p){
   if(!rel||!rel.length)return null;
   const byId=new Map(PINS.map(p=>[p.id,p]));
   if(p){const same=rel.filter(x=>{const o=byId.get(x.id); return o&&o.lo===p.lo&&o.hi===p.hi;});
-    if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:'equal',label:tl('#{id}{p} 같은 범위',{id:n,p:josa(n,'과','와')})};}}
-  const insides=rel.filter(x=>x.rel==='inside');
+    if(same.length){const n=Math.min.apply(null,same.map(x=>x.id)); return {id:n,rel:RANGE_REL.EQUAL,label:tl('#{id}{p} 같은 범위',{id:n,p:josa(n,'과','와')})};}}
+  const insides=rel.filter(x=>x.rel===RANGE_REL.INSIDE);
   if(insides.length){
     const span=x=>{const o=byId.get(x.id); return o?(o.hi-o.lo):Number.MAX_SAFE_INTEGER;};
     const best=insides.reduce((a,b)=>{const sa=span(a),sb=span(b);
       return (sb<sa||(sb===sa&&b.id<a.id))?b:a;});
-    return {id:best.id,rel:'inside',label:tl('#{id} 범위 안',{id:best.id})};
+    return {id:best.id,rel:RANGE_REL.INSIDE,label:tl('#{id} 범위 안',{id:best.id})};
   }
-  const partials=rel.filter(x=>x.rel==='partial').sort((a,b)=>a.id-b.id);
-  if(partials.length){const n=partials[0].id; return {id:n,rel:'partial',label:tl('#{id}{p} 일부 겹침',{id:n,p:josa(n,'과','와')})};}
+  const partials=rel.filter(x=>x.rel===RANGE_REL.PARTIAL).sort((a,b)=>a.id-b.id);
+  if(partials.length){const n=partials[0].id; return {id:n,rel:RANGE_REL.PARTIAL,label:tl('#{id}{p} 일부 겹침',{id:n,p:josa(n,'과','와')})};}
   return null;
 }
 // The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared independent of the browser's timezone (numbers
@@ -69,19 +69,19 @@ function docChip(p){if(!(SHOW_ALL&&multiDoc()))return ''; const d=docInfo(pdoc(p
   return '<span class="badge badge-secondary dchip'+(other?' other':'')+'" data-tip="'+esc((d?d.name+' · '+d.path:tl('{doc} (설정에 없는 문서)',{doc:pdoc(p)}))+(other?' — '+tr('#번호·[보기]를 누르면 이 문서로 바꿉니다'):''))+'">'+esc(d?d.name:pdoc(p))+'</span>';}
 // Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history. Text goes through esc().
 // wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDIT.
-function isQuestion(p){return !!p&&p.kind_req==='question';}
+function isQuestion(p){return !!p&&p.kind_req===KIND_REQ.QUESTION;}
 // The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
-function assigneeOf(p){if(!p)return 'agent'; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:'agent';}
+function assigneeOf(p){if(!p)return ASSIGNEE_AGENT; if(p.assignee)return p.assignee; const a=p.addressed||[]; return a.length?a[0]:ASSIGNEE_AGENT;}
 // The card header's assignee chip: shown only when the assignee is a person (the agent is the default, so it's not shown). The author (or an identity-less local screen) changes it by clicking into [수정].
-function assignChip(p){if(!p.assignee||p.assignee==='agent')return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
-  const canEdit=pinState(p)==='open'&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
+function assignChip(p){if(!p.assignee||p.assignee===ASSIGNEE_AGENT)return ''; const me=meLogin(),mine=p.assignee===me,nm=mine?tr('나'):'@'+(String(peopleName(p.assignee)).split(/\s+/)[0]||p.assignee);   // the chip shows the first word of the name; the full name goes in the description
+  const canEdit=pinState(p)===PIN_STATE.OPEN&&(isMe(p.author)||!me),tip=tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다',{name:mine?tr('나'):peopleName(p.assignee)})+(canEdit?tr('. 누르면 [수정]에서 담당을 바꿉니다'):'');
   return canEdit?'<button class="badge badge-assign as-chip'+(mine?' me':'')+'" data-act="edit" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></button>'
     :'<span class="badge badge-assign as-chip'+(mine?' me':'')+'" data-tip="'+esc(tip)+'">'+esc(tr('담당'))+' <span class="as-n">'+esc(nm)+'</span></span>';}
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
 const ST_NAME={open:'열림',claimed:'처리 중',review:'검토 대기',lost:'위치 잃음'};
-function stDot(st){const t=esc(tl('상태: {name}',{name:tr(ST_NAME[st])})); return '<span class="st-dot'+(st==='open'?'':' '+st)+'" role="img" aria-label="'+t+'" data-tip="'+t+'"></span>';}
+function stDot(st){const t=esc(tl('상태: {name}',{name:tr(ST_NAME[st])})); return '<span class="st-dot'+(st===CARD_DOT.OPEN?'':' '+st)+'" role="img" aria-label="'+t+'" data-tip="'+t+'"></span>';}
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
-function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e==='close'||e==='reopen')return e==='reopen'?th[i]:null;} return null;}
+function reopenedTurn(p){const th=threadOf(p); for(let i=th.length-1;i>=0;i--){const e=th[i].ev; if(e===THREAD_EV.CLOSE||e===THREAD_EV.REOPEN)return e===THREAD_EV.REOPEN?th[i]:null;} return null;}
 function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
 function replyCount(p){return threadOf(p).filter(m=>!m.ev).length;}
 function msgText(m){return fmtText(m.text,m.mentions);}
@@ -101,7 +101,7 @@ function mentionToks(logins){const out=[]; (logins||[]).forEach(lg=>{const x=PEO
 function mentionAfterWord(text,i){if(i<=0)return false; const lo=text.charCodeAt(i-1),hi=i>1?text.charCodeAt(i-2):0;
   const c=lo>=0xDC00&&lo<=0xDFFF&&hi>=0xD800&&hi<=0xDBFF?text.slice(i-2,i):text[i-1]; return /^[\p{L}\p{N}._-]$/u.test(c);}
 function reEsc(t){return t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
-function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!=='local'?me.login:null;}
+function meLogin(){const me=typeof META!=='undefined'&&META&&META.me; return me&&me.login&&me.login!==LOCAL_LOGIN?me.login:null;}
 function fmtText(text,logins){let h=esc(text); const toks=mentionToks(logins),hit=[],me=meLogin();
   if(toks.length){const re=new RegExp('@('+toks.map(x=>reEsc(x.t)).join('|')+')','gi');
     // First swapped for placeholders (\u0001number\u0002) - so that after a long name is wrapped, a short name never re-wraps inside it.
@@ -122,7 +122,7 @@ function pinRefGone(id){return typeof DROPPED!=='undefined'&&Array.isArray(DROPP
 // (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
 // entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
 // even after reopening (observed). addressed_to() only has a value on question pins.
-function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login==='local')return false;
+function mentionsMe(p){const me=META&&META.me; if(!me||!me.login||me.login===LOCAL_LOGIN)return false;
   return (p.addressed||[]).includes(me.login);}
 function addressedTag(p){const to=(p.addressed||[]); if(!to.length)return '';
   const me=META&&META.me&&META.me.login,mine=to.includes(me),others=to.filter(x=>x!==me);

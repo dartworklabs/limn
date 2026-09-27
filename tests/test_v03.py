@@ -34,7 +34,7 @@ from limn.store import find_pin
 from limn.web import parse
 from limn.web.errors import SCOPE_REJECTIONS, scope_http_error
 
-from helpers import add_pin, extract_js_fn, ps, req, revision_spec, run_node, split_resp
+from helpers import add_pin, extract_js_fn, needs_tex, ps, req, revision_spec, run_node, split_resp
 from helpers_access import (
     ALICE,
     BOB,
@@ -1123,9 +1123,7 @@ class ScopedPdf(ScopedRepo):
             with self.subTest(bad=bad):
                 self.assertIn(self.call("POST", "/api/revision-build", bad)[0], (400, 404))
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk", "pdftotext")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk", "pdftotext")
     def test_real_scoped_build_marks_only_the_pins_change(self):
         """With TeX: the sandboxed scoped PDF shows the pin's change and none of the others; the checkout is untouched."""
         dest = self.repo / "job-beta"
@@ -1144,9 +1142,7 @@ class ScopedPdf(ScopedRepo):
         self.assertIn("pears", subprocess.check_output(["pdftotext", str(whole / "revision.pdf"), "-"], text=True))
         self.assertEqual(self.main.read_text(encoding="utf-8"), NEW.replace("Filler two.", "Filler two, reworded."))
 
-    @unittest.skipUnless(
-        all(shutil.which(t) for t in ("bwrap", "latexdiff", "latexmk")), "TeX sandbox tools unavailable"
-    )
+    @needs_tex("bwrap", "latexdiff", "latexmk")
     def test_scoped_build_is_an_error_when_the_subset_does_not_compile(self):
         """With TeX: half of an environment fix alone does not compile; the error lets the viewer fall back."""
         # one commit opens an environment for one pin and closes it for another: each half alone does not compile

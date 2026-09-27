@@ -79,17 +79,17 @@ function placeToasts(){const box=$('#toasts'),right=$('#right'); if(!box||!right
   const shown=el=>{if(!el||el.hidden)return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden')return false;
     const r=el.getBoundingClientRect(); return r.height>0&&r.width>0&&r.top<vh;};
   let top=vh,r=12,w=360;
-  if(LAYOUT==='narrow'){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
+  if(LAYOUT===LAYOUT_MODE.NARROW){r=8; w=innerWidth-16; if(shown(right))top=Math.min(top,right.getBoundingClientRect().top);
     // If the sheet covers most of the screen (starts within the top 30%), there's no room above it - raising it above the screen
     // instead covered the sheet's own tool bar ([더보기] etc.), making it unpressable (a touch regression). In that case, it's placed inside the
     // sheet near the bottom, above the save/cancel row if that's visible.
     if(top<vh*0.3){top=vh; const ca=$('#c-actions'); if(shown(ca))top=ca.getBoundingClientRect().top;}}
   else{const open=SIDE_OPEN,rr=right.getBoundingClientRect();
     if(open&&rr.width>0){r=Math.max(gap,innerWidth-rr.right+12); w=Math.min(380,rr.width-24);}
-    else if(LAYOUT==='wide'){const L=$('#left'),lr=L.getBoundingClientRect();   // collapsed wide: the PDF area's bottom-right, left of its scrollbar
+    else if(LAYOUT===LAYOUT_MODE.WIDE){const L=$('#left'),lr=L.getBoundingClientRect();   // collapsed wide: the PDF area's bottom-right, left of its scrollbar
       r=Math.max(gap,innerWidth-(lr.left+L.clientLeft+L.clientWidth)+12); w=Math.min(360,L.clientWidth-24);}
     else w=Math.min(360,innerWidth-24);
-    ['#c-actions'].concat(LAYOUT==='mid'?['#bar1']:[],!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
+    ['#c-actions'].concat(LAYOUT===LAYOUT_MODE.MID?['#bar1']:[],!open?['#bar2','#banner']:[]).forEach(s=>{const e=$(s);
       if(shown(e))top=Math.min(top,e.getBoundingClientRect().top);});}
   R.setProperty('--toast-b',Math.max(gap,Math.round(vh-top+gap))+'px'); R.setProperty('--toast-r',Math.round(r)+'px'); R.setProperty('--toast-w',Math.round(Math.max(200,w))+'px');}
 let TOAST_WATCH=0;

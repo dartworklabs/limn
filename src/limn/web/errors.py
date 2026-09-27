@@ -7,6 +7,8 @@ boundary parser returns instead of raising. The tables below give the pin-scopin
 failed steps of a comparison build (limn.revisions.StepFailed) their texts, and PICK_REFUSALS the selections that
 cannot be traced to a manuscript line (limn.locate.PickRefusal): the HTTP answers read them, and the
 composition root hands revision_failure_text() to the comparison worker, which records the same texts in its status.
+BUILD_FAILURES gives a failed document build (limn.build.FailedBuild) the text its log opens with;
+build_failure_log() is handed to the build the same way.
 
 A browser that opens the viewer (GET / asking for HTML) and is refused gets a short readable page instead of raw
 JSON (v0.2.1), in the viewer's language (ko/en) from the same message table the viewer uses (ui_en.json).
@@ -17,6 +19,7 @@ from collections.abc import Mapping
 from email.message import Message
 from typing import NamedTuple, TypeAlias
 
+from limn.build import BuildAborted, BuildFailed, BuildFailureKind, CopyFailed, FailedBuild
 from limn.locate import GeneratedFile, NoSourceHere, PickRefusal, SourceUnreadable, SynctexOutside
 from limn.revisions import BuildFailure, FailureKind, StepFailed
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
@@ -123,6 +126,37 @@ def revision_failure_text(failure: BuildFailure) -> tuple[str, str]:
         return REVISION_FAILURES[failure.kind]
     _, msg, reason = SCOPE_REJECTIONS[type(failure)]
     return msg, reason
+
+
+# Why a document's build failed (limn.build.FailedBuild's kind) -> the text that opens its log; {detail} is the
+# failure's detail (the copy error, the unwritable PDF copy's OSError, the missing PDF's path, the exception's repr).
+# The log carries it into POST /api/rebuild's answer, GET /api/build's log_tail, builds.json's last.log_tail and the
+# startup refusal (docs/handbook/build-sync.md §빌드 결과). tests check that every kind has its row.
+BUILD_FAILURES: dict[BuildFailureKind, str] = {
+    "copy": "원고 사본을 만들지 못했습니다: {detail}",
+    "timeout": "시간 초과로 멈췄습니다.",
+    "no_pdf": "새 PDF 가 나오지 않았습니다.",
+    "no_synctex": "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.",
+    "render": "쪽 이미지를 그리지 못했습니다(pdftoppm).",
+    "pdf_copy": "PDF 사본을 쪽 디렉토리에 두지 못했습니다: {detail}",
+    "pdf_missing": "PDF 가 없습니다: {detail}",
+    "crashed": "빌드 중 예상 밖 예외가 났습니다: {detail}",
+    "worker_crashed": "빌드 스레드에서 예상 밖 예외가 났습니다: {detail}",
+}
+
+
+def build_failure_log(failure: FailedBuild) -> str:
+    """The log of a failed build: its kind's text from BUILD_FAILURES with the detail filled in, then - when latexmk
+    ran - a newline and latexmk's last lines. The composition root passes this to the build (limn.build's describe),
+    which records it in the build state and history."""
+    match failure:
+        case CopyFailed(error=error):
+            return BUILD_FAILURES["copy"].format(detail=error)
+        case BuildFailed(kind=kind, detail=detail, output=output):
+            text = BUILD_FAILURES[kind].format(detail=detail)
+            return text if output is None else text + "\n" + output
+        case BuildAborted(kind=kind, detail=detail):
+            return BUILD_FAILURES[kind].format(detail=detail)
 
 
 # The page kinds identity refusals name (HTTPError page=(kind, params)) -> (heading, hint). The Korean text is the key
