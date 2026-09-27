@@ -13,7 +13,6 @@ limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handb
 from __future__ import annotations
 
 import json
-import os
 import re
 import socket
 import sys
@@ -24,6 +23,7 @@ from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
 from urllib.parse import parse_qs, urlparse
 
+from limn.features.builds import http as builds_http
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
@@ -37,8 +37,6 @@ from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
-# A page image name GET /pages/<name> serves: the page-N.png files a build writes into the page directory (limn.build).
-PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
 VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 
@@ -321,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/outline-labels":
             return _json_reply(app.outline_labels(D))
         if path == "/api/build":
-            return _json_reply(answers.diet_log(app.build_state_snapshot(D), parse.parse_flag(q, "log")))
+            return _json_reply(builds_http.status(D, q))
         return None
 
     def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
@@ -375,14 +373,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_files(self, path: str, q: Query, D: Document) -> Reply | None:
         """Files: D's page images (a name with no image falls through), the bundled PDF.js (404 for any other name) and
-        the PDF of a build (404 through answers.build_pdf_gone). None for any other path."""
+        the PDF of a build (404 through builds_http.pdf). None for any other path."""
         app = self.app
         if path.startswith("/pages/"):
-            name = os.path.basename(path)
-            if PAGE_FILE_RE.fullmatch(name):
-                data = _read(app.cur_pages(D) / name)
-                if data is not None:
-                    return Reply(200, data, "image/png")
+            data = builds_http.page(D, path)
+            if data is not None:
+                return Reply(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
             # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
             vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
@@ -394,11 +390,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/pdf":
             # The PDF matching the page images' build (for vector rendering). It never falls back to a different
             # build (the viewer falls back to PNG and re-reads /api/meta instead).
-            name = parse.parse_build_name(q)
-            pf = app.build_pdf(D, name)
-            data = None if pf is None else _read(pf)
-            if data is None:
-                answers.build_pdf_gone(name, app.cur_pages(D).name, app.hdr_text)
+            data = builds_http.pdf(D, q, app.hdr_text)
             return Reply(200, data, "application/pdf", "private, max-age=600")
         return None
 

@@ -74,8 +74,6 @@ from limn.build import (
     FailedBuild,
     FinishedBuild,
     ViewOnlyNoRebuild,
-    build_pdf as build_pdf,
-    cur_pages as cur_pages,
 )
 from limn.config import AccessOptions, RunConfig
 from limn.documents import (
@@ -144,9 +142,6 @@ from limn.viewer.assemble import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-
-build_state_snapshot = build.state_snapshot
-
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -361,12 +356,9 @@ class ServerApplication:
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
     hdr_text = staticmethod(hdr_text)
-    cur_pages = staticmethod(cur_pages)
     app_version = staticmethod(app_version)
     revision_history = staticmethod(revision_history)
     outline_labels = staticmethod(outline_labels)
-    build_state_snapshot = staticmethod(build_state_snapshot)
-    build_pdf = staticmethod(build_pdf)
     pin_state = staticmethod(pin_state)
 
     def now_str(self) -> str:

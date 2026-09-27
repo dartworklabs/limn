@@ -71,19 +71,6 @@ def found_doc(found: T | DocNotFound, text: Text) -> T:
     return found
 
 
-def build_pdf_gone(name: str, pages_build: str, text: Text) -> NoReturn:
-    """GET /pdf when the build's PDF cannot be served: 404 pdf_build_gone for a named build (?build=, through text and
-    cut to 60 characters) that is gone or has no PDF, pdf_missing when none was named - never another build's PDF. The
-    body names the build on screen (pages_build) so the viewer falls back to its page images."""
-    raise HTTPError(
-        404,
-        "그 빌드의 PDF 가 없습니다: %s" % text(name)[:60],
-        pdf_build_gone=bool(name),
-        pages_build=pages_build,
-        reason="pdf_build_gone" if name else "pdf_missing",
-    )
-
-
 def revision_refused(result: RevisionRefusal) -> NoReturn:
     """The HTTP answer to every refusal of the revision routes (GET /api/revision-diff|-build|-pdf, POST
     /api/revision-build), with the statuses and bodies of the agent contract; a pin-scoping refusal through

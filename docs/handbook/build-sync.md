@@ -184,7 +184,7 @@ Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)
 | `ok_errors`·`fail` | 마지막 40줄 |
 | `?log=1` 을 붙인 요청(두 경로 모두) | 다이어트 없이 전체 꼬리(4000자) |
 
-뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(문서의 빌드 상태 `Doc.bstate`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다. 다이어트는 응답을 보내기 직전의 HTTP 층 일이라 [`limn/web/answers.py`](../../src/limn/web/answers.py)에 있다. `GET /api/build` 는 빌드 상태 dict에 `diet_log` 를, `/api/rebuild` 는 결과 타입에 `rebuild_answer` 를 쓴다(`BuildOk` 면 `log` 를 빼고 나머지는 자른다). 줄 수는 둘 다 `LOG_TAIL_LINES` 다.
+뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(문서의 빌드 상태 `Doc.bstate`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다. 다이어트는 응답을 보내기 직전의 HTTP 층 일이라 [`limn/web/answers.py`](../../src/limn/web/answers.py)에 있다. [`features/builds/http.py`](../../src/limn/features/builds/http.py)의 `GET /api/build` 입구는 빌드 상태 dict에 `diet_log` 를 적용하고, 아직 `web/answers.py`가 소유한 `/api/rebuild` 는 결과 타입에 `rebuild_answer` 를 쓴다(`BuildOk` 면 `log` 를 빼고 나머지는 자른다). 줄 수는 둘 다 `LOG_TAIL_LINES` 다.
 
 ## 자동 동기화 (가벼운 meta 폴링)
 

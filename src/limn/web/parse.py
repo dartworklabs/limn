@@ -318,12 +318,6 @@ def parse_rebuild_query(q: Query) -> RebuildQuery:
     return RebuildQuery(parse_flag(q, "log"), parse_flag(q, "async"))
 
 
-def parse_build_name(q: Query) -> str:
-    """GET /pdf's ?build= as sent, "" when absent (the build on screen). Never refused: a name that is not a page
-    directory simply has no PDF (limn.build.build_pdf)."""
-    return query_first(q, "build", "") or ""
-
-
 def source_file(p: object, root: Path, state: Path) -> Path | InputRejected:
     """The real file inside the manuscript tree root that p names (absolute, or relative to the tree), or why not
     (limn.files.file_in_tree): a bad value, a file outside the tree (the state folder `state` included), or no such

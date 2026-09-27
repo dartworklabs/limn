@@ -117,10 +117,6 @@ class App(Protocol):
         """The logins an assignee in body d is checked against: the known people when d names one, else none."""
         ...
 
-    def cur_pages(self, D: Document) -> Path:
-        """Document D's page-image directory on screen (limn.build.cur_pages)."""
-        ...
-
     # ---- reads
 
     def app_version(self) -> str:
@@ -171,10 +167,6 @@ class App(Protocol):
         """GET /api/outline-labels."""
         ...
 
-    def build_state_snapshot(self, D: Document) -> Json:
-        """GET /api/build for document D (limn.build.state_snapshot)."""
-        ...
-
     def remote_base_for(self, host_raw: str) -> str:
         """The base URL for GET /pins.md's guidance."""
         ...
@@ -185,10 +177,6 @@ class App(Protocol):
 
     def vendor_file(self, name: str) -> Path | None:
         """The bundled PDF.js file GET /vendor/pdfjs/<name> serves, or None."""
-        ...
-
-    def build_pdf(self, D: Document, name: str) -> Path | None:
-        """The PDF of build `name` of document D, or None (limn.build.build_pdf)."""
         ...
 
     def public(self, r: Record) -> Json:

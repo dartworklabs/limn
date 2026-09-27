@@ -26,6 +26,7 @@ from unittest import mock
 
 from limn import mapping
 from limn.documents import DocNotFound
+from limn.features.builds import http as builds_http
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
@@ -397,7 +398,7 @@ class Answers(unittest.TestCase):
     def test_a_build_pdf_that_cannot_be_served(self):
         """A named build is pdf_build_gone, no name is pdf_missing; the body names the build on screen."""
         self.assert_refused(
-            lambda: answers.build_pdf_gone("pages-1", "pages-2", str),
+            lambda: builds_http.pdf_gone("pages-1", "pages-2", str),
             404,
             {
                 "error": "그 빌드의 PDF 가 없습니다: pages-1",
@@ -407,7 +408,7 @@ class Answers(unittest.TestCase):
             },
         )
         self.assert_refused(
-            lambda: answers.build_pdf_gone("", "pages-2", str),
+            lambda: builds_http.pdf_gone("", "pages-2", str),
             404,
             {
                 "error": "그 빌드의 PDF 가 없습니다: ",
