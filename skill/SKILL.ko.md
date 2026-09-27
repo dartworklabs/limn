@@ -204,8 +204,8 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 | 재빌드(동기·비동기), `--git-pull`, 자동 동기화, 위치 추정(`est`) | [build-sync.md](../docs/handbook/build-sync.md) |
 | 구조와 불변식 | [architecture.md](../docs/handbook/architecture.md) |
 | 역변환 두 경로, 범위 사다리, 줄 맞춤(`anchor`), 저장 안전성, 작성자 귀속, 여러 문서·보기 전용 PDF, 알려진 제약 | [domain.md](../docs/handbook/domain.md) |
-| 뷰어 상태 표현과 화면 규칙 | [viewer.md](../docs/handbook/viewer.md) |
-| 서버 인자 전체, `--doc`, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve`, 상태 파일, 뷰어 사용법 | [operations.md](../docs/handbook/operations.md) |
+| 뷰어 사용법, 상태 표현과 화면 규칙 | [viewer.md](../docs/handbook/viewer.md) |
+| 서버 인자 전체, `--doc`, 포트 회피, 보안 상세(Host·Origin 이유), systemd, `tailscale serve`, 상태 파일 | [operations.md](../docs/handbook/operations.md) |
 | 원고별 인스턴스: `limn add`, 설정 키, 포트, 업데이트, 제거 | [instances.md](../docs/handbook/instances.md) |
 
 ## 연관

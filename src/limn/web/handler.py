@@ -3,9 +3,11 @@
 Every request reads its body to completion, passes the Host/Origin check, is identified and admitted (and, for a
 POST, role-checked) before any route runs; a refusal anywhere becomes one response in _run. The routes parse what
 they take from the body or query string (limn.web.parse) and answer a refused field at once, then call the application
-through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; the
-answers for pin outcomes are in limn.web.answers and the errors in limn.web.errors. Statuses, headers and bodies are
-the agent contract (docs/handbook/api.md).
+through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; no route
+reads a body field or a query parameter itself. Each route sends the answer limn.web.answers gives its outcome; the
+handler answers only what is its own - a body it cannot read (framing, size, content type, JSON), a Host or Origin it
+does not accept, a path no route serves - and the access checks raise their own refusals. The errors are in
+limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handbook/api.md).
 """
 
 from __future__ import annotations
@@ -19,32 +21,44 @@ import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, ClassVar
-from urllib.parse import ParseResult, parse_qs, urlparse
+from pathlib import Path
+from typing import Any, ClassVar, NamedTuple
+from urllib.parse import parse_qs, urlparse
 
-from limn.access import person_role
-from limn.documents import DocNotFound
 from limn.mark import png as mark_png
-from limn.pins.lifecycle import NotInTrash
-from limn.pins.model import TrashedPin
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 
 MAX_BODY = 1 << 20
-# The phrase POST /api/clear must carry as its body's `confirm` before every pin is archived and cleared.
-CLEAR_CONFIRM = "clear all pins"
 # A page image name GET /pages/<name> serves: the page-N.png files a build writes into the page directory (limn.build).
 PAGE_FILE_RE = re.compile(r"page-\d+\.png")
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
 VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
 
 
-def _first(q: Query, key: str) -> str | None:
-    """The first value of query parameter `key`, or None when the query has none."""
-    values = q.get(key)
-    return values[0] if values else None
+class Reply(NamedTuple):
+    """One complete response a GET route answers with, for Handler._send: status, body, Content-Type and
+    Cache-Control (None: _send's default)."""
+
+    code: int
+    body: bytes
+    ctype: str
+    cache: str | None = None
+
+
+def _json_reply(obj: object, code: int = 200) -> Reply:
+    """obj as a UTF-8 JSON response (non-ASCII kept as is)."""
+    return Reply(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+
+
+def _read(path: Path) -> bytes | None:
+    """A served file's bytes, or None when it cannot be read (the route then answers 404 or falls through)."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
 
 
 class Server(ThreadingHTTPServer):
@@ -107,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj: object, code: int = 200) -> None:
         """Send obj as a UTF-8 JSON response (non-ASCII kept as is)."""
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        self._send(*_json_reply(obj, code))
 
     def _read_raw(self) -> bytes:
         """Reads the request body to completion before any response, on every path (including GET/403/404).
@@ -232,157 +246,161 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        return self._get_doc(actor, path, q, self._request_doc(q))
+        return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
 
-    def _request_doc(self, q: Query, body: Json | None = None, file_hint: object = None) -> Document:
-        """The document a request names: ?doc= or the body's doc, parsed here (400 bad_doc or doc_mismatch), then found
-        by the server (the first document, or the one holding file_hint, when neither names one; 404 unknown_doc)."""
-        return self._found(self.app.request_doc(accepted(parse.parse_doc_key(q, body)), file_hint))
-
-    def _found(self, found: Document | DocNotFound) -> Document:
-        """The document a lookup found, or the 404 for a key this instance does not serve, listing the keys it does."""
-        if isinstance(found, DocNotFound):
-            raise HTTPError(
-                404,
-                "없는 문서입니다: %s" % self.app.hdr_text(found.key)[:40],
-                docs=list(found.known),
-                reason="unknown_doc",
-            )
-        return found
-
-    def _get_revision(self, path: str, D: Document, q: Query) -> None:
-        """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
-        optional &pin= scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked,
-        and every refusal is answered through answers.revision_answer (HTTPError to _run)."""
+    def _request_doc(self, choice: parse.DocChoice) -> Document:
+        """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
+        the one holding the file hint, when neither ?doc= nor the body names one. A new pin's own doc in the body then
+        wins over ?doc= when it names another (as it always has). 404 unknown_doc for a key this instance does not
+        serve (answers.found_doc)."""
         app = self.app
-        commit, pin = accepted(parse.parse_revision_query(q))
-        if path == "/api/revision-diff":
-            return self._json(answers.revision_answer(app.revision_diff(D, commit, pin)))
-        if path == "/api/revision-build":
-            return self._json(answers.revision_answer(app.revision_status(D, commit, pin)))
-        return self._send(
-            200,
-            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
-            "application/pdf",
-            cache="private, max-age=600",
-        )
+        D = answers.found_doc(app.request_doc(choice.key, choice.file_hint), app.hdr_text)
+        if choice.body_key is not None and choice.body_key != D.key:
+            D = answers.found_doc(app.request_doc(choice.body_key), app.hdr_text)
+        return D
 
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
-        """GET routes that act on the request's document D (?doc=, found in _get): the viewer page, people,
-        pins and pins.md, meta, snippets, builds and the revision routes. Returns after sending one response; refusals
-        propagate to _run as HTTPError."""
+        """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
+        the routes have always been matched (a /pages/ name with no image falls through to the rest): the viewer
+        shell, the document's history and build, the pins, the source, the files. Sends the one response the matching
+        route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
+        reply = (
+            self._get_viewer(actor, path, q, D)
+            or self._get_document(path, q, D)
+            or self._get_pins(path, q, D)
+            or self._get_source(path, q, D)
+            or self._get_files(path, q, D)
+        )
+        if reply is None:
+            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+        self._send(*reply)
+
+    def _get_viewer(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
+        """The viewer shell: the page, its @-tag people, icons, version, meta (with the browser's notifications) and
+        service worker. None for any other path."""
         app = self.app
         if path == "/":
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
-            return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":  # @-tag autocomplete candidates (no write). role: people.json role (person_role)
-            roles = app.people_roles()
-            ppl = sorted(
-                app.known_people(app.snapshot_pins()).values(),
-                key=lambda x: (x.get("last_seen") is None, x["name"].lower()),
-            )
-            ppl = [dict(x, role=person_role(roles, x["login"])) for x in ppl]
-            return self._json({"people": ppl, "me": self._me(actor)})
+            return Reply(200, app.HTML.encode(), "text/html; charset=utf-8")
+        if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
+            return _json_reply({"people": app.people_payload(), "me": self._me(actor)})
         if path == "/favicon.ico":
-            return self._send(204, b"", "image/x-icon")
+            return Reply(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
             size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
-            return self._send(200, mark_png(size, app.C.accent, rounded), "image/png", cache="public, max-age=86400")
+            return Reply(200, mark_png(size, app.C.accent, rounded), "image/png", "public, max-age=86400")
         if path == "/api/version":  # the installed Limn version - no write
-            return self._json({"name": app.APP_NAME, "version": app.app_version()})
+            return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/api/meta":
-            light = (q.get("light") or ["0"])[0] == "1"
+            light = parse.parse_flag(q, "light")
             if not light:
                 self._record(actor)
             out = app.meta(D, actor, light=light)
             out["me"] = self._me(actor)  # + role (additive)
             # browser notifications - no write. ?ev= is parsed only now: a bad cursor is refused after meta, as always
-            out.update(app.events_since(actor, accepted(parse.parse_event_cursor(_first(q, "ev")))))
-            return self._json(out)
+            out.update(app.events_since(actor, accepted(parse.parse_events_query(q))))
+            return _json_reply(out)
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
-            return self._send(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", cache="no-cache")
+            return Reply(200, app.SW_JS.encode(), "text/javascript; charset=utf-8", "no-cache")
+        return None
+
+    def _get_document(self, path: str, q: Query, D: Document) -> Reply | None:
+        """Document D's history and build: its recent commits, a commit's changes (revision routes), its outline labels
+        and its build state. None for any other path."""
+        app = self.app
         if path == "/api/revisions":
-            return self._json(app.revision_history(D))
+            return _json_reply(app.revision_history(D))
         if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
             return self._get_revision(path, D, q)
         if path == "/api/outline-labels":
-            return self._json(app.outline_labels(D))
+            return _json_reply(app.outline_labels(D))
         if path == "/api/build":
-            full = (q.get("log") or ["0"])[0] == "1"
-            return self._json(answers.diet_log(app.build_state_snapshot(D), full))
+            return _json_reply(answers.diet_log(app.build_state_snapshot(D), parse.parse_flag(q, "log")))
+        return None
+
+    def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
+        """The three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An optional &pin=
+        scopes them to one pin (§핀 단위 변경 보기); the pin is parsed before the commit is checked, and every refusal
+        is answered through answers.revision_answer (HTTPError to _run)."""
+        app = self.app
+        commit, pin = accepted(parse.parse_revision_query(q))
+        if path == "/api/revision-diff":
+            return _json_reply(answers.revision_answer(app.revision_diff(D, commit, pin)))
+        if path == "/api/revision-build":
+            return _json_reply(answers.revision_answer(app.revision_status(D, commit, pin)))
+        return Reply(
+            200,
+            answers.revision_pdf_answer(app.revision_pdf(D, commit, pin)),
+            "application/pdf",
+            "private, max-age=600",
+        )
+
+    def _get_pins(self, path: str, q: Query, D: Document) -> Reply | None:
+        """The pins: pins.md (the remote agent's entry point), the list (all documents, or D's with ?doc=), the
+        documents, the Trash and one pin. None for any other path."""
+        app = self.app
         # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
         if path == "/pins.md":
             app.maybe_purge_trash()
             base = app.remote_base_for(self.headers.get("Host") or "")
             text = app.pins_md_text(app.snapshot_pins(), base=base)
-            return self._send(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
+            return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             app.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
-            allp = (q.get("all") or ["0"])[0] == "1"
-            rows = app.pins_payload(app.snapshot_pins(), allp)
-            if q.get("doc"):  # with ?doc=<key>, only that document's pins (overlap/estimation stay computed globally)
+            pins = parse.parse_pins_query(q)
+            rows = app.pins_payload(app.snapshot_pins(), pins.all)
+            if pins.doc_scoped:  # only that document's pins (overlap/estimation stay computed globally)
                 rows = [r for r in rows if r["doc"] == D.key]
-            return self._json(rows)
+            return _json_reply(rows)
         if path == "/api/docs":
-            return self._json(app.docs_payload())
+            return _json_reply(app.docs_payload())
         if path == "/api/pins/dropped":
-            return self._json({"dropped": app.dropped_payload()})
+            return _json_reply({"dropped": app.dropped_payload()})
         m = re.fullmatch(r"/api/pins/(\d+)", path)
         if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
-            pid = int(m.group(1))
-            rec = next((r for r in app.pins_payload(app.snapshot_pins(), True) if r["id"] == pid), None)
-            if rec is None:
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
-            return self._json({"pin": rec})
+            return _json_reply(answers.pin_answer(app.pin_payload(int(m.group(1)))))
+        return None
+
+    def _get_source(self, path: str, q: Query, D: Document) -> Reply | None:
+        """A range of D's manuscript: its snippet (with the range ladder on ?levels=1) and the pins overlapping it.
+        None for any other path."""
+        app = self.app
         if path == "/api/snippet":
             rng = accepted(parse.parse_snippet(q, app.document_facts(D)))
-            return self._json(app.snippet_api(rng, (q.get("levels") or ["0"])[0] == "1"))
+            return _json_reply(app.snippet_api(rng, parse.parse_flag(q, "levels")))
         if path == "/api/overlaps":
-            return self._json(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
+            return _json_reply(app.overlaps_api(accepted(parse.parse_source_range(q, app.document_facts(D)))))
+        return None
+
+    def _get_files(self, path: str, q: Query, D: Document) -> Reply | None:
+        """Files: D's page images (a name with no image falls through), the bundled PDF.js (404 for any other name) and
+        the PDF of a build (404 through answers.build_pdf_gone). None for any other path."""
+        app = self.app
         if path.startswith("/pages/"):
             name = os.path.basename(path)
             if PAGE_FILE_RE.fullmatch(name):
-                f = app.cur_pages(D) / name
-                try:
-                    data = f.read_bytes()
-                except OSError:
-                    data = None
+                data = _read(app.cur_pages(D) / name)
                 if data is not None:
-                    return self._send(200, data, "image/png")
+                    return Reply(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
             # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
             vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
-            if vf is not None:
-                try:
-                    data = vf.read_bytes()
-                except OSError:
-                    data = None
-                if data is not None:
-                    # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
-                    return self._send(200, data, VENDOR_MIME[vf.suffix], cache="public, max-age=86400")
+            data = None if vf is None else _read(vf)
+            if vf is not None and data is not None:
+                # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
+                return Reply(200, data, VENDOR_MIME[vf.suffix], "public, max-age=86400")
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
         if path == "/pdf":
-            # The PDF matching the page images' build (for vector rendering). 404 if the build name is wrong
-            # or already deleted - it never falls back to a different build (the viewer falls back to PNG and re-reads /api/meta instead).
-            name = (q.get("build") or [""])[0]
+            # The PDF matching the page images' build (for vector rendering). It never falls back to a different
+            # build (the viewer falls back to PNG and re-reads /api/meta instead).
+            name = parse.parse_build_name(q)
             pf = app.build_pdf(D, name)
-            data = None
-            if pf is not None:
-                try:
-                    data = pf.read_bytes()
-                except OSError:
-                    data = None
+            data = None if pf is None else _read(pf)
             if data is None:
-                raise HTTPError(
-                    404,
-                    "그 빌드의 PDF 가 없습니다: %s" % app.hdr_text(name)[:60],
-                    pdf_build_gone=bool(name),
-                    pages_build=app.cur_pages(D).name,
-                    reason="pdf_build_gone" if name else "pdf_missing",
-                )  # no ?build=: nothing is gone
-            return self._send(200, data, "application/pdf", cache="private, max-age=600")
-        raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+                answers.build_pdf_gone(name, app.cur_pages(D).name, app.hdr_text)
+            return Reply(200, data, "application/pdf", "private, max-age=600")
+        return None
 
     def _body(self) -> Json:
         """The request body (already read in full) as a JSON object; {} when empty. 415 bad_content_type unless it is
@@ -413,32 +431,25 @@ class Handler(BaseHTTPRequestHandler):
         d = self._body()
         if path in ("/api/pick", "/api/pin", "/api/rebuild", "/api/revision-build"):
             q = parse_qs(u.query)
-            D = self._request_doc(q, d, file_hint=d.get("file") if path == "/api/pin" else None)
-            return self._post_doc(actor, path, u, d, D)
+            D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=path == "/api/pin")))
+            return self._post_doc(actor, path, q, d, D)
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
         """POST routes that act on no one document: pin changes (_pin_action) and clear; anything else is 404. d is the
         parsed JSON body; refusals propagate to _run."""
-        app = self.app
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
-            if d.get("confirm") != CLEAR_CONFIRM:
-                raise HTTPError(
-                    400,
-                    '모든 핀을 지우려면 본문에 {"confirm": "%s"} 를 보내세요(보관본 pins_<시각>.jsonl.bak 이 남습니다).'
-                    % CLEAR_CONFIRM,
-                    reason="confirm_required",
-                )
-            return self._json(dict(app.clear_pins(actor), ok=True))
+            accepted(parse.parse_clear(d))
+            return self._json(answers.clear_answer(self.app.clear_pins(actor)))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
-    def _post_doc(self, actor: Json, path: str, u: ParseResult, d: Json, D: Document) -> None:
+    def _post_doc(self, actor: Json, path: str, q: Query, d: Json, D: Document) -> None:
         """POST routes that act on the request's document D: pick, new pins, the revision build and rebuilds. d is the
-        parsed JSON body; each route parses its fields in the order the server has always checked them; refusals
-        propagate to _run."""
+        parsed JSON body and q the query; each route parses its fields in the order the server has always checked
+        them; refusals propagate to _run."""
         app = self.app
         if path == "/api/pick":
             selection = parse.parse_pick(d, app.document_facts(D))
@@ -446,52 +457,39 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(answers.pick_build_gone())
             return self._json(answers.pick_answer(app.pick(D, accepted(selection))))
         if path == "/api/pin":
-            want = d.get("doc")
-            if isinstance(want, str) and want != D.key:
-                # the body's doc wins, as it always has: "" names the first document
-                D = self._found(app.request_doc(want))
             request = accepted(parse.parse_add(d, app.assignee_people(d), app.document_facts(D)))
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/revision-build":
             commit, pin = accepted(parse.parse_revision_build(d))
-            result = answers.revision_answer(app.revision_start(D, commit, pin))
-            return self._json(result, 202 if result["state"] == "running" else 200)
+            return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
         # /api/rebuild (the only route left; _post sends only these four here)
-        if D.is_pdf:
-            raise HTTPError(
-                400,
-                "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % D.key,
-                reason="view_only_no_rebuild",
-            )
-        full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
-        if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
-            return self._json(*answers.rebuild_started_answer(app.build_async(D)))
-        return self._json(*answers.rebuild_answer(app.build_all(D), full))
+        rebuild = parse.parse_rebuild_query(q)
+        if rebuild.background:
+            return self._json(*answers.rebuild_started_answer(app.rebuild_async(D)))
+        return self._json(*answers.rebuild_answer(app.rebuild(D), rebuild.full_log))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call
         its service with the parsed values and answer its outcome. Refusals propagate to _run."""
         app = self.app
         if act == "reply":
-            text = accepted(parse.parse_reply_text(d.get("text")))
-            hints = accepted(parse.parse_mention_hints(d.get("mentions")))
-            reopen = accepted(parse.parse_reopen_flag(d))
+            reply = accepted(parse.parse_reply(d))
             human = self.principal.is_human()
             return self._json(
                 answers.reply_answer(
-                    app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human), app.public, app.pin_state
+                    app.reply_pin(pid, reply.text, actor, reply.hints, reopen=reply.reopen, human=human),
+                    app.public,
+                    app.pin_state,
                 )
             )
         if act == "confirm":
             return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
         if act == "drop":
-            return self._json({"ok": isinstance(app.drop_pin(pid, actor), TrashedPin)})
+            return self._json(answers.drop_answer(app.drop_pin(pid, actor)))
         if act == "restore":
             return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
         if act == "purge":  # owner only (check_role)
-            if isinstance(app.purge_pin(pid, actor), NotInTrash):
-                raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
-            return self._json({"ok": True, "purged": pid})
+            return self._json(answers.purge_answer(app.purge_pin(pid, actor), pid))
         if act == "edit":
             # loc is checked against the pin's own document, found before the edit is decided (as always)
             body = accepted(parse.parse_edit(d, app.assignee_people(d)))

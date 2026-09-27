@@ -145,6 +145,24 @@ class Known(unittest.TestCase):
         )
 
 
+class Candidates(unittest.TestCase):
+    """candidates(): GET /api/people's order and roles."""
+
+    def test_seen_people_first_then_by_name_each_with_its_role(self):
+        """Everyone with a last_seen comes before everyone without; within each, names sort ignoring case. Each
+        entry is a copy with the role role_of gives its login."""
+        known = {
+            "z@example.com": {"login": "z@example.com", "name": "zed"},
+            "b@example.com": {"login": "b@example.com", "name": "Bob", "last_seen": "t"},
+            "a@example.com": {"login": "a@example.com", "name": "amy"},
+            "c@example.com": {"login": "c@example.com", "name": "Cy", "last_seen": "t"},
+        }
+        listed = people.candidates(known, lambda login: "owner" if login == "c@example.com" else "editor")
+        self.assertEqual([p["name"] for p in listed], ["Bob", "Cy", "amy", "zed"])
+        self.assertEqual([p["role"] for p in listed], ["editor", "owner", "editor", "editor"])
+        self.assertNotIn("role", known["b@example.com"])
+
+
 class Write(unittest.TestCase):
     """record_person(): when people.json is written, and what an entry keeps."""
 

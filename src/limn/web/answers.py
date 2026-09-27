@@ -1,11 +1,14 @@
-"""The HTTP answer to every outcome of a pin operation or a build: one function per route, one `match` per function.
+"""The HTTP answer to every outcome a route gets back: one function per route, one `match` per function.
 
 Each function takes the outcome value a server.py shell returned (limn.pins types, PinNotFound, the revision
-services' values, limn.build's outcomes) or a request parser returned (InputRejected, limn.web.parse) and gives the body of the 200 response,
-or raises HTTPError with the status and body of a refusal; the handler sends the body and its _run turns the HTTPError into the error response. Statuses, bodies and messages are the agent
-contract (docs/handbook/api.md) and are kept word for word. A record goes out through `show` (server.py's public(),
-which places the pin's file on this machine), and a state name comes from `state_of` (server.py's pin_state()).
-Nothing here reads files, the clock or the request.
+services' values, limn.build's outcomes, a document lookup's DocNotFound) or a request parser returned (InputRejected,
+limn.web.parse) and gives the body of the 200 response (with its status where a route has more than one), or raises
+HTTPError with the status and body of a refusal; the handler sends the body and its _run turns the HTTPError into the
+error response. The handler itself answers only transport refusals (body framing and size, Host/Origin, an unknown
+path) and those of the access checks. Statuses, bodies and messages are the agent contract (docs/handbook/api.md). A
+record goes out through `show` (server.py's public(), which places the pin's file on this machine), a state name comes
+from `state_of` (server.py's pin_state()), and a value a message quotes from the request goes through `text`
+(server.py's hdr_text()). Nothing here reads files, the clock or the request.
 """
 
 from collections.abc import Callable
@@ -20,7 +23,9 @@ from limn.build import (
     BuildStarted,
     CopyFailed,
     FinishedBuild,
+    ViewOnlyNoRebuild,
 )
+from limn.documents import DocNotFound
 from limn.locate import (
     GeneratedFile,
     NoSourceHere,
@@ -44,7 +49,7 @@ from limn.pins.lifecycle import (
     ThreadFull,
     has_ev,
 )
-from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin
+from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import (
     AllSlotsBusy,
     CommitNotRecent,
@@ -65,6 +70,7 @@ from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, build_failu
 Body: TypeAlias = dict[str, object]
 Show: TypeAlias = Callable[[Record], object]
 StateOf: TypeAlias = Callable[[Record], str]
+Text: TypeAlias = Callable[[object], str]
 T = TypeVar("T")
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its
@@ -89,6 +95,41 @@ def accepted(value: T | InputRejected) -> T:
     if isinstance(value, InputRejected):
         raise HTTPError(400, value.message, reason=value.reason)
     return value
+
+
+def found_doc(found: T | DocNotFound, text: Text) -> T:
+    """The document a request names, or 404 unknown_doc for a key this instance does not serve: the key (through text,
+    cut to 40 characters) and every key it does serve (docs)."""
+    if isinstance(found, DocNotFound):
+        raise HTTPError(404, "없는 문서입니다: %s" % text(found.key)[:40], docs=list(found.known), reason="unknown_doc")
+    return found
+
+
+def pin_answer(result: dict[str, Any] | PinNotFound) -> Body:
+    """GET /api/pins/{id}: the pin as GET /api/pins?all=1 lists it (thread included), or 404 pin_not_found."""
+    match result:
+        case dict():
+            return {"pin": result}
+        case PinNotFound(pid=pid):
+            raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
+
+
+def build_pdf_gone(name: str, pages_build: str, text: Text) -> NoReturn:
+    """GET /pdf when the build's PDF cannot be served: 404 pdf_build_gone for a named build (?build=, through text and
+    cut to 60 characters) that is gone or has no PDF, pdf_missing when none was named - never another build's PDF. The
+    body names the build on screen (pages_build) so the viewer falls back to its page images."""
+    raise HTTPError(
+        404,
+        "그 빌드의 PDF 가 없습니다: %s" % text(name)[:60],
+        pdf_build_gone=bool(name),
+        pages_build=pages_build,
+        reason="pdf_build_gone" if name else "pdf_missing",
+    )
+
+
+def clear_answer(result: dict[str, Any]) -> Body:
+    """POST /api/clear: what the clear reports (the archive and how many pins it held) with ok true."""
+    return dict(result, ok=True)
 
 
 def pick_build_gone() -> Body:
@@ -196,6 +237,24 @@ def restore_answer(result: OpenPin | ReviewPin | DonePin | NotInTrash | AlreadyL
             raise HTTPError(404, "삭제 기록에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
         case AlreadyLive(pid=pid):
             raise HTTPError(409, "핀 #%d 이 이미 있습니다." % pid, reason="pin_exists")
+
+
+def drop_answer(result: TrashedPin | PinNotFound) -> Body:
+    """POST /api/pins/{id}/drop: ok true when the pin went to the Trash, ok false (still a 200) when there was none."""
+    match result:
+        case TrashedPin():
+            return {"ok": True}
+        case PinNotFound():
+            return {"ok": False}
+
+
+def purge_answer(result: TrashedPin | NotInTrash, pid: int) -> Body:
+    """POST /api/pins/{id}/purge: the Trash copy of pin pid deleted for good, or 404 not_in_trash."""
+    match result:
+        case TrashedPin():
+            return {"ok": True, "purged": pid}
+        case NotInTrash():
+            raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
 
 
 def claim_answer(
@@ -345,6 +404,13 @@ def revision_answer(result: dict[str, Any] | RevisionRefusal) -> dict[str, Any]:
     revision_refused(result)
 
 
+def revision_start_answer(result: dict[str, Any] | RevisionRefusal) -> tuple[dict[str, Any], int]:
+    """POST /api/revision-build: the comparison build's status with 202 while it is running (just started or already
+    under way), 200 once it has an answer (ready or failed); a refusal through revision_refused."""
+    body = revision_answer(result)
+    return body, 202 if body["state"] == "running" else 200
+
+
 def revision_pdf_answer(result: bytes | RevisionRefusal) -> bytes:
     """GET /api/revision-pdf: the comparison PDF's bytes, or its refusal's answer."""
     if isinstance(result, bytes):
@@ -422,11 +488,22 @@ def _put_source(body: Body, pull: dict[str, Any] | None, src_mtime: float | None
         body["src_mtime"] = src_mtime
 
 
-def rebuild_answer(result: FinishedBuild | BuildBusy, full: bool) -> tuple[Body, int]:
-    """POST /api/rebuild (synchronous): the finished build's body and 200, or 409 {"ok": false, "busy": true} when the
-    document was already building. Without full (?log=1) the log is dropped for BuildOk and cut to its last
-    LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
+def view_only_refused(result: ViewOnlyNoRebuild) -> NoReturn:
+    """POST /api/rebuild for a view-only document: 400 view_only_no_rebuild naming the document."""
+    raise HTTPError(
+        400,
+        "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % result.key,
+        reason="view_only_no_rebuild",
+    )
+
+
+def rebuild_answer(result: FinishedBuild | BuildBusy | ViewOnlyNoRebuild, full: bool) -> tuple[Body, int]:
+    """POST /api/rebuild (synchronous): the finished build's body and 200, 409 {"ok": false, "busy": true} when the
+    document was already building, or the view-only refusal. Without full (?log=1) the log is dropped for BuildOk and
+    cut to its last LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
     match result:
+        case ViewOnlyNoRebuild():
+            view_only_refused(result)
         case BuildBusy():
             return {"ok": False, "busy": True}, 409
         case BuildOk():
@@ -441,10 +518,12 @@ def rebuild_answer(result: FinishedBuild | BuildBusy, full: bool) -> tuple[Body,
             return body, 200
 
 
-def rebuild_started_answer(result: BuildStarted | BuildBusy) -> tuple[Body, int]:
+def rebuild_started_answer(result: BuildStarted | BuildBusy | ViewOnlyNoRebuild) -> tuple[Body, int]:
     """POST /api/rebuild?async=1: 202 {"state": "running"} when the build started, 409 with busy true when the document
-    was already building."""
+    was already building, or the view-only refusal."""
     match result:
+        case ViewOnlyNoRebuild():
+            view_only_refused(result)
         case BuildStarted():
             return {"state": "running"}, 202
         case BuildBusy():
