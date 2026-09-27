@@ -19,11 +19,11 @@ function applyPinLists(rows,dropped,lists){
   diffToast(prevOpen,rows,dropped); reviewToast(prevReview,rows);
   OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
   PINS=lists.openHere; DONE=lists.doneHere;
-  if(EDIT&&!OPEN_ALL.some(p=>p.id===EDIT.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:EDIT.id}),'warn'); EDIT=null;}
+  if(EDITOR.current&&!OPEN_ALL.some(p=>p.id===EDITOR.current.id)){toast(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:EDITOR.current.id}),'warn'); EDITOR.current=null;}
   if(REPLY&&!rows.some(p=>p.id===REPLY.id)){closeReply(false); toast('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다','warn');}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
-  if(CUR){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
+  if(COMPOSE.current){recomputeOverlap(); renderOverlapBanner();}   // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
 }
 // Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it.
@@ -40,7 +40,7 @@ async function loadPins(){const seq=++PINS_LOAD_SEQ; let d;
   return true;
 }
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
-function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDIT&&EDIT.id===p.id));}
+function listOpen(){return SHOW_ALL&&multiDoc()?OPEN_ALL:OPEN_ALL.filter(p=>pdoc(p)===DOC||!DOC||(EDITOR.current&&EDITOR.current.id===p.id));}
 function listDone(){return SHOW_ALL&&multiDoc()?DONE_ALL:DONE;}
 function listReview(){return SHOW_ALL&&multiDoc()?REVIEW_ALL:REVIEW_ALL.filter(p=>pdoc(p)===DOC||!DOC);}
 // Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
@@ -87,7 +87,7 @@ function drawPins(){
   $('#empty').hidden=SHOWN.length>0||OPEN_ALL.length>0||REVIEW_ALL.length>0;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
   $('#pins').innerHTML=SHOWN.length?SHOWN.map(card).join(''):(multiDoc()&&!SHOW_ALL&&OPEN_ALL.length?'<div class="dim list-empty">'+esc(tl('이 문서에는 없습니다 · 다른 문서에 {n}건',{n:OPEN_ALL.length}))+'</div>':'');
-  if(EDIT){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDIT.el);}
+  if(EDITOR.current){const slot=$('#pins .edit-slot'); if(slot)slot.replaceWith(EDITOR.current.el);}
   // Awaiting-review section: between open pins and done. Hidden when empty. The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const LREV=MENTION_ONLY?REVIEW_ALL.filter(mentionsMe):listReview();
   $('#sec-review').hidden=!LREV.length; secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id));

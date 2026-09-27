@@ -456,12 +456,13 @@ class Trash(ServiceBase):
         self.assertEqual(self.store.files.dropped.read_bytes(), trash_before)
 
     def test_restore_of_a_pin_that_is_live_again_is_refused(self):
-        """A Trash copy whose id is live is AlreadyLive; both files keep their bytes."""
+        """A live pin refuses restore while its interrupted Trash shadow is removed."""
         pid = self.add()
         self.store.write_dropped([TrashedPin.from_record(dict(self.pin(pid), dropped_at=STAMP))])
-        pins, dropped = self.pins_bytes(), self.store.files.dropped.read_bytes()
+        pins = self.pins_bytes()
         self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), AlreadyLive(pid))
-        self.assertEqual((self.pins_bytes(), self.store.files.dropped.read_bytes()), (pins, dropped))
+        self.assertEqual(self.pins_bytes(), pins)
+        self.assertEqual(self.store.read_dropped()[0], [])
 
     def test_purge_trash_drops_expired_entries_and_restarts_the_hourly_clock(self):
         """purge_trash rewrites the Trash without expired entries and returns how many went; maybe_purge_trash waits
@@ -515,10 +516,10 @@ class CloseReplyRef(Base):
     def test_close_with_reply_and_ref_is_stored(self):
         pid = self.add()
         p = record_of(
-            ps.close_pin(
+            ps.APP.close_pin(
                 pid,
                 dict(LOCAL_ACTOR),
-                parse.parse_close({"reply": "제목을 고침", "ref": "PR #227"}, ps.C.src, ps.C.state),
+                parse.parse_close({"reply": "제목을 고침", "ref": "PR #227"}, ps.APP.C.src, ps.APP.C.state),
             )
         )
         self.assertEqual(p["close_reply"], "제목을 고침")
@@ -527,7 +528,7 @@ class CloseReplyRef(Base):
 
     def test_close_without_body_behaves_as_before(self):
         pid = self.add()
-        p = record_of(ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest()))
+        p = record_of(ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest()))
         self.assertNotIn("close_reply", p)
         self.assertNotIn("close_ref", p)
 
@@ -569,33 +570,40 @@ class CloseIdempotent(Base):
     """§D: re-closing an already-closed pin changes nothing (rev stays the same too)."""
 
     def test_second_close_does_not_overwrite_closed_by_or_rev(self):
+        """A repeated close preserves the first actor, timestamp, and revision."""
         pid = self.add()
-        first = record_of(ps.close_pin(pid, {"login": "alice", "name": "Wendy"}, CloseRequest()))
+        first = record_of(ps.APP.close_pin(pid, {"login": "alice", "name": "Wendy"}, CloseRequest()))
         self.assertEqual(first["rev"], 1)
-        second = record_of(ps.close_pin(pid, {"login": "bob", "name": "Bob"}, CloseRequest()))
+        second = record_of(ps.APP.close_pin(pid, {"login": "bob", "name": "Bob"}, CloseRequest()))
         self.assertEqual(second["closed_by"]["login"], "alice")
         self.assertEqual(second["rev"], first["rev"])
         self.assertEqual(second["done_at"], first["done_at"])
 
     def test_second_close_with_reply_does_not_apply(self):
+        """A reply on a repeated close cannot replace the first close reply."""
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first"}, ps.C.src, ps.C.state))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first"}, ps.APP.C.src, ps.APP.C.state))
         again = record_of(
-            ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src, ps.C.state))
+            ps.APP.close_pin(
+                pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state)
+            )
         )
         self.assertEqual(again["close_reply"], "first")
 
     def test_reopen_then_close_allows_new_reply(self):
+        """Reopening clears the prior close details so a later close records its own reply."""
         pid = self.add()
-        ps.close_pin(
-            pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first", "ref": "PR #1"}, ps.C.src, ps.C.state)
+        ps.APP.close_pin(
+            pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "first", "ref": "PR #1"}, ps.APP.C.src, ps.APP.C.state)
         )
-        ps.reopen_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.reopen_pin(pid, dict(LOCAL_ACTOR))
         reopened = self.pin(pid)
         self.assertNotIn("close_reply", reopened)
         self.assertNotIn("close_ref", reopened)
         closed_again = record_of(
-            ps.close_pin(pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.C.src, ps.C.state))
+            ps.APP.close_pin(
+                pid, dict(LOCAL_ACTOR), parse.parse_close({"reply": "second"}, ps.APP.C.src, ps.APP.C.state)
+            )
         )
         self.assertEqual(closed_again["close_reply"], "second")
         self.assertNotIn("close_ref", closed_again)
@@ -619,46 +627,52 @@ CLAIM_CLOCK = 1790384400.0
 
 
 class Claim(Base):
+    """The claim service handles ownership conflicts, expiry, and revision changes."""
+
     def test_claim_sets_fields_and_bumps_rev(self):
         pid = self.add()
-        p = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120))
+        p = record_of(ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120))
         self.assertEqual(p["claimed_by"], {"login": "alice@example.com", "name": "Wendy"})
         self.assertEqual(p["rev"], 1)
-        self.assertTrue(ps.claim_active(self.pin(pid)))
+        self.assertTrue(ps.APP.claim_active(self.pin(pid)))
 
     def test_default_ttl_used_when_body_omits_it(self):
         """A claim body without ttl_min holds the pin for the default TTL from the moment of the claim (clock frozen)."""
         pid = self.add()
         before = CLAIM_CLOCK
         with mock.patch("time.time", return_value=before):
-            p = record_of(ps.claim_pin(pid, dict(LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
+            p = record_of(ps.APP.claim_pin(pid, dict(LOCAL_ACTOR), parse.parse_claim_body({}).ttl))
         self.assertEqual(p["claim_until"], before + parse.CLAIM_TTL_DEFAULT * 60)
 
     def test_claim_conflict_from_other_identity_is_409(self):
+        """An active claim returns the current holder and expiry to a competing claimant."""
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        refused = ps.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120)  # answered 409 "claimed"
+        ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        refused = ps.APP.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120)  # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertEqual(refused.claimed_by["login"], "alice@example.com")
         self.assertIsNotNone(refused.claim_until)
 
     def test_claim_same_identity_extends(self):
         pid = self.add()
-        first = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 5))
-        second = record_of(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 200))
+        first = record_of(ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 5))
+        second = record_of(ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 200))
         self.assertGreater(second["claim_until"], first["claim_until"])
         self.assertEqual(second["rev"], first["rev"] + 1)
 
     def test_claim_on_closed_pin_is_409_done(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         # 409 "done"
-        self.assertIsInstance(ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120), ClaimClosedPin)
+        self.assertIsInstance(
+            ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120), ClaimClosedPin
+        )
 
     def test_claim_missing_pin_id_returns_none(self):
-        self.assertEqual(ps.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))
+        self.assertEqual(ps.APP.claim_pin(999, dict(LOCAL_ACTOR), 120), PinNotFound(999))
 
     def test_ttl_out_of_range_or_wrong_type_rejected(self):
+        """The claim parser rejects invalid TTL values and clamps older oversized requests."""
         for bad in (0, -1, "120", 12.5, True, None):  # 400 for a wrong type or a value below 1
             self.assertIsInstance(parse.parse_claim_body({"ttl_min": bad}), InputRejected)
         self.assertEqual(parse.parse_claim_body({}).ttl, parse.CLAIM_TTL_DEFAULT)
@@ -669,60 +683,62 @@ class Claim(Base):
             self.assertEqual(parse.parse_claim_body({"ttl_min": over}).ttl, 120)
 
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
+        """Once the stored hold expires, another identity may claim the same pin."""
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        rows = records(ps.snapshot_pins())
+        ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        rows = records(ps.APP.snapshot_pins())
         for r in rows:
             if r["id"] == pid:
                 r["claim_until"] = time.time() - 10
         write_records(rows)
-        self.assertFalse(ps.claim_active(self.pin(pid)))
-        p = record_of(ps.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120))
+        self.assertFalse(ps.APP.claim_active(self.pin(pid)))
+        p = record_of(ps.APP.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120))
         self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
 
     def test_unclaim_clears_fields_regardless_of_requester(self):
+        """Unclaim clears all hold fields even when a different person requests it."""
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        p = record_of(ps.unclaim_pin(pid, {"login": "bob@example.com", "name": "Bob"}))
+        ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        p = record_of(ps.APP.unclaim_pin(pid, {"login": "bob@example.com", "name": "Bob"}))
         self.assertNotIn("claimed_by", p)
         self.assertNotIn("claimed_at", p)
         self.assertNotIn("claim_until", p)
 
     def test_unclaim_missing_pin_returns_none(self):
-        self.assertEqual(ps.unclaim_pin(999, dict(LOCAL_ACTOR)), PinNotFound(999))
+        self.assertEqual(ps.APP.unclaim_pin(999, dict(LOCAL_ACTOR)), PinNotFound(999))
 
     def test_close_clears_claim(self):
         pid = self.add()
-        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
-        p = record_of(ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest()))
+        ps.APP.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        p = record_of(ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest()))
         self.assertNotIn("claimed_by", p)
 
     def test_drop_clears_claim_even_in_dropped_record(self):
         pid = self.add()
-        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
-        ps.drop_pin(pid, dict(LOCAL_ACTOR))
-        dropped = ps.dropped_payload()
+        ps.APP.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
+        dropped = ps.APP.dropped_payload()
         self.assertEqual(len(dropped), 1)
         self.assertNotIn("claimed_by", dropped[0])
 
     def test_pins_md_shows_hourglass_with_claimer_name_and_legend(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        ps.APP.claim_pin(pid, {"login": "kim@example.com", "name": "Coauthor Kim"}, 120)
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(Coauthor Kim)", md)  # just the name when there's no ETA
         self.assertNotIn("⏳", md)
         self.assertIn("'처리 중(이름, 약 N분)' = 다른 에이전트가 잡음, 건너뛴다", md)
 
     def test_pins_md_hourglass_uses_local_label_for_curl_claims(self):
         pid = self.add()
-        ps.claim_pin(pid, dict(LOCAL_ACTOR), 120)
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        ps.APP.claim_pin(pid, dict(LOCAL_ACTOR), 120)
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("처리 중(로컬/에이전트)", md)
 
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
-        ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        pins, bad = ps.read_pins()
+        ps.APP.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
+        pins, bad = ps.APP.read_pins()
         self.assertEqual(bad, [])
         self.assertIn("claimed_by", find_record(pins, pid))
 
@@ -738,7 +754,7 @@ class Claim(Base):
         self.assertEqual(body["claimed_by"]["login"], "alice@example.com")
         out = self.talk(req("POST", "/api/pins/%d/unclaim" % pid))
         self.assertIn(b" 200 ", out)
-        self.assertFalse(ps.claim_active(self.pin(pid)))
+        self.assertFalse(ps.APP.claim_active(self.pin(pid)))
 
     def test_http_claim_bad_ttl_type_is_400(self):
         pid = self.add()
@@ -777,7 +793,7 @@ class NoteAppend(Base):
         p1 = record_of(edit_pin(pid, {"note_append": "추가 텍스트"}, dict(LOCAL_ACTOR)))
         self.assertIn("추가 텍스트", p1["note"])
         self.assertIn("(추가 ", p1["note"])
-        self.assertEqual(len(ps.C.pins_jsonl.read_text().splitlines()), 1)  # line count unchanged
+        self.assertEqual(len(ps.APP.C.pins_jsonl.read_text().splitlines()), 1)  # line count unchanged
         undone = record_of(edit_pin(pid, {"note": p0["note"], "base_rev": p1["rev"]}, dict(LOCAL_ACTOR)))
         self.assertEqual(undone["note"], p0["note"])
 
@@ -819,12 +835,12 @@ class ClaimEstimate(Base):
         pid = self.add()
         t0 = CLAIM_CLOCK
         with mock.patch("time.time", return_value=t0):
-            p = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
+            p = record_of(ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15})))
         self.assertEqual(p["eta_ts"], t0 + 15 * 60)
         self.assertEqual(p["claim_ts"], t0)
         self.assertEqual(p["claim_until"], t0 + 30 * 60)
         self.assertIsInstance(p["claimed_at"], str)
-        rows = records(ps.read_pins()[0])  # it's a stored value (not a computed field)
+        rows = records(ps.APP.read_pins()[0])  # it's a stored value (not a computed field)
         self.assertIn("eta_ts", find_pin(rows, pid))
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
@@ -833,47 +849,49 @@ class ClaimEstimate(Base):
         pid = self.add()
         now = CLAIM_CLOCK
         with mock.patch("time.time", return_value=now):
-            first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
-            with ps.RT.pin_lock:  # move it back to having been claimed 10 minutes ago
-                rows = records(ps.read_pins()[0])
+            first = record_of(ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
+            with ps.APP.RT.pin_lock:  # move it back to having been claimed 10 minutes ago
+                rows = records(ps.APP.read_pins()[0])
                 r = find_pin(rows, pid)
                 for k in ("claim_ts", "eta_ts", "claim_until"):
                     r[k] -= 600
                 write_records(rows)
-            second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
+            second = record_of(ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
             self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
             self.assertEqual(second["claimed_at"], first["claimed_at"])
             self.assertEqual(second["eta_ts"], now + 20 * 60)  # the new estimate starts from now
             self.assertEqual(second["claim_until"], now + 40 * 60)
             # extending with no new estimate keeps the previous one
-            third = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({})))
+            third = record_of(ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({})))
             self.assertEqual(third["eta_ts"], second["eta_ts"])
             self.assertEqual(third["rev"], second["rev"] + 1)
 
     def test_other_identity_conflict_reports_eta_and_new_claim_drops_old_eta(self):
+        """Conflict reports the old ETA, but a later claimant never inherits that estimate."""
         pid = self.add()
-        ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15}))
-        refused = ps.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))  # answered 409 "claimed"
+        ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 15}))
+        refused = ps.APP.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))  # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertIsNotNone(refused.eta_ts)
-        with ps.RT.pin_lock:  # A's claim has expired
-            rows = records(ps.read_pins()[0])
+        with ps.APP.RT.pin_lock:  # A's claim has expired
+            rows = records(ps.APP.read_pins()[0])
             find_pin(rows, pid)["claim_until"] = time.time() - 1
             write_records(rows)
-        p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
+        p = record_of(ps.APP.claim_pin(pid, self.B, *parse.parse_claim_body({})))
         self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
         self.assertNotIn("eta_ts", p)  # doesn't inherit someone else's old estimate
 
     def test_close_drop_unclaim_clear_all_claim_fields(self):
+        """Each terminal or release transition removes the complete claim and ETA field set."""
         for how in ("close", "drop", "unclaim"):
             pid = self.add()
-            ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
+            ps.APP.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
             if how == "close":
-                rec = record_of(ps.close_pin(pid, self.A, CloseRequest()))
+                rec = record_of(ps.APP.close_pin(pid, self.A, CloseRequest()))
             elif how == "unclaim":
-                rec = record_of(ps.unclaim_pin(pid, self.A))
+                rec = record_of(ps.APP.unclaim_pin(pid, self.A))
             else:
-                ps.drop_pin(pid, self.A)
+                ps.APP.drop_pin(pid, self.A)
                 rec = trash_records()[-1]
             for k in CLAIM_FIELDS:
                 self.assertNotIn(k, rec, (how, k))
@@ -903,25 +921,27 @@ class PinKindAndThread(Base):
         pid = self.add()
         p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
         self.assertEqual(p["kind_req"], "question")
-        ps.close_pin(pid, dict(self.S), CloseRequest())
+        ps.APP.close_pin(pid, dict(self.S), CloseRequest())
         p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
         self.assertEqual(p["kind_req"], "fix")
 
     def test_thread_is_capped(self):
         pid = self.add()
         with mock.patch.object(ps, "THREAD_MAX", 2):
-            ps.reply_pin(pid, "1", dict(self.S))
-            ps.reply_pin(pid, "2", dict(self.S))
-            self.assertEqual(ps.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
+            ps.APP.reply_pin(pid, "1", dict(self.S))
+            ps.APP.reply_pin(pid, "2", dict(self.S))
+            self.assertEqual(ps.APP.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
             # a status-transition record is exempt from the cap
-            ps.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
+            ps.APP.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
     def test_close_reply_is_appended_to_thread_once(self):
         pid = self.add()
-        ps.reply_pin(pid, "질문이 있어요", dict(self.S))
-        ps.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
-        ps.close_pin(pid, dict(self.S), CloseRequest(reply="두 번째 닫기"))  # already closed — nothing gets appended
+        ps.APP.reply_pin(pid, "질문이 있어요", dict(self.S))
+        ps.APP.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
+        ps.APP.close_pin(
+            pid, dict(self.S), CloseRequest(reply="두 번째 닫기")
+        )  # already closed — nothing gets appended
         th = self.pin(pid)["thread"]
         self.assertEqual(
             [(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
@@ -939,18 +959,18 @@ class ReviewTransitions(Base):
 
     def test_review_pins_are_not_open_for_agents(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
-        self.assertIsInstance(ps.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
-        m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
+        self.assertIsInstance(ps.APP.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
+        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
         self.assertEqual((m["n_open"], m["n_review"], m["n_done"]), (0, 1, 0))
 
     def test_reopen_after_confirm_drops_confirmation(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-        ps.confirm_pin(pid, dict(self.S))
-        ps.reopen_pin(pid, dict(self.S), reason="다시")
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.confirm_pin(pid, dict(self.S))
+        ps.APP.reopen_pin(pid, dict(self.S), reason="다시")
         p = self.pin(pid)
         self.assertNotIn("confirmed_by", p)
         self.assertEqual(pin_state(p), "open")
@@ -968,11 +988,11 @@ class MentionsOnEdit(Base):
         super().setUp()
 
     def events(self):
-        return ps._read_events()[0]
+        return ps.APP._read_events()[0]
 
     def test_edit_adds_mention_event_only_for_new_names(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
+        ps.APP.record_person(dict(self.W))
+        ps.APP.record_person(dict(self.S))
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 봐 주세요"}, dict(LOCAL_ACTOR)
         ).record["id"]
@@ -989,17 +1009,17 @@ class MentionsOnEdit(Base):
         # "reopened" marker was missing (the old check only looked at "is the round's first message a
         # reopen?"). pin_reopened_in_round() now skips over confirm.
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
-        ps.confirm_pin(pid, dict(self.S))
-        ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.confirm_pin(pid, dict(self.S))
+        ps.APP.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
         self.assertTrue(pin_reopened_in_round(parse_pin(self.pin(pid)).core.thread))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
 
     def test_self_mention_never_becomes_addressed(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
+        ps.APP.record_person(dict(self.W))
+        ps.APP.record_person(dict(self.S))
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "note": "@Wendy Kim 셀프 태그", "kind_req": "question"},
             dict(self.W),
@@ -1007,7 +1027,7 @@ class MentionsOnEdit(Base):
         p = self.pin(pid)
         self.assertNotIn("mentions", p)  # a self-@mention isn't stored
         self.assertEqual(mentions.addressed_to(parse_pin(p)), [])
-        msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
+        msg = ps.APP.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
 
@@ -1111,7 +1131,7 @@ class CloseChanges(AccessBase):
         # decided after review (ADR-0005, accepted): paper repos squash-merge and agents close after the merge, so the
         # line asks for `changes` in the numbering of the commit `ref` names, and ref = "PR #N (<hash>)"; per-pin commits
         # help but are optional
-        text = ps.pins_md_text(ps.snapshot_pins())
+        text = ps.APP.pins_md_text(ps.APP.snapshot_pins())
         line = next(ln for ln in text.splitlines() if ln.startswith("처리한 핀은 닫는다"))
         self.assertTrue(
             line.startswith(

@@ -1,6 +1,6 @@
 function pageSrc(p){return dq('/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
 function buildDoc(){
-  const doc=$('#doc'); doc.innerHTML=''; PENDING=null;
+  const doc=$('#doc'); doc.innerHTML=''; COMPOSE.box=null;
   META.pages.forEach((p,i)=>{const d=document.createElement('div'); d.className='pg'; d.id='p'+(i+1); d.dataset.page=i+1;
     d.style.width=W+'px'; d.style.aspectRatio=p.pt_w+' / '+p.pt_h;
     d.innerHTML='<span class="no">'+(i+1)+'</span><img loading="lazy" draggable="false" alt="'+esc(tl('{page}쪽',{page:i+1}))+'" src="'+esc(pageSrc(p))+'">';

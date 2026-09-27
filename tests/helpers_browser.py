@@ -163,12 +163,16 @@ class BrowserBase(ChromiumTestCase):
         src.mkdir()
         (src / "main.tex").write_text(DEMO_TEX, encoding="utf-8")
         (root / "state").mkdir()
-        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
-        C = ps.C
+        config = run_config(src, src / "main.tex", root / "state", label="Demo")
+        ps.APP = ps.ServerApplication(
+            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
+        )
+        ps.Handler.app = ps.APP
+        C = ps.APP.C
         reset_access()  # the access defaults and a fresh Runtime
         serve_viewer("Demo", "#2563eb", ps)
-        ps.set_docs(None)
-        ps.init_seq()
+        ps.APP.set_docs(None)
+        ps.APP.init_seq()
         pages = C.state / "pages-20260925100000"
         pages.mkdir()
         for i in (1, 2):
@@ -196,7 +200,7 @@ class BrowserBase(ChromiumTestCase):
             return route.abort()
         if u.path == "/api/pick":
             lines = tex_lines(self.main)
-            lad = mapping.compute_levels(lines, 5, 5, ps.C.envs)
+            lad = mapping.compute_levels(lines, 5, 5, ps.APP.C.envs)
             d = {
                 "file": str(self.main),
                 "name": "main.tex",
@@ -216,7 +220,7 @@ class BrowserBase(ChromiumTestCase):
                 "levels": lad["levels"],
                 "default_level": lad["default_level"],
                 "overlaps": [],
-                "pdf_build": cur_pages(ps.DOCS[0]).name,
+                "pdf_build": cur_pages(ps.APP.docs[0]).name,
             }
             return route.fulfill(status=200, headers={"content-type": "application/json"}, body=json.dumps(d))
         body = rq.post_data_buffer or b""
@@ -268,4 +272,4 @@ class BrowserBase(ChromiumTestCase):
         """Drag a region on page 1 with the mouse and wait until the composer shows its resolved lines."""
         page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_selector("#composer:not([hidden])", timeout=8000)
-        page.wait_for_function("CUR&&CUR.lo", timeout=8000)
+        page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)

@@ -12,7 +12,7 @@ document.addEventListener('click',e=>{
   if(fromMore&&(a.dataset.close||a.dataset.act==='help'))$('#more').close();
   switch(a.dataset.act){
     case 'side':toggleSide();break;
-    case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!CUR&&!EDIT)setSide(false);break;
+    case 'selmode':setSelMode(!SELMODE);if(SELMODE&&LAYOUT===LAYOUT_MODE.NARROW&&!COMPOSE.current&&!EDITOR.current)setSide(false);break;
     case 'more':openMore();break; case 'more-close':$('#more').close();break;
     case 'size-preset':sizePreset(+a.dataset.i);break;
     case 'm-jump':$('#more').close();goPage($('#m-jump').value);break;
@@ -26,12 +26,12 @@ document.addEventListener('click',e=>{
     case 'overlap-append':{const text=$('#note').value.trim();
       if(!text){toast('메모를 먼저 써야 덧붙일 수 있습니다','warn');break;}
       appendToPin(+a.dataset.oid,text);break;}
-    case 'overlap-separate':OVERLAP_DISMISSED=a.dataset.key||null;renderOverlapBanner();break;
+    case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
     case 'wrap':WRAP=!WRAP;savePrefs({wrap:WRAP});renderComposer();renderEdit();break;
-    case 'copy-cur':if(CUR)copyText(CUR.name+' L'+CUR.lo+'-L'+CUR.hi);break;
+    case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi);break;
     case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
-    case 'level':{const o=inEdit?EDIT:CUR; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
-    case 'nudge':{const o=inEdit?EDIT:CUR; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
+    case 'level':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o)break; useLevel(o,a.dataset.level); if(!inEdit)recomputeOverlap(); inEdit?renderEdit():renderComposer(); break;}
+    case 'nudge':{const o=inEdit?EDITOR.current:COMPOSE.current; if(!o||!nudge(o,a.dataset.dir))break; if(!inEdit)recomputeOverlap(); const r=inEdit?renderEdit:renderComposer; r(); refetchSnip(o,r); break;}
     case 'view':jumpPin(id);break; case 'edit':openEdit(id);break;
     case 'doc':{const inMenu=!!a.closest('#docs-menu'); switchDoc(a.dataset.doc); if(inMenu)$('#docs-menu').close(); break;}
     // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
@@ -50,7 +50,7 @@ document.addEventListener('click',e=>{
     case 'mention-pick':mentionApply(+a.dataset.i);break;
     case 'pin-ref':gotoPinRef(+a.dataset.ref);break;
     case 'assign-new':ASSIGN_NEW.v=a.dataset.v||'agent'; ASSIGN_NEW.touched=true; renderAssignNew(); saveDraftSoon(); break;
-    case 'assign-edit':if(EDIT){EDIT.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
+    case 'assign-edit':if(EDITOR.current){EDITOR.current.assignee=a.dataset.v||'agent'; renderAssignEdit();} break;
     case 'msg-more':{const k=a.dataset.key; if(!k)break; if(MSG_OPEN.has(k))MSG_OPEN.delete(k); else MSG_OPEN.add(k); drawPins(); break;}
     case 'diff-wrap':setDiffWrap(!DIFF_WRAP);break;
     case 'revision-other':toggleRevisionOther();break;
@@ -62,7 +62,7 @@ document.addEventListener('click',e=>{
       // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.
       if(fromHint){const n=$('#note'); n.focus({preventScroll:true}); n.setSelectionRange(n.value.length,n.value.length);}
       break;}
-    case 'e-kind':if(EDIT){EDIT.kind_req=a.dataset.kind===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; renderEdit();}break;
+    case 'e-kind':if(EDITOR.current){EDITOR.current.kind_req=a.dataset.kind===KIND_REQ.QUESTION?KIND_REQ.QUESTION:KIND_REQ.FIX; renderEdit();}break;
     case 'reply-open':if(id!=null)openReply(id);break;
     case 'reply-flip':if(REPLY){REPLY.flip=!REPLY.flip; renderReplyOutcome();}break;
     case 'confirm':if(id!=null)confirmPin(id);break;
@@ -77,7 +77,7 @@ document.addEventListener('click',e=>{
     case 'done-toggle':toggleSec('done');if(fromMore)revealList('#done-toggle',SEC.done);break;
     case 'trash-open':openTrash();break; case 'trash-close':$('#trash').close();break;
     case 'err-close':hideBuildErr();break;
-    case 'build-err-reopen':if(LAST_BUILD_ERR){setSide(true); showBuildErr(LAST_BUILD_ERR);} break;   // the chip floats on a collapsed panel; the log is inside it
+    case 'build-err-reopen':if(BUILD.error){setSide(true); showBuildErr(BUILD.error);} break;   // the chip floats on a collapsed panel; the log is inside it
   }
 });
 $('#doc-select').addEventListener('change',e=>switchDoc(e.target.value));
@@ -112,8 +112,8 @@ document.addEventListener('keydown',e=>{
     if(LAYOUT===LAYOUT_MODE.MID&&OUTLINE_MID_OPEN){e.preventDefault();toggleOutline();return;}
     if(REPICK){e.preventDefault();cancelRepick();return;}
     if(REPLY){e.preventDefault();closeReply();return;}
-    if(EDIT){e.preventDefault();cancelEdit();return;}
-    if(CUR||!$('#composer').hidden){e.preventDefault();discardSelection();return;}
+    if(EDITOR.current){e.preventDefault();cancelEdit();return;}
+    if(COMPOSE.current||!$('#composer').hidden){e.preventDefault();discardSelection();return;}
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
     if(LAYOUT===LAYOUT_MODE.MID&&MID_OVERLAY&&SIDE_OPEN){e.preventDefault();setSide(false,true,true);focusSideToggle();return;}
     if(document.body.classList.contains('revision-open')){e.preventDefault();revBack();return;}   // Esc in [변경 보기] = [원고로]

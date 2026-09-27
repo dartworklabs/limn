@@ -337,21 +337,22 @@ class ServerTokenFile(AccessBase):
     def test_pins_md_is_unchanged_until_the_token_file_exists(self):
         """No file (or no file configured): the agent-auth line is exactly the v0.2 TOKEN_GUIDANCE."""
         self.add()
-        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
+        self.assertEqual(self.token_line(ps.APP.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
         set_config(agent_token_file=None)
         self.add()
-        self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
+        self.assertEqual(self.token_line(ps.APP.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
 
     def test_pins_md_adds_the_token_file_clause_once_the_file_exists(self):
         """The clause is appended to the old line: the curl form reading the file, and no token anywhere in pins.md."""
         secret = "limn_" + "s" * 43
-        ps.C.access.agent_token_file.write_text(secret + "\n", encoding="utf-8")
+        ps.APP.C.access.agent_token_file.write_text(secret + "\n", encoding="utf-8")
         self.add()
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         line = self.token_line(md)
         self.assertTrue(line.startswith(md_render.TOKEN_GUIDANCE + " · "))
         self.assertIn(
-            "Authorization: Bearer $(cat %s)" % shell_path(ps.C.access.agent_token_file, access.home_or_none()), line
+            "Authorization: Bearer $(cat %s)" % shell_path(ps.APP.C.access.agent_token_file, access.home_or_none()),
+            line,
         )
         self.assertNotIn(secret, md)
         self.assertEqual(len([ln for ln in md.splitlines() if ln.startswith(md_render.TOKEN_GUIDANCE)]), 1)
@@ -360,21 +361,21 @@ class ServerTokenFile(AccessBase):
         """An unreadable (mode 000) token file still counts as present: the server only stats it."""
         if os.geteuid() == 0:
             self.skipTest("root reads mode-000 files, so this cannot show that nothing was read")
-        ps.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
-        ps.C.access.agent_token_file.chmod(0o000)  # removing it later needs no read either
+        ps.APP.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
+        ps.APP.C.access.agent_token_file.chmod(0o000)  # removing it later needs no read either
         self.add()
-        self.assertIn("$(cat ", self.token_line(ps.C.pins_md.read_text(encoding="utf-8")))
+        self.assertIn("$(cat ", self.token_line(ps.APP.C.pins_md.read_text(encoding="utf-8")))
 
     def test_an_unsearchable_token_folder_breaks_neither_pins_nor_the_401(self):
         """stat on a file in a folder the server cannot search raises PermissionError; that means "no file", never a
         failed pin write or a 500."""
         if os.geteuid() == 0:
             self.skipTest("root searches any folder")
-        ps.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
+        ps.APP.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
         self.cfg.chmod(0o000)
         try:
             pid = self.add()
-            self.assertEqual(self.token_line(ps.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
+            self.assertEqual(self.token_line(ps.APP.C.pins_md.read_text(encoding="utf-8")), md_render.TOKEN_GUIDANCE)
             set_config(agent_loopback=False)
             code, d = self.call("GET", "/api/pins/%d" % pid)
             self.assertEqual(code, 401, d)
@@ -383,7 +384,7 @@ class ServerTokenFile(AccessBase):
 
     def test_remote_pins_md_never_names_the_token_file(self):
         """GET /pins.md through the tailnet renders for a reader who cannot reach this machine's files."""
-        ps.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
+        ps.APP.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
         self.add()
         code, md = get(
             ps,
@@ -407,9 +408,9 @@ class ServerTokenFile(AccessBase):
         self.assertEqual(code, 401)
         self.assertEqual(self.last_headers.get("www-authenticate"), 'Bearer realm="limn"')
         self.assertTrue(d["error"].startswith(UNAUTHENTICATED))
-        self.assertIn("$(cat %s)" % shell_path(ps.C.access.agent_token_file, access.home_or_none()), d["error"])
+        self.assertIn("$(cat %s)" % shell_path(ps.APP.C.access.agent_token_file, access.home_or_none()), d["error"])
         self.assertIn("limn token create paper --save", d["error"])
-        ps.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
+        ps.APP.C.access.agent_token_file.write_text("limn_x\n", encoding="utf-8")
         code, d = self.call("GET", "/api/pins")
         self.assertEqual(code, 401)
         self.assertNotIn("--save", d["error"])  # the file exists: no need to create it
@@ -423,9 +424,9 @@ class ServerTokenFile(AccessBase):
     def test_revoked_token_from_the_file_is_401(self):
         """A token read from a token file is an ordinary token: revoked means 401, never a fallback to another identity."""
         set_config(agent_loopback=False)
-        entry, tok = token_create(ps.C.state, "local")
+        entry, tok = token_create(ps.APP.C.state, "local")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
-        token_revoke(ps.C.state, entry["id"])
+        token_revoke(ps.APP.C.state, entry["id"])
         code, d = self.call("GET", "/api/pins", token=tok)
         self.assertEqual(code, 401)
         self.assertIn("폐기", d["error"])

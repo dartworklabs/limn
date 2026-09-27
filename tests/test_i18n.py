@@ -60,6 +60,8 @@ def static_ui_strings(html):
     found = set()
 
     class P(HTMLParser):
+        """Collect visible Korean text and UI attributes outside SVG and style blocks."""
+
         skip = 0
 
         def handle_starttag(self, tag, attrs):
@@ -123,6 +125,8 @@ def composed_keys(html):
 
 
 class MessageTable(unittest.TestCase):
+    """Translation entries cover composed and static messages with valid placeholders."""
+
     def test_table_loads_and_values_are_english(self):
         """Keys are Korean UI strings, or reason:<code> for an API error reason (tests/test_errors.py); values are English."""
         self.assertGreater(len(UI_EN), 300)
@@ -191,6 +195,8 @@ class MessageTable(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    """The assembled viewer embeds safe translations and chooses a language consistently."""
+
     def test_table_is_embedded_and_script_safe(self):
         html = page_for("A-DEMO", "#2563eb")
         self.assertNotIn("__UI_EN_JSON__", html)
@@ -438,7 +444,7 @@ class EnglishChrome(ChromiumTestCase):
     def tearDownClass(cls):
         """Put the server copy's page and document list back, remove the state, close Chromium."""
         serve_viewer("원고", config.ACCENT_PALETTE[0], ps)
-        ps.set_docs(None)
+        ps.APP.set_docs(None)
         cls.tmp.cleanup()
         super().tearDownClass()
 
@@ -449,13 +455,17 @@ class EnglishChrome(ChromiumTestCase):
         for name in ("main.tex", "reply.tex"):
             (src / name).write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
-        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
+        config = run_config(src, src / "main.tex", root / "state", label="Demo")
+        ps.APP = ps.ServerApplication(
+            config, ps.new_runtime(ps.serve_viewer(ps.read_viewer(), config.label, config.accent))
+        )
+        ps.Handler.app = ps.APP
         fresh_runtime(ps)
-        C = ps.C
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C.paths))
-        ps.init_seq()
+        C = ps.APP.C
+        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
+        ps.APP.init_seq()
         page = blank_png(1275, 1650)  # a letter page at 150 dpi
-        for D in ps.DOCS:
+        for D in ps.APP.docs:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True)
             for i in (1, 2, 3):
@@ -465,29 +475,29 @@ class EnglishChrome(ChromiumTestCase):
             (D.dir / "head.txt").write_text("abc1234")
         agent = dict(LOCAL_ACTOR)
         for who in (ALICE_ACTOR, BOB_LEE, SEOJUN):
-            ps.record_person(who)
+            ps.APP.record_person(who)
         access.member_add(C.state, VERA["login"], "viewer", VERA["name"], cli_audit(C.state))
-        ms, rr = ps.DOCS
+        ms, rr = ps.APP.docs
 
         def add(lo, hi, note, actor, **kw):
             d = dict(file=str(C.main), lo=lo, hi=hi, page=1 + lo // 20, note=note, **kw)
             return add_pin(d, actor, ps).record["id"]
 
         claimed = add(4, 5, "Tighten this sentence", ALICE_ACTOR)
-        ps.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
+        ps.APP.claim_pin(claimed, agent, *parse.parse_claim_body({"eta_min": 10}))
         korean = add(8, 9, "이 문장을 다듬어 주세요", SEOJUN)
-        ps.reply_pin(korean, "Working on it", ALICE_ACTOR)
+        ps.APP.reply_pin(korean, "Working on it", ALICE_ACTOR)
         add(12, 16, "Is this the right table? @Bob Lee", ALICE_ACTOR, kind_req="question", mentions=[BOB_LEE["login"]])
         add(4, 5, "Same spot again", BOB_LEE)
         add(20, 21, "Ask Bob about the wording", ALICE_ACTOR, assignee=BOB_LEE["login"])
         add(22, 23, "Agent note", agent)
         for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
-            ps.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
+            ps.APP.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
-        ps.close_pin(done, ALICE_ACTOR, CloseRequest())
+        ps.APP.close_pin(done, ALICE_ACTOR, CloseRequest())
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
-        ps.drop_pin(dropped, ALICE_ACTOR)
+        ps.APP.drop_pin(dropped, ALICE_ACTOR)
         add_pin(
             dict(file=str(src / "reply.tex"), lo=4, hi=5, page=1, note="Reply letter wording"), ALICE_ACTOR, ps, doc=rr
         ).record["id"]

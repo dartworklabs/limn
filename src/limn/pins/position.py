@@ -150,6 +150,15 @@ def range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int) -> RangeRel | None:
     return "partial"
 
 
+def _reverse_rel(rel: RangeRel) -> RangeRel:
+    """Describe the same overlap from the other pin's point of view."""
+    if rel == "inside":
+        return "contains"
+    if rel == "contains":
+        return "inside"
+    return "partial"
+
+
 def overlaps_by_id(pins: Sequence[Pin], file_of: Callable[[Pin], str]) -> dict[int, list[dict[str, Any]]]:
     """The relationship of every pair of open line pins on the same file (never stored): {id: [{"id", "rel"}, ...]},
     with an entry (possibly empty) for every open pin, in the pins' order.
@@ -172,20 +181,14 @@ def overlaps_by_id(pins: Sequence[Pin], file_of: Callable[[Pin], str]) -> dict[i
         for i, (a, sa) in enumerate(group):
             for b, sb in group[i + 1 :]:
                 if (sa.lo, sa.hi) == (sb.lo, sb.hi):
-                    outer, inner = (a, b) if a < b else (b, a)
-                    out[inner].append({"id": outer, "rel": "inside"})
-                    out[outer].append({"id": inner, "rel": "contains"})
-                    continue
-                rel_a = range_rel(sa.lo, sa.hi, sb.lo, sb.hi)  # does a fall inside b?
-                if rel_a == "inside":
-                    out[a].append({"id": b, "rel": "inside"})
-                    out[b].append({"id": a, "rel": "contains"})
-                elif rel_a == "contains":
-                    out[a].append({"id": b, "rel": "contains"})
-                    out[b].append({"id": a, "rel": "inside"})
-                elif rel_a == "partial":
-                    out[a].append({"id": b, "rel": "partial"})
-                    out[b].append({"id": a, "rel": "partial"})
+                    rel_a: RangeRel = "contains" if a < b else "inside"
+                else:
+                    relation = range_rel(sa.lo, sa.hi, sb.lo, sb.hi)
+                    if relation is None:
+                        continue
+                    rel_a = relation
+                out[a].append({"id": b, "rel": rel_a})
+                out[b].append({"id": a, "rel": _reverse_rel(rel_a)})
     return out
 
 

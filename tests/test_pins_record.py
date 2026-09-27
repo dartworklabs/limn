@@ -256,7 +256,7 @@ class ThreadShape(Base):
             [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}],
         ):
             r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
-            self.assertEqual(ps.parse_record(r), Broken(), th)
+            self.assertEqual(ps.APP.parse_record(r), Broken(), th)
         ok = {
             "id": 1,
             "file": str(self.main),
@@ -274,8 +274,8 @@ class ThreadShape(Base):
                 }
             ],
         }
-        self.assertIsInstance(ps.parse_record(ok), OpenPin)
-        self.assertEqual(ps.parse_record(dict(ok, kind_req="Q")), Broken())
+        self.assertIsInstance(ps.APP.parse_record(ok), OpenPin)
+        self.assertEqual(ps.APP.parse_record(dict(ok, kind_req="Q")), Broken())
 
 
 if __name__ == "__main__":

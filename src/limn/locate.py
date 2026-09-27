@@ -27,10 +27,10 @@ from limn.mapping import (
     TokenWeights,
     Traced,
     compute_levels,
-    densest,
     norm,
     pin_rel_path,
     snippet,
+    synctex_range,
     trace_range,
     truncate_quote,
 )
@@ -76,8 +76,8 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
 def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> tuple[str, int, int] | None:
     """The SyncTeX candidate for a box: (file, lo, hi), or None when no sample point maps anywhere.
 
-    Samples a grid over the box (2-5 columns, 2-6 rows by its size), keeps the file most samples land in, and the
-    densest cluster of their lines (mapping.densest)."""
+    Samples a grid over the box (2-5 columns, 2-6 rows by its size); mapping.synctex_range chooses
+    the file most samples land in and the densest cluster of their lines."""
     w, h = x1 - x0, y1 - y0
     nx = max(2, min(5, int(w / 40) + 2))
     ny = max(2, min(6, int(h / 14) + 2))
@@ -87,11 +87,7 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
             r = synctex_edit(pdf, page, x0 + w * (i + 0.5) / nx, y0 + h * (j + 0.5) / ny)
             if r:
                 hits.append(r)
-    if not hits:
-        return None
-    best = max({f for f, _ in hits}, key=lambda f: sum(1 for g, _ in hits if g == f))
-    ls = densest(sorted(ln for f, ln in hits if f == best))
-    return best, ls[0], ls[-1]
+    return synctex_range(hits)
 
 
 # ---------------------------------------------------------------- Reverse mapping 2: rendered text

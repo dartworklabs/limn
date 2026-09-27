@@ -59,6 +59,8 @@ SRC = ROOT / "src"
 
 
 class TailscaleProvider(AccessBase):
+    """Loopback identity headers are trusted; remote peers need a valid agent token."""
+
     def test_headers_trusted_from_loopback(self):
         code, d = self.call("GET", "/api/meta?light=1", headers=ALICE)
         self.assertEqual(code, 200)
@@ -107,6 +109,8 @@ class TailscaleProvider(AccessBase):
 
 
 class LocalProvider(AccessBase):
+    """Local mode attributes loopback requests to the owner and refuses remote peers."""
+
     def setUp(self):
         super().setUp()
         set_config(auth="local", agent_loopback=False, local_user="alice")
@@ -121,7 +125,7 @@ class LocalProvider(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid)
         self.assertEqual((code, d["state"]), (200, "done"))
         rid = self.add(8, 9)
-        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
+        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())  # an agent's close -> review
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual((code, d["state"]), (200, "done"))
         self.assertEqual(self.pin(rid)["confirmed_by"]["login"], "alice")
@@ -132,19 +136,21 @@ class LocalProvider(AccessBase):
 
     def test_non_loopback_is_401_and_agents_use_tokens(self):
         self.assertEqual(self.call("GET", "/api/pins", peer="10.0.0.5")[0], 401)
-        _, tok = token_create(ps.C.state, "bot")
+        _, tok = token_create(ps.APP.C.state, "bot")
         code, d = self.call("GET", "/api/meta?light=1", token=tok)
         self.assertEqual((code, d["me"]["login"], d["me"]["role"]), (200, "agent:bot", "agent"))
 
     def test_default_owner_login_from_user(self):
         set_config(local_user=None)
         with mock.patch.dict(os.environ, {"USER": "dana"}):
-            self.assertEqual(access.local_owner_actor(ps.C.access.local_user)["login"], "dana")
+            self.assertEqual(access.local_owner_actor(ps.APP.C.access.local_user)["login"], "dana")
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(access.local_owner_actor(ps.C.access.local_user)["login"], "owner")
+            self.assertEqual(access.local_owner_actor(ps.APP.C.access.local_user)["login"], "owner")
 
 
 class TrustedProxyProvider(AccessBase):
+    """Only the configured proxy may supply person identity and custom headers."""
+
     def setUp(self):
         super().setUp()
         set_config(auth="trusted-proxy", agent_loopback=False)
@@ -200,7 +206,7 @@ class TrustedProxyProvider(AccessBase):
         )
 
     def test_tokens_work_from_anywhere(self):
-        _, tok = token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.APP.C.state, "ci")
         code, d = self.call("GET", "/api/meta?light=1", token=tok, peer="203.0.113.9")
         self.assertEqual((code, d["me"]["login"]), (200, "agent:ci"))
 
@@ -209,6 +215,8 @@ class TrustedProxyProvider(AccessBase):
 
 
 class StartupRules(AccessBase):
+    """Startup rejects unsafe bind and loopback-agent combinations before serving."""
+
     def configure(self, *args):
         """Apply the access options of a `limn serve` command line as start() does (limn.startup.access_options, bound
         into C); a refusal fails the test."""
@@ -216,7 +224,7 @@ class StartupRules(AccessBase):
         opts = startup.access_options(a)
         self.assertNotIsInstance(opts, StartupRefused)
         set_config(access=opts)
-        return ps.access_log_lines()
+        return ps.APP.access_log_lines()
 
     def refused(self, *args):
         """The message a refused command line gets; main() prints it and exits with status 1."""
@@ -229,7 +237,7 @@ class StartupRules(AccessBase):
     def test_defaults_are_v01(self):
         log = self.configure()
         self.assertEqual(
-            (ps.C.access.auth, ps.C.access.agent_loopback, ps.C.access.bind, ps.C.access.members_only),
+            (ps.APP.C.access.auth, ps.APP.C.access.agent_loopback, ps.APP.C.access.bind, ps.APP.C.access.members_only),
             ("tailscale", True, "127.0.0.1", False),
         )
         self.assertEqual(
@@ -240,21 +248,21 @@ class StartupRules(AccessBase):
 
     def test_no_agent_loopback(self):
         self.configure("--no-agent-loopback")
-        self.assertFalse(ps.C.access.agent_loopback)
+        self.assertFalse(ps.APP.C.access.agent_loopback)
         self.assertIn("loopback agent off", self.configure("--no-agent-loopback")[0])
 
     def test_loopback_agent_forced_off_and_explicit_request_refused(self):
         self.configure("--auth", "trusted-proxy")
-        self.assertFalse(ps.C.access.agent_loopback)
+        self.assertFalse(ps.APP.C.access.agent_loopback)
         self.configure("--auth", "local")
-        self.assertFalse(ps.C.access.agent_loopback)
+        self.assertFalse(ps.APP.C.access.agent_loopback)
         self.assertIn("--agent-loopback", self.refused("--auth", "trusted-proxy", "--agent-loopback"))
         self.assertIn("--agent-loopback", self.refused("--auth", "local", "--agent-loopback"))
         self.assertIn(
             "--agent-loopback", self.refused("--bind", "0.0.0.0", "--i-know-this-is-insecure", "--agent-loopback")
         )
         self.configure("--agent-loopback")
-        self.assertTrue(ps.C.access.agent_loopback)
+        self.assertTrue(ps.APP.C.access.agent_loopback)
 
     def test_non_loopback_bind_refused_unless_trusted_proxy_or_insecure(self):
         for auth in ("tailscale", "local"):
@@ -264,14 +272,14 @@ class StartupRules(AccessBase):
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "trusted-proxy" in ln for ln in log), log)
         self.assertFalse(any("!!!" in ln for ln in log))
         log = self.configure("--bind", "0.0.0.0", "--i-know-this-is-insecure")
-        self.assertFalse(ps.C.access.agent_loopback)  # forced off on a non-loopback bind
+        self.assertFalse(ps.APP.C.access.agent_loopback)  # forced off on a non-loopback bind
         self.assertTrue(any("!!!" in ln and "--i-know-this-is-insecure" in ln for ln in log), log)
         self.assertTrue(any(ln.startswith("warning     bound to 0.0.0.0") and "tailscale" in ln for ln in log))
 
     def test_loopback_binds_are_fine(self):
         for b in ("127.0.0.1", "127.0.0.2", "::1", "localhost"):
             self.configure("--bind", b)
-            self.assertTrue(ps.C.access.agent_loopback, b)
+            self.assertTrue(ps.APP.C.access.agent_loopback, b)
         self.refused("--bind", "example.com")
 
     def test_invalid_values_refused(self):
@@ -282,8 +290,8 @@ class StartupRules(AccessBase):
 
     def test_auth_line_counts_tokens_and_members_only(self):
         set_config(state=Path(self.tmp.name) / "state")
-        token_create(ps.C.state, "a")
-        token_create(ps.C.state, "b")
+        token_create(ps.APP.C.state, "a")
+        token_create(ps.APP.C.state, "b")
         log = self.configure("--auth", "local", "--local-user", "alice", "--members-only")
         self.assertEqual(log[0], "auth        local · owner alice · tokens 2 · loopback agent off · members-only on")
 
@@ -292,15 +300,17 @@ class StartupRules(AccessBase):
 
 
 class Tokens(AccessBase):
+    """Agent tokens retain hashed storage, revocation, and precedence over headers."""
+
     def test_store_hashes_at_rest_0600_and_lists(self):
-        e1, t1 = token_create(ps.C.state)
-        e2, t2 = token_create(ps.C.state)
+        e1, t1 = token_create(ps.APP.C.state)
+        e2, t2 = token_create(ps.APP.C.state)
         self.assertEqual((e1["name"], e2["name"]), ("agent", "agent-2"))
         self.assertTrue(t1.startswith("limn_") and len(t1) > 40)
-        raw = ps.C.tokens_file.read_text(encoding="utf-8")
+        raw = ps.APP.C.tokens_file.read_text(encoding="utf-8")
         self.assertNotIn(t1, raw)
         self.assertNotIn(t1[len("limn_") :], raw)
-        self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(ps.APP.C.tokens_file.stat().st_mode), 0o600)
         d = json.loads(raw)
         self.assertEqual(d["version"], 1)
         self.assertEqual([t["hash"] for t in d["tokens"]], [access.token_hash(t1), access.token_hash(t2)])
@@ -312,19 +322,19 @@ class Tokens(AccessBase):
                 for t in d["tokens"]
             )
         )
-        self.assertEqual([t["name"] for t in load_tokens(ps.C.state)], ["agent", "agent-2"])
+        self.assertEqual([t["name"] for t in load_tokens(ps.APP.C.state)], ["agent", "agent-2"])
         with self.assertRaises(ValueError):
-            token_create(ps.C.state, "agent")  # names are unique
+            token_create(ps.APP.C.state, "agent")  # names are unique
         with self.assertRaises(ValueError):
-            token_create(ps.C.state, "bad name")
-        self.assertEqual(token_revoke(ps.C.state, e1["id"])["name"], "agent")  # by id
-        self.assertEqual(token_revoke(ps.C.state, "agent-2")["id"], e2["id"])  # by name
-        self.assertIsNone(token_revoke(ps.C.state, "agent-2"))
-        self.assertEqual(load_tokens(ps.C.state), [])
-        self.assertEqual(stat.S_IMODE(ps.C.tokens_file.stat().st_mode), 0o600)
+            token_create(ps.APP.C.state, "bad name")
+        self.assertEqual(token_revoke(ps.APP.C.state, e1["id"])["name"], "agent")  # by id
+        self.assertEqual(token_revoke(ps.APP.C.state, "agent-2")["id"], e2["id"])  # by name
+        self.assertIsNone(token_revoke(ps.APP.C.state, "agent-2"))
+        self.assertEqual(load_tokens(ps.APP.C.state), [])
+        self.assertEqual(stat.S_IMODE(ps.APP.C.tokens_file.stat().st_mode), 0o600)
 
     def test_token_principal_is_an_agent(self):
-        _, tok = token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.APP.C.state, "ci")
         code, d = self.call("GET", "/api/meta?light=1", token=tok, headers=ALICE)  # a valid token wins over headers
         self.assertEqual(d["me"], {"login": "agent:ci", "name": "ci", "role": "agent"})
         pid = self.pin_id(token=tok)
@@ -342,13 +352,13 @@ class Tokens(AccessBase):
         self.assertFalse(is_agent({"login": "alice@example.com"}))
 
     def test_revoked_token_is_401_without_restart(self):
-        e, tok = token_create(ps.C.state, "ci")
+        e, tok = token_create(ps.APP.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
-        token_revoke(ps.C.state, e["id"])
+        token_revoke(ps.APP.C.state, e["id"])
         code, d = self.call("GET", "/api/pins", token=tok)
         self.assertEqual(code, 401)
         self.assertIn("error", d)
-        _, tok2 = token_create(ps.C.state, "ci")  # a new token is accepted without restart too
+        _, tok2 = token_create(ps.APP.C.state, "ci")  # a new token is accepted without restart too
         self.assertEqual(self.call("GET", "/api/pins", token=tok2)[0], 200)
 
     def test_invalid_token_never_falls_back(self):
@@ -362,14 +372,14 @@ class Tokens(AccessBase):
         self.assertEqual(self.call("GET", "/api/pins", headers={"Authorization": "Basic YTpi"})[0], 200)
 
     def test_token_file_is_reread_when_it_changes(self):
-        self.assertEqual(ps.current_tokens(), [])
-        _, tok = token_create(ps.C.state, "ci")
-        self.assertEqual(access.token_lookup(tok, ps.current_tokens())["name"], "ci")
-        ps.C.tokens_file.write_text("{broken", encoding="utf-8")  # unreadable -> no token accepted (fail closed)
+        self.assertEqual(ps.APP.current_tokens(), [])
+        _, tok = token_create(ps.APP.C.state, "ci")
+        self.assertEqual(access.token_lookup(tok, ps.APP.current_tokens())["name"], "ci")
+        ps.APP.C.tokens_file.write_text("{broken", encoding="utf-8")  # unreadable -> no token accepted (fail closed)
         with mock.patch.object(ps.sys, "stderr", io.StringIO()):
-            self.assertIsNone(access.token_lookup(tok, ps.current_tokens()))
+            self.assertIsNone(access.token_lookup(tok, ps.APP.current_tokens()))
         with self.assertRaises(ValueError):  # and the CLI refuses to overwrite it
-            token_create(ps.C.state, "x")
+            token_create(ps.APP.C.state, "x")
 
     def cli(self, *args, env=None):
         e = dict(os.environ, PYTHONPATH=str(SRC))
@@ -443,6 +453,8 @@ class Tokens(AccessBase):
 
 
 class Roles(AccessBase):
+    """Every mutation applies the configured person or agent role boundary."""
+
     VIEWER_REFUSED = [
         ("/api/pin", {"file": None, "lo": 4, "hi": 5}),
         ("/api/pins/{id}/reply", {"text": "x"}),
@@ -461,13 +473,13 @@ class Roles(AccessBase):
     def test_viewer_is_refused_every_state_change(self):
         self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "viewer"}])
         pid = self.add()
-        before = ps.C.pins_jsonl.read_bytes()
+        before = ps.APP.C.pins_jsonl.read_bytes()
         for path, body in self.VIEWER_REFUSED:
             if body is not None and "file" in body:
                 body = dict(body, file=str(self.main))
             code, d = self.call("POST", path.format(id=pid), body, BOB)
             self.assertEqual(code, 403, (path, d))
-        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
         self.assertEqual(self.call("GET", "/pins.md", headers=BOB)[0], 200)
         code, d = self.call("GET", "/api/meta", headers=BOB)
@@ -489,13 +501,13 @@ class Roles(AccessBase):
             self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "x"}, h)[0], 200)
             self.assertEqual(self.call("POST", "/api/pins/%d/close" % pid, None, h)[1]["state"], "done")
             rid = self.add(8, 9)
-            ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
             self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, h)[1]["state"], "done")
 
     def test_owner_person_can_confirm(self):
         self.set_people([{"login": "alice@example.com", "name": "Alice", "role": "owner"}])
         rid = self.add()
-        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         self.assertEqual(self.call("POST", "/api/pins/%d/confirm" % rid, None, ALICE)[1]["state"], "done")
 
     def test_agent_role_person_closes_into_review_and_cannot_confirm(self):
@@ -512,7 +524,7 @@ class Roles(AccessBase):
 
     def test_loopback_agent_confirm_is_403(self):
         rid = self.add()
-        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest())
         code, d = self.call("POST", "/api/pins/%d/confirm" % rid)
         self.assertEqual(code, 403)
         self.assertEqual(d["error"], CONFIRM_BY_HUMAN)
@@ -521,14 +533,14 @@ class Roles(AccessBase):
         self.call("GET", "/", headers=BOB)  # auto-added, no role
         pid = self.add()
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "a"}, BOB)[0], 200)
-        member_set_role(ps.C.state, "bob@example.com", "viewer")
+        member_set_role(ps.APP.C.state, "bob@example.com", "viewer")
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "b"}, BOB)[0], 403)
-        member_set_role(ps.C.state, "bob@example.com", "editor")
+        member_set_role(ps.APP.C.state, "bob@example.com", "editor")
         self.assertEqual(self.call("POST", "/api/pins/%d/reply" % pid, {"text": "c"}, BOB)[0], 200)
 
     def test_unknown_role_value_is_viewer(self):
         self.set_people([{"login": "bob@example.com", "name": "Bob", "role": "admin"}])
-        self.assertEqual(ps.role_of("bob@example.com"), "viewer")
+        self.assertEqual(ps.APP.role_of("bob@example.com"), "viewer")
         self.assertEqual(self.call("POST", "/api/pin", {"file": str(self.main), "lo": 4, "hi": 4}, BOB)[0], 403)
 
     def test_record_person_preserves_role(self):
@@ -543,7 +555,7 @@ class Roles(AccessBase):
                 }
             ]
         )
-        self.assertTrue(ps.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
+        self.assertTrue(ps.APP.record_person({"login": "bob@example.com", "name": "Bob P."}, now=10**9 * 2))
         p = self.people_file()[0]
         self.assertEqual((p["role"], p["name"], p["first_seen"]), ("viewer", "Bob P.", "2026-09-01 10:00:00"))
 
@@ -563,36 +575,36 @@ class Roles(AccessBase):
         self.assertEqual(d["me"]["role"], "editor")
 
     def test_member_store_add_list_remove_role(self):
-        e = member_add(ps.C.state, "alice@example.com", "viewer")
+        e = member_add(ps.APP.C.state, "alice@example.com", "viewer")
         self.assertEqual(e, {"login": "alice@example.com", "name": "alice", "role": "viewer"})
-        member_add(ps.C.state, "bob@example.com", name="Bob Park")
+        member_add(ps.APP.C.state, "bob@example.com", name="Bob Park")
         with self.assertRaises(ValueError):
-            member_add(ps.C.state, "bob@example.com")
+            member_add(ps.APP.C.state, "bob@example.com")
         for bad in ("", "local", "agent:x", " a"):
             with self.assertRaises(ValueError):
-                member_add(ps.C.state, bad)
+                member_add(ps.APP.C.state, bad)
         with self.assertRaises(ValueError):
-            member_add(ps.C.state, "carol@example.com", "admin")
+            member_add(ps.APP.C.state, "carol@example.com", "admin")
         self.assertEqual(
-            [(p["login"], p["role"]) for p in load_people_file(ps.C.state)],
+            [(p["login"], p["role"]) for p in load_people_file(ps.APP.C.state)],
             [("alice@example.com", "viewer"), ("bob@example.com", "editor")],
         )
-        self.assertEqual(member_set_role(ps.C.state, "alice@example.com", "owner")["role"], "owner")
-        self.assertIsNone(member_set_role(ps.C.state, "nobody@example.com", "owner"))
-        self.assertEqual(member_remove(ps.C.state, "bob@example.com")["login"], "bob@example.com")
-        self.assertIsNone(member_remove(ps.C.state, "bob@example.com"))
-        d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
+        self.assertEqual(member_set_role(ps.APP.C.state, "alice@example.com", "owner")["role"], "owner")
+        self.assertIsNone(member_set_role(ps.APP.C.state, "nobody@example.com", "owner"))
+        self.assertEqual(member_remove(ps.APP.C.state, "bob@example.com")["login"], "bob@example.com")
+        self.assertIsNone(member_remove(ps.APP.C.state, "bob@example.com"))
+        d = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))
         self.assertEqual(
             d, {"version": 1, "people": [{"login": "alice@example.com", "name": "alice", "role": "owner"}]}
         )
-        ps.C.people_file.write_text("{broken", encoding="utf-8")
+        ps.APP.C.people_file.write_text("{broken", encoding="utf-8")
         with self.assertRaises(ValueError):  # never overwrite a file we could not read
-            member_add(ps.C.state, "dan@example.com")
-        self.assertEqual(ps.C.people_file.read_text(encoding="utf-8"), "{broken")
+            member_add(ps.APP.C.state, "dan@example.com")
+        self.assertEqual(ps.APP.C.people_file.read_text(encoding="utf-8"), "{broken")
 
     def test_member_cli(self):
         e = dict(os.environ, PYTHONPATH=str(SRC))
-        st = str(ps.C.state)
+        st = str(ps.APP.C.state)
 
         def cli(*a):
             return subprocess.run(
@@ -614,10 +626,12 @@ class Roles(AccessBase):
         r = cli("list", "--state-dir", st)
         self.assertRegex(r.stdout, r"alice@example\.com +editor ")
         self.assertNotIn("bob@example.com", r.stdout)
-        self.assertEqual(ps.role_of("alice@example.com"), "editor")  # the server sees it at once
+        self.assertEqual(ps.APP.role_of("alice@example.com"), "editor")  # the server sees it at once
 
 
 class Admission(AccessBase):
+    """Member admission policies gate people while preserving agent access."""
+
     def test_tailscale_default_policy_is_open_with_attribution(self):
         """Owner policy: with no AUTH and no allowlist, anyone on the tailnet may do everything that works in v0.1,
         attributed to their login; a never-seen person is recorded as an editor with no role field written."""
@@ -635,7 +649,7 @@ class Admission(AccessBase):
         people = self.people_file()
         self.assertEqual([p["login"] for p in people], ["carol@example.com"])
         self.assertNotIn("role", people[0])
-        self.assertEqual(ps.role_of("carol@example.com"), "editor")
+        self.assertEqual(ps.APP.role_of("carol@example.com"), "editor")
 
     def test_members_only_admits_listed_people(self):
         set_config(members_only=True)
@@ -648,15 +662,15 @@ class Admission(AccessBase):
         self.assertEqual([p["login"] for p in self.people_file()], ["alice@example.com"])  # not recorded
         set_config(allow=frozenset({"carol@example.com"}))  # --allow logins are admitted too
         self.assertEqual(self.call("GET", "/", headers=CAROL)[0], 200)
-        member_add(ps.C.state, "bob@example.com")  # a new member is admitted on the next request
+        member_add(ps.APP.C.state, "bob@example.com")  # a new member is admitted on the next request
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
-        member_remove(ps.C.state, "bob@example.com")
+        member_remove(ps.APP.C.state, "bob@example.com")
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
 
     def test_members_only_keeps_agents(self):
         set_config(members_only=True)
         self.assertEqual(self.call("GET", "/api/pins")[0], 200)  # loopback agent
-        _, tok = token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.APP.C.state, "ci")
         self.assertEqual(self.call("GET", "/api/pins", token=tok)[0], 200)
         code, _ = self.call("GET", "/api/pins", headers={"Host": "box.tail1234.ts.net"})  # tagged device
         self.assertEqual(code, 403)
@@ -676,12 +690,14 @@ class Admission(AccessBase):
 
 
 class PublicHost(AccessBase):
+    """Configured public hosts control request origins and the advertised base URL."""
+
     def setUp(self):
         super().setUp()
         set_config(public_hosts=access.parse_public_hosts(["limn.example.com", "alt.example.com:8443"]))
 
     def test_parse(self):
-        self.assertEqual(ps.C.access.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
+        self.assertEqual(ps.APP.C.access.public_hosts, (("limn.example.com", None), ("alt.example.com", 8443)))
         self.assertEqual(
             access.parse_public_hosts(["a.example.com,B.example.com:9000", "a.example.com"]),
             (("a.example.com", None), ("b.example.com", 9000)),
@@ -691,21 +707,21 @@ class PublicHost(AccessBase):
                 access.parse_public_hosts([bad])
 
     def test_host_and_origin_rules(self):
-        self.assertTrue(ps.host_ok("limn.example.com"))
-        self.assertTrue(ps.host_ok("limn.example.com:443"))
-        self.assertTrue(ps.host_ok("alt.example.com:8443"))
-        self.assertFalse(ps.host_ok("other.example.com"))
-        self.assertTrue(ps.origin_ok("https://limn.example.com", "limn.example.com"))
-        self.assertTrue(ps.origin_ok("https://limn.example.com:443", "limn.example.com"))
-        self.assertFalse(ps.origin_ok("http://limn.example.com", "limn.example.com"))  # https only
-        self.assertFalse(ps.origin_ok("https://limn.example.com:8443", "limn.example.com"))
-        self.assertFalse(ps.origin_ok("https://evil.example.com", "limn.example.com"))
-        self.assertTrue(ps.origin_ok("https://alt.example.com:8443", "alt.example.com:8443"))
-        self.assertFalse(ps.origin_ok("https://alt.example.com", "alt.example.com:8443"))
-        self.assertFalse(ps.origin_ok("https://limn.example.com", "127.0.0.1:18999"))  # never on a loopback Host
-        self.assertFalse(ps.origin_ok("https://limn.example.com", "box.tail1234.ts.net"))
+        self.assertTrue(ps.APP.host_ok("limn.example.com"))
+        self.assertTrue(ps.APP.host_ok("limn.example.com:443"))
+        self.assertTrue(ps.APP.host_ok("alt.example.com:8443"))
+        self.assertFalse(ps.APP.host_ok("other.example.com"))
+        self.assertTrue(ps.APP.origin_ok("https://limn.example.com", "limn.example.com"))
+        self.assertTrue(ps.APP.origin_ok("https://limn.example.com:443", "limn.example.com"))
+        self.assertFalse(ps.APP.origin_ok("http://limn.example.com", "limn.example.com"))  # https only
+        self.assertFalse(ps.APP.origin_ok("https://limn.example.com:8443", "limn.example.com"))
+        self.assertFalse(ps.APP.origin_ok("https://evil.example.com", "limn.example.com"))
+        self.assertTrue(ps.APP.origin_ok("https://alt.example.com:8443", "alt.example.com:8443"))
+        self.assertFalse(ps.APP.origin_ok("https://alt.example.com", "alt.example.com:8443"))
+        self.assertFalse(ps.APP.origin_ok("https://limn.example.com", "127.0.0.1:18999"))  # never on a loopback Host
+        self.assertFalse(ps.APP.origin_ok("https://limn.example.com", "box.tail1234.ts.net"))
         reset_access()
-        self.assertFalse(ps.host_ok("limn.example.com"))  # nothing without the option
+        self.assertFalse(ps.APP.host_ok("limn.example.com"))  # nothing without the option
 
     def test_requests_and_pins_md_base(self):
         # A headerless request under a public host is not the loopback agent (v0.2.1) - a person or a token is needed.
@@ -723,9 +739,9 @@ class PublicHost(AccessBase):
             dict(ALICE, Host="limn.example.com", Origin="https://evil.example.com"),
         )
         self.assertEqual(code, 403)
-        _, tok = token_create(ps.C.state, "ci")
-        self.assertEqual(ps.remote_base_for("limn.example.com"), "https://limn.example.com")
-        self.assertEqual(ps.remote_base_for("alt.example.com:8443"), "https://alt.example.com:8443")
+        _, tok = token_create(ps.APP.C.state, "ci")
+        self.assertEqual(ps.APP.remote_base_for("limn.example.com"), "https://limn.example.com")
+        self.assertEqual(ps.APP.remote_base_for("alt.example.com:8443"), "https://alt.example.com:8443")
         code, md = self.call("GET", "/pins.md", headers={"Host": "limn.example.com"}, token=tok)
         self.assertEqual(code, 200)
         self.assertIn("https://limn.example.com/api/pins/N/close", md)
@@ -736,9 +752,11 @@ class PublicHost(AccessBase):
 
 
 class ContractAdditions(AccessBase):
+    """Agent guidance and viewer bootstrap expose the expected access contract."""
+
     def test_pins_md_has_exactly_one_token_guidance_line(self):
         self.add()
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         lines = md.splitlines()
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         i = lines.index(md_render.TOKEN_GUIDANCE)
@@ -931,8 +949,8 @@ class Migration(AccessBase):
 
     def setUp(self):
         super().setUp()
-        self.write_fixture(ps.C.state)
-        configure(ps, self.src, self.main, ps.C.state)
+        self.write_fixture(ps.APP.C.state)
+        configure(ps, self.src, self.main, ps.APP.C.state)
 
     def test_run_argv_is_unchanged(self):
         root = Path(self.tmp.name)
@@ -940,7 +958,7 @@ class Migration(AccessBase):
         cfg.mkdir()
         (cfg / "paper.env").write_text(
             '# a v0.1 config\nLABEL="Paper V"\nMANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nTS_PORT=19030\n'
-            "STATE_DIR=%s\nGIT_PULL=1\nEXTRA_ARGS=--no-build\n" % (self.src, ps.C.state),
+            "STATE_DIR=%s\nGIT_PULL=1\nEXTRA_ARGS=--no-build\n" % (self.src, ps.APP.C.state),
             encoding="utf-8",
         )
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
@@ -963,7 +981,7 @@ class Migration(AccessBase):
                 "--port",
                 "19130",
                 "--state-dir",
-                str(ps.C.state),
+                str(ps.APP.C.state),
                 "--main",
                 "main.tex",
                 "--git-pull",
@@ -990,7 +1008,7 @@ class Migration(AccessBase):
         self.assertEqual(sorted(people), ["alice@example.com", "bob@example.com", "carol@example.com"])
         self.assertTrue(all("role" not in p for p in people.values()))
         self.assertEqual(people["bob@example.com"], V01_PEOPLE[1])  # untouched
-        self.assertFalse(ps.C.tokens_file.exists())
+        self.assertFalse(ps.APP.C.tokens_file.exists())
 
     def test_pins_md_matches_the_v01_rendering(self):
         """A v0.1 state renders the v0.1 pins.md byte for byte, apart from the added lines and the one v0.3 close line."""
@@ -1021,7 +1039,7 @@ class Migration(AccessBase):
             if path == "/api/pins/dropped":  # v0.2.2: the Trash adds a computed expires_ts
                 for r in new["dropped"]:  # and hides entries older than TRASH_DAYS
                     self.assertIsInstance(r.pop("expires_ts", 0), (int, float))
-                old["dropped"] = [r for r in old["dropped"] if not ps.trash_expired(r)]
+                old["dropped"] = [r for r in old["dropped"] if not ps.APP.trash_expired(r)]
             recs = new["dropped"] if path == "/api/pins/dropped" else [new["pin"]] if path == "/api/pins/4" else new
             for r in recs:  # v0.3.2 (ADR-0006): an additive rel_path on line pins
                 rel = r.pop("rel_path", None)
@@ -1095,7 +1113,7 @@ class Migration(AccessBase):
         for p in people:  # a real person keeps today's rights
             code, _ = get(ps, "/api/pins", {"Tailscale-User-Login": p["login"]})
             self.assertEqual(code, 200, p["login"])
-            self.assertEqual(ps.role_of(p["login"]), access.role_value(p.get("role")))
+            self.assertEqual(ps.APP.role_of(p["login"]), access.role_value(p.get("role")))
 
 
 # ---------------------------------------------------------------- --tailnet-agent, `limn member add` and `limn serve` on a busy port (v0.2.1 QA)
@@ -1111,19 +1129,21 @@ def cli(*args, env=None):
 
 
 class TailnetAgentStartup(AccessBase):
+    """The tailnet agent opt-in requires loopback support and is logged at startup."""
+
     def configure(self, *args):
         """Apply the access options of a `limn serve` command line as start() does and return the startup log lines."""
         set_config(access=startup.access_options(ps.build_arg_parser().parse_args(["--manuscript", "x", *args])))
-        return ps.access_log_lines()
+        return ps.APP.access_log_lines()
 
     def test_default_off_and_logged(self):
         log = self.configure()
-        self.assertFalse(ps.C.access.tailnet_agent)
+        self.assertFalse(ps.APP.C.access.tailnet_agent)
         self.assertIn("tailnet agent off", log[0])
 
     def test_opt_in_needs_the_loopback_agent(self):
         log = self.configure("--tailnet-agent")
-        self.assertTrue(ps.C.access.tailnet_agent)
+        self.assertTrue(ps.APP.C.access.tailnet_agent)
         self.assertIn("tailnet agent on (deprecated)", log[0])
         for args in (
             ("--tailnet-agent", "--no-agent-loopback"),
@@ -1139,7 +1159,7 @@ class TailnetAgentStartup(AccessBase):
         cfg = root / "cfg"
         cfg.mkdir()
         (cfg / "paper.env").write_text(
-            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n" % (self.src, ps.C.state),
+            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n" % (self.src, ps.APP.C.state),
             encoding="utf-8",
         )
         env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
@@ -1155,7 +1175,7 @@ class TailnetAgentStartup(AccessBase):
         self.assertIn("--tailnet-agent", r.stdout.splitlines())
         (cfg / "paper.env").write_text(
             "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\nAGENT_LOOPBACK=0\n"
-            % (self.src, ps.C.state),
+            % (self.src, ps.APP.C.state),
             encoding="utf-8",
         )
         r = subprocess.run(
@@ -1171,6 +1191,8 @@ class TailnetAgentStartup(AccessBase):
 
 
 class MemberCli(unittest.TestCase):
+    """Member CLI validation and list guidance agree with server identity rules."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.state = Path(self.tmp.name) / "state"
@@ -1205,6 +1227,8 @@ class MemberCli(unittest.TestCase):
 
 
 class ServeBusyPort(unittest.TestCase):
+    """A port conflict exits with a short diagnostic instead of a traceback."""
+
     def test_busy_port_is_a_one_line_error(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

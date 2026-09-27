@@ -60,7 +60,7 @@ function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)
   if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!==ASSIGNEE_AGENT&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
   if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
-function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
+function renderAssignEdit(){const E=EDITOR.current; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);
   if(!ppl.length){box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,E.assignee,'assign-edit'); box.hidden=false;}
@@ -102,7 +102,7 @@ function mentionApply(i){const ta=MENTION.ta,p=MENTION.items[i]; if(!ta||!p)retu
 const isMentionField=t=>!!t&&t.tagName==='TEXTAREA'&&(t.id==='note'||t.classList.contains('e-note')||t.classList.contains('r-text'));
 document.addEventListener('input',e=>{if(isMentionField(e.target)){mentionUpdate(e.target); mentionPreview(e.target);
   if(e.target.id==='note'){renderAssignNew(); qHint($('#c-qhint'),e.target.value,KIND_NEW); saveDraftSoon();}
-  else if(e.target.classList.contains('e-note')){renderAssignEdit(); if(EDIT)qHint(EDIT.el.querySelector('.e-qhint'),e.target.value,EDIT.kind_req);}
+  else if(e.target.classList.contains('e-note')){renderAssignEdit(); if(EDITOR.current)qHint(EDITOR.current.el.querySelector('.e-qhint'),e.target.value,EDITOR.current.kind_req);}
   else if(e.target.classList.contains('r-text'))renderReplyOutcome();}});
 window.addEventListener('keydown',e=>{if(!MENTION.ta||e.target!==MENTION.ta||$('#mention-pop').hidden||e.isComposing)return;
   const n=MENTION.items.length;

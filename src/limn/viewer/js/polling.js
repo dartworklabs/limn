@@ -29,13 +29,15 @@ function syncHiddenNotifyTimer(){
   clearInterval(NOTIFY_HIDDEN_TIMER); NOTIFY_HIDDEN_TIMER=null;
   if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
 }
+// Applies connection and document status only to the visit that sent the request; notifications remain independent of document visits.
 async function pollLightOnce(){
   let d; const k=DOC,visit=SWITCHSEQ;
-  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
-  catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
-  $('#conn-lost').hidden=true;
+  try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data;}
+  catch(e){if(k!==DOC||visit!==SWITCHSEQ)return;
+    POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   notifyHandle(d);                      // browser notifications - independent of the document (handled first even mid document-switch)
   if(k!==DOC||visit!==SWITCHSEQ)return;  // a return to the same document is a new visit too
+  POLL_FAILS=0; $('#conn-lost').hidden=true;
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
@@ -46,10 +48,10 @@ async function pollLightOnce(){
   if(applied){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).
-  if(d.build&&d.build.state===BUILD_STATE.RUNNING&&!BUILD_TIMER)pollBuild();
+  if(d.build&&d.build.state===BUILD_STATE.RUNNING&&!BUILD.timer)pollBuild();
   // If build_seq (number of finished builds) differs from what this tab has seen, it means a build started and finished entirely
   // within a 5-second polling gap, never observed as "running" - the details are fetched to sync up the screen/banner/chip.
-  else if(typeof d.build_seq==='number'&&d.build_seq!==LAST_BUILD_SEQ)pollBuild();
+  else if(typeof d.build_seq==='number'&&d.build_seq!==BUILD.lastSeq)pollBuild();
 }
 // Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the background, notifies and then drops the meta cache (a fresh page when you switch back).
 function noteOtherDocs(list){if(!Array.isArray(list)||!list.length)return; let redraw=false;

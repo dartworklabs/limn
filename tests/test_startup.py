@@ -558,6 +558,8 @@ class Parser(unittest.TestCase):
 
 
 class RepoNameFromUrl(unittest.TestCase):
+    """Repository names derive consistently from HTTPS, SSH, and scp-style remotes."""
+
     def test_https_url(self):
         self.assertEqual(startup.repo_name_from_url("https://github.com/example-lab/paper-a.git"), "paper-a")
 
@@ -575,6 +577,8 @@ class RepoNameFromUrl(unittest.TestCase):
 
 
 class DefaultLabel(unittest.TestCase):
+    """Startup labels prefer the remote repository name and fall back to the folder."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -611,6 +615,8 @@ class DefaultLabel(unittest.TestCase):
 
 
 class LabelValidation(unittest.TestCase):
+    """Instance labels normalize whitespace and reject values outside length limits."""
+
     def test_strips_and_collapses_whitespace(self):
         self.assertEqual(startup.clean_label("  A-DEMO  "), "A-DEMO")
         self.assertEqual(startup.clean_label("A\nDEMO"), "A DEMO")
@@ -631,6 +637,8 @@ class LabelValidation(unittest.TestCase):
 
 
 class AccentValidation(unittest.TestCase):
+    """Accent colors validate their format and derive deterministically from labels."""
+
     def test_valid_format(self):
         self.assertTrue(startup.valid_accent("#1d4ed8"))
         self.assertTrue(startup.valid_accent("#AABBCC"))
@@ -653,6 +661,8 @@ class AccentValidation(unittest.TestCase):
 
 
 class DocArgs(unittest.TestCase):
+    """Document arguments resolve build roots and reject malformed or unsafe paths."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.ms = Path(self.tmp.name) / "repo"

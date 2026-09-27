@@ -10,11 +10,11 @@ function applyLayout(){const L=layoutFor(),overlay=L===LAYOUT_MODE.MID&&innerWid
   LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
   SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):false);
-  if(!REPICK&&(CUR||EDIT||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
+  if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
   applySide(); stickTop(); return true;}
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation. Collapsing by a
 // drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
-function draftOpen(){return !$('#composer').hidden||!!EDIT||!!REPLY||!!REPICK;}
+function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!!REPICK;}
 // Draws the panel state (docs/handbook/viewer.md §패널 폭과 시트 높이): the body classes, both [핀 N] toggles - the tool bar's and,
 // for a collapsed wide panel, the nav bar's - with the open count, the draft dot and the arrow, the handle's ARIA and the back-gesture
 // layer. Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
@@ -72,7 +72,7 @@ function toggleSide(){const open=!SIDE_OPEN,a=document.activeElement; setSide(op
   if(!open)focusSideToggle(); else if(a===$('#nav-side'))$('#grip').focus({preventScroll:true});}
 // The first drag-collapse on a wide screen says once how to bring the panel back (it leaves only a 6px rail behind).
 function coachSideCollapsed(){if(LAYOUT===LAYOUT_MODE.WIDE&&!SIDE_OPEN)coach('side','핀 패널은 오른쪽 위 [핀 N] 또는 Ctrl+\\ 로 다시 엽니다');}
-function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(CUR)renderComposer(); stickTop();updateSectionStrip();}
+function relayout(){const a=topAnchor(); applyLayout(); applySideWidth(); applyOutlineState();autoW(); restoreAnchor(a); hideTip(); if(COMPOSE.current)renderComposer(); stickTop();updateSectionStrip();}
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1, below the
 // sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list itself is the scroll box, so this is 0.
 function stickTop(){let t=0; const b=$('#bar1');

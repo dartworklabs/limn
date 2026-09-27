@@ -40,9 +40,10 @@ function nudge(o,dir){let lo=o.lo,hi=o.hi; const max=o.n_lines||hi+1;
   else if(dir==='down-grow')hi=Math.min(max,hi+1); else if(dir==='down-shrink')hi=Math.max(lo,hi-1);
   if(lo===o.lo&&hi===o.hi)return false; o.lo=lo;o.hi=hi;o.scope='lines';o.env=null;return true;}
 let snipT=null;
-function refetchSnip(o,after){clearTimeout(snipT); snipT=setTimeout(async()=>{
+// Refresh a nudged range's text only while its selection still owns the visit or its edit card still survives.
+function refetchSnip(o,after){const visit=captureVisit(); clearTimeout(snipT); snipT=setTimeout(async()=>{
   try{const {data}=await api(dq('/api/snippet?file='+encodeURIComponent(o.file)+'&lo='+o.lo+'&hi='+o.hi,o.doc),{what:'원문 읽기'});
-    if(data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
+    if((o===EDITOR.current||(o===COMPOSE.current&&currentVisit(visit)))&&data.lo===o.lo&&data.hi===o.hi){o.snippet=data.snippet;after();}}catch(e){}},250);}
 function snipText(text,open){const ls=String(text||'').split('\n');
   return (open||ls.length<=8)?ls.join('\n'):ls.slice(0,8).join('\n')+'\n      … '+tl('{n}줄 접힘',{n:ls.length-8});}
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that, '위치 불확실';
@@ -53,4 +54,3 @@ function viaTag(p){if(!p.via)return null; const pct=Math.round((+p.score||0)*100
   const how=p.via==='synctex'?tr('좌표로 찾음'):(p.via==='text'?tr('글자로 찾음'):tl('찾은 방법: {via}',{via:p.via}));
   const why=tr(p.via==='text'?T.text:T.synctex);
   return {t:tr('위치 불확실'),tip:tl('{how} · 일치 {pct}% — {why}',{how,pct,why})+(low?' '+tr('많이 어긋났을 수 있습니다.'):''),low};}
-

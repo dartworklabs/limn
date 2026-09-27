@@ -123,7 +123,23 @@ class Addressed(unittest.TestCase):
         """A person assignee is asked, every other tag informed; the agent assignee asks nobody."""
         r = parse_pin({"assignee": B, "mentions": [B, BL]})
         self.assertEqual((addressed_to(r), fyi_mentions_to(r)), ([B], [BL]))
-        self.assertEqual(addressed_to(parse_pin({"assignee": "agent", "mentions": [B]})), [])
+        agent = parse_pin({"assignee": "agent", "mentions": [B]})
+        self.assertEqual((addressed_to(agent), fyi_mentions_to(agent)), ([], [B]))
+
+    def test_legacy_duplicate_note_tags_keep_order_while_thread_tags_append_once(self):
+        """A stored duplicate in the note remains visible; repeated thread tags do not add more recipients."""
+        pin = parse_pin(
+            {
+                "kind_req": "question",
+                "mentions": [B, B],
+                "thread": [
+                    {"mentions": [B, BL, BL]},
+                    {"mentions": [BL, A]},
+                ],
+            }
+        )
+        self.assertEqual(pin_mentions_all(pin), [B, B, BL, A])
+        self.assertEqual(addressed_to(pin), [B, B, BL, A])
 
     def test_the_old_round_does_not_count_after_a_reopen(self):
         """A reply during review (before the reopen) is not part of the new round."""

@@ -33,53 +33,53 @@ class MentionRules(Base):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL, DAVE):
-            ps.record_person(actor(h))
+            ps.APP.record_person(actor(h))
         self.A, self.B, self.C, self.D = (actor(h) for h in (ALICE, BOB, CAROL, DAVE))
 
     def events_after(self, n):
-        return [(e["type"], sorted(e["to"])) for e in ps._read_events()[0][n:]]
+        return [(e["type"], sorted(e["to"])) for e in ps.APP._read_events()[0][n:]]
 
     def n(self):
-        return len(ps._read_events()[0])
+        return len(ps.APP._read_events()[0])
 
     def test_first_mention_in_a_reply(self):
         pid = self.add(actor=self.A)
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
 
     def test_re_mention_in_a_second_reply_notifies_again(self):
         pid = self.add(actor=self.A)
-        ps.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
+        ps.APP.reply_pin(pid, "@Bob Park 봐 주세요", self.A)
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park 다시 부름", self.A)
+        ps.APP.reply_pin(pid, "@Bob Park 다시 부름", self.A)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
         n = self.n()
-        ps.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
+        ps.APP.reply_pin(pid, "태그 없는 답글", self.A)  # no tag: Bob (mentioned before) gets replied
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_note_mention_then_reply_mention(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 이 문단"}, self.A).record["id"]
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
+        ps.APP.reply_pin(pid, "@Bob Park 이것도 봐 주세요", self.C)
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("replied", ["alice@example.com"])])
 
     def test_self_mention_never_notifies_the_author(self):
         pid = self.add(actor=self.A)
-        ps.reply_pin(pid, "@Bob Park 확인", self.A)
+        ps.APP.reply_pin(pid, "@Bob Park 확인", self.A)
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
+        ps.APP.reply_pin(pid, "@Bob Park 제가 스스로 부름", self.B)  # Bob tags himself: nothing for Bob
         self.assertEqual(self.events_after(n), [("replied", ["alice@example.com"])])
         n = self.n()
-        ps.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
+        ps.APP.reply_pin(pid, "@Alice Kim 나", self.A)  # the pin author tags herself
         self.assertEqual(self.events_after(n), [("replied", ["bob@example.com"])])
 
     def test_mention_plus_other_participants_nobody_gets_both(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Carol Lee 참고"}, self.A).record["id"]
-        ps.reply_pin(pid, "@Bob Park 의견?", self.A)
+        ps.APP.reply_pin(pid, "@Bob Park 의견?", self.A)
         n = self.n()
-        ps.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
-        evs = ps._read_events()[0][n:]
+        ps.APP.reply_pin(pid, "@Bob Park @Carol Lee 둘 다 봐 주세요", self.D)
+        evs = ps.APP._read_events()[0][n:]
         self.assertEqual(
             [(e["type"], sorted(e["to"])) for e in evs],
             [("mention", ["bob@example.com", "carol@example.com"]), ("replied", ["alice@example.com"])],
@@ -89,14 +89,14 @@ class MentionRules(Base):
 
     def test_reopen_reason_re_mention_notifies(self):
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 부탁"}, self.A).record["id"]
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
-        ps.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
+        ps.APP.reopen_pin(pid, self.C, reason="@Bob Park 다시 봐 주세요")
         self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"]), ("reopened", ["alice@example.com"])])
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         n = self.n()
         # the author tagged: mention only, not also reopened
-        ps.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
+        ps.APP.reopen_pin(pid, self.C, reason="@Alice Kim 확인 부탁")
         self.assertEqual(self.events_after(n), [("mention", ["alice@example.com"])])
 
     def test_note_edit_that_tags_again_notifies_but_a_typo_fix_does_not(self):
@@ -118,7 +118,9 @@ class MentionRules(Base):
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)  # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
-            edit_pin(pid, {"note": find_record(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
+            edit_pin(
+                pid, {"note": find_record(ps.APP.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A
+            )
             self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
 
 
@@ -128,15 +130,15 @@ class NoteMentionCooldown(Base):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.record_person(actor(h))
+            ps.APP.record_person(actor(h))
         self.A, self.B, self.C = (actor(h) for h in (ALICE, BOB, CAROL))
         self.t0 = float(int(time.time()))  # whole seconds: events.jsonl rounds ts to milliseconds
 
     def mentions_to_bob(self):
-        return [e for e in ps._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
+        return [e for e in ps.APP._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
 
     def edit_note(self, pid, note, who):
-        return edit_pin(pid, {"note": note, "base_rev": find_record(ps.snapshot_pins(), pid)["rev"]}, who)
+        return edit_pin(pid, {"note": note, "base_rev": find_record(ps.APP.snapshot_pins(), pid)["rev"]}, who)
 
     def toggle(self, pid, who, times=3):
         for _ in range(times):
@@ -151,7 +153,7 @@ class NoteMentionCooldown(Base):
             ).record["id"]
             self.toggle(pid, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        self.assertEqual(find_record(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])  # the note still tags him
+        self.assertEqual(find_record(ps.APP.snapshot_pins(), pid)["mentions"], [B_LOGIN])  # the note still tags him
 
     def test_the_tag_notifies_again_after_the_window(self):
         """Ten minutes after the last sent note mention, re-adding the tag is a new mention (fake clock)."""
@@ -192,17 +194,17 @@ class NoteMentionCooldown(Base):
         """Explicit messages are not rate-limited: every reply or reopen reason that tags Bob is a mention."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 메모"}, self.A).record["id"]
-            ps.reply_pin(pid, "@Bob Park 하나", self.A)
-            ps.reply_pin(pid, "@Bob Park 둘", self.A)
-            ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
-            ps.reopen_pin(pid, self.A, reason="@Bob Park 다시")
+            ps.APP.reply_pin(pid, "@Bob Park 하나", self.A)
+            ps.APP.reply_pin(pid, "@Bob Park 둘", self.A)
+            ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+            ps.APP.reopen_pin(pid, self.A, reason="@Bob Park 다시")
         self.assertEqual(len(self.mentions_to_bob()), 4)
 
     def test_a_reply_mention_does_not_silence_a_following_note_tag(self):
         """The cooldown counts note mentions only: a reply that tagged Bob does not stop the next note tag."""
         with mock.patch.object(ps.time, "time", return_value=self.t0):
             pid = self.add(actor=self.A)
-            ps.reply_pin(pid, "@Bob Park 답글", self.A)
+            ps.APP.reply_pin(pid, "@Bob Park 답글", self.A)
             self.edit_note(pid, "@Bob Park 메모에서도", self.A)
         self.assertEqual(len(self.mentions_to_bob()), 2)
 
@@ -223,7 +225,7 @@ class MentionEvents(Base):
         super().setUp()
 
     def events(self):
-        return ps._read_events()[0]
+        return ps.APP._read_events()[0]
 
     def post(self, path, body=None, headers=None):
         h = {"Content-Type": "application/json"} if body is not None else {}
@@ -234,7 +236,7 @@ class MentionEvents(Base):
         return code, json.loads(raw)
 
     def test_mentions_stored_on_pin_and_message_with_events(self):
-        ps.record_person(dict(self.W))
+        ps.APP.record_person(dict(self.W))
         code, d = self.post(
             "/api/pin",
             {
@@ -287,8 +289,8 @@ class MentionEvents(Base):
         self.assertEqual(seqs, list(range(1, len(seqs) + 1)))
 
     def test_assignee_validation_and_events(self):
-        ps.record_person(dict(self.W))
-        ps.record_person(dict(self.S))
+        ps.APP.record_person(dict(self.W))
+        ps.APP.record_person(dict(self.S))
         base = {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Bob Park 봐 주세요"}
         for bad in ("nobody@example.com", "local", 3, ""):
             code, d = self.post("/api/pin", dict(base, assignee=bad), self.HW)
@@ -317,7 +319,7 @@ class MentionEvents(Base):
         self.assertEqual([(e["type"], e["to"]) for e in self.events()[n:]], [("assigned", [self.S["login"]])])
         code, d = self.post("/api/pins/%d/edit" % pid, {"assignee": "ghost", "base_rev": 2}, self.HW)
         self.assertEqual(code, 400)
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("담당 바꿈(Wendy Kim): 담당: @Bob Park", md)
         self.assertIn("assigned", NOTIFY_TYPES)
 
@@ -338,7 +340,7 @@ class EventCursor(Base):
         return code, h, raw
 
     def test_event_cursor_in_light_meta(self):
-        ps.emit_events(
+        ps.APP.emit_events(
             [
                 {
                     "type": "mention",
@@ -373,6 +375,6 @@ class EventCursor(Base):
         self.assertEqual(json.loads(raw)["events"], [])  # not included for local/agent
         code, _, _ = self.get("/api/meta?light=1&ev=x", self.HW)
         self.assertEqual(code, 400)
-        before = sorted(p.name for p in ps.C.state.iterdir())
+        before = sorted(p.name for p in ps.APP.C.state.iterdir())
         self.get("/api/meta?light=1&ev=0", self.HW)
-        self.assertEqual(sorted(p.name for p in ps.C.state.iterdir()), before)  # polling doesn't count
+        self.assertEqual(sorted(p.name for p in ps.APP.C.state.iterdir()), before)  # polling doesn't count

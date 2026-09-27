@@ -637,7 +637,7 @@ class ReplyRule(unittest.TestCase):
     def test_every_row_of_the_rule_table(self):
         for st, kind, human, ment, ov, want in RULE_CASES:
             with self.subTest(state=st, kind=kind, human=human, mentioned=ment, override=ov):
-                self.assertIs(ps.reply_reopens(rec_for(st, kind), human, ment, ov), want)
+                self.assertIs(ps.APP.reply_reopens(rec_for(st, kind), human, ment, ov), want)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ each into a status, a Korean message and an API reason.
 import re
 from collections.abc import Callable, Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict
+from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict, TypeGuard
 
 from limn.mapping import anchor_offset, find_line, norm
 from limn.pins.shapes import is_int
@@ -511,7 +511,7 @@ def recorded_changes(pin: Record, head: str, revisions: Sequence[Record]) -> tup
     they would select another pin's fix (review M1). Items of the wrong shape are skipped."""
     if pin.get("changes_at") != pin.get("done_at") or ref_commit(pin.get("close_ref"), revisions) != head:
         return ()
-    return tuple(c for c in (pin.get("changes") or []) if valid_changes([c]))
+    return tuple(c for c in (pin.get("changes") or []) if _valid_change(c))
 
 
 def scope_meta(sc: PinScope) -> ScopeMeta:
@@ -597,10 +597,17 @@ def parse_raw_entries(raw: bytes) -> list[RawEntry]:
     return out
 
 
+def _valid_change(value: object) -> TypeGuard[ChangeRecord]:
+    """Recognize one stored change range by the fields its scope readers require; preserve any extra keys."""
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("file"), str)
+        and is_int(value.get("lo"))
+        and is_int(value.get("hi"))
+    )
+
+
 def valid_changes(v: object) -> bool:
     """Whether v has the stored shape of `changes` - a list of {file: str, lo: int, hi: int}. server.valid_rec() treats
     a record failing this as a broken line; recorded_changes() skips such items."""
-    return isinstance(v, list) and all(
-        isinstance(c, dict) and isinstance(c.get("file"), str) and is_int(c.get("lo")) and is_int(c.get("hi"))
-        for c in v
-    )
+    return isinstance(v, list) and all(_valid_change(change) for change in v)

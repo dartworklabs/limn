@@ -166,6 +166,22 @@ class Overlap(unittest.TestCase):
         self.assertEqual(rel, {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})
         self.assertEqual(position.overlaps_by_id(parsed(rows), stored_file), {1: [], 2: [], 4: []})
 
+    def test_equal_ranges_keep_pair_order_when_ids_are_out_of_order(self):
+        """A smaller id is the outer range even when it appears later, and each list follows input pair order."""
+        rows = [
+            {"id": 9, "file": "a", "lo": 2, "hi": 4},
+            {"id": 2, "file": "a", "lo": 2, "hi": 4},
+            {"id": 6, "file": "a", "lo": 2, "hi": 4},
+        ]
+        self.assertEqual(
+            position.overlaps_by_id(parsed(rows), stored_file),
+            {
+                9: [{"id": 2, "rel": "inside"}, {"id": 6, "rel": "inside"}],
+                2: [{"id": 9, "rel": "contains"}, {"id": 6, "rel": "contains"}],
+                6: [{"id": 9, "rel": "contains"}, {"id": 2, "rel": "inside"}],
+            },
+        )
+
     def test_selection_relation_names_equal_separately(self):
         """A new selection has no id, so an identical range is "equal"; the others are as between pins."""
         self.assertEqual(

@@ -23,9 +23,11 @@ from limn import access, config
 from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
 from limn.store import dump_jsonl
+from limn.viewer import assemble
 
 from helpers import (
     DEFAULT_ACCESS,
+    VIEWER_FILES,
     Base,
     add_pin,
     fresh_runtime,
@@ -69,7 +71,7 @@ def reset_access(mod=ps):
     """Access settings back to the v0.1-equivalent defaults and no --allow, in a fresh process (the loopback-agent
     warning warns again, tokens.json and people.json are read again). The current server binds a RunConfig with them
     (set_config) and a fresh Runtime; an older copy (tests/data) has them set on its mutable Cfg and caches."""
-    if hasattr(mod, "RunConfig"):
+    if hasattr(mod, "ServerApplication"):
         set_config(mod, access=DEFAULT_ACCESS, allow=frozenset())
         fresh_runtime(mod)
         return
@@ -186,11 +188,15 @@ class AccessBase(Base):
 
     def people_file(self):
         """The rows of people.json, or [] when the file does not exist."""
-        return json.loads(ps.C.people_file.read_text(encoding="utf-8"))["people"] if ps.C.people_file.exists() else []
+        return (
+            json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+            if ps.APP.C.people_file.exists()
+            else []
+        )
 
     def set_people(self, rows):
         """Write people.json with these rows, as `limn member` would store them."""
-        ps.C.people_file.write_text(
+        ps.APP.C.people_file.write_text(
             json.dumps({"version": 1, "people": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
 
@@ -200,8 +206,11 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
     the current one binds a RunConfig (run_config) and a fresh Runtime, an older copy has its mutable Cfg filled in,
     its build state reset and its people memo cleared."""
     if hasattr(mod, "RunConfig"):
-        mod.C = run_config(src, main, state)
-        fresh_runtime(mod)
+        run_cfg = run_config(src, main, state)
+        mod.APP = mod.ServerApplication(
+            run_cfg, mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, run_cfg.label, run_cfg.accent))
+        )
+        mod.Handler.app = mod.APP
     else:
         C = mod.C
         C.src, C.main, C.state, C.build = src, main, state, state / "build"
@@ -224,8 +233,9 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
             pull=None,
         )
         mod._PEOPLE_SEEN.clear()
-    mod.set_docs(None)
-    mod.init_seq()
+    app = mod.APP if hasattr(mod, "APP") else mod
+    app.set_docs(None)
+    app.init_seq()
     if hasattr(mod, "TOKENS_CACHE"):
         reset_access(mod)
 
@@ -387,17 +397,19 @@ class MovedManuscriptBase(AccessBase):
 
     def pin_at(self, rel, lo, hi, note="n"):
         """Add a line pin on the manuscript file rel (relative to the current root); returns its id."""
-        return add_pin({"file": str(ps.C.src / rel), "lo": lo, "hi": hi, "note": note}, dict(LOCAL_ACTOR)).record["id"]
+        return add_pin({"file": str(ps.APP.C.src / rel), "lo": lo, "hi": hi, "note": note}, dict(LOCAL_ACTOR)).record[
+            "id"
+        ]
 
     def stored(self):
         """The stored records of pins.jsonl by id, as read from disk."""
-        return {r["id"]: r for r in records(ps.read_pins()[0])}
+        return {r["id"]: r for r in records(ps.APP.read_pins()[0])}
 
     def rewrite(self, fn):
         """Edit pins.jsonl directly (a state written by another version, or by hand)."""
-        rows = records(ps.read_pins()[0])
+        rows = records(ps.APP.read_pins()[0])
         fn(rows)
-        ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
+        ps.APP.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
 
     def make_legacy(self, *ids):
         """Drop file_rel from these pins' stored records, as 0.3.0 wrote them."""

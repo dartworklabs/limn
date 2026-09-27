@@ -85,6 +85,19 @@ def densest(values: list[int], gap: int = 30) -> list[int]:
     return max(groups, key=len)
 
 
+def synctex_range(hits: Sequence[tuple[str, int]]) -> tuple[str, int, int] | None:
+    """Choose the file hit by the most sampled PDF points and its densest cluster of source lines.
+
+    None means no point mapped to a source. Callers sample points and run SyncTeX; this function only
+    judges its answers. A tie between files has no ranking guarantee, as in the original selection rule.
+    """
+    if not hits:
+        return None
+    best = max({file for file, _ in hits}, key=lambda file: sum(1 for hit_file, _ in hits if hit_file == file))
+    lines = densest(sorted(line for file, line in hits if file == best))
+    return best, lines[0], lines[-1]
+
+
 def score_range(tw: TokenWeights, lines: Sequence[str], lo: int, hi: int) -> float:
     """Scores 0-1 how much of the region's characters a candidate line range contains."""
     if not tw:

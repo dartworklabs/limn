@@ -93,6 +93,7 @@ class ReadingGit(unittest.TestCase):
     def test_head_of_is_none_unless_git_succeeded(self):
         """rev-parse HEAD on an empty repository (or a git that could not run) gives no head."""
         self.assertEqual(head_of(0, A + "\n"), A)
+        self.assertIsNone(head_of(0, "\n"))
         self.assertIsNone(head_of(128, ""))
         self.assertIsNone(head_of(None, ""))
 
@@ -119,6 +120,7 @@ class ReadingGit(unittest.TestCase):
         """A moved HEAD is Pulled; the same HEAD, or one that cannot be read after the merge, is UpToDate."""
         self.assertEqual(merged(A, 0, B + "\n"), Pulled(A, B))
         self.assertEqual(merged(A, 0, A), UpToDate(A))
+        self.assertEqual(merged(A, 0, "\n"), UpToDate(A))
         self.assertEqual(merged(A, 128, ""), UpToDate(A))
         self.assertEqual(merged(None, 128, ""), UpToDate(None))
         self.assertEqual(merged(None, 0, B), Pulled(None, B))

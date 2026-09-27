@@ -121,6 +121,8 @@ def test_token_and_member_commands_run_without_the_server(tmp_path):
 
 
 class UpdateSource(unittest.TestCase):
+    """The update command and Handbook agree on the HTTPS default source."""
+
     def test_default_is_https_everywhere(self):
         sh = (SRC / "limn" / "instances.sh").read_text(encoding="utf-8")
         self.assertIn('REPO="${LIMN_REPO:-git+https://github.com/dartworklabs/limn}"', sh)

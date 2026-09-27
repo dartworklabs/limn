@@ -32,21 +32,32 @@ PATH_MAX_CHARS = 4096  # a longer name is refused before it reaches the file sys
 
 def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
     """Write to a temp file in the same directory, then os.replace - readers only ever see the old file or the new one.
-    With mode (e.g. 0o600 for tokens.json) the temp file is created with that mode, so the content is never readable by others, even briefly."""
+    With mode (e.g. 0o600 for tokens.json) the temp file is created with that mode, so the content is never readable by
+    others, even briefly. A failed write or replacement leaves the old file and removes the partial temp file."""
     tmp = path.with_name(".%s.tmp%d.%d" % (path.name, os.getpid(), threading.get_ident()))
-    if mode is None:
-        fh = open(tmp, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
-    else:
-        with contextlib.suppress(FileNotFoundError):
+    try:
+        if mode is None:
+            fh = open(tmp, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
+        else:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+            try:
+                os.fchmod(fd, mode)  # the umask may have narrowed or (never) widened it
+                fh = open(fd, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                raise
+        with fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-        os.fchmod(fd, mode)  # the umask may have narrowed or (never) widened it
-        fh = open(fd, "w", encoding="utf-8")  # noqa: SIM115 - closed by the `with fh:` below
-    with fh:
-        fh.write(text)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
+        raise
 
 
 @contextlib.contextmanager

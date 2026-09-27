@@ -319,79 +319,83 @@ class ToSource(Fixture):
 
 
 class LightMeta(Base):
+    """Light metadata reports source and pin revisions without writing state files."""
+
     def test_light_meta_has_no_write_side_effect(self):
         self.add()
-        before = ps.C.pins_jsonl.stat().st_mtime_ns
+        before = ps.APP.C.pins_jsonl.stat().st_mtime_ns
         for _ in range(5):
-            d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
-        after = ps.C.pins_jsonl.stat().st_mtime_ns
+            d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        after = ps.APP.C.pins_jsonl.stat().st_mtime_ns
         self.assertEqual(before, after)
         self.assertNotIn("n_open", d)
         for k in ("src_mtime", "build_src_mtime", "pins_rev", "build", "pages_build"):
             self.assertIn(k, d)
 
     def test_pins_rev_changes_only_when_file_changes(self):
-        rev0 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        rev0 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
         self.add()
-        rev1 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        rev1 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
         self.assertNotEqual(rev0, rev1)
-        rev2 = limn_meta.pins_rev(ps.C.pins_jsonl)
+        rev2 = limn_meta.pins_rev(ps.APP.C.pins_jsonl)
         self.assertEqual(rev1, rev2)  # unchanged if nothing changed
 
     def test_src_mtime_ignores_main_pdf_and_build_dir(self):
-        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
-        (ps.C.src / "main.pdf").write_bytes(b"%PDF-fake")
-        (ps.C.src / "build").mkdir()
-        (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
+        m0 = limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state)
+        (ps.APP.C.src / "main.pdf").write_bytes(b"%PDF-fake")
+        (ps.APP.C.src / "build").mkdir()
+        (ps.APP.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
         # must not change even outside the cache window (even after 2s)
-        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps.DOCS[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
-        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+        self.assertEqual(limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state), m0)
+        ps.APP.docs[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
+        self.assertEqual(limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state), m0)
 
     def test_src_mtime_ignores_diff_dir(self):
         # bug (should): the build rsync excludes diff/ (latexdiff output, exclude "diff/") but
         # src_mtime didn't — so running latexdiff even once flipped the "manuscript modified" badge on,
         # and after the next rebuild every pin was falsely marked "estimated" even though the layout was
         # unchanged.
-        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
-        (ps.C.src / "diff").mkdir()
-        (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
-        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps.DOCS[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
-        self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+        m0 = limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state)
+        (ps.APP.C.src / "diff").mkdir()
+        (ps.APP.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
+        self.assertEqual(limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state), m0)
+        ps.APP.docs[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
+        self.assertEqual(limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state), m0)
 
     def test_src_mtime_reacts_to_tex_change(self):
-        ps.DOCS[0].mcache[2] = 0.0
-        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
+        ps.APP.docs[0].mcache[2] = 0.0
+        m0 = limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state)
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        ps.DOCS[0].mcache[2] = 0.0
-        self.assertGreater(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
+        ps.APP.docs[0].mcache[2] = 0.0
+        self.assertGreater(limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state), m0)
 
     def test_built_src_mtime_file_missing_is_fine(self):
-        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
-        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
+        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIsNone(d["build_src_mtime"])
 
     def test_src_mtime_force_bypasses_cache(self):
         # bug: write_built_src_mtime() used to just take the 2-second-cached value — editing the
         # manuscript and rebuilding right away, within 2 seconds of the cache filling, wrongly recorded
         # the "pre-edit" mtime as the build-start time.
-        m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)  # fill the cache
+        m0 = limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state, force=True)  # fill the cache
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        cached = limn_build.src_mtime(ps.DOCS[0], ps.C.state)  # inside the cache window (within 2s) — the stale value
+        cached = limn_build.src_mtime(
+            ps.APP.docs[0], ps.APP.C.state
+        )  # inside the cache window (within 2s) — the stale value
         self.assertEqual(cached, m0)
         # bypass the cache and measure for real — a fresh value
-        forced = limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True)
+        forced = limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state, force=True)
         self.assertGreater(forced, m0)
 
     def test_write_built_src_mtime_uses_fresh_value(self):
         os.utime(self.main, (time.time() + 20, time.time() + 20))
-        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state)
+        limn_build.write_built_src_mtime(ps.APP.docs[0], ps.APP.C.state)
         self.assertAlmostEqual(
-            limn_build.read_built_src_mtime(ps.DOCS[0]),
-            limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True),
+            limn_build.read_built_src_mtime(ps.APP.docs[0]),
+            limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state, force=True),
             delta=1.0,
         )
 
@@ -404,16 +408,18 @@ class LightMeta(Base):
 
 
 class InstanceMeta(Base):
+    """Instance metadata exposes its label, accent, and repository details over HTTP."""
+
     def test_meta_exposes_label_accent_repo(self):
         set_config(label="A-DEMO", accent="#1d4ed8", repo="git@example.com:org/a-demo.git")
-        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR))
+        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR))
         self.assertEqual(d["label"], "A-DEMO")
         self.assertEqual(d["accent"], "#1d4ed8")
         self.assertEqual(d["repo"], "git@example.com:org/a-demo.git")
 
     def test_meta_repo_is_none_without_remote(self):
         set_config(repo=None)
-        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertIsNone(d["repo"])
 
     def test_meta_endpoint_serves_new_fields(self):

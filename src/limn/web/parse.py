@@ -713,7 +713,7 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
     file must be a file inside the manuscript tree and 1 <= lo <= hi <= its line count, so this reads that file's
     lines (facts.lines) before checking the range. page defaults to 1; raw_lo, raw_hi, kind, via, score, frac, scope,
     quote (truncated to 60 characters) and pdf_build (a page directory name) are checked in that order when sent (a
-    null counts as not sent).
+    null counts as not sent). The checked location is constructed only after every field has passed.
     """
     f = source_file(d.get("file"), facts.root, facts.state)
     if isinstance(f, InputRejected):
@@ -732,7 +732,6 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
         return page
     if page < 1:
         return InputRejected("page 는 1 이상이어야 합니다.", "bad_page")
-    loc = LineLoc(str(f), f.name, lo, hi, page)
     raw: dict[str, int] = {}
     for k in ("raw_lo", "raw_hi"):
         if d.get(k) is not None:
@@ -740,39 +739,51 @@ def parse_loc(d: Json, facts: DocumentFacts) -> LineLoc | InputRejected:
             if isinstance(v, InputRejected):
                 return v
             raw[k] = v
-    loc = replace(loc, raw_lo=raw.get("raw_lo"), raw_hi=raw.get("raw_hi"))
-    if d.get("kind") is not None:
-        if not isinstance(d["kind"], str) or len(d["kind"]) > 80:
-            return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
-        loc = replace(loc, kind=d["kind"])
-    if d.get("via") is not None:
-        if d["via"] not in ("synctex", "text"):
-            return InputRejected("via 는 synctex|text 입니다.", "bad_via")
-        loc = replace(loc, via=d["via"])
-    if d.get("score") is not None:
-        score = num_field(d["score"], "score")
+    kind = d.get("kind")
+    if kind is not None and (not isinstance(kind, str) or len(kind) > 80):
+        return InputRejected("kind 가 올바르지 않습니다.", "bad_kind")
+    via = d.get("via")
+    if via is not None and via not in ("synctex", "text"):
+        return InputRejected("via 는 synctex|text 입니다.", "bad_via")
+    score = d.get("score")
+    if score is not None:
+        score = num_field(score, "score")
         if isinstance(score, InputRejected):
             return score
-        loc = replace(loc, score=score)
-    if d.get("frac") is not None:
-        frac = _frac4(d["frac"], InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"))
+    frac = d.get("frac")
+    if frac is not None:
+        frac = _frac4(frac, InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"))
         if isinstance(frac, InputRejected):
             return frac
-        loc = replace(loc, frac=frac)
-    if d.get("scope") is not None:
-        scope = parse_scope(d["scope"])
+    scope = d.get("scope")
+    if scope is not None:
+        scope = parse_scope(scope)
         if isinstance(scope, InputRejected):
             return scope
-        loc = replace(loc, scope=scope)
-    if d.get("quote") is not None:
-        if not isinstance(d["quote"], str):
+    quote = d.get("quote")
+    if quote is not None:
+        if not isinstance(quote, str):
             return InputRejected("quote 는 문자열입니다.", "bad_quote")
-        loc = replace(loc, quote=truncate_quote(d["quote"], 60))
-    if d.get("pdf_build") is not None:  # the build on screen at drag time (pdf_build from the pick response)
-        if not valid_build_name(d["pdf_build"]):
-            return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
-        loc = replace(loc, pdf_build=d["pdf_build"])
-    return loc
+        quote = truncate_quote(quote, 60)
+    pdf_build = d.get("pdf_build")  # the build on screen at drag time (pdf_build from the pick response)
+    if pdf_build is not None and not valid_build_name(pdf_build):
+        return InputRejected(PDF_BUILD_REFUSAL, "bad_pdf_build")
+    return LineLoc(
+        file=str(f),
+        name=f.name,
+        lo=lo,
+        hi=hi,
+        page=page,
+        raw_lo=raw.get("raw_lo"),
+        raw_hi=raw.get("raw_hi"),
+        kind=kind,
+        via=via,
+        score=score,
+        frac=frac,
+        scope=scope,
+        quote=quote,
+        pdf_build=pdf_build,
+    )
 
 
 def parse_frac(fr: object) -> Frac | InputRejected:

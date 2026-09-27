@@ -49,6 +49,8 @@ from helpers_browser import ChromiumTestCase
 
 
 class FrontendLogic(unittest.TestCase):
+    """Exercise selection overlap, pin estimates, build polling, and other viewer decisions with real script functions."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -126,7 +128,7 @@ class FrontendLogic(unittest.TestCase):
                 r"""
             const box={hidden:true,dataset:{},innerHTML:''};
             const $=s=>box;
-            let CUR=null, PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
+            const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             """,
                 extract_js_fn("selRel"),
                 extract_js_fn("pinState"),
@@ -134,20 +136,19 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pickOverlap"),
                 extract_js_fn("josa"),
                 extract_js_fn("overlapText"),
-                "let OVERLAP_DISMISSED=null;",
                 extract_js_fn("recomputeOverlap"),
                 extract_js_fn("renderOverlapBanner"),
                 extract_js_fn("lvOf"),
                 extract_js_fn("useLevel"),
                 r"""
             const out=[];
-            CUR={file:'/m.tex',lo:401,hi:413,levels:[{level:'para',lo:405,hi:406},{level:'env',lo:401,hi:413}]};
+            COMPOSE.current={file:'/m.tex',lo:401,hi:413,levels:[{level:'para',lo:405,hi:406},{level:'env',lo:401,hi:413}]};
             recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);
-            useLevel(CUR,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel, /같은 범위/.test(box.innerHTML)]);
-            OVERLAP_DISMISSED='5:equal'; renderOverlapBanner(); out.push([box.hidden]);
-            useLevel(CUR,'env'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);   // 관계가 바뀌면 다시 알림
-            OVERLAP_DISMISSED=null;                        // pick() 의 리셋(새 선택)
-            useLevel(CUR,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);
+            useLevel(COMPOSE.current,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel, /같은 범위/.test(box.innerHTML)]);
+            COMPOSE.dismissedOverlap='5:equal'; renderOverlapBanner(); out.push([box.hidden]);
+            useLevel(COMPOSE.current,'env'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);   // 관계가 바뀌면 다시 알림
+            COMPOSE.dismissedOverlap=null;                        // pick() 의 리셋(새 선택)
+            useLevel(COMPOSE.current,'para'); recomputeOverlap(); renderOverlapBanner(); out.push([box.hidden, box.dataset.rel]);
             console.log(JSON.stringify(out));
             """,
             ]
@@ -176,7 +177,7 @@ class FrontendLogic(unittest.TestCase):
             async function refreshDoc(){refreshes++;}
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
-            let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
+            const BUILD={timer:null,error:null,lastSeq:3,booted:false,inflight:null};
             // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
             const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
             """,
@@ -410,6 +411,8 @@ class FrontendLogic(unittest.TestCase):
 
 
 class FrontendStructure(unittest.TestCase):
+    """Guard the assembled viewer wiring for polling, build errors, document menus, and interaction controls."""
+
     def test_build_polling_is_conditional_not_permanent(self):
         # bug: startBuildPolling() used to unconditionally set setInterval(pollBuild,1000), calling
         # /api/build every second even when the tab was hidden or there was nothing to do.
@@ -419,17 +422,17 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("pollBuild()", m.group(1))
         m1 = re.search(r"\nfunction pollBuild\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("if(document.hidden)returnPromise.resolve()", m1.group(1).replace(" ", ""))
-        self.assertIn("if(BUILD_INFLIGHT)returnBUILD_INFLIGHT", m1.group(1).replace(" ", ""))
+        self.assertIn("if(BUILD.inflight)returnBUILD.inflight", m1.group(1).replace(" ", ""))
         m2 = re.search(r"async function pollBuildOnce\(\)\{(.*?)\n\}", HTML, re.S)
         body = m2.group(1)
-        self.assertIn("if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000)", body.replace(" ", ""))
-        self.assertIn("clearInterval(BUILD_TIMER)", body)
+        self.assertIn("if(!BUILD.timer)BUILD.timer=setInterval(pollBuild,1000)", body.replace(" ", ""))
+        self.assertIn("clearInterval(BUILD.timer)", body)
 
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
         m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1).replace(" ", "")
         self.assertIn("d.build&&d.build.state===BUILD_STATE.RUNNING", body)
-        self.assertIn("d.build_seq!==LAST_BUILD_SEQ", body)
+        self.assertIn("d.build_seq!==BUILD.lastSeq", body)
         self.assertIn("pollBuild()", body)
 
     def test_light_poll_is_single_flight(self):
@@ -482,9 +485,9 @@ class FrontendStructure(unittest.TestCase):
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1)
-        cur_idx = body.index("CUR=d;")
-        self.assertGreater(body.index("OVERLAP_DISMISSED=null"), cur_idx)
-        self.assertGreater(body.index("CUR.overlaps=overlapsFor(CUR,PINS)"), cur_idx)
+        cur_idx = body.index("COMPOSE.current=d;")
+        self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
+        self.assertGreater(body.index("COMPOSE.current.overlaps=overlapsFor(COMPOSE.current,PINS)"), cur_idx)
 
     def test_level_and_nudge_recount_overlap_only_for_composer(self):
         for act in ("level", "nudge"):
@@ -553,6 +556,8 @@ class FrontendStructure(unittest.TestCase):
 
 
 class FrontendClaimUI(unittest.TestCase):
+    """Check claim controls, role visibility, and build status requests in the served page."""
+
     def test_claim_badge_and_unclaim_button_wired(self):
         self.assertIn("function claimActive(", HTML)
         self.assertIn("function claimLabel(", HTML)
@@ -578,6 +583,8 @@ class FrontendClaimUI(unittest.TestCase):
 # check that the deployed HTML has the required elements/copy/CSS/event paths, and run the pure-logic
 # functions under node.
 class FrontendMobileStructure(unittest.TestCase):
+    """Guard viewport, toolbar, touch targets, and compact layout markup and styles."""
+
     def test_viewport_meta_allows_zoom_and_handles_keyboard_and_notch(self):
         m = re.search(r'<meta name="viewport" content="([^"]*)"', HTML)
         self.assertIsNotNone(m)
@@ -707,6 +714,8 @@ class FrontendMobileStructure(unittest.TestCase):
 
 # Vector rendering (docs/handbook/viewer.md §벡터 렌더링) — checks the deployed HTML for the PDF.js path, fallback, visible-area rendering, and the pixel cap.
 class FrontendVector(unittest.TestCase):
+    """Check the PDF.js loading, cache, render, and PNG fallback paths exposed by the viewer."""
+
     def fn(self, name):
         m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, HTML, re.S)
         self.assertIsNotNone(m, name)
@@ -781,6 +790,8 @@ class FrontendVector(unittest.TestCase):
 
 
 class FrontendVectorLogic(unittest.TestCase):
+    """Exercise vector canvas sizing, stale PDF loading, and detail region calculations."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -882,6 +893,8 @@ class FrontendVectorLogic(unittest.TestCase):
 
 # PDF-area-only zoom (docs/handbook/viewer.md §PDF 영역 전용 확대) — whether browser zoom input is intercepted to change only the page width.
 class FrontendZoom(unittest.TestCase):
+    """Guard the inputs, bounds, and anchors used by PDF area zoom controls."""
+
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", HTML)
         i = HTML.index("L.addEventListener('wheel'")
@@ -916,6 +929,8 @@ class FrontendZoom(unittest.TestCase):
 
 
 class FrontendZoomLogic(unittest.TestCase):
+    """Exercise zoom key mappings and mouse or trackpad width calculations."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -960,6 +975,8 @@ class FrontendZoomLogic(unittest.TestCase):
 
 
 class FrontendMobileLogic(unittest.TestCase):
+    """Exercise responsive layout decisions and compact selection or keyboard calculations."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -1036,7 +1053,7 @@ class FrontendMobileLogic(unittest.TestCase):
             [
                 js_esc(),
                 r"""
-            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; let EDIT=null, PINS=[];
+            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; const EDITOR={current:null,saving:false}; let  PINS=[];
             const OPEN_CARDS=new Set([2]);
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
@@ -1073,6 +1090,8 @@ class FrontendMobileLogic(unittest.TestCase):
 # (expanded 880x790, collapsed 412x915, desktop 1440x900); here we check pure logic like bounds/steps/
 # labels under node, and layout/wiring via the HTML string.
 class FrontendPanelWidthLogic(unittest.TestCase):
+    """Exercise panel bounds and the location labels shown beside range controls."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -1157,6 +1176,8 @@ class FrontendPanelWidthLogic(unittest.TestCase):
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
+    """Guard panel grips, width persistence, composer placement, and sheet controls."""
+
     def test_grip_is_one_pointer_events_separator(self):
         tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
@@ -1318,6 +1339,8 @@ def css_rules():
 
 
 class FrontendDesignTokens(unittest.TestCase):
+    """Ensure both viewer themes use the documented token scales and no stray design literals."""
+
     def test_colour_literals_only_in_token_blocks(self):
         bad = []
         for sel, decls in css_rules():
@@ -1439,6 +1462,8 @@ class FrontendDesignTokens(unittest.TestCase):
 # right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
 # where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
 class FrontendToasts(unittest.TestCase):
+    """Guard toast layout, stacking, placement, and accessible message structure."""
+
     css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def rules(self, pat):
@@ -1514,6 +1539,8 @@ class FrontendToasts(unittest.TestCase):
 # Everything inside it — badges, buttons, segmented controls, steppers, source, overlap banner, thread —
 # is separated only by fill, spacing, and dividers.
 class FrontendNoNestedOutlines(unittest.TestCase):
+    """Ensure inner card controls stay flat while floating surfaces carry their own outline."""
+
     INNER = re.compile(
         r"^(?:\.badge|\.seg|\.step|pre\b|#c-overlap|\.thread|\.edit\b|\.arc-thread|\.arc-orig|\.arc-row|\.msg|\.reply-box)"
     )
@@ -1561,6 +1588,8 @@ class FrontendNoNestedOutlines(unittest.TestCase):
 
 # ---------------------------------------------------------------- meaning/function check (docs/handbook/viewer.md §뜻과 모양) + UX QA (2026-09-24)
 class FrontendSemanticAudit(unittest.TestCase):
+    """Guard time, identity, notification, text, and touch semantics across viewer components."""
+
     css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def test_relative_time_with_absolute_on_hover(self):
@@ -1641,7 +1670,7 @@ class FrontendSemanticAudit(unittest.TestCase):
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
         self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
-        self.assertIn("if(fromManuscript)REV_BACK=back", extract_js_fn("showChange"))
+        self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_source_diff_wrap_toggle_defaults_on_touch(self):
@@ -1848,7 +1877,7 @@ class FrontendDocs(unittest.TestCase):
     def test_revision_async_result_is_ignored_after_doc_commit_or_view_change(self):
         js = "\n".join(
             [
-                "let REVISION_SEQ=8,DOC='ms',REVISION_COMMIT='abc';",
+                "let DOC='ms'; const REV={seq:8,commit:'abc'};",
                 "const document={body:{classList:{contains:x=>x==='revision-open'}}};",
                 extract_js_fn("revisionCurrent"),
                 r"""
@@ -1900,8 +1929,8 @@ class FrontendDocs(unittest.TestCase):
                 extract_js_fn("renderRevisionDiff"),
                 extract_js_fn("renderRevisionFile"),
                 r"""
-            let REVISION_WHOLE='+from first\n+from second', REVISION_FILES=[
-              {text:'+from first'}, {text:'+from second'}];
+            const REV={whole:'+from first\n+from second',files:[
+              {text:'+from first'}, {text:'+from second'}]};
             const nodes={'#revision-file':{value:'1'},'#revision-diff':{innerHTML:''}};
             function $(selector){return nodes[selector];}
             renderRevisionFile(); console.log(JSON.stringify(nodes['#revision-diff'].innerHTML));""",
@@ -2014,6 +2043,8 @@ def html_without_comments(h: str) -> str:
 
 
 class FrontendIcons(unittest.TestCase):
+    """Check vendored icon provenance, SVG output, and coverage of every referenced icon."""
+
     VENDOR = PKG / "vendor" / "lucide"
 
     def test_vendor_license_and_readme_record_version_and_icons(self):
@@ -2088,6 +2119,8 @@ class FrontendIcons(unittest.TestCase):
 # list ('완료 N ─── 펼치기'), and below it are flat, dimmed rows instead of cards. Status is distinguished
 # via the card's left stripe color.
 class FrontendArchive(unittest.TestCase):
+    """Guard completed and discarded card content, reply controls, and archive summaries."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -2248,6 +2281,8 @@ class FrontendArchive(unittest.TestCase):
 
 
 class FrontendClaimEta(unittest.TestCase):
+    """Exercise claim deadline rounding, elapsed labels, and local clock presentation."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -2383,25 +2418,25 @@ class FrontendToolbarSize(unittest.TestCase):
 
 class FrontendSaveWhilePicking(unittest.TestCase):
     """Save while picking (docs/handbook/viewer.md §패널 정리): clicking [핀 저장] right after a drag, before the
-    SyncTeX pick finishes (~1.1s), used to find CUR still unset, so savePin() silently did nothing and the note was lost (observed). It now
+    SyncTeX pick finishes (~1.1s), used to find COMPOSE.current still unset, so savePin() silently did nothing and the note was lost (observed). It now
     queues that request and auto-saves once pick finishes. Verified both structurally (the old silent
     early return is gone) and behaviorally, by running the real savePin()/pick() source under node
     through queuing, auto-save, cancel-on-failure, and toggle-cancel."""
 
     def test_save_pin_no_longer_silently_drops_missing_cur(self):
         body = extract_js_fn("savePin")
-        self.assertNotIn("if(!CUR||SAVING)return;", body)
-        self.assertIn("if(SAVING)return;", body)
-        self.assertIn("if(!CUR){if(PICKING)togglePendingSave(); return;}", body)
+        self.assertNotIn("if(!COMPOSE.current||COMPOSE.saving)return;", body)
+        self.assertIn("if(COMPOSE.saving)return;", body)
+        self.assertIn("if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}", body)
 
     def test_pick_triggers_queued_save_on_success_and_clears_on_error(self):
         pick_body = extract_js_fn("pick")
-        self.assertIn("if(PEND_SAVE){clearPendingSave(); savePin();}", pick_body)
+        self.assertIn("if(COMPOSE.pendingSave){clearPendingSave(); savePin();}", pick_body)
         # the failure path (catch/d.error) also clears the pending save — it never saves silently.
         self.assertIn("clearPendingSave();", pick_body)
         self.assertRegex(
             pick_body,
-            r"catch\(e\)\{if\(seq!==PICKSEQ\)return; setBusy\(false\); if\(!rp\)\{PICKING=false; clearPendingSave\(\);\}",
+            r"catch\(e\)\{if\(seq!==PICKSEQ\)return; setBusy\(false\); if\(!rp\)\{COMPOSE.picking=false; clearPendingSave\(\);\}",
         )
 
     def _harness(self, extra_body):
@@ -2410,13 +2445,14 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
               scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
             const els={}; const $=s=>(els[s]=els[s]||el());
-            let PICKSEQ=0, PENDING=null, CUR=null, SAVING=false, PICKING=false, PEND_SAVE=false, REPICK=null;
-            let LAYOUT='wide', LAST_PTR='mouse', OVERLAP_DISMISSED=null, SNIP_OPEN=false, PINS=[], EDIT=null, DOC=undefined;
+            let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
+            let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
-            function saveDraftSoon(){} function syncDraft(){}
+            function saveDraftSoon(){} function syncDraft(){} function savedDraftSnapshot(){return null;}
+            function restoredDraftOwns(){return false;} function clearSavedDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelMode(){} function toast(){} function dropPin(){}
@@ -2429,9 +2465,12 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         return "\n".join(
             [
                 stub,
+                extract_js_fn("captureVisit"),
+                extract_js_fn("currentVisit"),
                 extract_js_fn("saveBtnLabel"),
                 extract_js_fn("togglePendingSave"),
                 extract_js_fn("clearPendingSave"),
+                extract_js_fn("composeOwns"),
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("pick"),
@@ -2445,17 +2484,17 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               const out={};
               const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
               await Promise.resolve(); await Promise.resolve();
-              out.pickingWhileWaiting = PICKING;
+              out.pickingWhileWaiting = COMPOSE.picking;
               savePin();   // 사용자가 pick 이 끝나기 전에 [핀 저장]을 누름
-              out.queued = PEND_SAVE;
+              out.queued = COMPOSE.pendingSave;
               out.btnPendingLabel = /위치 찾는 중.*저장 대기/.test(els['#btn-save'].innerHTML);
               out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='/api/pin').length;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
-              out.autoSaved = PEND_SAVE===false;
+              out.autoSaved = COMPOSE.pendingSave===false;
               out.pinCallsAfterResolve = apiCalls.filter(u=>u==='/api/pin').length;
-              out.curSetBeforeSave = !!CUR || out.pinCallsAfterResolve>0;
+              out.curSetBeforeSave = !!COMPOSE.current || out.pinCallsAfterResolve>0;
               pinResolve({data:{id:42}});
               await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
               out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
@@ -2481,10 +2520,10 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
               await Promise.resolve(); await Promise.resolve();
               savePin();
-              out.queuedBeforeFailure = PEND_SAVE;
+              out.queuedBeforeFailure = COMPOSE.pendingSave;
               pickResolve({data:{error:'못 찾음'}});
               await p;
-              out.queuedAfterFailure = PEND_SAVE;
+              out.queuedAfterFailure = COMPOSE.pendingSave;
               out.pinCalls = apiCalls.filter(u=>u==='/api/pin').length;
               out.errorShown = els['#c-err'].hidden===false && els['#c-err'].textContent==='못 찾음';
               out.composerStillOpen = els['#composer'].hidden!==true || true;   // 실제 hidden 토글은 composer 표시측이 이미 맡는다
@@ -2507,9 +2546,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               const p = pick({page:1,x0:0,y0:0,x1:1,y1:1});
               await Promise.resolve(); await Promise.resolve();
               savePin();
-              out.queued = PEND_SAVE;
+              out.queued = COMPOSE.pendingSave;
               savePin();   // 같은 버튼을 다시 누르면 대기를 취소(토글)
-              out.canceled = PEND_SAVE===false;
+              out.canceled = COMPOSE.pendingSave===false;
               out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel();
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
@@ -2528,9 +2567,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["noAutoSaveAfterCancel"])
 
     def test_reselecting_during_pick_queues_save_for_new_location_not_stale_one(self):
-        # regression: starting a new selection with a long-press while CUR is already set (first selection
-        # done), then clicking [핀 저장] before that response arrives, must not save the old CUR right
-        # away — it should go to the PEND_SAVE queue and save the new location instead.
+        # regression: starting a new selection with a long-press while COMPOSE.current is already set (first selection
+        # done), then clicking [핀 저장] before that response arrives, must not save the old COMPOSE.current right
+        # away — it should go to the COMPOSE.pendingSave queue and save the new location instead.
         js = self._harness(r"""
             (async()=>{
               const out={};
@@ -2538,17 +2577,17 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:717,hi:741,raw_lo:717,raw_hi:741,page:5,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p1;
-              out.curAfterFirstPick = CUR && CUR.lo;
+              out.curAfterFirstPick = COMPOSE.current && COMPOSE.current.lo;
               const p2 = pick({page:1,x0:0,y0:0.7,x1:1,y1:0.71});
               await Promise.resolve(); await Promise.resolve();
-              out.curClearedOnNewPick = (CUR===null);
+              out.curClearedOnNewPick = (COMPOSE.current===null);
               savePin();   // 스피너가 도는 동안(새 위치 응답 전) [핀 저장]을 누름
               out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='/api/pin').length;
-              out.queued = PEND_SAVE;
+              out.queued = COMPOSE.pendingSave;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:900,hi:920,raw_lo:900,raw_hi:920,page:5,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p2;
-              out.autoSaved = PEND_SAVE===false;
+              out.autoSaved = COMPOSE.pendingSave===false;
               out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='/api/pin').length;
               console.log(JSON.stringify(out));
             })();
@@ -2559,7 +2598,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(data["curAfterFirstPick"], 717)
         self.assertTrue(data["curClearedOnNewPick"])
-        # doesn't save with the old CUR before the new response arrives
+        # doesn't save with the old COMPOSE.current before the new response arrives
         self.assertEqual(data["pinCallsWhileWaiting"], 0)
         self.assertTrue(data["queued"])
         self.assertTrue(data["autoSaved"])
@@ -2737,6 +2776,8 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
 
 
 class FrontendThread(unittest.TestCase):
+    """Guard thread previews, escaped messages, reply placement, and question card controls."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -2817,6 +2858,8 @@ class FrontendThread(unittest.TestCase):
 
 
 class FrontendReview(unittest.TestCase):
+    """Guard review card actions, reviewer hints, and review list notifications."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -2827,7 +2870,7 @@ class FrontendReview(unittest.TestCase):
                 js_esc(),
                 r"""
             const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
-            let EDIT=null, PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}};
+            let  PINS=[], META={me:{login:'bob@example.com',name:'Bob Park'}}; const EDITOR={current:null,saving:false};
             const OPEN_CARDS=new Set();
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
@@ -2913,6 +2956,8 @@ class FrontendReview(unittest.TestCase):
 
 # ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)
 class FrontendChangeView(unittest.TestCase):
+    """Exercise commit matching and guard pin scoped source and PDF change controls."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -2964,7 +3009,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn("showRevision(pick.id,DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions"))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
-        self.assertIn("REVISION_PDF_COMMIT!==REVISION_COMMIT", fmt)
+        self.assertIn("REV.pdfCommit!==REV.commit", fmt)
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)  # it opens even on a folded fold device
 
@@ -2998,6 +3043,8 @@ class FrontendChangeView(unittest.TestCase):
 
 
 class FrontendMentions(unittest.TestCase):
+    """Exercise safe mention and pin reference rendering with real viewer text functions."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -3150,7 +3197,7 @@ class FrontendMentions(unittest.TestCase):
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let KIND_NEW='fix'; const ASSIGN_NEW={v:'agent',touched:false};
             const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
-            let EDIT={el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'};
+            const EDITOR={current:{el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'},saving:false};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
             note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
             console.log(JSON.stringify([edited,[ASSIGN_NEW.v===W,cbox.hidden]]));""")
@@ -3427,6 +3474,8 @@ class FrontendQuestionHint(unittest.TestCase):
 
 
 class FrontendNotify(unittest.TestCase):
+    """Exercise browser notification selection, deduplication, cursor handling, and wiring."""
+
     def setUp(self):
         if not shutil.which("node"):
             self.skipTest("node not available")
@@ -3576,6 +3625,8 @@ class FrontendReplyRule(unittest.TestCase):
 
 
 class ViewerMarkup(unittest.TestCase):
+    """Guard the served viewer markup for pin states, sections, help, and notification controls."""
+
     def test_no_reopen_button_anywhere(self):
         self.assertNotIn('data-act="rv-reopen"', HTML)
         self.assertNotIn("case 'rv-reopen'", HTML)
@@ -3621,6 +3672,8 @@ class ViewerMarkup(unittest.TestCase):
 
 
 class ViewerFunctions(unittest.TestCase):
+    """Exercise reply previews, section counts, trash dates, and deleted pin references."""
+
     def setUp(self):
         import shutil
 
@@ -3762,6 +3815,8 @@ class ViewerFunctions(unittest.TestCase):
 
 
 class ViewerFunctions2(unittest.TestCase):
+    """Exercise reply outcome wording and trash record identity or time presentation."""
+
     def setUp(self):
         import shutil
 
@@ -3871,6 +3926,8 @@ class ViewerFunctions2(unittest.TestCase):
 
 
 class ButtonStyles(unittest.TestCase):
+    """Guard the secondary button styling for completed pin replies and trash restores."""
+
     def test_done_row_reply_and_trash_restore_are_filled_secondary(self):
         body = extract_js_fn("doneCard")
         self.assertIn('<button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open"', body)
@@ -3883,6 +3940,8 @@ class ButtonStyles(unittest.TestCase):
 
 
 class SectionStrip(unittest.TestCase):
+    """Exercise the section strip anchor and scroll fraction calculations."""
+
     def run_js(self, body):
         out = run_node(extract_js_fn("outlineIndexAt") + "\n" + extract_js_fn("destFrac") + "\n" + body)
         if out is None:

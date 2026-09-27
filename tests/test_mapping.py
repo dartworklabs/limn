@@ -56,6 +56,19 @@ class Purity(unittest.TestCase):
         self.assertNotIn("cur_doc(", source)
 
 
+class SynctexRange(unittest.TestCase):
+    """The pure choice among SyncTeX sample hits, before text matching weighs the chosen line range."""
+
+    def test_majority_file_uses_its_densest_line_cluster(self):
+        """Hits from another file and a distant outlier cannot stretch the chosen source range."""
+        hits = [("main.tex", 740), ("table.tex", 4), ("main.tex", 801), ("main.tex", 742), ("main.tex", 741)]
+        self.assertEqual(mapping.synctex_range(hits), ("main.tex", 740, 742))
+
+    def test_no_mapped_sample_gives_no_range(self):
+        """A box whose sample points all miss has no SyncTeX candidate to compare with text matching."""
+        self.assertIsNone(mapping.synctex_range([]))
+
+
 class AnchorMatching(unittest.TestCase):
     """find_line and anchor_holds match an anchor line by one rule (partial_key), and read offsets by anchor_offset."""
 
@@ -158,9 +171,11 @@ class TraceRange(unittest.TestCase):
 
 
 class Ladder(Base):
+    """Paragraph range selection stays within its environment and stops at section boundaries."""
+
     def test_para_stays_inside_env(self):
         lines = TEX.splitlines()
-        lad = mapping.compute_levels(lines, 14, 14, ps.C.envs)  # a cell inside the table
+        lad = mapping.compute_levels(lines, 14, 14, ps.APP.C.envs)  # a cell inside the table
         para = find_level(lad["levels"], "para")
         self.assertGreaterEqual(para["lo"], 13)
         self.assertLessEqual(para["hi"], 15)
@@ -168,7 +183,7 @@ class Ladder(Base):
     def test_para_stops_at_subsection(self):
         lines = TEX.splitlines()
         # the line after the table — the next line is \subsection
-        lad = mapping.compute_levels(lines, 17, 17, ps.C.envs)
+        lad = mapping.compute_levels(lines, 17, 17, ps.APP.C.envs)
         para = find_level(lad["levels"], "para")
         self.assertEqual(para["hi"], 17)
 

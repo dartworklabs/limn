@@ -304,7 +304,7 @@ class RefusalBodies(AccessBase):
     def test_internal_error(self):
         """An unexpected exception is a 500 with the same text and reason internal."""
         with (
-            mock.patch.object(ps, "overlaps_api", side_effect=RuntimeError("boom")),
+            mock.patch.object(ps.APP, "overlaps_api", side_effect=RuntimeError("boom")),
             mock.patch.object(ps.traceback, "print_exc"),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)
@@ -363,6 +363,8 @@ class ErrText(unittest.TestCase):
 
 
 class ErrorPage(AccessBase):
+    """Access refusal pages remain readable and escape untrusted identity text."""
+
     def test_members_only_refusal_is_a_readable_page(self):
         set_config(members_only=True)
         for lang, want in (

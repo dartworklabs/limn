@@ -92,7 +92,7 @@ class BrowserOpenWaitsForPins(BrowserBase):
     def test_a_done_pin_is_known_when_open_returns_even_if_the_pin_list_is_slow(self):
         """With the pin list 1.5s late, the done pin is already in the viewer's lists when open(0) returns."""
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 4, "page": 1, "note": "done"}, actor(ALICE)).record["id"]
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="fixed"))
         page = self.open(0, init=SLOW_PIN_LIST)
         self.assertTrue(page.evaluate("findAnyPin(%d)!==null" % pid))
 
@@ -101,22 +101,24 @@ class BrowserOpenWaitsForPins(BrowserBase):
 
 
 class ViewerFlows(BrowserBase):
+    """Exercise reply, trash, undo, and list flows end to end against the real viewer."""
+
     WHO = ALICE
 
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.record_person(actor(h))
+            ps.APP.record_person(actor(h))
         self.open_id = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, A).record[
             "id"
         ]
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식 번호 확인"}, A).record["id"]
-        ps.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"))
+        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="식 번호를 고쳤습니다", ref="PR #9"))
         self.dn = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 2, "note": "오타"}, A).record["id"]
-        ps.close_pin(self.dn, A, CloseRequest(reply="고침"))
+        ps.APP.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
-        return pin_state(find_record(ps.snapshot_pins(), pid))
+        return pin_state(find_record(ps.APP.snapshot_pins(), pid))
 
     def wait_state(self, pid, want):
         """Let the page settle, so every request it has sent was answered by the in-process server (which serves routed
@@ -183,7 +185,7 @@ class ViewerFlows(BrowserBase):
             tst.wait_for(state="visible")
             tst.locator("button.btn-icon").click()  # dismissing the toast sends at once
             self.wait_state(self.rv, "open")
-            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.APP.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
 
@@ -201,7 +203,7 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
             settle(page)  # the reply the dismissed toast sends has been answered
-            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.APP.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
 
         self.run_matrix(flow)
@@ -269,7 +271,9 @@ class ViewerFlows(BrowserBase):
         page.click(card + " .acts [data-act=reply-open]")
         page.fill("textarea.r-text", "이 문장도 봐 주세요")
         self.assertFalse(page.is_visible(".r-outcome"))  # open pin: a reply never changes it
-        ps.close_pin(self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다"))  # the agent closes it meanwhile
+        ps.APP.close_pin(
+            self.open_id, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다")
+        )  # the agent closes it meanwhile
         page.evaluate("loadPins()")
         page.wait_for_selector('#review-pins .pin[data-id="%d"] .r-outcome:not([hidden])' % self.open_id)
         self.assertEqual(page.inner_text(".r-outcome .r-out-t"), TXT["ko"]["reopen"])
@@ -290,7 +294,7 @@ class ViewerFlows(BrowserBase):
         page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
         self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
+        self.assertIsNotNone(find_record(ps.APP.snapshot_pins(), self.open_id))
         self.assertEqual(trash_records(), [])
 
     # -- 2. Trash
@@ -310,7 +314,7 @@ class ViewerFlows(BrowserBase):
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
             settle(page)  # the drop has been answered
-            self.assertIsNone(find_record(ps.snapshot_pins(), self.open_id))
+            self.assertIsNone(find_record(ps.APP.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
             self.assertFalse(page.locator("#sec-dropped").count())
             if device == "desktop":
@@ -324,12 +328,12 @@ class ViewerFlows(BrowserBase):
                     self.english_only(page, sel)
             page.click(row + " [data-act=restore]")
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-            self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
+            self.assertIsNotNone(find_record(ps.APP.snapshot_pins(), self.open_id))
 
         self.run_matrix(flow)
 
     def test_owner_deletes_forever_with_undo(self):
-        ps.C.people_file.write_text(
+        ps.APP.C.people_file.write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -341,7 +345,7 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.drop_pin(self.open_id, B)
+        ps.APP.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
         row = '#trash .arc-row[data-id="%d"]' % self.open_id
@@ -357,8 +361,8 @@ class ViewerFlows(BrowserBase):
         self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
-        ps.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
-        ps.drop_pin(self.dn, A)
+        ps.APP.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
+        ps.APP.drop_pin(self.dn, A)
         for lang in ("ko", "en"):
             with self.subTest(lang=lang):
                 page = self.page_for("desktop", lang)
@@ -410,10 +414,10 @@ class ColdDeepLink(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        src = ps.C.src
+        src = ps.APP.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C.paths))
-        for D in ps.DOCS:
+        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.APP.C.paths))
+        for D in ps.APP.docs:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)
             for i in (1, 2):
@@ -421,7 +425,7 @@ class ColdDeepLink(BrowserBase):
             (D.dir / "pages.cur").write_text(pages.name)
             (D.dir / "built_at.txt").write_text("2026-09-25 10:00:00")
             (D.dir / "head.txt").write_text("abc1234")
-        ms, hl = ps.DOCS
+        ms, hl = ps.APP.docs
         for lo in range(4, 30, 2):
             add_pin(
                 {"file": str(src / "main.tex"), "lo": lo, "hi": lo + 1, "page": 1, "note": "본문 %d" % lo}, A
@@ -438,8 +442,8 @@ class ColdDeepLink(BrowserBase):
         self.gone = add_pin(
             {"file": str(src / "hl.tex"), "lo": 32, "hi": 33, "page": 2, "note": "되살릴 핀"}, A, doc=hl
         ).record["id"]
-        ps.drop_pin(self.gone, B)
-        self.addCleanup(ps.set_docs, None)
+        ps.APP.drop_pin(self.gone, B)
+        self.addCleanup(ps.APP.set_docs, None)
 
     def cold(self, hash_, device):
         context = self.browser.new_context(**DEVICES[device])
@@ -476,9 +480,383 @@ class ColdDeepLink(BrowserBase):
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.gone, timeout=8000)
-        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.gone))
+        self.assertIsNotNone(find_record(ps.APP.snapshot_pins(), self.gone))
         self.assert_card_shown(page, self.gone, "desktop")
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
+
+    def test_draft_and_build_baseline_survive_document_round_trip(self):
+        """A→B→A keeps the note, restores its stored draft, and resets build state to the active document."""
+        page = self.cold("#doc=ms", "desktop")
+        page.wait_for_function("LIGHT_TIMER&&DOC==='ms'", timeout=8000)
+        self.open_composer(page)
+        page.locator("#note").fill("Round trip draft")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>{await switchDoc(key);await pollBuild();}", key)
+            page.wait_for_function("key=>DOC===key&&BUILD.lastSeq===META.build_seq", arg=key, timeout=8000)
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        self.assertEqual(page.locator("#note").input_value(), "Round trip draft")
+        page.reload()
+        page.wait_for_function("LIGHT_TIMER&&DOC==='ms'&&DRAFT.ready", timeout=20000)
+        self.assertEqual(page.locator("#note").input_value(), "Round trip draft")
+
+    def test_draft_stays_with_its_document_during_a_long_visit_elsewhere(self):
+        """A draft survives time on B and a B reload without appearing as B's draft or losing A's selection."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Only on A")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate("async()=>await switchDoc('hl')")
+        page.wait_for_function("DOC==='hl'&&DRAFT.timer===0", timeout=8000)
+        page.reload()
+        page.wait_for_function("LIGHT_TIMER&&DOC==='hl'&&DRAFT.ready", timeout=20000)
+        self.assertEqual(page.locator("#note").input_value(), "")
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+        self.open_composer(page)
+        page.locator("#note").fill("Only on B")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'hl'))", timeout=8000)
+        page.evaluate("async()=>await switchDoc('ms')")
+        page.reload()
+        page.wait_for_function("LIGHT_TIMER&&DOC==='ms'&&DRAFT.ready", timeout=20000)
+        self.assertEqual(page.locator("#note").input_value(), "Only on A")
+        self.assertIsNotNone(page.evaluate("COMPOSE.current"))
+        page.evaluate("async()=>await switchDoc('hl')")
+        page.reload()
+        page.wait_for_function("LIGHT_TIMER&&DOC==='hl'&&DRAFT.ready", timeout=20000)
+        self.assertEqual(page.locator("#note").input_value(), "Only on B")
+
+    def test_inflight_save_preserves_new_selection_after_document_round_trip(self):
+        """A save started on A still writes its pin but cannot clear a new A selection after A→B→A."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Saved during round trip")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path==='/api/pin'&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {savePin();}")
+        page.wait_for_function("typeof window.releaseSave==='function'", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+            page.wait_for_function("key=>DOC===key", arg=key, timeout=8000)
+        self.open_composer(page)
+        page.locator("#note").fill("New selection after round trip")
+        page.evaluate("window.newSelection=COMPOSE.current")
+        page.evaluate("window.releaseSave()")
+        page.wait_for_function("!COMPOSE.saving&&OPEN_ALL.some(p=>p.note==='Saved during round trip')", timeout=8000)
+        self.assertTrue(page.evaluate("COMPOSE.current===window.newSelection"))
+        self.assertEqual(page.locator("#note").input_value(), "New selection after round trip")
+        self.assertFalse(page.locator("#composer").evaluate("node=>node.hidden"))
+
+    def test_save_finishing_on_b_clears_only_the_saved_a_draft(self):
+        """A successful A save removes its old draft after a switch, leaving B's newer draft untouched."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Saved A draft")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path==='/api/pin'&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {savePin();}")
+        page.wait_for_function("typeof window.releaseSave==='function'", timeout=8000)
+        page.evaluate("async()=>await switchDoc('hl')")
+        self.open_composer(page)
+        page.locator("#note").fill("New B draft")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'hl'))", timeout=8000)
+        page.evaluate("window.releaseSave()")
+        page.wait_for_function("!COMPOSE.saving&&OPEN_ALL.some(p=>p.note==='Saved A draft')", timeout=8000)
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
+        self.assertEqual(page.locator("#note").input_value(), "New B draft")
+
+    def test_append_finishing_on_b_clears_only_the_appended_a_draft(self):
+        """An A append completed on B removes its old A draft and keeps B's new draft."""
+        page = self.cold("#doc=ms", "desktop")
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        self.open_composer(page)
+        page.locator("#note").fill("Appended A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path.endsWith('/edit')&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("id=>{appendToPin(id,'Appended A note');}", pid)
+        page.wait_for_function("typeof window.releaseAppend==='function'", timeout=8000)
+        page.evaluate("async()=>await switchDoc('hl')")
+        self.open_composer(page)
+        page.locator("#note").fill("New B draft")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'hl'))", timeout=8000)
+        page.evaluate("window.releaseAppend()")
+        page.wait_for_function(
+            "id=>OPEN_ALL.some(p=>p.id===id&&p.note.includes('Appended A note'))", arg=pid, timeout=8000
+        )
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
+        self.assertEqual(page.locator("#note").input_value(), "New B draft")
+
+    def test_append_finishing_after_return_preserves_a_new_a_draft(self):
+        """A late append keeps the newer selection and draft made after A→B→A."""
+        page = self.cold("#doc=ms", "desktop")
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        self.open_composer(page)
+        page.locator("#note").fill("Appended A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path.endsWith('/edit')&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("id=>{appendToPin(id,'Appended A note');}", pid)
+        page.wait_for_function("typeof window.releaseAppend==='function'", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        self.open_composer(page)
+        page.locator("#note").fill("New A draft")
+        page.wait_for_function(
+            "DRAFT.timer===0&&sessionStorage.getItem(draftKey(META.label,'ms')).includes('New A draft')", timeout=8000
+        )
+        page.evaluate("window.newSelection=COMPOSE.current;window.releaseAppend()")
+        page.wait_for_function(
+            "id=>OPEN_ALL.some(p=>p.id===id&&p.note.includes('Appended A note'))", arg=pid, timeout=8000
+        )
+        self.assertTrue(page.evaluate("COMPOSE.current===window.newSelection"))
+        self.assertIn("New A draft", page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_repick_cancel_preserves_completed_composer_selection(self):
+        """Opening and cancelling repick leaves a completed new-pin choice and its note in place."""
+        page = self.cold("#doc=ms", "desktop")
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        self.open_composer(page)
+        page.locator("#note").fill("Keep selected lines")
+        page.evaluate("window.chosen=COMPOSE.current")
+        page.evaluate("async id=>{openEdit(id);await startRepick();cancelRepick();}", pid)
+        self.assertTrue(page.evaluate("COMPOSE.current===window.chosen"))
+        self.assertFalse(page.locator("#composer").evaluate("node=>node.hidden"))
+        self.assertEqual(page.locator("#note").input_value(), "Keep selected lines")
+
+    def test_save_finishing_after_return_clears_untouched_restored_a_draft(self):
+        """A saved pin closes the exact A draft restored by A→B→A while the POST was pending."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Already saved A")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path==='/api/pin'&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {savePin();}")
+        page.wait_for_function("typeof window.releaseSave==='function'", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.evaluate("window.releaseSave()")
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='Already saved A')", timeout=8000)
+        page.wait_for_function("!COMPOSE.current&&document.querySelector('#composer').hidden", timeout=8000)
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_save_finishing_after_return_keeps_unsaved_a_note_edit(self):
+        """A note edited after draft restore survives the old POST even before its debounce writes storage."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Submitted A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path==='/api/pin'&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {savePin();}")
+        page.wait_for_function("typeof window.releaseSave==='function'", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.evaluate(
+            """() => {window.newSelection=COMPOSE.current;const note=$('#note');note.value='Edited after return';
+              note.dispatchEvent(new Event('input',{bubbles:true}));window.releaseSave();}"""
+        )
+        page.wait_for_function("OPEN_ALL.some(p=>p.note==='Submitted A note')", timeout=8000)
+        self.assertTrue(page.evaluate("COMPOSE.current===window.newSelection"))
+        self.assertEqual(page.locator("#note").input_value(), "Edited after return")
+        page.wait_for_function(
+            "DRAFT.timer===0&&sessionStorage.getItem(draftKey(META.label,'ms')).includes('Edited after return')",
+            timeout=8000,
+        )
+
+    def test_append_finishing_after_return_clears_untouched_restored_a_draft(self):
+        """A completed append closes the exact A draft restored by A→B→A."""
+        page = self.cold("#doc=ms", "desktop")
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        self.open_composer(page)
+        page.locator("#note").fill("Already appended A")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path.endsWith('/edit')&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("id=>{appendToPin(id,'Already appended A');}", pid)
+        page.wait_for_function("typeof window.releaseAppend==='function'", timeout=8000)
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.evaluate("window.releaseAppend()")
+        page.wait_for_function(
+            "id=>OPEN_ALL.some(p=>p.id===id&&p.note.includes('Already appended A'))", arg=pid, timeout=8000
+        )
+        page.wait_for_function("!COMPOSE.current&&document.querySelector('#composer').hidden", timeout=8000)
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_a_discard_undo_does_not_replace_a_b_note_draft(self):
+        """An old A undo cannot overwrite a note-only draft already restored for B."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Discarded A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate(
+            """() => sessionStorage.setItem(draftKey(META.label,'hl'),JSON.stringify({
+              v:1,doc:'hl',build:'',cur:null,note:'Existing B note',mentions:[],kind:'fix',
+              assign:{v:'agent',touched:false}}))"""
+        )
+        page.evaluate("discardSelection()")
+        page.evaluate("async()=>await switchDoc('hl')")
+        page.wait_for_function("DOC==='hl'&&document.querySelector('#note').value==='Existing B note'", timeout=8000)
+        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button", has_text="되돌리기").click()
+        self.assertEqual(page.locator("#note").input_value(), "Existing B note")
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_a_discard_toast_expiry_does_not_remove_b_draft(self):
+        """Ending A's discard window removes only A's held version after B has written a draft."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Discarded A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate("discardSelection()")
+        page.evaluate("async()=>await switchDoc('hl')")
+        self.open_composer(page)
+        page.locator("#note").fill("B note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'hl'))", timeout=8000)
+        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.assertIsNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+        self.assertIsNotNone(page.evaluate("sessionStorage.getItem(draftKey(META.label,'hl'))"))
+        self.assertEqual(page.locator("#note").input_value(), "B note")
+
+    def test_old_discard_toast_does_not_remove_a_new_a_draft(self):
+        """An old A toast loses ownership once a later A draft has replaced its stored version."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("Old A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate("discardSelection()")
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.locator("#note").fill("New A note")
+        page.wait_for_function(
+            "DRAFT.timer===0&&sessionStorage.getItem(draftKey(META.label,'ms')).includes('New A note')", timeout=8000
+        )
+        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.assertIn("New A note", page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_old_discard_toast_does_not_remove_the_restored_a_draft(self):
+        """A restored selection owns its draft even when its stored bytes still match the old held version."""
+        page = self.cold("#doc=ms", "desktop")
+        self.open_composer(page)
+        page.locator("#note").fill("A note")
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        page.evaluate("discardSelection()")
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+        page.wait_for_function("COMPOSE.current&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.locator("#toasts .toast", has_text="선택 취소됨").locator("button[aria-label]").click()
+        self.assertIn("A note", page.evaluate("sessionStorage.getItem(draftKey(META.label,'ms'))"))
+
+    def test_repick_releases_waiting_selection_without_losing_note(self):
+        """Repick takes over an unfinished drag, clearing its save queue and box while retaining the note draft."""
+        page = self.cold("#doc=ms", "desktop")
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path==='/api/pick')
+                return result.then(value=>new Promise(resolve=>{window.releasePick=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {const pg=$('#p1');finishRect(pg,newBox(pg),.1,.1,.4,.15);}")
+        page.wait_for_function("typeof window.releasePick==='function'&&COMPOSE.picking&&!!COMPOSE.box", timeout=8000)
+        page.locator("#note").fill("Keep this note")
+        page.evaluate("savePin()")
+        page.wait_for_function("COMPOSE.pendingSave", timeout=8000)
+        page.evaluate("async id=>{openEdit(id);await startRepick();}", pid)
+        page.wait_for_function("REPICK&&!COMPOSE.picking&&!COMPOSE.pendingSave&&!COMPOSE.box", timeout=8000)
+        self.assertTrue(page.locator("#composer").evaluate("node=>node.hidden"))
+        self.assertTrue(page.locator("#c-spin").evaluate("node=>node.hidden"))
+        self.assertEqual(page.locator("#note").input_value(), "Keep this note")
+        page.evaluate("cancelRepick();window.releasePick()")
+        page.wait_for_function("!REPICK&&!COMPOSE.picking&&!COMPOSE.pendingSave", timeout=8000)
+        page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
+        self.assertFalse(page.evaluate("OPEN_ALL.some(p=>p.note==='Keep this note')"))
+
+    def test_dirty_editor_survives_round_trip_then_saves_and_cancels(self):
+        """A dirty editor stays on its pin across A→B→A, then save and cancel retain their controls."""
+        page = self.cold("#doc=ms", "desktop")
+        page.wait_for_function("LIGHT_TIMER&&DOC==='ms'", timeout=8000)
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.locator(".e-note").fill("Edited after round trip")
+        for key in ("hl", "ms"):
+            page.evaluate("async key=>await switchDoc(key)", key)
+            page.wait_for_function("key=>DOC===key&&EDITOR.current&&EDITOR.current.id", arg=key, timeout=8000)
+        self.assertEqual(page.locator(".e-note").input_value(), "Edited after round trip")
+        page.evaluate("saveEdit()")
+        page.wait_for_function("EDITOR.current===null&&!EDITOR.saving", timeout=8000)
+        self.assertEqual(find_record(ps.APP.snapshot_pins(), pid)["note"], "Edited after round trip")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.wait_for_function("EDITOR.current&&EDITOR.current.id", timeout=8000)
+        page.evaluate("cancelEdit()")
+        self.assertIsNone(page.evaluate("EDITOR.current"))
+
+    def test_inflight_edit_save_closes_same_card_after_document_switch(self):
+        """A save started on A closes its still-owned card on B after the server response is released."""
+        page = self.cold("#doc=ms", "desktop")
+        page.wait_for_function("LIGHT_TIMER&&DOC==='ms'", timeout=8000)
+        pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
+        page.evaluate("id=>openEdit(id)", pid)
+        page.locator(".e-note").fill("Saved during switch")
+        page.evaluate(
+            """() => {const realApi=api; api=(path,options) => {
+              const result=realApi(path,options);
+              if(path.endsWith('/edit')&&options?.method==='POST')
+                return result.then(value=>new Promise(resolve=>{window.releaseEdit=()=>resolve(value);}));
+              return result;};}"""
+        )
+        page.evaluate("() => {saveEdit();}")
+        page.wait_for_function("typeof window.releaseEdit==='function'", timeout=8000)
+        page.evaluate("async()=>await switchDoc('hl')")
+        page.evaluate("window.releaseEdit()")
+        page.wait_for_function("DOC==='hl'&&EDITOR.current===null&&!EDITOR.saving", timeout=8000)
+        self.assertEqual(find_record(ps.APP.snapshot_pins(), pid)["note"], "Saved during switch")
 
     def test_service_worker_carries_the_restore_action_into_a_new_window(self):
         self.assertIn("e.action==='restore'?'&act=restore':''", SW_JS)
@@ -494,13 +872,13 @@ class PreviewEqualsServer(BrowserBase):
     def setUp(self):
         super().setUp()
         for p in (A, self.LEE, self.PARK):
-            ps.record_person(p)
+            ps.APP.record_person(p)
         self.pins = []
         for i in range(5):
             pid = add_pin(
                 {"file": str(self.main), "lo": 4 + 2 * i, "hi": 5 + 2 * i, "page": 1, "note": "검토 %d" % i}, A
             ).record["id"]
-            ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
+            ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침 %d" % i))
             self.pins.append(pid)
 
     def run_case(self, page, pid, pick, text):
@@ -519,9 +897,9 @@ class PreviewEqualsServer(BrowserBase):
         page.click(card + " [data-act=reply-send]")
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         settle(page)  # the reply the dismissed toast sends has been answered
-        r = find_record(ps.snapshot_pins(), pid)
+        r = find_record(ps.APP.snapshot_pins(), pid)
         last = r["thread"][-1]
-        return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
+        return preview, not r.get("done"), [ps.APP.known_people()[lg]["name"] for lg in last.get("mentions") or []]
 
     def test_preview_matches_the_server_for_ambiguous_partial_and_edited_names(self):
         page = self.open(0)
@@ -544,13 +922,15 @@ class PreviewEqualsServer(BrowserBase):
 
 
 class ReplyKeyboardAndFailure(BrowserBase):
+    """Guard keyboard submission, offline reply recovery, and reply override controls."""
+
     WHO = ALICE
 
     def setUp(self):
         super().setUp()
-        ps.record_person(A)
+        ps.APP.record_person(A)
         self.rv = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "식"}, A).record["id"]
-        ps.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(self.rv, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def box(self, page):
         card = '#review-pins .pin[data-id="%d"]' % self.rv
@@ -571,7 +951,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
         settle(page)
-        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.APP.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
         page = self.open(0)
@@ -582,7 +962,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
         self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
-        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.APP.snapshot_pins(), self.rv)), "review")
 
     def test_override_is_a_switch(self):
         page = self.open(0)
@@ -596,13 +976,15 @@ class ReplyKeyboardAndFailure(BrowserBase):
 
 
 class RestoreLinkRunsOnce(BrowserBase):
+    """Ensure a consumed restore deep link does not repeat its mutation after reload."""
+
     WHO = ALICE
 
     def test_reload_does_not_restore_again(self):
-        ps.record_person(A)
+        ps.APP.record_person(A)
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
         keep = add_pin({"file": str(self.main), "lo": 12, "hi": 13, "page": 1, "note": "남은 핀"}, A).record["id"]
-        ps.drop_pin(pid, B)
+        ps.APP.drop_pin(pid, B)
         context = self.browser.new_context(viewport={"width": 1400, "height": 850})
         self.addCleanup(context.close)
         watch_idle(context)
@@ -611,15 +993,17 @@ class RestoreLinkRunsOnce(BrowserBase):
         page.goto("http://viewer.test/?lang=ko#pin=%d&act=restore" % pid)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.some(p=>p.id===%d)" % pid, timeout=20000)
         self.assertNotIn("act=restore", page.evaluate("location.href"))
-        ps.drop_pin(pid, A)  # dropped again elsewhere
+        ps.APP.drop_pin(pid, A)  # dropped again elsewhere
         page.reload()
         # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
         page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
         settle(page)
-        self.assertIsNone(find_record(ps.snapshot_pins(), pid))
+        self.assertIsNone(find_record(ps.APP.snapshot_pins(), pid))
 
 
 class TrashOfAnotherDocument(ColdDeepLink):
+    """Ensure opening a foreign document trash item preserves the current list filter."""
+
     def test_opening_the_trash_at_another_documents_pin_keeps_the_list_filter(self):
         page = self.cold("#doc=ms", "desktop")
         page.evaluate("openTrash(%d)" % self.gone)
@@ -632,6 +1016,9 @@ class TrashOfAnotherDocument(ColdDeepLink):
     test_cold_link_opens_the_pin_in_another_document = None
     test_cold_restore_link_restores_and_opens = None
     test_service_worker_carries_the_restore_action_into_a_new_window = None
+    test_draft_and_build_baseline_survive_document_round_trip = None
+    test_dirty_editor_survives_round_trip_then_saves_and_cancels = None
+    test_inflight_edit_save_closes_same_card_after_document_switch = None
 
 
 # ---------------------------------------------------------------- pin-scoped [View changes] and the viewer's Trash controls (v0.3, issue #9)
@@ -646,7 +1033,7 @@ class ScopedViewer(BrowserBase):
         super().setUp()
         if not shutil.which("git"):
             self.skipTest("git not available")
-        ps.record_person(A)
+        ps.APP.record_person(A)
         self.repo = self.main.parent.parent
         self.main.write_text(OLD, encoding="utf-8")
         for args in (("init", "--quiet"), ("config", "user.email", "t@example.com"), ("config", "user.name", "T")):
@@ -658,19 +1045,19 @@ class ScopedViewer(BrowserBase):
         self.write(NEW)
         self.fix = self.commit("fix three pins")
         loc = dict(LOCAL_ACTOR)
-        ps.close_pin(
+        ps.APP.close_pin(
             self.p1,
             loc,
             CloseRequest(
                 reply="alpha", ref=self.fix[:8], changes=(parse.CloseChange(str(self.main.resolve()), 4, 5).record(),)
             ),
         )
-        ps.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
-        ps.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
+        ps.APP.close_pin(self.p2, loc, CloseRequest(reply="beta", ref=self.fix[:8]))
+        ps.APP.close_pin(self.p3, loc, CloseRequest(reply="gamma", ref=self.fix[:8]))
         self.p4 = add_pin({"file": str(self.main), "lo": 8, "hi": 8, "page": 1, "note": "filler"}, A).record["id"]
         self.write(NEW.replace("Filler two.", "Filler two, reworded."))
         self.solo = self.commit("fix the filler pin")
-        ps.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
+        ps.APP.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
         self.builds = []
         self.fail_scoped = False
         patcher = mock.patch.object(revisions, "revision_compile", side_effect=self.fake_compile)
@@ -701,7 +1088,7 @@ class ScopedViewer(BrowserBase):
         page = self._page = self.open(0, lang=lang, **DEVICES[device])
         page.evaluate("showChange(%d)" % pid)
         page.wait_for_function(
-            "REVISION_SOURCE_COMMIT&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
+            "REV.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
         )
         settle(page)
         return page
@@ -835,7 +1222,7 @@ class ScopedViewer(BrowserBase):
         self.assertFalse(self.visible(page, "#revision-whole"))
         self.assertEqual(self.builds[-1], (self.solo, ()))
         page.click("#revision-source-tab")
-        page.wait_for_function("REVISION_SOURCE_COMMIT===%s" % json.dumps(self.solo), timeout=15000)
+        page.wait_for_function("REV.sourceCommit===%s" % json.dumps(self.solo), timeout=15000)
         self.assertIn("reworded", page.inner_text("#revision-diff"))
         self.assertFalse(self.visible(page, "#revision-other-toggle"))
         seen = [u for u in urls if "/api/revision-" in u and self.solo in u]
@@ -848,8 +1235,7 @@ class ScopedViewer(BrowserBase):
         self.assertEqual(len(self.builds[-1][1]), 1)
         page.click("#revision-source-tab")
         page.wait_for_function(
-            "REVISION_SOURCE_COMMIT===%s&&!document.getElementById('revision-other-toggle').hidden"
-            % json.dumps(self.fix),
+            "REV.sourceCommit===%s&&!document.getElementById('revision-other-toggle').hidden" % json.dumps(self.fix),
             timeout=15000,
         )
         self.assertNotIn("pears", page.inner_text("#revision-diff"))
@@ -872,8 +1258,8 @@ class ViewerTrashControls(BrowserBase):
 
     def setUp(self):
         super().setUp()
-        ps.record_person(A)
-        ps.C.people_file.write_text(
+        ps.APP.record_person(A)
+        ps.APP.C.people_file.write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -887,7 +1273,7 @@ class ViewerTrashControls(BrowserBase):
         )
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "남은 핀"}, A).record["id"]
         self.gone = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "지운 핀"}, A).record["id"]
-        ps.drop_pin(self.gone, A)
+        ps.APP.drop_pin(self.gone, A)
 
     def test_viewer_role_sees_no_restore_or_purge_in_the_trash(self):
         """E2E finding: a viewer reads the Trash but gets no [Restore]/[Delete forever] (server refuses with 403 anyway)."""
@@ -915,6 +1301,8 @@ class ViewerTrashControls(BrowserBase):
 
 
 class QuestionNudgeFocus(BrowserBase):
+    """Guard keyboard saving from question nudges and kind controls in the browser."""
+
     def test_ctrl_enter_saves_after_send_as_question(self):
         page = self.open(0)
         self.open_composer(page)
@@ -926,7 +1314,7 @@ class QuestionNudgeFocus(BrowserBase):
         self.assertEqual(page.evaluate("KIND_NEW"), "question")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===1", timeout=8000)
-        rows = records(ps.snapshot_pins())
+        rows = records(ps.APP.snapshot_pins())
         self.assertEqual([(r["note"], r.get("kind_req")) for r in rows], [("이 값은 어디서 왔나요?", "question")])
 
     def test_ctrl_enter_from_the_kind_buttons_still_saves(self):
@@ -940,13 +1328,15 @@ class QuestionNudgeFocus(BrowserBase):
 
 
 class ViewerRoleUi(BrowserBase):
+    """Check viewer role controls and notice text while editors retain write controls."""
+
     WHO = CAROL
     STATE_CHANGING = ("edit", "drop", "close", "reply-open", "rv-reopen", "confirm", "reopen", "restore", "unclaim")
 
     def setUp(self):
         super().setUp()
-        ps.record_person(actor(ALICE))
-        ps.C.people_file.write_text(
+        ps.APP.record_person(actor(ALICE))
+        ps.APP.C.people_file.write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -961,11 +1351,11 @@ class ViewerRoleUi(BrowserBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기"}, actor(ALICE)
         ).record["id"]
-        ps.reply_pin(pid, "답글", actor(ALICE))
+        ps.APP.reply_pin(pid, "답글", actor(ALICE))
         rid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "검토할 핀"}, actor(ALICE)).record[
             "id"
         ]
-        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def visible_acts(self, page):
         return page.evaluate(
@@ -990,11 +1380,11 @@ class ViewerRoleUi(BrowserBase):
                 self.assertFalse(page.is_visible("#note"))
                 self.assertTrue(page.is_visible("#c-viewer"))
                 self.assertTrue(page.is_visible("#c-loc"))  # the location is still shown (read)
-                n = len(ps.snapshot_pins())
+                n = len(ps.APP.snapshot_pins())
                 page.keyboard.press("Control+Enter")
                 page.evaluate("savePin()")
                 settle(page)
-                self.assertEqual(len(ps.snapshot_pins()), n)
+                self.assertEqual(len(ps.APP.snapshot_pins()), n)
 
     def test_viewer_notice_is_translated(self):
         page = self.open(1, lang="en")

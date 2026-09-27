@@ -355,6 +355,21 @@ class ScopeDecisions(unittest.TestCase):
     """The pure decisions around the scoped build and responses (coding rule R1): which recorded changes count, what to
     write into the synthetic tree, and how a refusal becomes a response - no file, git or HTTP needed."""
 
+    def test_recorded_ranges_and_stored_list_use_the_same_shape_rule(self):
+        """The store rejects a list with one malformed range, while attribution keeps only valid items in that list."""
+        good = {"file": "/m/main.tex", "lo": 3, "hi": 4, "future": "kept"}
+        malformed = ({"file": 3, "lo": 1, "hi": 1}, {"file": "/m/main.tex", "lo": True, "hi": 2})
+        self.assertTrue(scoping.valid_changes([good]))
+        self.assertFalse(scoping.valid_changes([good, *malformed]))
+        head = "a" * 40
+        pin = {
+            "done_at": "2026-09-25 10:00:00",
+            "changes_at": "2026-09-25 10:00:00",
+            "close_ref": head[:7],
+            "changes": [good, *malformed],
+        }
+        self.assertEqual(scoping.recorded_changes(pin, head, [{"id": head, "subject": "fix"}]), (good,))
+
     def test_recorded_changes_count_only_for_their_close_and_their_commit(self):
         """changes_at must equal done_at, and the commit asked about must be the one close_ref names (review M1:
         another commit's lines must not select a different pin's fix); malformed items are skipped."""

@@ -34,7 +34,7 @@ const DIFF_FORMAT=Object.freeze({PDF:'pdf',SOURCE:'source'});   // the changes v
 const VIEW_MODE=Object.freeze({MANUSCRIPT:'manuscript',REVISIONS:'revisions'});   // the manuscript or the changes view; index.html data-mode
 const UI_LANG=Object.freeze({KO:'ko',EN:'en'});   // LANG
 const NOTIFY_STATE=Object.freeze({ON:'on',OFF:'off',BLOCKED:'blocked',UNSUPPORTED:'unsupported',LOCAL:'local'});   // browser notifications on this device (notifyState)
-let META=null,PINS=[],DONE=[],DROPPED=[],CUR=null,SAVING=false,ESAVING=false,EDIT=null,REPICK=null,PICKSEQ=0,PENDING=null,PICKING=false,PEND_SAVE=false;
+let META=null,PINS=[],DONE=[],DROPPED=[],REPICK=null,PICKSEQ=0;
 let SNIP_OPEN=false,W=900,WRAP=true;
 // Mobile: LAYOUT is a LAYOUT_MODE (wide|mid|narrow), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
 // ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
@@ -45,7 +45,7 @@ let OUTLINE_MID_OPEN=false,MID_OVERLAY=false;
 let LAYOUT=null,SIDE_OPEN=true,SELMODE=false,ZOOMED=false,LAST_PTR='mouse',LAST_TOUCH_T=0;
 const OPEN_CARDS=new Set();   // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
-// input field {id,mode,el} (holds onto the DOM like EDIT does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
+// input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
 // REPLY_DRAFT = a closed input field's draft text ('reply:12').
 let KIND_NEW=KIND_REQ.FIX,REPLY=null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (tailnet people who opened this viewer + pin authors/actors), MENTION_ONLY = viewing only "pins that called me".
@@ -56,6 +56,10 @@ const THREAD_OPEN=new Set(),REPLY_DRAFT=new Map();
 // META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
 // DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
 let DOCS=[],DOC=null,DEFAULT_DOC='main',OPEN_ALL=[],DONE_ALL=[],SHOW_ALL=false,SWITCHSEQ=0;
+// A continuation may paint visit-local UI only while both the document and its visit number still match.
+function captureVisit(){return {doc:DOC,seq:SWITCHSEQ};}
+// Match a captured visit after an await, including leave-and-return to the same document.
+function currentVisit(visit){return DOC===visit.doc&&SWITCHSEQ===visit.seq;}
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL=[];
 const META_BY=new Map(),VIEW_BY=new Map(),BUILD_ERR_BY=new Map(),DOC_SEQ=new Map();
@@ -85,4 +89,3 @@ const T={
   change:'변경사항 탭을 열어 이 핀을 고친 커밋(닫을 때 남긴 참조, 없으면 이 줄을 바꾼 최근 커밋)의 diff 에서 핀 자리를 강조합니다',
   reply:'이 핀에 답글을 답니다. 닫힌 핀이면 보내기 전에 칸 아래 한 줄이 결과(다시 열림·알림·그대로)를 알려 줍니다 (⌘ Enter / Ctrl+Enter 보내기)'
 };
-
