@@ -87,7 +87,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         server.main()
         return 0
     if cmd == "migrate":
-        from limn import migrate
+        from limn.features.administration import migrate
 
         return migrate.main(args[1:])
     if cmd in ("token", "member"):

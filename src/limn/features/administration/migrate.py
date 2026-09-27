@@ -149,12 +149,8 @@ def without_state(vals: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in vals.items() if k != "STATE_DIR"}
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """`limn migrate [names...] [options]` -> exit status: 0 when every named instance is migrated or already was
-    (or there is nothing to migrate), 1 when a name has no old config or an instance needs a check by hand (a new
-    config with different values, a state dir that could not be moved). The steps and guarantees are in the module
-    docstring. Prints a report per instance on stdout; with --dry-run it writes nothing. Bad arguments exit through
-    argparse (status 2)."""
+def _args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Parse the migration's names, roots, and dry-run or state-move options."""
     ap = argparse.ArgumentParser(
         prog="limn migrate",
         description="Move instance configs (and optionally state dirs) from the old %s install to Limn. "
@@ -172,10 +168,117 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--config-dir", type=Path, default=Path(os.environ.get("LIMN_CONFIG_DIR") or cfg / NEW))
     ap.add_argument("--old-data-root", type=Path, default=data / OLD)
     ap.add_argument("--data-root", type=Path, default=Path(os.environ.get("LIMN_DATA_ROOT") or data / NEW))
-    a = ap.parse_args(argv)
-    dry = a.dry_run
-    tag = "(dry-run) " if dry else ""
+    return ap.parse_args(argv)
 
+
+def _migrate_config(dst: Path, want: str, data_root: Path, name: str, dry: bool) -> bool:
+    """Write or recognize one destination config; refuse a different existing config."""
+    if dst.exists():
+        cur, new = parse(dst.read_text(encoding="utf-8")), parse(want)
+        if cur == new or (without_state(cur) == without_state(new) and cur.get("STATE_DIR") == str(data_root / name)):
+            print("  new config  %s — already migrated" % dst)
+            return True
+        print("  new config  %s — exists with different values; left alone (check by hand)" % dst)
+        return False
+    print("  %snew config  write %s" % ("(dry-run) " if dry else "", dst))
+    if not dry:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".tmp")
+        tmp.write_text(want, encoding="utf-8")
+        os.replace(tmp, dst)
+    return True
+
+
+def _migrate_state(a: argparse.Namespace, name: str, old: dict[str, str], dst: Path, state: str) -> int:
+    """Report or move one state directory; return one problem when a requested move is blocked."""
+    cur_state = parse(dst.read_text(encoding="utf-8")).get("STATE_DIR", state) if dst.exists() else state
+    sp = Path(cur_state)
+    if not under(sp, a.old_data_root):
+        print("  state dir   %s — kept as is (pins and build history continue)" % sp)
+        return 0
+    target = a.data_root / name
+    if not a.move_state:
+        print("  state dir   %s — under the old data root; fine to keep using it" % sp)
+        print("              to move it, stop the units, then: limn migrate --move-state %s  (-> %s)" % (name, target))
+        return 0
+    why = [
+        "%s is running" % unit
+        for unit in ("%s@%s.service" % (OLD, name), "%s@%s.service" % (NEW, name))
+        if unit_active(unit)
+    ]
+    if port_busy(old.get("PORT", "")):
+        why.append("local port %s is in use" % old.get("PORT"))
+    if target.exists():
+        why.append("%s already exists" % target)
+    if not sp.is_dir():
+        why.append("%s does not exist" % sp)
+    if why:
+        print("  state dir   %s — not moved: %s" % (sp, "; ".join(why)))
+        return 1
+    print(
+        "  %sstate dir   %s -> %s (STATE_DIR in the new config updated)"
+        % ("(dry-run) " if a.dry_run else "", sp, target)
+    )
+    if not a.dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(sp), str(target))
+        dst.write_text(set_state(dst.read_text(encoding="utf-8"), str(target)), encoding="utf-8")
+    return 0
+
+
+def _migrate_one(a: argparse.Namespace, name: str, claimed: set[Path]) -> tuple[int, bool]:
+    """Report and migrate one instance; return its problem count and whether to show its switch commands."""
+    src = a.old_config_dir / ("%s.env" % name)
+    dst = a.config_dir / ("%s.env" % name)
+    text = src.read_text(encoding="utf-8")
+    vals = parse(text)
+    had_state = bool(vals.get("STATE_DIR"))
+    state = vals.get("STATE_DIR") or str(a.old_data_root / name)
+    claimed.add(Path(state).resolve())
+    want = render(name, text, state, had_state)
+    print("[%s]" % name)
+    link = " (symlink -> %s)" % os.path.realpath(src) if src.is_symlink() else ""
+    print("  old config  %s%s" % (src, link))
+    if not _migrate_config(dst, want, a.data_root, name, a.dry_run):
+        return 1, False
+    if link:
+        print(
+            "  note        the old config was a symlink — to keep configs in that repository, "
+            "point LIMN_SOURCE_DIR at its directory"
+        )
+    return _migrate_state(a, name, vals, dst, state), True
+
+
+def _report_remaining(old_data_root: Path, claimed: set[Path]) -> None:
+    """List old data directories that no migrated instance claims."""
+    if old_data_root.is_dir():
+        rest = [p for p in sorted(old_data_root.iterdir()) if p.is_dir() and p.resolve() not in claimed]
+        if rest:
+            print("")
+            print("Other directories in the old data root %s — Limn does not use them; not deleted:" % old_data_root)
+            for p in rest:
+                print("  %s" % p)
+
+
+def _report_switch(names: list[str]) -> None:
+    """Print the manual systemd switch commands for migrated instances."""
+    if not names:
+        return
+    print("")
+    print("systemd switch, per instance (ports and tailscale serve entries carry over unchanged):")
+    for name in names:
+        print("  systemctl --user disable --now %s@%s.service" % (OLD, name))
+        print("  limn start %s" % name)
+        print("  limn status %s" % name)
+    print(
+        "After switching, the old unit template (~/.config/systemd/user/%s@.service) and the old "
+        "configs can be removed." % OLD
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Migrate selected instances and report a status of 1 for conflicts or blocked state moves."""
+    a = _args(argv)
     if not a.old_config_dir.is_dir():
         print("No old config dir: %s — nothing to migrate" % a.old_config_dir)
         return 0
@@ -190,100 +293,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     problems = 0
-    claimed = set()
-    switch = []
-    for n in names:
-        src = a.old_config_dir / ("%s.env" % n)
-        dst = a.config_dir / ("%s.env" % n)
-        text = src.read_text(encoding="utf-8")
-        vals = parse(text)
-        had_state = bool(vals.get("STATE_DIR"))
-        state = vals.get("STATE_DIR") or str(a.old_data_root / n)
-        claimed.add(Path(state).resolve())
-        want = render(n, text, state, had_state)
-        print("[%s]" % n)
-        link = " (symlink -> %s)" % os.path.realpath(src) if src.is_symlink() else ""
-        print("  old config  %s%s" % (src, link))
-
-        # 1. config
-        if dst.exists():
-            cur, new = parse(dst.read_text(encoding="utf-8")), parse(want)
-            if cur == new or (
-                without_state(cur) == without_state(new) and cur.get("STATE_DIR") == str(a.data_root / n)
-            ):
-                print("  new config  %s — already migrated" % dst)
-            else:
-                print("  new config  %s — exists with different values; left alone (check by hand)" % dst)
-                problems += 1
-                continue
-        else:
-            print("  %snew config  write %s" % (tag, dst))
-            if not dry:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                tmp = dst.with_name(dst.name + ".tmp")
-                tmp.write_text(want, encoding="utf-8")
-                os.replace(tmp, dst)
-        if link:
-            print(
-                "  note        the old config was a symlink — to keep configs in that repository, "
-                "point LIMN_SOURCE_DIR at its directory"
-            )
-
-        # 2. state dir
-        cur_state = parse(dst.read_text(encoding="utf-8")).get("STATE_DIR", state) if dst.exists() else state
-        sp = Path(cur_state)
-        if under(sp, a.old_data_root):
-            target = a.data_root / n
-            if not a.move_state:
-                print("  state dir   %s — under the old data root; fine to keep using it" % sp)
-                print(
-                    "              to move it, stop the units, then: limn migrate --move-state %s  (-> %s)"
-                    % (n, target)
-                )
-            else:
-                why = [
-                    "%s is running" % u
-                    for u in ("%s@%s.service" % (OLD, n), "%s@%s.service" % (NEW, n))
-                    if unit_active(u)
-                ]
-                if port_busy(vals.get("PORT", "")):
-                    why.append("local port %s is in use" % vals.get("PORT"))
-                if target.exists():
-                    why.append("%s already exists" % target)
-                if not sp.is_dir():
-                    why.append("%s does not exist" % sp)
-                if why:
-                    print("  state dir   %s — not moved: %s" % (sp, "; ".join(why)))
-                    problems += 1
-                else:
-                    print("  %sstate dir   %s -> %s (STATE_DIR in the new config updated)" % (tag, sp, target))
-                    if not dry:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.move(str(sp), str(target))
-                        dst.write_text(set_state(dst.read_text(encoding="utf-8"), str(target)), encoding="utf-8")
-        else:
-            print("  state dir   %s — kept as is (pins and build history continue)" % sp)
-        switch.append(n)
-
-    if a.old_data_root.is_dir():
-        rest = [p for p in sorted(a.old_data_root.iterdir()) if p.is_dir() and p.resolve() not in claimed]
-        if rest:
-            print("")
-            print("Other directories in the old data root %s — Limn does not use them; not deleted:" % a.old_data_root)
-            for p in rest:
-                print("  %s" % p)
-
-    if switch:
-        print("")
-        print("systemd switch, per instance (ports and tailscale serve entries carry over unchanged):")
-        for n in switch:
-            print("  systemctl --user disable --now %s@%s.service" % (OLD, n))
-            print("  limn start %s" % n)
-            print("  limn status %s" % n)
-        print(
-            "After switching, the old unit template (~/.config/systemd/user/%s@.service) and the old "
-            "configs can be removed." % OLD
-        )
+    claimed: set[Path] = set()
+    switch: list[str] = []
+    for name in names:
+        issue, show_switch = _migrate_one(a, name, claimed)
+        problems += issue
+        if show_switch:
+            switch.append(name)
+    _report_remaining(a.old_data_root, claimed)
+    _report_switch(switch)
     return 1 if problems else 0
 
 
