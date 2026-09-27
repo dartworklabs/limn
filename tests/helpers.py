@@ -47,6 +47,13 @@ DOCS_DIR = ROOT / "docs" / "handbook"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
+# The viewer package, read once for every test: server.py reads it at startup (start), never at import. HTML is the page
+# template - the viewer's source as the tests read it, run-time placeholders (__LABEL__, __ACCENT__...) still in it;
+# UI_EN its ko -> en message table and SW_JS the service worker GET /sw.js serves.
+VIEWER_FILES = ps.read_viewer()
+HTML = VIEWER_FILES.template
+UI_EN = VIEWER_FILES.messages
+SW_JS = VIEWER_FILES.service_worker
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
 VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.js").read_text(encoding="utf-8"))
 
@@ -60,27 +67,27 @@ def extract_js_fn(name: str) -> str:
     and comments never cut it short; a name that no script declares at the top level, or declares twice, raises. The
     tables come along because a pulled function reads them from the page's shared scope, which a node harness lacks.
     """
-    fn = helpers_js.function_source(ps.HTML, name)
+    fn = helpers_js.function_source(HTML, name)
     return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
 
 
 def js_icons() -> str:
     """The viewer's Lucide icon table (ICONS) and ic() — included together when running icon-drawing functions like card()/archiveRow() under node."""
-    m = re.search(r"const ICONS=\{.*?\};", ps.HTML)
+    m = re.search(r"const ICONS=\{.*?\};", HTML)
     return m.group(0) + "\n" + extract_js_fn("ic")
 
 
 def js_esc() -> str:
     """The viewer's own esc() (HTML-escapes &<>"' and turns null into ''), as the page defines it - for node harnesses
     that run functions building markup, so they escape exactly as the viewer does instead of with a pasted copy."""
-    return re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+    return re.search(r"^const esc=.*;$", HTML, re.M).group(0)
 
 
 def js_thread() -> str:
     """The functions that render a thread (called by card()/doneCard()). Callers must set up who·avatar·esc·arcTime·ic·THREAD_OPEN·REPLY."""
-    ev = re.search(r"^const EV_LABEL=.*;$", ps.HTML, re.M).group(0)
-    st = re.search(r"^const ST_NAME=.*;$", ps.HTML, re.M).group(0)
-    mo = re.search(r"^const MSG_OPEN=.*;$", ps.HTML, re.M).group(0)
+    ev = re.search(r"^const EV_LABEL=.*;$", HTML, re.M).group(0)
+    st = re.search(r"^const ST_NAME=.*;$", HTML, re.M).group(0)
+    mo = re.search(r"^const MSG_OPEN=.*;$", HTML, re.M).group(0)
     return "\n".join(
         [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
         + [
@@ -125,13 +132,23 @@ def js_i18n(lang: str = "ko") -> str:
     them for every UI string and API error, so a node harness needs them. Korean (the source) unless lang='en'."""
     return "\n".join(
         [
-            "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+            "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
             extract_js_fn("tr"),
             extract_js_fn("tl"),
             extract_js_fn("trMsg"),
             extract_js_fn("errText"),
         ]
     )
+
+
+def page_for(label: str, accent: str) -> str:
+    """The page GET / serves on a run labelled `label` in `accent` (limn.viewer.assemble.run_page over HTML)."""
+    return assemble.run_page(HTML, label, accent)
+
+
+def serve_viewer(label: str, accent: str, mod=None) -> None:
+    """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent`, as start() does."""
+    (mod or ps).VIEWER = assemble.serve_viewer(VIEWER_FILES, label, accent)
 
 
 def needs_tex(*tools: str):
@@ -299,6 +316,7 @@ class Base(unittest.TestCase):
         ps.SYNC_WATCH = gitsync.SyncWatch()  # a fresh remote-main watch status ("checking")
         C.pdfjs_dir = None
         C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
+        serve_viewer(C.label, C.accent)
         ps.BUILD_STATE.update(
             state="idle",
             phase=None,

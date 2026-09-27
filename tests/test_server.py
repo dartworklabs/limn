@@ -1,7 +1,8 @@
 """server.py - the composition root and the wired handler, driven over a socketpair (no port is opened).
 
-What stays here is what only server.py can answer: its own functions and bindings (app_version, build_html,
-favicon_href, valid_rec - the store's record check as server.py binds it, default_pdfjs_dir, main() as the one exit),
+What stays here is what only server.py can answer: its own functions and bindings (app_version, the page it serves
+and its favicon, an import that reads no file, valid_rec - the store's record check as server.py binds it,
+default_pdfjs_dir, main() as the one exit),
 the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
@@ -18,6 +19,8 @@ import json
 import os
 import re
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -49,6 +52,7 @@ from helpers import (
     edit_pin,
     jreq,
     needs_tex,
+    page_for,
     pick,
     ps,
     record_of,
@@ -713,8 +717,9 @@ class StartupRefusals(unittest.TestCase):
 
 class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
-        """build_html fills the label (title, identity crumb after the Limn mark), the accent stripe and every placeholder."""
-        out = ps.build_html("A-DEMO", "#1d4ed8")
+        """The served page (limn.viewer.assemble.run_page over the template) fills the label (title, identity crumb
+        after the Limn mark), the accent stripe and every placeholder."""
+        out = page_for("A-DEMO", "#1d4ed8")
         self.assertIn("<title>Limn · A-DEMO</title>", out)
         # the Limn mark (test_brand.py)
         self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)
@@ -728,20 +733,40 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertNotIn("__FAVICON_HREF__", out)
 
     def test_label_is_html_escaped(self):
-        out = ps.build_html("<script>alert(1)</script>", "#1d4ed8")
+        out = page_for("<script>alert(1)</script>", "#1d4ed8")
         self.assertNotIn("<script>alert(1)</script>", out)
         self.assertIn("&lt;script&gt;", out)
 
     def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
         """The favicon is the Limn mark in the accent (since 0.3.4; it used to be the label's first letter). The label
         never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
-        out = ps.favicon_href("#1d4ed8")
+        out = viewer_assemble.favicon_href("#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
         from urllib.parse import unquote
 
         self.assertIn('fill="#1d4ed8"', unquote(out))
         with self.assertRaises(ValueError):
-            ps.favicon_href('#1d4ed8"/><script>')
+            viewer_assemble.favicon_href('#1d4ed8"/><script>')
+
+
+class ImportReadsNoFile(unittest.TestCase):
+    """Importing server.py reads no data file: the viewer package (~49 files) is read by start(), never at import."""
+
+    def test_loading_the_module_opens_only_python_sources(self):
+        """Load server.py by path in a fresh interpreter with an audit hook on `open`: every file opened under
+        src/limn while the module loads is Python source or bytecode - no viewer part, ui_en.json or sw.js."""
+        code = (
+            "import importlib.util, sys\n"
+            "seen = []\n"
+            "sys.addaudithook(lambda ev, args: seen.append(str(args[0])) if ev == 'open' and args else None)\n"
+            "spec = importlib.util.spec_from_file_location('s', %r)\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+            "print('\\n'.join(p for p in seen if p.startswith(%r) and not p.endswith(('.py', '.pyc'))))\n"
+        ) % (str(PKG / "server.py"), str(PKG))
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split(), [])
 
 
 # ---------------------------------------------------------------- §Multiple documents (--doc) — switching documents inside one viewer

@@ -43,7 +43,7 @@ from limn.pins.lifecycle import (
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
-from limn.web.errors import Messages
+from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts, PickRequest, SourceRange
 
 Json: TypeAlias = dict[str, Any]  # a JSON object: request body, response payload, actor, stored pin record
@@ -61,11 +61,13 @@ class App(Protocol):
     """server.py as the handler sees it. Each member keeps the name, arguments and contract it has there."""
 
     C: Config
-    HTML: str  # the viewer page (rebuilt by main() with the label and accent)
-    SW_JS: str  # the service worker served as /sw.js
-    UI_EN: Messages  # the viewer's ko -> en message table, for the refusal page
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
+
+    def viewer(self) -> ServedViewer:
+        """What the viewer routes serve on this run: the page for GET / (label and accent filled in), the service
+        worker for GET /sw.js and the ko -> en message table a refused browser's page reads."""
+        ...
 
     # ---- request guard: Host/Origin, identity, admission, roles (limn.access, bound to this run by server.py)
 

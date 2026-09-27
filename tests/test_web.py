@@ -66,13 +66,13 @@ class Binding(unittest.TestCase):
         self.assertEqual(not_callable, [])
 
     def test_handler_sees_a_name_rebound_on_the_server_module(self):
-        """main() rebinds HTML after startup and tests patch services on their copy of server.py; the handler must
+        """start() binds the served viewer (VIEWER) and tests patch services on their copy of server.py; the handler must
         call what the module holds now, not what it held at import."""
         with mock.patch.object(ps, "build_async", return_value={"sentinel": 1}) as fake:
             self.assertIs(ps.Handler.app.build_async, fake)
         self.assertIs(ps.Handler.app.build_async, ps.build_async)
-        with mock.patch.object(ps, "HTML", "<p>rebound</p>"):
-            self.assertEqual(ps.Handler.app.HTML, "<p>rebound</p>")
+        with mock.patch.object(ps, "VIEWER", "<p>rebound</p>", create=True):
+            self.assertEqual(ps.Handler.app.VIEWER, "<p>rebound</p>")
 
     def test_an_unknown_name_is_an_attribute_error(self):
         """The view answers like a module: a missing global is AttributeError, not KeyError."""

@@ -29,7 +29,7 @@ from limn.pins.view import pin_state
 from limn.store import find_pin
 from limn.web import parse
 
-from helpers import add_pin, blank_png, minimal_pdf, ps
+from helpers import SW_JS, add_pin, blank_png, minimal_pdf, ps
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_browser import BrowserBase, booted, settle, watch_idle
 
@@ -483,7 +483,7 @@ class ColdDeepLink(BrowserBase):
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
 
     def test_service_worker_carries_the_restore_action_into_a_new_window(self):
-        self.assertIn("e.action==='restore'?'&act=restore':''", ps.SW_JS)
+        self.assertIn("e.action==='restore'?'&act=restore':''", SW_JS)
 
 
 class PreviewEqualsServer(BrowserBase):

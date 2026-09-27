@@ -26,7 +26,6 @@ Python 3.10 standard library only.
 
 import argparse
 import dataclasses
-import html
 import os
 import sys
 import threading
@@ -37,7 +36,6 @@ from datetime import datetime
 from email.message import Message
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
 
 if __package__ in (None, ""):
     # Run as a file (python .../limn/server.py, how instances start): make the sibling modules importable as limn.*.
@@ -100,7 +98,7 @@ from limn.events import EVENTS_KEEP, EventType
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
 from limn.locate import PinLocation, est_context, locate_file
-from limn.mark import favicon_svg, inline_svg
+from limn.mark import inline_svg
 from limn.mentions import (
     NoteTags,
     addressed_to,
@@ -166,18 +164,18 @@ from limn.viewer.assemble import (
     LUCIDE,
     PDFJS_VERSION,
     VIEWER_DIR,
+    ServedViewer,
+    ViewerFiles,
     load_ui_messages,
+    serve_viewer,
     service_worker,
     viewer_html,
 )
-from limn.web.errors import HTTPError as HTTPError, Messages, build_failure_log, revision_failure_text
+from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
 
 build_state_snapshot = build.state_snapshot
 
-
-# The viewer's ko -> en message table: the viewer page embeds it, and the handler's refusal page reads it (App.UI_EN).
-UI_EN: Messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -213,28 +211,6 @@ C = Cfg()
 
 def now_str() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ---------------------------------------------------------------- Instance label (§Running multiple manuscript instances at once)
-
-
-def favicon_href(accent: str) -> str:
-    """The Limn mark (limn.mark) as an SVG data URL: the tile in the instance accent (#rrggbb), the glyph white. The
-    accent tells tabs of different instances apart; the tab title carries the label. Quote-encoded for data:."""
-    return "data:image/svg+xml," + quote(favicon_svg(accent), safe="")
-
-
-def build_html(label: str, accent: str) -> str:
-    """Fills in the __LABEL__/__ACCENT__/__ACCENT_KEY__/__FAVICON_HREF__ placeholders of the viewer HTML template.
-
-    Depends on run arguments (label/accent), so it's called after argparse (in main()) - unlike
-    __PDFJS_VERSION__, which is fixed at module-load time, this one only has a value once C is filled in.
-    __ACCENT_KEY__ (the accent's hex digits) keys the PNG favicon URLs, so a new accent is never served from a cache."""
-    out = HTML.replace("__LABEL__", html.escape(label, quote=True))
-    out = out.replace("__ACCENT_KEY__", accent.lstrip("#").lower())
-    out = out.replace("__ACCENT__", accent)
-    out = out.replace("__FAVICON_HREF__", favicon_href(accent))
-    return out
 
 
 # ---------------------------------------------------------------- Page-image version directories and the build
@@ -1108,11 +1084,27 @@ def remote_base_for(host_raw: str) -> str:
 
 
 # ---------------------------------------------------------------- Viewer
+#
+# The viewer package (limn/viewer/assemble.py) is read once, by start(), never at import: importing this module reads
+# no file. The template (ViewerFiles) and the page this run serves (ServedViewer: the template with the run's label and
+# accent) are separate values; start() binds the served one.
 
-# The page GET / serves, before build_html() fills in the run's label and accent, and the service worker GET /sw.js
-# serves - both read from the viewer package once, at import (limn/viewer/assemble.py).
-HTML = viewer_html(VIEWER_DIR, UI_EN, pdfjs_version=PDFJS_VERSION, mark=inline_svg(), icons=LUCIDE)
-SW_JS = service_worker(VIEWER_DIR)
+VIEWER: ServedViewer  # bound once by start(), before the server listens
+
+
+def read_viewer() -> ViewerFiles:
+    """The viewer package from disk: the page template (index.html, its parts, the icons, the mark, the PDF.js version
+    and ui_en.json's message table filled in), the service worker and the message table. Raises OSError / ValueError
+    for a missing or malformed file (a packaging defect)."""
+    messages = load_ui_messages(Path(__file__).with_name("ui_en.json"))
+    template = viewer_html(VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, mark=inline_svg(), icons=LUCIDE)
+    return ViewerFiles(template, service_worker(VIEWER_DIR), messages)
+
+
+def viewer() -> ServedViewer:
+    """What the viewer routes serve on this run (GET /, GET /sw.js, a refused browser's page): VIEWER as start() bound
+    it, read at call time so a test that binds its own is seen at once."""
+    return VIEWER
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)
@@ -1121,8 +1113,8 @@ SW_JS = service_worker(VIEWER_DIR)
 class _ModuleApp:
     """This module's live globals as attributes: the limn.web.app.App the HTTP handler calls.
 
-    Read at call time and never copied, so main() rebinding HTML and a test rebinding a service on its copy of this
-    module (mock.patch.object(ps, "build_async")) both reach the handler. A view over globals() rather than the module
+    Read at call time and never copied, so start() binding the run's values and a test rebinding a service on its copy
+    of this module (mock.patch.object(ps, "build_async")) both reach the handler. A view over globals() rather than the module
     object: server.py also runs where it is not in sys.modules (loaded by path, as the tests and tools do)."""
 
     __slots__ = ("_ns",)
@@ -1211,9 +1203,8 @@ def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
     """The run settings from the arguments into C, in the order that decides which refusal a bad command line gets:
     the manuscript, the documents (--doc, returned; None without it) or the main file, the state folder (refused when
     it holds a served document, warned about on stderr when it lies inside the manuscript, and created here, before
-    the label and accent are checked), build settings, the port, access lists, the label and accent -
-    and the viewer page they fill in (HTML). The rules are limn.startup's; this applies their answers."""
-    global HTML
+    the label and accent are checked), build settings, the port, access lists, the label and accent. The rules are
+    limn.startup's; this applies their answers."""
     C.src = Path(a.manuscript).expanduser().resolve()
     picked = startup.pick_documents(C.src, a.doc, a.main, C)
     if isinstance(picked, StartupRefused):
@@ -1249,7 +1240,6 @@ def configure_run(a: argparse.Namespace) -> list[Doc] | None | StartupRefused:
     if isinstance(accent, StartupRefused):
         return accent
     C.accent = accent
-    HTML = build_html(C.label, C.accent)
     return picked.docs
 
 
@@ -1316,7 +1306,9 @@ def listen() -> Server | StartupRefused:
 
 def start(a: argparse.Namespace) -> Server | StartupRefused:
     """Every startup step, in order, until one refuses: access settings, the --port probe, the run settings and
-    documents, the store and builds, the summary, then the listening server."""
+    documents, the viewer page for the run's label and accent (the viewer package is read here, not at import), the
+    store and builds, the summary, then the listening server."""
+    global VIEWER
     refused = configure_access(a)
     if refused is None and a.port:
         refused = startup.probe_port(C.bind, a.port)
@@ -1325,6 +1317,7 @@ def start(a: argparse.Namespace) -> Server | StartupRefused:
     docs = configure_run(a)
     if isinstance(docs, StartupRefused):
         return docs
+    VIEWER = serve_viewer(read_viewer(), C.label, C.accent)
     refused = prepare(docs, a.no_build)
     if refused is not None:
         return refused

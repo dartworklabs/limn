@@ -149,11 +149,15 @@ class Independence(unittest.TestCase):
     """The assembly takes everything as arguments or from its own folder: no server state, no HTTP layer."""
 
     def test_imports_only_the_standard_library(self):
-        """assemble.py imports json, re, pathlib, typing and collections.abc - never server.py, limn.web or settings."""
+        """assemble.py imports the standard library and the pure mark (limn.mark, for the favicon run_page fills in) -
+        never server.py, limn.web or settings."""
         tree = ast.parse(Path(assemble.__file__).read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual(modules, {"json", "re", "collections.abc", "pathlib", "typing"})
+        self.assertEqual(
+            modules,
+            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "urllib.parse", "limn.mark"},
+        )
         names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         self.assertEqual(names & {"C", "cur_doc", "HTML", "UI_EN"}, set())
 
@@ -175,6 +179,25 @@ class ServiceWorker(unittest.TestCase):
         sw = assemble.service_worker(assemble.VIEWER_DIR)
         self.assertIn("notificationclick", sw)
         self.assertNotIn("'fetch'", sw)
+
+
+class ServedPage(unittest.TestCase):
+    """serve_viewer / run_page: the page one run serves is the template with its label and accent filled in; the
+    template itself (ViewerFiles) stays as read."""
+
+    def test_the_served_page_fills_the_run_placeholders_and_leaves_the_template(self):
+        """Every run-time placeholder is filled (the label escaped, the accent key in lower case), the service worker
+        and the message table pass through, and the ViewerFiles template still holds the placeholders."""
+        template = '<title>__LABEL__</title><i s="__ACCENT__"></i><a href="?c=__ACCENT_KEY__" i="__FAVICON_HREF__">'
+        files = assemble.ViewerFiles(template, "sw", {"가": "A"})
+        served = assemble.serve_viewer(files, "<A&B>", "#BE123C")
+        self.assertEqual(
+            served.page,
+            '<title>&lt;A&amp;B&gt;</title><i s="#BE123C"></i><a href="?c=be123c" i="%s">'
+            % assemble.favicon_href("#BE123C"),
+        )
+        self.assertEqual((served.service_worker, served.messages), ("sw", {"가": "A"}))
+        self.assertIn("__LABEL__", files.template)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ from limn import config, mapping
 from limn.build import cur_pages
 from limn.files import tex_lines
 
-from helpers import blank_png, ps, split_resp
+from helpers import blank_png, ps, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 
 # The timers settle() waits for: the viewer's debounces, slides and long-press timers run 0-1000ms. Longer ones are
@@ -158,13 +158,12 @@ class BrowserBase(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium and serve the viewer page built for the "Demo" paper for the whole class."""
         super().setUpClass()
-        cls.saved_html = ps.HTML
-        ps.HTML = ps.build_html("Demo", "#2563eb")
+        serve_viewer("Demo", "#2563eb", ps)
 
     @classmethod
     def tearDownClass(cls):
         """Put the server copy's page back, then close Chromium."""
-        ps.HTML = cls.saved_html
+        serve_viewer("원고", config.ACCENT_PALETTE[0], ps)
         super().tearDownClass()
 
     def setUp(self):

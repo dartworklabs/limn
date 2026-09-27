@@ -167,7 +167,6 @@ class StateFolderInManuscript(AccessBase):
         """configure_run with --state-dir inside the manuscript starts and prints the one warning on stderr; with the
         manuscript folder itself as --state-dir it refuses before creating or using anything."""
         src = self.src.resolve()
-        self.addCleanup(setattr, ps, "HTML", ps.HTML)  # configure_run rebuilds the viewer page for its label
 
         def configure(state):
             """configure_run for `limn serve --manuscript <src> --state-dir <state>` -> (answer, stderr)."""
