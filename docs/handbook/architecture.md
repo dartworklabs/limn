@@ -39,7 +39,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | --- | --- | --- | --- |
 | 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `pull.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
 | 부수효과 셸 | `service/`(핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
-| HTTP 층 | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 요청을 읽고 파싱하고, 서비스를 부르고, 결과마다 상태 코드와 본문으로 답한다 | `server.py`. 서비스 목록은 `web/app.py`의 `App` 프로토콜로만 안다 |
+| HTTP 층 | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 요청을 읽고, 경로마다의 파서(`parse.py`)로 본문과 쿼리를 값으로 바꾸고, 서비스를 부르고, 결과마다의 상태 코드와 본문(`answers.py`)으로 답한다 | `server.py`. 서비스 목록은 `web/app.py`의 `App` 프로토콜로만 안다 |
 | 조립 지점 | `server.py` | 실행 설정 `C`와 문서 목록 `DOCS`, 프로세스에 하나인 자원(잠금·캐시·작업 목록·감시 상태)을 만들고, 옮긴 모듈에 이 인스턴스의 설정과 협력자를 묶는 한 줄 연결을 두고, 시작 단계를 차례로 부른다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
@@ -69,7 +69,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 - **순수 도메인은 부수효과를 가져오지 않는다.** `pins/`·`mapping.py` 등은 파일·subprocess·HTTP 타입을 가져오지 않는다. `store`·`service`·`build`·`web`이 그 순수 모듈을 불러 쓴다. `service`는 `store`를 쓴다.
 - **`web/`은 `server.py`를 가져오지 않는다.** `server.py`는 한 프로세스에 여러 벌 올라올 수 있다(`limn.server`, 파일로 실행한 `__main__`, 테스트가 경로로 올린 사본). 가져오면 지금 요청을 받는 사본이 아닌 다른 사본의 설정·문서·잠금에 닿는다. 그래서 조립 지점이 자기 처리기 하위 클래스를 자기 서비스에 묶고(`server.Handler.app`), 처리기는 요청 때마다 그 이름을 읽는다. 처리기는 서비스를 직접 가져오지 않고 조립 지점이 묶은 `App`을 거친다. `tests/test_web.py`가 이 방향을 검사한다.
-- **안쪽은 HTTP를 모른다.** 요청 파싱은 처리기 쪽(`web/parse.py`)이라 서비스는 파싱된 값만 받는다. 서비스와 원고 이력·문서 조회는 결과 값(`CommitNotRecent`·`DocNotFound` 등)을 돌려주고 `web/answers.py`가 답한다. 조립 지점은 비교 PDF 워커에 실패 문구 함수(`web/errors.py`의 `revision_failure_text`)를 넘기려고 `web/errors.py`를 가져온다. 이 문구는 HTTP 응답과 같은 표에서 나와야 하고 서비스는 `web/`을 가져오지 않기 때문이다.
+- **안쪽은 HTTP를 모른다.** 요청 파싱은 처리기 쪽(`web/parse.py`)이라 서비스는 파싱된 값만 받는다. 서비스와 원고 이력·문서 조회는 결과 값(`CommitNotRecent`·`DocNotFound`·`ViewOnlyNoRebuild` 등)을 돌려주고 `web/answers.py`가 답한다. 처리기의 경로는 본문 필드나 쿼리 매개변수를 직접 읽지 않고(경로마다의 요청 타입과 `parse_flag`), 판단(보기 전용 문서의 재빌드 거절, 사람 목록의 순서와 역할)은 주인 모듈(`build.py`·`people.py`)에 있다. 처리기가 스스로 내는 거절은 자기 것뿐이다. 본문을 읽지 못함(틀·크기·형식·JSON), 받지 않는 Host/Origin, 어느 경로도 받지 않는 주소다. 모든 경로는 같은 순서로 본문 읽기 → Host/Origin → 신원 → 입장 → (POST) 역할 검사를 지난 뒤에 돈다. `tests/test_web.py`가 처리기 소스와 경로마다 읽는 `App` 멤버의 순서로 이것을 검사한다. 조립 지점은 비교 PDF 워커에 실패 문구 함수(`web/errors.py`의 `revision_failure_text`)를 넘기려고 `web/errors.py`를 가져온다. 이 문구는 HTTP 응답과 같은 표에서 나와야 하고 서비스는 `web/`을 가져오지 않기 때문이다.
 - **접근 제어는 거절을 던진다(fail closed).** 신원·입장·역할 판단(`limn/access.py`)은 거절로 `HTTPError`를 던지고 확인 거절 문구(`CONFIRM_BY_HUMAN`)를 `web/`에서 가져온다. 새로 짠 호출자가 거절을 놓쳐도 요청이 통과하지 않게 하려는 것으로, "거절은 값"이라는 코딩 규칙의 유일한 예외다([code-style-roadmap.md](code-style-roadmap.md) §R10). `server.py`를 가져오지 않으므로 처리기와 같은 방향이다.
 - **HTTP 층의 이름은 `http/`가 아니라 `web/`이다.** 파일로 실행될 때 `limn/` 폴더 자체도 `sys.path` 맨 앞에 온다. 표준 라이브러리 모듈과 이름이 같은 패키지(`limn/http/` 등)를 두면 표준 모듈(`http.server`)이 가려져 서버가 뜨지 않는다.
 - **조립 지점만 전역 자원을 만들고 끝낸다.**
