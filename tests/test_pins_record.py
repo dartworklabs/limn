@@ -12,6 +12,8 @@ import unittest
 
 from limn.pins.record import THREAD_EVENTS, is_int, valid_rec
 
+from helpers import Base, ps
+
 ALICE_ACTOR = {"login": "alice@example.com", "name": "Alice Kim"}
 LINE = {
     "id": 3,
@@ -208,6 +210,40 @@ class IsInt(unittest.TestCase):
         """1 and 0 are integers; True, 1.0 and "1" are not."""
         self.assertTrue(is_int(1) and is_int(0))
         self.assertFalse(is_int(True) or is_int(1.0) or is_int("1"))
+
+
+class ThreadShape(Base):
+    """The record check as server.py binds it (valid_rec): a malformed thread or kind_req makes the line broken."""
+
+    def test_malformed_thread_is_a_broken_line(self):
+        for th in (
+            "x",
+            [{"id": "1", "text": "a", "at": "t", "by": {}}],
+            [{"id": 1, "text": 3, "at": "t", "by": {}}],
+            [{"id": 1, "text": "a", "at": "t", "by": {"name": 3}}],
+            [{"id": 1, "text": "a", "at": "t", "by": {}, "ev": "boom"}],
+        ):
+            r = {"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "thread": th}
+            self.assertFalse(ps.valid_rec(r), th)
+        ok = {
+            "id": 1,
+            "file": str(self.main),
+            "lo": 1,
+            "hi": 1,
+            "kind_req": "question",
+            "thread": [
+                {
+                    "id": 1,
+                    "text": "a",
+                    "at": "2026-09-24 10:00:00",
+                    "by": {"login": "x", "name": "X"},
+                    "ev": "close",
+                    "ref": "PR #1",
+                }
+            ],
+        }
+        self.assertTrue(ps.valid_rec(ok))
+        self.assertFalse(ps.valid_rec(dict(ok, kind_req="Q")))
 
 
 if __name__ == "__main__":

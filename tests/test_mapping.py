@@ -121,5 +121,81 @@ class Ladder(Base):
         self.assertEqual(para["hi"], 17)
 
 
+# ---------------------------------------------------------------- pin_rel_path: a stored pin's file under the current root (v0.3.2, ADR-0006)
+
+
+class PinRelPathRule(unittest.TestCase):
+    """mapping.pin_rel_path() picks where a stored line pin's file lives relative to the current root, from facts passed in."""
+
+    def pick(self, file, file_rel=None, under=None, existing=()):
+        return mapping.pin_rel_path(file, file_rel, under, set(existing).__contains__)
+
+    def test_file_under_the_current_root_wins_even_if_missing(self):
+        """The stored absolute path is the surest fact on this machine; a deleted file is not re-guessed elsewhere."""
+        self.assertEqual(
+            self.pick("/r/sections/x.tex", "sections/y.tex", under="sections/x.tex", existing={"x.tex"}),
+            "sections/x.tex",
+        )
+
+    def test_a_file_rel_matching_the_file_tail_locates_a_moved_record(self):
+        """file_rel is trusted without an existence check when the stored file ends with it (the server writes both)."""
+        self.assertEqual(self.pick("/old/paper/sections/x.tex", "sections/x.tex"), "sections/x.tex")
+        self.assertEqual(self.pick("/old/paper/x.tex", "x.tex"), "x.tex")
+
+    def test_a_longer_existing_tail_beats_file_rel_when_the_root_was_widened(self):
+        """Moved and widened (paper/ -> the repository): 'paper/x.tex' exists, so it wins over file_rel 'x.tex' - even when
+        the root also has an unrelated x.tex; a shorter tail never does."""
+        self.assertEqual(self.pick("/old/repo/paper/x.tex", "x.tex", existing={"paper/x.tex", "x.tex"}), "paper/x.tex")
+        self.assertEqual(self.pick("/old/paper/sections/x.tex", "sections/x.tex", existing={"x.tex"}), "sections/x.tex")
+
+    def test_a_file_rel_that_no_longer_matches_the_file_is_ignored(self):
+        """A 0.3.0 relocation changes file but leaves file_rel: the stale file_rel must not win (ADR-0006 §2.2)."""
+        self.assertEqual(
+            self.pick("/old/paper/sections/y.tex", "sections/x.tex", existing={"sections/x.tex", "sections/y.tex"}),
+            "sections/y.tex",
+        )
+        self.assertIsNone(self.pick("/old/paper/sections/y.tex", "sections/x.tex"))
+
+    def test_unsafe_or_malformed_file_rels_are_ignored(self):
+        """Absolute, parent-escaping, empty or non-string file_rel values are never used."""
+        for bad in ("/etc/x.tex", "../outside/x.tex", "a/../../x.tex", "", ".", 5, None, ["x.tex"]):
+            self.assertIsNone(self.pick("/old/paper/%s" % (bad if isinstance(bad, str) else "q"), bad), repr(bad))
+
+    def test_legacy_records_take_the_longest_existing_tail(self):
+        """Without file_rel, the longest tail of the stored path that exists under the root wins (to_source()'s rule)."""
+        existing = {"sections/x.tex", "x.tex"}
+        self.assertEqual(self.pick("/home/u/paper-a/sections/x.tex", existing=existing), "sections/x.tex")
+        self.assertEqual(self.pick("/home/u/paper-a/x.tex", existing=existing), "x.tex")
+        self.assertIsNone(self.pick("/home/u/paper-a/sections/z.tex", existing=existing))
+
+    def test_tails_never_contain_parent_parts(self):
+        """A stored path with '..' parts cannot produce a candidate that climbs out of the root."""
+        self.assertEqual(mapping.file_tails("/a/../../etc/x.tex"), ["etc/x.tex", "x.tex"])
+        self.assertEqual(mapping.file_tails("/p/s/x.tex"), ["p/s/x.tex", "s/x.tex", "x.tex"])
+        self.assertEqual(self.pick("/a/../../etc/x.tex", existing={"a/../../etc/x.tex", "../../etc/x.tex"}), None)
+
+    def test_redundant_separators_and_dot_parts_are_normalised(self):
+        """'//' and '.' parts do not change the answer: a file_rel written as './sections//x.tex' is 'sections/x.tex'."""
+        self.assertEqual(self.pick("/old/paper/sections/x.tex", "./sections//x.tex"), "sections/x.tex")
+        self.assertEqual(mapping.file_tails("//p/./s//x.tex"), ["p/s/x.tex", "s/x.tex", "x.tex"])
+
+    def test_anchor_holds_only_where_the_head_line_is(self):
+        """anchor_holds() checks the head at lo + head_off with find_line()'s matching; a bad offset counts as 0."""
+        nlines = ["a", "Sentence number 5 about topic5.", "c"]
+        anchor = {"head": "Sentence number 5 about topic5.", "head_off": 1}
+        self.assertTrue(mapping.anchor_holds(anchor, 1, nlines))
+        self.assertFalse(mapping.anchor_holds(anchor, 2, nlines))
+        self.assertTrue(mapping.anchor_holds(dict(anchor, head_off=True), 2, nlines))  # not an int: 0
+        self.assertTrue(
+            mapping.anchor_holds(
+                {"head": "Sentence number 5 about topic5. (longer)"},
+                2,
+                ["x", "Sentence number 5 about topic5. (longer) and more"],
+            )
+        )
+        self.assertFalse(mapping.anchor_holds({"head": ""}, 1, nlines))
+        self.assertFalse(mapping.anchor_holds(anchor, 5, nlines))
+
+
 if __name__ == "__main__":
     unittest.main()

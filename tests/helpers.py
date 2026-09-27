@@ -402,3 +402,52 @@ def jreq(method, path, obj=None, headers=None):
     h = {"Content-Type": "application/json"} if obj is not None else {}
     h.update(headers or {})
     return req(method, path, body, h)
+
+
+# The reply rule as a table (docs/handbook/domain.md §전이와 할 수 있는 쪽): every (state, kind_req, human, mentioned,
+# override) with whether a reply reopens the pin. The server's rule (test_pins_lifecycle.ReplyRule) and the viewer's
+# preview of it (test_viewer.FrontendReplyRule) are both checked against every row.
+# (state, kind_req, human, mentioned, override) -> reopens?
+RULE_CASES = []
+for _st in ("open", "review", "done"):
+    for _kind in ("fix", "question"):
+        for _human in (True, False):
+            for _ment in ([], ["bob@example.com"]):
+                for _ov in (None, True, False):
+                    if _st == "open":
+                        _want = False
+                    elif _ov is not None:
+                        _want = _ov
+                    else:
+                        _want = _kind == "fix" and _human and not _ment
+                    RULE_CASES.append((_st, _kind, _human, _ment, _ov, _want))
+
+
+def rec_for(state, kind):
+    """A minimal stored record of a pin in `state` ("open", "review" or "done") whose kind_req is `kind`."""
+    r = {"id": 1, "file": "/m.tex", "lo": 1, "hi": 2, "kind_req": kind}
+    if state != "open":
+        r["done"] = True
+    if state == "review":
+        r["review"] = True
+    return r
+
+
+def minimal_pdf(label: str = "") -> bytes:
+    """A valid one-page PDF (pdf.js renders it) - browser tests stand in for latexdiff/latexmk, which CI does not have."""
+    stream = b"BT /F1 24 Tf 72 700 Td (" + label.encode("ascii") + b") Tj ET"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out, offs = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    x = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offs)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+    return bytes(out)

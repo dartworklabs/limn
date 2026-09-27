@@ -8,12 +8,15 @@ Run: uv run pytest -q tests/test_pins_view.py
 """
 
 import json
+import time
 import unittest
 
 from limn.access import LOCAL_ACTOR
+from limn.pins import position
 from limn.pins.model import parse_pin
 from limn.pins.position import EstContext
 from limn.pins.view import dropped_payload, pin_state, pin_view, pins_payload, public_record
+from limn.store import find_pin
 
 from helpers import Base, ps, req
 
@@ -225,6 +228,34 @@ class PublicRecord(unittest.TestCase):
         for rev in (None, "2", True):
             r = {"id": 2, "pdf": "/ms/r.pdf", "file_rel": "x"} | ({} if rev is None else {"rev": rev})
             self.assertEqual(public_record(r, None), {"id": 2, "pdf": "/ms/r.pdf", "rev": 0}, rev)
+
+
+class LegacyClaimStart(Base):
+    """A claim written before eta_min (claimed_at only) gets its claim_ts computed in GET /api/pins, never stored."""
+
+    A = {"login": "alice@example.com", "name": "Wendy"}
+
+    def test_pins_payload_fills_start_for_legacy_claims(self):
+        pid = self.add()
+        with ps.PIN_LOCK:  # a claim shape written by a pre-eta server
+            rows, _ = ps.read_pins()
+            r = find_pin(rows, pid)
+            r.update(claimed_by=dict(self.A), claimed_at="2026-09-23 20:02:00", claim_until=time.time() + 3600)
+            ps.write_pins(rows)
+        rec = [x for x in ps.pins_payload(ps.snapshot_pins(), False) if x["id"] == pid][0]
+        self.assertAlmostEqual(rec["claim_ts"], position.epoch("2026-09-23 20:02:00"), delta=0.01)
+        self.assertNotIn("claim_ts", find_pin(ps.read_pins()[0], pid))  # a computed field — not stored
+
+
+class LegacyDoneState(Base):
+    """A legacy done:true without a review field is done, not awaiting review; review must be a boolean."""
+
+    def test_legacy_done_is_done_not_review(self):
+        self.assertEqual(pin_state({"done": True}), "done")
+        self.assertEqual(pin_state({"done": True, "review": False}), "done")
+        self.assertEqual(pin_state({"done": True, "review": True}), "review")
+        self.assertEqual(pin_state({"review": True}), "open")  # a review flag left on an open pin is meaningless
+        self.assertFalse(ps.valid_rec({"id": 1, "file": str(self.main), "lo": 1, "hi": 1, "review": "y"}))
 
 
 if __name__ == "__main__":

@@ -250,5 +250,16 @@ class AnchorResync(unittest.TestCase):
         self.assertNotIn("file_rel", new)
 
 
+class SelectionRelation(unittest.TestCase):
+    """selection_rel() names how a selected range relates to a pin's: equal, inside, contains, partial, or None."""
+
+    def test_selection_rel_all_four_relations(self):
+        self.assertEqual(position.selection_rel(4, 9, 4, 9), "equal")
+        self.assertEqual(position.selection_rel(5, 6, 4, 9), "inside")
+        self.assertEqual(position.selection_rel(3, 10, 4, 9), "contains")
+        self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
+        self.assertIsNone(position.selection_rel(10, 12, 4, 9))
+
+
 if __name__ == "__main__":
     unittest.main()

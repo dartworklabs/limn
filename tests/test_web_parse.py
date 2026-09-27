@@ -378,6 +378,41 @@ class Locations(Tree):
         )
 
 
+class ClaimBody(unittest.TestCase):
+    """parse_claim_body(): eta_min 1..240 derives the claim's ttl (min(120, max(30, eta_min*2))), a given ttl_min wins,
+    a malformed value is refused, and an over-limit value is clamped so old agents' ttl_min 480 keeps working."""
+
+    def test_body_validation_and_derived_ttl(self):
+        self.assertEqual(parse.parse_claim_body({}), (parse.CLAIM_TTL_DEFAULT, None))
+        for eta, ttl in ((1, 30), (5, 30), (15, 30), (20, 40), (45, 90), (60, 120), (90, 120), (240, 120)):
+            self.assertEqual(parse.parse_claim_body({"eta_min": eta}), (ttl, eta), eta)
+        # supplying ttl passes it through unchanged
+        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 10}), (10, 15))
+        for bad in (0, "15", 1.5, True, None, -5):  # refused: answered 400 by the handler
+            self.assertIsInstance(parse.parse_claim_body({"eta_min": bad}), InputRejected, bad)
+        self.assertIsInstance(parse.parse_claim_body({"eta_min": 15, "ttl_min": 0}), InputRejected)
+        # exceeding the cap clamps instead of 400ing — so an agent that claimed via the old procedure (ttl_min 480) doesn't break when extending
+        self.assertEqual(parse.parse_claim_body({"eta_min": 241}), (120, 240))
+        self.assertEqual(parse.parse_claim_body({"eta_min": 15, "ttl_min": 480}), (120, 15))
+        self.assertEqual(parse.parse_claim_body({"ttl_min": 480}), (120, None))
+
+
+class ThreadText(unittest.TestCase):
+    """parse_thread_text() strips control characters but keeps newlines and tabs."""
+
+    def test_control_characters_are_stripped_but_newlines_kept(self):
+        self.assertEqual(parse.parse_thread_text("a\x00b\x1b[31m\tc\nd"), "ab[31m\tc\nd")
+
+
+class MentionHints(unittest.TestCase):
+    """parse_mention_hints(): a list of at most MENTION_MAX logins, absent means none."""
+
+    def test_mention_hints_validated(self):
+        self.assertIsInstance(parse.parse_mention_hints("x"), InputRejected)
+        self.assertIsInstance(parse.parse_mention_hints(["a"] * (parse.MENTION_MAX + 1)), InputRejected)
+        self.assertEqual(parse.parse_mention_hints(None), [])
+
+
 # ---------------------------------------------------------------- through server.py's wiring
 #
 # The edit/add parsers fed the server's document facts, and the answers the handler gives them. These classes load

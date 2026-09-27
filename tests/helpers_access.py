@@ -42,6 +42,11 @@ ALICE_ACTOR = actor(ALICE)
 BOB_ACTOR = actor(BOB)
 # The body POST /api/clear requires.
 CLEAR_BODY = {"confirm": "clear all pins"}
+# Their logins, as events and people.json name people.
+A_LOGIN, B_LOGIN, C_LOGIN = (h["Tailscale-User-Login"] for h in (ALICE, BOB, CAROL))
+# A fourth person (the agent-role member where a test gives roles) and a tailnet host name as `tailscale serve` sends it.
+DAVE = {"Tailscale-User-Login": "dave@example.com", "Tailscale-User-Name": "Dave Choi"}
+TS_HOST = "box.tail1234.ts.net"
 
 
 ACCESS_DEFAULTS = dict(

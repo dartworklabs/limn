@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -1092,6 +1093,141 @@ class Migration(AccessBase):
             code, _ = get(ps, "/api/pins", {"Tailscale-User-Login": p["login"]})
             self.assertEqual(code, 200, p["login"])
             self.assertEqual(ps.role_of(p["login"]), access.role_value(p.get("role")))
+
+
+# ---------------------------------------------------------------- --tailnet-agent, `limn member add` and `limn serve` on a busy port (v0.2.1 QA)
+
+
+def cli(*args, env=None):
+    """Run `python -m limn *args` from this checkout's src/ (env added to the environment) -> the CompletedProcess."""
+    e = dict(os.environ, PYTHONPATH=str(SRC))
+    e.update(env or {})
+    return subprocess.run(
+        [sys.executable, "-m", "limn", *args], capture_output=True, text=True, timeout=120, env=e, check=False
+    )
+
+
+class TailnetAgentStartup(AccessBase):
+    def configure(self, *args):
+        ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
+        return ps.access_log_lines()
+
+    def test_default_off_and_logged(self):
+        log = self.configure()
+        self.assertFalse(ps.C.tailnet_agent)
+        self.assertIn("tailnet agent off", log[0])
+
+    def test_opt_in_needs_the_loopback_agent(self):
+        log = self.configure("--tailnet-agent")
+        self.assertTrue(ps.C.tailnet_agent)
+        self.assertIn("tailnet agent on (deprecated)", log[0])
+        for args in (
+            ("--tailnet-agent", "--no-agent-loopback"),
+            ("--tailnet-agent", "--auth", "local"),
+            ("--tailnet-agent", "--auth", "trusted-proxy"),
+        ):
+            refused = ps.configure_access(ps.build_arg_parser().parse_args(["--manuscript", "x", *args]))
+            self.assertIsInstance(refused, StartupRefused)
+            self.assertIn("--tailnet-agent", refused.message)
+
+    def test_instances_config_key(self):
+        root = Path(self.tmp.name)
+        cfg = root / "cfg"
+        cfg.mkdir()
+        (cfg / "paper.env").write_text(
+            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\n" % (self.src, ps.C.state),
+            encoding="utf-8",
+        )
+        env = dict(os.environ, PYTHONPATH=str(SRC), LIMN_CONFIG_DIR=str(cfg), LIMN_PRINT_ARGV="1")
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", "run", "paper"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--tailnet-agent", r.stdout.splitlines())
+        (cfg / "paper.env").write_text(
+            "MANUSCRIPT=%s\nMAIN=main.tex\nPORT=19130\nSTATE_DIR=%s\nTAILNET_AGENT=1\nAGENT_LOOPBACK=0\n"
+            % (self.src, ps.C.state),
+            encoding="utf-8",
+        )
+        r = subprocess.run(
+            [sys.executable, "-m", "limn", "run", "paper"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+            check=False,
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("TAILNET_AGENT", r.stderr)
+
+
+class MemberCli(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state = Path(self.tmp.name) / "state"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_member_add_rejects_logins_the_server_would_refuse(self):
+        for bad in ("bad login", " alice@example.com", "tab\tlogin", "local", "agent:x", ""):
+            r = cli("member", "add", "--state-dir", str(self.state), bad)
+            self.assertNotEqual(r.returncode, 0, bad)
+            self.assertIn("invalid login", r.stderr)
+            self.assertFalse(access.valid_login(bad), bad)
+        r = cli("member", "add", "--state-dir", str(self.state), "alice@example.com")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_member_list_footnote_says_how_roles_get_recorded(self):
+        self.state.mkdir(parents=True)
+        (self.state / "people.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "people": [{"login": "bob@example.com", "name": "Bob", "last_seen": "2026-09-25 10:00:00"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        r = cli("member", "list", "--state-dir", str(self.state))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("recorded on first visit", r.stdout)
+        self.assertIn("limn member role", r.stdout)
+
+
+class ServeBusyPort(unittest.TestCase):
+    def test_busy_port_is_a_one_line_error(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        ms = Path(tmp.name) / "ms"
+        ms.mkdir()
+        (ms / "main.tex").write_text("\\documentclass{article}\\begin{document}x\\end{document}\n", encoding="utf-8")
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        self.addCleanup(s.close)
+        port = s.getsockname()[1]
+        r = cli(
+            "serve",
+            "--manuscript",
+            str(ms),
+            "--port",
+            str(port),
+            "--state-dir",
+            str(Path(tmp.name) / "state"),
+            "--no-build",
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        err = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        self.assertEqual(len(err), 1, r.stderr)
+        self.assertIn(str(port), err[0])
+        self.assertIn("in use", err[0])
 
 
 if __name__ == "__main__":

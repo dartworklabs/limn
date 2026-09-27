@@ -20,8 +20,8 @@ from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
 from limn.web.errors import REVISION_FAILURES, SCOPE_REJECTIONS, HTTPError, InputRejected, scope_http_error
 
-from helpers import extract_js_fn, ps, run_node
-from helpers_access import BOB, AccessBase
+from helpers import extract_js_fn, ps, req, run_node, split_resp
+from helpers_access import BOB, CAROL, AccessBase, talk_to
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
@@ -322,6 +322,36 @@ class ErrText(unittest.TestCase):
             "[errText({error:'핀 #9 이 없습니다.',reason:'pin_not_found'}),errText({error:'conflict',reason:'conflict'})]",
         )
         self.assertEqual(out, ["핀 #9 이 없습니다.", "conflict"])
+
+
+# ---------------------------------------------------------------- a readable 403 page for a person who is not a member (v0.2.1 QA)
+
+
+class ErrorPage(AccessBase):
+    def test_members_only_refusal_is_a_readable_page(self):
+        ps.C.members_only = True
+        for lang, want in (
+            ("ko-KR,ko;q=0.9", "이 뷰어의 멤버가 아닙니다"),
+            ("en-US,en;q=0.9", "not a member of this viewer"),
+        ):
+            code, hdrs, body = split_resp(
+                talk_to(ps, req("GET", "/", b"", dict(CAROL, **{"Accept": "text/html", "Accept-Language": lang})))
+            )
+            self.assertEqual(code, 403)
+            self.assertTrue(hdrs["content-type"].startswith("text/html"), hdrs)
+            text = body.decode("utf-8")
+            self.assertIn("<html", text)
+            self.assertIn(want, text)
+            self.assertIn("carol@example.com", text)
+            self.assertNotIn('{"error"', text)
+        code, hdrs, _ = split_resp(talk_to(ps, req("GET", "/api/pins", b"", CAROL)))
+        self.assertEqual((code, hdrs["content-type"].split(";")[0]), (403, "application/json"))  # the API stays JSON
+
+    def test_page_escapes_the_login(self):
+        ps.C.members_only = True
+        h = {"Tailscale-User-Login": "<b>x</b>@example.com", "Tailscale-User-Name": "X", "Accept": "text/html"}
+        _, _, body = split_resp(talk_to(ps, req("GET", "/", b"", h)))
+        self.assertNotIn("<b>x</b>", body.decode("utf-8"))
 
 
 if __name__ == "__main__":

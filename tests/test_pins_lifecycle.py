@@ -50,6 +50,8 @@ from limn.pins.lifecycle import (
 )
 from limn.pins.model import Agent, Claim as ClaimValue, DonePin, OpenPin, Person, ReviewPin, TrashedPin, parse_pin
 
+from helpers import RULE_CASES, ps, rec_for
+
 PINS_DIR = Path(limn.pins.__file__).parent
 # datetime only parses stored times (limn.pins.position.epoch - never now()); limn.mapping is pure (tests/test_mapping.py).
 PURE_IMPORTS = {
@@ -557,6 +559,19 @@ class ReopenedInRound(unittest.TestCase):
             r = {"thread": th}
             starts_at_reopen = bool(thread_round(r)) and thread_round(r)[0].get("ev") == "reopen"
             self.assertEqual(pin_reopened_in_round(r), starts_at_reopen, th)
+
+
+# ---------------------------------------------------------------- the reply rule's table (v0.2.2, issue #8)
+
+
+class ReplyRule(unittest.TestCase):
+    """Every row of the reply rule table (helpers.RULE_CASES) through server.py's reply_reopens(), which parses the
+    stored record into its state and asks reopens_on_reply()."""
+
+    def test_every_row_of_the_rule_table(self):
+        for st, kind, human, ment, ov, want in RULE_CASES:
+            with self.subTest(state=st, kind=kind, human=human, mentioned=ment, override=ov):
+                self.assertIs(ps.reply_reopens(rec_for(st, kind), human, ment, ov), want)
 
 
 if __name__ == "__main__":

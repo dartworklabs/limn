@@ -11,13 +11,19 @@ import contextlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from limn import events, mapping
 from limn.events import EventLog, events_since, make_event
+
+from helpers import Base, ps, req, split_resp
+from helpers_access import ALICE, BOB, CAROL, configure, reset_access, talk_to
 
 EVENTS_PY = Path(events.__file__)
 ALICE_PICTURED = {"login": "alice@example.com", "name": "Alice Kim", "pic": "https://example.com/a.png"}
@@ -207,6 +213,140 @@ class Log(unittest.TestCase):
         line = self.log.path.read_text(encoding="utf-8")
         self.assertEqual(line, json.dumps(self.log.read()[0][0], ensure_ascii=False) + "\n")
         self.assertIn("한글", line)
+
+
+class EventLogCap(Base):
+    """events.jsonl keeps the newest EVENTS_KEEP events while seq keeps rising (through server.py's emit_events)."""
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def events(self):
+        return ps._read_events()[0]
+
+    def test_events_are_capped_but_seq_keeps_rising(self):
+        with mock.patch.object(ps, "EVENTS_KEEP", 3):
+            for i in range(5):
+                ps.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
+        self.assertEqual([e["seq"] for e in self.events()], [3, 4, 5])
+
+
+# ---------------------------------------------------------------- a reopening reply records the events v0.2.2 records (compared with the released module)
+
+
+def load_v022():
+    """The server module exactly as released in v0.2.2 (from git), or None in a shallow clone."""
+    import importlib.util
+
+    r = subprocess.run(
+        ["git", "show", "v0.2.2:src/limn/server.py"],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if r.returncode != 0 or b"def reply_reopens" not in r.stdout:
+        return None
+    d = Path(tempfile.mkdtemp(prefix="limn-v022-"))
+    (d / "server_v022.py").write_bytes(r.stdout)
+    spec = importlib.util.spec_from_file_location("limn_server_v022", d / "server_v022.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    shutil.rmtree(d, ignore_errors=True)
+    return mod
+
+
+# A person's reply that reopens a closed pin (docs/handbook/api.md §답글이 핀을 다시 여는 규칙 (0.2.2)). Each case:
+# (pin author, assignee, who closes it (None = the agent), expected events as (type, recipients, actor)).
+REOPEN_CASES = {
+    "author is not the replier, agent closed": (
+        BOB,
+        None,
+        None,
+        [("review_requested", ["bob@example.com"], "local"), ("reopened", ["bob@example.com"], "alice@example.com")],
+    ),
+    "author is the replier, agent closed": (ALICE, None, None, [("review_requested", ["alice@example.com"], "local")]),
+    "assigned to a person, agent closed": (
+        BOB,
+        "carol@example.com",
+        None,
+        [
+            ("assigned", ["carol@example.com"], "bob@example.com"),
+            ("review_requested", ["bob@example.com"], "local"),
+            ("reopened", ["bob@example.com"], "alice@example.com"),
+        ],
+    ),
+    "closed by a person": (BOB, None, CAROL, [("reopened", ["bob@example.com"], "alice@example.com")]),
+    "closed by the replier": (BOB, None, ALICE, [("reopened", ["bob@example.com"], "alice@example.com")]),
+}
+
+
+class ReplyReopenEvents(unittest.TestCase):
+    """The E2E re-run reported that a reopening reply only records `replied` on this branch. It does not: the events are
+    the ones v0.2.2 records, case by case - asserted literally here, and (when git history is available) against the
+    released v0.2.2 module run through the same requests."""
+
+    def run_case(self, mod, author, assignee, closer):
+        tmp = Path(tempfile.mkdtemp(prefix="limn-ev-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        src = tmp / "ms"
+        src.mkdir()
+        main = src / "main.tex"
+        main.write_text(
+            "\\documentclass{article}\n\\begin{document}\n"
+            + "".join("Line %d.\n" % i for i in range(3, 30))
+            + "\\end{document}\n",
+            encoding="utf-8",
+        )
+        state = tmp / "state"
+        state.mkdir()
+        configure(mod, src, main, state)
+        reset_access(mod)
+        mod._PEOPLE_SEEN.clear()
+
+        def call(method, path, body=None, headers=None):
+            h, raw = dict(headers or {}), b""
+            if body is not None:
+                raw, h["Content-Type"] = json.dumps(body).encode(), "application/json"
+            if method == "POST":
+                h["Origin"] = "http://127.0.0.1:18999"
+            code, _, out = split_resp(talk_to(mod, req(method, path, raw, h)))
+            return code, json.loads(out)
+
+        for h in (ALICE, BOB, CAROL):
+            call("GET", "/api/meta", headers=h)  # people.json knows all three
+        body = {"file": str(main), "lo": 4, "hi": 5, "page": 1, "note": "고쳐 주세요"}
+        if assignee:
+            body["assignee"] = assignee
+        code, d = call("POST", "/api/pin", body, author)
+        self.assertEqual(code, 200, d)
+        pid = d["id"]
+        self.assertEqual(call("POST", "/api/pins/%d/close" % pid, {}, closer)[0], 200)
+        code, d = call("POST", "/api/pins/%d/reply" % pid, {"text": "아직입니다"}, ALICE)
+        self.assertEqual((code, d["state"], d["reopened"]), (200, "open", True))
+        path = state / "events.jsonl"
+        evs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+        reset_access(mod)
+        return [(e["type"], sorted(e.get("to") or []), (e.get("by") or {}).get("login")) for e in evs]
+
+    def test_reopening_reply_emits_the_v0_2_2_events(self):
+        """E2E report (not reproduced): a person's reopening reply records the 0.2.2 events, per author/assignee/closer case."""
+        for name, (author, assignee, closer, want) in REOPEN_CASES.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.run_case(ps, author, assignee, closer), want)
+
+    def test_reopening_reply_events_equal_the_released_v0_2_2(self):
+        """The same five cases run through the released v0.2.2 module give identical events."""
+        v022 = load_v022()
+        if v022 is None:
+            self.skipTest("v0.2.2 is not in this clone's history (shallow checkout)")
+        for name, (author, assignee, closer, _) in REOPEN_CASES.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.run_case(ps, author, assignee, closer), self.run_case(v022, author, assignee, closer)
+                )
 
 
 if __name__ == "__main__":

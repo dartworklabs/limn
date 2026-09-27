@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest import mock
 
 from limn import people
+from limn.access import LOCAL_ACTOR
 from limn.people import (
     PeopleBook,
     PeopleUnreadable,
@@ -29,6 +30,8 @@ from limn.people import (
     record_person,
     valid_people,
 )
+
+from helpers import Base, add_pin, ps, req, split_resp
 
 PEOPLE_PY = Path(people.__file__)
 
@@ -242,6 +245,60 @@ class Unreadable(unittest.TestCase):
             path.write_bytes(b"{")
             warning.note(path, load_people(path))
         self.assertEqual(err.getvalue().count("warning:"), 2, err.getvalue())
+
+
+class PeopleOnTheServer(Base):
+    """people.json through server.py: only people are recorded, at most every ten minutes unless they changed, written
+    atomically; opening the viewer records the person, and GET /api/people adds the pins' actors."""
+
+    S = {"login": "bob@example.com", "name": "Bob Park"}
+
+    W = {"login": "wendy@example.com", "name": "Wendy Kim"}
+
+    HS = {"Tailscale-User-Login": "bob@example.com", "Tailscale-User-Name": "Bob Park"}
+
+    HW = {"Tailscale-User-Login": "wendy@example.com", "Tailscale-User-Name": "Wendy Kim"}
+
+    def setUp(self):
+        super().setUp()
+        ps._PEOPLE_SEEN.clear()
+        ps._EVENTS_CACHE.clear()
+
+    def test_people_json_records_humans_only_and_throttles(self):
+        self.assertFalse(ps.record_person(dict(LOCAL_ACTOR)))
+        self.assertFalse(ps.C.people_file.exists())
+        self.assertTrue(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1000))
+        # same value within 10 minutes — not written
+        self.assertFalse(ps.record_person(dict(self.S, pic="https://p/s.png"), now=1100))
+        self.assertTrue(ps.record_person(dict(self.S, name="Bob P."), now=1101))  # written when the name changes
+        self.assertTrue(ps.record_person(dict(self.W), now=2000))
+        d = json.loads(ps.C.people_file.read_text(encoding="utf-8"))
+        self.assertEqual(d["version"], 1)
+        self.assertEqual([p["login"] for p in d["people"]], [self.S["login"], self.W["login"]])
+        s = d["people"][0]
+        self.assertEqual((s["name"], s["pic"]), ("Bob P.", "https://p/s.png"))
+        self.assertTrue(s["first_seen"] <= s["last_seen"])
+
+    def test_people_json_write_is_atomic(self):
+        ps.record_person(dict(self.S), now=1000)
+        before = ps.C.people_file.read_bytes()
+        with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
+            self.assertFalse(ps.record_person(dict(self.W), now=2000))
+        self.assertEqual(ps.C.people_file.read_bytes(), before)  # the old file is unchanged (no half-written file)
+        with mock.patch.object(os, "replace", side_effect=OSError("disk full")):
+            ps.emit_events([{"type": "mention", "pin": 1, "to": ["x"]}])
+        self.assertFalse(ps.C.events_file.exists())
+
+    def test_viewer_open_records_person_and_people_api_merges_pin_actors(self):
+        self.talk(req("GET", "/", headers=self.HW))
+        self.talk(req("GET", "/api/meta?light=1", headers=self.HS))  # polling doesn't count
+        self.assertEqual([p["login"] for p in ps.load_people()], [self.W["login"]])
+        add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "x"}, dict(self.S)).record["id"]
+        code, _, raw = split_resp(self.talk(req("GET", "/api/people", headers=self.HW)))
+        d = json.loads(raw)
+        self.assertEqual(sorted(p["login"] for p in d["people"]), sorted([self.S["login"], self.W["login"]]))
+        self.assertEqual(d["me"]["login"], self.W["login"])
+        self.assertNotIn("local", [p["login"] for p in d["people"]])
 
 
 if __name__ == "__main__":

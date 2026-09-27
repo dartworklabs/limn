@@ -16,10 +16,25 @@ import shutil
 import unittest
 from pathlib import Path
 
+from limn.events import NOTIFY_TYPES
 from limn.pins import position, render as md_render
 from limn.viewer import assemble as viewer_assemble
 
-from helpers import DOCS_DIR, PKG, SKILL_KO, SKILL_MD, extract_js_fn, js_esc, js_icons, js_thread, ps, run_node
+from helpers import (
+    DOCS_DIR,
+    PKG,
+    RULE_CASES,
+    SKILL_KO,
+    SKILL_MD,
+    extract_js_fn,
+    js_esc,
+    js_i18n,
+    js_icons,
+    js_thread,
+    ps,
+    rec_for,
+    run_node,
+)
 from helpers_browser import ChromiumTestCase
 
 # ---------------------------------------------------------------- frontend pure logic (run the real source under node)
@@ -3482,6 +3497,416 @@ class FrontendNotify(unittest.TestCase):
         self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
         self.assertIn("notifyQuery()", extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
+
+
+class FrontendBadgeWording(unittest.TestCase):
+    """The viewer's relBadge() and overlap banner say what the server's rel_badge() says, in Korean and English."""
+
+    def test_js_rel_badge_matches_server(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+        js = "\n".join(
+            [
+                extract_js_fn("josa"),
+                extract_js_fn("relBadge"),
+                r"""
+            const PINS=[{id:1,lo:4,hi:9},{id:2,lo:4,hi:9},{id:3,lo:5,hi:6},{id:20,lo:8,hi:12}];
+            console.log(JSON.stringify([relBadge([{id:1,rel:'contains'}],{id:2,lo:4,hi:9}).label,
+              relBadge([{id:1,rel:'inside'},{id:2,rel:'inside'}],{id:3,lo:5,hi:6}).label,
+              relBadge([{id:20,rel:'partial'}],{id:3,lo:5,hi:9}).label, relBadge([{id:3,rel:'contains'}],{id:1,lo:4,hi:9})]));
+            """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
+        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", extract_js_fn("card"))
+
+    def test_overlap_banner_verbs(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+        cases = r"""
+            console.log(JSON.stringify([['equal',4],['inside',20],['contains',4],['contains',20],['partial',2]].map(a=>overlapText(a[0],a[1]))));
+            """
+        js = "\n".join([extract_js_fn("josa"), extract_js_fn("overlapText"), cases])
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                "열린 핀 #4와 같은 범위입니다",
+                "열린 핀 #20 범위 안입니다",
+                "열린 핀 #4를 감쌉니다",
+                "열린 핀 #20을 감쌉니다",
+                "열린 핀 #2와 일부 겹칩니다",
+            ],
+        )
+        self.assertEqual(
+            json.loads(run_node(js_i18n("en") + "\n" + js)),
+            [
+                "Same range as open pin #4",
+                "Inside open pin #20's range",
+                "Encloses open pin #4",
+                "Encloses open pin #20",
+                "Partially overlaps open pin #2",
+            ],
+        )
+
+
+# ---------------------------------------------------------------- one [Reply], the Trash and collapsible sections (v0.2.2, issue #8)
+
+
+class FrontendReplyRule(unittest.TestCase):
+    """The viewer's replyReopens() predicts the server's reply rule on every row of the table (helpers.RULE_CASES)."""
+
+    def test_viewer_mirrors_the_server_rule(self):
+        # The one-line preview under the reply box must predict exactly what the server will do.
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("replyReopens"),
+                "const cases=%s;" % json.dumps([[rec_for(st, k), h, m, ov] for st, k, h, m, ov, _ in RULE_CASES]),
+                "console.log(JSON.stringify(cases.map(c=>replyReopens(c[0],c[1],c[2],c[3]===null?undefined:c[3]))));",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [w for *_, w in RULE_CASES])
+
+
+class ViewerMarkup(unittest.TestCase):
+    def test_no_reopen_button_anywhere(self):
+        self.assertNotIn('data-act="rv-reopen"', ps.HTML)
+        self.assertNotIn("case 'rv-reopen'", ps.HTML)
+        self.assertNotIn("openReply(id,'reopen')", ps.HTML)
+
+    def test_dropped_section_left_the_list(self):
+        lst = ps.HTML[ps.HTML.index('<div id="list">') : ps.HTML.index('<div id="c-actions">')]
+        self.assertNotIn("sec-dropped", lst)
+        self.assertIn('<dialog id="trash"', ps.HTML)
+        more = ps.HTML[
+            ps.HTML.index('<dialog id="more"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))
+        ]
+        self.assertIn('id="m-trash"', more)
+        self.assertIn('data-act="trash-open"', more)
+
+    def test_three_sections_share_one_header_component(self):
+        for sec in ("open", "review", "done"):
+            with self.subTest(section=sec):
+                m = re.search(
+                    r'<button class="sec-tg" id="%s-toggle" data-act="sec-toggle" data-sec="%s" aria-expanded="(true|false)" '
+                    r'aria-controls="[a-z-]+"' % (sec, sec),
+                    ps.HTML,
+                )
+                self.assertIsNotNone(m, sec)
+
+    def test_help_defines_pin_once(self):
+        help_ = ps.HTML[
+            ps.HTML.index('<dialog id="help"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="help"'))
+        ]
+        self.assertIn("<tr><td>핀</td><td>출력물의 한 자리 + 요청이나 질문 + 그 대화", help_)
+        self.assertEqual(help_.count("<tr><td>핀</td>"), 1)
+        en = ps.UI_EN["출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다"]
+        self.assertTrue(en.startswith("A place in the output + a request or question + its conversation"), en)
+
+    def test_dropped_is_a_notification_type(self):
+        self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
+        self.assertIn("dropped", NOTIFY_TYPES)
+
+    def test_system_notification_for_a_deleted_pin_offers_restore(self):
+        # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
+        self.assertIn(
+            "actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
+            extract_js_fn("notifyShow"),
+        )
+        self.assertIn("e.action==='restore'", ps.SW_JS)
+        self.assertIn("d.type==='restore-pin'", ps.HTML)
+
+
+class ViewerFunctions(unittest.TestCase):
+    def setUp(self):
+        import shutil
+
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def preview(self, lang, cases):
+        js = "\n".join(
+            [
+                js_i18n(lang),
+                "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+                extract_js_fn("peopleName"),
+                extract_js_fn("pinState"),
+                extract_js_fn("replyReopens"),
+                extract_js_fn("replyPreview"),
+                "const cases=%s;" % json.dumps(cases),
+                "console.log(JSON.stringify(cases.map(c=>replyPreview(c[0],c[1],c[2],c[3]))));",
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_preview_line_for_each_outcome(self):
+        rv, dn, op, q = (
+            rec_for("review", "fix"),
+            rec_for("done", "fix"),
+            rec_for("open", "fix"),
+            rec_for("review", "question"),
+        )
+        cases = [
+            [rv, True, [], False],
+            [dn, True, [], False],
+            [rv, True, ["bob@example.com"], False],
+            [rv, True, [], True],
+            [q, True, [], False],
+            [rv, False, [], False],
+            [op, True, [], False],
+        ]
+        ko = self.preview("ko", cases)
+        self.assertEqual(
+            [(x or {}).get("text") for x in ko],
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 Bob Park에게 알림이 가고 상태는 그대로입니다",
+                "보내도 상태는 그대로입니다",
+                "답으로 남고 상태는 그대로입니다",
+                "이 화면은 에이전트로 보내므로 상태는 그대로입니다",
+                None,
+            ],
+        )
+        # the one override toggle: [상태 유지] where the rule reopens, [다시 열기] where it keeps a closed pin as it is
+        self.assertEqual(
+            [(x or {}).get("toggle") for x in ko], ["keep", "keep", "reopen", "keep", "reopen", "reopen", None]
+        )
+        flipped = self.preview(
+            "ko", [[rv, True, ["bob@example.com"], True], [q, True, [], True], [rv, False, [], True]]
+        )
+        self.assertEqual(
+            [x["text"] for x in flipped],
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 갑니다",
+            ],
+        )
+        en = self.preview("en", cases)
+        self.assertEqual(
+            [(x or {}).get("text") for x in en],
+            [
+                "Sending will reopen this pin for the agent",
+                "Sending will reopen this pin for the agent",
+                "Sending notifies Bob Park; state stays",
+                "Sending keeps the state as it is",
+                "Recorded as an answer; state stays",
+                "This screen posts as the agent; state stays",
+                None,
+            ],
+        )
+
+    def test_section_state_defaults_and_new_count(self):
+        js = "\n".join(
+            [
+                "const SEC_DEFAULT={open:true,review:true,done:false};",
+                extract_js_fn("secState"),
+                extract_js_fn("secNewCount"),
+                r"""
+            console.log(JSON.stringify([secState(undefined), secState({done:true}), secState({open:false,x:1,review:'no'}),
+              secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));""",
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            [
+                {"open": True, "review": True, "done": False},
+                {"open": True, "review": True, "done": True},
+                {"open": False, "review": True, "done": False},
+                2,
+                0,
+                0,
+            ],
+        )
+
+    def test_trash_days_left(self):
+        js = "\n".join(
+            [
+                "const TRASH_DAYS=30;",
+                extract_js_fn("trashDaysLeft"),
+                r"""
+            const now=new Date(2026,8,25,12,0).getTime();
+            console.log(JSON.stringify([trashDaysLeft('2026-09-25 11:00:00',now), trashDaysLeft('2026-08-27 12:00:00',now),
+              trashDaysLeft('2026-08-20 12:00:00',now), trashDaysLeft('',now)]));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [30, 1, 0, None])  # Aug 27 -> Sep 25 is 29 days: 1 left
+
+    def test_ref_to_a_deleted_pin_renders_as_deleted(self):
+        js = "\n".join(
+            [
+                js_esc(),
+                r"""
+            let PEOPLE=[], META=null; const DROPPED=[{id:12}];
+            function findAnyPin(id){return id===3?{id:3}:null;}
+            """,
+                extract_js_fn("mentionToks"),
+                extract_js_fn("mentionAfterWord"),
+                extract_js_fn("reEsc"),
+                extract_js_fn("meLogin"),
+                extract_js_fn("pinRefExists"),
+                extract_js_fn("pinRefGone"),
+                extract_js_fn("fmtText"),
+                "console.log(JSON.stringify([fmtText('#3 와 #12 와 #99',[])]));",
+            ]
+        )
+        out = json.loads(run_node(js))[0]
+        self.assertIn('data-ref="3"', out)
+        self.assertRegex(out, r'<span class="pin-ref gone"[^>]*data-ref="12"[^>]*>#12 <small>삭제된 핀</small></span>')
+        self.assertIn("#99", out)
+        self.assertNotIn('data-ref="99"', out)
+
+
+class ViewerFunctions2(unittest.TestCase):
+    def setUp(self):
+        import shutil
+
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def js(self, lang, script):
+        return json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        js_i18n(lang),
+                        "const PEOPLE=[{login:'bob@example.com',name:'Bob Park'},{login:'carol@example.com',name:'Carol Lee'}];",
+                        extract_js_fn("peopleName"),
+                        extract_js_fn("pinState"),
+                        extract_js_fn("replyReopens"),
+                        extract_js_fn("replyPreview"),
+                        extract_js_fn("replyPlaceholder"),
+                        extract_js_fn("replyServerNote"),
+                        script,
+                    ]
+                )
+            )
+        )
+
+    def test_override_on_still_names_who_is_notified(self):
+        rv, q = rec_for("review", "fix"), rec_for("review", "question")
+        out = self.js(
+            "ko",
+            "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text, replyPreview(%s,true,['carol@example.com'],true).text]));"
+            % (json.dumps(rv), json.dumps(q)),
+        )
+        self.assertEqual(
+            out,
+            [
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Bob Park에게 알림이 갑니다",
+                "보내면 이 핀이 다시 열려 에이전트에게 가고, Carol Lee에게 알림이 갑니다",
+            ],
+        )
+        en = self.js(
+            "en", "console.log(JSON.stringify([replyPreview(%s,true,['bob@example.com'],true).text]));" % json.dumps(rv)
+        )
+        self.assertEqual(en, ["Sending reopens this pin for the agent and notifies Bob Park"])
+
+    def test_placeholder_follows_the_outcome(self):
+        rv, q, op = rec_for("review", "fix"), rec_for("review", "question"), rec_for("open", "fix")
+        out = self.js(
+            "ko",
+            "console.log(JSON.stringify([replyPlaceholder(%s,true,false),replyPlaceholder(%s,true,true),"
+            "replyPlaceholder(%s,true,false),replyPlaceholder(%s,false,false),replyPlaceholder(%s,true,false)]));"
+            % tuple(json.dumps(x) for x in (rv, rv, q, rv, op)),
+        )
+        reopen = "무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)"
+        plain = "답글 (⌘/Ctrl+Enter 보내기)"
+        self.assertEqual(out, [reopen, plain, plain, plain, plain])
+
+    def test_post_send_note_says_what_the_server_did(self):
+        out = self.js(
+            "ko",
+            r"""console.log(JSON.stringify([
+            replyServerNote(7,true,{ok:true,reopened:true,state:'open'}),
+            replyServerNote(7,true,{ok:true,reopened:false,state:'open'}),
+            replyServerNote(7,false,{ok:true,reopened:true,state:'open'}),
+            replyServerNote(7,false,{ok:true,reopened:false,state:'done'})]));""",
+        )
+        self.assertEqual(
+            out,
+            [
+                None,
+                "#7 은 그사이 이미 열려 있어 답글로만 남았습니다",
+                "#7 은 그사이 닫혀서 이 답글이 다시 열었습니다",
+                None,
+            ],
+        )
+
+    def test_trash_row_shows_who_and_separates_the_times(self):
+        """A Trash row shows who deleted it and separates the relative time from the days left."""
+        js = "\n".join(
+            [
+                js_i18n("ko"),
+                js_icons(),
+                js_esc(),
+                r"""
+            const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
+            function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
+            function relSpan(s,cls,tip){return '<span class="rt '+cls+'">7시간 전</span>';} function fmtText(t){return esc(t);}
+            const TRASH_DAYS=30;""",
+                extract_js_fn("rng"),
+                extract_js_fn("multiDoc"),
+                extract_js_fn("pdoc"),
+                extract_js_fn("isRegion"),
+                extract_js_fn("locCopy"),
+                extract_js_fn("docChip"),
+                extract_js_fn("arcLoc"),
+                extract_js_fn("arcLine"),
+                extract_js_fn("trashDaysLeft"),
+                extract_js_fn("isOwner"),
+                extract_js_fn("isViewer"),
+                extract_js_fn("droppedCard"),
+                r"""
+            const h=droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60});
+            console.log(JSON.stringify([h.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,'|').replace(/\|+/g,'|')]));""",
+            ]
+        )
+        text = json.loads(run_node(js))[0]
+        self.assertIn("7시간 전|·|Bob Park 삭제|·|30일 뒤 지워짐", text)
+
+
+class ButtonStyles(unittest.TestCase):
+    def test_done_row_reply_and_trash_restore_are_filled_secondary(self):
+        body = extract_js_fn("doneCard")
+        self.assertIn('<button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open"', body)
+        dc = extract_js_fn("droppedCard")
+        self.assertIn('<button class="btn-sm btn-secondary arc-b b-restore" data-act="restore"', dc)
+        self.assertIn('<button class="btn-sm arc-b btn-destructive b-purge" data-act="purge"', dc)
+
+
+# ---------------------------------------------------------------- the section strip at the top of page 1 (v0.2.1 QA)
+
+
+class SectionStrip(unittest.TestCase):
+    def run_js(self, body):
+        out = run_node(extract_js_fn("outlineIndexAt") + "\n" + extract_js_fn("destFrac") + "\n" + body)
+        if out is None:
+            self.skipTest("node is not installed")
+        return json.loads(out)
+
+    def test_first_section_at_the_very_top(self):
+        entries = [
+            {"page": 1, "frac": 0.30},
+            {"page": 1, "frac": 0.55},
+            {"page": 1, "frac": 0.80},
+            {"page": 2, "frac": 0.10},
+            {"page": 4, "frac": 0.0},
+        ]
+        js = (
+            "const E=%s;console.log(JSON.stringify([outlineIndexAt(E,1,0),outlineIndexAt(E,1,0.56),outlineIndexAt(E,1,0.95),"
+            "outlineIndexAt(E,2,0.05),outlineIndexAt(E,3,0.5),outlineIndexAt(E,4,0),outlineIndexAt([],1,0)]))"
+            % json.dumps(entries)
+        )
+        self.assertEqual(self.run_js(js), [0, 1, 2, 2, 3, 4, -1])
+
+    def test_dest_top_to_fraction(self):
+        js = (
+            "console.log(JSON.stringify([destFrac([{},{name:'XYZ'},72,792,0],792),destFrac([{},{name:'XYZ'},72,396,0],792),"
+            "destFrac([{},{name:'Fit'}],792),destFrac([{},{name:'XYZ'},0,null,0],792),destFrac([{},{name:'XYZ'},0,900,0],792)]))"
+        )
+        self.assertEqual(self.run_js(js), [0, 0.5, 0, 0, 0])
 
 
 if __name__ == "__main__":
