@@ -24,7 +24,12 @@ from limn import build as limn_build, meta as limn_meta, scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.features.pins.lifecycle import input as lifecycle_input
-from limn.features.revisions import core as revisions, input as revision_input
+from limn.features.revisions import (
+    core as revisions,
+    execution as revision_execution,
+    input as revision_input,
+    jobs as revision_jobs,
+)
 from limn.features.revisions.core import revision_history
 from limn.mapping import anchor_of
 from limn.pins.lifecycle import CloseRequest
@@ -192,7 +197,7 @@ class ManuscriptRevisions(Base):
         self.main.write_text("uncommitted secret")
         dest = self.repo / "snapshot"
         spec = revision_spec(self.latest)
-        revisions.revision_snapshot(spec, spec.head, dest)
+        revision_execution.revision_snapshot(spec, spec.head, dest)
         self.assertIn("New manuscript sentence.", (dest / "main.tex").read_text())
         self.assertFalse((dest / "other").exists())
         (self.src / "escape.tex").symlink_to(self.secret)
@@ -200,7 +205,7 @@ class ManuscriptRevisions(Base):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         self.assertEqual(
-            revisions.revision_snapshot(revision_spec(head), head, self.repo / "bad-snapshot"),
+            revision_execution.revision_snapshot(revision_spec(head), head, self.repo / "bad-snapshot"),
             revisions.StepFailed("unsafe_snapshot"),
         )
 
@@ -265,7 +270,7 @@ class ManuscriptRevisions(Base):
 
         body = json.dumps({"commit": self.latest}).encode()
         request = req("POST", "/api/revision-build", body, {"Content-Type": "application/json"})
-        with mock.patch.object(revisions, "revision_compile", side_effect=compile):
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=compile):
             try:
                 code, _, raw = split_resp(self.talk(request))
                 self.assertEqual(code, 202)
@@ -290,7 +295,9 @@ class ManuscriptRevisions(Base):
             self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest), revisions.CommitNotRecent())
 
     def test_revision_failure_has_no_pdf_and_can_retry(self):
-        with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")) as run:
+        with mock.patch.object(
+            revision_execution, "revision_compile", return_value=revisions.StepFailed("timeout")
+        ) as run:
             ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
             status = self._wait_revision()
             self.assertEqual((status["state"], status["reason"]), ("error", "timeout"))
@@ -336,9 +343,9 @@ class ManuscriptRevisions(Base):
 
     def test_revision_source_limits_and_gitlinks_are_rejected(self):
         spec = revision_spec(self.latest)
-        with mock.patch.object(revisions, "REVISION_FILE_MAX", 1):
+        with mock.patch.object(revision_execution, "REVISION_FILE_MAX", 1):
             self.assertEqual(
-                revisions.revision_snapshot(spec, self.latest, self.repo / "large"),
+                revision_execution.revision_snapshot(spec, self.latest, self.repo / "large"),
                 revisions.StepFailed("snapshot_size"),
             )
         for cmd in (
@@ -348,7 +355,7 @@ class ManuscriptRevisions(Base):
             subprocess.run(cmd, cwd=self.repo, check=True, capture_output=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo, text=True).strip()
         self.assertEqual(
-            revisions.revision_snapshot(spec, head, self.repo / "submodule-snapshot"),
+            revision_execution.revision_snapshot(spec, head, self.repo / "submodule-snapshot"),
             revisions.StepFailed("unsafe_snapshot"),
         )
 
@@ -356,7 +363,7 @@ class ManuscriptRevisions(Base):
         with mock.patch.object(ps.APP.RT.revision_jobs, "slots", threading.BoundedSemaphore(0)):
             self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.AllSlotsBusy())
         spec = revision_spec(self.latest)
-        root = revisions.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         jobdir = root / spec.key
         jobdir.mkdir()
         (jobdir / "revision.pdf").write_bytes(b"%PDF-1.4")
@@ -367,12 +374,12 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.APP.revision_requests.status(ps.APP.docs[0], self.latest)["state"], "idle")
         for i in range(8):
             (root / ("%064x" % i)).mkdir()
-        revisions.revision_prune(root, spec.key, ps.APP.RT.revision_jobs.active)
+        revision_jobs.revision_prune(root, spec.key, ps.APP.RT.revision_jobs.active)
         self.assertLessEqual(sum(p.is_dir() for p in root.iterdir()), revisions.REVISION_CACHE_KEEP)
 
     def test_corrupt_revision_cache_is_a_miss(self):
         spec = revision_spec(self.latest)
-        root = revisions.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         jobdir = root / spec.key
         jobdir.mkdir()
         for content in ("[]", "null", "1", "bad JSON", '{"state":"running"}', '{"state":"ready"}'):
@@ -382,10 +389,11 @@ class ManuscriptRevisions(Base):
     def test_sandbox_is_required_and_has_no_unsandboxed_fallback(self):
         with mock.patch.object(shutil, "which", return_value=None):
             self.assertEqual(
-                revisions.revision_sandbox(self.repo, Path("."), "latexmk", []), revisions.StepFailed("sandbox_tools")
+                revision_execution.revision_sandbox(self.repo, Path("."), "latexmk", []),
+                revisions.StepFailed("sandbox_tools"),
             )
         with self.assertRaises(ValueError):
-            revisions.revision_sandbox(self.repo, Path("."), "sh", [])
+            revision_execution.revision_sandbox(self.repo, Path("."), "sh", [])
 
     def test_revision_exec_bounds_output_and_time(self):
         self.assertEqual(
@@ -474,7 +482,7 @@ class ManuscriptRevisions(Base):
             mock.patch.object(Path, "exists", exists),
             mock.patch.object(revisions, "revision_exec", side_effect=run),
         ):
-            built = revisions.revision_compile(revision_spec(self.latest), jobdir, 30)
+            built = revision_execution.revision_compile(revision_spec(self.latest), jobdir, 30)
         self.assertIsInstance(built, revisions.ComparisonBuilt)
         work = calls[0][1]
         latexdiff = [
@@ -507,7 +515,7 @@ class ManuscriptRevisions(Base):
             if held:
                 jobs.slots.release()
         self.assertEqual(got, [True, True])
-        with (revisions.revision_cache_root(ps.APP.docs[0]) / "build.lock").open("a") as lock:
+        with (revision_jobs.revision_cache_root(ps.APP.docs[0]) / "build.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -515,7 +523,7 @@ class ManuscriptRevisions(Base):
         """Every way revision_start can stop after claiming a build slot - the document's lock held by another
         process, a symlinked job folder, an error while preparing the job, a thread that cannot start - gives the slot
         and the lock back and leaves no job registered; so does a worker that finished."""
-        root = revisions.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         with (root / "build.lock").open("a") as other:
             fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.DocumentBusy())
@@ -525,7 +533,10 @@ class ManuscriptRevisions(Base):
         self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest), revisions.UnsafeCache())
         self.assert_claims_freed()
         jobdir.unlink()
-        with mock.patch.object(revisions, "revision_prune", side_effect=OSError("disk")), self.assertRaises(OSError):
+        with (
+            mock.patch.object(revision_jobs, "revision_prune", side_effect=OSError("disk")),
+            self.assertRaises(OSError),
+        ):
             ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
         self.assert_claims_freed()
         with (
@@ -534,7 +545,7 @@ class ManuscriptRevisions(Base):
         ):
             ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)
         self.assert_claims_freed()
-        with mock.patch.object(revisions, "revision_compile", return_value=revisions.StepFailed("timeout")):
+        with mock.patch.object(revision_execution, "revision_compile", return_value=revisions.StepFailed("timeout")):
             self.assertEqual(ps.APP.revision_requests.start(ps.APP.docs[0], self.latest)["state"], "running")
             self.assertEqual(self._wait_revision()["reason"], "timeout")
         self.assert_claims_freed()
@@ -590,7 +601,7 @@ class ManuscriptRevisions(Base):
         before = {p.name: p.read_bytes() for p in self.src.iterdir()}
         dest = self.repo / "actual-job"
         dest.mkdir()
-        status = revisions.revision_compile(revision_spec(head), dest, 30)
+        status = revision_execution.revision_compile(revision_spec(head), dest, 30)
         self.assertIsInstance(status, revisions.ComparisonBuilt)
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("Old", text)
@@ -895,7 +906,7 @@ class ScopedErrorBodies(ScopedRepo):
             with self.subTest(case=name), mock.patch.object(revisions, "revision_changes", side_effect=fake):
                 st = self.build_status(self.p2)
                 self.assertEqual((st["state"], st["error"], st["reason"]), ("error", msg, reason))
-                shutil.rmtree(revisions.revision_cache_root(ps.APP.docs[0]))
+                shutil.rmtree(revision_jobs.revision_cache_root(ps.APP.docs[0]))
         spec = revision_spec(self.fix, self.p2)
         bad = ("ms/../evil.tex", "ms/../evil.tex", 0, 1, 0, 1)
         evil = scoping.FileChange(bad[0], bad[1], (b"x\n",), (b"y\n",), (scoping.Block(0, 1, 0, 1),), False)
@@ -950,7 +961,7 @@ class ScopedPdf(ScopedRepo):
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
             return revisions.ComparisonBuilt([])
 
-        with mock.patch.object(revisions, "revision_compile", side_effect=compile):
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=compile):
             # shares the whole key
             code, d = self.call("POST", "/api/revision-build", {"commit": self.solo, "pin": self.p4})
             self.assertEqual((d["scope"], d["pin"]), ("commit", self.p4))
@@ -977,7 +988,7 @@ class ScopedPdf(ScopedRepo):
             calls.append(spec.scope)
             return revisions.StepFailed("compile_failed")
 
-        with mock.patch.object(revisions, "revision_compile", side_effect=fail):
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=fail):
             for _ in range(2):
                 self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
                 end = time.time() + 10
@@ -1000,7 +1011,7 @@ class ScopedPdf(ScopedRepo):
             (jobdir / "revision.pdf").write_bytes(minimal_pdf("x"))
             return revisions.ComparisonBuilt([])
 
-        with mock.patch.object(revisions, "revision_compile", side_effect=compile):
+        with mock.patch.object(revision_execution, "revision_compile", side_effect=compile):
             code, d = self.call("POST", "/api/revision-build", {"commit": self.fix, "pin": self.p2})
             self.assertIn(code, (200, 202), d)
             self.assertEqual((d["scope"], d["pin"], d["hunks"], d["other"]), ("pin", self.p2, 1, 2))
@@ -1034,7 +1045,7 @@ class ScopedPdf(ScopedRepo):
         """With TeX: the sandboxed scoped PDF shows the pin's change and none of the others; the checkout is untouched."""
         dest = self.repo / "job-beta"
         dest.mkdir()
-        status = revisions.revision_compile(revision_spec(self.fix, self.p2), dest, 60)
+        status = revision_execution.revision_compile(revision_spec(self.fix, self.p2), dest, 60)
         self.assertIsInstance(status, revisions.ComparisonBuilt, status)
         text = subprocess.check_output(["pdftotext", str(dest / "revision.pdf"), "-"], text=True)
         self.assertIn("blueberries", text)
@@ -1044,7 +1055,7 @@ class ScopedPdf(ScopedRepo):
         self.assertNotIn("second alpha", text)
         whole = self.repo / "job-whole"
         whole.mkdir()
-        revisions.revision_compile(revision_spec(self.fix), whole, 60)
+        revision_execution.revision_compile(revision_spec(self.fix), whole, 60)
         self.assertIn("pears", subprocess.check_output(["pdftotext", str(whole / "revision.pdf"), "-"], text=True))
         self.assertEqual(self.main.read_text(encoding="utf-8"), NEW.replace("Filler two.", "Filler two, reworded."))
 
@@ -1070,12 +1081,14 @@ class ScopedPdf(ScopedRepo):
         dest = self.repo / "job-half"
         dest.mkdir()
         self.assertIn(
-            revisions.revision_compile(spec, dest, 60),
+            revision_execution.revision_compile(spec, dest, 60),
             (revisions.StepFailed("compile_failed"), revisions.StepFailed("diff_failed")),
         )
         whole = self.repo / "job-both"
         whole.mkdir()
-        self.assertIsInstance(revisions.revision_compile(revision_spec(both), whole, 60), revisions.ComparisonBuilt)
+        self.assertIsInstance(
+            revision_execution.revision_compile(revision_spec(both), whole, 60), revisions.ComparisonBuilt
+        )
 
 
 class ScopeReviewRegressions(AccessBase):
@@ -1242,7 +1255,7 @@ class ScopeReviewRegressions(AccessBase):
 
     def test_scoped_comparisons_never_evict_whole_commit_ones(self):
         """m4: pin-scoped cache entries have their own limit, so many pins do not push out the whole-commit PDFs."""
-        root = revisions.revision_cache_root(ps.APP.docs[0])
+        root = revision_jobs.revision_cache_root(ps.APP.docs[0])
         whole = [root / ("%064x" % i) for i in range(3)]
         scoped = [root / ("%064x" % (100 + i)) for i in range(revisions.REVISION_SCOPED_KEEP + 4)]
         for i, d in enumerate(whole + scoped):
@@ -1251,7 +1264,7 @@ class ScopeReviewRegressions(AccessBase):
                 (d / revisions.SCOPED_MARK).write_text("")
             t = time.time() - 1000 + (i if d in whole else 500 + i)  # every scoped entry is newer
             os.utime(d, (t, t))
-        revisions.revision_prune(root, "f" * 64, ps.APP.RT.revision_jobs.active)
+        revision_jobs.revision_prune(root, "f" * 64, ps.APP.RT.revision_jobs.active)
         self.assertTrue(all(d.exists() for d in whole))
         self.assertEqual(sum(d.exists() for d in scoped), revisions.REVISION_SCOPED_KEEP)
 
@@ -1265,10 +1278,10 @@ class ScopeReviewRegressions(AccessBase):
         with (
             mock.patch.object(revisions, "revision_changes", return_value=[]),
             mock.patch.object(
-                revisions, "plan_scope_writes", return_value=[scoping.ScopeWrite("main.tex/x.tex", b"x")]
+                revision_execution, "plan_scope_writes", return_value=[scoping.ScopeWrite("main.tex/x.tex", b"x")]
             ),
         ):
-            refused = revisions.revision_apply_scope(spec, dest)
+            refused = revision_execution.revision_apply_scope(spec, dest)
         self.assertEqual(refused, scoping.ScopeUnwritable())
         err = scope_http_error(refused)
         self.assertEqual((err.code, err.body["reason"]), (422, "scope_failed"))
@@ -1294,8 +1307,8 @@ class ScopeReviewRegressions(AccessBase):
         self.assertIn("new mode 120000", s["other_diff"])
         spec = revision_spec(X, pa)
         dest = Path(self.tmp.name) / "dest"
-        revisions.revision_snapshot(spec, spec.base, dest)
-        revisions.revision_apply_scope(spec, dest)
+        revision_execution.revision_snapshot(spec, spec.base, dest)
+        revision_execution.revision_apply_scope(spec, dest)
         self.assertFalse((dest / "sec.tex").is_symlink())
         self.assertEqual((dest / "sec.tex").read_text(), "Section text.\n")
 
@@ -1324,13 +1337,14 @@ class LsTreeRows(unittest.TestCase):
             with self.subTest(row=row):
                 size = 0 if b"run.tex" in row else 12
                 self.assertEqual(
-                    revisions.parse_ls_tree_row(row, prefix), revisions.TreeFile(Path(path), self.OID, size)
+                    revision_execution.parse_ls_tree_row(row, prefix),
+                    revision_execution.TreeFile(Path(path), self.OID, size),
                 )
 
     def test_rows_a_snapshot_must_not_write_are_unsafe(self):
         """Symlinks, submodules, names outside the prefix or that could escape or confuse the snapshot folder, and
         rows that do not parse are all UnsafeTreeRow."""
-        unsafe = revisions.UnsafeTreeRow()
+        unsafe = revision_execution.UnsafeTreeRow()
         for row, prefix in (
             (self.row(b"ms/link.tex", mode=b"120000"), "ms/"),
             (self.row(b"ms/module", mode=b"160000", kind=b"commit", size=b"-"), "ms/"),
@@ -1350,7 +1364,7 @@ class LsTreeRows(unittest.TestCase):
             (b"100644 blob \xff\xfe 12\tms/x.tex", "ms/"),
         ):
             with self.subTest(row=row):
-                self.assertEqual(revisions.parse_ls_tree_row(row, prefix), unsafe)
+                self.assertEqual(revision_execution.parse_ls_tree_row(row, prefix), unsafe)
 
 
 class ComparisonStatusRules(unittest.TestCase):
@@ -1364,25 +1378,28 @@ class ComparisonStatusRules(unittest.TestCase):
         """A finished PDF is answered from the cache for any spec; no entry always builds."""
         for scoped in (False, True):
             with self.subTest(scoped=scoped):
-                self.assertTrue(revisions.answered_from_cache(revisions.ReadyComparison({"state": "ready"}), scoped))
-                self.assertFalse(revisions.answered_from_cache(revisions.IdleComparison(), scoped))
+                self.assertTrue(
+                    revision_jobs.answered_from_cache(revision_jobs.ReadyComparison({"state": "ready"}), scoped)
+                )
+                self.assertFalse(revision_jobs.answered_from_cache(revision_jobs.IdleComparison(), scoped))
 
     def test_only_a_pin_subsets_deterministic_failure_is_answered_from_the_cache(self):
         """compile_failed, diff_failed and scope_failed of a pin subset would fail again, so they are answered; the
         same failures of a whole commit, and any other failure of either, build again."""
         for reason in ("compile_failed", "diff_failed", "scope_failed", "timeout", "build_failed", None):
-            failed = revisions.FailedComparison({"state": "error", "reason": reason})
+            failed = revision_jobs.FailedComparison({"state": "error", "reason": reason})
             with self.subTest(reason=reason):
-                self.assertFalse(revisions.answered_from_cache(failed, scoped=False))
+                self.assertFalse(revision_jobs.answered_from_cache(failed, scoped=False))
                 self.assertEqual(
-                    revisions.answered_from_cache(failed, scoped=True), reason in revisions.DETERMINISTIC_FAILURES
+                    revision_jobs.answered_from_cache(failed, scoped=True),
+                    reason in revision_jobs.DETERMINISTIC_FAILURES,
                 )
 
     def test_a_stored_status_is_answered_as_stored_with_the_specs_identity_over_it(self):
         """A finished status keeps its stored fields and their order; the spec's identity replaces what the file says
         and the request's pin fields come last."""
         stored = {"z": 1, "state": "error", "job_id": "old", "reason": "timeout", "warnings": []}
-        body = revisions.status_body(revisions.FailedComparison(stored), self.SPEC._replace(meta=self.META))
+        body = revision_jobs.status_body(revision_jobs.FailedComparison(stored), self.SPEC._replace(meta=self.META))
         self.assertEqual(
             list(body.items()),
             [("z", 1), ("state", "error"), ("job_id", "k" * 64), ("reason", "timeout"), ("warnings", [])]
@@ -1394,13 +1411,13 @@ class ComparisonStatusRules(unittest.TestCase):
         """A miss is "idle" with the spec's identity; a running job's stored fields get only the request's pin
         fields (a running status never carries another request's)."""
         self.assertEqual(
-            revisions.status_body(revisions.IdleComparison(), self.SPEC),
+            revision_jobs.status_body(revision_jobs.IdleComparison(), self.SPEC),
             {"job_id": "k" * 64, "base": "b" * 40, "head": "c" * 40, "engine": "pdflatex"}
             | {"state": "idle", "warnings": [], "error": None, "reason": None},
         )
-        running = revisions.RunningComparison({"job_id": "k" * 64, "state": "running", "pin": 3})
+        running = revision_jobs.RunningComparison({"job_id": "k" * 64, "state": "running", "pin": 3})
         self.assertEqual(
-            revisions.status_body(running, self.SPEC._replace(meta=self.META)),
+            revision_jobs.status_body(running, self.SPEC._replace(meta=self.META)),
             {"job_id": "k" * 64, "state": "running"} | self.META,
         )
 

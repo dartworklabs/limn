@@ -25,7 +25,7 @@ from unittest import mock
 from limn import startup
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.lifecycle import input as lifecycle_input
-from limn.features.revisions import core as revisions
+from limn.features.revisions import core as revisions, execution as revision_execution
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 
@@ -1065,7 +1065,7 @@ class ScopedViewer(BrowserBase):
         ps.APP.pin_lifecycle.close_pin(self.p4, loc, CloseRequest(reply="filler", ref=self.solo[:8]))
         self.builds = []
         self.fail_scoped = False
-        patcher = mock.patch.object(revisions, "revision_compile", side_effect=self.fake_compile)
+        patcher = mock.patch.object(revision_execution, "revision_compile", side_effect=self.fake_compile)
         patcher.start()
         self.addCleanup(patcher.stop)
 

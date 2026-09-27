@@ -47,6 +47,8 @@ SOURCES = {
     for p in [
         Path(ps.__file__),
         PKG / "features/revisions/core.py",
+        PKG / "features/revisions/execution.py",
+        PKG / "features/revisions/jobs.py",
         PKG / "scope.py",
         PKG / "documents.py",
         PKG / "locate.py",

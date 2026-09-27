@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from limn.documents import Doc
-from limn.features.revisions import core as revisions
+from limn.features.revisions import core as revisions, jobs
 from limn.features.revisions.core import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 
 
@@ -25,12 +25,12 @@ class RevisionRequests:
 
     def status(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | StatusRefusal:
         """Read a comparison job or cached PDF state."""
-        return revisions.revision_status(doc, commit, pin, self.context())
+        return jobs.revision_status(doc, commit, pin, self.context())
 
     def start(self, doc: Doc, commit: str, pin: int | None = None) -> dict[str, Any] | StartRefusal:
         """Start a comparison PDF job using this instance's slots and cache."""
-        return revisions.revision_start(doc, commit, pin, self.context())
+        return jobs.revision_start(doc, commit, pin, self.context())
 
     def pdf(self, doc: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefusal:
         """Read the comparison PDF, or return the existing refusal outcome."""
-        return revisions.revision_pdf(doc, commit, pin, self.context())
+        return jobs.revision_pdf(doc, commit, pin, self.context())

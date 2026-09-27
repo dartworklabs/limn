@@ -54,7 +54,13 @@ class Boundaries(unittest.TestCase):
 
     def test_neither_module_reads_server_globals(self):
         """The document and the instance's settings arrive as arguments (R5): no C., no cur_doc()."""
-        for name in ("scope.py", "features/revisions/core.py", "documents.py"):
+        for name in (
+            "scope.py",
+            "features/revisions/core.py",
+            "features/revisions/execution.py",
+            "features/revisions/jobs.py",
+            "documents.py",
+        ):
             with self.subTest(module=name):
                 source = (PKG / name).read_text(encoding="utf-8")
                 self.assertNotRegex(source, r"(?<![\w.])C\.[a-z_]")
@@ -70,13 +76,15 @@ class Boundaries(unittest.TestCase):
 
     def test_revisions_loads_without_server_or_the_http_layer(self):
         """The revision core answers with values; the HTTP layer imports it, never the other way round."""
-        self.assertFalse(
-            {
-                n
-                for n in imports_of(PKG / "features/revisions/core.py")
-                if n.startswith("limn.web") or n == "limn.server"
-            }
-        )
+        for name in ("core.py", "execution.py", "jobs.py"):
+            with self.subTest(module=name):
+                self.assertFalse(
+                    {
+                        n
+                        for n in imports_of(PKG / "features/revisions" / name)
+                        if n.startswith("limn.web") or n == "limn.server"
+                    }
+                )
         code = "import sys, limn.features.revisions.core; print(sorted(m for m in sys.modules if m.startswith('limn.web') or 'server' in m))"
         r = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False, cwd=str(PKG.parent)
