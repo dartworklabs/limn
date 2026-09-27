@@ -1,4 +1,4 @@
-"""Execute the viewer's pin-list decisions and request ordering under Node."""
+"""Execute viewer pin-list decisions and document-scoped request ordering under Node."""
 
 import json
 import shutil
@@ -136,7 +136,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 extract_js_fn("pollLightOnce"),
                 """
-                let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
+                let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
                 let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
                 let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',LAST_BUILD_SEQ=0,BUILD_TIMER=null,POLL_FAILS=0;
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
@@ -186,7 +186,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("boot"),
                 extract_js_fn("pollLightOnce"),
                 """
-                let DOC=null,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
+                let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
                 let LAST_PINS_REV=null,LAST_SRC_MTIME=null,LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
@@ -245,7 +245,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("boot"),
                 extract_js_fn("pollLightOnce"),
                 """
-                let DOC=null,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
+                let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
                 let LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),MQ_COARSE={matches:false};
                 const document={hidden:false}; let pinReads=0;
@@ -358,3 +358,132 @@ class PinListLoading(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), {"requests": ["/api/metab"], "build": "v2"})
+
+
+class ViewerPollingVisits(unittest.TestCase):
+    """Polling from a previous document visit cannot update a later visit's screen."""
+
+    def setUp(self):
+        """Require Node to execute the viewer's actual polling functions."""
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def test_light_meta_from_previous_visit_does_not_update_returned_document(self):
+        """A stale light response keeps its notification but cannot set the current revision baseline."""
+        js = "\n".join(
+            [
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
+                let POLL_FAILS=0,LAST_BUILD_SEQ=0,BUILD_TIMER=null;
+                const document={hidden:false},seen=[];
+                let resolveMeta;
+                function dq(u){return u;} function notifyQuery(){return '';}
+                function api(){return new Promise(resolve=>{resolveMeta=resolve;});}
+                function $(sel){return {hidden:true};}
+                function notifyHandle(){seen.push('notify');}
+                function updateStaleBadge(){seen.push('badge');}
+                function updateSyncBadge(){} function noteOtherDocs(){}
+                function loadPins(){seen.push('pins');return Promise.resolve(true);}
+                function pollBuild(){seen.push('build');}
+                (async()=>{
+                  const old=pollLightOnce();
+                  DOC='a'; SWITCHSEQ++;
+                  DOC='b'; SWITCHSEQ++;
+                  resolveMeta({data:{pins_rev:'new',src_sig:'new-src',build_seq:1}});
+                  await old;
+                  console.log(JSON.stringify({seen,rev:LAST_PINS_REV,src:LAST_SRC_MTIME}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            {"seen": ["notify"], "rev": "old", "src": "old-src"},
+        )
+
+    def test_light_poll_does_not_claim_revision_after_visit_changes_during_pin_load(self):
+        """A pin read from an old visit cannot advance the new visit's meta baseline."""
+        js = "\n".join(
+            [
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
+                let POLL_FAILS=0,LAST_BUILD_SEQ=0,BUILD_TIMER=null;
+                const document={hidden:false},seen=[];
+                let resolvePins;
+                function dq(u){return u;} function notifyQuery(){return '';}
+                function api(){return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:1}});}
+                function $(sel){return {hidden:true};}
+                function notifyHandle(){} function updateStaleBadge(){}
+                function updateSyncBadge(){} function noteOtherDocs(){}
+                function loadPins(){return new Promise(resolve=>{resolvePins=resolve;});}
+                function pollBuild(){seen.push('build');}
+                (async()=>{
+                  const old=pollLightOnce();
+                  await Promise.resolve();
+                  DOC='a'; SWITCHSEQ++;
+                  DOC='b'; SWITCHSEQ++;
+                  resolvePins(true); await old;
+                  console.log(JSON.stringify({seen,rev:LAST_PINS_REV,src:LAST_SRC_MTIME}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"seen": [], "rev": "old", "src": "old-src"})
+
+    def test_build_status_from_previous_visit_does_not_open_error_on_return(self):
+        """An old build status response cannot display its error on a new visit to the same document."""
+        js = "\n".join(
+            [
+                extract_js_fn("pollBuildOnce"),
+                """
+                let DOC='b',SWITCHSEQ=1,BUILD_TIMER=null,BUILD_BOOTED=false,LAST_BUILD_SEQ=3;
+                const seen=[],DOC_SEQ=new Map(),document={hidden:false};
+                let resolveBuild;
+                function dq(u){return u;}
+                function api(){return new Promise(resolve=>{resolveBuild=resolve;});}
+                function $(sel){return {hidden:true,disabled:false};}
+                function showBuildErr(){seen.push('error');}
+                function refreshDoc(){return Promise.resolve();}
+                (async()=>{
+                  const old=pollBuildOnce();
+                  DOC='a'; SWITCHSEQ++;
+                  DOC='b'; SWITCHSEQ++;
+                  resolveBuild({data:{state:'fail',seq:3}});
+                  await old;
+                  console.log(JSON.stringify({seen,booted:BUILD_BOOTED}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"seen": [], "booted": False})
+
+    def test_build_completion_from_previous_visit_does_not_toast_after_refresh(self):
+        """A document switch during build refresh suppresses the old visit's completion toast."""
+        js = "\n".join(
+            [
+                extract_js_fn("pollBuildOnce"),
+                """
+                let DOC='b',SWITCHSEQ=1,BUILD_TIMER=null,BUILD_BOOTED=true,LAST_BUILD_SEQ=3;
+                let LAST_BUILD_ERR=null;
+                const seen=[],DOC_SEQ=new Map(),BUILD_ERR_BY=new Map(),META={pages:[1]};
+                let resolveRefresh;
+                function dq(u){return u;}
+                function api(){return Promise.resolve({data:{state:'ok',seq:4,elapsed_s:1}});}
+                function $(sel){return {hidden:true,disabled:false};}
+                function refreshDoc(){return new Promise(resolve=>{resolveRefresh=resolve;});}
+                function toast(){seen.push('toast');}
+                function pullSuffix(){return '';} function hideBuildErr(){}
+                (async()=>{
+                  const old=pollBuildOnce();
+                  await Promise.resolve();
+                  DOC='a'; SWITCHSEQ++;
+                  DOC='b'; SWITCHSEQ++;
+                  resolveRefresh(); await old;
+                  console.log(JSON.stringify({seen}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"seen": []})

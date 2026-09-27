@@ -30,9 +30,9 @@ function pollBuild(){
   return BUILD_INFLIGHT;
 }
 async function pollBuildOnce(){
-  let b; const k=DOC;
+  let b; const k=DOC,visit=SWITCHSEQ;
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
-  if(k!==DOC)return;                    // the document changed - showDoc will query the new one again
+  if(k!==DOC||visit!==SWITCHSEQ)return;  // showDoc queries again after a switch, including a return to this key
   const chip=$('#build-chip');
   if(b.state===BUILD_STATE.RUNNING){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
@@ -48,7 +48,7 @@ async function pollBuildOnce(){
     LAST_BUILD_SEQ=seq;                 // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
-    if(k!==DOC)return;
+    if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
     if(b.state===BUILD_STATE.OK){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
     else if(b.state===BUILD_STATE.OK_ERRORS){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
@@ -62,4 +62,3 @@ function startBuildPolling(){
   window.addEventListener('focus',()=>pollBuild());
   pollBuild();   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
 }
-

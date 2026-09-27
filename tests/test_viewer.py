@@ -178,7 +178,7 @@ class FrontendLogic(unittest.TestCase):
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=3,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
             // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
-            const DOC='main', DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
+            const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
             """,
                 extract_js_fn("buildChipText"),
                 extract_js_fn("pullSuffix"),

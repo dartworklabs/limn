@@ -30,18 +30,20 @@ function syncHiddenNotifyTimer(){
   if(document.hidden&&notifyOn()){pollHiddenNotify(); NOTIFY_HIDDEN_TIMER=setInterval(pollHiddenNotify,NOTIFY_HIDDEN_INTERVAL_MS);}
 }
 async function pollLightOnce(){
-  let d; const k=DOC;
+  let d; const k=DOC,visit=SWITCHSEQ;
   try{d=(await api(dq('/api/meta?light=1')+notifyQuery(),{what:'상태 확인',silent:true})).data; POLL_FAILS=0;}
   catch(e){POLL_FAILS++; if(POLL_FAILS>=2)$('#conn-lost').hidden=false; return;}
   $('#conn-lost').hidden=true;
   notifyHandle(d);                      // browser notifications - independent of the document (handled first even mid document-switch)
-  if(k!==DOC)return;                    // the document changed while waiting - the screen is never painted with a stale document's state
+  if(k!==DOC||visit!==SWITCHSEQ)return;  // a return to the same document is a new visit too
   updateStaleBadge(d); updateSyncBadge(d.sync); noteOtherDocs(d.docs);
   // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
   // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
   const needsPins=LAST_PINS_REV===null||d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME;
-  if(!needsPins||await loadPins()){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
+  const applied=!needsPins||await loadPins();
+  if(k!==DOC||visit!==SWITCHSEQ)return;
+  if(applied){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).
   if(d.build&&d.build.state===BUILD_STATE.RUNNING&&!BUILD_TIMER)pollBuild();
