@@ -71,6 +71,7 @@ PURE_IMPORTS = {
     "limn.mentions",  # the @-tag rules view.py reads; pure (tests/test_mentions.py checks it)
     "limn.scope",  # the stored `changes` shape record.py checks; pure (tests/test_scope.py)
     "posixpath",  # record.py's isabs: string work only (os.path is posixpath on POSIX)
+    "types",  # MappingProxyType freezes a validated close command's changes without I/O.
     "limn.guidance",
     "limn.mapping",
 }  # the last two: pure text modules render.py uses (checked below)
@@ -253,6 +254,21 @@ def open_record(**extra):
 
 class Close(unittest.TestCase):
     """decide_close/evolve_close: who closes decides review; a closed pin is left alone."""
+
+    def test_close_request_rejects_malformed_changes(self):
+        """An internal close cannot write a changes shape that the store quarantines on its next read."""
+        for changes in (({"file": "/ms/a.tex"},), ({"file": "/ms/a.tex", "lo": True, "hi": 3},)):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                CloseRequest(changes=changes)
+
+    def test_close_request_keeps_validated_changes_after_source_mutation(self):
+        """Mutating the caller's range after validation cannot turn an accepted close into a broken stored pin."""
+        source = {"file": "/ms/a.tex", "lo": 1, "hi": 3}
+        request = CloseRequest(changes=(source,))
+        source["lo"] = True
+        self.assertIs(type(request.changes[0]["lo"]), int)
+        with self.assertRaises(TypeError):
+            request.changes[0]["lo"] = True
 
     def test_agent_close_awaits_review(self):
         """An agent's close without a review choice goes to review; a person's is done."""
