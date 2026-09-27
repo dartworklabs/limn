@@ -107,3 +107,41 @@ jobs:
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
             echo "packaged: $f"
           done
+
+  tex:
+    # The tests that run real TeX-side tools (the `tex` marker, tests/helpers.py needs_tex): real latexmk builds and
+    # page renders, pick end to end, --git-pull builds and the bwrap-sandboxed comparison builds. The other jobs have no
+    # TeX, so those tests skip there; here LIMN_TEST_REQUIRE_TEX=1 makes a missing tool a failure.
+    runs-on: ubuntu-24.04
+    env:
+      LIMN_TEST_REQUIRE_TEX: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install TeX, Poppler and bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            latexmk texlive-latex-base texlive-plain-generic latexdiff poppler-utils bubblewrap
+      - name: Let bwrap create user namespaces
+        # Ubuntu 24.04 (kernel.apparmor_restrict_unprivileged_userns=1) denies unprivileged user namespaces to any
+        # program without an AppArmor profile that grants them, and bwrap then fails at its first step ("loopback:
+        # Failed RTM_NEWADDR"). This grants userns to /usr/bin/bwrap only, the way Ubuntu does for other sandboxing
+        # programs; the sysctl and bwrap's own arguments stay as they are.
+        run: |
+          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+          bwrap --unshare-all --ro-bind / / true
+      - name: Install dev dependencies
+        run: uv sync --group dev --locked
+      - name: TeX tests
+        run: uv run pytest -q -rs -m tex

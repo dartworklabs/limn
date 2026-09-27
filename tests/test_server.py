@@ -61,6 +61,7 @@ from helpers import (
     extract_js_fn,
     jreq,
     js_i18n,
+    needs_tex,
     pick,
     ps,
     record_of,
@@ -525,11 +526,10 @@ class OverlapRoutes(Base):
         self.assertEqual(position.selection_rel(8, 12, 4, 9), "partial")
         self.assertIsNone(position.selection_rel(10, 12, 4, 9))
 
+    @needs_tex("latexmk", "pdftoppm", "pdftotext", "synctex")
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
-        import shutil as _sh
-
-        if not (_sh.which("latexmk") and _sh.which("pdftoppm") and _sh.which("pdftotext")):
-            self.skipTest("latex tools not available")
+        """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
+        resolved against, also for an older build still on screen; a vanished build is flagged, a bad name refused."""
         res = ps.build_all(ps.DOCS[0])
         self.assertIsInstance(res, BuildOk)
         pages = limn_build.page_list(limn_build.cur_pages(ps.DOCS[0]), ps.C.dpi)
@@ -1160,7 +1160,7 @@ class MultiDoc(Base):
             ps.repo_pull(), ps.repo_pull()
         self.assertEqual(len(calls), 3)  # single document: once per build (unchanged from before)
 
-    @unittest.skipUnless(shutil.which("pdftoppm"), "pdftoppm not available")
+    @needs_tex("pdftoppm")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         rv = self.rv
         self.assertTrue(limn_build.pdf_changed(rv))  # not rendered yet
