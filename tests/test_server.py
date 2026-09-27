@@ -876,6 +876,24 @@ class ProcessRuntime(unittest.TestCase):
             ps.main()
         self.assertTrue(rt.stopping.is_set())
 
+    def test_main_preserves_serving_error_when_cleanup_also_fails(self):
+        """Both cleanup steps are attempted without replacing the error that ended serving."""
+
+        server = mock.Mock()
+        server.serve_forever.side_effect = RuntimeError("serving failed")
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = mock.Mock()
+        rt.stop.side_effect = OSError("cannot stop runtime")
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaisesRegex(RuntimeError, "serving failed"),
+        ):
+            ps.main()
+        server.server_close.assert_called_once_with()
+        rt.stop.assert_called_once_with()
+
     def test_start_stops_watch_when_listen_refuses(self):
         """A port lost after the probe cannot leave a watch thread running after startup refuses."""
         with tempfile.TemporaryDirectory() as tmp:

@@ -1376,18 +1376,29 @@ def main() -> None:
     """The composition root: parse the arguments, then start() makes and binds the run settings (C) and the process's
     resources (RT), the documents, prepares the pin store and the builds, starts the watch threads and opens the
     server; serve until stopped, then close the listening socket and stop the watch threads (RT.stop), even if
-    socket closure fails. Whatever ended serving (Ctrl-C) still propagates when cleanup succeeds. The one place
-    the process exits on a refused start: the refusal's message on stderr, status 1."""
+    socket closure fails. A serving error retains priority over cleanup errors, which are warned on stderr. The
+    one place the process exits on a refused start: the refusal's message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
     try:
         started.serve_forever()
     finally:
+        serving_error = sys.exc_info()[1]
+        cleanup_errors: list[BaseException] = []
         try:
             started.server_close()
-        finally:
+        except BaseException as e:
+            cleanup_errors.append(e)
+        try:
             RT.stop()
+        except BaseException as e:
+            cleanup_errors.append(e)
+        if cleanup_errors:
+            if serving_error is None:
+                raise cleanup_errors[0]
+            for error in cleanup_errors:
+                print(f"warning: server cleanup failed: {error}", file=sys.stderr)
 
 
 if __name__ == "__main__":
