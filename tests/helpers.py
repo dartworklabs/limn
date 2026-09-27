@@ -4,7 +4,7 @@ the viewer's source text and page images, and the test data more than one module
 RULE_CASES with rec_for, a minimal PDF for the browser's comparison view).
 
 Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
-would give two sets of module globals: two C, two DOCS, two locks). The access fixtures (identities, AccessBase) are in
+would give two sets of module globals: two C, two RT, two DOCS). The access fixtures (identities, AccessBase) are in
 helpers_access.py and the browser ones (the Chromium launcher, BrowserBase) in helpers_browser.py. Test modules import
 fixtures only from these helpers, never from one another.
 """
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from limn import config, gitsync, revisions
+from limn import config, revisions
 from limn.access import LOCAL_ACTOR
 from limn.config import AccessOptions, RunConfig
 from limn.store import find_pin
@@ -214,9 +214,17 @@ def page_for(label: str, accent: str) -> str:
     return assemble.run_page(HTML, label, accent)
 
 
+def fresh_runtime(mod=None) -> None:
+    """Bind a fresh Runtime (new_runtime) on the server copy (default ps), as a restarted process has: new locks,
+    empty caches and registries, no threads, serving the viewer for its run's label and accent."""
+    mod = mod or ps
+    mod.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, mod.C.label, mod.C.accent))
+
+
 def serve_viewer(label: str, accent: str, mod=None) -> None:
     """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent`, as start() does."""
-    (mod or ps).VIEWER = assemble.serve_viewer(VIEWER_FILES, label, accent)
+    mod = mod or ps
+    mod.RT = dataclasses.replace(mod.RT, viewer=assemble.serve_viewer(VIEWER_FILES, label, accent))
 
 
 def needs_tex(*tools: str):
@@ -364,7 +372,8 @@ class Base(unittest.TestCase):
     idle build, default run settings. Tests drive it through ps's functions or the handler (talk)."""
 
     def setUp(self):
-        """Reset the server copy's run settings, build state, remote-main watch and document list for this test."""
+        """Bind the server copy's run settings and a fresh Runtime (as a restarted process has) for this test, and the
+        single document with its idle build."""
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.src = root / "ms"
@@ -373,21 +382,7 @@ class Base(unittest.TestCase):
         self.main.write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
         ps.C = run_config(self.src, self.main, root / "state")
-        ps.SYNC_WATCH = gitsync.SyncWatch()  # a fresh remote-main watch status ("checking")
-        serve_viewer(ps.C.label, ps.C.accent)
-        ps.BUILD_STATE.update(
-            state="idle",
-            phase=None,
-            started_at=None,
-            start_ts=None,
-            seq=0,
-            finished_at=None,
-            last=None,
-            errors=[],
-            log_tail="",
-            head=None,
-            pull=None,
-        )
+        fresh_runtime()  # new locks, empty caches, a "checking" remote-main watch, the viewer for 원고
         ps.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
         ps.init_seq()
 

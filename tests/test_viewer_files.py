@@ -20,7 +20,7 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import HTML, SW_JS, VIEWER, Base, page_for, ps, req, split_resp, viewer_text
+from helpers import HTML, SW_JS, VIEWER, Base, page_for, req, split_resp, viewer_text
 from helpers_js import inline_scripts
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
@@ -210,7 +210,6 @@ class ServiceWorkerRoute(Base):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
 
     def get(self, path, headers=None):
         code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))

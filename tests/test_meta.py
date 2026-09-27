@@ -345,7 +345,7 @@ class LightMeta(Base):
         (ps.C.src / "build" / "leftover.tex").write_text("x", encoding="utf-8")
         # must not change even outside the cache window (even after 2s)
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps._SRC_MTIME_CACHE[2] = 0.0  # force-expire the cache to check recomputation
+        ps.DOCS[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_ignores_diff_dir(self):
@@ -357,15 +357,15 @@ class LightMeta(Base):
         (ps.C.src / "diff").mkdir()
         (ps.C.src / "diff" / "latexdiff-out.tex").write_text("x", encoding="utf-8")
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
-        ps._SRC_MTIME_CACHE[2] = 0.0  # force-expire the cache to check recomputation
+        ps.DOCS[0].mcache[2] = 0.0  # force-expire the cache to check recomputation
         self.assertEqual(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_src_mtime_reacts_to_tex_change(self):
-        ps._SRC_MTIME_CACHE[2] = 0.0
+        ps.DOCS[0].mcache[2] = 0.0
         m0 = limn_build.src_mtime(ps.DOCS[0], ps.C.state)
         time.sleep(0.05)
         os.utime(self.main, (time.time() + 10, time.time() + 10))
-        ps._SRC_MTIME_CACHE[2] = 0.0
+        ps.DOCS[0].mcache[2] = 0.0
         self.assertGreater(limn_build.src_mtime(ps.DOCS[0], ps.C.state), m0)
 
     def test_built_src_mtime_file_missing_is_fine(self):

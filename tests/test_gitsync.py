@@ -449,7 +449,7 @@ class GitPullBuildIntegration(Base):
         with mock.patch.object(ps, "repo_pull", side_effect=fake_pull):
             res = ps.build_all(ps.DOCS[0])
         self.assertIsInstance(res, BuildOk)
-        ps._SRC_MTIME_CACHE[2] = 0.0
+        ps.DOCS[0].mcache[2] = 0.0
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
         self.assertAlmostEqual(
@@ -480,7 +480,7 @@ class GitPullBuildIntegration(Base):
         ):
             res = ps.build_all(ps.DOCS[0])
         self.assertIsInstance(res, BuildOk)
-        ps._SRC_MTIME_CACHE[2] = 0.0
+        ps.DOCS[0].mcache[2] = 0.0
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
 
@@ -534,16 +534,16 @@ class AutomaticMainSync(Base):
     def test_updating_clears_when_pdf_reaches_synced_head(self):
         """An "updating" status turns "current" once the PDF was built from the pulled commit."""
         set_config(git_pull=True)
-        with ps.SYNC_WATCH.lock:
-            ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
+        with ps.RT.sync_watch.lock:
+            ps.RT.sync_watch.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("bbbbbbb", encoding="utf-8")
         self.assertEqual(ps.sync_status()["state"], "current")
 
     def test_failed_pdf_build_reports_error(self):
         """An "updating" status turns error/build_failed when a document still behind the commit failed its build."""
         set_config(git_pull=True)
-        with ps.SYNC_WATCH.lock:
-            ps.SYNC_WATCH.record.update(state="updating", reason=None, head_after="b" * 40)
+        with ps.RT.sync_watch.lock:
+            ps.RT.sync_watch.record.update(state="updating", reason=None, head_after="b" * 40)
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with ps.DOCS[0].bstate_lock:
             ps.DOCS[0].bstate["state"] = "fail"

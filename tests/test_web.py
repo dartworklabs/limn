@@ -28,6 +28,7 @@ from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
 from limn.revisions import DocumentBusy
+from limn.viewer.assemble import ServedViewer
 from limn.web import answers
 from limn.web.app import App
 from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
@@ -67,13 +68,14 @@ class Binding(Base):
         self.assertEqual(not_callable, [])
 
     def test_handler_sees_a_name_rebound_on_the_server_module(self):
-        """start() binds the served viewer (VIEWER) and tests patch services on their copy of server.py; the handler must
-        call what the module holds now, not what it held at import."""
+        """start() binds the run's resources (RT, with the served viewer) and tests patch services on their copy of
+        server.py; the handler must call what the module holds now, not what it held at import."""
         with mock.patch.object(ps, "build_async", return_value={"sentinel": 1}) as fake:
             self.assertIs(ps.Handler.app.build_async, fake)
         self.assertIs(ps.Handler.app.build_async, ps.build_async)
-        with mock.patch.object(ps, "VIEWER", "<p>rebound</p>", create=True):
-            self.assertEqual(ps.Handler.app.VIEWER, "<p>rebound</p>")
+        rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
+        with mock.patch.object(ps, "RT", rebound):
+            self.assertEqual(ps.Handler.app.viewer().page, "<p>rebound</p>")
 
     def test_an_unknown_name_is_an_attribute_error(self):
         """The view answers like a module: a missing global is AttributeError, not KeyError."""

@@ -176,7 +176,7 @@ class ProxyHardening(AccessBase):
         )
 
     def test_people_json_is_written_0600(self):
-        ps._PEOPLE_SEEN.clear()
+        ps.RT.people_seen.clear()
         ps.record_person({"login": "bob@example.com", "name": "Bob"})
         self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
         os.chmod(ps.C.people_file, 0o644)

@@ -34,7 +34,6 @@ class ReplyApi(AccessBase):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
 

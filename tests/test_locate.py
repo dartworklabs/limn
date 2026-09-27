@@ -455,7 +455,7 @@ class Estimate(Base):
             None,
             build_failure_log,
         )
-        ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
+        ps.DOCS[0].bstate.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
         st = limn_build.state_snapshot(ps.DOCS[0])
         self.assertEqual((st["state"], st["seq"]), ("ok_errors", 2))

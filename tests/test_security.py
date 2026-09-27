@@ -299,7 +299,7 @@ class UnreadablePeople(AccessBase):
     def setUp_case(self):
         """Start one subTest from the good file with nobody memoised as recently recorded."""
         ps.C.people_file.write_bytes(self.good)
-        ps._PEOPLE_SEEN.clear()
+        ps.RT.people_seen.clear()
 
 
 class FramingHeaders(AccessBase):

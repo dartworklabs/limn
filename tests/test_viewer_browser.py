@@ -22,7 +22,7 @@ import subprocess
 import time
 from unittest import mock
 
-from limn import access, revisions, startup
+from limn import revisions, startup
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
@@ -342,7 +342,6 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.ROLES_CACHE = access.FileCache()
         ps.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")

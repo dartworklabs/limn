@@ -15,6 +15,7 @@ fixtures are tests/helpers.py.
 Run: uv run pytest tests/test_server.py
 """
 
+import dataclasses
 import json
 import os
 import re
@@ -57,6 +58,7 @@ from helpers import (
     ps,
     record_of,
     req,
+    run_config,
     set_config,
     shut_wr,
     split_resp,
@@ -615,8 +617,8 @@ class ResponseDiet(unittest.TestCase):
 
 class RebuildLogDiet(Base):
     def tearDown(self):
-        if ps.BUILD_LOCK.locked():
-            ps.BUILD_LOCK.release()
+        if ps.DOCS[0].lock.locked():
+            ps.DOCS[0].lock.release()
         super().tearDown()
 
     def test_sync_rebuild_ok_omits_log(self):
@@ -770,6 +772,80 @@ class ImportReadsNoFile(unittest.TestCase):
         self.assertEqual(r.stdout.split(), [])
 
 
+class ProcessRuntime(unittest.TestCase):
+    """new_runtime / Runtime: the per-process resources are one value made fresh for each start, and stop() ends the
+    long-lived threads it started."""
+
+    def runtime(self):
+        """A fresh Runtime serving a stand-in viewer."""
+        return ps.new_runtime(viewer_assemble.ServedViewer("<p></p>", "", {}))
+
+    def test_each_runtime_owns_fresh_resources(self):
+        """Two runtimes share no lock, cache, registry or status object, and a new one has no thread and is not
+        stopping - so a restart (or a test) starts from nothing held over."""
+        a, b = self.runtime(), self.runtime()
+        shared = [
+            f.name for f in dataclasses.fields(a) if f.name != "viewer" and getattr(a, f.name) is getattr(b, f.name)
+        ]
+        self.assertEqual(shared, [])
+        self.assertEqual((a.threads, a.stopping.is_set()), ([], False))
+
+    def test_stop_ends_both_watch_threads(self):
+        """The view-only PDF watch and the remote-main watch, started as prepare() starts them, end on stop(); a second
+        stop() is harmless."""
+        rt = self.runtime()
+        rounds = []
+        with mock.patch.object(ps, "DOCS", []):
+            rt.start_thread(ps.watch_pdf_docs, rt.stopping, 0.01)
+            rt.start_thread(rt.sync_watch.watch, rt.stopping, 0.01, lambda: rounds.append(1) or {}, lambda: "t")
+            self.assertTrue(all(t.is_alive() for t in rt.threads))
+            rt.stop(timeout=5)
+        self.assertEqual([t.is_alive() for t in rt.threads], [False, False])
+        self.assertGreater(len(rounds), 0)
+        rt.stop(timeout=0)
+
+    def test_main_stops_the_runtime_when_serving_ends(self):
+        """main() stops the Runtime whatever ends serve_forever (Ctrl-C here), and lets that end propagate."""
+
+        class Served:
+            """A started server whose serving is interrupted."""
+
+            def serve_forever(self):
+                """End like a Ctrl-C."""
+                raise KeyboardInterrupt
+
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=Served()),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            ps.main()
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_start_stops_watch_when_listen_refuses(self):
+        """A port lost after the probe cannot leave a watch thread running after startup refuses."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = run_config(root, root / "main.tex", root / "state")
+            rt = self.runtime()
+            refusal = StartupRefused("port taken")
+            with (
+                mock.patch.object(ps.startup, "access_options", return_value=cfg.access),
+                mock.patch.object(ps, "configure_run", return_value=ps.RunStart(cfg, None)),
+                mock.patch.object(ps, "read_viewer"),
+                mock.patch.object(ps, "serve_viewer", return_value=rt.viewer),
+                mock.patch.object(ps, "new_runtime", return_value=rt),
+                mock.patch.object(ps, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)),
+                mock.patch.object(ps, "report"),
+                mock.patch.object(ps, "listen", return_value=refusal),
+            ):
+                self.assertEqual(ps.start(mock.Mock(port=0, no_build=True)), refusal)
+            self.assertTrue(rt.stopping.is_set())
+            self.assertEqual([t.is_alive() for t in rt.threads], [False])
+
+
 # ---------------------------------------------------------------- §Multiple documents (--doc) — switching documents inside one viewer
 
 
@@ -823,8 +899,6 @@ class MultiDoc(Base):
         self.assertEqual(limn_build.cur_pages(ps.DOCS[0]), ps.C.state / "pages")
         self.assertEqual(ps.DOCS[0].build, ps.C.build)
         self.assertEqual(ps.DOCS[0].paths, ps.C.paths)  # the frozen run paths it was made with
-        self.assertIs(ps.DOCS[0].lock, ps.BUILD_LOCK)  # the old global lock/state IS this document's
-        self.assertIs(ps.DOCS[0].bstate, ps.BUILD_STATE)
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
         md = ps.pins_md_text(ps.snapshot_pins())
@@ -902,7 +976,6 @@ class MultiDoc(Base):
         Regression: the notices were built before the record had its doc, so pin_doc_key read the first document (ms)
         and the viewer opened a notice about a pin in rr on the wrong document.
         """
-        ps._EVENTS_CACHE.clear()
         ps.record_person(dict(self.WENDY))
         pin = add_pin(
             {
@@ -922,7 +995,6 @@ class MultiDoc(Base):
     def test_later_notices_about_a_pin_name_its_document(self):
         """Edit, reply, close and reopen notices about a pin in the second document carry that document's key: they
         are made from the stored record, which has its doc."""
-        ps._EVENTS_CACHE.clear()
         ps.record_person(dict(self.WENDY))
         pid = add_pin(
             {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(BOB_ACTOR)
@@ -1065,7 +1137,6 @@ class MultiDoc(Base):
             self.assertEqual(ps.build_all(self.ms), BuildBusy())
             self.assertEqual(ps.build_async(self.rrd), BuildStarted())  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
-            self.assertFalse(ps.BUILD_LOCK.locked())  # the single-document global lock is left untouched
             gate.set()
             for _ in range(100):
                 if not (self.ms.lock.locked() or self.rrd.lock.locked()):
@@ -1085,10 +1156,7 @@ class MultiDoc(Base):
             calls.append(m)
             return UpToDate(None)
 
-        with (
-            mock.patch.object(gitsync, "pull", side_effect=fake_pull),
-            mock.patch.object(ps, "PULL_SHARE", gitsync.PullShare()),
-        ):
+        with mock.patch.object(gitsync, "pull", side_effect=fake_pull):  # the fresh Runtime's pull share (Base)
             a = ps.repo_pull()
             b = ps.repo_pull()
         self.assertEqual(len(calls), 1)  # once per repository

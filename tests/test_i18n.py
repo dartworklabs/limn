@@ -33,6 +33,7 @@ from helpers import (
     add_pin,
     blank_png,
     extract_js_fn,
+    fresh_runtime,
     page_for,
     run_config,
     run_node,
@@ -448,6 +449,7 @@ class EnglishChrome(ChromiumTestCase):
             (src / name).write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
         ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
+        fresh_runtime(ps)
         C = ps.C
         ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C.paths))
         ps.init_seq()

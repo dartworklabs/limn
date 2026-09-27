@@ -31,7 +31,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
@@ -92,7 +92,6 @@ from limn.documents import (
     Doc,
     DocNotFound,
     DocumentFacts,
-    fresh_build_state,
 )
 from limn.events import EVENTS_KEEP, EventType
 from limn.files import tex_lines, vendor_file as find_vendor_file
@@ -186,17 +185,69 @@ DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage
 THREAD_MAX = 200  # cap on one pin's thread (replies). State-transition records (close/reopen/confirm) are appended regardless of this cap
 TRASH_DAYS = 30  # a dropped pin stays in the Trash (pins.dropped.jsonl) this long, then is purged for good
 
-# The pin store's lock (limn.store.PinStore.lock): every path that touches the pin files goes through this single
-# re-entrant lock. The store creates no lock, so the process makes its one here and pin_store() passes it on.
-PIN_LOCK = threading.RLock()
-# If two latexmk runs share the same build/, they trample each other's .aux.
-BUILD_LOCK = threading.Lock()
-# Guards the BUILD_STATE dict (progress chip / error panel). Separate from BUILD_LOCK (only one build at
-# a time) - this lock exists just so that state doesn't race with the GET /api/build request that "reads" it.
-BUILD_STATE_LOCK = threading.Lock()
-BUILD_STATE: dict[str, Any] = fresh_build_state()
-# Bundles the read-modify-write of builds.json (build history).
-BUILDS_LOCK = threading.Lock()
+# ---------------------------------------------------------------- Per-process resources
+#
+# Everything one server process holds between requests - the locks, caches, registries and status objects, the viewer
+# it serves and the long-lived threads - is one Runtime value, made by new_runtime() in start() once the run settings
+# are known and bound as RT. Nothing of it exists at import. A test makes a fresh one per test (tests/helpers.py). Each
+# document's build lock and state belong to the document (limn.documents.Doc), the single one included.
+
+
+@dataclass(frozen=True)
+class Runtime:
+    """The resources of one server process. The binding never changes after start(); the objects it holds do (a cache
+    fills, a status moves on), each guarded by its own lock where threads share it.
+
+    stop() ends the long-lived threads (the view-only PDF watch and the remote-main watch) that start_thread() began:
+    it sets `stopping`, which both loops wait on, and joins them."""
+
+    viewer: ServedViewer  # what GET /, GET /sw.js and a refused browser's page serve (read_viewer, serve_viewer)
+    # The pin store's lock (limn.store.PinStore.lock): every path that touches the pin files goes through this single
+    # re-entrant lock. The store creates no lock, so the process makes its one here and pin_store() passes it on.
+    pin_lock: threading.RLock = field(default_factory=threading.RLock)
+    people_lock: threading.Lock = field(default_factory=threading.Lock)  # people.json's read-modify-write
+    events_lock: threading.Lock = field(default_factory=threading.Lock)  # events.jsonl's appends and trims
+    # (people.json path, login) -> (name, pic, epoch last written): not rewritten if the value is unchanged
+    people_seen: people.SeenMemo = field(default_factory=dict)
+    # warns once per breakage of an unusable people.json, for every reader
+    people_warning: people.UnreadableWarning = field(default_factory=people.UnreadableWarning)
+    events_cache: events.ReadCache = field(default_factory=dict)  # events.jsonl as last read, keyed by mtime/size
+    trash_checked: list[float] = field(default_factory=lambda: [0.0])  # epoch of the Trash's last lazy check
+    # the pin scopes of commits (commits are immutable, so entries stay right) and the running comparison builds
+    scope_cache: revisions.ScopeCache = field(default_factory=revisions.ScopeCache)
+    revision_jobs: revisions.RevisionJobs = field(default_factory=revisions.RevisionJobs)
+    # --git-pull: one pull per repository and its last result; the remote-main watch status (GET /api/meta `sync`)
+    pull_share: gitsync.PullShare = field(default_factory=gitsync.PullShare)
+    sync_watch: gitsync.SyncWatch = field(default_factory=gitsync.SyncWatch)
+    token_cache: locate.TokenCache = field(default_factory=locate.TokenCache)  # word weights of the last file weighed
+    # tokens.json's valid entries and people.json's {login: role} (or PeopleUnreadable) as last read - re-read when
+    # the file changes on disk, so `limn token` / `limn member` edits take effect on the next request
+    tokens_cache: access.FileCache[list[Json]] = field(default_factory=access.FileCache)
+    roles_cache: access.FileCache[access.PeopleRoles] = field(default_factory=access.FileCache)
+    loopback_warning: access.WarnOnce = field(default_factory=lambda: access.WarnOnce(LOOPBACK_AGENT_DEPRECATION))
+    stopping: threading.Event = field(default_factory=threading.Event)  # set by stop(); the watch loops end on it
+    threads: list[threading.Thread] = field(default_factory=list)  # the long-lived threads start_thread() began
+
+    def start_thread(self, target: Callable[..., object], *args: object) -> None:
+        """Start target(*args) on a daemon thread that stop() will join. target must return once `stopping` is set."""
+        t = threading.Thread(target=target, args=args, daemon=True)
+        self.threads.append(t)
+        t.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Ask the long-lived threads to end and wait up to timeout seconds for each. Idempotent: a second call, or one
+        before any thread started (a refused or partial startup), only sets the event again."""
+        self.stopping.set()
+        for t in self.threads:
+            t.join(timeout)
+
+
+def new_runtime(viewer: ServedViewer) -> Runtime:
+    """A process's resources, all fresh: new locks, empty caches and registries, no threads, serving viewer."""
+    return Runtime(viewer)
+
+
+RT: Runtime  # bound once by start(), before the server listens
 
 # The run settings (limn.config.RunConfig): made by the startup steps from the command line and bound once, by start(),
 # before the server listens. Frozen - a test binds another value (tests/helpers.py set_config) rather than changing it.
@@ -284,9 +335,6 @@ def _build_tracked(D: Doc) -> FinishedBuild:
 # cache and job registry, the pins as the API shows them, where a recorded path is now, and the texts a failed
 # comparison records (limn.web.errors, the same table as the HTTP answers).
 
-SCOPE_CACHE = revisions.ScopeCache()  # the process's pin scopes (commits are immutable, so entries stay right)
-REVISION_JOBS = revisions.RevisionJobs()  # the process's running comparison builds and their two slots
-
 
 def revision_context() -> revisions.RevisionContext:
     """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
@@ -303,8 +351,8 @@ def revision_context() -> revisions.RevisionContext:
         pins=lambda: [public(r) for r in read_pins()[0]],
         doc_of=pin_doc_key,
         locate=locate,
-        cache=SCOPE_CACHE,
-        jobs=REVISION_JOBS,
+        cache=RT.scope_cache,
+        jobs=RT.revision_jobs,
         describe=revision_failure_text,
     )
 
@@ -337,34 +385,33 @@ def revision_pdf(D: Doc, commit: str, pin: int | None = None) -> bytes | PdfRefu
 # checkout - a pull is nice to have, not a build prerequisite.
 #
 # The pull and the watch are limn/gitsync.py (the git calls, locks and watch loop) over limn/pull.py (what git's
-# answers mean and what the watch does next). The process's one pull share and watch status are made here; the
+# answers mean and what the watch does next). The process's one pull share and watch status are the Runtime's; the
 # bindings below hand them the manuscript folder, the documents, --git-pull, the git runner (limn.revisions.git
 # imported above as _git: no shell, 30 seconds per call), the clock and the build starter, read per call so a test
 # that binds another C or rebinds build_async is seen at once. prepare() starts the watch thread.
-
-PULL_SHARE = gitsync.PullShare()  # the process's one pull per repository and its last result
-SYNC_WATCH = gitsync.SyncWatch()  # the remote-main watch status GET /api/meta shows as `sync`
 
 
 def repo_pull() -> Json:
     """A build's --git-pull, as its `pull` record (limn.gitsync.repo_pull): one document pulls on every build; several
     share one pull per repository within limn.gitsync.PULL_SHARE_S."""
-    return gitsync.repo_pull(PULL_SHARE, multi_doc(), lambda: gitsync.pull(C.src, main_only=False, git=_git), time.time)
+    return gitsync.repo_pull(
+        RT.pull_share, multi_doc(), lambda: gitsync.pull(C.src, main_only=False, git=_git), time.time
+    )
 
 
 def sync_status() -> Json:
     """GET /api/meta's `sync` - the remote-main watch status (limn.gitsync.SyncWatch.status)."""
-    return SYNC_WATCH.status(DOCS, C.git_pull)
+    return RT.sync_watch.status(DOCS, C.git_pull)
 
 
 def sync_main_once() -> Json:
     """One remote-main round (limn.gitsync.SyncWatch.once): pull main, then start the builds of the documents the
     pull left behind. The watch thread runs it, and a --no-build startup through it."""
-    return SYNC_WATCH.once(
+    return RT.sync_watch.once(
         DOCS,
         C.git_pull,
         lambda: gitsync.pull(C.src, main_only=True, git=_git),
-        PULL_SHARE,
+        RT.pull_share,
         build_async,
         gitsync.local_stamp,
         time.time,
@@ -382,31 +429,13 @@ def _build(D: Doc) -> FinishedBuild:
 # limn.documents' and the polled reads (GET /api/meta, /api/docs, /api/outline-labels) limn.meta's; each takes the
 # list and the run settings as arguments, bound here.
 
-# [C.src string, value, measured-at time] - a 2-second cache (for a single document)
-_SRC_MTIME_CACHE: list[Any] = [None, 0.0, 0.0]
 DOCS: list[Doc] = []  # the documents this run serves, the first is the default; filled by prepare() (set_docs)
 
 
 def set_docs(docs: Iterable[Doc] | None = None) -> None:
     """Change the document list (prepare()/tests). With none, the single document of a run without --doc: legacy
-    (the manuscript and main file are C's) over C.paths, holding the module-global build lock and state."""
-    DOCS[:] = (
-        list(docs)
-        if docs
-        else [
-            Doc(
-                DEFAULT_DOC_KEY,
-                "본문",
-                legacy=True,
-                lock=BUILD_LOCK,
-                bstate=BUILD_STATE,
-                bstate_lock=BUILD_STATE_LOCK,
-                builds_lock=BUILDS_LOCK,
-                mcache=_SRC_MTIME_CACHE,
-                paths=C.paths,
-            )
-        ]
-    )
+    (the manuscript and main file are C's) over C.paths, with its own build lock and state like any document."""
+    DOCS[:] = list(docs) if docs else [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=C.paths)]
 
 
 def multi_doc() -> bool:
@@ -493,9 +522,9 @@ def pin_store() -> PinStore:
     """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
     Made per call, like build_config(), so a test that binds another C is seen at once; the lock is the one
-    process-wide PIN_LOCK. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
+    process-wide RT.pin_lock. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
     sync_all (reads the .tex files under C.src) and the renderer pins_md_text."""
-    return PinStore(PinFiles(C.state), PIN_LOCK, valid_rec, sync_all, pins_md_text)
+    return PinStore(PinFiles(C.state), RT.pin_lock, valid_rec, sync_all, pins_md_text)
 
 
 # The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
@@ -513,7 +542,7 @@ def read_pins() -> tuple[list[Row], list[int]]:
 
 
 def write_pins(rows: list[Row], bad: list[int] | None = None) -> None:
-    """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold PIN_LOCK."""
+    """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold RT.pin_lock."""
     pin_store().write_pins(rows, bad)
 
 
@@ -563,7 +592,7 @@ def dropped_payload(now: float | None = None) -> list[Json]:
     dropped_at, each entry with `expires_ts`, without entries older than TRASH_DAYS (hidden here, removed from the file
     by the next purge_trash()).
 
-    Read-only and outside the lock - dropping/restoring already hold PIN_LOCK while writing this file
+    Read-only and outside the lock - dropping/restoring already hold RT.pin_lock while writing this file
     (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
     read here, no separate lock is needed to avoid seeing a half-written file."""
     return view.dropped_payload(_unexpired(read_jsonl(C.dropped)[0], now), public, trash_expires_ts)
@@ -647,7 +676,7 @@ def pin_context() -> PinContext:
         stamp=lambda r: stamp_location(r, C.src, C.state),
         thread_max=THREAD_MAX,
         trash_days=TRASH_DAYS,
-        trash_checked=_TRASH_CHECKED,
+        trash_checked=RT.trash_checked,
     )
 
 
@@ -680,27 +709,21 @@ def edit_pin(
 # ---------------------------------------------------------------- People, @-tags, events (docs/handbook/api.md §@태그·사람·이벤트)
 #
 # people.json (limn/people.py), the @-tag rules (limn/mentions.py) and events.jsonl (limn/events.py) take their paths,
-# locks, caches and clock as arguments. The process's ones are made here, once, and bound per call by people_book()
+# locks, caches and clock as arguments. The process's ones are the Runtime's (RT), bound per call by people_book()
 # and event_log(); the functions below keep the names the pin services, the handler (web/app.py) and the tests call.
-
-PEOPLE_LOCK = threading.Lock()
-EVENTS_LOCK = threading.Lock()
-_PEOPLE_SEEN: people.SeenMemo = {}  # (people.json path, login) -> (name, pic, epoch last written) - not rewritten if the value is unchanged
-PEOPLE_WARNING = people.UnreadableWarning()  # warns once per breakage of an unusable people.json, for every reader
-_EVENTS_CACHE: events.ReadCache = {}  # events.jsonl as last read, keyed by its mtime/size
 
 
 def people_book() -> people.PeopleBook:
-    """people.json of the current run (limn.people.PeopleBook): C.state with the process's lock, last-written memo and
+    """people.json of the current run (limn.people.PeopleBook): C.state with the Runtime's lock, last-written memo and
     unreadable-file warning. Made per call, like pin_store(), so a test that binds another C is seen at once."""
-    return people.PeopleBook(C.state, PEOPLE_LOCK, _PEOPLE_SEEN, PEOPLE_WARNING)
+    return people.PeopleBook(C.state, RT.people_lock, RT.people_seen, RT.people_warning)
 
 
 def load_people() -> list[Row] | people.PeopleUnreadable:
     """The valid entries of this run's people.json (limn.people.load_people); [] when it is missing, PeopleUnreadable
-    (warned about once, PEOPLE_WARNING) when it exists but cannot be used."""
+    (warned about once, RT.people_warning) when it exists but cannot be used."""
     rows = people.load_people(C.people_file)
-    PEOPLE_WARNING.note(C.people_file, rows)
+    RT.people_warning.note(C.people_file, rows)
     return rows
 
 
@@ -732,9 +755,9 @@ def known_people(rows: list[Row] | None = None) -> dict[str, Row]:
 
 
 def event_log() -> events.EventLog:
-    """events.jsonl of the current run (limn.events.EventLog) with the process's lock and read cache, stamped by
+    """events.jsonl of the current run (limn.events.EventLog) with the Runtime's lock and read cache, stamped by
     time.time() and now_str() - looked up when the value is made, so a test that freezes either reaches the records."""
-    return events.EventLog(C.events_file, EVENTS_LOCK, _EVENTS_CACHE, time.time, now_str)
+    return events.EventLog(C.events_file, RT.events_lock, RT.events_cache, time.time, now_str)
 
 
 def make_event(
@@ -769,7 +792,7 @@ def note_tags(
     Everyone this save newly @-tags (limn.mentions.tag_note against old_note, the note before this edit; empty for a
     new pin) is notified - unless this actor's note already notified them about this pin within
     NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
-    inside transact(): the caller emits the event under the same PIN_LOCK, so the next save sees it."""
+    inside transact(): the caller emits the event under the same RT.pin_lock, so the next save sees it."""
     me = (actor or {}).get("login")
     tags = tag_note(note, old_note, known_people(rows), hints, me)
     if not tags.notify:
@@ -831,9 +854,8 @@ def drop_pin(pid: int, actor: Json) -> TrashedPin | PinNotFound:
 #
 # The Trash's rules and writes are limn/service/trash.py: a dropped pin stays restorable for TRASH_DAYS from dropped_at,
 # reading never writes, and the file is rewritten without expired entries at startup, on every drop/restore, hourly on
-# the reads that already write, and by the owner's permanent delete. The process's memo of the last lazy check is here.
-
-_TRASH_CHECKED: list[float] = [0.0]  # epoch of the last lazy check (per process)
+# the reads that already write, and by the owner's permanent delete. The process's memo of the last lazy check is
+# the Runtime's (RT.trash_checked).
 
 
 def trash_expires_ts(r: Record) -> float | None:
@@ -901,7 +923,7 @@ def clear_pins(actor: Json | None = None) -> Json:
 
 
 def render_pins_md(rows: list[Row]) -> None:
-    """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold PIN_LOCK."""
+    """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold RT.pin_lock."""
     pin_store().render_md(rows)
 
 
@@ -974,15 +996,13 @@ def existing_token_file_shown(f: Path | None) -> str | None:
 #
 # Resolving a drag to source lines, the snippet and the overlaps of a range are limn/locate.py's; they take the
 # document and a PickContext as arguments. These are the App members the handler calls (web/app.py), bound to this
-# instance's run settings, token-weight cache and pins (overlaps_for_range above).
-
-TOKEN_CACHE = locate.TokenCache()  # the process's word-frequency cache for the last file weighed
+# instance's run settings, the Runtime's token-weight cache and the pins (overlaps_for_range above).
 
 
 def pick_context() -> locate.PickContext:
     """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the
     process's token-weight cache and the overlaps of a range with the stored pins."""
-    return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
+    return locate.PickContext(C.src, C.envs, C.state, RT.token_cache, overlaps_for_range)
 
 
 def pick(D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
@@ -1006,15 +1026,9 @@ def overlaps_api(rng: locate.SourceLines) -> Json:
 # Who a request is (identify), whether it may use this instance (admit), what it may change (check_role) and the
 # Host/Origin rules live in limn/access.py, which never reads C. Here the composition root binds them to this instance:
 # the settings value C makes once (C.access_settings; a test that binds another C is seen at once),
-# the file-backed lookups, and the resources this process owns for them - one cache per file (tokens.json and
+# the file-backed lookups, and the resources the Runtime owns for them - one cache per file (tokens.json and
 # people.json are re-read when they change on disk, so `limn token` / `limn member` edits take effect on the next
 # request without a restart) and the one-time loopback-agent warning. The refusals raise HTTPError (fail closed).
-
-# tokens.json's valid entries as this process last read them
-TOKENS_CACHE: access.FileCache[list[Json]] = access.FileCache()
-# {login: role} of people.json as this process last read it, or PeopleUnreadable (no one gets a role from it)
-ROLES_CACHE: access.FileCache[access.PeopleRoles] = access.FileCache()
-LOOPBACK_WARNING = access.WarnOnce(LOOPBACK_AGENT_DEPRECATION)
 
 
 def access_settings() -> access.AccessSettings:
@@ -1024,14 +1038,14 @@ def access_settings() -> access.AccessSettings:
 
 def current_tokens() -> list[Json]:
     """tokens.json as the server sees it now - re-read whenever its inode/mtime/size changes (revocation needs no restart)."""
-    return TOKENS_CACHE.get(C.tokens_file, lambda: load_tokens(C.state), [])
+    return RT.tokens_cache.get(C.tokens_file, lambda: load_tokens(C.state), [])
 
 
 def people_roles() -> access.PeopleRoles:
     """{login: role} for everyone in people.json, or PeopleUnreadable while it cannot be used, re-read whenever the
     file changes - so `limn member role` and `limn member remove`, and a repaired file, take effect on the running
     server's next request."""
-    return ROLES_CACHE.get(C.people_file, lambda: people_roles_of(load_people()), {})
+    return RT.roles_cache.get(C.people_file, lambda: people_roles_of(load_people()), {})
 
 
 def role_of(login: str) -> access.Role:
@@ -1041,8 +1055,8 @@ def role_of(login: str) -> access.Role:
 
 
 def access_lookups() -> access.AccessLookups:
-    """The file-backed facts identify() reads at request time, over this process's caches and warning."""
-    return access.AccessLookups(tokens=current_tokens, roles=people_roles, warn_loopback_agent=LOOPBACK_WARNING)
+    """The file-backed facts identify() reads at request time, over the Runtime's caches and warning."""
+    return access.AccessLookups(tokens=current_tokens, roles=people_roles, warn_loopback_agent=RT.loopback_warning)
 
 
 def identify(headers: Message, peer: str) -> access.Principal:
@@ -1080,9 +1094,7 @@ def remote_base_for(host_raw: str) -> str:
 #
 # The viewer package (limn/viewer/assemble.py) is read once, by start(), never at import: importing this module reads
 # no file. The template (ViewerFiles) and the page this run serves (ServedViewer: the template with the run's label and
-# accent) are separate values; start() binds the served one.
-
-VIEWER: ServedViewer  # bound once by start(), before the server listens
+# accent) are separate values; the Runtime holds the served one.
 
 
 def read_viewer() -> ViewerFiles:
@@ -1095,9 +1107,9 @@ def read_viewer() -> ViewerFiles:
 
 
 def viewer() -> ServedViewer:
-    """What the viewer routes serve on this run (GET /, GET /sw.js, a refused browser's page): VIEWER as start() bound
-    it, read at call time so a test that binds its own is seen at once."""
-    return VIEWER
+    """What the viewer routes serve on this run (GET /, GET /sw.js, a refused browser's page): the Runtime's, read at
+    call time so a test that binds its own is seen at once."""
+    return RT.viewer
 
 
 # ---------------------------------------------------------------- HTTP handler wiring (the handler is limn/web/handler.py)
@@ -1237,7 +1249,8 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
 def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
     """The documents, pin store and builds before serving: the document list, pins.seq, the Trash's expired entries,
     then either the single document's build (synchronous; a failed build refuses to start) or every --doc
-    document's build in the background (a failure only opens that tab's error panel), and the watch threads."""
+    document's build in the background (a failure only opens that tab's error panel), and the watch threads (the
+    Runtime's, so RT.stop() ends them)."""
     set_docs(docs)
     init_seq()
     purge_trash()  # Trash entries older than TRASH_DAYS go at startup, on every drop/restore, and hourly on reads
@@ -1264,14 +1277,10 @@ def prepare(docs: list[Doc] | None, no_build: bool) -> StartupRefused | None:
                     "" if isinstance(r, BuildSkipped) else "  (build started)",
                 )
             )
-        threading.Thread(target=watch_pdf_docs, args=(threading.Event(),), daemon=True).start()
+        RT.start_thread(watch_pdf_docs, RT.stopping)
     if C.git_pull:
-        threading.Thread(
-            target=SYNC_WATCH.watch,
-            daemon=True,
-            args=(threading.Event(), gitsync.SYNC_EVERY_S, sync_main_once, gitsync.local_stamp),
-        ).start()
-    with PIN_LOCK:
+        RT.start_thread(RT.sync_watch.watch, RT.stopping, gitsync.SYNC_EVERY_S, sync_main_once, gitsync.local_stamp)
+    with RT.pin_lock:
         render_pins_md(read_pins()[0])
     startup.tighten_state_perms(C.people_file)
     return None
@@ -1298,9 +1307,10 @@ def listen() -> Server | StartupRefused:
 def start(a: argparse.Namespace) -> Server | StartupRefused:
     """Every startup step, in order, until one refuses: the access options (limn.startup.access_options: main() stops
     before any build, so a misconfigured unit fails fast), the --port probe, the run settings and documents - bound
-    once, here, as C - the viewer page for the run's label and accent (the viewer package is read here, not at
-    import), the store and builds, the summary, then the listening server."""
-    global C, VIEWER
+    once, here, as C - the process's resources (new_runtime, bound as RT, with the viewer page for the run's label
+    and accent: the viewer package is read here, not at import), the store and builds, the summary, then the
+    listening server. A refusal or failure after binding the Runtime stops any watch threads it began."""
+    global C, RT
     access_opts = startup.access_options(a)
     if isinstance(access_opts, StartupRefused):
         return access_opts
@@ -1312,22 +1322,34 @@ def start(a: argparse.Namespace) -> Server | StartupRefused:
     if isinstance(run, StartupRefused):
         return run
     C = run.config
-    VIEWER = serve_viewer(read_viewer(), C.label, C.accent)
-    refused = prepare(run.docs, a.no_build)
-    if refused is not None:
-        return refused
-    report(run.docs)
-    return listen()
+    RT = new_runtime(serve_viewer(read_viewer(), C.label, C.accent))
+    try:
+        prepared = prepare(run.docs, a.no_build)
+        if prepared is not None:
+            RT.stop()
+            return prepared
+        report(run.docs)
+        result = listen()
+        if isinstance(result, StartupRefused):
+            RT.stop()
+        return result
+    except BaseException:
+        RT.stop()
+        raise
 
 
 def main() -> None:
-    """The composition root: parse the arguments, then start() makes and binds the run settings (C), the documents,
-    prepares the pin store and the builds, starts the watch threads and opens the server; serve until stopped. The
-    one place the process exits on a refused start: the refusal's message on stderr, status 1."""
+    """The composition root: parse the arguments, then start() makes and binds the run settings (C) and the process's
+    resources (RT), the documents, prepares the pin store and the builds, starts the watch threads and opens the
+    server; serve until stopped, then stop the watch threads (RT.stop) - whatever ended serving (Ctrl-C) still
+    propagates. The one place the process exits on a refused start: the refusal's message on stderr, status 1."""
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
-    started.serve_forever()
+    try:
+        started.serve_forever()
+    finally:
+        RT.stop()
 
 
 if __name__ == "__main__":

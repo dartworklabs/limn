@@ -40,7 +40,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `pull.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
 | 부수효과 셸 | `service/`(핀 서비스), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
 | HTTP 층 | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 요청을 읽고, 경로마다의 파서(`parse.py`)로 본문과 쿼리를 값으로 바꾸고, 서비스를 부르고, 결과마다의 상태 코드와 본문(`answers.py`)으로 답한다 | `server.py`. 서비스 목록은 `web/app.py`의 `App` 프로토콜로만 안다 |
-| 조립 지점 | `server.py` | 실행 설정 `C`와 문서 목록 `DOCS`, 프로세스에 하나인 자원(잠금·캐시·작업 목록·감시 상태)을 만들고, 옮긴 모듈에 이 인스턴스의 설정과 협력자를 묶는 한 줄 연결을 두고, 시작 단계를 차례로 부른다 | — |
+| 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`와 런타임 `RT`(프로세스에 하나인 자원), 문서 목록 `DOCS`를 만들어 묶고, 옮긴 모듈에 이 인스턴스의 설정과 협력자를 묶는 한 줄 연결을 둔다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.
 
@@ -55,7 +55,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 1. **실행 설정 `C`는 얼린 값 하나이고 조립 지점에만 있다.** 타입은 `limn/config.py`의 `RunConfig`(접근 옵션 `AccessOptions`, 경로, 빌드 설정, 라벨·강조색)다. `start()`가 `limn/startup.py`의 규칙이 낸 답으로 이 값을 만들어(`configure_run`) 서버가 듣기 전에 한 번 묶고, 그 뒤로는 아무도 바꾸지 않는다. import만으로는 `C`가 없다. 옮긴 모듈은 `C`를 읽지 않고, 필요한 값을 작은 설정 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로 받는다. `identify()`·`admit()`이 읽는 `AccessSettings`는 `C`마다 한 번 만든다(`C.access_settings`). 문서는 시작할 때 고정한 경로 값(`C.paths`, `limn.documents.RunPaths`)을 받는다. HTTP 처리기는 `app.C`로 몇 개의 설정(Origin 검사 여부, 강조색, 원고 폴더)을 읽는다. 다른 설정이 필요한 테스트는 값을 바꾸지 않고 새 값을 만들어 묶는다(`tests/helpers.py`의 `set_config`).
 2. **문서는 인자다.** 처리기가 요청의 문서를 찾아(`request_doc`) 서비스마다 넘기고, 빌드 스레드는 자기 문서를 갖고 시작하며, 기동은 문서 목록을 돈다. "지금 문서" 같은 스레드 지역 값은 없다.
-3. **잠금과 상태는 주인이 하나다.** 핀 잠금 `PIN_LOCK`은 `server.py`가 프로세스에 하나 만들어 `pin_store()`로 저장소(`limn/store.py`)에 넘긴다. 저장소 자신은 잠금을 만들지 않는다. 문서마다의 빌드 잠금과 빌드 상태는 문서 객체(`limn/documents.py`의 `Doc`)가 갖는다.
+3. **프로세스 자원은 런타임 값 하나가 갖는다.** 요청 사이에 프로세스가 들고 있는 것 - 핀 잠금, `people.json`·`events.jsonl` 잠금과 캐시, `tokens.json`·`people.json` 역할 캐시, loopback 에이전트 경고, 휴지통 정리 시계, 커밋 범위 캐시와 비교 PDF 작업 목록, pull 나눠 쓰기와 원격 main 감시 상태, 단어 가중치 캐시, 내보내는 뷰어 페이지, 오래 사는 스레드 둘(보기 전용 PDF 감시, 원격 main 감시)과 그 멈춤 신호 - 는 `server.py`의 `Runtime` 값 하나에 있다. `start()`가 실행 설정을 묶은 뒤 `new_runtime()`으로 만들어 `RT`로 한 번 묶고, import만으로는 아무 자원도 생기지 않는다. `main()`은 서버가 멈추면 `RT.stop()`으로 두 스레드를 끝낸다. 저장소(`limn/store.py`)는 잠금을 만들지 않고 `pin_store()`가 넘기는 `RT.pin_lock`을 쓴다. 문서마다의 빌드 잠금과 빌드 상태는 단일 문서까지 모두 문서 객체(`limn/documents.py`의 `Doc`)가 갖는다. 테스트는 매번 새 런타임을 묶는다(`tests/helpers.py`의 `fresh_runtime`).
 
 핀 레코드는 저장소와 셸에서 파이썬 `dict` 그대로 다닌다. 전이 앞에서 [`limn/pins/model.py`](../../src/limn/pins/model.py)가 레코드를 상태 타입(`OpenPin`·`ReviewPin`·`DonePin`)으로 파싱하고, 모든 상태가 함께 가진 필드(`id`·위치·`note`·`rev`·`thread` 등)를 `core`(`PinCore`)로, 그 상태에만 있는 필드(열림의 처리 중 표시, 닫힘의 닫은 기록, 완료의 확인)를 타입의 속성으로 올린다. 나머지 필드는 저장된 그대로 두고, 다시 쓸 때 순서까지 지킨다. 상태를 정하는 규칙은 `state_of` 하나이고, API의 `state` 이름은 그 상태 타입의 이름이다. 전이는 그 타입을 받아 결과를 반환값으로 돌려준다. 잠금 아래 레코드를 읽어 파싱하고 전이를 부르고 결과를 다시 쓰는 셸은 [`limn/service/`](../../src/limn/service/context.py)에 있다.
 
@@ -72,7 +72,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 - **안쪽은 HTTP를 모른다.** 요청 파싱은 처리기 쪽(`web/parse.py`)이라 서비스는 파싱된 값만 받는다. 서비스와 원고 이력·문서 조회는 결과 값(`CommitNotRecent`·`DocNotFound`·`ViewOnlyNoRebuild` 등)을 돌려주고 `web/answers.py`가 답한다. 처리기의 경로는 본문 필드나 쿼리 매개변수를 직접 읽지 않고(경로마다의 요청 타입과 `parse_flag`), 판단(보기 전용 문서의 재빌드 거절, 사람 목록의 순서와 역할)은 주인 모듈(`build.py`·`people.py`)에 있다. 처리기가 스스로 내는 거절은 자기 것뿐이다. 본문을 읽지 못함(틀·크기·형식·JSON), 받지 않는 Host/Origin, 어느 경로도 받지 않는 주소다. 모든 경로는 같은 순서로 본문 읽기 → Host/Origin → 신원 → 입장 → (POST) 역할 검사를 지난 뒤에 돈다. `tests/test_web.py`가 처리기 소스와 경로마다 읽는 `App` 멤버의 순서로 이것을 검사한다. 조립 지점은 비교 PDF 워커에 실패 문구 함수(`web/errors.py`의 `revision_failure_text`)를 넘기려고 `web/errors.py`를 가져온다. 이 문구는 HTTP 응답과 같은 표에서 나와야 하고 서비스는 `web/`을 가져오지 않기 때문이다.
 - **접근 제어는 거절을 던진다(fail closed).** 신원·입장·역할 판단(`limn/access.py`)은 거절로 `HTTPError`를 던지고 확인 거절 문구(`CONFIRM_BY_HUMAN`)를 `web/`에서 가져온다. 새로 짠 호출자가 거절을 놓쳐도 요청이 통과하지 않게 하려는 것으로, "거절은 값"이라는 코딩 규칙의 유일한 예외다([code-style-roadmap.md](code-style-roadmap.md) §R10). `server.py`를 가져오지 않으므로 처리기와 같은 방향이다.
 - **HTTP 층의 이름은 `http/`가 아니라 `web/`이다.** 파일로 실행될 때 `limn/` 폴더 자체도 `sys.path` 맨 앞에 온다. 표준 라이브러리 모듈과 이름이 같은 패키지(`limn/http/` 등)를 두면 표준 모듈(`http.server`)이 가려져 서버가 뜨지 않는다.
-- **조립 지점만 전역 자원을 만들고 끝낸다.**
+- **조립 지점만 전역 자원을 만들고 끝낸다.** 실행 설정과 런타임은 `start()`가 만들어 모듈 이름 `C`·`RT`에 한 번 묶고, 처리기는 그 이름을 요청 때마다 `App`으로 읽는다.
 
 ## 채택한 설계 축
 
@@ -110,7 +110,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 
 ### 4. 핀 파일은 한 잠금 아래 정해진 순서로만 쓴다
 
-핀 파일을 만지는 모든 경로는 `PIN_LOCK` 하나 아래에서 **읽기 → 재동기화 → 요청한 변경 적용 → 임시 파일에 쓰고 `os.replace` → `pins.md` 재생성** 순서를 지킨다. [`limn/store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 이 순서를 강제하고, 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `store.py`에 있다. 잠금 없이 동시에 저장하면 앞선 쓰기가 사라진다(핀 30개를 동시에 저장해 2개만 남은 결함이 이 규칙의 근거다). 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
+핀 파일을 만지는 모든 경로는 프로세스에 하나인 핀 잠금(`RT.pin_lock`) 아래에서 **읽기 → 재동기화 → 요청한 변경 적용 → 임시 파일에 쓰고 `os.replace` → `pins.md` 재생성** 순서를 지킨다. [`limn/store.py`](../../src/limn/store.py)의 `PinStore.transact()`가 이 순서를 강제하고, 핀 파일(`pins.jsonl`·`pins.md`·`pins.dropped.jsonl`·`pins.seq`)을 쓰는 코드는 모두 `store.py`에 있다. 잠금 없이 동시에 저장하면 앞선 쓰기가 사라진다(핀 30개를 동시에 저장해 2개만 남은 결함이 이 규칙의 근거다). 핀 번호는 `pins.seq`에서 발급하고 삭제 뒤에도 다시 쓰지 않는다. 상세는 [domain.md](domain.md) §저장소 안전성이다.
 
 ### 5. 원본 원고는 서버가 고치지 않는다
 

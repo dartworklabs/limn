@@ -208,7 +208,7 @@ def parse_note(v: object) -> str | InputRejected:
 
 **업계에서 부르는 이름.** 명시적 의존성 주입과 composition root (Mark Seemann, *Dependency Injection Principles, Practices, and Patterns*).
 
-**지금 코드.** 실행 설정 `C`(얼린 `RunConfig`, `start()`가 한 번 묶는다)와 문서 목록 `DOCS`, 프로세스에 하나인 잠금·캐시는 조립 지점 `server.py`에만 있다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 설정은 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자는 `PinContext` 같은 값으로 받는다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
+**지금 코드.** 실행 설정 `C`(얼린 `RunConfig`)와 런타임 `RT`(프로세스에 하나인 잠금·캐시·작업 목록·감시 상태·스레드를 모은 `Runtime`)는 `start()`가 만들어 한 번 묶고, 문서 목록 `DOCS`와 함께 조립 지점 `server.py`에만 있다. import만으로는 아무것도 생기지 않는다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 설정은 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자는 `PinContext` 같은 값으로 받는다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
 
 > **예시**
 >
@@ -335,10 +335,9 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 아직 하지 않은 일이다. 위에서부터 한다. 각 일은 동작을 바꾸지 않는 구조 변경이라 [verification.md](verification.md) §구조 이동의 동작 불변 증명(차등 비교)으로 증명하고, 끝나면 해당 규칙 절의 "지금 코드"를 고친다.
 
 1. **핀 레코드를 저장소까지 타입으로.** 저장소(`PinStore`)와 셸은 아직 레코드를 사전(`Row`)으로 주고받고, 전이 앞뒤에서 `parse_pin()`과 `.record`로 오간다. 상태 타입이 저장소 경계까지 가게 한다(R2).
-2. **실행 설정과 런타임을 값으로.** 전역 `C`와 프로세스 자원(잠금·캐시·작업 목록)을 조립 지점이 만드는 두 값, 곧 실행 설정(`RunConfig`)과 런타임(`Runtime`)으로 모은다(R5).
-3. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
+2. **뷰어 스크립트의 상태.** 뷰어 조각이 함께 쓰는 전역 상태를 명시적인 상태 객체로 모은다(R5, [viewer.md](viewer.md)).
 
 그 밖에 둘이 남았다.
 
 - **docstring 규칙 `D`.** 새 모듈부터 켜고, 손대는 모듈마다 넓힌다. 기존 코드에 docstring을 한꺼번에 채우지 않는다(R4, R7).
-- **명시적 `App` 객체.** 처리기는 `_ModuleApp`과 `server.py`의 한 줄 연결로 서비스에 닿는다. 이것을 명시적인 객체로 바꿀지는 2번(`Runtime`)을 끝낸 뒤 정한다.
+- **명시적 `App` 객체.** 처리기는 `_ModuleApp`과 `server.py`의 한 줄 연결로 서비스에 닿는다. 실행 설정(`C`)과 런타임(`RT`)이 값이 되었으므로, 바꾼다면 그 둘과 문서 목록을 받는 객체가 된다. 바꿀지는 아직 정하지 않았다.

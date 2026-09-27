@@ -831,8 +831,6 @@ class AddressedInPinsMd(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
         ps.record_person(dict(self.W))

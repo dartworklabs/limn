@@ -24,7 +24,7 @@ from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
 from limn.store import dump_jsonl
 
-from helpers import DEFAULT_ACCESS, Base, add_pin, ps, req, run_config, set_config, shut_wr, split_resp
+from helpers import DEFAULT_ACCESS, Base, add_pin, fresh_runtime, ps, req, run_config, set_config, shut_wr, split_resp
 
 # Tailnet identities as the request headers `tailscale serve` adds. Every server-level module uses these three.
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
@@ -54,15 +54,17 @@ ACCESS_DEFAULTS = {f.name: getattr(DEFAULT_ACCESS, f.name) for f in dataclasses.
 
 
 def reset_access(mod=ps):
-    """Access settings back to the v0.1-equivalent defaults and no --allow. The current server binds a RunConfig with
-    them (set_config); an older copy (tests/data) has them set on its mutable Cfg."""
+    """Access settings back to the v0.1-equivalent defaults and no --allow, in a fresh process (the loopback-agent
+    warning warns again, tokens.json and people.json are read again). The current server binds a RunConfig with them
+    (set_config) and a fresh Runtime; an older copy (tests/data) has them set on its mutable Cfg and caches."""
     if hasattr(mod, "RunConfig"):
         set_config(mod, access=DEFAULT_ACCESS, allow=frozenset())
-    else:
-        for k, v in ACCESS_DEFAULTS.items():
-            setattr(mod.C, k, v)
-        mod.C.allow = frozenset()
-    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)  # a fresh process: warns again
+        fresh_runtime(mod)
+        return
+    for k, v in ACCESS_DEFAULTS.items():
+        setattr(mod.C, k, v)
+    mod.C.allow = frozenset()
+    mod.LOOPBACK_WARNING = access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)
     mod.TOKENS_CACHE = access.FileCache()
     mod.ROLES_CACHE = access.FileCache()
 
@@ -130,10 +132,9 @@ class AccessBase(Base):
     TCP peer (call), so a test sees what a tailnet person, a proxy or the loopback agent is answered."""
 
     def setUp(self):
-        """Base's fresh manuscript and state, access settings at their defaults, no people seen yet."""
+        """Base's fresh manuscript and state, access settings at their defaults, no people seen yet (a fresh Runtime)."""
         super().setUp()
         reset_access()
-        ps._PEOPLE_SEEN.clear()
 
     def tearDown(self):
         """Put the access settings back for the next test module, then remove the temporary folders."""
@@ -183,10 +184,12 @@ class AccessBase(Base):
 
 
 def configure(mod, src: Path, main: Path, state: Path) -> None:
-    """The same run configuration Base uses, applied to any server module (v0.1 or current): the current one binds a
-    RunConfig (run_config), an older copy has its mutable Cfg filled in."""
+    """The same run configuration Base uses, applied to any server module (v0.1 or current), with nobody seen yet:
+    the current one binds a RunConfig (run_config) and a fresh Runtime, an older copy has its mutable Cfg filled in,
+    its build state reset and its people memo cleared."""
     if hasattr(mod, "RunConfig"):
         mod.C = run_config(src, main, state)
+        fresh_runtime(mod)
     else:
         C = mod.C
         C.src, C.main, C.state, C.build = src, main, state, state / "build"
@@ -195,19 +198,20 @@ def configure(mod, src: Path, main: Path, state: Path) -> None:
         C.allow = frozenset()
         C.origin_check, C.git_pull, C.pdfjs_dir = True, False, None
         C.label, C.accent, C.repo = "원고", config.ACCENT_PALETTE[0], None
-    mod.BUILD_STATE.update(
-        state="idle",
-        phase=None,
-        started_at=None,
-        start_ts=None,
-        seq=0,
-        finished_at=None,
-        last=None,
-        errors=[],
-        log_tail="",
-        head=None,
-        pull=None,
-    )
+        mod.BUILD_STATE.update(
+            state="idle",
+            phase=None,
+            started_at=None,
+            start_ts=None,
+            seq=0,
+            finished_at=None,
+            last=None,
+            errors=[],
+            log_tail="",
+            head=None,
+            pull=None,
+        )
+        mod._PEOPLE_SEEN.clear()
     mod.set_docs(None)
     mod.init_seq()
     if hasattr(mod, "TOKENS_CACHE"):

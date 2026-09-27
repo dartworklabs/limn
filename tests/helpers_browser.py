@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from limn import config, mapping
+from limn import mapping
 from limn.build import cur_pages
 from limn.files import tex_lines
 
@@ -154,20 +154,9 @@ class BrowserBase(ChromiumTestCase):
 
     WHO = ALICE
 
-    @classmethod
-    def setUpClass(cls):
-        """Start Chromium and serve the viewer page built for the "Demo" paper for the whole class."""
-        super().setUpClass()
-        serve_viewer("Demo", "#2563eb", ps)
-
-    @classmethod
-    def tearDownClass(cls):
-        """Put the server copy's page back, then close Chromium."""
-        serve_viewer("원고", config.ACCENT_PALETTE[0], ps)
-        super().tearDownClass()
-
     def setUp(self):
-        """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings."""
+        """A fresh 37-line manuscript with a finished two-page build (blank page images), default access settings, and
+        a fresh Runtime serving the viewer page built for the "Demo" paper."""
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         src = root / "ms"
@@ -176,8 +165,8 @@ class BrowserBase(ChromiumTestCase):
         (root / "state").mkdir()
         ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
         C = ps.C
-        reset_access()
-        ps._PEOPLE_SEEN.clear()
+        reset_access()  # the access defaults and a fresh Runtime
+        serve_viewer("Demo", "#2563eb", ps)
         ps.set_docs(None)
         ps.init_seq()
         pages = C.state / "pages-20260925100000"

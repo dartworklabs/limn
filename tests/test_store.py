@@ -639,8 +639,6 @@ class LegacyMentionsNotRewritten(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def test_legacy_pins_read_without_rewrite(self):
         ps.record_person(dict(self.S))

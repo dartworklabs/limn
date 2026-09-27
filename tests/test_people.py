@@ -280,8 +280,6 @@ class PeopleOnTheServer(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def test_people_json_records_humans_only_and_throttles(self):
         self.assertFalse(ps.record_person(dict(LOCAL_ACTOR)))

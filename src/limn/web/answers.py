@@ -427,7 +427,7 @@ def diet_log(payload: dict[str, Any], full: bool) -> dict[str, Any]:
     """The build state as GET /api/build answers it (docs/handbook/build-sync.md §에이전트 응답 다이어트): log/log_tail
     are dropped when state=='ok' (even a success ran a few KB via font paths), and for any other state (ok_errors,
     fail, ...) trimmed to their last LOG_TAIL_LINES lines - on a copy. With full (?log=1) payload itself comes back.
-    The build state (BUILD_STATE, builds.json) is never changed: this applies only right before the HTTP response.
+    The build state (the document's bstate, builds.json) is never changed: this applies only right before the HTTP response.
     POST /api/rebuild's answer applies the same diet by outcome type (rebuild_answer)."""
     if full:
         return payload
