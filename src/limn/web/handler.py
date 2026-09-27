@@ -24,7 +24,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from limn.access import person_role
 from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
@@ -262,14 +261,8 @@ class Handler(BaseHTTPRequestHandler):
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
             return self._send(200, app.HTML.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":  # @-tag autocomplete candidates (no write). role: people.json role (person_role)
-            roles = app.people_roles()
-            ppl = sorted(
-                app.known_people(app.snapshot_pins()).values(),
-                key=lambda x: (x.get("last_seen") is None, x["name"].lower()),
-            )
-            ppl = [dict(x, role=person_role(roles, x["login"])) for x in ppl]
-            return self._json({"people": ppl, "me": self._me(actor)})
+        if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
+            return self._json({"people": app.people_payload(), "me": self._me(actor)})
         if path == "/favicon.ico":
             return self._send(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
@@ -420,16 +413,10 @@ class Handler(BaseHTTPRequestHandler):
             commit, pin = accepted(parse.parse_revision_build(d))
             return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
         # /api/rebuild (the only route left; _post sends only these four here)
-        if D.is_pdf:
-            raise HTTPError(
-                400,
-                "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % D.key,
-                reason="view_only_no_rebuild",
-            )
         rebuild = parse.parse_rebuild_query(q)
         if rebuild.background:
-            return self._json(*answers.rebuild_started_answer(app.build_async(D)))
-        return self._json(*answers.rebuild_answer(app.build_all(D), rebuild.full_log))
+            return self._json(*answers.rebuild_started_answer(app.rebuild_async(D)))
+        return self._json(*answers.rebuild_answer(app.rebuild(D), rebuild.full_log))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call

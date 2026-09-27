@@ -23,6 +23,7 @@ from limn.build import (
     BuildStarted,
     CopyFailed,
     FinishedBuild,
+    ViewOnlyNoRebuild,
 )
 from limn.documents import DocNotFound
 from limn.locate import (
@@ -487,11 +488,22 @@ def _put_source(body: Body, pull: dict[str, Any] | None, src_mtime: float | None
         body["src_mtime"] = src_mtime
 
 
-def rebuild_answer(result: FinishedBuild | BuildBusy, full: bool) -> tuple[Body, int]:
-    """POST /api/rebuild (synchronous): the finished build's body and 200, or 409 {"ok": false, "busy": true} when the
-    document was already building. Without full (?log=1) the log is dropped for BuildOk and cut to its last
-    LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
+def view_only_refused(result: ViewOnlyNoRebuild) -> NoReturn:
+    """POST /api/rebuild for a view-only document: 400 view_only_no_rebuild naming the document."""
+    raise HTTPError(
+        400,
+        "보기 전용 문서(%s)는 재빌드하지 않습니다 — PDF 파일이 바뀌면 쪽을 저절로 다시 그립니다." % result.key,
+        reason="view_only_no_rebuild",
+    )
+
+
+def rebuild_answer(result: FinishedBuild | BuildBusy | ViewOnlyNoRebuild, full: bool) -> tuple[Body, int]:
+    """POST /api/rebuild (synchronous): the finished build's body and 200, 409 {"ok": false, "busy": true} when the
+    document was already building, or the view-only refusal. Without full (?log=1) the log is dropped for BuildOk and
+    cut to its last LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
     match result:
+        case ViewOnlyNoRebuild():
+            view_only_refused(result)
         case BuildBusy():
             return {"ok": False, "busy": True}, 409
         case BuildOk():
@@ -506,10 +518,12 @@ def rebuild_answer(result: FinishedBuild | BuildBusy, full: bool) -> tuple[Body,
             return body, 200
 
 
-def rebuild_started_answer(result: BuildStarted | BuildBusy) -> tuple[Body, int]:
+def rebuild_started_answer(result: BuildStarted | BuildBusy | ViewOnlyNoRebuild) -> tuple[Body, int]:
     """POST /api/rebuild?async=1: 202 {"state": "running"} when the build started, 409 with busy true when the document
-    was already building."""
+    was already building, or the view-only refusal."""
     match result:
+        case ViewOnlyNoRebuild():
+            view_only_refused(result)
         case BuildStarted():
             return {"state": "running"}, 202
         case BuildBusy():

@@ -131,6 +131,22 @@ class HandlerStructure(unittest.TestCase):
         ]
         self.assertEqual(raw, [])
 
+    def test_the_handler_raises_only_its_own_refusals(self):
+        """Every other refusal is an answer's (limn.web.answers) or an access check's: the handler raises HTTPError
+        only while reading the body, checking Host/Origin, and for a path no route serves (not_found)."""
+        own = {"_read_raw", "_check_origin", "_body"}
+        raised = [
+            (fn.name, ast.unparse(n.exc))
+            for fn in ast.walk(ast.parse(HANDLER_SOURCE))
+            if isinstance(fn, ast.FunctionDef) and fn.name not in own
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Raise) and n.exc is not None
+        ]
+        self.assertTrue(raised)
+        for name, exc in raised:
+            with self.subTest(route=name):
+                self.assertIn("reason='not_found'", exc)
+
 
 class Answers(unittest.TestCase):
     """Each outcome becomes one body or one HTTPError with the contract's status and message."""

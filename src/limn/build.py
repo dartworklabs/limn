@@ -170,6 +170,14 @@ class BuildStarted:
 
 
 @dataclass(frozen=True)
+class ViewOnlyNoRebuild:
+    """A rebuild asked of a view-only PDF document (request_rebuild): there is nothing to compile - its pages are
+    redrawn by themselves when the PDF file changes. key names the document for the refusal."""
+
+    key: str
+
+
+@dataclass(frozen=True)
 class BuildSkipped:
     """Startup found the document's page images current, so it did not build."""
 
@@ -439,6 +447,41 @@ def state_snapshot(D: BuildDoc) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- One build at a time per document
+
+
+class Rebuildable(Protocol):
+    """What request_rebuild reads of a document: its key and whether it is a view-only PDF."""
+
+    @property
+    def key(self) -> str:
+        """The document key (?doc=), which the view-only refusal names."""
+
+    @property
+    def is_pdf(self) -> bool:
+        """A view-only PDF document (no LaTeX source)."""
+
+
+R = TypeVar("R")
+Target = TypeVar("Target", bound=Rebuildable)
+
+
+def request_rebuild(D: Target, run: Callable[[Target], R]) -> R | ViewOnlyNoRebuild:
+    """POST /api/rebuild's rule: a LaTeX document is built by run (the composition root's synchronous or background
+    build) and its outcome returned; a view-only document is never rebuilt on request (ViewOnlyNoRebuild) - its pages
+    follow the PDF file (refresh_pdf_doc)."""
+    if D.is_pdf:
+        return ViewOnlyNoRebuild(D.key)
+    return run(D)
+
+
+def needs_build(D: BuildDoc, no_build: bool, dpi: int) -> bool:
+    """Whether startup builds D: a view-only document when its PDF changed since its pages were rendered or it has no
+    page images at dpi (--no-build does not apply to it); a LaTeX document unless no_build (--no-build), and even then
+    when its PDF or its page images are missing. Reads the page directory on screen and, for a view-only document,
+    its PDF signature."""
+    if D.is_pdf:
+        return pdf_changed(D) or not page_list(cur_pages(D), dpi)
+    return not no_build or not cur_pdf(D).exists() or not page_list(cur_pages(D), dpi)
 
 
 def build_now(D: BuildDoc, run: Callable[[], FinishedBuild]) -> FinishedBuild | BuildBusy:
