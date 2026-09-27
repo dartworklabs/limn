@@ -478,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
             text = accepted(parse.parse_reply_text(d.get("text")))
             hints = accepted(parse.parse_mention_hints(d.get("mentions")))
             reopen = accepted(parse.parse_reopen_flag(d))
-            human = not app.is_agent(actor) and self.principal.role != "agent"
+            human = self.principal.is_human()
             return self._json(
                 answers.reply_answer(
                     app.reply_pin(pid, text, actor, hints, reopen=reopen, human=human), app.public, app.pin_state
@@ -512,10 +512,8 @@ class Handler(BaseHTTPRequestHandler):
         changes = None
         if act == "close":
             reply, ref = accepted(parse.parse_close_body(d))
-            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src))
-            review = accepted(parse.parse_review_flag(d))
-            if review is None and self.principal.role == "agent":
-                review = True  # a person with the agent role closes into review like any agent
+            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src, app.C.state))
+            review = self.principal.review_on_close(accepted(parse.parse_review_flag(d)))
         else:  # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
             reason = accepted(parse.parse_thread_text(d.get("reason"), "reason", required=False))
         return self._json(

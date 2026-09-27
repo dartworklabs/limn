@@ -9,7 +9,7 @@ import ipaddress
 from pathlib import Path
 
 from limn import events, people
-from limn.access import HostEntry, IPNetwork
+from limn.access import AuthProvider, HostEntry, IPNetwork
 from limn.audit import AUDIT_FILE
 from limn.store import PinFiles
 
@@ -39,7 +39,7 @@ class Cfg:
     repo: str | None = None  # git origin URL of --manuscript. None if absent
     # Access control (v0.2). The defaults are exactly the v0.1 behaviour: tailscale headers, headerless loopback = agent.
     # The names from auth on are also limn.startup.AccessOptions' fields: configure_access copies them over by name.
-    auth: str = "tailscale"  # identity provider: tailscale | local | trusted-proxy
+    auth: AuthProvider = "tailscale"  # identity provider
     agent_loopback: bool = True  # headerless loopback request = the agent (deprecated; tailscale + loopback bind only)
     tailnet_agent: bool = False  # ...also when it came through tailscale serve (Host not loopback) - opt-in, deprecated
     bind: str = "127.0.0.1"

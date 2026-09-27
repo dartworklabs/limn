@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-Three security fixes, one documented trust assumption, server and viewer fixes and an internal restructuring. The HTTP
-API's paths, fields and reason codes and `pins.md` are unchanged; the responses gain two headers and page images change
-their `Cache-Control`.
+Four security fixes, closed security types, one documented trust assumption, server and viewer fixes and an internal
+restructuring. The HTTP API's paths, fields and reason codes and `pins.md` are unchanged; the responses gain two headers
+and page images change their `Cache-Control`.
 
 ### Security
 
@@ -15,6 +15,18 @@ their `Cache-Control`.
   `400 file_outside_manuscript` / `change_outside_manuscript` and the same message. A stored pin or change pointing
   there is no longer located (it becomes a pin outside the tree), so its lines are never read again. A manuscript file
   that itself lives under a dot folder can no longer be pinned; `a.b.tex` and a `--manuscript` under `~/.local` are fine.
+- **A state folder inside the manuscript is not manuscript.** With `--state-dir` inside `--manuscript` under a normal
+  (non-dot) name, the same routes could read the state files: `people.json`, `tokens.json` (hashes), `audit.jsonl`,
+  `events.jsonl` and the pin files. Every path in the state folder, symlinks resolved, is now outside the tree, with
+  the same `400 file_outside_manuscript` / `change_outside_manuscript` and message; a stored pin pointing there is no
+  longer located. The build copy no longer copies the folder (it used to nest its own `build/` one level deeper on
+  every build). Such a start prints one warning on stderr; a state folder that holds a served document's main file
+  (`--state-dir` = `--manuscript`, say) refuses to start, since that document could take no pin. The default state
+  folder lies outside the manuscript and is unaffected.
+- **Security values are closed types.** Roles, identity providers and how a principal was identified are `Literal`
+  types parsed once at the boundary (`people.json`'s `role`, `--auth`, `limn member`), so a mistyped comparison fails
+  `mypy`; an unknown role still reads as `viewer`. The handler's two role questions (is a reply a person's, does a
+  close go to review) moved into `limn/access.py`. No behaviour change.
 - **An unusable `people.json` fails closed.** A `people.json` that existed but could not be read or parsed was read as
   empty: everyone got the default role (`editor`, so a `viewer` gained edits), and the next visit rewrote the file with
   only the visitor, erasing every role including the owner's. Now every header-identified person is a `viewer` while it
