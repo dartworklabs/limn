@@ -913,6 +913,24 @@ class ProcessRuntime(unittest.TestCase):
         rt.stop.assert_called_once_with()
         self.assertIn("cannot stop runtime", stderr.getvalue())
 
+    def test_main_does_not_treat_callers_error_as_serving_error(self):
+        """A caller handling an unrelated error does not hide a new server cleanup failure."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+        ):
+            try:
+                raise ValueError("outer error")
+            except ValueError:
+                with self.assertRaisesRegex(OSError, "cannot close socket"):
+                    ps.main()
+        self.assertTrue(rt.stopping.is_set())
+
     def test_start_stops_watch_when_listen_refuses(self):
         """A port lost after the probe cannot leave a watch thread running after startup refuses."""
         with tempfile.TemporaryDirectory() as tmp:

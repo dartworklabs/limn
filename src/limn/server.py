@@ -1381,10 +1381,13 @@ def main() -> None:
     started = start(build_arg_parser().parse_args())
     if isinstance(started, StartupRefused):
         sys.exit(started.message)
+    serving_error: BaseException | None = None
     try:
         started.serve_forever()
+    except BaseException as e:
+        serving_error = e
+        raise
     finally:
-        serving_error = sys.exc_info()[1]
         cleanup_errors: list[BaseException] = []
         try:
             started.server_close()
