@@ -29,7 +29,6 @@ import os
 import sys
 import threading
 import time
-import traceback
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -62,14 +61,7 @@ from limn.access import (
 )
 from limn.args import serve_parser
 from limn.audit import AuditAction, append_audit, audit_entry
-from limn.build import (
-    BuildBusy,
-    BuildConfig,
-    BuildSkipped,
-    BuildStarted,
-    FailedBuild,
-    FinishedBuild,
-)
+from limn.build import BuildSkipped, FailedBuild
 from limn.config import AccessOptions, RunConfig
 from limn.documents import (
     DEFAULT_DOC_KEY,
@@ -78,7 +70,7 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.features.builds import engine as build_engine, run as build_run
+from limn.features.builds import run as build_run
 from limn.features.builds.service import BuildRequests
 from limn.features.collaboration.directory import PeopleDirectory
 from limn.features.collaboration.notices import Notices
@@ -373,7 +365,11 @@ class ServerApplication:
             )
         )
         self.build_requests = BuildRequests(
-            lambda doc: self._build_tracked(doc), lambda: self.now_str(), build_failure_log
+            settings=lambda: self.C,
+            pull=lambda: self.sync_service.repo_pull(),
+            docs=lambda: self.docs,
+            now=lambda: self.now_str(),
+            describe=build_failure_log,
         )
         self.sync_service = SyncService(
             lambda: SyncContext(
@@ -423,19 +419,6 @@ class ServerApplication:
         one), or None (limn.files.vendor_file: a single .mjs name that stays inside the directory)."""
         return find_vendor_file(self.C.pdfjs_dir or default_pdfjs_dir(), name)
 
-    def build_config(self) -> BuildConfig:
-        """The build settings from the run arguments. Made per build, so a test that replaces this application's C is seen at once."""
-        return BuildConfig(state=self.C.state, dpi=self.C.dpi, timeout=self.C.timeout)
-
-    def _build_tracked(self, D: Doc) -> FinishedBuild:
-        """One tracked build of D: LaTeX (_build) or, for view-only, the page render (limn.features.builds.engine.render_pdf_doc)
-        (limn.features.builds.run.run_tracked); a failure's log text is limn.web.errors.build_failure_log. The step is looked up when
-        the build runs, so a test that replaces _build sees it."""
-        step: Callable[[], FinishedBuild] = (
-            (lambda: build_engine.render_pdf_doc(D, self.build_config())) if D.is_pdf else (lambda: self._build(D))
-        )
-        return build_run.run_tracked(D, self.C.state, step, self.now_str(), build_failure_log)
-
     def revision_context(self) -> revisions.RevisionContext:
         """The revision services' view of this instance, made per request like pin_store(), so a test (or main()) that
         changes C is seen at once."""
@@ -454,12 +437,6 @@ class ServerApplication:
             cache=self.RT.scope_cache,
             jobs=self.RT.revision_jobs,
             describe=revision_failure_text,
-        )
-
-    def _build(self, D: Doc) -> FinishedBuild:
-        """The LaTeX build of document D with this instance's settings; --git-pull pulls first (limn.features.builds.engine.compile_tex)."""
-        return build_engine.compile_tex(
-            D, self.build_config(), self.sync_service.repo_pull if self.C.git_pull else None
         )
 
     def set_docs(self, docs: Iterable[Doc] | None = None) -> None:
@@ -518,7 +495,7 @@ class ServerApplication:
     def pin_store(self) -> PinStore:
         """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
-        Made per call, like build_config(), so a test that replaces this application's C is seen at once; the lock is the one
+        Made per call, like the build service's config(), so a test that replaces this application's C is seen at once; the lock is the one
         application-wide RT.pin_lock. The collaborators are looked up at call time: parse_record and parse_trashed read stored
         records into pins, sync_all re-matches their anchors, and pins_md_text renders the result."""
         return PinStore(
@@ -697,26 +674,6 @@ class ServerApplication:
         call time so a test that binds its own is seen at once."""
         return self.RT.viewer
 
-    def init_doc(self, D: Doc, no_build: bool, wait: bool) -> FinishedBuild | BuildStarted | BuildBusy | BuildSkipped:
-        """Prepares one document at startup: legacy-layout migration, restoring build history, and building if needed. Builds in the background if wait=False."""
-        D.dir.mkdir(parents=True, exist_ok=True)
-        if D.root:
-            build.migrate_pages(D)
-        build.seed_builds(D, self.C.state)
-        if not build_run.needs_build(D, no_build, self.C.dpi):
-            return BuildSkipped()
-        return self.build_requests.build_all(D) if wait else self.build_requests.build_async(D)
-
-    def watch_pdf_docs(self, stop: threading.Event, every: float = 3.0) -> None:
-        """Re-renders pages when a view-only PDF changes (mtime/size). Stands in for a rebuild button."""
-        while not stop.wait(every):
-            for D in list(self.docs):
-                if D.is_pdf:
-                    try:
-                        build_engine.refresh_pdf_doc(D, self.build_requests.build_async)
-                    except Exception:  # noqa: BLE001 — the watch thread must never die
-                        traceback.print_exc(file=sys.stderr)
-
     def access_log_lines(self) -> list[str]:
         """The startup log lines about access (limn.startup.access_log_lines) for C.access, its tokens.json and token file."""
         return startup.access_log_lines(
@@ -744,7 +701,7 @@ class ServerApplication:
             # Multiple documents: each document's build runs in the background, and the server comes up right
             # away (never waits N documents x tens of seconds). A failure never blocks startup - that document's tab opens an error panel instead.
             for D in self.docs:
-                r = self.init_doc(D, no_build, wait=False)
+                r = self.build_requests.init_doc(D, no_build, wait=False)
                 print(
                     "doc    %-10s %s %s%s"
                     % (
@@ -754,7 +711,7 @@ class ServerApplication:
                         "" if isinstance(r, BuildSkipped) else "  (build started)",
                     )
                 )
-            self.RT.start_thread(self.watch_pdf_docs, self.RT.stopping)
+            self.RT.start_thread(self.build_requests.watch_pdf_docs, self.RT.stopping)
         if self.C.git_pull:
             self.RT.start_thread(self.sync_service.watch, self.RT.stopping)
         with self.RT.pin_lock:

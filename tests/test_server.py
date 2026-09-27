@@ -645,7 +645,7 @@ class RebuildLogDiet(Base):
         def fake_build(D=None):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "abc1234", "", 1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertNotIn("log", body)
@@ -658,7 +658,7 @@ class RebuildLogDiet(Base):
                 [{"line": 1, "msg": "x"}], "\n".join("l%d" % i for i in range(200)), 0.01, None, 1.0, None, "-", "", 1
             )
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(len(body["log"].splitlines()), 40)
@@ -667,7 +667,7 @@ class RebuildLogDiet(Base):
         def fake_build(D=None):
             return BuildOk("keep-full", 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild?log=1"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(body["log"], "keep-full")
@@ -676,7 +676,7 @@ class RebuildLogDiet(Base):
         def fake_build(D=None):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         out = self.talk(req("GET", "/api/build"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -692,7 +692,7 @@ class RebuildLogDiet(Base):
         def fake_build_before(D=None):
             return BuildOk(big_log, 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_before):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build_before):
             before = self.talk(req("POST", "/api/rebuild?log=1"))
             after = self.talk(req("POST", "/api/rebuild"))
         self.assertGreater(len(before), len(after))
@@ -818,7 +818,7 @@ class ProcessRuntime(Base):
         rt = self.runtime()
         rounds = []
         with mock.patch.object(ps.APP, "docs", []):
-            rt.start_thread(ps.APP.watch_pdf_docs, rt.stopping, 0.01)
+            rt.start_thread(ps.APP.build_requests.watch_pdf_docs, rt.stopping, 0.01)
             rt.start_thread(rt.sync_watch.watch, rt.stopping, 0.01, lambda: rounds.append(1) or {}, lambda: "t")
             self.assertTrue(all(t.is_alive() for t in rt.threads))
             rt.stop(timeout=5)
@@ -1380,7 +1380,7 @@ class MultiDoc(Base):
             gate.wait(5)
             return BuildAborted("crashed", "x")
 
-        with mock.patch.object(ps.APP, "_build", side_effect=slow_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=slow_build):
             self.assertEqual(ps.APP.build_requests.build_async(self.ms), BuildStarted())
             self.assertEqual(
                 ps.APP.build_requests.build_async(self.ms), BuildBusy()
@@ -1424,7 +1424,7 @@ class MultiDoc(Base):
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         rv = self.rv
         self.assertTrue(build_engine.pdf_changed(rv))  # not rendered yet
-        res = ps.APP._build_tracked(rv)
+        res = ps.APP.build_requests.tracked(rv)
         self.assertIsInstance(res, BuildOk, res)
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
@@ -1436,7 +1436,7 @@ class MultiDoc(Base):
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
         self.assertTrue(build_engine.pdf_changed(rv))
         # a render within the same second still gets a page directory of its own (test_build.Outcomes)
-        res = ps.APP._build_tracked(rv)
+        res = ps.APP.build_requests.tracked(rv)
         self.assertIsInstance(res, BuildOk)
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
         self.assertEqual(limn_build.state_snapshot(rv)["seq"], 2)

@@ -23,6 +23,7 @@ from limn.features.pins.location.service import PinLocationService
 from limn.features.revisions import core as revisions
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
+from limn.web import handler as web_handler
 from limn.web.errors import (
     BUILD_FAILURES,
     REVISION_FAILURES,
@@ -311,7 +312,7 @@ class RefusalBodies(AccessBase):
         """An unexpected exception is a 500 with the same text and reason internal."""
         with (
             mock.patch.object(PinLocationService, "overlaps", side_effect=RuntimeError("boom")),
-            mock.patch.object(ps.traceback, "print_exc"),
+            mock.patch.object(web_handler.traceback, "print_exc"),
         ):
             code, d = self.call("GET", "/api/overlaps?file=%s&lo=1&hi=2" % self.main)
         self.assertEqual((code, d), (500, {"error": "서버 내부 오류: boom", "reason": "internal"}))

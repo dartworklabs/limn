@@ -213,7 +213,7 @@ def parse_note(v: object) -> str | InputRejected:
 
 **업계에서 부르는 이름.** 명시적 의존성 주입과 composition root (Mark Seemann, *Dependency Injection Principles, Practices, and Patterns*).
 
-**지금 코드.** `server.py`의 `ServerApplication`이 얼린 실행 설정 `C`(`RunConfig`), 실행별 자원 `RT`(`Runtime`), 문서 목록을 함께 갖는다. `start()`가 앱 하나와 그 앱에만 묶인 처리기 하위 클래스를 만들고 `StartedServer`로 소켓과 앱을 함께 돌려준다. import만으로는 앱이나 자원이 생기지 않는다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱과 런타임은 바뀌지 않는다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 앱 메서드는 설정을 작은 값(`BuildConfig`, `AccessSettings`, `MetaSettings`, `PickContext` 등)으로, 협력자를 `PinContext` 같은 값으로 넘긴다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
+**지금 코드.** `server.py`의 `ServerApplication`이 얼린 실행 설정 `C`(`RunConfig`), 실행별 자원 `RT`(`Runtime`), 문서 목록을 함께 갖는다. `start()`가 앱 하나와 그 앱에만 묶인 처리기 하위 클래스를 만들고 `StartedServer`로 소켓과 앱을 함께 돌려준다. import만으로는 앱이나 자원이 생기지 않는다. 같은 모듈에서 다음 실행을 시작해도 앞선 처리기의 앱과 런타임은 바뀌지 않는다. 다른 모듈은 서버를 가져오지 않고, HTTP 처리기가 `app.C`로 읽는 설정 몇 개를 빼면 `C`를 읽지 않는다. 앱은 현재 설정을 기능 서비스에 전달하고, 기능은 `BuildConfig`·`MetaSettings`·`PickContext` 같은 작은 값이나 `PinContext` 같은 협력자로 내부 실행 함수에 넘긴다. 문서는 언제나 인자다. 처리기가 요청의 문서를 찾아 서비스마다 넘기고, 빌드 스레드는 자기 문서로 시작한다.
 
 > **예시**
 >
@@ -225,10 +225,10 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) 
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer."""
 
 
-# server.py - the application binds this instance's settings
-def _build(self, D: Doc) -> FinishedBuild:
-    """The LaTeX build of document D with this instance's settings; --git-pull pulls first (features.builds.engine.compile_tex)."""
-    return build_engine.compile_tex(D, self.build_config(), self.sync_service.repo_pull if self.C.git_pull else None)
+# features/builds/service.py - the service reads current settings at call time
+def compile(self, doc: Doc) -> FinishedBuild:
+    """Compile one LaTeX document, pulling its repository first when configured."""
+    return engine.compile_tex(doc, self.config(), self.pull if self.settings().git_pull else None)
 ```
 
 뷰어의 현재 문서 방문은 페이지 전체가 공유하는 `DOC`·`SWITCHSEQ`로 확인하고, 초안 저장·빌드 폴링·편집 카드·변경 보기·새 핀 작성의 화면 상태는 각각 `DRAFT`·`BUILD`·`EDITOR`·`REV`·`COMPOSE`가 소유한다([viewer.md](viewer.md) §여러 문서). 문서 방문을 넘는 비동기 응답은 `captureVisit()`·`currentVisit()`으로 그 방문이 여전히 현재인지 확인한다. 작성 패널과 위치 다시 잡기는 PDF 드래그 요청을 한 번에 하나만 받을 수 있어 `PICKSEQ`를 함께 쓴다.

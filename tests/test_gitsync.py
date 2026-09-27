@@ -452,7 +452,7 @@ class GitPullBuildIntegration(Base):
     @needs_tex("latexmk", "pdftoppm")
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
         """A fast-forward's new source mtime becomes the build baseline, leaving a fresh PDF unmarked."""
-        # bug: _build_tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
+        # bug: BuildRequests.tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
         # so when pull pushed the .tex mtime forward (as a real fast-forward merge does), the "manuscript
         # modified" badge kept showing even though the build had just finished with that new manuscript.
         # The measurement must happen after pull (before copy).

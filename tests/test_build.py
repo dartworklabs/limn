@@ -794,7 +794,7 @@ class AsyncBuild(Base):
             ev.wait(5)
             return ok_build(elapsed_s=0.01)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             r1 = ps.APP.build_requests.build_async(ps.APP.docs[0])
             self.assertEqual(r1, BuildStarted())
             self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "running")
@@ -817,7 +817,7 @@ class AsyncBuild(Base):
             seen.append(limn_build.state_snapshot(ps.APP.docs[0])["phase"])
             return ok_build()
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertEqual(seen, ["copy"])
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["phase"], None)  # phase is cleared when it finishes
@@ -831,7 +831,7 @@ class AsyncBuild(Base):
                 [{"line": 412, "msg": "Undefined control sequence"}], "boom", 1.2, None, 1.0, None, "-", "", 3
             )
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         st = limn_build.state_snapshot(ps.APP.docs[0])
         self.assertEqual(st["state"], "ok_errors")
@@ -844,7 +844,7 @@ class AsyncBuild(Base):
             """Return an ok_errors result whose pages were published despite a diagnostic."""
             return BuildOkWithErrors([{"line": 1, "msg": "x"}], "", 0.0, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsNotNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
@@ -859,7 +859,7 @@ class AsyncBuild(Base):
             """Fail before publishing pages or a manuscript mtime baseline."""
             return BuildAborted("crashed", "boom")
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build_fail):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))  # still None because it failed
         self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "fail")
@@ -868,12 +868,12 @@ class AsyncBuild(Base):
             """Publish a successful build to establish a baseline for the later failure."""
             return ok_build(elapsed_s=0.1)
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_ok):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build_ok):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         first_ok = limn_build.read_built_src_mtime(ps.APP.docs[0])
         self.assertIsNotNone(first_ok)  # only committed once it succeeds
 
-        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=fake_build_fail):
             ps.APP.build_requests.build_all(ps.APP.docs[0])
         # a subsequent failure doesn't touch the committed value
         self.assertEqual(limn_build.read_built_src_mtime(ps.APP.docs[0]), first_ok)
@@ -881,7 +881,7 @@ class AsyncBuild(Base):
     def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
         """An uncaught worker exception records failure and frees the lock instead of leaving running forever."""
         # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
-        with mock.patch.object(ps.APP, "_build", side_effect=RuntimeError("boom")):
+        with mock.patch.object(ps.APP.build_requests, "compile", side_effect=RuntimeError("boom")):
             r = ps.APP.build_requests.build_async(ps.APP.docs[0])
             self.assertEqual(r, BuildStarted())
             for _ in range(200):
