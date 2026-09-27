@@ -16,12 +16,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build, locate, revisions
+from limn import build, revisions
+from limn.features.pins.location import resolve as pick_resolve
+from limn.features.pins.location.http import PICK_REFUSALS
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
 from limn.web.errors import (
     BUILD_FAILURES,
-    PICK_REFUSALS,
     REVISION_FAILURES,
     SCOPE_REJECTIONS,
     HTTPError,
@@ -33,8 +34,7 @@ from helpers import UI_EN, extract_js_fn, ps, req, run_node, set_config, split_r
 from helpers_access import BOB, CAROL, AccessBase, talk_to
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
-# comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values; limn/locate.py:
-# the 200 error bodies of a pick that cannot be traced to a source line), the access boundary (limn/access.py: identify,
+# comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values), the access boundary (limn/access.py: identify,
 # admit, check_role and bearer_of raise their refusals) and the HTTP layer (limn/web: the handler, the parsers, the
 # answers, the refusal tables), plus feature-owned HTTP and input modules. Every static guard below reads all of them;
 # the two tables
@@ -194,9 +194,9 @@ class EveryErrorHasAReason(unittest.TestCase):
                 self.assertTrue(CODE.fullmatch(reason), reason)
 
     def test_the_pick_table_names_a_reason_for_every_refusal(self):
-        """PICK_REFUSALS gives every way a selection is not traced (limn.locate.PickRefusal) its Korean text and a
+        """PICK_REFUSALS gives every way a selection is not traced (limn.pick_resolve.PickRefusal) its Korean text and a
         snake_case reason; the texts take exactly the refusal's own fields as their placeholders."""
-        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(pick_resolve.PickRefusal)))
         for kind, (msg, reason) in PICK_REFUSALS.items():
             with self.subTest(kind=kind.__name__):
                 self.assertTrue(HANGUL.search(msg))

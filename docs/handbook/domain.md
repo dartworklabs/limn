@@ -126,7 +126,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `synctex_range`·`trace_range`·`score_range`·`by_text`(순수 계산: SyncTeX 표본의 후보 선택, 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 응답 본문과 경고·거절 문장은 HTTP 층([`src/limn/web/answers.py`](../../src/limn/web/answers.py)의 `pick_answer`·`PICK_WARNINGS`, [`src/limn/web/errors.py`](../../src/limn/web/errors.py)의 `PICK_REFUSALS`)이 만든다.
+실행 정본은 [`features/pins/location/resolve.py`](../../src/limn/features/pins/location/resolve.py)의 `pick`과 [`source.py`](../../src/limn/features/pins/location/source.py)의 SyncTeX·pdftotext 호출 및 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `synctex_range`·`trace_range`·`score_range`·`by_text`(순수 계산: SyncTeX 표본의 후보 선택, 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 선택 본문 검사는 [`features/pins/location/input.py`](../../src/limn/features/pins/location/input.py), 응답 본문과 경고·거절 문장은 같은 기능의 [`http.py`](../../src/limn/features/pins/location/http.py)가 만든다. 실행별 `PinSelection`는 조립 지점에서 `PickContext` 생성 함수를 받아 `resolve.pick`을 호출한다.
 
 ## 범위 사다리
 

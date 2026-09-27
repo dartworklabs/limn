@@ -24,12 +24,13 @@ from email.message import Message
 from pathlib import Path
 from unittest import mock
 
-from limn import locate, mapping
+from limn import mapping
 from limn.documents import DocNotFound
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.listing import http as listing_http
+from limn.features.pins.location import http as location_http, resolve as pick_resolve
 from limn.features.pins.trash import http as trash_http
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
@@ -38,7 +39,7 @@ from limn.revisions import DocumentBusy
 from limn.viewer.assemble import ServedViewer
 from limn.web import answers
 from limn.web.app import App
-from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
+from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
 from helpers import Base, ps, run_config
 from helpers_access import AccessBase, member_add, talk_to
@@ -469,17 +470,17 @@ class Answers(unittest.TestCase):
         )
 
     def test_pick_answers_every_refusal_with_its_200_body(self):
-        """Each PickRefusal has one row in PICK_REFUSALS and answers the contract's 200 {"error", "reason"} body, the
+        """Each PickRefusal has one row in location_http.PICK_REFUSALS and answers the contract's 200 {"error", "reason"} body, the
         message filled with the refusal's detail."""
-        self.assertEqual(set(PICK_REFUSALS), set(typing.get_args(locate.PickRefusal)))
+        self.assertEqual(set(location_http.PICK_REFUSALS), set(typing.get_args(pick_resolve.PickRefusal)))
         self.assertEqual(
             [
-                answers.pick_answer(r)
+                location_http.pick_answer(r)
                 for r in (
-                    locate.GeneratedFile(".bbl"),
-                    locate.SynctexOutside(Path("/elsewhere/x.tex")),
-                    locate.SourceUnreadable(Path("/ms/bin.tex")),
-                    locate.NoSourceHere(),
+                    pick_resolve.GeneratedFile(".bbl"),
+                    pick_resolve.SynctexOutside(Path("/elsewhere/x.tex")),
+                    pick_resolve.SourceUnreadable(Path("/ms/bin.tex")),
+                    pick_resolve.NoSourceHere(),
                 )
             ],
             [
@@ -502,23 +503,25 @@ class Answers(unittest.TestCase):
     def test_pick_warning_joins_its_sentences_in_order(self):
         """stale first, then weak (or else split), then building, one space apart; a region: blank, then redrawing."""
         traced = mapping.Traced("synctex", 8, 8, 0.23, 8, 9, "paragraph", [], "para", True, None)
-        picked = locate.Picked(Path("/ms/main.tex"), 1, traced, 20, "", None, "", [], "pages", True, True)
-        w = answers.PICK_WARNINGS
-        self.assertEqual(answers.pick_warning(picked), " ".join([w["stale"], w["weak"] % 23.0, w["building"]]))
+        picked = pick_resolve.Picked(Path("/ms/main.tex"), 1, traced, 20, "", None, "", [], "pages", True, True)
+        w = location_http.PICK_WARNINGS
+        self.assertEqual(location_http.pick_warning(picked), " ".join([w["stale"], w["weak"] % 23.0, w["building"]]))
         split = dataclasses.replace(traced, weak=False, split=(8, 4))
         self.assertEqual(
-            answers.pick_warning(dataclasses.replace(picked, traced=split, stale=False, building=False)),
+            location_http.pick_warning(dataclasses.replace(picked, traced=split, stale=False, building=False)),
             "두 경로가 다른 곳을 가리킵니다(L8 / L4). 확인이 필요합니다.",
         )
-        body = answers.pick_answer(dataclasses.replace(picked, stale=False, building=False))
+        body = location_http.pick_answer(dataclasses.replace(picked, stale=False, building=False))
         self.assertEqual(
             list(body)[:11], ["file", "name", "page", "lo", "hi", "raw_lo", "raw_hi", "kind", "via", "score", "warn"]
         )
         self.assertEqual(
             (body["score"], body["warn"]), (0.23, "이 영역은 원문 대조가 약합니다(23%). 줄 범위를 눈으로 확인하세요.")
         )
-        region = locate.PickedRegion("rv", 1, [0.1, 0.1, 0.2, 0.2], "review.pdf", "review.pdf", "", 0, True, True, "p")
-        self.assertEqual(answers.pick_answer(region)["warn"], w["blank"] + " " + w["redrawing"])
+        region = pick_resolve.PickedRegion(
+            "rv", 1, [0.1, 0.1, 0.2, 0.2], "review.pdf", "review.pdf", "", 0, True, True, "p"
+        )
+        self.assertEqual(location_http.pick_answer(region)["warn"], w["blank"] + " " + w["redrawing"])
 
     def test_add_and_edit_answer_a_rejected_field_with_its_message(self):
         """A parser's InputRejected is a 400 whose error is the message, word for word, next to its reason code; a stale

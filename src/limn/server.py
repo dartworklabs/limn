@@ -91,6 +91,8 @@ from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
+from limn.features.pins.location import resolve as pick_resolve, source as pick_source
+from limn.features.pins.location.service import PinSelection
 from limn.features.pins.trash.service import PinTrash
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
@@ -189,7 +191,9 @@ class Runtime:
     # --git-pull: one pull per repository and its last result; the remote-main watch status (GET /api/meta `sync`)
     pull_share: gitsync.PullShare = field(default_factory=gitsync.PullShare)
     sync_watch: gitsync.SyncWatch = field(default_factory=gitsync.SyncWatch)
-    token_cache: locate.TokenCache = field(default_factory=locate.TokenCache)  # word weights of the last file weighed
+    token_cache: pick_source.TokenCache = field(
+        default_factory=pick_source.TokenCache
+    )  # word weights of the last file weighed
     # tokens.json's valid entries and people.json's {login: role} (or PeopleUnreadable) as last read - re-read when
     # the file changes on disk, so `limn token` / `limn member` edits take effect on the next request
     tokens_cache: access.FileCache[list[Json]] = field(default_factory=access.FileCache)
@@ -338,6 +342,7 @@ class ServerApplication:
     pin_editing: PinEditing = field(init=False)
     pin_listing: PinListing = field(init=False)
     pin_markdown: PinMarkdown = field(init=False)
+    pin_selection: PinSelection = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -347,6 +352,11 @@ class ServerApplication:
         self.pin_editing = PinEditing(self.pin_context)
         self.pin_listing = PinListing(self, TRASH_DAYS)
         self.pin_markdown = PinMarkdown(self)
+        self.pin_selection = PinSelection(
+            lambda: pick_resolve.PickContext(
+                self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range
+            )
+        )
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -769,23 +779,13 @@ class ServerApplication:
         """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
         self.pin_store().render_md(pins)
 
-    def pick_context(self) -> locate.PickContext:
-        """What resolving a selection needs from this instance: the manuscript root, --float-envs, the state folder, the
-        process's token-weight cache and the overlaps of a range with the stored pins."""
-        return locate.PickContext(self.C.src, self.C.envs, self.C.state, self.RT.token_cache, self.overlaps_for_range)
-
-    def pick(self, D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
-        """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines, a view-only
-        region, or why it cannot be traced (limn.locate.pick); limn.web.answers.pick_answer gives the body."""
-        return locate.pick(D, request, self.pick_context())
-
     def snippet_api(self, rng: locate.SourceLines, levels: bool) -> Json:
         """GET /api/snippet: a parsed range's lines, with levels the range ladder under --float-envs (limn.locate.snippet_api)."""
         return locate.snippet_api(rng, levels, self.C.envs)
 
     def overlaps_api(self, rng: locate.SourceLines) -> Json:
         """GET /api/overlaps: a parsed range's overlaps with the stored open pins (limn.locate.overlaps_api)."""
-        return locate.overlaps_api(rng, self.pick_context())
+        return locate.overlaps_api(rng, self.overlaps_for_range)
 
     def access_settings(self) -> access.AccessSettings:
         """The access options of this run as the value identify() and admit() read (C.access_settings, made once per C)."""

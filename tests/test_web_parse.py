@@ -19,6 +19,7 @@ from limn.features.pins.claims import input as claims_input
 from limn.features.pins.editing import input as editing_input, location as editing_location
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.pins.listing import input as listing_input
+from limn.features.pins.location import input as location_input
 from limn.features.pins.trash import input as trash_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
@@ -676,24 +677,30 @@ class Locations(Tree):
     def test_pick_checks_the_build_then_page_then_box(self):
         """A bad build name is refused, a gone one answered at once; the page is checked against that build's pages,
         then x0, x1, y0, y1 in order; the box is clamped to the page and sorted."""
-        self.assertEqual(parse.parse_pick({"pdf_build": "../x"}, self.facts).reason, "bad_pdf_build")
+        self.assertEqual(location_input.parse_pick({"pdf_build": "../x"}, self.facts).reason, "bad_pdf_build")
         self.assertEqual(
-            parse.parse_pick({"pdf_build": "pages-19990101000000", "page": "x"}, self.facts), parse.PickBuildGone()
+            location_input.parse_pick({"pdf_build": "pages-19990101000000", "page": "x"}, self.facts),
+            location_input.PickBuildGone(),
         )
         self.assertEqual(
-            parse.parse_pick({"page": 3, "x0": "bad"}, self.facts),
+            location_input.parse_pick({"page": 3, "x0": "bad"}, self.facts),
             InputRejected("page 는 1..2 이어야 합니다.", "page_out_of_range"),
         )
         self.assertEqual(
-            parse.parse_pick({"page": 1, "x0": 1, "x1": None, "y0": "c"}, self.facts),
+            location_input.parse_pick({"page": 1, "x0": 1, "x1": None, "y0": "c"}, self.facts),
             InputRejected("x1 는 유한한 숫자여야 합니다.", "not_number"),
         )
-        got = parse.parse_pick({"page": 2, "x0": 900, "x1": 10, "y0": -5, "y1": 40, "frac": [0, 0, 1, 1]}, self.facts)
-        self.assertEqual(
-            got, parse.PickRequest(self.root / "pages", 2, (10.0, 0.0, 600.0, 40.0), (600.0, 800.0), [0, 0, 1, 1])
+        got = location_input.parse_pick(
+            {"page": 2, "x0": 900, "x1": 10, "y0": -5, "y1": 40, "frac": [0, 0, 1, 1]}, self.facts
         )
         self.assertEqual(
-            parse.parse_pick({"page": 1, "x0": 1, "x1": 2, "y0": 3, "y1": 4, "frac": [1, 2, 3, True]}, self.facts),
+            got,
+            location_input.PickRequest(self.root / "pages", 2, (10.0, 0.0, 600.0, 40.0), (600.0, 800.0), [0, 0, 1, 1]),
+        )
+        self.assertEqual(
+            location_input.parse_pick(
+                {"page": 1, "x0": 1, "x1": 2, "y0": 3, "y1": 4, "frac": [1, 2, 3, True]}, self.facts
+            ),
             InputRejected("frac 은 숫자 4개 목록입니다.", "bad_frac"),
         )
 

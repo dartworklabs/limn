@@ -1,4 +1,4 @@
-"""limn.locate - the effectful half of the position rules, driven by the arguments it is given (coding rule R5).
+"""Shared pin location plus the PDF selection feature, driven by their arguments (coding rule R5).
 
 Re-sync, estimation and overlaps are pinned through server.py at the end of this file (Anchor, Estimate,
 ServerOverlaps); picking and the overlap routes through the handler in test_server.py (OverlapRoutes) and
@@ -21,15 +21,15 @@ from unittest import mock
 from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
+from limn.features.pins.location import input as location_input, resolve as pick_resolve, source as pick_source
 from limn.mapping import anchor_of
 from limn.pins import position
 from limn.pins.model import parse_pin
-from limn.web import parse
 from limn.web.errors import build_failure_log
 
 from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, records, req, write_records
 
-LOCATE_PY = Path(locate.__file__)
+LOCATION_MODULES = (Path(locate.__file__), Path(pick_source.__file__), Path(pick_resolve.__file__))
 SERVER_GLOBALS = {
     "C",
     "cur_doc",
@@ -49,17 +49,19 @@ class NoServerState(unittest.TestCase):
 
     def test_reads_no_server_global(self):
         """No name the server keeps as hidden state appears in the module."""
-        tree = ast.parse(LOCATE_PY.read_text(encoding="utf-8"))
-        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-        self.assertEqual(names & SERVER_GLOBALS, set())
-        self.assertNotIn("C.", LOCATE_PY.read_text(encoding="utf-8"))
+        for path in LOCATION_MODULES:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+            self.assertEqual(names & SERVER_GLOBALS, set(), path)
+            self.assertNotIn("C.", path.read_text(encoding="utf-8"), path)
 
     def test_never_imports_the_server_or_the_http_layer(self):
         """The server is the composition root and the HTTP layer sits above the services: neither is imported."""
-        tree = ast.parse(LOCATE_PY.read_text(encoding="utf-8"))
-        modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
-        modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertFalse({m for m in modules if m in ("server", "limn.server") or m.startswith("limn.web")})
+        for path in LOCATION_MODULES:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+            self.assertFalse({m for m in modules if m in ("server", "limn.server") or m.startswith("limn.web")}, path)
 
 
 class SynctexSampling(unittest.TestCase):
@@ -69,11 +71,11 @@ class SynctexSampling(unittest.TestCase):
         """The smallest grid samples four points and ignores one point mapped to another file."""
         pdf = Path("/ms/pages.pdf")
         with mock.patch.object(
-            locate,
+            pick_source,
             "synctex_edit",
             side_effect=[("main.tex", 10), ("other.tex", 30), ("main.tex", 12), ("main.tex", 11)],
         ) as edit:
-            self.assertEqual(locate.by_synctex(pdf, 2, 0, 0, 10, 10), ("main.tex", 10, 12))
+            self.assertEqual(pick_source.by_synctex(pdf, 2, 0, 0, 10, 10), ("main.tex", 10, 12))
         self.assertEqual(edit.call_count, 4)
 
 
@@ -136,12 +138,12 @@ class TokenWeights(unittest.TestCase):
     def test_rare_tokens_weigh_more_and_common_ones_drop(self):
         """A word on more than 5% of the lines is dropped; a rarer word weighs 1 / (1 + its line count)."""
         lines = ["common word here"] * 30 + ["rareword once"]
-        got = dict(locate.TokenCache().weights("common rareword", lines, ("f", 1, 1)))
+        got = dict(pick_source.TokenCache().weights("common rareword", lines, ("f", 1, 1)))
         self.assertEqual(got, {"rareword": 0.5})
 
     def test_cache_is_keyed_by_file_version(self):
         """The same key reuses the first lines' frequencies even when handed other lines; a new key recounts."""
-        cache = locate.TokenCache()
+        cache = pick_source.TokenCache()
         first, other = ["alpha beta"] + ["filler"] * 39, ["filler"] * 40
         self.assertEqual(dict(cache.weights("alpha", first, ("f", 1, 1))), {"alpha": 0.5})
         self.assertEqual(dict(cache.weights("alpha", other, ("f", 1, 1))), {"alpha": 0.5})
@@ -192,9 +194,10 @@ class Overlaps(unittest.TestCase):
             asked.append((file, lo, hi))
             return [{"id": 7, "lo": lo, "hi": hi, "rel": "equal"}]
 
-        ctx = locate.PickContext(Path("/ms"), (), Path("/state"), locate.TokenCache(), overlaps)
         rng = type("Range", (), {"file": self.NEW, "lines": ["a"] * 9, "lo": 2, "hi": 3})()
-        self.assertEqual(locate.overlaps_api(rng, ctx), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]})
+        self.assertEqual(
+            locate.overlaps_api(rng, overlaps), {"overlaps": [{"id": 7, "lo": 2, "hi": 3, "rel": "equal"}]}
+        )
         self.assertEqual(asked, [(str(self.NEW), 2, 3)])
 
 
@@ -286,34 +289,36 @@ class Anchor(Base):
 
 
 class PickOutcomes(Base):
-    """locate.pick returns one value per outcome: a refusal type for each way a selection is not traced, else Picked.
+    """pick_resolve.pick returns one value per outcome: a refusal type for each way a selection is not traced, else Picked.
     SyncTeX and pdftotext are stubbed at the module's two subprocess functions; the rest is the server's context."""
 
     def pick(self, synctex, text):
         """pick on the first document for a box on page 1, SyncTeX answering synctex and pdftotext printing text."""
         D = ps.APP.docs[0]
-        request = parse.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None)
+        request = location_input.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None)
         with (
-            mock.patch.object(locate, "by_synctex", return_value=synctex),
-            mock.patch.object(locate, "region_text", return_value=text),
+            mock.patch.object(pick_source, "by_synctex", return_value=synctex),
+            mock.patch.object(pick_source, "region_text", return_value=text),
         ):
-            return locate.pick(D, request, ps.APP.pick_context())
+            return pick_resolve.pick(D, request, ps.APP.pin_selection.context())
 
     def test_each_refusal_is_its_own_type_with_its_detail(self):
         """A .bbl/.bib, a file outside the tree, an unreadable file and nothing traced are four refusal values."""
         D = ps.APP.docs[0]
         (self.src / "bin.tex").write_bytes(b"\xff\xfe")
-        self.assertEqual(self.pick((str(D.build / "refs.bbl"), 1, 1), "x"), locate.GeneratedFile(".bbl"))
-        self.assertEqual(self.pick(("/elsewhere/x.tex", 3, 3), "x"), locate.SynctexOutside(Path("/elsewhere/x.tex")))
+        self.assertEqual(self.pick((str(D.build / "refs.bbl"), 1, 1), "x"), pick_resolve.GeneratedFile(".bbl"))
         self.assertEqual(
-            self.pick((str(D.build / "bin.tex"), 1, 1), "x"), locate.SourceUnreadable(self.src / "bin.tex")
+            self.pick(("/elsewhere/x.tex", 3, 3), "x"), pick_resolve.SynctexOutside(Path("/elsewhere/x.tex"))
         )
-        self.assertEqual(self.pick(None, ""), locate.NoSourceHere())
+        self.assertEqual(
+            self.pick((str(D.build / "bin.tex"), 1, 1), "x"), pick_resolve.SourceUnreadable(self.src / "bin.tex")
+        )
+        self.assertEqual(self.pick(None, ""), pick_resolve.NoSourceHere())
 
     def test_a_traced_selection_carries_its_range_and_build_facts(self):
         """SyncTeX's line in the build copy is traced back to the checkout; the facts the answer needs are values."""
         got = self.pick((str(ps.APP.docs[0].build / "main.tex"), 8, 8), "Body line seven betaunique.")
-        self.assertIsInstance(got, locate.Picked)
+        self.assertIsInstance(got, pick_resolve.Picked)
         self.assertEqual(
             (got.file, got.page, got.traced.via, got.traced.lo, got.traced.hi), (self.main, 1, "synctex", 8, 9)
         )

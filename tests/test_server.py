@@ -31,10 +31,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, files, gitsync, locate, startup
+from limn import build as limn_build, files, gitsync, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
 from limn.features.pins.editing import input as editing_input
+from limn.features.pins.location import source as pick_source
 from limn.pins.lifecycle import AgentCannotConfirm, CloseRequest
 from limn.pins.view import pin_state
 from limn.pull import UpToDate
@@ -1256,8 +1257,8 @@ class MultiDoc(Base):
     def test_view_only_pick_returns_region_without_synctex(self):
         self.fake_pages(self.rv)
         with (
-            mock.patch.object(locate, "region_text", return_value="Reviewer   one\n comment"),
-            mock.patch.object(locate, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")),
+            mock.patch.object(pick_source, "region_text", return_value="Reviewer   one\n comment"),
+            mock.patch.object(pick_source, "by_synctex", side_effect=AssertionError("SyncTeX must not be called")),
         ):
             code, _, body = split_resp(
                 self.talk(jreq("POST", "/api/pick", {"doc": "rv", "page": 1, "x0": 10, "y0": 20, "x1": 110, "y1": 60}))

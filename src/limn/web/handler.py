@@ -28,6 +28,7 @@ from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
 from limn.features.pins.listing import http as listing_http
+from limn.features.pins.location import http as location_http
 from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
@@ -451,10 +452,7 @@ class Handler(BaseHTTPRequestHandler):
         them; refusals propagate to _run."""
         app = self.app
         if path == "/api/pick":
-            selection = parse.parse_pick(d, app.document_facts(D))
-            if isinstance(selection, parse.PickBuildGone):
-                return self._json(answers.pick_build_gone())
-            return self._json(answers.pick_answer(app.pick(D, accepted(selection))))
+            return self._json(location_http.pick(app, D, d))
         if path == "/api/pin":
             return self._json(editing_http.add(app, D, actor, d))
         if path == "/api/revision-build":

@@ -33,11 +33,11 @@ from limn import config, revisions
 from limn.access import LOCAL_ACTOR
 from limn.config import AccessOptions, RunConfig
 from limn.features.pins.editing import input as editing_input
+from limn.features.pins.location import http as location_http
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
 from limn.store import find_pin
 from limn.viewer import assemble
-from limn.web import answers, parse
 from limn.web.errors import InputRejected
 
 import helpers_js
@@ -321,15 +321,9 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
 
 
 def pick(d: dict, mod=None, doc=None):
-    """The body POST /api/pick answers for document doc (default the first), without the socket: the selection parsed
-    (limn.web.parse.parse_pick), resolved and answered (limn.web.answers.pick_answer). A gone build gives the 200 body
-    the handler sends; a refused field raises the HTTPError the handler would answer with."""
+    """The POST /api/pick body for one document, through its feature HTTP entry."""
     mod = (mod or ps).APP
-    D = doc or mod.docs[0]
-    selection = parse.parse_pick(d, mod.document_facts(D))
-    if isinstance(selection, parse.PickBuildGone):
-        return answers.pick_build_gone()
-    return answers.pick_answer(mod.pick(D, answers.accepted(selection)))
+    return location_http.pick(mod, doc or mod.docs[0], d)
 
 
 def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):
