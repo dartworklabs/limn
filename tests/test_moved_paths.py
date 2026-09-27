@@ -29,8 +29,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from limn import mapping, startup
+from limn import mapping
 from limn.access import LOCAL_ACTOR
+from limn.features.administration import serve_documents as startup_documents
 from limn.locate import locate_file
 from limn.store import dump_jsonl
 
@@ -126,7 +127,7 @@ class MultiDocMoved(AccessBase):
         """Point the server at a manuscript root with the two documents, as a restart with --doc would."""
         set_config(src=root, main=root / "manuscript" / "main.tex")
         ps.APP.set_docs(
-            startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.APP.C.paths)
+            startup_documents.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.APP.C.paths)
         )
 
     def pins(self):

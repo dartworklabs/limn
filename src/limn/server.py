@@ -70,6 +70,7 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
+from limn.features.administration import serve_documents as startup_documents
 from limn.features.builds import routes as build_routes, run as build_run
 from limn.features.builds.service import BuildRequests
 from limn.features.collaboration import routes as collaboration_routes
@@ -268,7 +269,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
     rules are limn.startup's; this applies their answers and makes the --doc documents once the paths are known.
     """
     src = Path(a.manuscript).expanduser().resolve()
-    picked = startup.pick_documents(src, a.doc, a.main)
+    picked = startup_documents.pick_documents(src, a.doc, a.main)
     if isinstance(picked, StartupRefused):
         return picked
     state = startup.state_dir(a.state_dir, src, Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")))
@@ -306,7 +307,7 @@ def configure_run(a: argparse.Namespace, access_opts: AccessOptions) -> RunStart
         repo=repo,
         access=access_opts,
     )
-    return RunStart(config, startup.docs_of(picked.docs, config.paths) if picked.docs else None)
+    return RunStart(config, startup_documents.docs_of(picked.docs, config.paths) if picked.docs else None)
 
 
 @dataclass

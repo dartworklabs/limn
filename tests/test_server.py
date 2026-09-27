@@ -34,6 +34,7 @@ from unittest import mock
 from limn import build as limn_build, files, startup
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
+from limn.features.administration import serve_documents as startup_documents
 from limn.features.builds import engine as build_engine
 from limn.features.builds.answer import diet_log
 from limn.features.pins.editing import input as editing_input
@@ -718,7 +719,7 @@ class StartupRefusals(unittest.TestCase):
         """No or several top-level .tex files, and no free port, are refusals with the message main() prints."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            refused = startup.detect_main(root)
+            refused = startup_documents.detect_main(root)
             self.assertEqual(
                 refused,
                 StartupRefused(
@@ -727,9 +728,9 @@ class StartupRefusals(unittest.TestCase):
                 ),
             )
             (root / "a.tex").write_text("\\documentclass{article}\n")
-            self.assertEqual(startup.detect_main(root), root / "a.tex")
+            self.assertEqual(startup_documents.detect_main(root), root / "a.tex")
             (root / "b.tex").write_text("\\documentclass{article}\n")
-            self.assertTrue(startup.detect_main(root).message.endswith("\n  - a.tex\n  - b.tex"))
+            self.assertTrue(startup_documents.detect_main(root).message.endswith("\n  - a.tex\n  - b.tex"))
         with mock.patch.object(startup.socket, "socket") as sock:
             sock.return_value.__enter__.return_value.connect_ex.return_value = 0  # every port answers: all taken
             self.assertEqual(
@@ -1105,7 +1106,7 @@ class MultiDoc(Base):
         self.rr.write_text(TEX, encoding="utf-8")
         self.pdf = self.src / "review.pdf"
         self.pdf.write_bytes(MINI_PDF)
-        self.docs = startup.make_docs(
+        self.docs = startup_documents.make_docs(
             ["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src, ps.APP.C
         )
         ps.APP.set_docs(self.docs)

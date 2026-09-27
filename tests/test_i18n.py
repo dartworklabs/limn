@@ -18,8 +18,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config, startup
+from limn import access, config
 from limn.access import LOCAL_ACTOR
+from limn.features.administration import serve_documents as startup_documents
 from limn.features.administration.targets import cli_audit
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.location import http as location_http
@@ -463,7 +464,7 @@ class EnglishChrome(ChromiumTestCase):
         ps.Handler.app = ps.APP
         fresh_runtime(ps)
         C = ps.APP.C
-        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
+        ps.APP.set_docs(startup_documents.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.APP.C.paths))
         ps.APP.init_seq()
         page = blank_png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.APP.docs:

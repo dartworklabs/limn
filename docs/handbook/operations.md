@@ -52,7 +52,7 @@ limn serve \
   [--version]
 ```
 
-실행 인자의 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 argparse 정의(`serve_parser`)다. 인자 조합을 받아들일지와 거절 문구는 [`src/limn/startup.py`](../../src/limn/startup.py)가 정한다.
+실행 인자의 정본은 [`src/limn/args.py`](../../src/limn/args.py)의 argparse 정의(`serve_parser`)다. 접근·포트·상태 등 공통 인자의 거절은 [`src/limn/startup.py`](../../src/limn/startup.py), `--doc`·`--main`의 문서 선택과 거절은 [`features/administration/serve_documents.py`](../../src/limn/features/administration/serve_documents.py)가 정한다.
 
 | 인자 | 필수 | 기본값 | 설명 |
 | --- | --- | --- | --- |

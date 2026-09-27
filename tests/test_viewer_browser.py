@@ -22,8 +22,8 @@ import subprocess
 import time
 from unittest import mock
 
-from limn import startup
 from limn.access import LOCAL_ACTOR
+from limn.features.administration import serve_documents as startup_documents
 from limn.features.pins.lifecycle import input as lifecycle_input
 from limn.features.revisions import core as revisions, execution as revision_execution
 from limn.pins.lifecycle import CloseRequest
@@ -419,7 +419,7 @@ class ColdDeepLink(BrowserBase):
         super().setUp()
         src = ps.APP.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.APP.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.APP.C.paths))
+        ps.APP.set_docs(startup_documents.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.APP.C.paths))
         for D in ps.APP.docs:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)
