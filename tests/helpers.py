@@ -133,6 +133,9 @@ def js_i18n(lang: str = "ko") -> str:
 def run_node(js: str, tz: str = None):
     """Run js under node and return stdout. Returns None if node is missing (handled on the test side).
 
+    The script goes to node on stdin (`node -`), not as an `-e` argument: Linux caps one argument at 128 KB
+    (MAX_ARG_STRLEN), and a harness that inlines a corpus passes that.
+
     If tz is given, run in that timezone — used to directly verify that isEstimated no
     longer reads the wall clock (the frac_build path). The Korean tr()/tl() are prepended unless the
     script defines its own (see js_i18n)."""
@@ -144,7 +147,7 @@ def run_node(js: str, tz: str = None):
     env = dict(os.environ)
     if tz is not None:
         env["TZ"] = tz
-    r = subprocess.run([node, "-e", js], capture_output=True, text=True, timeout=15, env=env, check=False)
+    r = subprocess.run([node, "-"], input=js, capture_output=True, text=True, timeout=15, env=env, check=False)
     if r.returncode != 0:
         raise AssertionError("node execution failed:\n%s" % r.stderr)
     return r.stdout
