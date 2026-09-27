@@ -59,6 +59,10 @@ Limn이 다루는 대상은 핀 하나다. 사람이 PDF에서 영역을 고르�
 
 상태마다 가진 필드가 다르다. 처리 중 표시(`claimed_by`·`claimed_at`·`claim_ts`·`claim_until`·`eta_ts`)는 열린 핀에만, 닫은 기록(`done_at`·`closed_by`·`close_reply`·`close_ref`·`changes`·`changes_at`)은 닫힌 핀에만, 확인(`confirmed_by`·`confirmed_at`)은 완료 핀에만, 삭제 기록(`dropped_at`·`dropped_by`)은 휴지통 사본에만 있다. 실행 정본은 [`limn/pins/model.py`](../../src/limn/pins/model.py)의 상태 타입이고, 규칙은 이 속성만 읽는다. 다른 상태의 필드가 레코드에 남아 있어도 저장된 그대로 둘 뿐 그 상태의 것으로 치지 않는다. 다시 연 핀에 남는 지난 닫기의 `done_at`·`closed_by`가 그렇고, 손으로 고친 닫힌 핀의 claim 필드도 그렇다(`unclaim`은 아무것도 쓰지 않는다).
 
+모든 상태가 함께 가진 필드는 상태 타입의 `core`(`PinCore`)에 타입으로 있다. `id`, 문서(`doc`), 위치(`place`), `note`, 만든 때와 사람(`at`·`author`), `rev`, `kind_req`, `assignee`, `mentions`, `thread`, 그리고 줄 맞춤 상태(`anchor`·`synced_at`·`stale`·`sync`)다. 위치는 줄 핀이면 `LineSpan(file, lo, hi)`, 보기 전용 PDF 핀이면 `Region(pdf, page, frac)`이다. 스레드 항목은 `ThreadEntry(id, by, at, text, ev, ref, mentions)`이고, `ev`는 `ThreadEv`(`close`·`reopen`·`confirm`·`assign`) 중 하나다. 전이와 편집 규칙은 레코드 사전이 아니라 이 속성을 읽는다. `rev`가 없으면 0으로, `kind_req`가 없으면 `fix`로 읽는다.
+
+값이 없거나 저장된 종류가 틀린 필드는 속성으로 올리지 않는다. 위치는 세 필드가 모두 맞을 때만 올린다. 올리지 않은 필드와 나머지 필드는 레코드에 저장된 그대로 남는다. 줄 핀의 `name`·`page`·`frac`·`kind`·`scope`·`quote`, `pdf_build`, `file_rel`, 편집·다시 열기·복원 기록, 이 버전이 모르는 필드가 그렇다. 핀을 다시 쓸 때는 필드 순서까지 읽은 그대로 쓴다.
+
 ### 전이와 할 수 있는 쪽
 
 "누가"는 요청의 신원과 역할로 가른다(§작성자 귀속). **에이전트**는 토큰으로 온 요청, 헤더 없는 루프백 요청, `agent` 역할인 사람이다. **사람**은 그 밖에 신원이 확인된 사람이고, 역할이 없으면 `editor`다. `viewer` 역할인 사람은 아래 전이를 하나도 할 수 없다(`403`).
