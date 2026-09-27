@@ -84,7 +84,7 @@ from limn.features.pins.listing.service import PinListing
 from limn.features.pins.location import resolve as pick_resolve, source as pick_source
 from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
-from limn.features.revisions import core as revisions
+from limn.features.revisions import core as revisions, routes as revision_routes
 from limn.features.revisions.core import (
     git as _git,
 )
@@ -405,7 +405,10 @@ class ServerApplication:
             now=lambda: time.time(),
         )
         self.revision_requests = RevisionRequests(self.revision_context)
-        self.get_routes = (lambda path, query, doc: build_routes.get(path, query, doc, self.hdr_text),)
+        self.get_routes = (
+            lambda path, query, doc: build_routes.get(path, query, doc, self.hdr_text),
+            lambda path, query, doc: revision_routes.get(path, query, doc, self.revision_requests),
+        )
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE

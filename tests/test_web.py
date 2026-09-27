@@ -49,6 +49,8 @@ from helpers_access import AccessBase, member_add, talk_to
 SRC = Path(__file__).resolve().parent.parent / "src"
 HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
 BUILD_ROUTES_SOURCE = (SRC / "limn" / "features" / "builds" / "routes.py").read_text(encoding="utf-8")
+REVISION_ROUTES_SOURCE = (SRC / "limn" / "features" / "revisions" / "routes.py").read_text(encoding="utf-8")
+GET_ROUTE_SOURCES = (HANDLER_SOURCE, BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE)
 
 
 def app_members() -> list:
@@ -211,7 +213,7 @@ class HandlerStructure(unittest.TestCase):
         boundary."""
         raw = [
             "%d: %s" % (n.lineno, ast.unparse(n))
-            for source in (HANDLER_SOURCE, BUILD_ROUTES_SOURCE)
+            for source in GET_ROUTE_SOURCES
             for n in ast.walk(ast.parse(source))
             if (
                 isinstance(n, ast.Call)
@@ -241,7 +243,7 @@ class HandlerStructure(unittest.TestCase):
                 self.assertIn("reason='not_found'", exc)
 
 
-# One request per route of the handler and registered build routes (a /pages/ and a /vendor/pdfjs/ name stand for
+# One request per route of the handler and registered feature routes (a /pages/ and a /vendor/pdfjs/ name stand for
 # their prefixes, pin 1 for an id). GuardOrder checks these lists against the route sources.
 PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "unclaim", "reply", "confirm")
 GET_ROUTES = (
@@ -318,9 +320,9 @@ class GuardOrder(AccessBase):
         return [("GET", p) for p in GET_ROUTES] + [("POST", p) for p in POST_ROUTES]
 
     def test_the_route_lists_cover_the_handler(self):
-        """Every path the handler or registered build route matches, and every pin action, is in the lists."""
+        """Every path the handler or registered feature route matches, and every pin action, is in the lists."""
         literals = set()
-        for source in (HANDLER_SOURCE, BUILD_ROUTES_SOURCE):
+        for source in GET_ROUTE_SOURCES:
             literals |= set(re.findall(r'path == "([^"]+)"', source))
             literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', source))
             for group in re.findall(r"path in \(([^)]*)\)", source):

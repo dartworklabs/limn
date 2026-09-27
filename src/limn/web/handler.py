@@ -254,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
         reply = (
             self._get_viewer(actor, path, q, D)
-            or self._get_document(path, q, D)
+            or self._get_outline(path, D)
             or self._get_pins(path, q, D)
             or self._get_source(path, q, D)
             or self._get_vendor(path)
@@ -291,31 +291,11 @@ class Handler(BaseHTTPRequestHandler):
             return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
         return None
 
-    def _get_document(self, path: str, q: Query, D: Document) -> Reply | None:
-        """Document D's history, commit changes and outline labels. None for any other path."""
-        app = self.app
-        if path == "/api/revisions":
-            return _json_reply(revisions_http.history(app.revision_requests, D))
-        if path in ("/api/revision-diff", "/api/revision-build", "/api/revision-pdf"):
-            return self._get_revision(path, D, q)
+    def _get_outline(self, path: str, D: Document) -> Reply | None:
+        """The document's outline labels, or None for another path."""
         if path == "/api/outline-labels":
-            return _json_reply(document_views_http.outline(app.document_views, D))
+            return _json_reply(document_views_http.outline(self.app.document_views, D))
         return None
-
-    def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
-        """The three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An optional &pin=
-        scopes them to one pin (§핀 단위 변경 보기); the feature parses the pin before the commit."""
-        app = self.app
-        if path == "/api/revision-diff":
-            return _json_reply(revisions_http.diff(app.revision_requests, D, q))
-        if path == "/api/revision-build":
-            return _json_reply(revisions_http.status(app.revision_requests, D, q))
-        return Reply(
-            200,
-            revisions_http.pdf(app.revision_requests, D, q),
-            "application/pdf",
-            "private, max-age=600",
-        )
 
     def _get_pins(self, path: str, q: Query, D: Document) -> Reply | None:
         """The pins: pins.md (the remote agent's entry point), the list (all documents, or D's with ?doc=), the
