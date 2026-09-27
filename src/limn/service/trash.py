@@ -112,7 +112,7 @@ def _restore(
     ctx.stamp(rec)  # ADR-0006: a restored pin records where its file is now
     restored = parse_pin(rec)
     pins.append(restored)
-    pins.sort(key=lambda pin: pin.core.id or 0)
+    pins.sort(key=lambda pin: pin.core.pid)
     return restored, True
 
 

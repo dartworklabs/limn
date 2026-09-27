@@ -219,11 +219,12 @@ class Parse(unittest.TestCase):
     """What passes the check comes back parsed into its state; what does not comes back Broken, with nothing lifted."""
 
     def test_a_fitting_record_is_parsed_into_its_state_and_written_back_unchanged(self):
-        """A line pin is an OpenPin (a closed one a DonePin), a region pin's place is its Region, and each record
-        written back is the record, field order included."""
+        """Every accepted line or region has a usable identity and place while preserving its stored field order."""
         for r, state in ((LINE, OpenPin), (dict(LINE, done=True), DonePin), (REGION, OpenPin)):
             pin = parse_record(r, doc_key, actor)
             self.assertIsInstance(pin, state)
+            self.assertEqual(pin.core.pid, r["id"])
+            self.assertIsNotNone(pin.core.place)
             self.assertEqual(list(pin.record.items()), list(r.items()))
         self.assertEqual(parse_record(REGION, doc_key, actor).core.place, Region("/ms/review.pdf", 2, REGION["frac"]))
 
