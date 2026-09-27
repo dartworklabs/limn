@@ -415,14 +415,18 @@ class Store(Base):
         self.assertEqual(len(ps.snapshot_pins()), 30)
 
     def test_bad_record_is_quarantined_not_500(self):
+        """A malformed stored pin is skipped and its original bytes survive the next transaction's rewrite."""
         self.add()
         with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 900, "file": str(self.main), "lo": "5", "hi": None}) + "\n")
             fh.write(json.dumps({"id": 950, "lo": 3, "hi": 3}) + "\n")
+        original = ps.C.pins_jsonl.read_bytes()
         self.assertEqual([p.core.id for p in ps.snapshot_pins()], [1])
         nid = self.add()
         self.assertEqual(nid, 2)
-        self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
+        backups = list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), original)
 
     def test_mistyped_fields_are_quarantined(self):
         self.add()
