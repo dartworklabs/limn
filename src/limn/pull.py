@@ -87,8 +87,9 @@ def repo_top(rc: int | None, out: str) -> str | None:
 
 
 def head_of(rc: int | None, out: str) -> str | None:
-    """HEAD's commit id from `git rev-parse HEAD`, or None when git refused or could not run."""
-    return out.strip() if rc == 0 else None
+    """HEAD's commit id from `git rev-parse HEAD`, or None when git failed or returned no id."""
+    head = out.strip()
+    return head if rc == 0 and head else None
 
 
 def fetch_failure(rc: int | None, head: str | None) -> PullFailed | None:
@@ -113,7 +114,7 @@ def is_dirty(porcelain: str) -> bool:
 def merged(before: str | None, rc: int | None, out: str) -> Pulled | UpToDate:
     """The outcome of a fast-forward that succeeded, from `git rev-parse HEAD` after it: Pulled when HEAD moved,
     UpToDate when it did not or can no longer be read."""
-    after = out.strip() if rc == 0 else before
+    after = head_of(rc, out) or before
     if after is None or after == before:
         return UpToDate(before)
     return Pulled(before, after)

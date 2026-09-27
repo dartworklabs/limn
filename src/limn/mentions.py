@@ -101,12 +101,17 @@ def round_mentions(pin: Pin) -> list[str]:
 
 
 def _with_entry_mentions(note: Sequence[str] | None, entries: Sequence[ThreadEntry]) -> list[str]:
-    """The note's @-tags (the pin's mentions) followed by each entry's @-tags not seen yet, in order."""
+    """The stored note tags followed by each new thread tag in first-seen order.
+
+    Keep even duplicate note tags from old records as stored; only thread tags already seen are skipped.
+    """
     out = list(note or [])
+    seen = set(out)
     for entry in entries:
         for lg in entry.mentions or []:
-            if lg not in out:
+            if lg not in seen:
                 out.append(lg)
+                seen.add(lg)
     return out
 
 
@@ -127,12 +132,13 @@ def addressed_to(pin: Pin) -> list[str]:
 def fyi_mentions_to(pin: Pin) -> list[str]:
     """People called for reference on a fix pin (kind_req != question) - never skipped, only shown in pins.md as '참고 @name'.
     The opposite of addressed_to() (non-question pins). On a pin with an assignee, every @-tag other than the assignee is FYI."""
-    if pin.core.assignee:
-        to = addressed_to(pin)
-        return [lg for lg in round_mentions(pin) if lg not in to]
-    if pin.core.kind_req == "question":
+    assignee = pin.core.assignee
+    if not assignee and pin.core.kind_req == "question":
         return []
-    return round_mentions(pin)
+    mentions = round_mentions(pin)
+    if assignee and assignee != ASSIGNEE_AGENT:
+        return [login for login in mentions if login != assignee]
+    return mentions
 
 
 def note_mention_targets(

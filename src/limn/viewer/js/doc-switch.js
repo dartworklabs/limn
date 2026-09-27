@@ -16,17 +16,17 @@ function applyViewWidth(v){if(v&&typeof v.w==='number'&&v.lay===LAYOUT&&(LAYOUT=
   ZOOMED=false; return false;}
 function restoreView(v){if(!v)return; restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
 addEventListener('pagehide',saveView);
-// Switches documents. Remembers the current document's viewed position, and cancels any in-progress selection/re-place-location (a note's draft text is kept).
+// Switches documents. Remembers the current view and draft, then opens only the destination document's draft.
 // If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
 async function switchDoc(k){
   if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ;
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
-  saveView(); cancelRepick(); if(CUR||!$('#composer').hidden)cancelSelection(false);
-  if(EDIT&&!editDirty())cancelEdit();
+  saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
+  if(EDITOR.current&&!editDirty())cancelEdit();
   let m=META_BY.get(k),cached=!!m;
-  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기'})).data;}catch(e){return;} if(seq!==SWITCHSEQ)return;}
+  if(!m){try{m=(await api(dq('/api/meta',k),{what:'문서 열기'})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;} if(seq!==SWITCHSEQ)return;}
   DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
-  hideTip(); showDoc(VIEW_BY.get(k));
+  hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc();
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
       META_BY.set(k,f); if(changed)await refreshDoc(f); else{META=f; drawMeta();}}}catch(e){}}
@@ -41,10 +41,7 @@ function showDoc(v){
   $('#outline-items').textContent=tr('PDF 목차를 읽는 중입니다.');
   if(document.body.classList.contains('revision-open'))loadRevisions();
   vecOpen();
-  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;} $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
-  LAST_BUILD_SEQ=(typeof META.build_seq==='number')?META.build_seq:0; LAST_BUILD_ERR=BUILD_ERR_BY.get(DOC)||null;
-  if(LAST_BUILD_ERR)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
-  BUILD_BOOTED=true; if(BUILD_INFLIGHT)BUILD_INFLIGHT.then(()=>pollBuild()); else pollBuild();   // if a previous document's request is still in flight, queue after it
+  resetBuildForDoc();   // if a previous document's request is still in flight, queue after it
   docTitle(false);
 }
 // The tab title: 'Limn · <label> · <document> · 열린 N' (+ ' · 검토 N' once the pin list knows the review count).

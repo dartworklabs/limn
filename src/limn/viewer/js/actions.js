@@ -11,11 +11,15 @@ async function confirmPin(id){try{const {data}=await api('/api/pins/'+id+'/confi
 async function reopenPin(id){try{await api('/api/pins/'+id+'/reopen',{method:'POST',what:'다시 열기'});
   markMine(id); toast(tl('핀 #{id} 완료를 되돌렸습니다',{id}),'ok');}catch(e){} await loadPins();}
 // [삭제] takes the pin off the list at once (no confirmation) and says so next to the action with [되돌리기]; it waits in the Trash.
-async function dropPin(id,undoSave){const was={o:OPEN_ALL,p:PINS};
-  OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDIT&&EDIT.id===id)EDIT=null; drawPins(); marks();
+async function dropPin(id,undoSave){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ;
+  OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
   try{await api('/api/pins/'+id+'/drop',{method:'POST',what:'삭제'});
     markMine(id); toast(tl(undoSave?'핀 #{id} 저장을 되돌렸습니다':'핀 #{id} 삭제됨 · 휴지통에 30일 보관',{id}),'ok',{label:'되돌리기',fn:()=>restorePin(id)});}
-  catch(e){OPEN_ALL=was.o; PINS=was.p; drawPins(); marks();} await loadPins();}
+  catch(e){if(PINS_APPLIED_SEQ===applied){const old=was.find(p=>p.id===id);
+      if(old&&!OPEN_ALL.some(p=>p.id===id)){const next=was.slice(was.indexOf(old)+1).find(p=>OPEN_ALL.some(x=>x.id===p.id));
+        const at=next?OPEN_ALL.findIndex(p=>p.id===next.id):OPEN_ALL.length;
+        OPEN_ALL=[...OPEN_ALL.slice(0,at),old,...OPEN_ALL.slice(at)];
+        PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks();}}} await loadPins();}
 // [영구 삭제] (owner): the row leaves the Trash at once; the request goes out when the undo toast does (deferred).
 const PURGING=new Set();
 function purgePin(id){PURGING.add(id); drawTrash(); drawPins();
@@ -26,4 +30,3 @@ async function restorePin(id){try{await api('/api/pins/'+id+'/restore',{method:'
   markMine(id); toast(tl('핀 #{id} 되살림',{id}),'ok');}catch(e){} await loadPins();}
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기'});
   markMine(id); toast(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}),'ok');}catch(e){} await loadPins();}
-

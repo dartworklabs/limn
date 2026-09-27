@@ -374,6 +374,23 @@ class IdTest(StoreBase):
         """Clearing an empty store archives nothing."""
         self.assertEqual(self.store.clear(), (0, None))
 
+    def test_clear_keeps_live_pins_when_empty_markdown_render_fails(self):
+        """A failed empty-list render leaves the live file and work list intact, with no archive."""
+        self.store.transact(self.add(1))
+        before_pins = self.store.files.pins_jsonl.read_bytes()
+        before_md = self.store.files.pins_md.read_bytes()
+
+        def fail_render(_pins):
+            """Simulate a renderer defect before clear changes any file."""
+            raise RuntimeError("render failed")
+
+        broken = PinStore(self.store.files, self.store.lock, parse_rec, parse_trash, self.sync, fail_render)
+        with self.assertRaisesRegex(RuntimeError, "render failed"):
+            broken.clear()
+        self.assertEqual(self.store.files.pins_jsonl.read_bytes(), before_pins)
+        self.assertEqual(self.store.files.pins_md.read_bytes(), before_md)
+        self.assertEqual(list(self.state.glob("pins_*.jsonl.bak")), [])
+
 
 class HelperTest(unittest.TestCase):
     """The two pure helpers: the stored line format and lookup by id."""
@@ -396,7 +413,10 @@ class HelperTest(unittest.TestCase):
 
 
 class Store(Base):
+    """The server store keeps concurrent writes, malformed lines, and legacy pins safe."""
+
     def test_concurrent_adds_all_kept(self):
+        """Thirty simultaneous adds retain thirty distinct ids and records under the store lock."""
         ids, errs = [], []
 
         def go(i):
@@ -412,23 +432,24 @@ class Store(Base):
             t.join()
         self.assertEqual(errs, [])
         self.assertEqual(len(set(ids)), 30)
-        self.assertEqual(len(ps.snapshot_pins()), 30)
+        self.assertEqual(len(ps.APP.snapshot_pins()), 30)
 
     def test_bad_record_is_quarantined_not_500(self):
         """A malformed stored pin is skipped and its original bytes survive the next transaction's rewrite."""
         self.add()
-        with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
+        with open(ps.APP.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 900, "file": str(self.main), "lo": "5", "hi": None}) + "\n")
             fh.write(json.dumps({"id": 950, "lo": 3, "hi": 3}) + "\n")
-        original = ps.C.pins_jsonl.read_bytes()
-        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [1])
+        original = ps.APP.C.pins_jsonl.read_bytes()
+        self.assertEqual([p.core.id for p in ps.APP.snapshot_pins()], [1])
         nid = self.add()
         self.assertEqual(nid, 2)
-        backups = list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))
+        backups = list(ps.APP.C.state.glob("pins.jsonl.corrupt-*.bak"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), original)
 
     def test_mistyped_fields_are_quarantined(self):
+        """Invalid optional and required field types are skipped with the original file backed up."""
         self.add()
         good = {"file": str(self.main), "lo": 4, "hi": 4}
         bad = [
@@ -443,20 +464,21 @@ class Store(Base):
             dict(good, id=968, frac=[0, 0, 1]),
             dict(good, id=969, author={"name": 3}),
         ]
-        with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
+        with open(ps.APP.C.pins_jsonl, "a", encoding="utf-8") as fh:
             for r in bad:
                 fh.write(json.dumps(r) + "\n")
         os.utime(self.main, (time.time() + 5, time.time() + 5))  # so sync_all compares synced_at
-        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [1])
-        self.assertEqual(len(list(ps.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
+        self.assertEqual([p.core.id for p in ps.APP.snapshot_pins()], [1])
+        self.assertEqual(len(list(ps.APP.C.state.glob("pins.jsonl.corrupt-*.bak"))), 1)
 
     def test_out_of_tree_file_is_not_read(self):
+        """Editing a pin outside the manuscript refuses access without leaking its file content."""
         outside = Path(self.tmp.name) / "outside.tex"
         outside.write_text("line one outsidesecret\nline two\n", encoding="utf-8")
-        with open(ps.C.pins_jsonl, "a", encoding="utf-8") as fh:
+        with open(ps.APP.C.pins_jsonl, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"id": 970, "file": str(outside), "lo": 1, "hi": 1, "anchor": {}}) + "\n")
         self.assertEqual(edit_pin(970, {"lo": 1, "hi": 2, "base_rev": 0}, dict(LOCAL_ACTOR)), PinOutsideTree())
-        self.assertNotIn("outsidesecret", json.dumps(records(ps.snapshot_pins())))
+        self.assertNotIn("outsidesecret", json.dumps(records(ps.APP.snapshot_pins())))
 
     def test_lines_edit_drops_via_score(self):
         pid = add_pin(
@@ -476,37 +498,46 @@ class Store(Base):
         )
         os.utime(self.main, (time.time() + 5, time.time() + 5))
         self.assertTrue(self.pin(pid).get("stale"))
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("%d · 위치 잃음" % pid, md)  # "위치 잃음" is spelled out in the number column (formerly ⚠)
         self.assertIn("'위치 잃음' = 위치를 되찾지 못함", md)  # the legend line
         self.assertNotIn("원문에서 사라짐", md)
 
     def test_render_failure_does_not_commit(self):
+        """An in-memory pins.md render error leaves the live JSONL bytes unchanged."""
         self.add()
-        before = ps.C.pins_jsonl.read_text()
-        with mock.patch.object(ps, "pins_md_text", side_effect=RuntimeError("boom")), self.assertRaises(RuntimeError):
+        before = ps.APP.C.pins_jsonl.read_text()
+        with (
+            mock.patch.object(ps.APP, "pins_md_text", side_effect=RuntimeError("boom")),
+            self.assertRaises(RuntimeError),
+        ):
             self.add(note="x")
-        self.assertEqual(ps.C.pins_jsonl.read_text(), before)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_text(), before)
 
     def test_two_clears_same_second_keep_both(self):
+        """Archive names remain unique when two clear operations share one timestamp."""
         self.add(note="FIRST")
-        ps.clear_pins()
+        ps.APP.clear_pins()
         self.add(note="SECOND")
-        ps.clear_pins()
-        baks = list(ps.C.state.glob("pins_*.jsonl.bak"))
+        ps.APP.clear_pins()
+        baks = list(ps.APP.C.state.glob("pins_*.jsonl.bak"))
         self.assertEqual(len(baks), 2)
         blob = "".join(p.read_text() for p in baks)
         self.assertIn("FIRST", blob)
         self.assertIn("SECOND", blob)
 
     def test_restore_survives_failed_pins_write(self):
+        """A failed live write keeps the Trash copy available for a later restore."""
         pid = self.add()
-        ps.drop_pin(pid, dict(LOCAL_ACTOR))
+        ps.APP.drop_pin(pid, dict(LOCAL_ACTOR))
         # the transaction's own write
-        with mock.patch.object(PinStore, "write_pins", side_effect=OSError("disk full")), self.assertRaises(OSError):
-            ps.restore_pin(pid, dict(LOCAL_ACTOR))
+        with (
+            mock.patch.object(PinStore, "write_prepared", side_effect=OSError("disk full")),
+            self.assertRaises(OSError),
+        ):
+            ps.APP.restore_pin(pid, dict(LOCAL_ACTOR))
         self.assertIn(pid, [r["id"] for r in trash_records()])
-        self.assertEqual(record_of(ps.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
+        self.assertEqual(record_of(ps.APP.restore_pin(pid, dict(LOCAL_ACTOR)))["id"], pid)
         self.assertEqual(trash_records(), [])
 
     def test_edit_loc_keeps_page_frac_and_defaults_kind(self):
@@ -522,14 +553,14 @@ class Store(Base):
     def test_add_pin_stamps_pdf_build(self):
         # design 1: pin the coordinate system frac points into by "which build it was" (pdf_build), not the wall clock.
         pid = self.add()
-        self.assertEqual(self.pin(pid)["pdf_build"], limn_build.cur_pages(ps.DOCS[0]).name)
+        self.assertEqual(self.pin(pid)["pdf_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
 
     def test_add_pin_keeps_client_pdf_build(self):
         """A pin keeps the pdf_build the viewer sends; a bad name is refused as bad_pdf_build."""
         # the viewer sends back pdf_build from the pick response as-is (the build on screen at drag time) —
         # a drag made right after a rebuild, before the screen updates, must stay tagged with the old build.
-        (ps.C.state / "pages-20260101000000").mkdir()
-        ps.C.pages_ptr.write_text("pages-20260101000000")
+        (ps.APP.C.state / "pages-20260101000000").mkdir()
+        ps.APP.C.pages_ptr.write_text("pages-20260101000000")
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "pdf_build": "pages"}, dict(LOCAL_ACTOR)
         ).record["id"]
@@ -540,8 +571,8 @@ class Store(Base):
         )
 
     def _new_build(self, name="pages-20260101000000"):
-        (ps.C.state / name).mkdir(exist_ok=True)
-        ps.C.pages_ptr.write_text(name)
+        (ps.APP.C.state / name).mkdir(exist_ok=True)
+        ps.APP.C.pages_ptr.write_text(name)
         return name
 
     def test_edit_loc_with_new_frac_restamps_pdf_build(self):
@@ -575,7 +606,7 @@ class Store(Base):
 
     def test_edit_loc_replaces_legacy_frac_build_field(self):
         pid = self.add()
-        rows = records(ps.read_pins()[0])
+        rows = records(ps.APP.read_pins()[0])
         rows[0].pop("pdf_build")
         rows[0]["frac_build"] = "pages"
         write_records(rows)
@@ -614,8 +645,8 @@ class Store(Base):
         self.assertEqual(p["pdf_build"], old_build)
 
     def test_meta_exposes_pages_build(self):
-        d = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
-        self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.DOCS[0]).name)
+        d = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+        self.assertEqual(d["pages_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
 
 
 class LegacyPinsNotRewritten(Base):
@@ -623,6 +654,7 @@ class LegacyPinsNotRewritten(Base):
     never rewrite pins.jsonl."""
 
     def test_legacy_records_are_not_rewritten_by_reads(self):
+        """Payload and HTTP reads preserve legacy JSONL bytes and mtime while deriving state."""
         legacy = {
             "id": 7,
             "file": str(self.main),
@@ -638,14 +670,14 @@ class LegacyPinsNotRewritten(Base):
             "anchor": mapping.anchor_of(files.tex_lines(self.main), 4, 5),
             "synced_at": self.main.stat().st_mtime + 10,
         }
-        ps.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
-        before = ps.C.pins_jsonl.read_bytes()
-        mtime = ps.C.pins_jsonl.stat().st_mtime_ns
-        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        ps.APP.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
+        before = ps.APP.C.pins_jsonl.read_bytes()
+        mtime = ps.APP.C.pins_jsonl.stat().st_mtime_ns
+        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
         self.talk(req("GET", "/api/pins?all=1"))
         self.talk(req("GET", "/pins.md"))
-        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
-        self.assertEqual(ps.C.pins_jsonl.stat().st_mtime_ns, mtime)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.APP.C.pins_jsonl.stat().st_mtime_ns, mtime)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("thread", rows[0])
 
@@ -661,14 +693,15 @@ class LegacyMentionsNotRewritten(Base):
         super().setUp()
 
     def test_legacy_pins_read_without_rewrite(self):
-        ps.record_person(dict(self.S))
+        """Mention inference on old records remains a read-time view, not a stored migration."""
+        ps.APP.record_person(dict(self.S))
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "note": "@Bob Park 확인 부탁"}, dict(self.W)).record[
             "id"
         ]
-        f = ps.C.pins_jsonl
+        f = ps.APP.C.pins_jsonl
         before = f.read_bytes()
         for _ in range(2):
-            ps.pins_payload(ps.snapshot_pins(), True)
+            ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
             self.talk(req("GET", "/api/pins?all=1"))
             self.talk(req("GET", "/pins.md"))
         self.assertEqual(f.read_bytes(), before)

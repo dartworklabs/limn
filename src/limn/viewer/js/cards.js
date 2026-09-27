@@ -15,7 +15,7 @@ function card(p){
   const tip=esc(authorTip(p));
   const au=p.author?'<span class="au" data-tip="'+tip+'">'+avatar(p.author)+'<span class="au-n">'+esc(who(p.author))+(isMe(p.author)?'<span class="me-tag"> (나)</span>':'')+'</span></span>'
     :'<span class="au old" data-tip="'+tip+'">기록 전</span>';
-  const editing=!!(EDIT&&EDIT.id===p.id),open=OPEN_CARDS.has(p.id);
+  const editing=!!(EDITOR.current&&EDITOR.current.id===p.id),open=OPEN_CARDS.has(p.id);
   // Header line: number/line-range/page on the left, author/collapse on the right. Badges (.tags) drop to one line below the header.
   // compact accordion: a collapsed card shows only number/location/page/the note's first line (.sum); clicking expands badges/note/buttons (CSS).
   // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.

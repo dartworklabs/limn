@@ -161,10 +161,10 @@ class EventLog:
     def emit(self, events: Iterable[Row | None], keep: int = EVENTS_KEEP) -> None:
         """Appends events (Nones skipped) to the end of events.jsonl (lock + full atomic replace, leaving the earlier
         part untouched - append-only). seq starts from the file's last seq+1; each record gets seq, at (the stamp at
-        that moment) and ts (the clock read once, rounded to milliseconds), in place. Only the newest `keep` records
-        stay. Called only after the pin write has committed (prevents phantom events). A failure is just a warning -
-        the pin change already went through."""
-        batch = [e for e in events or [] if e]
+        that moment) and ts (the clock read once, rounded to milliseconds), on a copy of the caller's event. Only the
+        newest `keep` records stay. Called only after the pin write has committed (prevents phantom events). A failure
+        is just a warning - the pin change already went through and caller-owned events remain unstamped."""
+        batch = [dict(e) for e in events or [] if e]
         if not batch:
             return
         with self.lock:

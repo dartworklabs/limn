@@ -101,7 +101,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 - `phase` 는 `pull`(업스트림 당겨오는 중, `--git-pull` 일 때만) → `copy`(원고 사본을 만드는 중) → `latex`(latexmk) → `render`(pdftoppm) 순서다. 퍼센트는 만들지 않는다. 알 수 없기 때문이다.
 - `elapsed_s` 는 지금까지 걸린 시간, `last_s` 는 지난 빌드가 걸린 시간이다. `last_s` 는 진행 중에 참고용으로 쓴다.
-- 서버를 다시 띄워도 마지막 빌드 결과(`state`, `errors`, `log_tail`, `seq`, `head`, `pull`)는 `builds.json` 에서 되살린다.
+- 서버를 다시 띄워도 마지막 빌드 결과(`state`, `errors`, `log_tail`, `seq`, `head`, `pull`)는 `builds.json` 에서 되살린다. 마지막 결과의 개별 필드가 손상됐으면 쓸 수 없는 표시 값만 빈 값으로 두고, 유효한 상태와 순번은 복원한다.
 
 ### 끝났을 때
 
@@ -142,6 +142,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 6. 결과 `{"state": "ok"|"up_to_date"|"skipped"|"error", "reason", "head_before", "head_after"}` 를 빌드 결과의 `pull` 필드에 싣는다. 빌드 결과란 `/api/rebuild` 응답, `/api/build`, `builds.json` 의 마지막 결과다.
 
 `state` 가 `ok` 면 fast-forward로 커밋이 바뀐 것이다. `up_to_date` 는 저장소는 정상이지만 새 커밋이 없었다는 뜻이다.
+`git rev-parse HEAD`가 성공 상태로 끝나도 해시를 출력하지 않으면 HEAD를 읽지 못한 것으로 보고 빈 해시를 결과에 싣지 않는다.
 
 ### 여러 문서에서의 pull
 

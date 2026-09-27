@@ -308,7 +308,7 @@ class ViewerBase(BrowserBase):
             {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
             actor(ALICE),
         ).record["id"]  # add_pin returns the new OpenPin (limn.pins.edit)
-        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
         """Open the viewer on a device preset and return the page once boot() has finished and the page has settled.
@@ -399,7 +399,9 @@ class ViewerBase(BrowserBase):
         self.touch(cdp, "touchStart", [(x, y)])
         page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
         self.touch(cdp, "touchEnd", [])
-        page.wait_for_function("CUR&&CUR.lo&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.wait_for_function(
+            "COMPOSE.current&&COMPOSE.current.lo&&!document.querySelector('#composer').hidden", timeout=8000
+        )
         settle(page)
 
     def mouse_pick(self, page):
@@ -411,7 +413,9 @@ class ViewerBase(BrowserBase):
         page.mouse.down()
         page.mouse.move(x1, y1, steps=5)
         page.mouse.up()
-        page.wait_for_function("CUR&&CUR.lo&&!document.querySelector('#composer').hidden", timeout=8000)
+        page.wait_for_function(
+            "COMPOSE.current&&COMPOSE.current.lo&&!document.querySelector('#composer').hidden", timeout=8000
+        )
         settle(page)
 
 
@@ -743,7 +747,7 @@ class ReviewRegressions(ViewerBase):
 
 DRAFT_KEYS = "Object.keys(sessionStorage).filter(k=>k.startsWith('limnDraft:'))"
 # The debounced draft save has run and stored a draft whose note is the argument (no save left pending).
-DRAFT_SAVED = "n=>DRAFT_T===0&&%s.some(k=>JSON.parse(sessionStorage.getItem(k)).note===n)" % DRAFT_KEYS
+DRAFT_SAVED = "n=>DRAFT.timer===0&&%s.some(k=>JSON.parse(sessionStorage.getItem(k)).note===n)" % DRAFT_KEYS
 
 
 class DraftPersistence(ViewerBase):
@@ -764,11 +768,11 @@ class DraftPersistence(ViewerBase):
         if question:
             page.locator('#c-kind [data-kind="question"]').click()
         page.wait_for_function(DRAFT_SAVED, arg=note)
-        return page.evaluate("CUR.lo")
+        return page.evaluate("COMPOSE.current.lo")
 
     def restored(self, page):
-        """[composer shown, CUR.lo, note, kind, pending box, the restore toast's text]."""
-        return page.evaluate("""() => [!document.querySelector('#composer').hidden, CUR&&CUR.lo, document.querySelector('#note').value,
+        """[composer shown, COMPOSE.current.lo, note, kind, pending box, the restore toast's text]."""
+        return page.evaluate("""() => [!document.querySelector('#composer').hidden, COMPOSE.current&&COMPOSE.current.lo, document.querySelector('#note').value,
           KIND_NEW, !!document.querySelector('.sel.pending'),
           [...document.querySelectorAll('#toasts .toast .t-title')].map(t=>t.textContent).join('|')]""")
 
@@ -793,7 +797,7 @@ class DraftPersistence(ViewerBase):
         page = self.view(PHONE, init=NO_CLOSE_WATCHER)
         cdp = self.cdp(page)
         self.long_press_pick(cdp, page)
-        lo = page.evaluate("CUR.lo")
+        lo = page.evaluate("COMPOSE.current.lo")
         page.locator("#note").fill("폰에서 쓰던 메모")
         page.wait_for_function(DRAFT_SAVED, arg="폰에서 쓰던 메모")
         page.go_back()
@@ -855,7 +859,9 @@ class DraftPersistence(ViewerBase):
         """After a rebuild the box would point at the wrong spot: the note returns for the next pick, and the toast says so."""
         page = self.view(DESK)
         self.draft(page, "빌드가 바뀐 메모")
-        page.evaluate("CUR.pdf_build='pages-old'; syncDraft()")  # a draft drawn on a build that has since been replaced
+        page.evaluate(
+            "COMPOSE.current.pdf_build='pages-old'; syncDraft()"
+        )  # a draft drawn on a build that has since been replaced
         self.assertIn('"build":"pages-old"', page.evaluate("sessionStorage.getItem(%s[0])" % DRAFT_KEYS))
         self.reload(page)
         got = self.restored(page)
@@ -1052,7 +1058,7 @@ class FoldOverlay(ViewerBase):
                 settle(page)
                 page.evaluate(CLICKS)
                 self.tap(cdp, x, y)
-                page.wait_for_function("CUR&&CUR.lo", timeout=8000)
+                page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
                 nothing_follows(page)  # the tap-pick's ghost click and focus
                 self.assertEqual(page.evaluate("window.__clicks"), [])
                 self.assertEqual(page.evaluate("KIND_NEW"), "fix")
@@ -1304,17 +1310,17 @@ class DesktopMisc(ViewerBase):
             with self.subTest(how=how):
                 page = self.view(DESK)
                 self.mouse_pick(page)
-                lo = page.evaluate("CUR.lo")
+                lo = page.evaluate("COMPOSE.current.lo")
                 page.locator("#note").fill("길게 쓴 메모")
                 if how == "escape":
                     page.keyboard.press("Escape")
                 else:
                     page.locator("#btn-cancel").click()
-                self.assertTrue(page.evaluate("document.querySelector('#composer').hidden&&!CUR"))
+                self.assertTrue(page.evaluate("document.querySelector('#composer').hidden&&!COMPOSE.current"))
                 page.locator("#toasts .toast", has_text="선택 취소됨").locator("button", has_text="되돌리기").click()
                 self.assertEqual(
                     page.evaluate(
-                        "[!document.querySelector('#composer').hidden, CUR&&CUR.lo, "
+                        "[!document.querySelector('#composer').hidden, COMPOSE.current&&COMPOSE.current.lo, "
                         "document.querySelector('#note').value, !!document.querySelector('.sel.pending')]"
                     ),
                     [True, lo, "길게 쓴 메모", True],
@@ -1331,14 +1337,15 @@ class DesktopMisc(ViewerBase):
         """[되돌리기] on '핀 #N 저장됨' takes the pin back and hands the selection and note back for another try."""
         page = self.view(DESK)
         self.mouse_pick(page)
-        lo = page.evaluate("CUR.lo")
+        lo = page.evaluate("COMPOSE.current.lo")
         page.locator("#note").fill("저장 뒤 되돌리기")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===4")
         page.locator("#toasts button", has_text="되돌리기").first.click()
         page.wait_for_function("OPEN_ALL.length===3&&!document.querySelector('#composer').hidden")
         self.assertEqual(
-            page.evaluate("[CUR&&CUR.lo, document.querySelector('#note').value]"), [lo, "저장 뒤 되돌리기"]
+            page.evaluate("[COMPOSE.current&&COMPOSE.current.lo, document.querySelector('#note').value]"),
+            [lo, "저장 뒤 되돌리기"],
         )
 
     def test_escape_in_the_change_view_returns_to_the_manuscript(self):

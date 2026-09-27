@@ -1,21 +1,19 @@
 """What the HTTP handler needs from the application: the services, settings and texts it calls, as one Protocol.
 
 The handler never imports server.py. server.py is loaded more than once in one process (limn.server, __main__ when
-run as a file, and each test module's copy loaded by path), and every copy has its own configuration C, documents and
-locks; an import would reach a different copy than the one serving. Instead the composition root binds its handler
-subclass to itself (server.Handler.app), and the handler calls through that at request time - so a name the tests
-rebind on their server copy (mock.patch.object(ps, "build_async")) is the one the handler calls.
+run as a file, and each test module's copy loaded by path); an import could reach a different copy than the one
+serving. Each composition root creates a ServerApplication with its own configuration, documents and locks and binds
+it to that copy's handler class (server.Handler.app). The handler calls through the bound object at request time.
 
 The members are server.py's services and wirings. The handler finds the request's document (request_doc) and passes
 it to every member that acts on one - there is no "current document" - and it parses what a route takes from the
-request (limn.web.parse) and passes the parsed values. Some members read the run settings C themselves: a frozen
-value (limn.config.RunConfig) the composition root binds once at startup. Making the application itself an explicit
-value is open work (docs/handbook/code-style-roadmap.md §다음).
+request (limn.web.parse) and passes the parsed values. Some members read the frozen run settings C
+(limn.config.RunConfig) held by ServerApplication.
 
 The run settings, a document and a principal are server.py's own types (limn.config.RunConfig, limn.documents.Doc,
-limn.access.Principal), not narrower views of them: server.py's members take those types, and mypy checks server.py's
-module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Handler), so a missing or wrongly typed
-binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
+limn.access.Principal), not narrower views of them: ServerApplication's members take those types, and mypy checks
+ServerApplication against this Protocol in server.py, so a missing or wrongly typed binding is a type error.
+tests/test_web.py checks at run time that the bound application provides every member.
 """
 
 from collections.abc import Collection, Sequence
@@ -59,7 +57,7 @@ Principal: TypeAlias = access.Principal
 
 
 class App(Protocol):
-    """server.py as the handler sees it. Each member keeps the name, arguments and contract it has there."""
+    """The server application as the handler sees it, with the services and their typed contracts."""
 
     C: Config
     APP_NAME: str

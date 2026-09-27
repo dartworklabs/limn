@@ -38,7 +38,7 @@ from typing import Any, Literal, Protocol, TypeAlias, TypeGuard, TypeVar, get_ar
 
 from limn.files import atomic_write
 from limn.gitrun import run_git
-from limn.pins.shapes import is_int, is_num
+from limn.pins.shapes import is_finite_num, is_int, is_num
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -1114,6 +1114,57 @@ def record_build(D: BuildDoc, last: dict[str, Any], ent: dict[str, Any] | None) 
         return seq
 
 
+def _restored_last(last: object, seq: int) -> Json | None:
+    """Parse a persisted terminal build into display state, discarding malformed fields from a damaged history file.
+
+    A missing or unknown state has no result to restore. The sequence remains the history's validated sequence even
+    when individual display fields are unusable; a bad field must not prevent the server from starting.
+    """
+    if not isinstance(last, dict) or last.get("state") not in ("ok", "ok_errors", "fail"):
+        return None
+    state = last["state"]
+    saved_errors = last.get("errors")
+    errors: list[LatexError] = []
+    if isinstance(saved_errors, list):
+        errors = [
+            error
+            for error in saved_errors
+            if isinstance(error, dict)
+            and isinstance(error.get("msg"), str)
+            and (error.get("line") is None or is_int(error.get("line")))
+        ][:5]
+    log = last.get("log_tail")
+    started = last.get("started_at")
+    finished = last.get("finished_at")
+    elapsed = last.get("elapsed_s")
+    head = last.get("head")
+    pull = last.get("pull")
+    started = started if isinstance(started, str) else None
+    finished = finished if isinstance(finished, str) else None
+    elapsed = elapsed if is_finite_num(elapsed) else None
+    head = head if isinstance(head, str) else None
+    pull = pull if isinstance(pull, dict) else None
+    return {
+        "state": state,
+        "errors": errors,
+        "log_tail": log if isinstance(log, str) else "",
+        "started_at": started,
+        "finished_at": finished,
+        "last_s": elapsed,
+        "elapsed_s": elapsed,
+        "head": head,
+        "pull": pull,
+        "last": {
+            "state": state,
+            "errors": errors,
+            "finished_at": finished,
+            "seq": seq,
+            "head": head,
+            "pull": pull,
+        },
+    }
+
+
 def seed_builds(D: BuildDoc, state_dir: Path) -> None:
     """Add the current build (made by an earlier instance) to history once if it isn't already there, and restore the last build result into D's build state.
 
@@ -1149,29 +1200,10 @@ def seed_builds(D: BuildDoc, state_dir: Path) -> None:
                     ent["src_mtime"] = now_m
             h["builds"].append(ent)
             _write_builds(D, h)
-    last = h.get("last") or {}
     kw = {"seq": h["seq"]}
-    if last.get("state") in ("ok", "ok_errors", "fail"):
-        errs = [e for e in (last.get("errors") or []) if isinstance(e, dict)][:5]
-        kw.update(
-            state=last["state"],
-            errors=errs,
-            log_tail=str(last.get("log_tail") or ""),
-            started_at=last.get("started_at"),
-            finished_at=last.get("finished_at"),
-            last_s=last.get("elapsed_s"),
-            elapsed_s=last.get("elapsed_s"),
-            head=last.get("head"),
-            pull=last.get("pull"),
-            last={
-                "state": last["state"],
-                "errors": errs,
-                "finished_at": last.get("finished_at"),
-                "seq": h["seq"],
-                "head": last.get("head"),
-                "pull": last.get("pull"),
-            },
-        )
+    restored = _restored_last(h.get("last"), h["seq"])
+    if restored is not None:
+        kw.update(restored)
     state_update(D, **kw)
 
 

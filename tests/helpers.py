@@ -3,8 +3,8 @@ temporary manuscript and state folder, the socketpair request helpers, the node 
 the viewer's source text and page images, and the test data more than one module checks (the reply rule's table
 RULE_CASES with rec_for, a minimal PDF for the browser's comparison view).
 
-Every test module that drives server.py imports from here, so the process holds a single server copy (loading it twice
-would give two sets of module globals: two C, two RT, two DOCS). The access fixtures (identities, AccessBase) are in
+Every test module that drives server.py imports from here, so the process holds a single server copy with a fresh
+application per Base test. The access fixtures (identities, AccessBase) are in
 helpers_access.py and the browser ones (the Chromium launcher, BrowserBase) in helpers_browser.py. Test modules import
 fixtures only from these helpers, never from one another.
 """
@@ -47,7 +47,7 @@ PKG = ROOT / "src" / "limn"
 SKILL_MD = ROOT / "skill" / "SKILL.md"
 SKILL_KO = ROOT / "skill" / "SKILL.ko.md"
 DOCS_DIR = ROOT / "docs" / "handbook"
-# server.py loaded from its file, the way an instance runs it; every server-level test shares this one copy.
+# server.py loaded from its file, the way an instance runs it; each Base test binds its own application to this copy.
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
@@ -205,10 +205,10 @@ def set_config(mod=None, **over) -> None:
     those options would. When a run path (src, main, state) changes and the copy serves the single document, that
     document is made again over the new paths (set_docs), as start() would make it."""
     mod = mod or ps
-    old = mod.C
-    mod.C = with_settings(old, **over)
-    if mod.C.paths != old.paths and len(mod.DOCS) == 1 and mod.DOCS[0].legacy:
-        mod.set_docs(None)
+    old = mod.APP.C
+    mod.APP.C = with_settings(old, **over)
+    if mod.APP.C.paths != old.paths and len(mod.APP.docs) == 1 and mod.APP.docs[0].legacy:
+        mod.APP.set_docs(None)
 
 
 def page_for(label: str, accent: str) -> str:
@@ -220,13 +220,13 @@ def fresh_runtime(mod=None) -> None:
     """Bind a fresh Runtime (new_runtime) on the server copy (default ps), as a restarted process has: new locks,
     empty caches and registries, no threads, serving the viewer for its run's label and accent."""
     mod = mod or ps
-    mod.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, mod.C.label, mod.C.accent))
+    mod.APP.RT = mod.new_runtime(assemble.serve_viewer(VIEWER_FILES, mod.APP.C.label, mod.APP.C.accent))
 
 
 def serve_viewer(label: str, accent: str, mod=None) -> None:
     """Make the server copy (default ps) serve the viewer of a run labelled `label` in `accent`, as start() does."""
     mod = mod or ps
-    mod.RT = dataclasses.replace(mod.RT, viewer=assemble.serve_viewer(VIEWER_FILES, label, accent))
+    mod.APP.RT = dataclasses.replace(mod.APP.RT, viewer=assemble.serve_viewer(VIEWER_FILES, label, accent))
 
 
 def needs_tex(*tools: str):
@@ -296,8 +296,8 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
     first): the body's doc wins over it, the body is parsed against that document (limn.web.parse.parse_add), and the
     service saves it. Returns the new open pin, or the InputRejected of the first refused field. mod is the server copy
     to use (default ps)."""
-    mod = mod or ps
-    D = doc or mod.DOCS[0]
+    mod = (mod or ps).APP
+    D = doc or mod.docs[0]
     want = d.get("doc")
     if isinstance(want, str) and want != D.key:
         D = mod.request_doc(want)
@@ -308,7 +308,7 @@ def add_pin(d: dict, actor: dict, mod=None, doc=None):
 def edit_pin(pid: int, d: dict, actor: dict, mod=None):
     """What POST /api/pins/{pid}/edit does below its HTTP answer: parse the body, place its loc against the pin's own
     document (edit_scope), then edit. Returns the edit's outcome, or the InputRejected of the first refused field."""
-    mod = mod or ps
+    mod = (mod or ps).APP
     body = parse.parse_edit(d, mod.assignee_people(d))
     if isinstance(body, InputRejected):
         return body
@@ -323,8 +323,8 @@ def pick(d: dict, mod=None, doc=None):
     """The body POST /api/pick answers for document doc (default the first), without the socket: the selection parsed
     (limn.web.parse.parse_pick), resolved and answered (limn.web.answers.pick_answer). A gone build gives the 200 body
     the handler sends; a refused field raises the HTTPError the handler would answer with."""
-    mod = mod or ps
-    D = doc or mod.DOCS[0]
+    mod = (mod or ps).APP
+    D = doc or mod.docs[0]
     selection = parse.parse_pick(d, mod.document_facts(D))
     if isinstance(selection, parse.PickBuildGone):
         return answers.pick_build_gone()
@@ -334,19 +334,19 @@ def pick(d: dict, mod=None, doc=None):
 def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):
     """What a comparison request of document doc (default the first) compares (limn.revisions.revision_spec with the
     server copy's context), or its refusal value."""
-    mod = mod or ps
-    return revisions.revision_spec(doc or mod.DOCS[0], commit, pin, mod.revision_context())
+    mod = (mod or ps).APP
+    return revisions.revision_spec(doc or mod.docs[0], commit, pin, mod.revision_context())
 
 
 def record_of(outcome) -> dict:
     """The pin as the API returns it, from a close/reopen outcome (a state type, or AlreadyClosed carrying one)."""
     pin = getattr(outcome, "pin", outcome)
-    return ps.public(pin.record)
+    return ps.APP.public(pin.record)
 
 
 def fits(r, mod=None) -> bool:
     """Does the server copy's record parse (parse_record) let r through - a record the store trusts?"""
-    return not isinstance((mod or ps).parse_record(r), Broken)
+    return not isinstance((mod or ps).APP.parse_record(r), Broken)
 
 
 def records(parsed) -> list:
@@ -361,7 +361,7 @@ def find_record(parsed, pid: int) -> dict | None:
 
 def trash_records(mod=None) -> list:
     """The Trash entries of the server copy's state folder as stored (every readable line, expired ones too)."""
-    return records((mod or ps).read_dropped()[0])
+    return records((mod or ps).APP.read_dropped()[0])
 
 
 def edit_stored(fn, mod=None) -> None:
@@ -376,13 +376,13 @@ def edit_stored(fn, mod=None) -> None:
         pins[:] = [parse_pin(r) for r in rows]
         return None, True
 
-    (mod or ps).pin_store().transact(step)
+    (mod or ps).APP.pin_store().transact(step)
 
 
 def write_records(rows, bad=None, mod=None) -> None:
     """Rewrite pins.jsonl (and pins.md) of the server copy with these stored records, parsed into their states. The
     caller holds no lock: this is a test's hand edit."""
-    (mod or ps).write_pins([parse_pin(r) for r in rows], bad)
+    (mod or ps).APP.write_pins([parse_pin(r) for r in rows], bad)
 
 
 # The fixture manuscript Base writes as main.tex: a section, comments, a table float and a subsection, with a rare word
@@ -424,10 +424,13 @@ class Base(unittest.TestCase):
         self.main = self.src / "main.tex"
         self.main.write_text(TEX, encoding="utf-8")
         (root / "state").mkdir()
-        ps.C = run_config(self.src, self.main, root / "state")
-        fresh_runtime()  # new locks, empty caches, a "checking" remote-main watch, the viewer for 원고
-        ps.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
-        ps.init_seq()
+        config = run_config(self.src, self.main, root / "state")
+        ps.APP = ps.ServerApplication(
+            config, ps.new_runtime(assemble.serve_viewer(VIEWER_FILES, config.label, config.accent))
+        )
+        ps.Handler.app = ps.APP
+        ps.APP.set_docs(None)  # start as a single document (no --doc) — clears the list left over from multi-doc tests
+        ps.APP.init_seq()
 
     def tearDown(self):
         """Remove the temporary manuscript and state folder."""
@@ -441,7 +444,7 @@ class Base(unittest.TestCase):
 
     def pin(self, pid):
         """The stored record of pin pid after a synced read, or None."""
-        return find_record(ps.snapshot_pins(), pid)
+        return find_record(ps.APP.snapshot_pins(), pid)
 
     def talk(self, raw: bytes, shut=True) -> bytes:
         """Send raw over one connection and collect response bytes until the server closes it."""

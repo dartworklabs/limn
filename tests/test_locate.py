@@ -62,6 +62,21 @@ class NoServerState(unittest.TestCase):
         self.assertFalse({m for m in modules if m in ("server", "limn.server") or m.startswith("limn.web")})
 
 
+class SynctexSampling(unittest.TestCase):
+    """The subprocess-facing sampler delegates its observed file and line hits to the pure range choice."""
+
+    def test_sampled_box_returns_the_majority_files_range(self):
+        """The smallest grid samples four points and ignores one point mapped to another file."""
+        pdf = Path("/ms/pages.pdf")
+        with mock.patch.object(
+            locate,
+            "synctex_edit",
+            side_effect=[("main.tex", 10), ("other.tex", 30), ("main.tex", 12), ("main.tex", 11)],
+        ) as edit:
+            self.assertEqual(locate.by_synctex(pdf, 2, 0, 0, 10, 10), ("main.tex", 10, 12))
+        self.assertEqual(edit.call_count, 4)
+
+
 class SyncAll(unittest.TestCase):
     """sync_all re-matches the open line pins against the files the given locator finds."""
 
@@ -237,6 +252,8 @@ class StateFolderPaths(unittest.TestCase):
 
 
 class Anchor(Base):
+    """Stored anchors preserve adjacent comments and upgrade older offset-free records."""
+
     def _shift(self, n):
         lines = TEX.splitlines()
         lines[3:3] = ["inserted %d" % i for i in range(n)]  # n lines before L4
@@ -258,7 +275,7 @@ class Anchor(Base):
 
     def test_old_anchor_without_offsets(self):
         pid = self.add(8, 9)
-        rows = records(ps.snapshot_pins())
+        rows = records(ps.APP.snapshot_pins())
         for r in rows:
             r["anchor"].pop("head_off")
             r["anchor"].pop("tail_off")
@@ -274,17 +291,17 @@ class PickOutcomes(Base):
 
     def pick(self, synctex, text):
         """pick on the first document for a box on page 1, SyncTeX answering synctex and pdftotext printing text."""
-        D = ps.DOCS[0]
+        D = ps.APP.docs[0]
         request = parse.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None)
         with (
             mock.patch.object(locate, "by_synctex", return_value=synctex),
             mock.patch.object(locate, "region_text", return_value=text),
         ):
-            return locate.pick(D, request, ps.pick_context())
+            return locate.pick(D, request, ps.APP.pick_context())
 
     def test_each_refusal_is_its_own_type_with_its_detail(self):
         """A .bbl/.bib, a file outside the tree, an unreadable file and nothing traced are four refusal values."""
-        D = ps.DOCS[0]
+        D = ps.APP.docs[0]
         (self.src / "bin.tex").write_bytes(b"\xff\xfe")
         self.assertEqual(self.pick((str(D.build / "refs.bbl"), 1, 1), "x"), locate.GeneratedFile(".bbl"))
         self.assertEqual(self.pick(("/elsewhere/x.tex", 3, 3), "x"), locate.SynctexOutside(Path("/elsewhere/x.tex")))
@@ -295,7 +312,7 @@ class PickOutcomes(Base):
 
     def test_a_traced_selection_carries_its_range_and_build_facts(self):
         """SyncTeX's line in the build copy is traced back to the checkout; the facts the answer needs are values."""
-        got = self.pick((str(ps.DOCS[0].build / "main.tex"), 8, 8), "Body line seven betaunique.")
+        got = self.pick((str(ps.APP.docs[0].build / "main.tex"), 8, 8), "Body line seven betaunique.")
         self.assertIsInstance(got, locate.Picked)
         self.assertEqual(
             (got.file, got.page, got.traced.via, got.traced.lo, got.traced.hi), (self.main, 1, "synctex", 8, 9)
@@ -313,10 +330,10 @@ class Estimate(Base):
     The judgment is made by the server and carried as est in GET /api/pins — it never uses the wall clock (browser timezone/edited_at)."""
 
     def _fake_build(self, name, src_hash, src_mtime=None):
-        (ps.C.state / name).mkdir(exist_ok=True)
-        ps.C.pages_ptr.write_text(name)
+        (ps.APP.C.state / name).mkdir(exist_ok=True)
+        ps.APP.C.pages_ptr.write_text(name)
         limn_build.finish_build(
-            ps.DOCS[0],
+            ps.APP.docs[0],
             BuildOk("", 0.1, None, None, src_hash, "-", name, 1),
             src_mtime if src_mtime is not None else time.time(),
             build_failure_log,
@@ -395,9 +412,9 @@ class Estimate(Base):
 
     def test_legacy_pin_uses_epoch_heuristic_on_server(self):
         # a legacy pin without pdf_build: the server resolves at (server local-time string) to epoch and compares against built_at / the build-start src_mtime.
-        (ps.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
-        limn_build.write_built_src_mtime(ps.DOCS[0], ps.C.state, position.epoch("2026-09-22T09:30:00+09:00"))
-        ctx = locate.est_context(ps.DOCS[0])
+        (ps.APP.C.state / "built_at.txt").write_text("2026-09-22T10:00:00+09:00")
+        limn_build.write_built_src_mtime(ps.APP.docs[0], ps.APP.C.state, position.epoch("2026-09-22T09:30:00+09:00"))
+        ctx = locate.est_context(ps.APP.docs[0])
         old = {"at": "2026-09-22T09:00:00+09:00", "sync": "ok"}
         self.assertTrue(position.pin_est(old, ctx))
         # editing just the note pushes edited_at past the build, but estimated stays true (must-2 a) — the only criterion is at
@@ -422,33 +439,33 @@ class Estimate(Base):
         self.assertEqual(ny, seoul)
 
     def test_fingerprint_ignores_diff_dirs_and_tracks_content(self):
-        h0 = limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state)
+        h0 = limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state)
         for d in ("diff", "diff_temporary"):
             (self.src / d).mkdir()
             (self.src / d / "x.tex").write_text("latexdiff", encoding="utf-8")
             (self.src / d / "y.pdf").write_bytes(b"%PDF")
-        self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
+        self.assertEqual(limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state), h0)
         os.utime(self.main, (time.time() + 10, time.time() + 10))  # only the timestamp changed
-        self.assertEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
+        self.assertEqual(limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state), h0)
         self.main.write_text(TEX + "% x\n", encoding="utf-8")
-        self.assertNotEqual(limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state), h0)
+        self.assertNotEqual(limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state), h0)
 
     def test_build_history_and_seq_in_meta(self):
-        m0 = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        m0 = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m0["build_seq"], 0)
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
-            ps.DOCS[0],
+            ps.APP.docs[0],
             BuildFailed("no_pdf", "", "boom", [{"line": 3, "msg": "x"}], 0.1, None, 1.0, None),
             None,
             build_failure_log,
         )
-        m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
         self.assertEqual(m["last_build"]["state"], "fail")
         self.assertEqual(m["last_build"]["errors"], [{"line": 3, "msg": "x"}])
         self.assertTrue(m["last_build"]["finished_at"])
-        h = limn_build.load_builds(ps.DOCS[0])
+        h = limn_build.load_builds(ps.APP.docs[0])
         self.assertEqual(h["seq"], 2)
         # a failure doesn't leave a build in history
         self.assertEqual([b["build"] for b in h["builds"]], ["pages-20260101000000"])
@@ -457,66 +474,68 @@ class Estimate(Base):
     def test_seed_builds_restores_last_state_and_seq_after_restart(self):
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
-            ps.DOCS[0],
+            ps.APP.docs[0],
             BuildOkWithErrors([{"line": 1, "msg": "m"}], "L", 0.1, None, 1.0, None, "-", "", 1),
             None,
             build_failure_log,
         )
-        ps.DOCS[0].bstate.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
-        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
-        st = limn_build.state_snapshot(ps.DOCS[0])
+        ps.APP.docs[0].bstate.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
+        limn_build.seed_builds(ps.APP.docs[0], ps.APP.C.state)
+        st = limn_build.state_snapshot(ps.APP.docs[0])
         self.assertEqual((st["state"], st["seq"]), ("ok_errors", 2))
         self.assertEqual(st["errors"], [{"line": 1, "msg": "m"}])
         self.assertEqual(st["log_tail"], "L")
 
     def test_seed_builds_fingerprints_current_build_when_source_unchanged(self):
-        d = ps.C.state / "pages"
+        d = ps.APP.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
         limn_build.write_built_src_mtime(
-            ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) + 1
+            ps.APP.docs[0], ps.APP.C.state, limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state, force=True) + 1
         )
-        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
-        ent = limn_build.load_builds(ps.DOCS[0])["by"]["pages"]
-        self.assertEqual(ent["src_hash"], limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
+        limn_build.seed_builds(ps.APP.docs[0], ps.APP.C.state)
+        ent = limn_build.load_builds(ps.APP.docs[0])["by"]["pages"]
+        self.assertEqual(ent["src_hash"], limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state))
         # first pin after startup -> no false positive from a rebuild that didn't change the manuscript
         pid = self.add()
-        self._fake_build("pages-20260101000100", limn_build.source_fingerprint(ps.DOCS[0], self.src, ps.C.state))
+        self._fake_build(
+            "pages-20260101000100", limn_build.source_fingerprint(ps.APP.docs[0], self.src, ps.APP.C.state)
+        )
         self.assertIs(self.est_of(pid), False)
 
     def test_seed_builds_leaves_hash_empty_when_source_is_newer(self):
-        d = ps.C.state / "pages"
+        d = ps.APP.C.state / "pages"
         d.mkdir()
         (d / "page-1.png").write_bytes(b"x")
         limn_build.write_built_src_mtime(
-            ps.DOCS[0], ps.C.state, limn_build.src_mtime(ps.DOCS[0], ps.C.state, force=True) - 100
+            ps.APP.docs[0], ps.APP.C.state, limn_build.src_mtime(ps.APP.docs[0], ps.APP.C.state, force=True) - 100
         )
-        limn_build.seed_builds(ps.DOCS[0], ps.C.state)
-        self.assertIsNone(limn_build.load_builds(ps.DOCS[0])["by"]["pages"]["src_hash"])
+        limn_build.seed_builds(ps.APP.docs[0], ps.APP.C.state)
+        self.assertIsNone(limn_build.load_builds(ps.APP.docs[0])["by"]["pages"]["src_hash"])
 
     def test_light_meta_does_not_write_builds_file(self):
         self._fake_build("pages-20260101000000", "h1")
-        st = ps.C.builds_file.stat()
+        st = ps.APP.C.builds_file.stat()
         for _ in range(3):
             self.talk(req("GET", "/api/meta?light=1"))
-        st2 = ps.C.builds_file.stat()
+        st2 = ps.APP.C.builds_file.stat()
         self.assertEqual((st.st_mtime_ns, st.st_size), (st2.st_mtime_ns, st2.st_size))
 
     @needs_tex("latexmk", "pdftoppm")
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
-        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
-        b1 = limn_build.cur_pages(ps.DOCS[0]).name
+        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        b1 = limn_build.cur_pages(ps.APP.docs[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
         # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
-        self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
+        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(
             TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
         )
-        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
+        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)
@@ -530,34 +549,34 @@ class ServerOverlaps(Base):
         # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
         p1 = self.add(4, 9, note="outer")
         p2 = self.add(4, 5, note="inner")
-        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        rel = ps.APP.overlaps_by_id(ps.APP.snapshot_pins())
         self.assertEqual(rel[p2], [{"id": p1, "rel": "inside"}])
         self.assertEqual(rel[p1], [{"id": p2, "rel": "contains"}])
 
     def test_partial_overlap(self):
         p1 = self.add(4, 5)
         p2 = self.add(5, 6)
-        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        rel = ps.APP.overlaps_by_id(ps.APP.snapshot_pins())
         self.assertEqual(rel[p1], [{"id": p2, "rel": "partial"}])
         self.assertEqual(rel[p2], [{"id": p1, "rel": "partial"}])
 
     def test_no_overlap_is_empty(self):
         p1 = self.add(4, 5)
         p2 = self.add(8, 9)
-        rel = ps.overlaps_by_id(ps.snapshot_pins())
+        rel = ps.APP.overlaps_by_id(ps.APP.snapshot_pins())
         self.assertEqual(rel[p1], [])
         self.assertEqual(rel[p2], [])
 
     def test_overlaps_for_range_matches_pick_semantics(self):
         self.add(4, 9, note="outer")
-        ov = ps.overlaps_for_range(str(self.main), 4, 5)
+        ov = ps.APP.overlaps_for_range(str(self.main), 4, 5)
         self.assertEqual(len(ov), 1)
         self.assertEqual(ov[0]["rel"], "inside")
 
     def test_overlaps_for_range_same_range_is_equal(self):
         # design 2: an identical range is reported separately as 'equal' — the viewer states "same range" and shows a banner.
         pid = self.add(4, 9, note="first")
-        ov = ps.overlaps_for_range(str(self.main), 4, 9)
+        ov = ps.APP.overlaps_for_range(str(self.main), 4, 9)
         self.assertEqual(ov, [{"id": pid, "lo": 4, "hi": 9, "rel": "equal"}])
 
 

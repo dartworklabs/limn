@@ -45,70 +45,36 @@ def add_pin(ctx: PinContext, D: Doc, request: AddRequest, actor: Mapping[str, An
     LaTeX document gets a line pin with its anchor, the author and - since 0.3.2 (ADR-0006) - file_rel next to the
     absolute file; a view-only document gets a region pin. Queues mention/assigned notices and emits them after the
     write."""
-    match request.place:
-        case LinePlace() as place:
-            return _add_line_pin(ctx, place, request, actor, D)
-        case RegionPlace() as place:
-            return _add_region_pin(ctx, place, request, actor, D)
-
-
-def _add_line_pin(ctx: PinContext, place: LinePlace, request: AddRequest, actor: Mapping[str, Any], D: Doc) -> OpenPin:
-    """Append a new line pin to document D under the pin lock and emit its notices.
-
-    The file's lines are read before the lock (as always); under it the shell takes the time, the next id (pins.seq),
-    the note's @-tags, the anchor over those lines with the file's mtime, the current build and where the file is now,
-    and limn.pins.edit.new_line_pin() builds the record. The notices are made from the finished record, so they name
-    the pin's own document D.
-    """
-    f = Path(place.file)
-    lines = tex_lines(f)
+    place = request.place
+    # Manuscript text is read before taking the pin lock, as it was for line pins before this shared transaction.
+    lines = tex_lines(Path(place.file)) if isinstance(place, LinePlace) else None
     evs: list[Event | None] = []
 
     def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
-        """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
+        """Allocate one id, build either location kind, and queue notices in the same transaction."""
         at = ctx.now()
         pid = ctx.store.next_id(pins)
         tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
-        anchoring = Anchoring(anchor_of(lines, place.lo, place.hi), f.stat().st_mtime if f.exists() else 0)
-        # Pins down which build's layout coordinates frac belongs to, by build identity (§Position estimation): the
-        # viewer echoes pdf_build from the pick response; a call without it (agent curl) takes the current build.
-        pin = new_line_pin(
-            place,
-            request,
-            pid,
-            at,
-            actor,
-            tags.mentions,
-            anchoring,
-            build.cur_pages(D).name,
-            D.key,
-            located(ctx.locate({"file": place.file})),
-        )
-        pins.append(pin)
-        evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
-        if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:
-            evs.append(ctx.make_event("assigned", pin.record, actor, [request.assignee], text=request.note))
-        return pin, True
-
-    with ctx.store.lock:
-        out = ctx.store.transact(fn)[1]
-        ctx.emit_events(evs)
-    return out
-
-
-def _add_region_pin(
-    ctx: PinContext, place: RegionPlace, request: AddRequest, actor: Mapping[str, Any], D: Doc
-) -> OpenPin:
-    """Append a new pin on view-only document D under the pin lock and emit its notices: {doc, pdf, name, page, frac,
-    kind: 'region', quote?, note, pdf_build}, built by limn.pins.edit.new_region_pin(). No lines, no anchor."""
-    evs: list[Event | None] = []
-
-    def fn(pins: list[Pin]) -> tuple[OpenPin, bool]:
-        """The transact() step: builds the pin, appends it and queues its notices -> (pin, True)."""
-        at = ctx.now()
-        pid = ctx.store.next_id(pins)
-        tags = ctx.note_tags(request.note, "", pins, request.hints, actor, pid)
-        pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build.cur_pages(D).name, D.key)
+        match place:
+            case LinePlace():
+                assert lines is not None  # read before the lock for every LinePlace
+                f = Path(place.file)
+                anchoring = Anchoring(anchor_of(lines, place.lo, place.hi), f.stat().st_mtime if f.exists() else 0)
+                # The viewer echoes pdf_build from pick; an agent request without it uses the current build.
+                pin = new_line_pin(
+                    place,
+                    request,
+                    pid,
+                    at,
+                    actor,
+                    tags.mentions,
+                    anchoring,
+                    build.cur_pages(D).name,
+                    D.key,
+                    located(ctx.locate({"file": place.file})),
+                )
+            case RegionPlace():
+                pin = new_region_pin(place, request, pid, at, actor, tags.mentions, build.cur_pages(D).name, D.key)
         pins.append(pin)
         evs.append(ctx.make_event("mention", pin.record, actor, tags.notify, text=request.note))
         if request.assignee is not None and request.assignee != ASSIGNEE_AGENT:

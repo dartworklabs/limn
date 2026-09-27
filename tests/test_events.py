@@ -215,6 +215,33 @@ class Log(unittest.TestCase):
         self.assertEqual(line, json.dumps(self.log.read()[0][0], ensure_ascii=False) + "\n")
         self.assertIn("한글", line)
 
+    def test_emitting_keeps_input_owned_by_caller_and_writes_same_fields(self):
+        """The log stamps a stored copy while the caller's event stays untouched."""
+        event = {"type": "mention", "excerpt": "한글"}
+        self.log.emit([event])
+        self.assertEqual(event, {"type": "mention", "excerpt": "한글"})
+        self.assertEqual(
+            self.log.path.read_text(encoding="utf-8"),
+            json.dumps(
+                {"type": "mention", "excerpt": "한글", "seq": 1, "at": "2026-09-26 10:00:00", "ts": 1000.0},
+                ensure_ascii=False,
+            )
+            + "\n",
+        )
+
+    def test_failed_emit_keeps_input_unstamped(self):
+        """An unsuccessful disk write warns and leaves the unsaved caller event unchanged."""
+        event = {"type": "mention"}
+        err = io.StringIO()
+        with (
+            mock.patch.object(events, "atomic_write", side_effect=OSError("disk full")),
+            contextlib.redirect_stderr(err),
+        ):
+            self.log.emit([event])
+        self.assertIn("failed to write events.jsonl", err.getvalue())
+        self.assertEqual(event, {"type": "mention"})
+        self.assertFalse(self.log.path.exists())
+
 
 class EventLogCap(Base):
     """events.jsonl keeps the newest EVENTS_KEEP events while seq keeps rising (through server.py's emit_events)."""
@@ -223,12 +250,12 @@ class EventLogCap(Base):
         super().setUp()
 
     def events(self):
-        return ps._read_events()[0]
+        return ps.APP._read_events()[0]
 
     def test_events_are_capped_but_seq_keeps_rising(self):
         with mock.patch.object(ps, "EVENTS_KEEP", 3):
             for i in range(5):
-                ps.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
+                ps.APP.emit_events([{"type": "mention", "pin": i, "to": ["x"]}])
         self.assertEqual([e["seq"] for e in self.events()], [3, 4, 5])
 
 

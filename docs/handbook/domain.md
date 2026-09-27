@@ -122,7 +122,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `trace_range`·`score_range`·`by_text`(순수 계산: 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 응답 본문과 경고·거절 문장은 HTTP 층([`src/limn/web/answers.py`](../../src/limn/web/answers.py)의 `pick_answer`·`PICK_WARNINGS`, [`src/limn/web/errors.py`](../../src/limn/web/errors.py)의 `PICK_REFUSALS`)이 만든다.
+실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `synctex_range`·`trace_range`·`score_range`·`by_text`(순수 계산: SyncTeX 표본의 후보 선택, 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 응답 본문과 경고·거절 문장은 HTTP 층([`src/limn/web/answers.py`](../../src/limn/web/answers.py)의 `pick_answer`·`PICK_WARNINGS`, [`src/limn/web/errors.py`](../../src/limn/web/errors.py)의 `PICK_REFUSALS`)이 만든다.
 
 ## 범위 사다리
 
@@ -199,13 +199,17 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 
 그 상태에서 처음 쓰기 전에 원본을 `pins.jsonl.corrupt-<시각>.bak`으로 보존한다. 레코드 하나 때문에 GET이 `500`이 되지 않는다. 보기 전용 PDF 핀처럼 모양이 다른 레코드의 검증은 §여러 문서에서 다룬다.
 
-**렌더가 실패하면 아무것도 쓰지 않는다.** `<state_dir>/pins.md`를 메모리에서 먼저 만든 뒤 `pins.jsonl` → `<state_dir>/pins.md` 순으로 쓴다. 커밋한 뒤 `500`을 주면, 클라이언트의 재시도가 중복 핀을 만든다.
+**첫 파일 교체 전에 바이트를 준비한다.** `<state_dir>/pins.md` 렌더와 `pins.jsonl` 직렬화를 잠금 아래 메모리에서 마친 뒤 `pins.jsonl` → `<state_dir>/pins.md` 순으로 쓴다. 삭제는 이 준비 뒤 휴지통을 먼저 쓴다. 렌더·직렬화가 실패하면 세 파일을 모두 그대로 둔다. 커밋한 뒤 `500`을 주면 클라이언트의 재시도가 중복 핀을 만들 수 있으므로, 준비 중의 실패를 교체 뒤로 미루지 않는다.
+
+각 파일의 교체는 같은 폴더의 임시 파일에 쓰고 동기화한 뒤 `os.replace`로 끝낸다. 쓰기·권한 설정·교체가 실패하면 기존 파일을 유지하고 임시 파일과 열린 파일 기술자를 정리한다. 토큰 파일처럼 권한을 지정한 쓰기는 임시 파일부터 그 권한을 적용한다.
 
 **핀의 파일은 원고를 옮겨도 따라온다.** 핀은 파일을 이 머신의 절대 경로 `file` 로 저장하고, 서버가 그 핀을 쓸 때 원고 폴더 기준 상대 경로 `file_rel` 을 함께 적는다. 읽을 때는 저장된 `file` 이 지금 원고 폴더 안이면 그것, 아니면 `file` 과 맞는 `file_rel`, 아니면 `file` 의 꼬리 가운데 핀의 문서 폴더 안에 있는 가장 긴 것으로 찾는다. 옛 레코드에 `file_rel` 을 채우려고 다시 쓰지 않는다. 옮긴 레코드의 줄을 다시 맞추면 그 파일을 `file` 에 적는다. 응답은 찾은 경로를 `file`·`rel_path` 로 싣는다. 규칙은 [api.md](api.md) §핀 파일의 위치, 결정은 [ADR-0006](../adr/0006-relative-pin-paths.md)에 있다.
 
-**되살리기는 두 파일 사이에서 핀을 잃지 않는다.** `restore`는 `pins.jsonl` 쓰기가 성공한 뒤에만 삭제 기록에서 핀을 뺀다. 중간에 죽으면 최악의 결과는 '양쪽에 다 있음'이다. 이것은 복구할 수 있다. 순서를 거꾸로 하면 '양쪽에 다 없음'이 될 수 있다.
+**삭제·되살리기는 두 파일 사이에서 핀을 잃지 않는다.** 삭제는 준비된 바이트를 만든 뒤 `pins.dropped.jsonl`에 사본을 쓰고 `pins.jsonl`에서 핀을 빼며, 되살리기는 `pins.jsonl`과 `pins.md`에 먼저 쓰고 휴지통 사본을 뺀다. 중간에 죽으면 같은 번호가 양쪽에 남을 수 있다. 그때 살아 있는 핀이 정본이다. 휴지통 응답은 겹친 사본을 숨기고, 영구 삭제는 그 번호를 `not_in_trash`로 거절한다. 기동과 기존 주기적 정리는 같은 잠금 아래 겹친 사본을 지우며, 실패한 정리는 성공 시각을 갱신하지 않아 다음 쓰기 동반 읽기에서 다시 시도한다. 로그는 만료 항목과 겹친 사본의 제거 건수를 구분한다. 읽을 수 없는 휴지통 줄이 있으면 쓰기 전에 원본을 백업한다. 휴지통 조회는 잠금 아래 양쪽 파일을 함께 읽되 파일을 쓰지 않는다. 삭제 재시도는 같은 번호의 낡은 사본을 교체하고, 되살리기 재시도는 기존 `already_live` 거절을 유지하면서 사본을 정리한다. 전체 지우기는 살아 있는 번호의 휴지통 사본을 같은 잠금 아래 먼저 정리하고, 실패하면 원본 보관과 알림·감사를 시작하지 않는다([ADR-0008](../adr/0008-trash-live-reconciliation.md)).
 
-실행 정본은 [`src/limn/store.py`](../../src/limn/store.py)의 `PinStore`(`transact`의 잠금·순서, `write_pins`의 렌더 먼저·손상 원본 보존, `read_jsonl`, `next_id`·`init_seq`, `clear`, `write_dropped`)와 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`), 그리고 저장소를 조립하는 [`src/limn/server.py`](../../src/limn/server.py)의 `pin_store`·`RT.pin_lock`(프로세스에 하나, 런타임이 갖는다), 레코드 검사 `valid_rec`(규칙은 순수 모듈 [`limn/pins/record.py`](../../src/limn/pins/record.py)이고, `server.py`는 문서 키 규칙과 행위자 모양을 묶어 넘긴다), 두 파일을 순서대로 쓰는 [`limn/service/trash.py`](../../src/limn/service/trash.py)의 `restore_pin`이다. 저장소는 서버를 모르고, 파일 위치·잠금·레코드 검사·줄 맞춤(`sync_all`)·`pins.md` 렌더(`pins_md_text`)를 `pin_store()`에게서 인자로 받는다. 렌더는 [`limn/pins/render.py`](../../src/limn/pins/render.py)의 순수 함수이고, 읽는 것(실행 설정, 문서와 빌드 도장, 시계, 토큰 파일, 핀마다의 파일 위치·겹침·@태그·스레드)은 `server.py`의 `pins_md_input`이 값(`PinsMdInput`)으로 모아 넘긴다. 이 순서와 보존 규칙은 [`tests/test_store.py`](../../tests/test_store.py)가 저장소를 직접 몰아 지킨다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
+`pins.jsonl` 쓰기 뒤 `pins.md` 쓰기가 실패하면 살아 있는 상태만 먼저 바뀌고 `pins.md`는 오래된 내용일 수 있다. 기동할 때 살아 있는 파일로 다시 렌더한다. 이 구간에서 실패한 요청의 알림은 남지 않을 수 있다. 파일 셋과 알림의 원자적 완료까지는 현재 저장 형식의 보장이 아니다.
+
+실행 정본은 [`src/limn/store.py`](../../src/limn/store.py)의 `PinStore`(`transact`의 잠금·순서, `prepare_pins`의 사전 렌더·직렬화와 `write_prepared`의 손상 원본 보존, `read_jsonl`, `next_id`·`init_seq`, `clear`, `write_dropped`)와 [`src/limn/files.py`](../../src/limn/files.py)의 `atomic_write`(임시 파일 뒤 `os.replace`), 그리고 저장소를 조립하는 [`src/limn/server.py`](../../src/limn/server.py)의 `pin_store`·`RT.pin_lock`(실행별 런타임이 갖는다)·`dropped_payload`(잠근 일관된 조회), 레코드 검사 `valid_rec`(규칙은 순수 모듈 [`limn/pins/record.py`](../../src/limn/pins/record.py)이고, `server.py`는 문서 키 규칙과 행위자 모양을 묶어 넘긴다), 두 파일을 순서대로 쓰고 그림자 사본을 정리하는 [`limn/service/trash.py`](../../src/limn/service/trash.py)의 `drop_pin`·`restore_pin`·`purge_trash`·`purge_pin`·`clear_pins`이다. 저장소는 서버를 모르고, 파일 위치·잠금·레코드 검사·줄 맞춤(`sync_all`)·`pins.md` 렌더(`pins_md_text`)를 `pin_store()`에게서 인자로 받는다. 렌더는 [`limn/pins/render.py`](../../src/limn/pins/render.py)의 순수 함수이고, 읽는 것(실행 설정, 문서와 빌드 도장, 시계, 토큰 파일, 핀마다의 파일 위치·겹침·@태그·스레드)은 `server.py`의 `pins_md_input`이 값(`PinsMdInput`)으로 모아 넘긴다. 이 순서와 보존 규칙은 [`tests/test_store.py`](../../tests/test_store.py)와 [`tests/test_trash.py`](../../tests/test_trash.py)가 지킨다. 파일 배치는 [operations.md](operations.md) §상태 파일 배치에 있다.
 
 ## 작성자 귀속
 

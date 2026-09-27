@@ -35,19 +35,19 @@ class ReplyApi(AccessBase):
     def setUp(self):
         super().setUp()
         for h in (ALICE, BOB, CAROL):
-            ps.record_person(actor(h))
+            ps.APP.record_person(actor(h))
 
     def review_pin(self, kind="fix", author=A):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "문단 줄이기", "kind_req": kind}, author
         ).record["id"]
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="줄였습니다", ref="PR #9"))
         self.assertEqual(pin_state(self.pin(pid)), "review")
         return pid
 
     def done_pin(self):
         pid = add_pin({"file": str(self.main), "lo": 8, "hi": 9, "page": 1, "note": "오타"}, A).record["id"]
-        ps.close_pin(pid, A, CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, A, CloseRequest(reply="고침"))
         self.assertEqual(pin_state(self.pin(pid)), "done")
         return pid
 
@@ -55,7 +55,7 @@ class ReplyApi(AccessBase):
         return self.call("POST", "/api/pins/%d/reply" % pid, body, headers, token=token)
 
     def events(self):
-        return [(e["type"], sorted(e["to"])) for e in ps._read_events()[0]]
+        return [(e["type"], sorted(e["to"])) for e in ps.APP._read_events()[0]]
 
     def test_human_reply_on_review_pin_reopens_with_the_reply_as_reason(self):
         pid = self.review_pin()
@@ -93,12 +93,12 @@ class ReplyApi(AccessBase):
         pid = add_pin(
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "@Carol Lee 참고로 봐 주세요"}, A
         ).record["id"]
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         n = len(self.events())
         code, d = self.reply(pid, {"text": "아직 틀립니다"}, BOB)
         self.assertEqual(d["reopened"], True)
         self.assertEqual(self.events()[n:], [("reopened", ["alice@example.com"]), ("replied", ["carol@example.com"])])
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="다시 고침"))
         n = len(self.events())
         self.reply(pid, {"text": "제가 다시 엽니다"}, ALICE)  # the author: only Carol hears of it
         self.assertEqual(self.events()[n:], [("replied", ["carol@example.com"])])
@@ -119,7 +119,7 @@ class ReplyApi(AccessBase):
         pid = self.review_pin()
         code, d = self.reply(pid, {"text": "추가 설명: 식 (3) 도 같이 고쳤습니다"})  # headerless loopback agent
         self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
-        _, tok = token_create(ps.C.state, "bot")
+        _, tok = token_create(ps.APP.C.state, "bot")
         code, d = self.reply(pid, {"text": "토큰으로 단 답글"}, token=tok)
         self.assertEqual((code, d["reopened"], d["state"]), (200, False, "review"))
 
@@ -174,10 +174,10 @@ class ReplyApi(AccessBase):
 
     def test_reopened_pin_shows_in_open_table_with_reply_as_reason(self):
         pid = self.review_pin()
-        md = ps.pins_md_text(ps.snapshot_pins())
+        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
         self.assertNotRegex(md, r"\n\| %d · " % pid)  # awaiting review: not in the open table
         self.reply(pid, {"text": "식 번호가 아직 틀립니다"}, BOB)
-        md = ps.pins_md_text(ps.snapshot_pins())
+        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d · " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀립니다", row)
@@ -185,7 +185,7 @@ class ReplyApi(AccessBase):
 
     def test_full_thread_still_reopens(self):
         pid = self.review_pin()
-        rows = records(ps.read_pins()[0])
+        rows = records(ps.APP.read_pins()[0])
         r = find_pin(rows, pid)
         r["thread"] = r["thread"] + [
             {"id": 100 + i, "by": A, "at": "2026-09-25 10:00:00", "text": "x"} for i in range(ps.THREAD_MAX)
@@ -204,11 +204,11 @@ class ReplyApi(AccessBase):
     def test_python_api_returns_the_pin_with_its_new_entry_last(self):
         """reply_pin() returns the pin as it now stands (its state type); the reply's entry is the thread's last."""
         pid = self.review_pin()
-        pin = ps.reply_pin(pid, "사람 답글", B)
+        pin = ps.APP.reply_pin(pid, "사람 답글", B)
         self.assertIsInstance(pin, OpenPin)  # a person's reply reopened it
         self.assertEqual(pin.record["thread"][-1]["ev"], "reopen")
         pid = self.review_pin()
-        pin = ps.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
+        pin = ps.APP.reply_pin(pid, "에이전트 답글", dict(LOCAL_ACTOR))
         self.assertIsInstance(pin, ReviewPin)  # an agent's reply leaves it for review
         self.assertNotIn("ev", pin.record["thread"][-1])
 
@@ -222,7 +222,7 @@ class AgentAsPerson(AccessBase):
         set_config(auth="local")
         set_config(agent_loopback=False)
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         self.pid = pid
 
     def test_headerless_local_curl_reopens_unless_it_says_reopen_false(self):
@@ -232,7 +232,7 @@ class AgentAsPerson(AccessBase):
         self.assertEqual((code, d["reopened"], d["state"]), (200, True, "open"))
 
     def test_the_instruction_is_in_pins_md_skill_and_api(self):
-        md = ps.pins_md_text(ps.snapshot_pins()).splitlines()
+        md = ps.APP.pins_md_text(ps.APP.snapshot_pins()).splitlines()
         i = md.index(md_render.TOKEN_GUIDANCE)
         self.assertEqual(md[i + 1], md_render.REPLY_GUIDANCE)  # additive line after the token line
         self.assertIn('`"reopen":false`', md_render.REPLY_GUIDANCE)

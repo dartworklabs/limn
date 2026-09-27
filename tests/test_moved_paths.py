@@ -99,7 +99,7 @@ class MultiDocMoved(AccessBase):
         (self.old / "manuscript" / "response" / "main.tex").write_text(SUB, encoding="utf-8")
         (self.old / "response" / "main.tex").write_text(RR_MAIN, encoding="utf-8")
         self.serve(self.old, "response/main.tex")
-        ms, rr = ps.DOCS
+        ms, rr = ps.APP.docs
         self.p_ms = add_pin(
             {
                 "file": str(self.old / "manuscript" / "response" / "main.tex"),
@@ -116,16 +116,18 @@ class MultiDocMoved(AccessBase):
             dict(LOCAL_ACTOR),
             doc=rr,
         ).record["id"]
-        rows = records(ps.read_pins()[0])
+        rows = records(ps.APP.read_pins()[0])
         for r in rows:
             r.pop("file_rel", None)  # as 0.3.1 wrote them: absolute file only
-        ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
-        self.addCleanup(ps.set_docs, None)
+        ps.APP.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
+        self.addCleanup(ps.APP.set_docs, None)
 
     def serve(self, root: Path, rr_main: str):
         """Point the server at a manuscript root with the two documents, as a restart with --doc would."""
         set_config(src=root, main=root / "manuscript" / "main.tex")
-        ps.set_docs(startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.C.paths))
+        ps.APP.set_docs(
+            startup.make_docs(["ms=본문:manuscript/main.tex", "rr=답변서:%s" % rr_main], root, ps.APP.C.paths)
+        )
 
     def pins(self):
         """GET /api/pins?all=1 as {id: pin}."""
@@ -167,7 +169,7 @@ class MultiDocMoved(AccessBase):
         self.serve(new, "reply/main.tex")
         self.pins()
         self.call("GET", "/pins.md")
-        self.assertEqual([r["id"] for r in records(ps.read_pins()[0]) if "file_rel" in r], [])
+        self.assertEqual([r["id"] for r in records(ps.APP.read_pins()[0]) if "file_rel" in r], [])
 
 
 class ChangesAfterAClone(ScopedRepo):
@@ -217,9 +219,11 @@ class ChangesAfterAClone(ScopedRepo):
         (outside / "only.tex").write_text("x\n", encoding="utf-8")
         clone = self.clone()
         (clone / "ms" / "linked").symlink_to(outside, target_is_directory=True)
-        self.assertTrue((ps.C.src / "linked" / "only.tex").is_file())
-        self.assertIsNone(locate_file("/old/place/linked/only.tex", None, ps.C.src, ps.C.state, None))
-        self.assertEqual(locate_file("/old/place/linked/main.tex", None, ps.C.src, ps.C.state, None).rel, "main.tex")
+        self.assertTrue((ps.APP.C.src / "linked" / "only.tex").is_file())
+        self.assertIsNone(locate_file("/old/place/linked/only.tex", None, ps.APP.C.src, ps.APP.C.state, None))
+        self.assertEqual(
+            locate_file("/old/place/linked/main.tex", None, ps.APP.C.src, ps.APP.C.state, None).rel, "main.tex"
+        )
 
 
 # ---------------------------------------------------------------- moving the manuscript between two server runs (v0.3.2, issue #7)
@@ -285,11 +289,11 @@ class MovedManuscript(MovedManuscriptBase):
     def test_reading_never_rewrites_a_legacy_record(self):
         """No write migration: reads after a plain move (same files) leave pins.jsonl byte for byte as it was."""
         self.move()
-        before = ps.C.pins_jsonl.read_bytes()
+        before = ps.APP.C.pins_jsonl.read_bytes()
         self.api_pins()
         self.pins_md()
         self.call("GET", "/api/pins?all=1")
-        self.assertEqual(ps.C.pins_jsonl.read_bytes(), before)
+        self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
         self.assertNotIn("file_rel", self.stored()[self.p_old])
         self.assertEqual(self.stored()[self.p_old]["file"], str(self.a / "sections" / "x.tex"))
 
@@ -459,7 +463,7 @@ class OutsideTheTree(MovedManuscriptBase):
     def test_a_file_rel_of_the_wrong_type_is_a_broken_line(self):
         """file_rel, when present, must be a string - like every field the store reads."""
         self.rewrite(lambda rows: [r.update(file_rel=5) for r in rows if r["id"] == self.p_old])
-        pins, bad = ps.read_pins()
+        pins, bad = ps.APP.read_pins()
         self.assertNotIn(self.p_old, [p.core.id for p in pins])
         self.assertEqual(len(bad), 1)
 
@@ -516,14 +520,14 @@ class RollbackToV030(MovedManuscriptBase):
 
     def old(self, path, method="GET", body=None):
         """One request to the released module on the same manuscript and state directory."""
-        configure(self.v030, ps.C.src, ps.C.main, ps.C.state)
+        configure(self.v030, ps.APP.C.src, ps.APP.C.main, ps.APP.C.state)
         return self.v030_call(method, path, body)
 
     def v030_call(self, method, path, body):
         raw = json.dumps(body).encode() if body is not None else b""
         h = {"Content-Type": "application/json"} if body is not None else {}
         code, _, out = split_resp(talk_to(self.v030, req(method, path, raw, h)))
-        configure(ps, ps.C.src, ps.C.main, ps.C.state)
+        configure(ps, ps.APP.C.src, ps.APP.C.main, ps.APP.C.state)
         text = out.decode("utf-8")
         try:
             return code, json.loads(text)

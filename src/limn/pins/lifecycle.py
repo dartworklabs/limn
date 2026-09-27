@@ -506,9 +506,12 @@ def round_marks(thread: Sequence[ThreadEntry] | None) -> tuple[int, int]:
     ev=close and the latest ev=reopen entry, -1 for none. The one scan behind a pin's current round -
     limn.mentions.thread_round() and pin_reopened_in_round() both read it, so the round and pins.md's "reopened"
     marker cannot disagree. ev is typed (ThreadEv), so a misspelt mark is a type error."""
-    th = thread or ()
-    last_close = max((i for i, entry in enumerate(th) if entry.ev == "close"), default=-1)
-    last_reopen = max((i for i, entry in enumerate(th) if entry.ev == "reopen"), default=-1)
+    last_close = last_reopen = -1
+    for index, entry in enumerate(thread or ()):
+        if entry.ev == "close":
+            last_close = index
+        elif entry.ev == "reopen":
+            last_reopen = index
     return last_close, last_reopen
 
 

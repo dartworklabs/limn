@@ -20,7 +20,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
         js = "\n".join(
             [
                 """
-                let DOC='main',SWITCHSEQ=0,META=null,CUR=null,EDIT=null,REPICK=null;
+                let DOC='main',SWITCHSEQ=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DROPPED=[];
                 let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0,restores=0,trashOpens=0; const SMOOTH='smooth';
                 const VIEW_BY=new Map(),META_BY=new Map([
@@ -31,8 +31,9 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 function $(s){return {hidden:true};}
                 function docInfo(k){return k==='other'||k==='third';}
                 function pdoc(p){return p.doc;} function dq(path,k){return path+'?doc='+k;}
-                function saveView(){} function cancelRepick(){REPICK=null;} function cancelSelection(){}
-                function editDirty(){return !!EDIT;} function cancelEdit(){}
+                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function cancelRepick(){REPICK=null;} function cancelSelection(){}
+                function editDirty(){return !!EDITOR.current;} function cancelEdit(){}
                 function savePrefs(){} function setHash(){} function hideTip(){} function showDoc(){}
                 function drawMeta(){} function refreshDoc(){} function isRegion(){return false;}
                 function setSide(){} function setSelMode(){} function drawPins(){}
@@ -116,7 +117,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
             ("startRepick",),
             """
             (async()=>{
-              EDIT={id:7,doc:'other',lo:1,hi:1,page:1};
+              EDITOR.current={id:7,doc:'other',lo:1,hi:1,page:1};
               const old=startRepick();await switchDoc('third');await switchDoc('other');
               firstOtherResolve({data:{pages:[],pages_build:'same'}});
               await old;

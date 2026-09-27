@@ -367,6 +367,12 @@ def revision_history(D: RevisionDoc) -> Json:
     return {"available": True, "revisions": rows}
 
 
+def _stop_git_group(proc: subprocess.Popen[bytes]) -> None:
+    """Stop a streamed Git command and its descendants; an already exited group needs no cleanup."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(proc.pid, signal.SIGKILL)
+
+
 def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionContext) -> Json | DiffRefusal:
     """GET /api/revision-diff: the selected commit's unified diff (commit is a full SHA-1, checked by the request
     parser). With pin (v0.3), an additive `scope` says which of its hunks belong to that pin (scope_payload); the
@@ -412,10 +418,10 @@ def revision_diff(D: RevisionDoc, commit: str, pin: int | None, ctx: RevisionCon
                         size += len(part)
                 too_large = size > cap
                 if too_large:
-                    proc.kill()
+                    _stop_git_group(proc)
                 proc.wait(timeout=max(0.1, deadline - time.monotonic()))
             except (OSError, subprocess.TimeoutExpired):
-                proc.kill()
+                _stop_git_group(proc)
                 proc.wait()
                 raise
             if proc.returncode != 0 and not too_large:

@@ -1,12 +1,19 @@
 // ------------------------------------------------ Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
-// BUILD_TIMER only exists while a build is actually running - /api/build is never hit every second once there's
+// BUILD.timer only exists while a build is actually running - /api/build is never hit every second once there's
 // nothing to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
 // pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot.
-// A finished build is counted via build_seq (the server bumps it by 1 per build). LAST_BUILD_SEQ is the value this tab
+// A finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab
 // has already processed - processing (swapping the screen, toasting) happens exactly once per seq. Counting via the
 // started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
 // double-processed the same completion when a hidden tab came back via two paths at once (observed: toast x2).
-let BUILD_TIMER=null,LAST_BUILD_ERR=null,LAST_BUILD_SEQ=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
+// The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
+const BUILD={timer:null,error:null,lastSeq:null,booted:false,inflight:null};
+// Reset the visible build controls and baseline when a different document takes the screen.
+function resetBuildForDoc(){if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}
+  $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
+  BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0; BUILD.error=BUILD_ERR_BY.get(DOC)||null;
+  if(BUILD.error)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
+  BUILD.booted=true; if(BUILD.inflight)BUILD.inflight.then(()=>pollBuild()); else pollBuild();}
 function buildChipText(b){
   const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'재빌드 중';
   const el=Math.round(b.elapsed_s||0), last=b.last_s?' '+tl('(지난번 {s}초)',{s:Math.round(b.last_s)}):'';
@@ -25,9 +32,9 @@ function pullSuffix(b){
 // 1-second timer, visibilitychange, focus, and pollLight all call it together, /api/build only goes out once and completion is only processed once).
 function pollBuild(){
   if(document.hidden)return Promise.resolve();   // the request is never even sent while the tab is hidden
-  if(BUILD_INFLIGHT)return BUILD_INFLIGHT;
-  BUILD_INFLIGHT=pollBuildOnce().finally(()=>{BUILD_INFLIGHT=null;});
-  return BUILD_INFLIGHT;
+  if(BUILD.inflight)return BUILD.inflight;
+  BUILD.inflight=pollBuildOnce().finally(()=>{BUILD.inflight=null;});
+  return BUILD.inflight;
 }
 async function pollBuildOnce(){
   let b; const k=DOC,visit=SWITCHSEQ;
@@ -36,21 +43,21 @@ async function pollBuildOnce(){
   const chip=$('#build-chip');
   if(b.state===BUILD_STATE.RUNNING){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
-    if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000);
-    BUILD_BOOTED=true; return;
+    if(!BUILD.timer)BUILD.timer=setInterval(pollBuild,1000);
+    BUILD.booted=true; return;
   }
   chip.hidden=true; $('#btn-rebuild').disabled=false;
-  if(BUILD_TIMER){clearInterval(BUILD_TIMER);BUILD_TIMER=null;}    // polling stops once there's nothing left to watch
+  if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}    // polling stops once there's nothing left to watch
   const seq=(typeof b.seq==='number')?b.seq:0;
-  const booted=BUILD_BOOTED; BUILD_BOOTED=true;
-  if(LAST_BUILD_SEQ===null)LAST_BUILD_SEQ=seq;
-  if(seq!==LAST_BUILD_SEQ){
-    LAST_BUILD_SEQ=seq;                 // claimed before the await - so the same completion is never processed twice
+  const booted=BUILD.booted; BUILD.booted=true;
+  if(BUILD.lastSeq===null)BUILD.lastSeq=seq;
+  if(seq!==BUILD.lastSeq){
+    BUILD.lastSeq=seq;                 // claimed before the await - so the same completion is never processed twice
     DOC_SEQ.set(k,seq);
     try{await refreshDoc();}catch(e){}
     if(k!==DOC||visit!==SWITCHSEQ)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state===BUILD_STATE.OK){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    if(b.state===BUILD_STATE.OK){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); BUILD.error=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
     else if(b.state===BUILD_STATE.OK_ERRORS){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
     else if(b.state===BUILD_STATE.FAIL){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
   }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){

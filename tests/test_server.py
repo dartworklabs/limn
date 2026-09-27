@@ -16,6 +16,7 @@ Run: uv run pytest tests/test_server.py
 """
 
 import dataclasses
+import http.client
 import io
 import json
 import os
@@ -70,6 +71,8 @@ from helpers_access import BOB_ACTOR
 
 
 class Smuggling(Base):
+    """Request framing rejects ambiguous bodies without dispatching a second request."""
+
     def test_403_body_is_not_parsed_as_next_request(self):
         pid = self.add()
         set_config(allow=frozenset({"ok@example.com"}))
@@ -112,18 +115,20 @@ class Smuggling(Base):
         raw = b"POST /api/clear HTTP/1.1\r\nHost: 127.0.0.1:18999\r\nContent-Length: 5\r\n\r\n"
         out = self.talk(raw)
         self.assertIn(b" 400 ", out)
-        self.assertEqual(len(ps.snapshot_pins()), 1)
-        self.assertEqual(list(ps.C.state.glob("pins_*.jsonl.bak")), [])
+        self.assertEqual(len(ps.APP.snapshot_pins()), 1)
+        self.assertEqual(list(ps.APP.C.state.glob("pins_*.jsonl.bak")), [])
 
 
 class CrossOrigin(Base):
+    """Browser writes require an allowed origin, host, and content type."""
+
     def test_foreign_origin_rejected(self):
         body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
         out = self.talk(
             req("POST", "/api/pin", body, {"Origin": "https://evil.example", "Content-Type": "application/json"})
         )
         self.assertIn(b" 403 ", out)
-        self.assertEqual(ps.snapshot_pins(), [])
+        self.assertEqual(ps.APP.snapshot_pins(), [])
 
     def test_text_plain_rejected(self):
         body = json.dumps({"file": str(self.main), "lo": 4, "hi": 4}).encode()
@@ -140,7 +145,7 @@ class CrossOrigin(Base):
             req("POST", "/api/pin", body, {"Origin": "http://127.0.0.1:18999", "Content-Type": "application/json"})
         )
         self.assertIn(b" 200 ", out)
-        pid = ps.snapshot_pins()[0].core.id
+        pid = ps.APP.snapshot_pins()[0].core.id
         out = self.talk(req("POST", "/api/pins/%d/close" % pid))  # curl-shaped: no body, no Origin
         self.assertIn(b" 200 ", out)
         out = self.talk(
@@ -172,50 +177,50 @@ class CrossOrigin(Base):
     def test_host_ok_ignores_loopback_port_ssh_forward(self):
         # bug: host_ok used to require the port to equal C.port even for a loopback name — forwarding
         # through SSH -L to a different local port (Host: localhost:9000, server on 18999) got 403'd.
-        self.assertTrue(ps.host_ok("localhost:9000"))
-        self.assertTrue(ps.host_ok("127.0.0.1:1"))
-        self.assertTrue(ps.host_ok("[::1]:9000"))
-        self.assertTrue(ps.host_ok("localhost"))  # no port is still allowed
+        self.assertTrue(ps.APP.host_ok("localhost:9000"))
+        self.assertTrue(ps.APP.host_ok("127.0.0.1:1"))
+        self.assertTrue(ps.APP.host_ok("[::1]:9000"))
+        self.assertTrue(ps.APP.host_ok("localhost"))  # no port is still allowed
 
     def test_host_ok_still_rejects_non_loopback_non_tailnet(self):
-        self.assertFalse(ps.host_ok("evil.example"))
+        self.assertFalse(ps.APP.host_ok("evil.example"))
         # mimicking the server port doesn't help if the name is wrong
-        self.assertFalse(ps.host_ok("evil.example:18999"))
+        self.assertFalse(ps.APP.host_ok("evil.example:18999"))
 
     def test_host_ok_tailnet_unaffected(self):
-        self.assertTrue(ps.host_ok("box.tail1234.ts.net"))
-        self.assertTrue(ps.host_ok("box.tail1234.ts.net:443"))
+        self.assertTrue(ps.APP.host_ok("box.tail1234.ts.net"))
+        self.assertTrue(ps.APP.host_ok("box.tail1234.ts.net:443"))
 
     def test_origin_ok_loopback_host_accepts_any_loopback_port(self):
         # design: if Host is loopback, Origin only needs to be loopback too (port doesn't
         # matter — with SSH -L, Host/Origin ports differ from the server's bound port. Observed: after
         # forwarding 18110->18106, every POST got 403).
-        self.assertTrue(ps.origin_ok("http://127.0.0.1:9000", "localhost:9000"))
-        self.assertTrue(ps.origin_ok("http://localhost:18999", "127.0.0.1:18999"))
-        self.assertTrue(ps.origin_ok("http://127.0.0.1:18110", "localhost:18106"))
-        self.assertTrue(ps.origin_ok("http://[::1]:9000", "[::1]:9000"))
-        self.assertTrue(ps.origin_ok("http://127.0.0.1:18999", None))
-        self.assertFalse(ps.origin_ok("http://evil.example:18999", "localhost:18999"))
-        self.assertFalse(ps.origin_ok("null", "localhost:18999"))
+        self.assertTrue(ps.APP.origin_ok("http://127.0.0.1:9000", "localhost:9000"))
+        self.assertTrue(ps.APP.origin_ok("http://localhost:18999", "127.0.0.1:18999"))
+        self.assertTrue(ps.APP.origin_ok("http://127.0.0.1:18110", "localhost:18106"))
+        self.assertTrue(ps.APP.origin_ok("http://[::1]:9000", "[::1]:9000"))
+        self.assertTrue(ps.APP.origin_ok("http://127.0.0.1:18999", None))
+        self.assertFalse(ps.APP.origin_ok("http://evil.example:18999", "localhost:18999"))
+        self.assertFalse(ps.APP.origin_ok("null", "localhost:18999"))
 
     def test_origin_ok_loopback_host_rejects_tailnet_origin(self):
         # bug (should -> design 3): a loopback Host accepted a *.ts.net Origin, so a public Funnel page
         # from another tailnet could send a body-less POST (close/clear) via the local user's browser
         # without a preflight (observed: 200).
-        self.assertFalse(ps.origin_ok("https://evil-funnel.tailabcd.ts.net", "127.0.0.1:18999"))
-        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net", "localhost:18999"))
-        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net", None))
+        self.assertFalse(ps.APP.origin_ok("https://evil-funnel.tailabcd.ts.net", "127.0.0.1:18999"))
+        self.assertFalse(ps.APP.origin_ok("https://box.tail1234.ts.net", "localhost:18999"))
+        self.assertFalse(ps.APP.origin_ok("https://box.tail1234.ts.net", None))
 
     def test_origin_ok_tailnet_host_requires_same_host_and_port(self):
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net"))
+        self.assertTrue(ps.APP.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net"))
         # default-port normalization
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net:443"))
-        self.assertTrue(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net:8443"))
-        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net"))
-        self.assertFalse(ps.origin_ok("https://evil.tailabcd.ts.net", "box.tail1234.ts.net"))
-        self.assertFalse(ps.origin_ok("http://127.0.0.1:18999", "box.tail1234.ts.net"))
-        self.assertFalse(ps.origin_ok("https://box.tail1234.ts.net:99999", "box.tail1234.ts.net"))  # wrong port
+        self.assertTrue(ps.APP.origin_ok("https://box.tail1234.ts.net:443", "box.tail1234.ts.net"))
+        self.assertTrue(ps.APP.origin_ok("https://box.tail1234.ts.net", "box.tail1234.ts.net:443"))
+        self.assertTrue(ps.APP.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net:8443"))
+        self.assertFalse(ps.APP.origin_ok("https://box.tail1234.ts.net:8443", "box.tail1234.ts.net"))
+        self.assertFalse(ps.APP.origin_ok("https://evil.tailabcd.ts.net", "box.tail1234.ts.net"))
+        self.assertFalse(ps.APP.origin_ok("http://127.0.0.1:18999", "box.tail1234.ts.net"))
+        self.assertFalse(ps.APP.origin_ok("https://box.tail1234.ts.net:99999", "box.tail1234.ts.net"))  # wrong port
 
     def test_funnel_csrf_on_loopback_host_is_403_end_to_end(self):
         pid = self.add()
@@ -250,7 +255,7 @@ class CrossOrigin(Base):
             )
         )
         self.assertIn(b" 200 ", out)
-        self.assertEqual(len(ps.snapshot_pins()), 1)
+        self.assertEqual(len(ps.APP.snapshot_pins()), 1)
 
     def test_ssh_forwarded_non_loopback_origin_still_rejected(self):
         # a non-loopback origin is still blocked even behind forwarding (only the port is ignored, not the name).
@@ -264,7 +269,7 @@ class CrossOrigin(Base):
             )
         )
         self.assertIn(b" 403 ", out)
-        self.assertEqual(ps.snapshot_pins(), [])
+        self.assertEqual(ps.APP.snapshot_pins(), [])
 
     def test_forged_host_plus_identity_header_still_403(self):
         # whether relaxing Host breaks rebinding defense — a non-loopback name is still rejected.
@@ -420,12 +425,12 @@ class PdfRoute(Base):
         super().setUp()
         self.old, self.new = "pages-20250101000000", "pages-20260101000000"
         for name, body in ((self.old, b"%PDF-old"), (self.new, b"%PDF-new")):
-            d = ps.C.state / name
+            d = ps.APP.C.state / name
             d.mkdir()
             (d / "main.pdf").write_bytes(body)
-        files.atomic_write(ps.C.pages_ptr, self.new)
-        ps.C.build.mkdir(parents=True, exist_ok=True)
-        (ps.C.build / "main.pdf").write_bytes(b"%PDF-build-dir")
+        files.atomic_write(ps.APP.C.pages_ptr, self.new)
+        ps.APP.C.build.mkdir(parents=True, exist_ok=True)
+        (ps.APP.C.build / "main.pdf").write_bytes(b"%PDF-build-dir")
 
     def get(self, path, headers=None):
         return split_resp(self.talk(req("GET", path, headers=headers)))
@@ -453,7 +458,7 @@ class PdfRoute(Base):
 
     def test_does_not_fall_back_to_build_dir(self):
         # if the page directory has no matching PDF, don't fall back to build/
-        (ps.C.state / self.new / "main.pdf").unlink()
+        (ps.APP.C.state / self.new / "main.pdf").unlink()
         code, _h, body = self.get("/pdf?build=%s" % self.new)
         self.assertEqual(code, 404)
         self.assertNotIn(b"%PDF-build-dir", body)
@@ -471,7 +476,7 @@ class PdfRoute(Base):
         self.assertEqual((code, body), (200, b"%PDF-new"))
 
     def test_pages_build_in_meta_matches_pdf_route(self):
-        m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
+        m = ps.APP.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["pages_build"], self.new)
         self.assertEqual(self.get("/pdf?build=%s" % m["pages_build"])[2], b"%PDF-new")
 
@@ -480,25 +485,27 @@ class PdfRoute(Base):
 
 
 class OverlapRoutes(Base):
+    """Pick and overlap routes report source ranges and their live pin relationships."""
+
     @needs_tex("latexmk", "pdftoppm", "pdftotext", "synctex")
     def test_pick_end_to_end_includes_quote_and_overlaps(self):
         """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
         resolved against, also for an older build still on screen; a vanished build is flagged, a bad name refused."""
-        res = ps.build_all(ps.DOCS[0])
+        res = ps.APP.build_all(ps.APP.docs[0])
         self.assertIsInstance(res, BuildOk)
-        pages = limn_build.page_list(limn_build.cur_pages(ps.DOCS[0]), ps.C.dpi)
+        pages = limn_build.page_list(limn_build.cur_pages(ps.APP.docs[0]), ps.APP.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
         d = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4})
         self.assertNotIn("error", d)
         self.assertIn("quote", d)
         self.assertIn("overlaps", d)
-        self.assertEqual(d["pdf_build"], limn_build.cur_pages(ps.DOCS[0]).name)
+        self.assertEqual(d["pdf_build"], limn_build.cur_pages(ps.APP.docs[0]).name)
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
-        b1 = limn_build.cur_pages(ps.DOCS[0]).name
+        b1 = limn_build.cur_pages(ps.APP.docs[0]).name
         # a rebuild within the same second still gets a page directory of its own (test_build.Outcomes)
-        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
-        self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
+        self.assertEqual(type(ps.APP.build_all(ps.APP.docs[0])), BuildOk)
+        self.assertNotEqual(limn_build.cur_pages(ps.APP.docs[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
         gone = pick({"page": 1, "x0": 0, "y0": 0, "x1": 10, "y1": 10, "pdf_build": "pages-19990101000000"})
@@ -533,6 +540,8 @@ class OverlapRoutes(Base):
 
 
 class RemotePinsMd(Base):
+    """The work-list endpoint chooses its public base from the accepted request host."""
+
     def test_loopback_host_uses_loopback_base(self):
         self.add()
         out = self.talk(req("GET", "/pins.md"))
@@ -564,7 +573,7 @@ class RemotePinsMd(Base):
     def test_disk_pins_md_always_uses_loopback_base(self):
         self.add()
         self.talk(req("GET", "/pins.md", headers={"Host": "x.tail1234.ts.net:18004"}))
-        disk = ps.C.pins_md.read_text(encoding="utf-8")
+        disk = ps.APP.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:18999", disk)
         self.assertNotIn("x.tail1234.ts.net", disk)
 
@@ -587,6 +596,8 @@ class RemotePinsMd(Base):
 
 
 class ResponseDiet(unittest.TestCase):
+    """Build responses trim logs unless the caller explicitly requests full detail."""
+
     def test_ok_drops_log_and_log_tail(self):
         out = diet_log({"state": "ok", "log": "x" * 5000, "log_tail": "y" * 10, "pages": 3}, full=False)
         self.assertNotIn("log", out)
@@ -619,16 +630,18 @@ class ResponseDiet(unittest.TestCase):
 
 
 class RebuildLogDiet(Base):
+    """Synchronous rebuild and build-status routes apply the same log-size contract."""
+
     def tearDown(self):
-        if ps.DOCS[0].lock.locked():
-            ps.DOCS[0].lock.release()
+        if ps.APP.docs[0].lock.locked():
+            ps.APP.docs[0].lock.release()
         super().tearDown()
 
     def test_sync_rebuild_ok_omits_log(self):
         def fake_build(D=None):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "abc1234", "", 1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertNotIn("log", body)
@@ -641,7 +654,7 @@ class RebuildLogDiet(Base):
                 [{"line": 1, "msg": "x"}], "\n".join("l%d" % i for i in range(200)), 0.01, None, 1.0, None, "-", "", 1
             )
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(len(body["log"].splitlines()), 40)
@@ -650,7 +663,7 @@ class RebuildLogDiet(Base):
         def fake_build(D=None):
             return BuildOk("keep-full", 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild?log=1"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertEqual(body["log"], "keep-full")
@@ -659,8 +672,8 @@ class RebuildLogDiet(Base):
         def fake_build(D=None):
             return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+            ps.APP.build_all(ps.APP.docs[0])
         out = self.talk(req("GET", "/api/build"))
         body = json.loads(out.split(b"\r\n\r\n", 1)[1])
         self.assertNotIn("log_tail", body)
@@ -675,7 +688,7 @@ class RebuildLogDiet(Base):
         def fake_build_before(D=None):
             return BuildOk(big_log, 0.01, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build_before):
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_before):
             before = self.talk(req("POST", "/api/rebuild?log=1"))
             after = self.talk(req("POST", "/api/rebuild"))
         self.assertGreater(len(before), len(after))
@@ -722,6 +735,8 @@ class StartupRefusals(unittest.TestCase):
 
 
 class BuildHtmlSubstitution(unittest.TestCase):
+    """Viewer HTML substitutes escaped branding and a matching favicon."""
+
     def test_label_and_accent_appear_in_output(self):
         """The served page (limn.viewer.assemble.run_page over the template) fills the label (title, identity crumb
         after the Limn mark), the accent stripe and every placeholder."""
@@ -775,7 +790,7 @@ class ImportReadsNoFile(unittest.TestCase):
         self.assertEqual(r.stdout.split(), [])
 
 
-class ProcessRuntime(unittest.TestCase):
+class ProcessRuntime(Base):
     """new_runtime / Runtime: the per-process resources are one value made fresh for each start, and stop() ends the
     long-lived threads it started."""
 
@@ -798,8 +813,8 @@ class ProcessRuntime(unittest.TestCase):
         stop() is harmless."""
         rt = self.runtime()
         rounds = []
-        with mock.patch.object(ps, "DOCS", []):
-            rt.start_thread(ps.watch_pdf_docs, rt.stopping, 0.01)
+        with mock.patch.object(ps.APP, "docs", []):
+            rt.start_thread(ps.APP.watch_pdf_docs, rt.stopping, 0.01)
             rt.start_thread(rt.sync_watch.watch, rt.stopping, 0.01, lambda: rounds.append(1) or {}, lambda: "t")
             self.assertTrue(all(t.is_alive() for t in rt.threads))
             rt.stop(timeout=5)
@@ -820,6 +835,113 @@ class ProcessRuntime(unittest.TestCase):
         self.assertEqual(len(rt.threads), 1)
         self.assertFalse(rt.threads[0].is_alive())
 
+    def test_two_starts_in_one_module_keep_http_apps_and_runtimes_separate(self):
+        """Starting a second listener cannot replace the first listener's HTTP app or cleanup target."""
+        first_config = run_config(self.src, self.main, self.src.parent / "first", label="First", port=0)
+        second_config = run_config(self.src, self.main, self.src.parent / "second", label="Second", port=0)
+
+        def prepare(app, _docs, _no_build):
+            """Give each real listener a document and a watch thread without building LaTeX."""
+            app.set_docs([ps.Doc(app.C.label.lower(), app.C.label, legacy=True, paths=app.C.paths)])
+            app.RT.start_thread(app.RT.stopping.wait)
+            return None
+
+        def get(started, path):
+            """Read one response through the listener's actual TCP socket and bound handler."""
+            conn = http.client.HTTPConnection(*started.server.server_address[:2], timeout=5)
+            try:
+                conn.request("GET", path)
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                return response.read()
+            finally:
+                conn.close()
+
+        started = []
+        threads = []
+        fixture_app = ps.Handler.app
+        with (
+            mock.patch.object(ps.startup, "access_options", return_value=first_config.access),
+            mock.patch.object(
+                ps, "configure_run", side_effect=[ps.RunStart(first_config, None), ps.RunStart(second_config, None)]
+            ),
+            mock.patch.object(ps, "read_viewer"),
+            mock.patch.object(
+                ps,
+                "serve_viewer",
+                side_effect=lambda _, label, _accent: viewer_assemble.ServedViewer(f"<p>{label}</p>", "", {}),
+            ),
+            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps.ServerApplication, "report"),
+        ):
+            try:
+                for _ in range(2):
+                    result = ps.start(mock.Mock(port=0, no_build=True))
+                    self.assertNotIsInstance(result, StartupRefused)
+                    started.append(result)
+                    thread = threading.Thread(target=result.server.serve_forever, daemon=True)
+                    thread.start()
+                    threads.append(thread)
+
+                first, second = started
+                self.assertIsNot(first.app, second.app)
+                self.assertIsNot(first.server.RequestHandlerClass, second.server.RequestHandlerClass)
+                self.assertIs(first.server.RequestHandlerClass.app, first.app)
+                self.assertIs(second.server.RequestHandlerClass.app, second.app)
+                self.assertIs(ps.Handler.app, fixture_app)
+                self.assertIsNot(first.app.RT.pin_lock, second.app.RT.pin_lock)
+                self.assertEqual(get(first, "/"), b"<p>First</p>")
+                self.assertEqual(get(second, "/"), b"<p>Second</p>")
+                self.assertEqual(json.loads(get(first, "/api/docs"))["docs"][0]["name"], "First")
+                self.assertEqual(json.loads(get(second, "/api/docs"))["docs"][0]["name"], "Second")
+                self.assertFalse(first.app.RT.stopping.is_set())
+                first.app.RT.stop()
+                self.assertFalse(second.app.RT.stopping.is_set())
+                self.assertEqual(get(second, "/"), b"<p>Second</p>")
+            finally:
+                for index, result in enumerate(started):
+                    server = result.server if hasattr(result, "server") else result
+                    if index < len(threads):
+                        server.shutdown()
+                    server.server_close()
+                    app = result.app if hasattr(result, "app") else ps.APP
+                    app.RT.stop()
+                for thread in threads:
+                    thread.join(5)
+
+    def test_failed_second_start_stops_only_its_own_watch(self):
+        """A later startup failure cleans its own watch without ending an earlier run's watch."""
+        config = run_config(self.src, self.main, self.src.parent / "run", port=0)
+        apps = []
+
+        def prepare(app, _docs, _no_build):
+            """Register a real waiting thread in each app so cleanup has an observable target."""
+            apps.append(app)
+            app.RT.start_thread(app.RT.stopping.wait)
+            return None
+
+        with (
+            mock.patch.object(ps.startup, "access_options", return_value=config.access),
+            mock.patch.object(ps, "configure_run", return_value=ps.RunStart(config, None)),
+            mock.patch.object(ps, "read_viewer"),
+            mock.patch.object(ps, "serve_viewer", return_value=viewer_assemble.ServedViewer("", "", {})),
+            mock.patch.object(ps.ServerApplication, "prepare", autospec=True, side_effect=prepare),
+            mock.patch.object(ps.ServerApplication, "report"),
+            mock.patch.object(ps.ServerApplication, "listen", side_effect=[mock.Mock(), OSError("listen failed")]),
+        ):
+            first = ps.start(mock.Mock(port=0, no_build=True))
+            try:
+                self.assertIsInstance(first, ps.StartedServer)
+                with self.assertRaisesRegex(OSError, "listen failed"):
+                    ps.start(mock.Mock(port=0, no_build=True))
+                self.assertIs(first.app, apps[0])
+                self.assertFalse(apps[0].RT.stopping.is_set())
+                self.assertTrue(apps[0].RT.threads[0].is_alive())
+                self.assertTrue(apps[1].RT.stopping.is_set())
+                self.assertFalse(apps[1].RT.threads[0].is_alive())
+            finally:
+                apps[0].RT.stop()
+
     def test_main_stops_the_runtime_when_serving_ends(self):
         """An interrupted server closes its socket and stops the Runtime while preserving Ctrl-C."""
 
@@ -838,28 +960,43 @@ class ProcessRuntime(unittest.TestCase):
 
         rt = self.runtime()
         server = Served()
+        fixture_runtime = ps.APP.RT
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
             self.assertRaises(KeyboardInterrupt),
         ):
             ps.main()
         self.assertTrue(server.closed)
         self.assertTrue(rt.stopping.is_set())
+        self.assertFalse(fixture_runtime.stopping.is_set())
 
     def test_main_closes_server_after_normal_serve_return(self):
-        """A server whose loop returns normally releases its socket and stops its Runtime."""
+        """A server whose loop returns normally closes its socket before stopping its Runtime."""
 
         server = mock.Mock()
         rt = self.runtime()
+        order = []
+        stop_runtime = ps.Runtime.stop
+
+        def close_socket():
+            """Record socket closure before the runtime's watches are stopped."""
+            order.append("socket")
+
+        def stop(runtime):
+            """Record and perform runtime cleanup so the ordering assertion observes both effects."""
+            order.append("runtime")
+            stop_runtime(runtime)
+
+        server.server_close.side_effect = close_socket
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
+            mock.patch.object(ps.Runtime, "stop", autospec=True, side_effect=stop),
         ):
             ps.main()
         server.server_close.assert_called_once_with()
+        self.assertEqual(order, ["socket", "runtime"])
         self.assertTrue(rt.stopping.is_set())
 
     def test_main_stops_runtime_even_when_server_close_fails(self):
@@ -870,8 +1007,7 @@ class ProcessRuntime(unittest.TestCase):
         rt = self.runtime()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
             self.assertRaisesRegex(OSError, "cannot close socket"),
         ):
             ps.main()
@@ -887,8 +1023,7 @@ class ProcessRuntime(unittest.TestCase):
         rt.stop.side_effect = OSError("cannot stop runtime")
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
             self.assertRaisesRegex(RuntimeError, "serving failed"),
         ):
             ps.main()
@@ -904,8 +1039,7 @@ class ProcessRuntime(unittest.TestCase):
         rt.stop.side_effect = OSError("cannot stop runtime")
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
             mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
             self.assertRaisesRegex(OSError, "cannot close socket"),
         ):
@@ -921,8 +1055,7 @@ class ProcessRuntime(unittest.TestCase):
         rt = self.runtime()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=server),
-            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch.object(ps, "start", return_value=ps.StartedServer(server, ps.ServerApplication(ps.APP.C, rt))),
         ):
             try:
                 raise ValueError("outer error")
@@ -944,9 +1077,11 @@ class ProcessRuntime(unittest.TestCase):
                 mock.patch.object(ps, "read_viewer"),
                 mock.patch.object(ps, "serve_viewer", return_value=rt.viewer),
                 mock.patch.object(ps, "new_runtime", return_value=rt),
-                mock.patch.object(ps, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)),
-                mock.patch.object(ps, "report"),
-                mock.patch.object(ps, "listen", return_value=refusal),
+                mock.patch.object(
+                    ps.ServerApplication, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)
+                ),
+                mock.patch.object(ps.ServerApplication, "report"),
+                mock.patch.object(ps.ServerApplication, "listen", return_value=refusal),
             ):
                 self.assertEqual(ps.start(mock.Mock(port=0, no_build=True)), refusal)
             self.assertTrue(rt.stopping.is_set())
@@ -967,13 +1102,13 @@ class MultiDoc(Base):
         self.pdf = self.src / "review.pdf"
         self.pdf.write_bytes(MINI_PDF)
         self.docs = startup.make_docs(
-            ["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src, ps.C
+            ["ms=본문:main.tex", "rr=답변서:rr/rr.tex", "rv=리뷰어 코멘트:review.pdf"], self.src, ps.APP.C
         )
-        ps.set_docs(self.docs)
+        ps.APP.set_docs(self.docs)
         self.ms, self.rrd, self.rv = self.docs
 
     def tearDown(self):
-        ps.set_docs(None)
+        ps.APP.set_docs(None)
         super().tearDown()
 
     def fake_pages(self, D, name="pages-20260101000000", n=1):
@@ -994,21 +1129,21 @@ class MultiDoc(Base):
         return d
 
     def test_state_layout_per_doc(self):
-        self.assertEqual(self.ms.dir, ps.C.state / "docs" / "ms")
-        self.assertEqual(self.rv.dir, ps.C.state / "docs" / "rv")
-        self.assertEqual(limn_build.cur_pages(self.rrd), ps.C.state / "docs" / "rr" / "pages")
-        self.assertEqual(ps.C.pins_jsonl, ps.C.state / "pins.jsonl")  # one pin store shared across documents
+        self.assertEqual(self.ms.dir, ps.APP.C.state / "docs" / "ms")
+        self.assertEqual(self.rv.dir, ps.APP.C.state / "docs" / "rv")
+        self.assertEqual(limn_build.cur_pages(self.rrd), ps.APP.C.state / "docs" / "rr" / "pages")
+        self.assertEqual(ps.APP.C.pins_jsonl, ps.APP.C.state / "pins.jsonl")  # one pin store shared across documents
 
     def test_single_doc_mode_keeps_legacy_paths(self):
-        ps.set_docs(None)
-        self.assertFalse(ps.multi_doc())
-        self.assertTrue(ps.DOCS[0].legacy)
-        self.assertEqual(limn_build.cur_pages(ps.DOCS[0]), ps.C.state / "pages")
-        self.assertEqual(ps.DOCS[0].build, ps.C.build)
-        self.assertEqual(ps.DOCS[0].paths, ps.C.paths)  # the frozen run paths it was made with
+        ps.APP.set_docs(None)
+        self.assertFalse(ps.APP.multi_doc())
+        self.assertTrue(ps.APP.docs[0].legacy)
+        self.assertEqual(limn_build.cur_pages(ps.APP.docs[0]), ps.APP.C.state / "pages")
+        self.assertEqual(ps.APP.docs[0].build, ps.APP.C.build)
+        self.assertEqual(ps.APP.docs[0].paths, ps.APP.C.paths)  # the frozen run paths it was made with
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
-        md = ps.pins_md_text(ps.snapshot_pins())
+        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
         self.assertNotIn("## ", md)  # the old look, no subsections
         self.assertIn("| # | 쪽 | 위치 | 범위 | 메모 |", md)
 
@@ -1022,11 +1157,11 @@ class MultiDoc(Base):
             "note": "옛 핀",
             "at": "2026-09-01 10:00:00",
         }
-        ps.C.pins_jsonl.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
-        rows = ps.pins_payload(ps.read_pins()[0], True)
+        ps.APP.C.pins_jsonl.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
+        rows = ps.APP.pins_payload(ps.APP.read_pins()[0], True)
         self.assertEqual(rows[0]["doc"], "ms")  # the first document
-        self.assertNotIn('"doc"', ps.C.pins_jsonl.read_text(encoding="utf-8"))  # no migration write occurs
-        self.assertEqual(ps.docs_payload()["docs"][0]["n_open"], 1)
+        self.assertNotIn('"doc"', ps.APP.C.pins_jsonl.read_text(encoding="utf-8"))  # no migration write occurs
+        self.assertEqual(ps.APP.docs_payload()["docs"][0]["n_open"], 1)
 
     def test_api_docs_lists_kind_and_counts(self):
         add_pin({"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr"}, dict(LOCAL_ACTOR)).record["id"]
@@ -1075,7 +1210,7 @@ class MultiDoc(Base):
 
     def _notices(self, since=0):
         """The (type, doc) of every events.jsonl record after the first `since` ones, in order."""
-        return [(e["type"], e["doc"]) for e in ps._read_events()[0][since:]]
+        return [(e["type"], e["doc"]) for e in ps.APP._read_events()[0][since:]]
 
     def test_new_line_pin_notices_name_the_pins_own_document(self):
         """A new line pin in the second document queues its mention and assigned notices with that document's key.
@@ -1083,7 +1218,7 @@ class MultiDoc(Base):
         Regression: the notices were built before the record had its doc, so pin_doc_key read the first document (ms)
         and the viewer opened a notice about a pin in rr on the wrong document.
         """
-        ps.record_person(dict(self.WENDY))
+        ps.APP.record_person(dict(self.WENDY))
         pin = add_pin(
             {
                 "file": str(self.rr),
@@ -1102,11 +1237,11 @@ class MultiDoc(Base):
     def test_later_notices_about_a_pin_name_its_document(self):
         """Edit, reply, close and reopen notices about a pin in the second document carry that document's key: they
         are made from the stored record, which has its doc."""
-        ps.record_person(dict(self.WENDY))
+        ps.APP.record_person(dict(self.WENDY))
         pid = add_pin(
             {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(BOB_ACTOR)
         ).record["id"]
-        n = len(ps._read_events()[0])
+        n = len(ps.APP._read_events()[0])
         edit = {"base_rev": 0, "note": "@Wendy Kim 정의 확인", "assignee": self.WENDY["login"]}
         self.assertEqual(edit_pin(pid, edit, dict(BOB_ACTOR)).record["doc"], "rr")
         self.assertEqual(split_resp(self.talk(jreq("POST", "/api/pins/%d/reply" % pid, {"text": "봤어요"})))[0], 200)
@@ -1163,7 +1298,7 @@ class MultiDoc(Base):
         code, _, _ = split_resp(self.talk(jreq("POST", "/api/pin", {"doc": "rr", "file": "rr/rr.tex", "page": 1})))
         self.assertEqual(code, 400)
         add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "doc": "ms"}, dict(LOCAL_ACTOR)).record["id"]
-        md = ps.pins_md_text(ps.snapshot_pins())
+        md = ps.APP.pins_md_text(ps.APP.snapshot_pins())
         self.assertIn("## 본문 · `ms` · `main.tex`", md)
         self.assertIn("## 리뷰어 코멘트 · `rv` · `review.pdf` — 보기 전용 PDF(줄 번호 없음)", md)
         self.assertIn(
@@ -1199,7 +1334,9 @@ class MultiDoc(Base):
         )
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(fits(self.pin(pid)))
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())  # close/drop are resolved by id, independent of document
+        ps.APP.close_pin(
+            pid, dict(LOCAL_ACTOR), CloseRequest()
+        )  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
     def test_region_record_validation_is_by_shape(self):
@@ -1210,8 +1347,8 @@ class MultiDoc(Base):
         self.assertFalse(fits(dict(base, pdf="review.pdf")))  # relative path
         self.assertFalse(fits(dict(base, doc="Bad Key")))
         # a pin for a document not in config surfaces separately in pins.md (it's not hidden)
-        ps.C.pins_jsonl.write_text(json.dumps(base) + "\n")
-        md = ps.pins_md_text(ps.read_pins()[0])
+        ps.APP.C.pins_jsonl.write_text(json.dumps(base) + "\n")
+        md = ps.APP.pins_md_text(ps.APP.read_pins()[0])
         self.assertIn("## 설정에 없는 문서 · `gone`", md)
 
     def test_sync_and_overlaps_skip_region_pins(self):
@@ -1220,7 +1357,7 @@ class MultiDoc(Base):
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")  # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
-        rows = ps.pins_payload(ps.snapshot_pins(), False)
+        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), False)
         by = {r["id"]: r for r in rows}
         self.assertEqual((by[tid]["lo"], by[tid]["hi"]), (5, 6))
         self.assertEqual(by[rid]["rel"], [])
@@ -1239,11 +1376,13 @@ class MultiDoc(Base):
             gate.wait(5)
             return BuildAborted("crashed", "x")
 
-        with mock.patch.object(ps, "_build", side_effect=slow_build):
-            self.assertEqual(ps.build_async(self.ms), BuildStarted())
-            self.assertEqual(ps.build_async(self.ms), BuildBusy())  # the same document allows only one build at a time
-            self.assertEqual(ps.build_all(self.ms), BuildBusy())
-            self.assertEqual(ps.build_async(self.rrd), BuildStarted())  # different documents run concurrently
+        with mock.patch.object(ps.APP, "_build", side_effect=slow_build):
+            self.assertEqual(ps.APP.build_async(self.ms), BuildStarted())
+            self.assertEqual(
+                ps.APP.build_async(self.ms), BuildBusy()
+            )  # the same document allows only one build at a time
+            self.assertEqual(ps.APP.build_all(self.ms), BuildBusy())
+            self.assertEqual(ps.APP.build_async(self.rrd), BuildStarted())  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
             gate.set()
             for _ in range(100):
@@ -1265,31 +1404,31 @@ class MultiDoc(Base):
             return UpToDate(None)
 
         with mock.patch.object(gitsync, "pull", side_effect=fake_pull):  # the fresh Runtime's pull share (Base)
-            a = ps.repo_pull()
-            b = ps.repo_pull()
+            a = ps.APP.repo_pull()
+            b = ps.APP.repo_pull()
         self.assertEqual(len(calls), 1)  # once per repository
         self.assertNotIn("shared", a)
         self.assertTrue(b["shared"])
-        ps.set_docs(None)
+        ps.APP.set_docs(None)
         with mock.patch.object(gitsync, "pull", side_effect=fake_pull):
-            ps.repo_pull(), ps.repo_pull()
+            ps.APP.repo_pull(), ps.APP.repo_pull()
         self.assertEqual(len(calls), 3)  # single document: once per build (unchanged from before)
 
     @needs_tex("pdftoppm")
     def test_view_only_pdf_renders_and_rerenders_on_change(self):
         rv = self.rv
         self.assertTrue(limn_build.pdf_changed(rv))  # not rendered yet
-        res = ps._build_tracked(rv)
+        res = ps.APP._build_tracked(rv)
         self.assertIsInstance(res, BuildOk, res)
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
         self.assertFalse(limn_build.pdf_changed(rv))
-        self.assertFalse(limn_build.refresh_pdf_doc(rv, ps.build_async))  # unchanged, so it doesn't redraw
+        self.assertFalse(limn_build.refresh_pdf_doc(rv, ps.APP.build_async))  # unchanged, so it doesn't redraw
         self.pdf.write_bytes(MINI_PDF.replace(b"Reviewer one", b"Reviewer two"))
         os.utime(self.pdf, (time.time() + 3, time.time() + 3))
         self.assertTrue(limn_build.pdf_changed(rv))
         # a render within the same second still gets a page directory of its own (test_build.Outcomes)
-        res = ps._build_tracked(rv)
+        res = ps.APP._build_tracked(rv)
         self.assertIsInstance(res, BuildOk)
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
         self.assertEqual(limn_build.state_snapshot(rv)["seq"], 2)
@@ -1304,6 +1443,8 @@ class MultiDoc(Base):
 # the agent supplies an estimate (eta_min), and the screen shows it rounded up to the nearest 5 minutes,
 # as '약 15분 · 20:40쯤'. The claim lock remains only a safety net, capped at 120 minutes.
 class ClaimEta(Base):
+    """Claim requests carry ETA values while clamping older clients' oversized input."""
+
     A = {"login": "alice@example.com", "name": "Wendy"}
     B = {"login": "bob@example.com", "name": "Bob"}
 
@@ -1395,6 +1536,8 @@ class ClaimEtaDocs(unittest.TestCase):
 # ask a follow-up. kind_req now distinguishes the kind, and each pin has a thread so people and agents can
 # go back and forth. All new fields are optional.
 class KindAndThread(Base):
+    """Pin routes preserve reply identity, thread validation, and bodyless close behavior."""
+
     S = {"login": "bob@example.com", "name": "Bob Park"}
 
     def post(self, path, body, headers=None):
@@ -1451,10 +1594,10 @@ class KindAndThread(Base):
         self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
-        ps.close_pin(pid, dict(self.S), CloseRequest())
-        rows = ps.pins_payload(ps.snapshot_pins(), True)
+        ps.APP.close_pin(pid, dict(self.S), CloseRequest())
+        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
-        self.assertNotIn("state", records(ps.read_pins()[0])[0])  # a computed field — not stored
+        self.assertNotIn("state", records(ps.APP.read_pins()[0])[0])  # a computed field — not stored
 
 
 # ---------------------------------------------------------------- awaiting review (docs/handbook/api.md §검토 대기)
@@ -1463,6 +1606,8 @@ class KindAndThread(Base):
 # review=true (awaiting review); when a tailnet human closes it, it's done right away. A legacy
 # done:true with no review field is still just done.
 class ReviewState(Base):
+    """HTTP review transitions distinguish agent closure from human confirmation."""
+
     S = {"login": "bob@example.com", "name": "Bob Park"}
     W = {"login": "wendy@example.com", "name": "Wendy Kim"}
 
@@ -1492,7 +1637,7 @@ class ReviewState(Base):
 
     def test_confirm_and_idempotence(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
@@ -1512,16 +1657,18 @@ class ReviewState(Base):
         # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
         # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post("/api/pins/%d/confirm" % pid)  # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
         self.assertEqual(pin_state(self.pin(pid)), "review")  # the status doesn't change
-        self.assertEqual(ps.confirm_pin(pid, dict(LOCAL_ACTOR)), AgentCannotConfirm())  # a value, answered 403 above
+        self.assertEqual(
+            ps.APP.confirm_pin(pid, dict(LOCAL_ACTOR)), AgentCannotConfirm()
+        )  # a value, answered 403 above
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post(
             "/api/pins/%d/reopen" % pid,
             {"reason": "식 번호가 아직 틀림"},
@@ -1533,7 +1680,7 @@ class ReviewState(Base):
         self.assertEqual(
             [(m.get("ev"), m["text"]) for m in p["thread"]], [("close", "고침"), ("reopen", "식 번호가 아직 틀림")]
         )
-        md = ps.C.pins_md.read_text(encoding="utf-8")
+        md = ps.APP.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
         self.assertIn("다시 연 이유(Bob Park): 식 번호가 아직 틀림", row)

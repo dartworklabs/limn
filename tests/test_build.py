@@ -603,6 +603,93 @@ class RebuildAnswer(unittest.TestCase):
         )
 
 
+class HistoryRestore(unittest.TestCase):
+    """A damaged history file cannot prevent a document from starting or leak malformed fields into build status."""
+
+    def test_saved_errors_and_elapsed_time_survive_restart(self):
+        """A valid failure's display errors, duration and pull record survive writing and restoring history."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            state.mkdir()
+            main = root / "main.tex"
+            main.write_text("text", encoding="utf-8")
+            doc = PlainDoc(root, main, state)
+            errors = [{"line": 0, "msg": "first"}, {"line": None, "msg": "second"}]
+            pull = {"state": "skipped", "reason": "dirty", "head_before": "a", "head_after": "a"}
+            result = BuildFailed("no_pdf", "", "log", errors, 1.25, pull, 1.0, None)
+            build.finish_build(doc, result, 1.0, build_failure_log)
+            doc.bstate = {"state": "idle", "seq": 0}
+
+            build.seed_builds(doc, state)
+
+            status = build.state_snapshot(doc)
+            self.assertEqual(status["errors"], errors)
+            self.assertEqual((status["elapsed_s"], status["last_s"]), (1.25, 1.25))
+            self.assertEqual(status["pull"], pull)
+
+    def test_malformed_last_fields_restore_as_safe_values(self):
+        """Keep a valid terminal state and sequence while discarding invalid saved display fields."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            state.mkdir()
+            main = root / "main.tex"
+            main.write_text("text", encoding="utf-8")
+            doc = PlainDoc(root, main, state)
+            (state / "builds.json").write_text(
+                json.dumps(
+                    {
+                        "seq": 4,
+                        "builds": [],
+                        "last": {
+                            "state": "fail",
+                            "errors": 7,
+                            "log_tail": {"unexpected": "object"},
+                            "started_at": [1],
+                            "finished_at": [2],
+                            "elapsed_s": "slow",
+                            "head": {},
+                            "pull": "invalid",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            build.seed_builds(doc, state)
+
+            status = build.state_snapshot(doc)
+            self.assertEqual((status["state"], status["seq"]), ("fail", 4))
+            self.assertEqual(status["errors"], [])
+            self.assertEqual(status["log_tail"], "")
+            self.assertIsNone(status["last_s"])
+            self.assertIsNone(status["head"])
+            self.assertIsNone(status["pull"])
+
+    def test_nonfinite_elapsed_does_not_escape_into_build_status(self):
+        """A JSON parser's nonstandard NaN or Infinity cannot become an API build duration after restart."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            state.mkdir()
+            main = root / "main.tex"
+            main.write_text("text", encoding="utf-8")
+            doc = PlainDoc(root, main, state)
+            for elapsed in (float("nan"), float("inf"), float("-inf")):
+                with self.subTest(elapsed=elapsed):
+                    (state / "builds.json").write_text(
+                        json.dumps({"seq": 4, "builds": [], "last": {"state": "fail", "elapsed_s": elapsed}}),
+                        encoding="utf-8",
+                    )
+                    doc.bstate = {"state": "idle", "seq": 0}
+                    build.seed_builds(doc, state)
+                    status = build.state_snapshot(doc)
+                    self.assertIsNone(status["last_s"])
+                    self.assertEqual(status["elapsed_s"], 0.0)
+                    json.dumps(status, allow_nan=False)
+
+
 class RebuildRules(unittest.TestCase):
     """request_rebuild (POST /api/rebuild) and needs_build (startup) decide on the document alone."""
 
@@ -656,20 +743,23 @@ class RebuildRules(unittest.TestCase):
 
 
 class Legacy(Base):
+    """Migrating legacy page files keeps the PDF and SyncTeX paired with rendered pages."""
+
     def test_migrate_copies_pdf_next_to_pages(self):
-        (ps.C.state / "pages").mkdir()
-        (ps.C.state / "pages" / "page-01.png").write_bytes(b"png")
-        ps.C.build.mkdir()
-        (ps.C.build / "main.pdf").write_bytes(b"%PDF-old")
-        (ps.C.build / "main.synctex.gz").write_bytes(b"syn-old")
-        limn_build.migrate_pages(ps.DOCS[0])
-        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]), ps.C.state / "pages" / "main.pdf")
-        (ps.C.build / "main.pdf").write_bytes(b"%PDF-new")  # even though the rebuild overwrites build/
+        """Migration copies the old PDF and SyncTeX once, preserving the pair after the build folder changes."""
+        (ps.APP.C.state / "pages").mkdir()
+        (ps.APP.C.state / "pages" / "page-01.png").write_bytes(b"png")
+        ps.APP.C.build.mkdir()
+        (ps.APP.C.build / "main.pdf").write_bytes(b"%PDF-old")
+        (ps.APP.C.build / "main.synctex.gz").write_bytes(b"syn-old")
+        limn_build.migrate_pages(ps.APP.docs[0])
+        self.assertEqual(limn_build.cur_pdf(ps.APP.docs[0]), ps.APP.C.state / "pages" / "main.pdf")
+        (ps.APP.C.build / "main.pdf").write_bytes(b"%PDF-new")  # even though the rebuild overwrites build/
         # pick reads the PDF paired with the screen
-        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
-        self.assertEqual((ps.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
-        limn_build.migrate_pages(ps.DOCS[0])  # calling it twice doesn't overwrite either
-        self.assertEqual(limn_build.cur_pdf(ps.DOCS[0]).read_bytes(), b"%PDF-old")
+        self.assertEqual(limn_build.cur_pdf(ps.APP.docs[0]).read_bytes(), b"%PDF-old")
+        self.assertEqual((ps.APP.C.state / "pages" / "main.synctex.gz").read_bytes(), b"syn-old")
+        limn_build.migrate_pages(ps.APP.docs[0])  # calling it twice doesn't overwrite either
+        self.assertEqual(limn_build.cur_pdf(ps.APP.docs[0]).read_bytes(), b"%PDF-old")
 
 
 # ---------------------------------------------------------------- async build (docs/handbook/build-sync.md §비동기 재빌드)
@@ -681,115 +771,142 @@ def ok_build(elapsed_s: float = 0.0) -> BuildOk:
 
 
 class AsyncBuild(Base):
+    """Asynchronous builds expose progress, serialize rebuilds, and publish only committed results."""
+
     def tearDown(self):
-        if ps.DOCS[0].lock.locked():
-            ps.DOCS[0].lock.release()
-        ps.DOCS[0].bstate.update(state="idle", phase=None, started_at=None, start_ts=None)
+        """Release a build lock left by a failed assertion before the shared fixture removes its state."""
+        if ps.APP.docs[0].lock.locked():
+            ps.APP.docs[0].lock.release()
+        ps.APP.docs[0].bstate.update(state="idle", phase=None, started_at=None, start_ts=None)
         super().tearDown()
 
     def test_async_returns_running_then_409_while_busy(self):
+        """The first background build reports running; a second request is busy until its worker releases the lock."""
         ev = threading.Event()
 
         def fake_build(D=None):
+            """Hold the worker until the test has observed its running state and busy response."""
             ev.wait(5)
             return ok_build(elapsed_s=0.01)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
-            r1 = ps.build_async(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+            r1 = ps.APP.build_async(ps.APP.docs[0])
             self.assertEqual(r1, BuildStarted())
-            self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "running")
-            r2 = ps.build_async(ps.DOCS[0])
+            self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "running")
+            r2 = ps.APP.build_async(ps.APP.docs[0])
             self.assertEqual(r2, BuildBusy())
             ev.set()
             for _ in range(200):
-                if not ps.DOCS[0].lock.locked():
+                if not ps.APP.docs[0].lock.locked():
                     break
                 time.sleep(0.02)
-        self.assertFalse(ps.DOCS[0].lock.locked())
-        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "ok")
+        self.assertFalse(ps.APP.docs[0].lock.locked())
+        self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "ok")
 
     def test_phase_copy_observed_before_build_runs(self):
+        """The tracked build publishes its copy phase before invoking the compiler and clears it afterward."""
         seen = []
 
         def fake_build(D=None):
-            seen.append(limn_build.state_snapshot(ps.DOCS[0])["phase"])
+            """Record the state visible inside the build step, then return a successful result."""
+            seen.append(limn_build.state_snapshot(ps.APP.docs[0])["phase"])
             return ok_build()
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+            ps.APP.build_all(ps.APP.docs[0])
         self.assertEqual(seen, ["copy"])
-        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["phase"], None)  # phase is cleared when it finishes
+        self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["phase"], None)  # phase is cleared when it finishes
 
     def test_ok_errors_state_surfaces_in_build_state(self):
+        """A build with LaTeX errors publishes ok_errors and keeps the error's source line."""
+
         def fake_build(D=None):
+            """Return a committed build carrying one LaTeX diagnostic."""
             return BuildOkWithErrors(
                 [{"line": 412, "msg": "Undefined control sequence"}], "boom", 1.2, None, 1.0, None, "-", "", 3
             )
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all(ps.DOCS[0])
-        st = limn_build.state_snapshot(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+            ps.APP.build_all(ps.APP.docs[0])
+        st = limn_build.state_snapshot(ps.APP.docs[0])
         self.assertEqual(st["state"], "ok_errors")
         self.assertEqual(st["errors"][0]["line"], 412)
 
     def test_ok_errors_commits_built_src_mtime(self):
+        """Published pages with LaTeX diagnostics still commit the manuscript mtime baseline."""
+
         def fake_build(D=None):
+            """Return an ok_errors result whose pages were published despite a diagnostic."""
             return BuildOkWithErrors([{"line": 1, "msg": "x"}], "", 0.0, None, 1.0, None, "-", "", 1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build):
-            ps.build_all(ps.DOCS[0])
-        self.assertIsNotNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build):
+            ps.APP.build_all(ps.APP.docs[0])
+        self.assertIsNotNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
     def test_failed_build_does_not_commit_built_src_mtime(self):
+        """A failed build preserves the last successful mtime baseline so the stale badge remains accurate."""
         # bug: built_src_mtime used to be written at build "start" and stayed even on failure — the screen
         # still showed the old PDF but the "manuscript modified" badge turned off. It should only be
         # committed on ok|ok_errors.
-        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))
 
         def fake_build_fail(D=None):
+            """Fail before publishing pages or a manuscript mtime baseline."""
             return BuildAborted("crashed", "boom")
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
-            ps.build_all(ps.DOCS[0])
-        self.assertIsNone(limn_build.read_built_src_mtime(ps.DOCS[0]))  # still None because it failed
-        self.assertEqual(limn_build.state_snapshot(ps.DOCS[0])["state"], "fail")
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
+            ps.APP.build_all(ps.APP.docs[0])
+        self.assertIsNone(limn_build.read_built_src_mtime(ps.APP.docs[0]))  # still None because it failed
+        self.assertEqual(limn_build.state_snapshot(ps.APP.docs[0])["state"], "fail")
 
         def fake_build_ok(D=None):
+            """Publish a successful build to establish a baseline for the later failure."""
             return ok_build(elapsed_s=0.1)
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build_ok):
-            ps.build_all(ps.DOCS[0])
-        first_ok = limn_build.read_built_src_mtime(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_ok):
+            ps.APP.build_all(ps.APP.docs[0])
+        first_ok = limn_build.read_built_src_mtime(ps.APP.docs[0])
         self.assertIsNotNone(first_ok)  # only committed once it succeeds
 
-        with mock.patch.object(ps, "_build", side_effect=fake_build_fail):
-            ps.build_all(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=fake_build_fail):
+            ps.APP.build_all(ps.APP.docs[0])
         # a subsequent failure doesn't touch the committed value
-        self.assertEqual(limn_build.read_built_src_mtime(ps.DOCS[0]), first_ok)
+        self.assertEqual(limn_build.read_built_src_mtime(ps.APP.docs[0]), first_ok)
 
     def test_async_worker_exception_ends_in_fail_not_stuck_running(self):
+        """An uncaught worker exception records failure and frees the lock instead of leaving running forever."""
         # bug: an exception in the async build worker used to leave BUILD_STATE stuck on running forever.
-        with mock.patch.object(ps, "_build", side_effect=RuntimeError("boom")):
-            r = ps.build_async(ps.DOCS[0])
+        with mock.patch.object(ps.APP, "_build", side_effect=RuntimeError("boom")):
+            r = ps.APP.build_async(ps.APP.docs[0])
             self.assertEqual(r, BuildStarted())
             for _ in range(200):
-                if not ps.DOCS[0].lock.locked():
+                if not ps.APP.docs[0].lock.locked():
                     break
                 time.sleep(0.02)
-        self.assertFalse(ps.DOCS[0].lock.locked())
-        st = limn_build.state_snapshot(ps.DOCS[0])
+        self.assertFalse(ps.APP.docs[0].lock.locked())
+        st = limn_build.state_snapshot(ps.APP.docs[0])
         self.assertEqual(st["state"], "fail")
         self.assertIn("boom", st.get("log_tail") or "")
 
-    def test_rebuild_async_endpoint_202_then_409(self):
-        ps.DOCS[0].lock.acquire()
+    def test_rebuild_async_endpoint_returns_409_while_busy(self):
+        """A rebuild request while the document lock is held receives HTTP 409."""
+        ps.APP.docs[0].lock.acquire()
         try:
             out = self.talk(req("POST", "/api/rebuild?async=1"))
             self.assertIn(b" 409 ", out)
         finally:
-            ps.DOCS[0].lock.release()
+            ps.APP.docs[0].lock.release()
+
+    def test_rebuild_async_endpoint_returns_202_when_started(self):
+        """The HTTP route returns 202 and a running body for a newly scheduled document build."""
+        with mock.patch.object(ps.APP, "rebuild_async", return_value=BuildStarted()) as start:
+            out = self.talk(req("POST", "/api/rebuild?async=1"))
+        start.assert_called_once_with(ps.APP.docs[0])
+        self.assertIn(b" 202 ", out.split(b"\r\n", 1)[0])
+        self.assertEqual(json.loads(out.split(b"\r\n\r\n", 1)[1]), {"state": "running"})
 
     def test_get_api_build_reports_known_state(self):
+        """The build endpoint returns a known state with phase and log fields for the progress viewer."""
         out = self.talk(req("GET", "/api/build"))
         self.assertIn(b" 200 ", out)
         data = json.loads(out.split(b"\r\n\r\n", 1)[1])
@@ -804,24 +921,25 @@ class AsyncBuild(Base):
         stop = threading.Event()
 
         def poll():
+            """Record distinct phases until the real build finishes or the test stops the observer."""
             while not stop.is_set():
-                ph = limn_build.state_snapshot(ps.DOCS[0])["phase"]
+                ph = limn_build.state_snapshot(ps.APP.docs[0])["phase"]
                 if ph and (not seen or seen[-1] != ph):
                     seen.append(ph)
                 time.sleep(0.01)
 
         t = threading.Thread(target=poll, daemon=True)
         t.start()
-        res = ps.build_all(ps.DOCS[0])
+        res = ps.APP.build_all(ps.APP.docs[0])
         stop.set()
         t.join(2)
         self.assertIsInstance(res, BuildOk)
         self.assertIn("latex", seen)
         self.assertIn("render", seen)
-        self.assertTrue(limn_build.cur_pdf(ps.DOCS[0]).exists())
-        aux = limn_build.cur_pages(ps.DOCS[0]) / "main.aux"
+        self.assertTrue(limn_build.cur_pdf(ps.APP.docs[0]).exists())
+        aux = limn_build.cur_pages(ps.APP.docs[0]) / "main.aux"
         self.assertTrue(aux.is_file(), "successful build must publish its matching .aux with PDF pages")
-        labels = limn_meta.outline_labels(ps.DOCS[0])
+        labels = limn_meta.outline_labels(ps.APP.docs[0])
         self.assertEqual(labels["build"], res.build)
         self.assertEqual(
             [(row["number"], row["title"]) for row in labels["labels"][:2]], [("1", "Intro"), ("1.1", "Next")]

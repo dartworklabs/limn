@@ -73,6 +73,15 @@ class PinFiles:
         return self.state / "pins.seq"
 
 
+@dataclass(frozen=True)
+class PreparedPinWrite:
+    """The complete live JSONL and Markdown replacement, rendered before either file changes."""
+
+    jsonl: str
+    md: str
+    bad: tuple[int, ...]
+
+
 def dump_jsonl(rows: Iterable[Row]) -> str:
     """rows as the stored text: one compact JSON object per line (non-ASCII kept), each ending in a newline."""
     return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
@@ -171,28 +180,44 @@ class PinStore:
         pins.md is rendered in memory first: if rendering fails nothing is written - committing pins.jsonl and then
         answering 500 would make the client retry and create a duplicate pin. With bad (pins.jsonl had unreadable
         lines) the original file is kept as a .corrupt-*.bak before it is replaced."""
-        md = self.render(pins)
-        data = dump_jsonl(pin.record for pin in pins)
-        if bad:
-            self._keep_corrupt(self.files.pins_jsonl)
-        atomic_write(self.files.pins_jsonl, data)
-        atomic_write(self.files.pins_md, md)
+        self.write_prepared(self.prepare_pins(pins, bad))
 
-    def transact(self, fn: Callable[[list[Pin]], tuple[T, bool]]) -> tuple[list[Pin], T]:
-        """The write-order invariant: with the lock -> read -> sync -> fn applies the change -> write_pins.
+    def prepare_pins(self, pins: Sequence[Pin], bad: Sequence[int] | None = None) -> PreparedPinWrite:
+        """Render and serialize a complete live replacement without touching disk; callers hold the store lock."""
+        md = self.render(pins)
+        return PreparedPinWrite(dump_jsonl(pin.record for pin in pins), md, tuple(bad or ()))
+
+    def write_prepared(self, prepared: PreparedPinWrite) -> None:
+        """Commit prepared live bytes in JSONL then Markdown order, backing up unreadable original lines first.
+
+        Callers hold the store lock and must not change the pins between preparation and this write."""
+        if prepared.bad:
+            self._keep_corrupt(self.files.pins_jsonl)
+        atomic_write(self.files.pins_jsonl, prepared.jsonl)
+        atomic_write(self.files.pins_md, prepared.md)
+
+    def transact(
+        self, fn: Callable[[list[Pin]], tuple[T, bool]], before_write: Callable[[T], None] | None = None
+    ) -> tuple[list[Pin], T]:
+        """The write-order invariant: with the lock -> read -> sync -> fn applies the change -> prepare -> commit.
 
         fn(pins) changes the list in place - appends a pin, removes one, or replaces one with its next state - only
         after its own checks pass, and returns (result, whether it changed the pins): a refused request is a result
         with nothing changed, never an exception. The change is applied after sync, so a caller-supplied lo/hi is
         never reverted by a stale anchor. The file is written when sync or fn changed the pins - a read-only step
         still writes a re-sync. If fn raises (a defect or an infrastructure failure), nothing is written, not even
-        the re-sync, and the exception propagates. Returns (the pins as written or read, fn's result)."""
+        the re-sync, and the exception propagates. An optional before_write step runs only after both replacement
+        texts are prepared and before the live replacement, for the Trash-first drop. Returns (the pins as written or
+        read, fn's result)."""
         with self.lock:
             pins, bad = self.read_pins()
             synced = self.sync(pins)
             result, mutated = fn(pins)
             if synced or mutated:
-                self.write_pins(pins, bad)
+                prepared = self.prepare_pins(pins, bad)
+                if before_write is not None:
+                    before_write(result)
+                self.write_prepared(prepared)
             return pins, result
 
     def snapshot(self) -> list[Pin]:
@@ -204,17 +229,23 @@ class PinStore:
         """Rewrites pins.md from pins alone (startup, clear). Callers hold the lock."""
         atomic_write(self.files.pins_md, self.render(pins))
 
-    def clear(self) -> tuple[int, str | None]:
+    def clear(self, before_archive: Callable[[Sequence[Pin]], None] | None = None) -> tuple[int, str | None]:
         """Archives pins.jsonl to pins_<local time>.jsonl.bak (never over an earlier archive) and renders an empty
-        pins.md, under the lock. pins.seq is untouched, so ids keep incrementing. Returns (how many readable pins
-        there were, the archive's file name or None when there was no pins.jsonl)."""
+        pins.md, under the lock. Rendering happens before the archive move, so a renderer error leaves the live file
+        in place. An optional before_archive step receives the live snapshot after rendering, for clearing its Trash
+        shadows; its failure also leaves the live file in place. pins.seq is untouched, so ids keep incrementing.
+        Returns (how many readable pins there were, the archive's file name or None without pins.jsonl)."""
         with self.lock:
-            n, archive = len(self.read_pins()[0]), None
+            pins, _ = self.read_pins()
+            n, archive = len(pins), None
+            md = self.render([])
+            if before_archive is not None:
+                before_archive(pins)
             if self.files.pins_jsonl.exists():
                 dest = self.unique_path("pins_%s" % time.strftime("%y%m%d_%H%M%S"), ".jsonl.bak")
                 self.files.pins_jsonl.rename(dest)
                 archive = dest.name
-            self.render_md([])
+            atomic_write(self.files.pins_md, md)
         return n, archive
 
     def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:

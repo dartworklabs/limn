@@ -769,11 +769,13 @@ class EditAddParsing(Base):
     def test_parse_add_checks_the_location_first(self):
         """A bad location is reported before a bad note; a valid body carries the place and the fields it named."""
         self.assertEqual(
-            parse.parse_add({"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.document_facts(ps.DOCS[0])),
+            parse.parse_add(
+                {"file": str(self.main), "lo": 4, "hi": 99, "note": 3}, (), ps.APP.document_facts(ps.APP.docs[0])
+            ),
             InputRejected("줄 범위가 파일(20줄) 밖입니다: L4-L99", "range_outside_file"),
         )
         request = parse.parse_add(
-            {"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.document_facts(ps.DOCS[0])
+            {"file": "main.tex", "lo": 4, "hi": 5, "note": "n", "extra": 1}, (), ps.APP.document_facts(ps.APP.docs[0])
         )
         self.assertEqual(
             (request.place.fields["file"], request.place.fields["page"], request.note, request.hints),
@@ -788,7 +790,7 @@ class EditAddParsing(Base):
         self.assertEqual((code, json.loads(body)["error"], json.loads(body)["pin"]["id"]), (409, "conflict", pid))
         code, _, body = split_resp(self.talk(jreq("POST", "/api/pins/999/edit", {"note": "x", "base_rev": 0})))
         self.assertEqual((code, json.loads(body)), (404, {"error": "핀 #999 이 없습니다.", "reason": "pin_not_found"}))
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         code, _, body = split_resp(
             self.talk(jreq("POST", "/api/pins/%d/edit" % pid, {"lo": 4, "hi": 6, "base_rev": 1}))
         )

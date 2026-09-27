@@ -2,7 +2,7 @@
 
 Every route's statuses, headers and bodies are pinned end to end through the handler in test_server.py, test_access.py
 and the feature files. Here: the binding contract (server.py provides everything limn.web.app.App names, and the
-handler sees a name rebound on the server module), the import direction (limn.web never imports server.py), the
+handler sees a service replaced on its bound application), the import direction (limn.web never imports server.py), the
 package name (server.py still runs as a file), the handler's shape read from its source (no route reads the body or
 query itself; it raises only its own transport refusals), the order of the guard checks on every route, and the answers
 and error pages as plain functions.
@@ -54,8 +54,7 @@ def show(record):
 
 
 class Binding(Base):
-    """server.Handler is limn.web.handler.Handler bound to the live globals of its own server module - checked on a
-    configured copy (Base), since start() binds the run settings C before the server listens."""
+    """server.Handler is limn.web.handler.Handler bound to its server copy's explicit application."""
 
     def test_server_module_provides_every_app_member(self):
         """A service the handler calls through App but server.py no longer defines would fail only when a request
@@ -69,15 +68,28 @@ class Binding(Base):
         ]
         self.assertEqual(not_callable, [])
 
-    def test_handler_sees_a_name_rebound_on_the_server_module(self):
-        """start() binds the run's resources (RT, with the served viewer) and tests patch services on their copy of
-        server.py; the handler must call what the module holds now, not what it held at import."""
-        with mock.patch.object(ps, "build_async", return_value={"sentinel": 1}) as fake:
+    def test_handler_sees_a_service_rebound_on_its_application(self):
+        """The handler calls the application's current service and viewer after either is replaced."""
+        original = ps.APP.build_async
+        with mock.patch.object(ps.APP, "build_async", return_value={"sentinel": 1}) as fake:
             self.assertIs(ps.Handler.app.build_async, fake)
-        self.assertIs(ps.Handler.app.build_async, ps.build_async)
+        self.assertEqual(ps.Handler.app.build_async, original)
         rebound = ps.new_runtime(ServedViewer("<p>rebound</p>", "", {}))
-        with mock.patch.object(ps, "RT", rebound):
+        with mock.patch.object(ps.APP, "RT", rebound):
             self.assertEqual(ps.Handler.app.viewer().page, "<p>rebound</p>")
+
+    def test_handler_subclasses_can_use_distinct_app_collaborators(self):
+        """Two handlers can serve separate app views without rebinding the server module or each other's app."""
+        pages = []
+        for label in ("First", "Second"):
+            app = mock.Mock(wraps=ps.Handler.app)
+            app.viewer.return_value = ServedViewer(f"<p>{label}</p>", "", {})
+            handler = type(f"{label}Handler", (ps.Handler,), {"app": app})
+            pages.append(talk_to(types.SimpleNamespace(Handler=handler), b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
+
+        self.assertEqual([reply.split(b"\r\n\r\n", 1)[1] for reply in pages], [b"<p>First</p>", b"<p>Second</p>"])
+        self.assertNotEqual(ps.Handler.app.viewer().page, "<p>First</p>")
+        self.assertNotEqual(ps.Handler.app.viewer().page, "<p>Second</p>")
 
     def test_an_unknown_name_is_an_attribute_error(self):
         """The view answers like a module: a missing global is AttributeError, not KeyError."""
@@ -91,7 +103,7 @@ class Binding(Base):
         self.assertFalse(hasattr(ps, "InputRejected"))
 
     def test_file_loaded_server_copies_keep_their_own_run(self):
-        """Two server.py copies serve their own page, settings and document after one copy is rebound."""
+        """Two path-loaded server copies isolate settings, documents and a handler app replacement."""
 
         def load_copy(name):
             """Load server.py as instances and test tools do, without registering it in sys.modules."""
@@ -105,9 +117,10 @@ class Binding(Base):
         with mock.patch.object(sys, "path", sys.path.copy()):
             first, second = load_copy("limn_server_first"), load_copy("limn_server_second")
         for mod, label in ((first, "First"), (second, "Second")):
-            mod.C = run_config(self.src, self.main, self.src.parent / label, label=label)
-            mod.RT = mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {}))
-            mod.set_docs([mod.Doc(label.lower(), label, legacy=True, paths=mod.C.paths)])
+            config = run_config(self.src, self.main, self.src.parent / label, label=label)
+            mod.APP = mod.ServerApplication(config, mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {})))
+            mod.Handler.app = mod.APP
+            mod.APP.set_docs([mod.Doc(label.lower(), label, legacy=True, paths=config.paths)])
 
         def get(mod, path):
             """One successful GET body from this copy's actual HTTP handler."""
@@ -127,20 +140,28 @@ class Binding(Base):
         self.assertEqual(docs(second), ("second", "Second"))
         self.assertEqual(first.Handler.app.C.label, "First")
         self.assertEqual(second.Handler.app.C.label, "Second")
-        self.assertIs(first.Handler.app.request_doc(None), first.DOCS[0])
-        self.assertIs(second.Handler.app.request_doc(None), second.DOCS[0])
-        self.assertIsNot(first.DOCS, second.DOCS)
-        self.assertIsNot(first.RT.pin_lock, second.RT.pin_lock)
+        self.assertIs(first.Handler.app.request_doc(None), first.APP.docs[0])
+        self.assertIs(second.Handler.app.request_doc(None), second.APP.docs[0])
+        self.assertIsNot(first.APP.docs, second.APP.docs)
+        self.assertIsNot(first.APP.RT.pin_lock, second.APP.RT.pin_lock)
 
-        first.C = run_config(self.src, self.main, self.src.parent / "Restarted", label="Restarted")
-        first.RT = first.new_runtime(ServedViewer("<p>Restarted</p>", "", {}))
-        first.set_docs([first.Doc("restarted", "Restarted", legacy=True, paths=first.C.paths)])
+        config = run_config(self.src, self.main, self.src.parent / "Restarted", label="Restarted")
+        first.APP = first.ServerApplication(config, first.new_runtime(ServedViewer("<p>Restarted</p>", "", {})))
+        first.Handler.app = first.APP
+        first.APP.set_docs([first.Doc("restarted", "Restarted", legacy=True, paths=config.paths)])
         self.assertEqual(get(first, "/"), b"<p>Restarted</p>")
         self.assertEqual(get(second, "/"), b"<p>Second</p>")
         self.assertEqual(docs(first), ("restarted", "Restarted"))
         self.assertEqual(docs(second), ("second", "Second"))
         self.assertEqual(second.Handler.app.C.label, "Second")
-        self.assertIs(second.Handler.app.request_doc(None), second.DOCS[0])
+        self.assertIs(second.Handler.app.request_doc(None), second.APP.docs[0])
+
+        replacement = mock.Mock(wraps=first.Handler.app)
+        replacement.viewer.return_value = ServedViewer("<p>Replacement</p>", "", {})
+        with mock.patch.object(first.Handler, "app", replacement):
+            self.assertEqual(get(first, "/"), b"<p>Replacement</p>")
+            self.assertEqual(get(second, "/"), b"<p>Second</p>")
+        self.assertEqual(get(first, "/"), b"<p>Restarted</p>")
 
 
 class ImportDirection(unittest.TestCase):
@@ -315,7 +336,7 @@ class GuardOrder(AccessBase):
     def test_a_refused_request_reaches_no_route(self):
         """Each refusal on each route stops where it is raised: an oversized body before any member is read, a
         foreign Host after host_ok, an unidentified tailnet peer at identify, a viewer's change at check_role."""
-        member_add(ps.C.state, "carol@example.com", "viewer")
+        member_add(ps.APP.C.state, "carol@example.com", "viewer")
         carol = {"Tailscale-User-Login": "carol@example.com", "Tailscale-User-Name": "Carol Lee"}
         for method, path in self.routes():
             with self.subTest(method=method, path=path):

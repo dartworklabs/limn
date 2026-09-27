@@ -86,7 +86,7 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 
 def audit_rows(state=None):
     """Every line of <state>/audit.jsonl, parsed ([] if the file does not exist)."""
-    p = Path(state or ps.C.state) / "audit.jsonl"
+    p = Path(state or ps.APP.C.state) / "audit.jsonl"
     if not p.exists():
         return []
     return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines()]
@@ -112,14 +112,14 @@ class AuditLogServer(AccessBase):
         """Issue #10 L5: after EVENTS_KEEP + 1 other events the `cleared` record is gone from events.jsonl but kept in audit.jsonl."""
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual(code, 200, d)
-        self.assertEqual(ps._read_events()[0][-1]["type"], "cleared")  # still written for compatibility
-        ps.emit_events(
+        self.assertEqual(ps.APP._read_events()[0][-1]["type"], "cleared")  # still written for compatibility
+        ps.APP.emit_events(
             [
                 {"type": "mention", "pin": 1, "to": [B_LOGIN], "by": {"login": A_LOGIN, "name": "Alice Kim"}}
                 for _ in range(EVENTS_KEEP + 1)
             ]
         )
-        self.assertNotIn("cleared", {e["type"] for e in ps._read_events()[0]})
+        self.assertNotIn("cleared", {e["type"] for e in ps.APP._read_events()[0]})
         rows = audit_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual(set(rows[0]), {"at", "ts", "action", "by", "via", "details"})
@@ -132,7 +132,7 @@ class AuditLogServer(AccessBase):
 
     def test_purge_is_audited(self):
         """The owner's permanent delete from the Trash leaves an audit line naming the pin."""
-        ps.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.drop_pin(1, dict(LOCAL_ACTOR))
         code, d = self.call("POST", "/api/pins/1/purge", None, ALICE)
         self.assertEqual(code, 200, d)
         self.assertEqual(
@@ -143,11 +143,11 @@ class AuditLogServer(AccessBase):
         """Nothing that did not happen is audited: a clear without the phrase, a non-owner's clear or purge, a missing pin."""
         self.assertEqual(self.call("POST", "/api/clear", {"confirm": "yes"}, ALICE)[0], 400)
         self.assertEqual(self.call("POST", "/api/clear", CLEAR_BODY, BOB)[0], 403)
-        ps.drop_pin(1, dict(LOCAL_ACTOR))
+        ps.APP.drop_pin(1, dict(LOCAL_ACTOR))
         self.assertEqual(self.call("POST", "/api/pins/1/purge", None, BOB)[0], 403)
         self.assertEqual(self.call("POST", "/api/pins/99/purge", None, ALICE)[0], 404)
         self.assertEqual(audit_rows(), [])
-        self.assertFalse((ps.C.state / "audit.jsonl").exists())
+        self.assertFalse((ps.APP.C.state / "audit.jsonl").exists())
 
     def test_audit_file_is_private_even_with_an_open_umask(self):
         """audit.jsonl is created with mode 0600 whatever the umask, and a wider pre-existing file is narrowed."""
@@ -156,7 +156,7 @@ class AuditLogServer(AccessBase):
             self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         finally:
             os.umask(old)
-        p = ps.C.state / "audit.jsonl"
+        p = ps.APP.C.state / "audit.jsonl"
         self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600)
         os.chmod(p, 0o644)
         self.add()
@@ -165,7 +165,7 @@ class AuditLogServer(AccessBase):
 
     def test_lines_are_only_ever_appended(self):
         """Earlier bytes are never rewritten - not even a line the server cannot parse."""
-        p = ps.C.state / "audit.jsonl"
+        p = ps.APP.C.state / "audit.jsonl"
         p.write_text("not json, kept as is\n", encoding="utf-8")
         os.chmod(p, 0o600)
         self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
@@ -181,17 +181,17 @@ class AuditLogServer(AccessBase):
         """An audit.jsonl that is a symlink (to a file elsewhere) is refused: nothing is written through it, only a warning."""
         target = Path(self.tmp.name) / "elsewhere.jsonl"
         target.write_text("", encoding="utf-8")
-        (ps.C.state / "audit.jsonl").symlink_to(target)
+        (ps.APP.C.state / "audit.jsonl").symlink_to(target)
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual((code, d.get("cleared")), (200, 2), d)
         self.assertEqual(target.read_text(encoding="utf-8"), "")
 
     def test_a_failing_audit_write_warns_but_the_clear_still_happens(self):
         """The action has already been applied when the audit line is written; a write failure is a warning, not a 500."""
-        (ps.C.state / "audit.jsonl").mkdir()  # cannot be opened for writing
+        (ps.APP.C.state / "audit.jsonl").mkdir()  # cannot be opened for writing
         code, d = self.call("POST", "/api/clear", CLEAR_BODY, ALICE)
         self.assertEqual((code, d.get("cleared")), (200, 2), d)
-        self.assertEqual(ps.snapshot_pins(), [])
+        self.assertEqual(ps.APP.snapshot_pins(), [])
 
     def test_concurrent_appends_keep_every_line_whole(self):
         """Writers in several threads (the server) never interleave or lose lines."""
@@ -199,7 +199,7 @@ class AuditLogServer(AccessBase):
 
         def write(k):
             for i in range(25):
-                append_audit(ps.C.state, audit_entry("purged", by, "http", {"pin": k * 100 + i}, time.time()))
+                append_audit(ps.APP.C.state, audit_entry("purged", by, "http", {"pin": k * 100 + i}, time.time()))
 
         ts = [threading.Thread(target=write, args=(k,)) for k in range(4)]
         for t in ts:

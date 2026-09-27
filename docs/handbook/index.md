@@ -38,12 +38,12 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 조립 지점: 실행 설정 `C`와 문서 목록 `DOCS`, 프로세스에 하나인 자원을 모은 런타임 `Runtime`(`RT`: 핀 잠금, `tokens.json`·`people.json` 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 내보내는 뷰어, 감시 스레드와 `stop()`), 옮긴 모듈에 이 인스턴스의 설정과 협력자를 묶는 한 줄 연결(`pin_store`·`pin_context`·`pins_md_input`·`pins_payload`·`access_settings`·`access_lookups`·`build_config`·`repo_pull`·`revision_context` 등), 처리기를 서비스에 묶는 `_ModuleApp`(목록은 `web/app.py`의 `App`), 시작 단계(`main()` → `start()`: `limn/startup.py`의 답으로 `C`를 만들고 `new_runtime()`으로 `RT`를 만들어 묶고 감시 스레드를 시작한다) | 시작 단계의 순서, 연결이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
+| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
 | `src/limn/service/*` | 핀 서비스(가장자리 셸): 추가·편집(`add_edit.py`), 답글·닫기·다시 열기·확인(`transitions.py`), 처리 중 표시(`claim.py`), 휴지통·영구 삭제·clear(`trash.py`). 잠금 아래 읽고 `limn.pins` 규칙에 묻고 받아들일 때만 쓴 뒤 알림·감사를 남긴다. 협력자는 `PinContext`(`context.py`)로 받는다 | 핀 조작의 쓰기·알림·감사 순서 변경, 서비스가 받는 협력자 변경 | domain.md, api.md, architecture.md 불변식 4 |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
 | `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 저장소가 믿는 레코드 모양 검사(`record.py`), 옮겨진 전이와 `pins.md`의 다시 열림 판단(`lifecycle.py`), 편집 판단과 새 핀 레코드, 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), JSON 정수·숫자 판정(`shapes.py`), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지), API가 레코드를 보이는 모양과 계산 필드(`view.py`: `public_record`·`state`·`GET /api/pins`·휴지통 본문) | 저장 레코드 필드 추가(`record.py`의 검사도 함께), 상태·전이·거절 규칙, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
 | `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
-| `src/limn/mapping.py` | 위치 계산의 순수한 절반: 범위 사다리, 블록 확장, 점수, anchor 찾기, 한 줄 줄이기(`flat`: `pins.md`와 알림 `excerpt`), 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
+| `src/limn/mapping.py` | 위치 계산의 순수한 절반: SyncTeX 표본에서 파일·줄 범위 선택(`synctex_range`), 범위 사다리, 블록 확장, 점수, anchor 찾기, 한 줄 줄이기(`flat`: `pins.md`와 알림 `excerpt`), 핀 파일 찾기(`pin_rel_path`) | 점수·단계·anchor·핀 파일 위치 규칙 변경 | domain.md, api.md §핀 파일의 위치 |
 | `src/limn/locate.py` | 핀 위치의 부수효과 쪽: SyncTeX·pdftotext 호출, `.tex` 읽기, 토큰 가중치 캐시, 핀 파일 찾기(`pin_location`), 저장된 핀 재동기화(`sync_all`), 지금 찾은 파일로 센 겹침(`overlaps_by_id`·`overlaps_for_range`·`overlaps_api`), 빌드 이력 읽기(`est_context`), 선택 해석(`pick`). 문서와 설정을 인자로 받는다 | 역변환 경로·재동기화·핀 파일 위치 변경 | domain.md, build-sync.md, api.md §핀 파일의 위치 |
 | `src/limn/build.py` | 빌드: 원고 복사, latexmk, pdftoppm, 쪽 디렉토리와 쪽 목록, 빌드 결과 값(`BuildOk`·`FailedBuild` 등)과 빌드 상태 이름(`BuildState`), 빌드 상태, 빌드 이력, 원고 지문과 `src_mtime`, 보기 전용 PDF 다시 그리기. 문서와 설정을 인자로 받는다 | 빌드 단계·상태·이력·지문 규칙 변경 | build-sync.md, architecture.md |
 | `src/limn/gitsync.py` | `--git-pull`과 원격 main 감시의 셸: git 호출 순서(`pull`, 결과는 값), 여러 문서의 pull 나눠 쓰기(`PullShare`·`repo_pull`), 감시 한 바퀴·상태·루프(`SyncWatch`). 설정·문서·git 실행기·시계를 인자로 받는다 | pull 단계·감시 주기·나눠 쓰기 변경 | build-sync.md §재빌드 전 원격 main 당겨오기 (`--git-pull`) |
@@ -89,6 +89,7 @@ catalog_schema: 1
 | [ADR-0005](../adr/0005-pin-scoped-changes.md) | 핀 단위 [변경 보기]: 닫을 때의 `changes`와 `PR #번호 (커밋 해시)`, 서버 추정(겹침만), 핀의 hunk만 담은 소스 diff·비교 PDF | 확정·구현 (0.3.0) |
 | [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2), 후속 읽기 규칙 (0.3.4, 이슈 #24) |
 | [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
+| [ADR-0008](../adr/0008-trash-live-reconciliation.md) | 휴지통과 살아 있는 핀의 두 파일 쓰기가 중단되면 살아 있는 핀을 우선하고 그림자 사본을 정리한다 | 확정·구현 (2026-09-27) |
 
 ## 알려진 공백
 

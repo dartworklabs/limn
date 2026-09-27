@@ -70,7 +70,7 @@ class ContractSnapshot(AccessBase):
         time.tzset()
         self.addCleanup(self.restore_zone, zone)
         for patcher in (
-            mock.patch.object(ps, "now_str", return_value="2026-09-26 10:00:00"),
+            mock.patch.object(ps.APP, "now_str", return_value="2026-09-26 10:00:00"),
             mock.patch("time.time", return_value=T0),
             mock.patch("time.strftime", frozen_strftime),
             mock.patch.object(ps, "datetime", FrozenDateTime),
@@ -104,8 +104,8 @@ class ContractSnapshot(AccessBase):
         code, data = self.call(method, path, body, headers)
         rendered = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, sort_keys=False)
         self.seen.append({"step": name, "status": code, "body": self.text(rendered)})
-        if method == "POST" and ps.C.pins_md.exists():
-            self.seen.append({"step": name + " -> pins.md", "body": self.text(ps.C.pins_md.read_bytes())})
+        if method == "POST" and ps.APP.C.pins_md.exists():
+            self.seen.append({"step": name + " -> pins.md", "body": self.text(ps.APP.C.pins_md.read_bytes())})
         return data
 
     def test_the_pin_flow_answers_as_recorded(self):

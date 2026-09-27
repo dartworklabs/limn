@@ -42,7 +42,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[],reads=[],toasts=[];
                 let firstTrash;
                 function api(url){
@@ -86,7 +86,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("loadPins"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
                 const SEC_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
                 function api(url){
@@ -137,8 +137,8 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
-                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',LAST_BUILD_SEQ=0,BUILD_TIMER=null,POLL_FAILS=0;
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};
                 let pinReads=0,firstTrash;
@@ -186,8 +186,8 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
-                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',LAST_BUILD_SEQ=0,BUILD_TIMER=null,POLL_FAILS=0;
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let LAST_PINS_REV='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SEC_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};let pinReads=0,trashReads=0;
                 function api(url){
@@ -241,8 +241,8 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
-                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
-                let LAST_PINS_REV=null,LAST_SRC_MTIME=null,LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
+                let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const EDITOR={current:null,saving:false};
+                let LAST_PINS_REV=null,LAST_SRC_MTIME=null,POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
                 const SEC_SEEN={open:null,review:null,done:null},MQ_COARSE={matches:false};
                 const document={hidden:false};
@@ -300,7 +300,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
-                let LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
+                let POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),MQ_COARSE={matches:false};
                 const document={hidden:false}; let pinReads=0;
                 function api(url){return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',
@@ -333,18 +333,20 @@ class PinListLoading(unittest.TestCase):
             [
                 extract_js_fn("switchDoc"),
                 extract_js_fn("showDoc"),
+                extract_js_fn("resetBuildForDoc"),
                 """
-                let DOC='a',META={build_seq:1},SWITCHSEQ=0,CUR=null,EDIT=null;
+                let DOC='a',META={build_seq:1},SWITCHSEQ=0,COMPOSE={current:null}; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]];
                 let DONE_ALL=[{id:3,doc:'a'},{id:4,doc:'b'}],DONE=[DONE_ALL[0]];
-                let BUILD_TIMER=null,LAST_BUILD_SEQ=null,LAST_BUILD_ERR=null,BUILD_BOOTED=false,BUILD_INFLIGHT=null;
+                const BUILD={timer:null,lastSeq:null,error:null,booted:false,inflight:null};
                 const BUILD_ERR_BY=new Map(),META_BY=new Map([['b',{build_seq:2}]]),VIEW_BY=new Map();
                 const drawn=[],nodes=new Map();
                 const document={body:{classList:{contains:()=>false}}};
                 function $(sel){if(!nodes.has(sel))nodes.set(sel,{hidden:true,textContent:'',disabled:false}); return nodes.get(sel);}
                 function docInfo(k){return k==='b'?{key:'b'}:null;}
                 function pdoc(p){return p.doc||'a';}
-                function saveView(){} function cancelRepick(){} function savePrefs(){} function setHash(){}
+                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function cancelRepick(){} function savePrefs(){} function setHash(){}
                 function hideTip(){} function drawMeta(){} function buildDoc(){} function autoW(){}
                 function restoreView(){} function applyViewWidth(){return false;}
                 function drawPins(){drawn.push(DONE.map(p=>p.id));}
@@ -394,13 +396,14 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("switchDoc"),
                 extract_js_fn("refreshDoc"),
                 """
-                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},CUR=null,EDIT=null;
+                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},COMPOSE={current:null}; const EDITOR={current:null,saving:false};
                 const META_BY=new Map([['b',{pages:[{id:'old'}],pages_build:'v1'}]]);
                 const VIEW_BY=new Map(),requests=[];
                 const document={body:{classList:{contains:()=>false}}};
                 function $(sel){return {hidden:true};}
                 function docInfo(k){return k==='b'?{key:k}:null;}
-                function saveView(){} function cancelRepick(){} function savePrefs(){} function setHash(){}
+                function saveView(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
+                function cancelRepick(){} function savePrefs(){} function setHash(){}
                 function hideTip(){} function showDoc(){} function drawMeta(){}
                 function topAnchor(){return null;} function restoreAnchor(){}
                 function vecReleaseAll(){} function $$(){return [];}
@@ -429,7 +432,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
-                let POLL_FAILS=0,LAST_BUILD_SEQ=0,BUILD_TIMER=null;
+                let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const document={hidden:false},seen=[];
                 let resolveMeta;
                 function dq(u){return u;} function notifyQuery(){return '';}
@@ -463,7 +466,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 extract_js_fn("pollLightOnce"),
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REV='old',LAST_SRC_MTIME='old-src';
-                let POLL_FAILS=0,LAST_BUILD_SEQ=0,BUILD_TIMER=null;
+                let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const document={hidden:false},seen=[];
                 let resolvePins;
                 function dq(u){return u;} function notifyQuery(){return '';}
@@ -492,7 +495,7 @@ class ViewerPollingVisits(unittest.TestCase):
             [
                 extract_js_fn("pollBuildOnce"),
                 """
-                let DOC='b',SWITCHSEQ=1,BUILD_TIMER=null,BUILD_BOOTED=false,LAST_BUILD_SEQ=3;
+                let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:false,lastSeq:3};
                 const seen=[],DOC_SEQ=new Map(),document={hidden:false};
                 let resolveBuild;
                 function dq(u){return u;}
@@ -506,7 +509,7 @@ class ViewerPollingVisits(unittest.TestCase):
                   DOC='b'; SWITCHSEQ++;
                   resolveBuild({data:{state:'fail',seq:3}});
                   await old;
-                  console.log(JSON.stringify({seen,booted:BUILD_BOOTED}));
+                  console.log(JSON.stringify({seen,booted:BUILD.booted}));
                 })();
                 """,
             ]
@@ -519,8 +522,8 @@ class ViewerPollingVisits(unittest.TestCase):
             [
                 extract_js_fn("pollBuildOnce"),
                 """
-                let DOC='b',SWITCHSEQ=1,BUILD_TIMER=null,BUILD_BOOTED=true,LAST_BUILD_SEQ=3;
-                let LAST_BUILD_ERR=null;
+                let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:true,lastSeq:3};
+                BUILD.error=null;
                 const seen=[],DOC_SEQ=new Map(),BUILD_ERR_BY=new Map(),META={pages:[1]};
                 let resolveRefresh;
                 function dq(u){return u;}

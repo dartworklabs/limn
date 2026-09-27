@@ -37,12 +37,12 @@ class PrincipalMatrix(AccessBase):
         code, d = self.call("POST", "/api/pins/%d/close" % pid, None, **kw)
         out["close"] = code if code != 200 else d["state"]
         pid = self.add()
-        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
+        ps.APP.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         out["confirm"] = self.call("POST", "/api/pins/%d/confirm" % pid, None, **kw)[0]
-        before = len(ps.snapshot_pins())
+        before = len(ps.APP.snapshot_pins())
         out["clear"] = self.call("POST", "/api/clear", CLEAR_BODY, **kw)[0]
         if out["clear"] != 200:
-            self.assertEqual(len(ps.snapshot_pins()), before)
+            self.assertEqual(len(ps.APP.snapshot_pins()), before)
         return out
 
     def expect(self, got, **want):
@@ -93,7 +93,7 @@ class PrincipalMatrix(AccessBase):
         self.assertEqual(
             self.call("GET", "/pins.md", headers=dict(BOB, Host=TS_HOST, **{"X-Forwarded-For": "100.64.0.9"}))[0], 200
         )
-        _, tok = token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.APP.C.state, "ci")
         self.assertEqual(
             self.call("GET", "/pins.md", token=tok, headers={"Host": "localhost", "X-Forwarded-For": "100.64.0.9"})[0],
             200,
@@ -121,7 +121,7 @@ class PrincipalMatrix(AccessBase):
         self.assertEqual(self.call("GET", "/pins.md", headers={"Host": TS_HOST})[0], 403)
 
     def test_bearer_token_over_loopback_and_tailnet(self):
-        _, tok = token_create(ps.C.state, "ci")
+        _, tok = token_create(ps.APP.C.state, "ci")
         self.expect(self.run_ops(token=tok), **self.AGENT)
         self.expect(self.run_ops(token=tok, headers={"Host": TS_HOST}), **self.AGENT)
 
@@ -167,35 +167,35 @@ class ProxyHardening(AccessBase):
             code, d = self.call("POST", "/api/clear", {"confirm": "clear all pins"}, h)
             self.assertEqual(code, 403, (h, d))
             self.assertEqual(self.call("GET", "/api/meta?light=1", headers=h)[0], 403, h)
-        self.assertEqual(len(ps.snapshot_pins()), 1)
+        self.assertEqual(len(ps.APP.snapshot_pins()), 1)
         code, d = self.call("GET", "/api/meta?light=1")  # the owner at the keyboard
         self.assertEqual((code, d["me"]["role"]), (200, "owner"))
-        _, tok = token_create(ps.C.state, "ci")  # tokens still work through a proxy
+        _, tok = token_create(ps.APP.C.state, "ci")  # tokens still work through a proxy
         self.assertEqual(
             self.call("GET", "/pins.md", token=tok, headers={"Host": TS_HOST, "X-Forwarded-For": "1.2.3.4"})[0], 200
         )
 
     def test_people_json_is_written_0600(self):
-        ps.RT.people_seen.clear()
-        ps.record_person({"login": "bob@example.com", "name": "Bob"})
-        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
-        os.chmod(ps.C.people_file, 0o644)
-        member_add(ps.C.state, "carol@example.com")
-        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
+        ps.APP.RT.people_seen.clear()
+        ps.APP.record_person({"login": "bob@example.com", "name": "Bob"})
+        self.assertEqual(ps.APP.C.people_file.stat().st_mode & 0o777, 0o600)
+        os.chmod(ps.APP.C.people_file, 0o644)
+        member_add(ps.APP.C.state, "carol@example.com")
+        self.assertEqual(ps.APP.C.people_file.stat().st_mode & 0o777, 0o600)
 
     def test_startup_tightens_a_group_or_world_writable_people_json(self):
         import io
         from unittest import mock
 
-        ps.C.people_file.write_text('{"version": 1, "people": []}\n', encoding="utf-8")
-        os.chmod(ps.C.people_file, 0o666)
+        ps.APP.C.people_file.write_text('{"version": 1, "people": []}\n', encoding="utf-8")
+        os.chmod(ps.APP.C.people_file, 0o666)
         err = io.StringIO()
         with mock.patch.object(ps.sys, "stderr", err):
-            startup.tighten_state_perms(ps.C.people_file)
-            startup.tighten_state_perms(ps.C.people_file)
-        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o600)
+            startup.tighten_state_perms(ps.APP.C.people_file)
+            startup.tighten_state_perms(ps.APP.C.people_file)
+        self.assertEqual(ps.APP.C.people_file.stat().st_mode & 0o777, 0o600)
         # logged once
         self.assertEqual(len([ln for ln in err.getvalue().splitlines() if "tightened" in ln]), 1, err.getvalue())
-        os.chmod(ps.C.people_file, 0o644)  # only writable-by-others is changed
-        startup.tighten_state_perms(ps.C.people_file)
-        self.assertEqual(ps.C.people_file.stat().st_mode & 0o777, 0o644)
+        os.chmod(ps.APP.C.people_file, 0o644)  # only writable-by-others is changed
+        startup.tighten_state_perms(ps.APP.C.people_file)
+        self.assertEqual(ps.APP.C.people_file.stat().st_mode & 0o777, 0o644)

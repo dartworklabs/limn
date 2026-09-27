@@ -66,8 +66,8 @@ class DotPaths(AccessBase):
         for name in self.names:
             code, d = self.call("POST", "/api/pin", {"file": name, "lo": 1, "hi": 2, "page": 1, "note": "n"}, ALICE)
             self.refused(code, d, "file_outside_manuscript", name)
-        self.assertEqual(ps.snapshot_pins(), [])
-        self.assertFalse(ps.C.pins_md.exists() and "hunter2" in ps.C.pins_md.read_text(encoding="utf-8"))
+        self.assertEqual(ps.APP.snapshot_pins(), [])
+        self.assertFalse(ps.APP.C.pins_md.exists() and "hunter2" in ps.APP.C.pins_md.read_text(encoding="utf-8"))
 
     def test_an_edit_cannot_move_a_pin_onto_a_dot_file(self):
         """An edit's loc naming a dot file is 400 file_outside_manuscript; the pin keeps its place."""
@@ -105,18 +105,18 @@ class StateFolderInManuscript(AccessBase):
         normal-looking link into it."""
         super().setUp()
         set_config(state=self.src / "limn-state")
-        ps.C.state.mkdir()
-        ps.init_seq()
+        ps.APP.C.state.mkdir()
+        ps.APP.init_seq()
         self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
-        access.token_create(ps.C.state, "ci", cli_audit(ps.C.state))
+        access.token_create(ps.APP.C.state, "ci", cli_audit(ps.APP.C.state))
         self.pid = self.pin_id(ALICE)
-        if not ps.C.events_file.exists():
-            ps.C.events_file.write_text('{"id": 1, "kind": "mention"}\n', encoding="utf-8")
+        if not ps.APP.C.events_file.exists():
+            ps.APP.C.events_file.write_text('{"id": 1, "kind": "mention"}\n', encoding="utf-8")
         for name in STATE_FILES:
-            self.assertTrue((ps.C.state / name).is_file(), name)
-        (self.src / "notes.tex").symlink_to(ps.C.state / "people.json")
+            self.assertTrue((ps.APP.C.state / name).is_file(), name)
+        (self.src / "notes.tex").symlink_to(ps.APP.C.state / "people.json")
         self.names = tuple("limn-state/" + n for n in STATE_FILES) + (
-            str(ps.C.state / "tokens.json"),
+            str(ps.APP.C.state / "tokens.json"),
             "limn-state/../limn-state/audit.jsonl",
             "notes.tex",
         )
@@ -150,7 +150,7 @@ class StateFolderInManuscript(AccessBase):
                 ALICE,
             )
             self.refused(code, d, "file_outside_manuscript", name)
-        self.assertEqual([p.core.id for p in ps.snapshot_pins()], [self.pid])
+        self.assertEqual([p.core.id for p in ps.APP.snapshot_pins()], [self.pid])
         self.assertEqual(Path(self.pin(self.pid)["file"]).name, "main.tex")
 
     def test_a_close_cannot_record_a_state_file_as_a_change(self):
@@ -174,7 +174,7 @@ class StateFolderInManuscript(AccessBase):
             with mock.patch("sys.stderr", io.StringIO()) as err:
                 return ps.configure_run(a, DEFAULT_ACCESS), err.getvalue()
 
-        before = ps.C
+        before = ps.APP.C
         got, err = configure(src / "st2")
         self.assertIsInstance(got, ps.RunStart)
         self.assertEqual((got.config.state, got.config.build, got.docs), (src / "st2", src / "st2" / "build", None))
@@ -183,7 +183,7 @@ class StateFolderInManuscript(AccessBase):
         got, err = configure(src)
         self.assertIsInstance(got, ps.StartupRefused)
         self.assertIn("holds %s, a document this run serves" % (src / "main.tex"), got.message)
-        self.assertIs(ps.C, before)  # configure_run changed nothing
+        self.assertIs(ps.APP.C, before)  # configure_run changed nothing
         got, err = configure(src.parent / "beside")
         self.assertIsInstance(got, ps.RunStart)
         self.assertEqual(err, "")
@@ -213,7 +213,7 @@ class UnreadablePeople(AccessBase):
         self.set_people(GOOD)
         self.pin_id(BOB)
         self.set_people(GOOD)
-        self.good = ps.C.people_file.read_bytes()
+        self.good = ps.APP.C.people_file.read_bytes()
 
     def visit_all(self):
         """Alice, Bob and Carol each open the viewer and read meta (both record a visit) -> {login: role shown}."""
@@ -228,14 +228,14 @@ class UnreadablePeople(AccessBase):
     def assert_fails_closed(self, case):
         """Everyone a header names is a viewer (no escalation: Alice stays viewer, Carol is no editor, Bob no owner),
         a change is refused, the file keeps its bytes, and one warning is printed however many requests come."""
-        broken = ps.C.people_file.read_bytes() if os.access(ps.C.people_file, os.R_OK) else None
+        broken = ps.APP.C.people_file.read_bytes() if os.access(ps.APP.C.people_file, os.R_OK) else None
         with mock.patch("sys.stderr", io.StringIO()) as err:
             roles = self.visit_all()
             self.visit_all()
             code, d = self.call("POST", "/api/pin", {"file": "main.tex", "lo": 1, "hi": 1, "page": 1}, BOB)
             code_people, people = self.call("GET", "/api/people", headers=ALICE)
         if broken is not None:
-            self.assertEqual(ps.C.people_file.read_bytes(), broken, case)
+            self.assertEqual(ps.APP.C.people_file.read_bytes(), broken, case)
         self.assertEqual(
             roles, {"alice@example.com": "viewer", "bob@example.com": "viewer", "carol@example.com": "viewer"}, case
         )
@@ -243,7 +243,7 @@ class UnreadablePeople(AccessBase):
         self.assertEqual(code_people, 200, case)
         self.assertEqual([(p["login"], p["role"]) for p in people["people"]], [("bob@example.com", "viewer")], case)
         self.assertEqual(err.getvalue().count("warning:"), 1, (case, err.getvalue()))
-        self.assertIn(str(ps.C.people_file), err.getvalue(), case)
+        self.assertIn(str(ps.APP.C.people_file), err.getvalue(), case)
 
     def assert_recovers(self, case):
         """Once the good file is back, roles come from it again (Carol, unlisted, is the default editor) and her
@@ -264,26 +264,26 @@ class UnreadablePeople(AccessBase):
         for case, make in BROKEN.items():
             with self.subTest(case):
                 self.setUp_case()
-                ps.C.people_file.write_bytes(make(self.good))
+                ps.APP.C.people_file.write_bytes(make(self.good))
                 self.assert_fails_closed(case)
-                ps.C.people_file.write_bytes(self.good)
+                ps.APP.C.people_file.write_bytes(self.good)
                 self.assert_recovers(case)
 
     @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads a file of any mode")
     def test_a_file_this_process_may_not_read_fails_closed_and_recovers_on_chmod(self):
         """people.json with mode 000 fails closed; a chmod alone (no content change) is noticed and restores it."""
-        os.chmod(ps.C.people_file, 0o000)
-        self.addCleanup(lambda: ps.C.people_file.exists() and os.chmod(ps.C.people_file, 0o600))
+        os.chmod(ps.APP.C.people_file, 0o000)
+        self.addCleanup(lambda: ps.APP.C.people_file.exists() and os.chmod(ps.APP.C.people_file, 0o600))
         self.assert_fails_closed("mode 000")
-        os.chmod(ps.C.people_file, 0o600)
-        self.assertEqual(ps.C.people_file.read_bytes(), self.good)
+        os.chmod(ps.APP.C.people_file, 0o600)
+        self.assertEqual(ps.APP.C.people_file.read_bytes(), self.good)
         self.assert_recovers("mode 000")
 
     def test_members_only_admits_nobody_from_an_unreadable_file(self):
         """Under --members-only, listed people are refused 403 not_member while the file is broken; a login given
         with --allow does not depend on the file and is still admitted, as a viewer; fixed, Alice is back in."""
         set_config(members_only=True)
-        ps.C.people_file.write_bytes(b"{not json\n")
+        ps.APP.C.people_file.write_bytes(b"{not json\n")
         with mock.patch("sys.stderr", io.StringIO()):
             for h in (ALICE, BOB, CAROL):
                 code, d = self.call("GET", "/api/meta?light=1", headers=h)
@@ -291,15 +291,15 @@ class UnreadablePeople(AccessBase):
             set_config(allow=frozenset({"carol@example.com"}))
             code, d = self.call("GET", "/api/meta?light=1", headers=CAROL)
         self.assertEqual((code, d["me"]["role"]), (200, "viewer"))
-        self.assertEqual(ps.C.people_file.read_bytes(), b"{not json\n")
-        ps.C.people_file.write_bytes(self.good)
+        self.assertEqual(ps.APP.C.people_file.read_bytes(), b"{not json\n")
+        ps.APP.C.people_file.write_bytes(self.good)
         code, d = self.call("GET", "/api/meta?light=1", headers=ALICE)
         self.assertEqual((code, d["me"]["role"]), (200, "viewer"))
 
     def setUp_case(self):
         """Start one subTest from the good file with nobody memoised as recently recorded."""
-        ps.C.people_file.write_bytes(self.good)
-        ps.RT.people_seen.clear()
+        ps.APP.C.people_file.write_bytes(self.good)
+        ps.APP.RT.people_seen.clear()
 
 
 class FramingHeaders(AccessBase):
@@ -314,7 +314,7 @@ class FramingHeaders(AccessBase):
 
     def test_html_json_errors_and_images_forbid_framing(self):
         """The viewer page, a JSON answer, a 404, a 401 and a 403 refusal page all carry both headers."""
-        pages = ps.DOCS[0].dir / "pages"
+        pages = ps.APP.docs[0].dir / "pages"
         pages.mkdir()
         (pages / "page-1.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         self.set_people([{"login": "bob@example.com", "name": "Bob Park", "role": "viewer"}])
@@ -340,7 +340,7 @@ class FramingHeaders(AccessBase):
     def test_page_images_are_cached_privately(self):
         """GET /pages/page-N.png is Cache-Control: private, max-age=600 - a shared cache must not keep manuscript
         pages - while the instance's favicon stays public."""
-        pages = ps.DOCS[0].dir / "pages"
+        pages = ps.APP.docs[0].dir / "pages"
         pages.mkdir()
         (pages / "page-1.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         code, _ = self.call("GET", "/pages/page-1.png", headers=ALICE)
