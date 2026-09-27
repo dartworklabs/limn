@@ -14,8 +14,8 @@ from typing import Any
 
 from limn.guidance import token_file_curl
 from limn.mapping import flat
-from limn.pins.lifecycle import claim_holds, has_ev
-from limn.pins.model import OpenPin, Record, ReviewPin, is_region_pin, state_of
+from limn.pins.lifecycle import claim_holds
+from limn.pins.model import OpenPin, Record, ReviewPin, ThreadEntry, is_region_pin, state_of
 from limn.pins.shapes import is_int, is_num
 
 
@@ -54,7 +54,7 @@ class PinFacts:
     reopened: bool
     addressed: tuple[str, ...]
     fyi: tuple[str, ...]
-    round: tuple[Record, ...]
+    round: tuple[ThreadEntry, ...]
 
 
 @dataclass(frozen=True)
@@ -275,21 +275,16 @@ THREAD_MD_CHARS = 200  # character count for one of those posts - the full text 
 def thread_md(r: Record, facts: PinFacts) -> str:
     """The current round's thread (facts.round), appended after pins.md's note column: "[스레드 2건] 서준: ... ⏎ 다시 연 이유(서준): ...".
     Included so an agent never misses a follow-up question or reopen reason. If long, only the last THREAD_MD_SHOW entries are shown; the rest via GET /api/pins/N."""
-    msgs = [m for m in facts.round if not has_ev(m, "close") and (m.get("text") or not m.get("ev"))]
+    msgs = [m for m in facts.round if m.ev != "close" and (m.text or m.ev is None)]
     if not msgs:
         return ""
     shown = msgs[-THREAD_MD_SHOW:]
     parts = []
     for m in shown:
-        name = (m.get("by") or {}).get("name") or (m.get("by") or {}).get("login") or "?"
-        label = (
-            "다시 연 이유(%s)" % name
-            if has_ev(m, "reopen")
-            else "담당 바꿈(%s)" % name
-            if has_ev(m, "assign")
-            else name
-        )
-        parts.append("%s: %s" % (label, flat(m.get("text"), THREAD_MD_CHARS)))
+        by = m.by or {}
+        name = by.get("name") or by.get("login") or "?"
+        label = "다시 연 이유(%s)" % name if m.ev == "reopen" else "담당 바꿈(%s)" % name if m.ev == "assign" else name
+        parts.append("%s: %s" % (label, flat(m.text, THREAD_MD_CHARS)))
     more = len(msgs) - len(shown)
     head = "[스레드 %d건%s]" % (len(msgs), ", 앞 %d건은 GET /api/pins/%s" % (more, r.get("id")) if more else "")
     return head + " " + " ⏎ ".join(parts)

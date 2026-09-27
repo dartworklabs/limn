@@ -981,7 +981,7 @@ class MentionsOnEdit(Base):
         ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         ps.confirm_pin(pid, dict(self.S))
         ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
-        self.assertTrue(pin_reopened_in_round(self.pin(pid)))
+        self.assertTrue(pin_reopened_in_round(parse_pin(self.pin(pid)).core.thread))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
@@ -995,7 +995,7 @@ class MentionsOnEdit(Base):
         ).record["id"]
         p = self.pin(pid)
         self.assertNotIn("mentions", p)  # a self-@mention isn't stored
-        self.assertEqual(mentions.addressed_to(p), [])
+        self.assertEqual(mentions.addressed_to(parse_pin(p)), [])
         msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 

@@ -73,7 +73,7 @@ def reply_pin(
             ctx.thread_max,
         )
         author = (pin.core.author or {}).get("login")
-        before = pin_mentions_all(pin.record)
+        before = pin_mentions_all(pin)
         replied: OpenPin | ReviewPin | DonePin
         match event:
             case ThreadFull():

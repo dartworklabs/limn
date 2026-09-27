@@ -22,6 +22,7 @@ from limn import mapping
 from limn.access import LOCAL_ACTOR
 from limn.pins import render, render as md_render
 from limn.pins.lifecycle import CloseRequest
+from limn.pins.model import ThreadEntry
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 from limn.web import parse
 
@@ -229,8 +230,9 @@ class OpenRows(unittest.TestCase):
 
     def test_thread_shows_the_last_three_of_the_round(self):
         """Five posts in the round: '[스레드 5건, 앞 2건은 GET /api/pins/N]' and the last three, reopen labelled."""
-        posts = tuple({"by": {"name": "P%d" % i}, "text": "t%d" % i} for i in range(4))
-        posts += ({"by": {"name": "Q"}, "text": "why", "ev": "reopen"}, {"by": {"name": "Q"}, "ev": "close"})
+        posts = [{"by": {"name": "P%d" % i}, "text": "t%d" % i} for i in range(4)]
+        posts += [{"by": {"name": "Q"}, "text": "why", "ev": "reopen"}, {"by": {"name": "Q"}, "ev": "close"}]
+        posts = tuple(ThreadEntry.from_record(p) for p in posts)
         row = table_rows(pins_md_text(page([line_pin(9, note="")], {9: facts(round=posts)})))[0]
         self.assertTrue(
             row.endswith("| [스레드 5건, 앞 2건은 GET /api/pins/9] P2: t2 ⏎ P3: t3 ⏎ 다시 연 이유(Q): why |")

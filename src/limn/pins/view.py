@@ -18,7 +18,7 @@ from typing import Any, TypeAlias
 
 from limn.mentions import addressed_to, fyi_mentions_to
 from limn.pins.lifecycle import claim_holds
-from limn.pins.model import OpenPin, StateName, TrashedPin, state_of
+from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
 from limn.pins.position import EstContext, epoch, pin_est
 from limn.pins.shapes import is_int, is_num
 
@@ -64,7 +64,8 @@ def pin_view(r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: flo
     that order. A claim that holds at epoch now but was written before claim_ts existed also gets claim_ts, its start
     epoch read from claimed_at (the viewer's "since 20:02 (23 min in)"); none when claimed_at is not a readable time.
     Never changes r or shown."""
-    rec = dict(shown, rel=rel, est=est, doc=doc, state=pin_state(r), addressed=addressed_to(r), fyi=fyi_mentions_to(r))
+    pin = parse_pin(r)
+    rec = dict(shown, rel=rel, est=est, doc=doc, state=pin.state, addressed=addressed_to(pin), fyi=fyi_mentions_to(pin))
     if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
         if ts is not None:

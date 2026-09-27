@@ -25,6 +25,7 @@ from limn.mentions import (
     tag_note,
     thread_round,
 )
+from limn.pins.model import ThreadEntry, parse_pin
 
 MENTIONS_PY = Path(mentions.__file__)
 PEOPLE = {
@@ -41,7 +42,8 @@ class ModuleBoundary(unittest.TestCase):
 
     def test_imports_only_pure_modules(self):
         """Its imports are typing/collections helpers, limn.pins.edit (ASSIGNEE_AGENT), limn.pins.lifecycle (the round
-        scan) and limn.pins.shapes (is_num) - nothing effectful."""
+        scan), limn.pins.model (the pin and thread entry types it reads) and limn.pins.shapes (is_num) - nothing
+        effectful."""
         tree = ast.parse(MENTIONS_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
@@ -54,6 +56,7 @@ class ModuleBoundary(unittest.TestCase):
                 "typing",
                 "limn.pins.edit",
                 "limn.pins.lifecycle",
+                "limn.pins.model",
                 "limn.pins.shapes",
             },
         )
@@ -107,38 +110,44 @@ class Resolve(unittest.TestCase):
 
 
 class Addressed(unittest.TestCase):
-    """addressed_to()/fyi_mentions_to()/pin_mentions_all() over a pin record and its thread rounds."""
+    """addressed_to()/fyi_mentions_to()/pin_mentions_all() over a pin and its thread rounds."""
 
     def test_a_question_pin_addresses_its_round_and_a_fix_pin_only_informs(self):
         """A question's tags are asked; a fix pin's tags are FYI."""
-        q = {"kind_req": "question", "mentions": [B]}
+        q = parse_pin({"kind_req": "question", "mentions": [B]})
         self.assertEqual((addressed_to(q), fyi_mentions_to(q)), ([B], []))
-        f = {"kind_req": "fix", "mentions": [B]}
+        f = parse_pin({"kind_req": "fix", "mentions": [B]})
         self.assertEqual((addressed_to(f), fyi_mentions_to(f)), ([], [B]))
 
     def test_an_assignee_is_addressed_and_the_other_tags_are_fyi(self):
         """A person assignee is asked, every other tag informed; the agent assignee asks nobody."""
-        r = {"assignee": B, "mentions": [B, BL]}
+        r = parse_pin({"assignee": B, "mentions": [B, BL]})
         self.assertEqual((addressed_to(r), fyi_mentions_to(r)), ([B], [BL]))
-        self.assertEqual(addressed_to({"assignee": "agent", "mentions": [B]}), [])
+        self.assertEqual(addressed_to(parse_pin({"assignee": "agent", "mentions": [B]})), [])
 
     def test_the_old_round_does_not_count_after_a_reopen(self):
         """A reply during review (before the reopen) is not part of the new round."""
-        r = {
-            "kind_req": "question",
-            "mentions": [],
-            "thread": [{"ev": "close"}, {"text": "during review", "mentions": [BL]}, {"ev": "reopen", "mentions": [B]}],
-        }
-        self.assertEqual(thread_round(r), [{"ev": "reopen", "mentions": [B]}])
+        r = parse_pin(
+            {
+                "kind_req": "question",
+                "mentions": [],
+                "thread": [
+                    {"ev": "close"},
+                    {"text": "during review", "mentions": [BL]},
+                    {"ev": "reopen", "mentions": [B]},
+                ],
+            }
+        )
+        self.assertEqual([e.record for e in thread_round(r.core.thread)], [{"ev": "reopen", "mentions": [B]}])
         self.assertEqual(addressed_to(r), [B])
         self.assertEqual(pin_mentions_all(r), [BL, B])
 
     def test_under_review_the_round_is_everything_after_the_close(self):
         """Closed and not reopened: the posts after the last close; never closed: the whole thread."""
-        th = [{"text": "a"}, {"ev": "close"}, {"text": "b"}]
-        self.assertEqual(thread_round({"thread": th}), [{"text": "b"}])
-        self.assertEqual(thread_round({"thread": [{"text": "a"}, "junk"]}), [{"text": "a"}])
-        self.assertEqual(thread_round({"thread": "junk"}), [])
+        th = [ThreadEntry.from_record(e) for e in ({"text": "a"}, {"ev": "close"}, {"text": "b"})]
+        self.assertEqual(thread_round(th), [th[2]])
+        self.assertEqual(thread_round(th[:1]), th[:1])
+        self.assertEqual(thread_round(None), [])
 
 
 class NoteTagging(unittest.TestCase):
@@ -204,10 +213,11 @@ class MentionsOnPins(unittest.TestCase):
                 {"id": 3, "ev": "reopen", "mentions": ["b"], "text": "", "at": "", "by": {}},
             ],
         }
+        fix = parse_pin(dict(r, kind_req="fix"))
+        r = parse_pin(r)
         self.assertEqual(mentions.addressed_to(r), ["b"])
         self.assertEqual(mentions.pin_mentions_all(r), ["a", "b"])
         self.assertEqual(mentions.fyi_mentions_to(r), [])  # a question pin isn't fyi — it's captured only as addressed
-        fix = dict(r, kind_req="fix")
         self.assertEqual(mentions.addressed_to(fix), [])  # a fix-request pin isn't skipped even with an @-mention
         self.assertEqual(mentions.fyi_mentions_to(fix), ["b"])  # it's captured only as fyi instead
 

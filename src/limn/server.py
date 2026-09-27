@@ -933,7 +933,8 @@ def pins_md_input(pins: Sequence[Pin], base: str | None = None) -> PinsMdInput:
     by_id = {r["id"]: r for r in rows}
     sources: dict[Path, list[str]] = {}
     facts: dict[int, PinFacts] = {}
-    for r in rows:
+    for pin in pins:
+        r = pin.record
         if state_of(r) is DonePin:
             continue
         location, line_len = "", None
@@ -951,10 +952,10 @@ def pins_md_input(pins: Sequence[Pin], base: str | None = None) -> PinsMdInput:
             location=location,
             line_len=line_len,
             badge=rel_badge(rel.get(r["id"], []), by_id, r),
-            reopened=pin_reopened_in_round(r),
-            addressed=tuple(addressed_to(r)),
-            fyi=tuple(fyi_mentions_to(r)),
-            round=tuple(thread_round(r)),
+            reopened=pin_reopened_in_round(pin.core.thread),
+            addressed=tuple(addressed_to(pin)),
+            fyi=tuple(fyi_mentions_to(pin)),
+            round=tuple(thread_round(pin.core.thread)),
         )
     docs = tuple(
         DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d)) for d in DOCS

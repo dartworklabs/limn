@@ -435,12 +435,6 @@ def author(by: Actor) -> dict[str, str]:
     return out
 
 
-def thread_of(record: Record) -> list[Any]:
-    """The record's thread as a list; a missing or malformed thread counts as empty."""
-    thread = record.get("thread")
-    return list(thread) if isinstance(thread, list) else []
-
-
 def thread_message(
     thread: Sequence[ThreadEntry] | None,
     by: dict[str, str],
@@ -471,25 +465,29 @@ def with_entry(thread: Sequence[ThreadEntry] | None, message: Record) -> list[An
     return [*(entry.record for entry in thread or ()), message]
 
 
-def round_marks(record: Record) -> tuple[int, int]:
-    """(last close, last reopen): the positions in thread_of(record) of the latest ev=close and the latest ev=reopen
-    entry, -1 for none. The one scan behind a pin's current round - limn.mentions.thread_round() and
-    pin_reopened_in_round() both read it, so the round and pins.md's "reopened" marker cannot disagree."""
-    th = thread_of(record)
-    last_close = max((i for i, m in enumerate(th) if has_ev(m, "close")), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if has_ev(m, "reopen")), default=-1)
+def round_marks(thread: Sequence[ThreadEntry] | None) -> tuple[int, int]:
+    """(last close, last reopen): the positions in a pin's thread (PinCore.thread; none counts as empty) of the latest
+    ev=close and the latest ev=reopen entry, -1 for none. The one scan behind a pin's current round -
+    limn.mentions.thread_round() and pin_reopened_in_round() both read it, so the round and pins.md's "reopened"
+    marker cannot disagree. ev is typed (ThreadEv), so a misspelt mark is a type error."""
+    th = thread or ()
+    last_close = max((i for i, entry in enumerate(th) if entry.ev == "close"), default=-1)
+    last_reopen = max((i for i, entry in enumerate(th) if entry.ev == "reopen"), default=-1)
     return last_close, last_reopen
 
 
-def has_ev(entry: object, ev: ThreadEv) -> bool:
-    """Is this thread entry (as stored: anything a thread list holds) a JSON object marked ev? Readers ask this
-    rather than compare `entry.get("ev")` to a string, so a misspelt mark is a type error."""
-    return isinstance(entry, dict) and entry.get("ev") == ev
-
-
-def pin_reopened_in_round(record: Record) -> bool:
-    """Has the pin been reopened since it was last closed - the latest ev=reopen entry of its thread comes after the
-    latest ev=close one (none counts as before everything), whatever follows it (a confirm, replies)? Drives pins.md's
-    "reopened" marker (§Pending review); the current round then starts at that reopen (limn.mentions.thread_round)."""
-    last_close, last_reopen = round_marks(record)
+def pin_reopened_in_round(thread: Sequence[ThreadEntry] | None) -> bool:
+    """Has the pin whose thread this is been reopened since it was last closed - the latest ev=reopen entry comes
+    after the latest ev=close one (none counts as before everything), whatever follows it (a confirm, replies)? Drives
+    pins.md's "reopened" marker (§Pending review); the current round then starts at that reopen
+    (limn.mentions.thread_round)."""
+    last_close, last_reopen = round_marks(thread)
     return last_reopen > last_close
+
+
+def last_entry(pin: Pin) -> ThreadEntry:
+    """The newest entry of pin's thread: the one the reply, close or reopen that just made pin wrote. Asking it of a
+    pin without a thread entry is a defect (ValueError)."""
+    if not pin.core.thread:
+        raise ValueError("pin %r has no thread entry" % pin.core.id)
+    return pin.core.thread[-1]
