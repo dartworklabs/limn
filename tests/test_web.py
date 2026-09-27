@@ -19,9 +19,11 @@ from pathlib import Path
 from unittest import mock
 
 from limn import locate, mapping
+from limn.documents import DocNotFound
 from limn.pins.edit import StaleEdit
-from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, PinStillOpen, ThreadFull
-from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
+from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
+from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
+from limn.revisions import DocumentBusy
 from limn.web import answers
 from limn.web.app import App
 from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
@@ -138,6 +140,66 @@ class Answers(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:
             call()
         self.assertEqual((e.exception.code, e.exception.body), (code, body))
+
+    def test_a_document_lookup_is_the_document_or_404_unknown_doc(self):
+        """found_doc passes a document through and answers DocNotFound with the key (through text, 40 characters)
+        and every key served."""
+        self.assertEqual(answers.found_doc("doc", str.upper), "doc")
+        self.assert_refused(
+            lambda: answers.found_doc(DocNotFound("z" * 50, ("ms", "rv")), str.upper),
+            404,
+            {"error": "없는 문서입니다: " + "Z" * 40, "reason": "unknown_doc", "docs": ["ms", "rv"]},
+        )
+
+    def test_one_pin_drop_purge_and_clear(self):
+        """GET /api/pins/{id}, drop, purge and clear: their bodies, and the 404s of an unknown pin or Trash entry."""
+        self.assertEqual(answers.pin_answer({"id": 4}), {"pin": {"id": 4}})
+        self.assert_refused(
+            lambda: answers.pin_answer(PinNotFound(4)), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"}
+        )
+        trashed = TrashedPin.from_record({"id": 4})
+        self.assertEqual(answers.drop_answer(trashed), {"ok": True})
+        self.assertEqual(answers.drop_answer(PinNotFound(4)), {"ok": False})
+        self.assertEqual(answers.purge_answer(trashed, 4), {"ok": True, "purged": 4})
+        self.assert_refused(
+            lambda: answers.purge_answer(NotInTrash(4), 4),
+            404,
+            {"error": "휴지통에 핀 #4 이 없습니다.", "reason": "not_in_trash"},
+        )
+        self.assertEqual(answers.clear_answer({"cleared": 2}), {"cleared": 2, "ok": True})
+
+    def test_a_build_pdf_that_cannot_be_served(self):
+        """A named build is pdf_build_gone, no name is pdf_missing; the body names the build on screen."""
+        self.assert_refused(
+            lambda: answers.build_pdf_gone("pages-1", "pages-2", str),
+            404,
+            {
+                "error": "그 빌드의 PDF 가 없습니다: pages-1",
+                "reason": "pdf_build_gone",
+                "pdf_build_gone": True,
+                "pages_build": "pages-2",
+            },
+        )
+        self.assert_refused(
+            lambda: answers.build_pdf_gone("", "pages-2", str),
+            404,
+            {
+                "error": "그 빌드의 PDF 가 없습니다: ",
+                "reason": "pdf_missing",
+                "pdf_build_gone": False,
+                "pages_build": "pages-2",
+            },
+        )
+
+    def test_a_revision_build_is_202_while_running(self):
+        """POST /api/revision-build: 202 for running, 200 for any other state, a refusal through its table."""
+        self.assertEqual(answers.revision_start_answer({"state": "running"}), ({"state": "running"}, 202))
+        self.assertEqual(answers.revision_start_answer({"state": "ready"}), ({"state": "ready"}, 200))
+        self.assert_refused(
+            lambda: answers.revision_start_answer(DocumentBusy()),
+            409,
+            {"error": "이 문서의 비교 PDF를 만드는 중입니다.", "reason": "busy"},
+        )
 
     def test_confirm_answers_every_outcome(self):
         """done (also when already done) -> ok; unknown id -> ok:false; an agent -> 403; an open pin -> 409 open."""

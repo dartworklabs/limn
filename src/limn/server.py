@@ -553,6 +553,13 @@ def pins_payload(rows: list[Row], allp: bool) -> list[Json]:
     return view.pins_payload(rows, allp, overlaps_by_id(rows), public, pin_doc_key, _doc_est_context, time.time())
 
 
+def pin_payload(pid: int) -> Json | PinNotFound:
+    """GET /api/pins/{id}: pin pid as GET /api/pins?all=1 lists it (the pins re-synced and saved first), or
+    PinNotFound."""
+    rec = next((r for r in pins_payload(snapshot_pins(), True) if r["id"] == pid), None)
+    return PinNotFound(pid) if rec is None else rec
+
+
 def _doc_est_context(key: str) -> EstContext | None:
     """What estimation reads of the builds of the document key names (limn.locate.est_context), or None when this
     instance no longer serves that document."""

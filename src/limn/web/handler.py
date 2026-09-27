@@ -4,8 +4,10 @@ Every request reads its body to completion, passes the Host/Origin check, is ide
 POST, role-checked) before any route runs; a refusal anywhere becomes one response in _run. The routes parse what
 they take from the body or query string (limn.web.parse) and answer a refused field at once, then call the application
 through `app` (limn.web.app.App), which the composition root binds (server.Handler), with the parsed values; no route
-reads a body field or a query parameter itself. The answers for pin outcomes are in limn.web.answers and the errors
-in limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handbook/api.md).
+reads a body field or a query parameter itself. Each route sends the answer limn.web.answers gives its outcome; the
+handler answers only what is its own - a body it cannot read (framing, size, content type, JSON), a Host or Origin it
+does not accept, a path no route serves - and the access checks raise their own refusals. The errors are in
+limn.web.errors. Statuses, headers and bodies are the agent contract (docs/handbook/api.md).
 """
 
 from __future__ import annotations
@@ -23,10 +25,7 @@ from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from limn.access import person_role
-from limn.documents import DocNotFound
 from limn.mark import png as mark_png
-from limn.pins.lifecycle import NotInTrash
-from limn.pins.model import TrashedPin
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
@@ -230,22 +229,12 @@ class Handler(BaseHTTPRequestHandler):
         """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
         the one holding the file hint, when neither ?doc= nor the body names one. A new pin's own doc in the body then
         wins over ?doc= when it names another (as it always has). 404 unknown_doc for a key this instance does not
-        serve."""
-        D = self._found(self.app.request_doc(choice.key, choice.file_hint))
+        serve (answers.found_doc)."""
+        app = self.app
+        D = answers.found_doc(app.request_doc(choice.key, choice.file_hint), app.hdr_text)
         if choice.body_key is not None and choice.body_key != D.key:
-            D = self._found(self.app.request_doc(choice.body_key))
+            D = answers.found_doc(app.request_doc(choice.body_key), app.hdr_text)
         return D
-
-    def _found(self, found: Document | DocNotFound) -> Document:
-        """The document a lookup found, or the 404 for a key this instance does not serve, listing the keys it does."""
-        if isinstance(found, DocNotFound):
-            raise HTTPError(
-                404,
-                "없는 문서입니다: %s" % self.app.hdr_text(found.key)[:40],
-                docs=list(found.known),
-                reason="unknown_doc",
-            )
-        return found
 
     def _get_revision(self, path: str, D: Document, q: Query) -> None:
         """Serves the three read routes of a commit's changes for document D (api.md §변경 보기와 비교 PDF). An
@@ -326,11 +315,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"dropped": app.dropped_payload()})
         m = re.fullmatch(r"/api/pins/(\d+)", path)
         if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
-            pid = int(m.group(1))
-            rec = next((r for r in app.pins_payload(app.snapshot_pins(), True) if r["id"] == pid), None)
-            if rec is None:
-                raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
-            return self._json({"pin": rec})
+            return self._json(answers.pin_answer(app.pin_payload(int(m.group(1)))))
         if path == "/api/snippet":
             rng = accepted(parse.parse_snippet(q, app.document_facts(D)))
             return self._json(app.snippet_api(rng, parse.parse_flag(q, "levels")))
@@ -370,13 +355,7 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     data = None
             if data is None:
-                raise HTTPError(
-                    404,
-                    "그 빌드의 PDF 가 없습니다: %s" % app.hdr_text(name)[:60],
-                    pdf_build_gone=bool(name),
-                    pages_build=app.cur_pages(D).name,
-                    reason="pdf_build_gone" if name else "pdf_missing",
-                )  # no ?build=: nothing is gone
+                answers.build_pdf_gone(name, app.cur_pages(D).name, app.hdr_text)
             return self._send(200, data, "application/pdf", cache="private, max-age=600")
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
@@ -416,13 +395,12 @@ class Handler(BaseHTTPRequestHandler):
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
         """POST routes that act on no one document: pin changes (_pin_action) and clear; anything else is 404. d is the
         parsed JSON body; refusals propagate to _run."""
-        app = self.app
         m = re.fullmatch(r"/api/pins/(\d+)/(close|reopen|drop|restore|purge|edit|claim|unclaim|reply|confirm)", path)
         if m:
             return self._pin_action(actor, int(m.group(1)), m.group(2), d)
         if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
             accepted(parse.parse_clear(d))
-            return self._json(dict(app.clear_pins(actor), ok=True))
+            return self._json(answers.clear_answer(self.app.clear_pins(actor)))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
     def _post_doc(self, actor: Json, path: str, q: Query, d: Json, D: Document) -> None:
@@ -440,8 +418,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(answers.add_answer(app.add_pin(D, request, actor)))
         if path == "/api/revision-build":
             commit, pin = accepted(parse.parse_revision_build(d))
-            result = answers.revision_answer(app.revision_start(D, commit, pin))
-            return self._json(result, 202 if result["state"] == "running" else 200)
+            return self._json(*answers.revision_start_answer(app.revision_start(D, commit, pin)))
         # /api/rebuild (the only route left; _post sends only these four here)
         if D.is_pdf:
             raise HTTPError(
@@ -471,13 +448,11 @@ class Handler(BaseHTTPRequestHandler):
         if act == "confirm":
             return self._json(answers.confirm_answer(app.confirm_pin(pid, actor), app.public))
         if act == "drop":
-            return self._json({"ok": isinstance(app.drop_pin(pid, actor), TrashedPin)})
+            return self._json(answers.drop_answer(app.drop_pin(pid, actor)))
         if act == "restore":
             return self._json(answers.restore_answer(app.restore_pin(pid, actor), app.public))
         if act == "purge":  # owner only (check_role)
-            if isinstance(app.purge_pin(pid, actor), NotInTrash):
-                raise HTTPError(404, "휴지통에 핀 #%d 이 없습니다." % pid, reason="not_in_trash")
-            return self._json({"ok": True, "purged": pid})
+            return self._json(answers.purge_answer(app.purge_pin(pid, actor), pid))
         if act == "edit":
             # loc is checked against the pin's own document, found before the edit is decided (as always)
             body = accepted(parse.parse_edit(d, app.assignee_people(d)))

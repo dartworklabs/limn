@@ -191,6 +191,10 @@ class App(Protocol):
         """GET /api/docs."""
         ...
 
+    def pin_payload(self, pid: int) -> Json | PinNotFound:
+        """GET /api/pins/{id}: one pin as GET /api/pins?all=1 lists it, or PinNotFound."""
+        ...
+
     def dropped_payload(self, now: float | None = None) -> list[Json]:
         """GET /api/pins/dropped: the Trash."""
         ...
