@@ -16,6 +16,7 @@ Run: uv run pytest tests/test_server.py
 """
 
 import dataclasses
+import io
 import json
 import os
 import re
@@ -893,6 +894,24 @@ class ProcessRuntime(unittest.TestCase):
             ps.main()
         server.server_close.assert_called_once_with()
         rt.stop.assert_called_once_with()
+
+    def test_main_reports_secondary_cleanup_error_after_normal_return(self):
+        """If both cleanup steps fail after normal serving, the first error propagates and the second is reported."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = mock.Mock()
+        rt.stop.side_effect = OSError("cannot stop runtime")
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaisesRegex(OSError, "cannot close socket"),
+        ):
+            ps.main()
+        rt.stop.assert_called_once_with()
+        self.assertIn("cannot stop runtime", stderr.getvalue())
 
     def test_start_stops_watch_when_listen_refuses(self):
         """A port lost after the probe cannot leave a watch thread running after startup refuses."""
