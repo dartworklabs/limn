@@ -385,8 +385,8 @@ class ManuscriptRevisions(Base):
             return subprocess.CompletedProcess(cmd, 0)
 
         with mock.patch.object(subprocess, "run", side_effect=render):
-            pages, error = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
-        self.assertIsNone(error)
+            pages = limn_build.render_pages(ps.DOCS[0], pdf, [aux], ps.C.dpi)
+        self.assertIsInstance(pages, Path, pages)
         (ps.C.state / "pages.cur").write_text(pages.name)
         aux.write_text("changed by a failed next build")
         self.assertEqual(limn_meta.outline_labels(ps.DOCS[0])["labels"][0]["title"], "Before")
