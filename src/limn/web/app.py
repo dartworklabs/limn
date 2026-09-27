@@ -18,7 +18,7 @@ module against this Protocol (the `if TYPE_CHECKING:` assignment after server.Ha
 binding is a type error. tests/test_web.py checks at run time that server.py provides every member.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from email.message import Message
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias
@@ -42,7 +42,7 @@ from limn.pins.lifecycle import (
     PinStillOpen,
     ThreadFull,
 )
-from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts, PickRequest, SourceRange
@@ -130,12 +130,20 @@ class App(Protocol):
         """The installed Limn version."""
         ...
 
+    def people_roles(self) -> access.PeopleRoles:
+        """{login: role} from people.json, or PeopleUnreadable while it cannot be used."""
+        ...
+
+    def known_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
+        """@-tag candidates {login: {login, name, pic?, last_seen?}}."""
+        ...
+
     def people_payload(self) -> list[Json]:
         """GET /api/people: the @-tag candidates in their order, each with its people.json role."""
         ...
 
-    def snapshot_pins(self) -> list[Json]:
-        """The pins, re-synced and saved under the pin lock."""
+    def snapshot_pins(self) -> list[Pin]:
+        """The pins, parsed, re-synced and saved under the pin lock."""
         ...
 
     def meta(self, D: Document, actor: Json, light: bool = False) -> Json:
@@ -178,11 +186,11 @@ class App(Protocol):
         """The base URL for GET /pins.md's guidance."""
         ...
 
-    def pins_md_text(self, rows: list[Json], base: str | None = None) -> str:
+    def pins_md_text(self, pins: Sequence[Pin], base: str | None = None) -> str:
         """The pins.md text."""
         ...
 
-    def pins_payload(self, rows: list[Json], allp: bool) -> list[Json]:
+    def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
         """GET /api/pins: records plus computed fields."""
         ...
 

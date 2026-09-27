@@ -32,6 +32,7 @@ from helpers import (
     UI_EN,
     add_pin,
     blank_png,
+    edit_stored,
     extract_js_fn,
     fresh_runtime,
     page_for,
@@ -496,9 +497,8 @@ class EnglishChrome(ChromiumTestCase):
                 r["at"] = "2026-09-2%d 09:%02d:00" % (3 + i % 2, i)
                 for m in r.get("thread") or []:
                     m["at"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3 * 3600))
-            return None, True
 
-        ps.pin_store().transact(age)
+        edit_stored(age, ps)
 
     def talk(self, raw):
         a, b = socket.socketpair()

@@ -21,9 +21,8 @@ from limn.access import LOCAL_ACTOR
 from limn.events import NOTIFY_TYPES
 from limn.mentions import NOTE_MENTION_COOLDOWN_S
 from limn.pins.lifecycle import CloseRequest
-from limn.store import find_pin
 
-from helpers import Base, add_pin, edit_pin, ps, req, split_resp
+from helpers import Base, add_pin, edit_pin, find_record, ps, req, split_resp
 from helpers_access import A_LOGIN, ALICE, B_LOGIN, BOB, C_LOGIN, CAROL, DAVE, actor
 
 
@@ -119,7 +118,7 @@ class MentionRules(Base):
             edit_pin(pid, {"note_append": "@Bob Park 급합니다"}, self.A)  # tags Bob again
             self.assertEqual(self.events_after(n), [("mention", ["bob@example.com"])])
             n = self.n()
-            edit_pin(pid, {"note": find_pin(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
+            edit_pin(pid, {"note": find_record(ps.snapshot_pins(), pid)["note"] + " @Carol Lee", "base_rev": 2}, self.A)
             self.assertEqual(self.events_after(n), [("mention", ["carol@example.com"])])
 
 
@@ -137,7 +136,7 @@ class NoteMentionCooldown(Base):
         return [e for e in ps._read_events()[0] if e["type"] == "mention" and B_LOGIN in e["to"]]
 
     def edit_note(self, pid, note, who):
-        return edit_pin(pid, {"note": note, "base_rev": find_pin(ps.snapshot_pins(), pid)["rev"]}, who)
+        return edit_pin(pid, {"note": note, "base_rev": find_record(ps.snapshot_pins(), pid)["rev"]}, who)
 
     def toggle(self, pid, who, times=3):
         for _ in range(times):
@@ -152,7 +151,7 @@ class NoteMentionCooldown(Base):
             ).record["id"]
             self.toggle(pid, self.A)
         self.assertEqual(len(self.mentions_to_bob()), 1)
-        self.assertEqual(find_pin(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])  # the note still tags him
+        self.assertEqual(find_record(ps.snapshot_pins(), pid)["mentions"], [B_LOGIN])  # the note still tags him
 
     def test_the_tag_notifies_again_after_the_window(self):
         """Ten minutes after the last sent note mention, re-adding the tag is a new mention (fake clock)."""

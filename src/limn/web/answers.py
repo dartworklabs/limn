@@ -47,7 +47,7 @@ from limn.pins.lifecycle import (
     NotInTrash,
     PinStillOpen,
     ThreadFull,
-    has_ev,
+    last_entry,
 )
 from limn.pins.model import DonePin, OpenPin, PinNotFound, Record, ReviewPin, TrashedPin
 from limn.revisions import (
@@ -291,14 +291,14 @@ def reply_answer(
 ) -> Body:
     """POST /api/pins/{id}/reply: the pin, its new thread entry, its state and whether the reply reopened it."""
     match result:
-        case OpenPin(record=record) | ReviewPin(record=record) | DonePin(record=record):
-            msg = record["thread"][-1]
+        case OpenPin() | ReviewPin() | DonePin():
+            record, entry = result.record, last_entry(result)
             return {
                 "ok": True,
                 "pin": show(record),
-                "msg": msg,
+                "msg": entry.record,
                 "state": state_of(record),
-                "reopened": has_ev(msg, "reopen"),
+                "reopened": entry.ev == "reopen",
             }
         case ThreadFull(limit=limit):
             raise HTTPError(

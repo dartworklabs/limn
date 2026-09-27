@@ -18,7 +18,7 @@ from typing import Any, TypeAlias
 
 from limn.mentions import addressed_to, fyi_mentions_to
 from limn.pins.lifecycle import claim_holds
-from limn.pins.model import OpenPin, StateName, state_of
+from limn.pins.model import OpenPin, StateName, TrashedPin, parse_pin, state_of
 from limn.pins.position import EstContext, epoch, pin_est
 from limn.pins.shapes import is_int, is_num
 
@@ -27,6 +27,8 @@ Row: TypeAlias = Mapping[str, Any]
 Json: TypeAlias = dict[str, Any]
 # How the API shows a record before the computed fields: a copy placed on this machine (server.public()).
 Show: TypeAlias = Callable[[Row], Json]
+# When a Trash entry expires, in epoch seconds, or None when its age cannot be read (server.trash_expires_ts()).
+ExpiresTs: TypeAlias = Callable[[TrashedPin], float | None]
 
 
 def pin_state(r: Row) -> StateName:
@@ -62,7 +64,8 @@ def pin_view(r: Row, shown: Json, rel: list[Json], est: bool, doc: str, now: flo
     that order. A claim that holds at epoch now but was written before claim_ts existed also gets claim_ts, its start
     epoch read from claimed_at (the viewer's "since 20:02 (23 min in)"); none when claimed_at is not a readable time.
     Never changes r or shown."""
-    rec = dict(shown, rel=rel, est=est, doc=doc, state=pin_state(r), addressed=addressed_to(r), fyi=fyi_mentions_to(r))
+    pin = parse_pin(r)
+    rec = dict(shown, rel=rel, est=est, doc=doc, state=pin.state, addressed=addressed_to(pin), fyi=fyi_mentions_to(pin))
     if claim_holds(r, now) and not is_num(r.get("claim_ts")):
         ts = epoch(r.get("claimed_at"))
         if ts is not None:
@@ -98,15 +101,20 @@ def pins_payload(
     return out
 
 
-def dropped_payload(rows: Iterable[Row], show: Show, expires_ts: Callable[[Row], float | None]) -> list[Json]:
-    """GET /api/pins/dropped: the Trash entries rows (already without expired ones) ordered by dropped_at, each as show
-    gives it plus `expires_ts` - when it leaves the Trash, rounded to milliseconds, for the viewer's "gone in N days"
-    free of the browser's time zone - when expires_ts knows it. The order of entries with the same or no dropped_at
-    is rows' order."""
+def dropped_payload(entries: Iterable[TrashedPin], show: Show, expires_ts: ExpiresTs) -> list[Json]:
+    """GET /api/pins/dropped: the Trash entries (already without expired ones) ordered by dropped_at, each as show
+    gives its stored record plus `expires_ts` - when it leaves the Trash, rounded to milliseconds, for the viewer's
+    "gone in N days" free of the browser's time zone - when expires_ts knows it. The order of entries with the same or
+    no dropped_at is the entries' order."""
     out = []
-    for r in sorted(rows, key=lambda r: str(r.get("dropped_at") or "")):
-        rec, exp = show(r), expires_ts(r)
+    for entry in sorted(entries, key=_dropped_at):
+        rec, exp = show(entry.record), expires_ts(entry)
         if exp is not None:
             rec["expires_ts"] = round(exp, 3)
         out.append(rec)
     return out
+
+
+def _dropped_at(entry: TrashedPin) -> str:
+    """The Trash list's sort key: the entry's dropped_at, "" when it has none."""
+    return entry.dropped.at if entry.dropped is not None else ""

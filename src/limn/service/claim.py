@@ -9,9 +9,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from limn.pins.lifecycle import ClaimClosedPin, ClaimedByOther, ClaimRequest, NotClaimed, claim, unclaim
-from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin
 from limn.pins.position import epoch
-from limn.service.context import PinContext, Row, load_pin, typed_actor
+from limn.service.context import PinContext, load_pin, typed_actor
 
 
 def claim_pin(
@@ -23,23 +23,23 @@ def claim_pin(
     the same identity extends. The clock is read once here - epoch and store string of the same moment.
     """
 
-    def fn(rows: list[Row]) -> tuple[OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin | ClaimClosedPin | ClaimedByOther | PinNotFound, bool]:
         """The transact() step: claim pin pid for actor; written only when the claim is placed."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
+        i, pin = found
+        held = pin.claim if isinstance(pin, OpenPin) else None
         result = claim(
             pin,
             typed_actor(actor),
             ctx.epoch(),
             ctx.now(),
             ClaimRequest(ttl_min, eta_min),
-            epoch(r.get("claimed_at")),
+            epoch(held.at) if held is not None else None,
         )
         if isinstance(result, OpenPin):
-            r.clear()
-            r.update(result.record)
+            pins[i] = result
             return result, True
         return result, False
 
@@ -51,17 +51,16 @@ def unclaim_pin(
 ) -> OpenPin | ReviewPin | DonePin | NotClaimed | PinNotFound:
     """Clear the in-progress marker, whoever asks (actor is not checked); written only when there was a claim."""
 
-    def fn(rows: list[Row]) -> tuple[OpenPin | NotClaimed | PinNotFound, bool]:
+    def fn(pins: list[Pin]) -> tuple[OpenPin | NotClaimed | PinNotFound, bool]:
         """The transact() step: drop pin pid's claim fields, or NotClaimed with nothing written."""
-        found = load_pin(rows, pid)
+        found = load_pin(pins, pid)
         if isinstance(found, PinNotFound):
             return found, False
-        r, pin = found
+        i, pin = found
         result = unclaim(pin)
         if isinstance(result, NotClaimed):
             return result, False
-        r.clear()
-        r.update(result.record)
+        pins[i] = result
         return result, True
 
     return ctx.store.transact(fn)[1]

@@ -1,4 +1,5 @@
-"""Which stored pin records the store accepts: the shape check of one pins.jsonl line (docs/handbook/api.md §핀 레코드).
+"""Which stored pin records the store accepts, parsed: one pins.jsonl or Trash line into its pin, or Broken
+(docs/handbook/api.md §핀 레코드).
 
 The store (limn.store.PinStore) trusts and indexes a few fields of every record - id, where the pin is, the thread
 the viewer renders as-is - so a line whose fields do not have their stored shape is treated as broken: kept aside
@@ -6,25 +7,57 @@ with its original bytes, never served or rewritten. Checking id alone is not eno
 lo or no file turns every GET/POST into a 500, and because the pins.jsonl write commits right before that 500, a
 retry creates a duplicate pin (observed).
 
+A record that passes is parsed into its state type (limn.pins.model.parse_pin, or TrashedPin for a Trash entry), so
+a reader of the store holds a typed pin whose shared fields the check has already vouched for: an integer id, a
+place (a LineSpan or a Region), a thread of well-formed entries, and every optional field either missing, null or
+of its stored kind.
+
 Every optional field may be missing (a legacy record), and a field this version does not know passes untouched (an
 older server must not drop what a newer one wrote, docs/adr/0005-pin-scoped-changes.md, 0006). The check changes
 when a stored field is added or its shape changes - together with the records limn.pins.edit and
 limn.pins.lifecycle write.
 
 Pure. Two shapes it checks are owned by modules that are not: a document key (limn.documents.DOC_KEY_RE) and a
-recorded actor (limn.people.is_actor). The composition root passes both in (server.valid_rec).
+recorded actor (limn.people.is_actor). The composition root passes both in (server.parse_record).
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
-from limn.pins.model import THREAD_EVENTS, is_kind_req, is_region_pin
+from limn.pins.model import THREAD_EVENTS, Pin, TrashedPin, is_kind_req, is_region_pin, parse_pin
 from limn.pins.shapes import is_int, is_num
 from limn.scope import valid_changes
 
 
-def valid_rec(r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]) -> bool:
+@dataclass(frozen=True)
+class Broken:
+    """A stored line the store does not trust: not JSON, not an object, or a field it checks has the wrong shape. The
+    store skips it, reports its line number, and keeps the file's original bytes before its next rewrite."""
+
+
+def parse_record(r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]) -> Pin | Broken:
+    """The pin a parsed pins.jsonl line holds (its state type, every field lifted or kept as stored), or Broken when
+    the store may not trust it (fits_record). Never raises and never changes r."""
+    if not fits_record(r, is_doc_key, is_actor):
+        return Broken()
+    return parse_pin(r)
+
+
+def parse_trashed(
+    r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]
+) -> TrashedPin | Broken:
+    """The Trash copy a parsed pins.dropped.jsonl line holds (TrashedPin: the drop lifted, the rest the pin it was), or
+    Broken by the same check as a live pin (fits_record: dropped_at is an *_at time, dropped_by a *_by actor)."""
+    if not fits_record(r, is_doc_key, is_actor):
+        return Broken()
+    return TrashedPin.from_record(r)
+
+
+def fits_record(
+    r: object, is_doc_key: Callable[[str], object], is_actor: Callable[[object], bool]
+) -> TypeGuard[dict[str, object]]:
     """Is r a pin record the store may trust? False if even one field it checks has the wrong shape.
 
     is_doc_key(s) is truthy when s is a document key (the stored `doc`; a document no longer configured is still a

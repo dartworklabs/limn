@@ -487,8 +487,8 @@ class TrashTransitions(unittest.TestCase):
 
     def test_find_trashed_takes_the_newest_copy(self):
         """A pin deleted twice comes back as its last copy; an id with no copy is NotInTrash."""
-        trash = [{"id": 3, "note": "old"}, {"id": 4}, {"id": 3, "note": "new"}]
-        self.assertEqual(find_trashed(trash, 3), TrashedPin.from_record({"id": 3, "note": "new"}))
+        trash = [TrashedPin.from_record(r) for r in ({"id": 3, "note": "old"}, {"id": 4}, {"id": 3, "note": "new"})]
+        self.assertIs(find_trashed(trash, 3), trash[2])
         self.assertEqual(find_trashed(trash, 9), NotInTrash(9))
 
     def test_restore_brings_back_the_state_and_bumps_rev(self):
@@ -541,16 +541,21 @@ class ReopenedInRound(unittest.TestCase):
     """pin_reopened_in_round: pins.md's "reopened" marker - a reopen after the last close, whatever else follows."""
 
     def entry(self, i, ev=None):
-        """Thread entry i, a state-transition mark when ev is given."""
+        """Thread entry i as stored, a state-transition mark when ev is given."""
         return thread_message([], {"login": "a", "name": "A"}, AT, "t%d" % i, ev=ev) | {"id": i}
+
+    def thread(self, th):
+        """The typed thread (PinCore.thread) a stored thread value parses to; None when it is not a list of objects."""
+        return parse_pin({"thread": th}).core.thread
 
     def test_a_reopen_after_the_last_close_counts_even_past_a_confirm(self):
         """close, confirm, reopen and a reply: reopened. The old rule (the round's first post is a reopen) missed it."""
         th = [self.entry(1, "close"), self.entry(2, "confirm"), self.entry(3, "reopen"), self.entry(4)]
-        self.assertTrue(pin_reopened_in_round({"thread": th}))
+        self.assertTrue(pin_reopened_in_round(self.thread(th)))
 
     def test_closed_again_after_the_reopen_or_never_reopened_does_not(self):
-        """reopen then close, a close alone, only replies, no thread and a malformed thread: not reopened."""
+        """reopen then close, a close alone, only replies, no thread and a malformed one (which parses to none): not
+        reopened."""
         for th in (
             [self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close")],
             [self.entry(1, "close")],
@@ -559,20 +564,19 @@ class ReopenedInRound(unittest.TestCase):
             "x",
             ["x", 3],
         ):
-            self.assertFalse(pin_reopened_in_round({"thread": th}), th)
-        self.assertFalse(pin_reopened_in_round({}))
+            self.assertFalse(pin_reopened_in_round(self.thread(th)), th)
+        self.assertFalse(pin_reopened_in_round(None))
 
     def test_a_reopen_without_any_close_counts(self):
         """A legacy thread that lost its close still shows the reopen."""
-        self.assertTrue(pin_reopened_in_round({"thread": [self.entry(1, "reopen")]}))
+        self.assertTrue(pin_reopened_in_round(self.thread([self.entry(1, "reopen")])))
 
     def test_round_marks_are_the_latest_close_and_reopen(self):
-        """(last close, last reopen) by position in the thread, -1 for none; entries that are not objects count for
-        position but never as a mark."""
-        th = ["x", self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close"), self.entry(4)]
-        self.assertEqual(round_marks({"thread": th}), (3, 2))
-        self.assertEqual(round_marks({"thread": [self.entry(1)]}), (-1, -1))
-        self.assertEqual(round_marks({"thread": "x"}), (-1, -1))
+        """(last close, last reopen) by position in the thread, -1 for none; no thread has neither."""
+        th = [self.entry(0), self.entry(1, "close"), self.entry(2, "reopen"), self.entry(3, "close"), self.entry(4)]
+        self.assertEqual(round_marks(self.thread(th)), (3, 2))
+        self.assertEqual(round_marks(self.thread([self.entry(1)])), (-1, -1))
+        self.assertEqual(round_marks(None), (-1, -1))
 
     def test_the_marker_and_the_current_round_agree(self):
         """Whenever the marker says reopened, the current round (limn.mentions.thread_round) starts at that reopen."""
@@ -583,9 +587,9 @@ class ReopenedInRound(unittest.TestCase):
             [e(1, "reopen"), e(2, "close"), e(3)],
             [e(1), e(2)],
         ):
-            r = {"thread": th}
-            starts_at_reopen = bool(thread_round(r)) and thread_round(r)[0].get("ev") == "reopen"
-            self.assertEqual(pin_reopened_in_round(r), starts_at_reopen, th)
+            thread = self.thread(th)
+            starts_at_reopen = bool(thread_round(thread)) and thread_round(thread)[0].ev == "reopen"
+            self.assertEqual(pin_reopened_in_round(thread), starts_at_reopen, th)
 
 
 # ---------------------------------------------------------------- the reply rule's table (v0.2.2, issue #8)

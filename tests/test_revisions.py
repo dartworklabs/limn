@@ -37,11 +37,13 @@ from helpers import (
     minimal_pdf,
     needs_tex,
     ps,
+    records,
     req,
     revision_spec,
     run_node,
     set_config,
     split_resp,
+    write_records,
 )
 from helpers_access import REPO_NEW as NEW, REPO_OLD as OLD, AccessBase, ScopedRepo, talk_to
 
@@ -632,10 +634,10 @@ class ScopedSourceDiff(ScopedRepo):
         )
         self.commit("add a part")
         old_pin = self.add(lo=12, hi=12, note="part twelve")
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         find_pin(rows, old_pin)["file"] = str(part)
         find_pin(rows, old_pin)["anchor"] = anchor_of(part.read_text().split("\n"), 12, 12)
-        ps.write_pins(rows)
+        write_records(rows)
         self.git("mv", "ms/part.tex", "ms/chapter.tex")
         chapter = self.src / "chapter.tex"
         chapter.write_text(chapter.read_text().replace("Part line 12.", "Part line twelve."), encoding="utf-8")
@@ -643,9 +645,9 @@ class ScopedSourceDiff(ScopedRepo):
         mv = self.commit("rename the part")
         ps.close_pin(old_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         new_pin = self.add(lo=12, hi=12, note="chapter twelve")
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         find_pin(rows, new_pin)["file"] = str(chapter)
-        ps.write_pins(rows)
+        write_records(rows)
         ps.close_pin(new_pin, dict(LOCAL_ACTOR), CloseRequest(ref=mv[:8]))
         for pid in (old_pin, new_pin):  # the pin may name the file before or after the rename
             with self.subTest(pin=pid):
@@ -739,10 +741,10 @@ class SquashMergedPins(AccessBase):
     def test_fix_next_to_the_pin_needs_changes_else_whole_commit(self):
         """Why agents always send changes: inference (overlap only) cannot find a fix placed next to the pin."""
         # the reason `changes` is what agents should send: beta's own range does not touch its fix
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         r = find_pin(rows, self.pins[1])
         r.pop("changes")
-        ps.write_pins(rows)
+        write_records(rows)
         _, d = self.call("GET", "/api/revision-diff?commit=%s&pin=%d" % (self.squash, self.pins[1]))
         self.assertEqual((d["scope"]["mode"], d["scope"]["source"]), ("commit", "none"))
 
@@ -884,21 +886,21 @@ class ScopedPdf(ScopedRepo):
         # a pin whose commit is entirely its own shares the whole-commit comparison (and its cache)
         self.assertEqual(revision_spec(self.solo, self.p4).key, revision_spec(self.solo).key)
         # the recorded change set is part of the identity: a different set is a different comparison
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         find_pin(rows, self.p1)["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]
-        ps.write_pins(rows)
+        write_records(rows)
         self.assertNotEqual(revision_spec(self.fix, self.p1).key, s1.key)
 
     def test_changes_recorded_by_an_earlier_close_are_ignored(self):
         """Review finding (rollback): changes whose changes_at is not this close's done_at are ignored."""
         # 0.2.2 (after a rollback) neither clears changes on reopen nor writes them on close: a set whose changes_at is
         # not this close's done_at belongs to an older close, so inference decides (alpha's own hunk), not those lines.
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         r = find_pin(rows, self.p1)
         self.assertEqual(r["changes_at"], r["done_at"])
         r["changes"] = [{"file": str(self.main.resolve()), "lo": 12, "hi": 12}]  # beta's line
         r["done_at"] = "2026-09-26 09:00:00"
-        ps.write_pins(rows)
+        write_records(rows)
         d = self.diff_ok(self.fix, self.p1)
         self.assertEqual((d["scope"]["source"], "pears" in d["scope"]["diff"]), ("inferred", True))
 
@@ -1160,7 +1162,7 @@ class ScopeReviewRegressions(AccessBase):
 
         repo, paths = revisions.revision_scope(ps.DOCS[0])
         revs = revision_history(ps.DOCS[0])["revisions"]
-        rows = ps.read_pins()[0]
+        rows = records(ps.read_pins()[0])
 
         def request(pid):
             """One scoping request for pid, counted as started before it asks for a slot."""

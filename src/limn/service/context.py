@@ -15,11 +15,11 @@ from limn.audit import AuditAction
 from limn.events import EventType
 from limn.locate import PinLocation
 from limn.mentions import NoteTags
-from limn.pins.model import Actor, Agent, Person, Pin, PinNotFound, parse_pin
-from limn.store import PinStore, find_pin
+from limn.pins.model import Actor, Agent, Person, Pin, PinNotFound
+from limn.store import PinStore, pin_index
 
 Json: TypeAlias = dict[str, Any]  # a request's actor, a stored pin record, a notice
-Row: TypeAlias = dict[str, Any]  # one stored pin as the store reads and writes it (limn.store.Row)
+Row: TypeAlias = dict[str, Any]  # one stored pin record as JSON gives it (limn.store.Row)
 Event: TypeAlias = dict[str, Any]  # one events.jsonl record before emit fills in seq/at/ts
 
 
@@ -46,12 +46,12 @@ class NoteTagger(Protocol):
         self,
         note: str,
         old_note: str,
-        rows: list[Row],
+        pins: Sequence[Pin],
         hints: Sequence[str] | None,
         actor: Mapping[str, Any],
         pid: object,
     ) -> NoteTags:
-        """Resolve note against the people on rows; old_note is the note before this save ('' for a new pin)."""
+        """Resolve note against the people on pins; old_note is the note before this save ('' for a new pin)."""
         ...
 
 
@@ -75,12 +75,12 @@ class PinContext:
     emit_events: Callable[[list[Event | None]], None]
     who: Callable[[Mapping[str, Any]], Json]  # an actor as notices and audit.jsonl record it
     audit: Callable[[AuditAction, Json, Json], object]
-    known_people: Callable[[list[Row]], Mapping[str, Json]]  # @-tag candidates: people.json plus the people on rows
+    known_people: Callable[[Sequence[Pin]], Mapping[str, Json]]  # @-tag candidates: people.json plus those on pins
     note_tags: NoteTagger
     role_of: Callable[[str], Role]  # a login's people.json role
     person_name: Callable[[str], str]  # a known person's display name, else the login
     locate: Callable[[Mapping[str, Any]], PinLocation | None]  # where a record's file is under the manuscript root now
-    stamp: Callable[[Row], PinLocation | None]  # records that location in the row (file, file_rel)
+    stamp: Callable[[Row], PinLocation | None]  # records that location in a pin's record (file, file_rel)
     thread_max: int  # cap on one pin's replies
     trash_days: int  # how long a dropped pin stays restorable
     trash_checked: list[float]
@@ -111,17 +111,17 @@ def typed_actor(actor: Mapping[str, Any]) -> Actor:
 
 
 class LoadedPin(NamedTuple):
-    """Pin pid as a transact() step loaded it: the stored row itself, which the step changes in place when it writes
-    (so the saved line keeps its field order), and the row's state type (parse_pin) the rules decide on."""
+    """Pin pid as a transact() step loaded it: its position in the step's pins, where the step puts the pin's next
+    state when it writes (the next state's record keeps the stored field order), and the pin the rules decide on."""
 
-    row: Row
+    pos: int
     pin: Pin
 
 
-def load_pin(rows: list[Row], pid: int) -> LoadedPin | PinNotFound:
-    """Pin pid among the rows a transact() step was given, with its state type, or PinNotFound when no row has that
-    id - the named miss every pin action answers (ok:false, or its own refusal) and writes nothing for."""
-    r = find_pin(rows, pid)
-    if r is None:
+def load_pin(pins: Sequence[Pin], pid: int) -> LoadedPin | PinNotFound:
+    """The first of the pins a transact() step was given whose id is pid, with its position, or PinNotFound when none
+    has that id - the named miss every pin action answers (ok:false, or its own refusal) and writes nothing for."""
+    i = pin_index(pins, pid)
+    if i is None:
         return PinNotFound(pid)
-    return LoadedPin(r, parse_pin(r))
+    return LoadedPin(i, pins[i])

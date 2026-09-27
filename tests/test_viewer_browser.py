@@ -26,10 +26,9 @@ from limn import revisions, startup
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
-from limn.store import find_pin
 from limn.web import parse
 
-from helpers import SW_JS, add_pin, blank_png, minimal_pdf, ps
+from helpers import SW_JS, add_pin, blank_png, find_record, minimal_pdf, ps, records, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_browser import BrowserBase, booted, settle, watch_idle
 
@@ -117,7 +116,7 @@ class ViewerFlows(BrowserBase):
         ps.close_pin(self.dn, A, CloseRequest(reply="고침"))
 
     def state(self, pid):
-        return pin_state(find_pin(ps.snapshot_pins(), pid))
+        return pin_state(find_record(ps.snapshot_pins(), pid))
 
     def wait_state(self, pid, want):
         """Let the page settle, so every request it has sent was answered by the in-process server (which serves routed
@@ -184,7 +183,7 @@ class ViewerFlows(BrowserBase):
             tst.wait_for(state="visible")
             tst.locator("button.btn-icon").click()  # dismissing the toast sends at once
             self.wait_state(self.rv, "open")
-            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"]), ("reopen", "식 번호가 아직 틀립니다"))
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.rv, timeout=8000)
 
@@ -202,7 +201,7 @@ class ViewerFlows(BrowserBase):
             page.click(card + " [data-act=reply-send]")
             self.toast(page, t["undo"]).locator("button.btn-icon").click()
             settle(page)  # the reply the dismissed toast sends has been answered
-            last = find_pin(ps.snapshot_pins(), self.rv)["thread"][-1]
+            last = find_record(ps.snapshot_pins(), self.rv)["thread"][-1]
             self.assertEqual((last.get("ev"), last["text"], self.state(self.rv)), (None, "내일 다시 볼게요", "review"))
 
         self.run_matrix(flow)
@@ -291,8 +290,8 @@ class ViewerFlows(BrowserBase):
         page.click('#pins .pin[data-id="%d"] [data-act=drop]' % self.open_id)
         self.toast(page, "되돌리기").get_by_role("button", name="되돌리기").click()
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
-        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
+        self.assertEqual(trash_records(), [])
 
     # -- 2. Trash
 
@@ -311,7 +310,7 @@ class ViewerFlows(BrowserBase):
             page.wait_for_function("!document.querySelector('#pins .pin[data-id=\"%d\"]')" % self.open_id, timeout=3000)
             self.toast(page, t["undo"]).wait_for(state="visible")
             settle(page)  # the drop has been answered
-            self.assertIsNone(find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNone(find_record(ps.snapshot_pins(), self.open_id))
             page.wait_for_function("DROPPED.length===1", timeout=5000)
             self.assertFalse(page.locator("#sec-dropped").count())
             if device == "desktop":
@@ -325,7 +324,7 @@ class ViewerFlows(BrowserBase):
                     self.english_only(page, sel)
             page.click(row + " [data-act=restore]")
             page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.open_id, timeout=5000)
-            self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.open_id))
+            self.assertIsNotNone(find_record(ps.snapshot_pins(), self.open_id))
 
         self.run_matrix(flow)
 
@@ -351,11 +350,11 @@ class ViewerFlows(BrowserBase):
         tst = self.toast(page, "되돌리기")
         tst.get_by_role("button", name="되돌리기").click()
         settle(page)
-        self.assertEqual([r["id"] for r in ps.read_jsonl(ps.C.dropped)[0]], [self.open_id])
+        self.assertEqual([r["id"] for r in trash_records()], [self.open_id])
         page.click(row + " [data-act=purge]")
         self.toast(page, "되돌리기").locator("button.btn-icon").click()
         settle(page)  # the permanent delete the dismissed toast sends has been answered
-        self.assertEqual(ps.read_jsonl(ps.C.dropped)[0], [])
+        self.assertEqual(trash_records(), [])
 
     def test_ref_to_deleted_pin_in_a_thread(self):
         ps.reply_pin(self.open_id, "#%d 와 같은 문제" % self.dn, B)
@@ -477,7 +476,7 @@ class ColdDeepLink(BrowserBase):
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
         page.wait_for_function("OPEN_ALL.some(p=>p.id===%d)" % self.gone, timeout=8000)
-        self.assertIsNotNone(find_pin(ps.snapshot_pins(), self.gone))
+        self.assertIsNotNone(find_record(ps.snapshot_pins(), self.gone))
         self.assert_card_shown(page, self.gone, "desktop")
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
 
@@ -520,7 +519,7 @@ class PreviewEqualsServer(BrowserBase):
         page.click(card + " [data-act=reply-send]")
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         settle(page)  # the reply the dismissed toast sends has been answered
-        r = find_pin(ps.snapshot_pins(), pid)
+        r = find_record(ps.snapshot_pins(), pid)
         last = r["thread"][-1]
         return preview, not r.get("done"), [ps.known_people()[lg]["name"] for lg in last.get("mentions") or []]
 
@@ -572,7 +571,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.wait_for_selector(card + " textarea.r-text")
         self.assertEqual(page.input_value(card + " textarea.r-text"), "키보드로 보냄")
         settle(page)
-        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
 
     def test_offline_failure_reopens_the_box_with_the_draft_and_an_error(self):
         page = self.open(0)
@@ -583,7 +582,7 @@ class ReplyKeyboardAndFailure(BrowserBase):
         page.locator("#toasts .toast").first.locator("button.btn-icon").click()
         page.wait_for_selector(card + " .reply-box .r-err:not([hidden])", timeout=5000)
         self.assertEqual(page.input_value(card + " textarea.r-text"), "오프라인에서 쓴 글")
-        self.assertEqual(pin_state(find_pin(ps.snapshot_pins(), self.rv)), "review")
+        self.assertEqual(pin_state(find_record(ps.snapshot_pins(), self.rv)), "review")
 
     def test_override_is_a_switch(self):
         page = self.open(0)
@@ -617,7 +616,7 @@ class RestoreLinkRunsOnce(BrowserBase):
         # boot() ends by acting on a pin link (openPinFromLink); a second restore it sent would be answered by settle()
         page.wait_for_function(booted(1) + "&&OPEN_ALL.some(p=>p.id===%d)" % keep, timeout=20000)
         settle(page)
-        self.assertIsNone(find_pin(ps.snapshot_pins(), pid))
+        self.assertIsNone(find_record(ps.snapshot_pins(), pid))
 
 
 class TrashOfAnotherDocument(ColdDeepLink):
@@ -927,7 +926,7 @@ class QuestionNudgeFocus(BrowserBase):
         self.assertEqual(page.evaluate("KIND_NEW"), "question")
         page.keyboard.press("Control+Enter")
         page.wait_for_function("OPEN_ALL.length===1", timeout=8000)
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         self.assertEqual([(r["note"], r.get("kind_req")) for r in rows], [("이 값은 어디서 왔나요?", "question")])
 
     def test_ctrl_enter_from_the_kind_buttons_still_saves(self):

@@ -13,26 +13,27 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, TypeAlias
 
 from limn.pins.edit import ASSIGNEE_AGENT
-from limn.pins.lifecycle import round_marks, thread_of
+from limn.pins.lifecycle import round_marks
+from limn.pins.model import Pin, ThreadEntry
 from limn.pins.shapes import is_num
 
-# A pin record, a thread post or an events.jsonl record as read from JSON.
+# A person of the @-tag candidates or an events.jsonl record as read from JSON.
 Row: TypeAlias = Mapping[str, Any]
 
 NOTE_MENTION_COOLDOWN_S = 600  # a note save re-tagging the same person on the same pin notifies them at most this often per editor (issue #10 L3)
 
 
-def thread_round(r: Row) -> list[Any]:
-    """The thread of the currently open round - posts after the last close (ev=close). Everything, if never closed.
+def thread_round(thread: Sequence[ThreadEntry] | None) -> list[ThreadEntry]:
+    """The entries of a pin's thread (PinCore.thread) in the currently open round - posts after the last close
+    (ev=close). Everything, if never closed.
     For a reopened pin, starts from (and includes) the reopen reason (ev=reopen) - this is the part an agent
     needs to read when fixing it again. That only applies if the last reopen is after the last close -
     otherwise (still under review, not yet reopened), it's simply everything after the last close. Without
     this distinction, a reply posted during review (between close and reopen) leaked into the new round after
     reopening as a defect (e.g. that reply's @-tags incorrectly ended up in the new round's addressed_to)."""
-    th = thread_of(r)
-    last_close, last_reopen = round_marks(r)
+    last_close, last_reopen = round_marks(thread)
     start = last_reopen if last_reopen > last_close else last_close + 1
-    return [m for m in th[start:] if isinstance(m, dict)]
+    return list(thread or ())[start:]
 
 
 def mention_tokens(people: Mapping[str, Row]) -> list[tuple[str, set[str]]]:
@@ -89,49 +90,49 @@ def mention_hits(
     return found
 
 
-def pin_mentions_all(r: Row) -> list[str]:
-    """Every person called out on this pin (note + the entire thread)."""
-    out = list(r.get("mentions") or [])
-    for m in r.get("thread") or []:
-        for lg in m.get("mentions") or []:
-            if lg not in out:
-                out.append(lg)
-    return out
+def pin_mentions_all(pin: Pin) -> list[str]:
+    """Every person called out on this pin (note + the entire thread), first-seen order."""
+    return _with_entry_mentions(pin.core.mentions, pin.core.thread or ())
 
 
-def round_mentions(r: Row) -> list[str]:
+def round_mentions(pin: Pin) -> list[str]:
     """The note's @-tags plus @-tags in the current round's (thread_round) thread posts - shared material for addressed_to/fyi_mentions_to."""
-    out = list(r.get("mentions") or [])
-    for m in thread_round(r):
-        for lg in m.get("mentions") or []:
+    return _with_entry_mentions(pin.core.mentions, thread_round(pin.core.thread))
+
+
+def _with_entry_mentions(note: Sequence[str] | None, entries: Sequence[ThreadEntry]) -> list[str]:
+    """The note's @-tags (the pin's mentions) followed by each entry's @-tags not seen yet, in order."""
+    out = list(note or [])
+    for entry in entries:
+        for lg in entry.mentions or []:
             if lg not in out:
                 out.append(lg)
     return out
 
 
-def addressed_to(r: Row) -> list[str]:
+def addressed_to(pin: Pin) -> list[str]:
     """Is this a pin that **asked** a person something - only meaningful for a question pin (kind_req=question). pins.md marks it
     '→ @name', and an agent skips it (unless the requesting user says otherwise). A fix pin's @-tags are just
     for reference, not something a person must answer to close it, so they don't go here - fyi_mentions_to()
     handles those instead (observed: a fix pin that FYI-tagged someone was picked up as '→ @name' and an agent
     skipped it forever). A closed-then-reopened pin doesn't count posts from the old round (thread_round)."""
-    a = r.get("assignee")
+    a = pin.core.assignee
     if a:  # a pin with an assignee: if it's a person, it was handed to them; if it's the agent, no one was called
         return [] if a == ASSIGNEE_AGENT else [a]
-    if r.get("kind_req") != "question":
+    if pin.core.kind_req != "question":
         return []
-    return round_mentions(r)
+    return round_mentions(pin)
 
 
-def fyi_mentions_to(r: Row) -> list[str]:
+def fyi_mentions_to(pin: Pin) -> list[str]:
     """People called for reference on a fix pin (kind_req != question) - never skipped, only shown in pins.md as '참고 @name'.
     The opposite of addressed_to() (non-question pins). On a pin with an assignee, every @-tag other than the assignee is FYI."""
-    if r.get("assignee"):
-        to = addressed_to(r)
-        return [lg for lg in round_mentions(r) if lg not in to]
-    if r.get("kind_req") == "question":
+    if pin.core.assignee:
+        to = addressed_to(pin)
+        return [lg for lg in round_mentions(pin) if lg not in to]
+    if pin.core.kind_req == "question":
         return []
-    return round_mentions(r)
+    return round_mentions(pin)
 
 
 def note_mention_targets(

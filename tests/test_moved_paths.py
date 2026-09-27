@@ -34,7 +34,7 @@ from limn.access import LOCAL_ACTOR
 from limn.locate import locate_file
 from limn.store import dump_jsonl
 
-from helpers import ROOT, add_pin, ps, req, set_config, split_resp
+from helpers import ROOT, add_pin, edit_stored, ps, records, req, set_config, split_resp
 from helpers_access import MOVED_X as X, AccessBase, MovedManuscriptBase, ScopedRepo, configure, mask, talk_to
 
 MS_MAIN = (
@@ -116,7 +116,7 @@ class MultiDocMoved(AccessBase):
             dict(LOCAL_ACTOR),
             doc=rr,
         ).record["id"]
-        rows = ps.read_pins()[0]
+        rows = records(ps.read_pins()[0])
         for r in rows:
             r.pop("file_rel", None)  # as 0.3.1 wrote them: absolute file only
         ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
@@ -167,7 +167,7 @@ class MultiDocMoved(AccessBase):
         self.serve(new, "reply/main.tex")
         self.pins()
         self.call("GET", "/pins.md")
-        self.assertEqual([r["id"] for r in ps.read_pins()[0] if "file_rel" in r], [])
+        self.assertEqual([r["id"] for r in records(ps.read_pins()[0]) if "file_rel" in r], [])
 
 
 class ChangesAfterAClone(ScopedRepo):
@@ -203,9 +203,8 @@ class ChangesAfterAClone(ScopedRepo):
             """Point alpha's recorded changes at a path that exists nowhere."""
             r = next(r for r in rows if r["id"] == self.p1)
             r["changes"] = [dict(c, file="/nowhere/else/other.tex") for c in r["changes"]]
-            return None, True
 
-        ps.pin_store().transact(fn)
+        edit_stored(fn)
         self.clone()
         code, d = self.diff(self.fix, self.p1)
         self.assertEqual((code, d["scope"]["source"]), (200, "inferred"))
@@ -460,8 +459,8 @@ class OutsideTheTree(MovedManuscriptBase):
     def test_a_file_rel_of_the_wrong_type_is_a_broken_line(self):
         """file_rel, when present, must be a string - like every field the store reads."""
         self.rewrite(lambda rows: [r.update(file_rel=5) for r in rows if r["id"] == self.p_old])
-        rows, bad = ps.read_pins()
-        self.assertNotIn(self.p_old, [r["id"] for r in rows])
+        pins, bad = ps.read_pins()
+        self.assertNotIn(self.p_old, [p.core.id for p in pins])
         self.assertEqual(len(bad), 1)
 
 

@@ -7,7 +7,7 @@ annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from limn.pins.model import (
     Actor,
@@ -390,10 +390,10 @@ def drop(pin: Pin, by: Actor, at: str) -> TrashedPin:
     return TrashedPin.from_record(record)
 
 
-def find_trashed(trash: Sequence[Record], pid: int) -> TrashedPin | NotInTrash:
+def find_trashed(trash: Sequence[TrashedPin], pid: int) -> TrashedPin | NotInTrash:
     """The newest copy of pin pid among the Trash entries given (the caller passes only unexpired ones)."""
-    hits = [record for record in trash if record.get("id") == pid]
-    return TrashedPin.from_record(hits[-1]) if hits else NotInTrash(pid)
+    hits = [entry for entry in trash if entry.pin.core.id == pid]
+    return hits[-1] if hits else NotInTrash(pid)
 
 
 def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | AlreadyLive:
@@ -402,8 +402,7 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
     live says whether the id is already among the live pins; then nothing is restored.
     """
     if live:
-        # A Trash copy carries the id find_trashed() matched; the cast informs the checker, the value is as stored.
-        return AlreadyLive(cast(int, trashed.pin.core.id))
+        return AlreadyLive(trashed.pin.core.pid)  # the id find_trashed() matched
     record = {key: value for key, value in trashed.record.items() if key not in ("dropped_at", "dropped_by")}
     record["restored_at"] = at
     record["restored_by"] = signature(by)
@@ -414,12 +413,6 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
 def rev_after(rev: int | None) -> int:
     """The revision after a change to a pin at `rev` (PinCore.rev): a missing rev counts as 0."""
     return (rev or 0) + 1
-
-
-def next_rev(record: Record) -> int:
-    """rev_after() for a stored record as the store reads it (limn.pins.position's re-sync of a row): a missing or
-    empty rev counts as 0."""
-    return int(record.get("rev") or 0) + 1
 
 
 def signature(by: Actor) -> dict[str, str]:
@@ -433,12 +426,6 @@ def author(by: Actor) -> dict[str, str]:
     if isinstance(by, Person) and by.pic:
         out["pic"] = by.pic
     return out
-
-
-def thread_of(record: Record) -> list[Any]:
-    """The record's thread as a list; a missing or malformed thread counts as empty."""
-    thread = record.get("thread")
-    return list(thread) if isinstance(thread, list) else []
 
 
 def thread_message(
@@ -471,25 +458,29 @@ def with_entry(thread: Sequence[ThreadEntry] | None, message: Record) -> list[An
     return [*(entry.record for entry in thread or ()), message]
 
 
-def round_marks(record: Record) -> tuple[int, int]:
-    """(last close, last reopen): the positions in thread_of(record) of the latest ev=close and the latest ev=reopen
-    entry, -1 for none. The one scan behind a pin's current round - limn.mentions.thread_round() and
-    pin_reopened_in_round() both read it, so the round and pins.md's "reopened" marker cannot disagree."""
-    th = thread_of(record)
-    last_close = max((i for i, m in enumerate(th) if has_ev(m, "close")), default=-1)
-    last_reopen = max((i for i, m in enumerate(th) if has_ev(m, "reopen")), default=-1)
+def round_marks(thread: Sequence[ThreadEntry] | None) -> tuple[int, int]:
+    """(last close, last reopen): the positions in a pin's thread (PinCore.thread; none counts as empty) of the latest
+    ev=close and the latest ev=reopen entry, -1 for none. The one scan behind a pin's current round -
+    limn.mentions.thread_round() and pin_reopened_in_round() both read it, so the round and pins.md's "reopened"
+    marker cannot disagree. ev is typed (ThreadEv), so a misspelt mark is a type error."""
+    th = thread or ()
+    last_close = max((i for i, entry in enumerate(th) if entry.ev == "close"), default=-1)
+    last_reopen = max((i for i, entry in enumerate(th) if entry.ev == "reopen"), default=-1)
     return last_close, last_reopen
 
 
-def has_ev(entry: object, ev: ThreadEv) -> bool:
-    """Is this thread entry (as stored: anything a thread list holds) a JSON object marked ev? Readers ask this
-    rather than compare `entry.get("ev")` to a string, so a misspelt mark is a type error."""
-    return isinstance(entry, dict) and entry.get("ev") == ev
-
-
-def pin_reopened_in_round(record: Record) -> bool:
-    """Has the pin been reopened since it was last closed - the latest ev=reopen entry of its thread comes after the
-    latest ev=close one (none counts as before everything), whatever follows it (a confirm, replies)? Drives pins.md's
-    "reopened" marker (§Pending review); the current round then starts at that reopen (limn.mentions.thread_round)."""
-    last_close, last_reopen = round_marks(record)
+def pin_reopened_in_round(thread: Sequence[ThreadEntry] | None) -> bool:
+    """Has the pin whose thread this is been reopened since it was last closed - the latest ev=reopen entry comes
+    after the latest ev=close one (none counts as before everything), whatever follows it (a confirm, replies)? Drives
+    pins.md's "reopened" marker (§Pending review); the current round then starts at that reopen
+    (limn.mentions.thread_round)."""
+    last_close, last_reopen = round_marks(thread)
     return last_reopen > last_close
+
+
+def last_entry(pin: Pin) -> ThreadEntry:
+    """The newest entry of pin's thread: the one the reply, close or reopen that just made pin wrote. Asking it of a
+    pin without a thread entry is a defect (ValueError)."""
+    if not pin.core.thread:
+        raise ValueError("pin %r has no thread entry" % pin.core.id)
+    return pin.core.thread[-1]

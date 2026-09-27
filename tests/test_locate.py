@@ -23,10 +23,11 @@ from limn.access import LOCAL_ACTOR
 from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
 from limn.mapping import anchor_of
 from limn.pins import position
+from limn.pins.model import parse_pin
 from limn.web import parse
 from limn.web.errors import build_failure_log
 
-from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, req
+from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, records, req, write_records
 
 LOCATE_PY = Path(locate.__file__)
 SERVER_GLOBALS = {
@@ -80,19 +81,21 @@ class SyncAll(unittest.TestCase):
         """Places every line pin at main.tex under the root."""
         return locate.PinLocation("main.tex", self.tex)
 
-    def test_changed_rows_are_replaced_and_others_kept(self):
-        """After an insertion, the open pin follows its anchor (a new row object); done, view-only and unlocatable pins
-        are the same objects as before; the result says something changed."""
-        pin = {"id": 1, "file": str(self.tex), "lo": 2, "hi": 2, "anchor": anchor_of(self.lines, 2, 2), "synced_at": 0}
-        done = dict(pin, id=2, done=True)
-        region = {"id": 3, "pdf": "/ms/figure.pdf", "page": 1, "frac": [0, 0, 0.5, 0.5]}
-        rows = [pin, done, region]
+    def test_changed_pins_are_replaced_and_others_kept(self):
+        """After an insertion, the open pin follows its anchor (a new pin in its place); done, view-only and
+        unlocatable pins are the same objects as before; the result says something changed."""
+        rec = {"id": 1, "file": str(self.tex), "lo": 2, "hi": 2, "anchor": anchor_of(self.lines, 2, 2), "synced_at": 0}
+        pin = parse_pin(rec)
+        done = parse_pin(dict(rec, id=2, done=True))
+        region = parse_pin({"id": 3, "pdf": "/ms/figure.pdf", "page": 1, "frac": [0, 0, 0.5, 0.5]})
+        pins = [pin, done, region]
         self.tex.write_text("inserted\n" + "\n".join(self.lines) + "\n", encoding="utf-8")
-        self.assertTrue(locate.sync_all(rows, self.locator))
-        self.assertEqual((rows[0]["lo"], rows[0]["sync"], rows[0]["rev"]), (3, "moved +1", 1))
-        self.assertIs(rows[1], done)
-        self.assertIs(rows[2], region)
-        self.assertEqual(pin["lo"], 2)  # the old record is not mutated
+        self.assertTrue(locate.sync_all(pins, self.locator))
+        moved = pins[0].record
+        self.assertEqual((moved["lo"], moved["sync"], moved["rev"]), (3, "moved +1", 1))
+        self.assertIs(pins[1], done)
+        self.assertIs(pins[2], region)
+        self.assertEqual(pin.record["lo"], 2)  # the old pin is not changed
 
     def test_nothing_changes_when_the_file_is_not_newer_or_not_found(self):
         """synced_at at the file's mtime: no change; a pin the locator cannot place: skipped."""
@@ -105,10 +108,11 @@ class SyncAll(unittest.TestCase):
             "anchor": anchor_of(self.lines, 2, 2),
             "synced_at": mtime,
         }
-        rows = [pin]
-        self.assertFalse(locate.sync_all(rows, self.locator))
-        self.assertFalse(locate.sync_all([dict(pin, synced_at=0)], lambda r: None))
-        self.assertIs(rows[0], pin)
+        pins = [parse_pin(pin)]
+        kept = pins[0]
+        self.assertFalse(locate.sync_all(pins, self.locator))
+        self.assertFalse(locate.sync_all([parse_pin(dict(pin, synced_at=0))], lambda r: None))
+        self.assertIs(pins[0], kept)
 
 
 class TokenWeights(unittest.TestCase):
@@ -134,17 +138,20 @@ class Overlaps(unittest.TestCase):
 
     NEW = Path("/ms/new/main.tex")
 
-    def locator(self, r):
+    def locator(self, pin):
         """Places pins stored under /old/ at NEW (a moved checkout); every other file cannot be placed."""
-        return locate.PinLocation("main.tex", self.NEW) if str(r.get("file", "")).startswith("/old/") else None
+        return locate.PinLocation("main.tex", self.NEW) if pin.core.place.file.startswith("/old/") else None
 
     def setUp(self):
         """Pin 1 from before the move, pin 2 after it (same lines inside), a done pin and one in another file."""
         self.rows = [
-            {"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
-            {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
-            {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
-            {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5},
+            parse_pin(r)
+            for r in (
+                {"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
+                {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
+                {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
+                {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5},
+            )
         ]
 
     def test_pins_before_and_after_a_move_are_one_file(self):
@@ -251,11 +258,11 @@ class Anchor(Base):
 
     def test_old_anchor_without_offsets(self):
         pid = self.add(8, 9)
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         for r in rows:
             r["anchor"].pop("head_off")
             r["anchor"].pop("tail_off")
-        ps.write_pins(rows)
+        write_records(rows)
         self._shift(2)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"]), (10, 11))
@@ -523,8 +530,7 @@ class ServerOverlaps(Base):
         # the first two paragraphs (not blank-line-free — lo/hi adjusted to overlap generously)
         p1 = self.add(4, 9, note="outer")
         p2 = self.add(4, 5, note="inner")
-        rows = ps.snapshot_pins()
-        rel = ps.overlaps_by_id(rows)
+        rel = ps.overlaps_by_id(ps.snapshot_pins())
         self.assertEqual(rel[p2], [{"id": p1, "rel": "inside"}])
         self.assertEqual(rel[p1], [{"id": p2, "rel": "contains"}])
 

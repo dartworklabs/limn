@@ -39,7 +39,8 @@ from limn.pins.lifecycle import (
     ThreadFull,
     pin_reopened_in_round,
 )
-from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin
+from limn.pins.model import Agent, DonePin, OpenPin, Person, PinNotFound, ReviewPin, TrashedPin, parse_pin
+from limn.pins.record import Broken
 from limn.pins.view import pin_state
 from limn.service import add_edit, claim, transitions, trash
 from limn.service.context import LoadedPin, PinContext, is_agent, load_pin, typed_actor, who
@@ -47,7 +48,20 @@ from limn.store import PinFiles, PinStore, find_pin
 from limn.web import parse
 from limn.web.errors import InputRejected
 
-from helpers import Base, add_pin, edit_pin, ps, record_of, req, split_resp
+from helpers import (
+    Base,
+    add_pin,
+    edit_pin,
+    find_record,
+    fits,
+    ps,
+    record_of,
+    records,
+    req,
+    split_resp,
+    trash_records,
+    write_records,
+)
 from helpers_access import ALICE_ACTOR, BOB_ACTOR, AccessBase
 
 SERVICE_DIR = Path(service.__file__).parent
@@ -59,6 +73,16 @@ AGENT = dict(LOCAL_ACTOR)
 def valid(r: object) -> bool:
     """The test's record check: a JSON object with an integer id."""
     return isinstance(r, dict) and isinstance(r.get("id"), int) and not isinstance(r.get("id"), bool)
+
+
+def parse_rec(r: object):
+    """The test's record parse: a record valid() lets through, parsed into its state; anything else Broken."""
+    return parse_pin(r) if valid(r) else Broken()
+
+
+def parse_trash(r: object):
+    """The test's Trash parse: a record valid() lets through, parsed into its Trash copy; anything else Broken."""
+    return TrashedPin.from_record(r) if valid(r) else Broken()
 
 
 class Recorder:
@@ -103,7 +127,9 @@ class ServiceBase(unittest.TestCase):
         self.state = root / "state"
         self.state.mkdir()
         self.lock = threading.RLock()
-        self.store = PinStore(PinFiles(self.state), self.lock, valid, lambda rows: False, lambda rows: "md\n")
+        self.store = PinStore(
+            PinFiles(self.state), self.lock, parse_rec, parse_trash, lambda pins: False, lambda pins: "md\n"
+        )
         self.rec = Recorder(self.lock)
         self.people = {"alice@example.com": ALICE_ACTOR, "bob@example.com": BOB_ACTOR}
         self.checked = [0.0]
@@ -158,7 +184,7 @@ class ServiceBase(unittest.TestCase):
 
     def pin(self, pid):
         """The stored record of pin pid."""
-        return find_pin(self.store.read_pins()[0], pid)
+        return find_record(self.store.read_pins()[0], pid)
 
 
 class ModuleBoundary(unittest.TestCase):
@@ -228,19 +254,21 @@ class Actors(unittest.TestCase):
 class LoadPin(unittest.TestCase):
     """load_pin: the one lookup by id every pin action's transact() step starts with."""
 
-    def test_a_found_pin_is_the_stored_row_itself_with_its_state_type(self):
-        """The row comes back by identity (a step changes it in place), with parse_pin's state type beside it."""
-        rows = [{"id": 1, "done": False}, {"id": 2, "done": True, "review": True}]
-        found = load_pin(rows, 2)
+    def test_a_found_pin_comes_back_with_its_position(self):
+        """The first pin with the id comes back by identity with its position (where a step puts its next state)."""
+        pins = [parse_pin({"id": 1, "done": False}), parse_pin({"id": 2, "done": True, "review": True})]
+        pins.append(parse_pin({"id": 2}))
+        found = load_pin(pins, 2)
         self.assertIsInstance(found, LoadedPin)
-        self.assertIs(found.row, rows[1])
+        self.assertEqual(found.pos, 1)
+        self.assertIs(found.pin, pins[1])
         self.assertIsInstance(found.pin, ReviewPin)
-        row, pin = found
-        self.assertEqual((row, pin), (rows[1], found.pin))
+        pos, pin = found
+        self.assertEqual((pos, pin), (1, pins[1]))
 
     def test_a_missing_id_is_a_named_miss(self):
-        """No row with the id is PinNotFound carrying that id, never None."""
-        self.assertEqual(load_pin([{"id": 1}], 3), PinNotFound(3))
+        """No pin with the id is PinNotFound carrying that id, never None."""
+        self.assertEqual(load_pin([parse_pin({"id": 1})], 3), PinNotFound(3))
         self.assertEqual(load_pin([], 1), PinNotFound(1))
 
 
@@ -347,11 +375,13 @@ class Transitions(ServiceBase):
     def test_an_agent_confirm_never_loads_the_store(self):
         """AgentCannotConfirm comes back before the store is read: a store whose re-sync would fail is never asked."""
 
-        def boom(rows):
+        def boom(pins):
             """A re-sync that must not run."""
             raise AssertionError("store touched")
 
-        ctx = self.context(store=PinStore(PinFiles(self.state), self.lock, valid, boom, lambda rows: ""))
+        ctx = self.context(
+            store=PinStore(PinFiles(self.state), self.lock, parse_rec, parse_trash, boom, lambda pins: "")
+        )
         self.assertEqual(transitions.confirm_pin(ctx, 1, AGENT), AgentCannotConfirm())
 
     def test_a_person_confirms_a_pin_awaiting_review(self):
@@ -404,7 +434,9 @@ class Trash(ServiceBase):
 
     def test_expiry_is_counted_from_dropped_at(self):
         """An entry expires trash_days after dropped_at; one without a readable dropped_at never expires."""
-        fresh, old, unknown = self.old_entry(1, 29), self.old_entry(2, 31), {"id": 3}
+        fresh, old, unknown = (
+            TrashedPin.from_record(r) for r in (self.old_entry(1, 29), self.old_entry(2, 31), {"id": 3})
+        )
         self.assertEqual(trash.unexpired([fresh, old, unknown], 30, T), [fresh, unknown])
         self.assertIsNone(trash.expires_ts(unknown, 30))
         self.assertFalse(trash.expired(unknown, 30, T + 10**9))
@@ -415,7 +447,7 @@ class Trash(ServiceBase):
         pid = self.add()
         self.assertIsInstance(trash.drop_pin(self.ctx, pid, BOB_ACTOR), TrashedPin)
         self.assertIsNone(self.pin(pid))
-        self.assertEqual([r["id"] for r in self.store.read_dropped()[0]], [pid])
+        self.assertEqual([e.pin.core.id for e in self.store.read_dropped()[0]], [pid])
         self.assertEqual(self.rec.emitted[-1], [{"type": "dropped", "pin": pid, "to": ["alice@example.com"]}])
         self.assertIsInstance(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), OpenPin)
         self.assertEqual(self.store.read_dropped()[0], [])
@@ -426,7 +458,7 @@ class Trash(ServiceBase):
     def test_restore_of_a_pin_that_is_live_again_is_refused(self):
         """A Trash copy whose id is live is AlreadyLive; both files keep their bytes."""
         pid = self.add()
-        self.store.write_dropped([dict(self.pin(pid), dropped_at=STAMP)])
+        self.store.write_dropped([TrashedPin.from_record(dict(self.pin(pid), dropped_at=STAMP))])
         pins, dropped = self.pins_bytes(), self.store.files.dropped.read_bytes()
         self.assertEqual(trash.restore_pin(self.ctx, pid, ALICE_ACTOR), AlreadyLive(pid))
         self.assertEqual((self.pins_bytes(), self.store.files.dropped.read_bytes()), (pins, dropped))
@@ -434,9 +466,11 @@ class Trash(ServiceBase):
     def test_purge_trash_drops_expired_entries_and_restarts_the_hourly_clock(self):
         """purge_trash rewrites the Trash without expired entries and returns how many went; maybe_purge_trash waits
         TRASH_CHECK_EVERY_S after any check."""
-        self.store.write_dropped([self.old_entry(1, 31), self.old_entry(2, 1)])
+        self.store.write_dropped(
+            [TrashedPin.from_record(self.old_entry(1, 31)), TrashedPin.from_record(self.old_entry(2, 1))]
+        )
         self.assertEqual(trash.purge_trash(self.ctx), 1)
-        self.assertEqual([r["id"] for r in self.store.read_dropped()[0]], [2])
+        self.assertEqual([e.pin.core.id for e in self.store.read_dropped()[0]], [2])
         self.assertEqual(self.checked, [T])
         self.assertEqual(trash.maybe_purge_trash(self.ctx), 0)
         later = self.context(epoch=lambda: T + trash.TRASH_CHECK_EVERY_S + 2 * 86400 * 30)
@@ -637,11 +671,11 @@ class Claim(Base):
     def test_expired_claim_is_inactive_and_can_be_reclaimed_by_another_identity(self):
         pid = self.add()
         ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        rows = ps.snapshot_pins()
+        rows = records(ps.snapshot_pins())
         for r in rows:
             if r["id"] == pid:
                 r["claim_until"] = time.time() - 10
-        ps.write_pins(rows)
+        write_records(rows)
         self.assertFalse(ps.claim_active(self.pin(pid)))
         p = record_of(ps.claim_pin(pid, {"login": "bob@example.com", "name": "Bob"}, 120))
         self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
@@ -688,9 +722,9 @@ class Claim(Base):
     def test_claim_fields_survive_jsonl_roundtrip(self):
         pid = self.add()
         ps.claim_pin(pid, {"login": "alice@example.com", "name": "Wendy"}, 120)
-        rows, bad = ps.read_jsonl(ps.C.pins_jsonl)
+        pins, bad = ps.read_pins()
         self.assertEqual(bad, [])
-        self.assertIn("claimed_by", find_pin(rows, pid))
+        self.assertIn("claimed_by", find_record(pins, pid))
 
     def test_http_claim_then_conflict_then_unclaim(self):
         pid = self.add()
@@ -790,7 +824,7 @@ class ClaimEstimate(Base):
         self.assertEqual(p["claim_ts"], t0)
         self.assertEqual(p["claim_until"], t0 + 30 * 60)
         self.assertIsInstance(p["claimed_at"], str)
-        rows, _ = ps.read_pins()  # it's a stored value (not a computed field)
+        rows = records(ps.read_pins()[0])  # it's a stored value (not a computed field)
         self.assertIn("eta_ts", find_pin(rows, pid))
 
     def test_same_identity_reclaim_extends_and_updates_estimate(self):
@@ -801,11 +835,11 @@ class ClaimEstimate(Base):
         with mock.patch("time.time", return_value=now):
             first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
             with ps.RT.pin_lock:  # move it back to having been claimed 10 minutes ago
-                rows, _ = ps.read_pins()
+                rows = records(ps.read_pins()[0])
                 r = find_pin(rows, pid)
                 for k in ("claim_ts", "eta_ts", "claim_until"):
                     r[k] -= 600
-                ps.write_pins(rows)
+                write_records(rows)
             second = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 20})))
             self.assertAlmostEqual(second["claim_ts"], first["claim_ts"] - 600, delta=1)  # the start time stays put
             self.assertEqual(second["claimed_at"], first["claimed_at"])
@@ -823,9 +857,9 @@ class ClaimEstimate(Base):
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertIsNotNone(refused.eta_ts)
         with ps.RT.pin_lock:  # A's claim has expired
-            rows, _ = ps.read_pins()
+            rows = records(ps.read_pins()[0])
             find_pin(rows, pid)["claim_until"] = time.time() - 1
-            ps.write_pins(rows)
+            write_records(rows)
         p = record_of(ps.claim_pin(pid, self.B, *parse.parse_claim_body({})))
         self.assertEqual(p["claimed_by"]["login"], "bob@example.com")
         self.assertNotIn("eta_ts", p)  # doesn't inherit someone else's old estimate
@@ -840,7 +874,7 @@ class ClaimEstimate(Base):
                 rec = record_of(ps.unclaim_pin(pid, self.A))
             else:
                 ps.drop_pin(pid, self.A)
-                rec = ps.read_jsonl(ps.C.dropped)[0][-1]
+                rec = trash_records()[-1]
             for k in CLAIM_FIELDS:
                 self.assertNotIn(k, rec, (how, k))
 
@@ -958,7 +992,7 @@ class MentionsOnEdit(Base):
         ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         ps.confirm_pin(pid, dict(self.S))
         ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
-        self.assertTrue(pin_reopened_in_round(self.pin(pid)))
+        self.assertTrue(pin_reopened_in_round(parse_pin(self.pin(pid)).core.thread))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
         self.assertIn("다시 열림", row)
@@ -972,7 +1006,7 @@ class MentionsOnEdit(Base):
         ).record["id"]
         p = self.pin(pid)
         self.assertNotIn("mentions", p)  # a self-@mention isn't stored
-        self.assertEqual(mentions.addressed_to(p), [])
+        self.assertEqual(mentions.addressed_to(parse_pin(p)), [])
         msg = ps.reply_pin(pid, "@Bob Park 님 확인 부탁드립니다 @Wendy Kim", dict(self.W)).record["thread"][-1]
         self.assertEqual(msg["mentions"], [self.S["login"]])  # the reply's own author (W) is excluded
 
@@ -1014,7 +1048,7 @@ class CloseChanges(AccessBase):
         self.assertEqual(d["pin"]["changes"], want)
         code, d = self.call("GET", "/api/pins?all=1")
         self.assertEqual([p.get("changes") for p in d if p["id"] == self.pid], [want])
-        self.assertTrue(ps.valid_rec(self.pin(self.pid)))
+        self.assertTrue(fits(self.pin(self.pid)))
 
     def test_invalid_changes_are_rejected_with_400_and_change_nothing(self):
         """Each malformed changes item or list is a 400 and leaves the pin open (boundary validation)."""
@@ -1067,10 +1101,10 @@ class CloseChanges(AccessBase):
         self.assertNotIn("changes", self.pin(self.pid))
 
     def test_a_malformed_stored_changes_field_marks_the_line_broken(self):
-        """valid_rec() rejects a record whose stored changes have the wrong shape."""
+        """The record parse (parse_record) refuses a record whose stored changes have the wrong shape."""
         r = dict(self.pin(self.pid), changes=[{"file": 3, "lo": 1, "hi": 2}])
-        self.assertFalse(ps.valid_rec(r))
-        self.assertTrue(ps.valid_rec(dict(r, changes=[{"file": "/a.tex", "lo": 1, "hi": 2}])))
+        self.assertFalse(fits(r))
+        self.assertTrue(fits(dict(r, changes=[{"file": "/a.tex", "lo": 1, "hi": 2}])))
 
     def test_pins_md_close_instruction_line_asks_for_changes_and_the_merged_commit(self):
         """Owner decision (review of #13): the close line asks for changes and ref = PR #N (hash); the rest of the line is 0.2.2's."""

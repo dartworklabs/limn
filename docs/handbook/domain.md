@@ -174,7 +174,7 @@ section 단계는 두지 않는다. 절 전체를 범위로 잡으면 수백 줄
 >
 > 예외는 그 범위가 방금 자신이 고친 곳일 때다. 앞선 핀을 처리하면서 그 문장 자체를 갈아엎은 경우가 그렇다. 이때는 원문을 확인하고 닫아도 된다([SKILL.ko.md](../../skill/SKILL.ko.md) §규칙).
 
-실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `follow_anchor`·`resync`(순수 계산: 핀 하나를 지금 줄과 맞춰 바뀐 레코드 사본을 돌려준다), 그리고 [`src/limn/locate.py`](../../src/limn/locate.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 레코드로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
+실행 정본은 [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `anchor_of`·`find_line`·`anchor_holds`와 [`src/limn/pins/position.py`](../../src/limn/pins/position.py)의 `follow_anchor`·`resync`(순수 계산: 열린 핀 하나를 지금 줄과 맞춰 바뀐 핀을 돌려준다), 그리고 [`src/limn/locate.py`](../../src/limn/locate.py)의 `sync_all`(핀 파일을 찾아 읽고 바뀐 핀으로 바꾸는 쪽)이다. 저장소는 `server.pin_store()`가 넘긴 `sync_all`을 트랜잭션마다 부른다.
 
 ## 저장소 안전성
 

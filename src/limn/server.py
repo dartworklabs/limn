@@ -48,7 +48,7 @@ if __package__ in (None, ""):
 # revision_history, hdr_text (the handler quotes a refused Host/Origin/document key through it), APP_NAME and
 # app_version. The build state is bound by assignment below the imports, because an import under another name is
 # never an export. meta_reads is the module; meta() below is the App member that binds it. record is the store's
-# record check; valid_rec() below binds it.
+# record parse; parse_record() and parse_trashed() below bind it.
 from limn import (
     access,
     build,
@@ -129,8 +129,10 @@ from limn.pins.lifecycle import (
 from limn.pins.model import (
     DonePin,
     OpenPin,
+    Pin,
     PinNotFound,
     Record,
+    Region,
     ReviewPin,
     TrashedPin,
     is_region_pin,
@@ -138,6 +140,7 @@ from limn.pins.model import (
     state_of,
 )
 from limn.pins.position import EstContext
+from limn.pins.record import Broken
 from limn.pins.render import (
     DocHeading,
     PinFacts,
@@ -158,7 +161,7 @@ from limn.revisions import (
 from limn.service import add_edit, claim, transitions, trash
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
-from limn.store import PinFiles, PinStore, Row, find_pin
+from limn.store import PinFiles, PinStore, Row, pin_index
 from limn.viewer.assemble import (
     LUCIDE,
     PDFJS_VERSION,
@@ -348,7 +351,7 @@ def revision_context() -> revisions.RevisionContext:
 
     return revisions.RevisionContext(
         timeout=C.timeout,
-        pins=lambda: [public(r) for r in read_pins()[0]],
+        pins=lambda: [public(pin.record) for pin in read_pins()[0]],
         doc_of=pin_doc_key,
         locate=locate,
         cache=RT.scope_cache,
@@ -469,8 +472,8 @@ def meta_settings() -> MetaSettings:
 
 def docs_payload() -> Json:
     """GET /api/docs — the document list and open-pin counts per document. Pins are only read (no sync write)."""
-    rows, _ = read_pins()
-    return meta_reads.docs_payload(DOCS, rows, pin_doc_key, C.state)
+    pins, _ = read_pins()
+    return meta_reads.docs_payload(DOCS, [pin.record for pin in pins], pin_doc_key, C.state)
 
 
 def meta(D: Doc, actor: Json, light: bool = False) -> Json:
@@ -479,20 +482,26 @@ def meta(D: Doc, actor: Json, light: bool = False) -> Json:
     out = meta_reads.meta(D, actor, meta_settings(), DOCS, sync_status(), time.time())
     if light:  # polling only - skips the sync write in snapshot_pins()
         return out
-    out.update(meta_reads.pin_counts([pin_state(r) for r in snapshot_pins()]))
+    out.update(meta_reads.pin_counts([pin.state for pin in snapshot_pins()]))
     return out
 
 
 # ---------------------------------------------------------------- Pin store
 #
-# Which stored records the store trusts is limn/pins/record.py's check; valid_rec binds it to the document key format
-# (limn.documents) and the recorded actor's shape (limn.people), which it cannot import and stay pure.
+# Which stored records the store trusts, and the pins they parse to, is limn/pins/record.py's parse; parse_record and
+# parse_trashed bind it to the document key format (limn.documents) and the recorded actor's shape (limn.people),
+# which it cannot import and stay pure.
 
 
-def valid_rec(r: object) -> bool:
-    """The store's record check (limn.pins.record.valid_rec) with DOC_KEY_RE and limn.people.is_actor: is r a pin
-    record the store may trust? A record failing it is a broken line."""
-    return record.valid_rec(r, DOC_KEY_RE.fullmatch, _is_actor)
+def parse_record(r: object) -> Pin | Broken:
+    """The store's parse of a pins.jsonl line (limn.pins.record.parse_record) with DOC_KEY_RE and
+    limn.people.is_actor: the pin r holds, or Broken for a record the store may not trust."""
+    return record.parse_record(r, DOC_KEY_RE.fullmatch, _is_actor)
+
+
+def parse_trashed(r: object) -> TrashedPin | Broken:
+    """The store's parse of a Trash line (limn.pins.record.parse_trashed), with the same two rules as parse_record."""
+    return record.parse_trashed(r, DOC_KEY_RE.fullmatch, _is_actor)
 
 
 def pin_location(r: Record, root: Path, state: Path) -> PinLocation | None:
@@ -506,47 +515,60 @@ def stamp_location(r: Row, root: Path, state: Path) -> PinLocation | None:
     return locate.stamp_location(r, root, state, doc_by_key(pin_doc_key(r)))
 
 
+def pin_file(pin: Pin, root: Path, state: Path) -> PinLocation | None:
+    """Where stored line pin pin's file is under the manuscript root on this machine now (limn.locate.pin_file, the tail
+    guess limited to the folder of the pin's own document, never in the state folder), or None."""
+    return locate.pin_file(pin, root, state, doc_by_key(pin_doc_key(pin.record)))
+
+
 def pin_locator() -> locate.Locator:
-    """pin_location() bound to this instance's manuscript root and state folder, read now."""
+    """pin_file() bound to this instance's manuscript root and state folder, read now: where a stored pin's file is."""
+    root, state = C.src, C.state
+    return lambda pin: pin_file(pin, root, state)
+
+
+def record_locator() -> Callable[[Record], PinLocation | None]:
+    """pin_location() bound to this instance's manuscript root and state folder, read now: where the file a record's
+    location fields name is (the services locate a new pin's file, or an edit's, this way)."""
     root, state = C.src, C.state
     return lambda r: pin_location(r, root, state)
 
 
-def sync_all(rows: list[Row]) -> bool:
+def sync_all(pins: list[Pin]) -> bool:
     """The store's re-sync (PinStore.sync): stored pins' lines follow their anchors in the .tex files as this instance
     finds them now (limn.locate.sync_all)."""
-    return locate.sync_all(rows, pin_locator())
+    return locate.sync_all(pins, pin_locator())
 
 
 def pin_store() -> PinStore:
     """The pin store (limn.store) over the current run arguments - where the composition root wires it.
 
     Made per call, like build_config(), so a test that binds another C is seen at once; the lock is the one
-    process-wide RT.pin_lock. The collaborators are looked up at call time: the record check valid_rec, the anchor re-sync
-    sync_all (reads the .tex files under C.src) and the renderer pins_md_text."""
-    return PinStore(PinFiles(C.state), RT.pin_lock, valid_rec, sync_all, pins_md_text)
+    process-wide RT.pin_lock. The collaborators are looked up at call time: parse_record and parse_trashed read stored
+    records into pins, sync_all re-matches their anchors, and pins_md_text renders the result."""
+    return PinStore(PinFiles(C.state), RT.pin_lock, parse_record, parse_trashed, sync_all, pins_md_text)
 
 
 # The pin store under its old names - the many call sites (transact(fn) everywhere) keep calling these, and each
 # delegates to pin_store(). The contracts are the store's methods of the same name.
 
 
-def read_jsonl(path: Path) -> tuple[list[Row], list[int]]:
-    """(records, broken line numbers) of a JSONL file (PinStore.read_jsonl)."""
-    return pin_store().read_jsonl(path)
-
-
-def read_pins() -> tuple[list[Row], list[int]]:
-    """The live pins and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
+def read_pins() -> tuple[list[Pin], list[int]]:
+    """The live pins, parsed, and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
     return pin_store().read_pins()
 
 
-def write_pins(rows: list[Row], bad: list[int] | None = None) -> None:
+def read_dropped() -> tuple[list[TrashedPin], list[int]]:
+    """The Trash entries, parsed, and the Trash file's broken line numbers, lock-free (PinStore.read_dropped)."""
+    return pin_store().read_dropped()
+
+
+def write_pins(pins: list[Pin], bad: list[int] | None = None) -> None:
     """Rewrites pins.jsonl then pins.md; nothing if rendering fails (PinStore.write_pins). Callers hold RT.pin_lock."""
-    pin_store().write_pins(rows, bad)
+    pin_store().write_pins(pins, bad)
 
 
-def snapshot_pins() -> list[Row]:
+def snapshot_pins() -> list[Pin]:
     """The live pins, re-synced and written back if that changed them (PinStore.snapshot)."""
     return pin_store().snapshot()
 
@@ -567,10 +589,11 @@ def public(r: Record) -> Json:
 # history (limn.locate.est_context), the pin locator, the stored pins and the clock.
 
 
-def pins_payload(rows: list[Row], allp: bool) -> list[Json]:
+def pins_payload(pins: Sequence[Pin], allp: bool) -> list[Json]:
     """GET /api/pins response (limn.pins.view.pins_payload): stored records + the computed fields rel (overlap), est
     (location estimated), doc, state, addressed, fyi. None of these are stored."""
-    return view.pins_payload(rows, allp, overlaps_by_id(rows), public, pin_doc_key, _doc_est_context, time.time())
+    rows = [pin.record for pin in pins]
+    return view.pins_payload(rows, allp, overlaps_by_id(pins), public, pin_doc_key, _doc_est_context, time.time())
 
 
 def pin_payload(pid: int) -> Json | PinNotFound:
@@ -595,13 +618,13 @@ def dropped_payload(now: float | None = None) -> list[Json]:
     Read-only and outside the lock - dropping/restoring already hold RT.pin_lock while writing this file
     (drop_pin/restore_pin). Since only a file that has finished an atomic replace (atomic_write) is ever
     read here, no separate lock is needed to avoid seeing a half-written file."""
-    return view.dropped_payload(_unexpired(read_jsonl(C.dropped)[0], now), public, trash_expires_ts)
+    return view.dropped_payload(_unexpired(read_dropped()[0], now), public, trash_expires_ts)
 
 
-def overlaps_by_id(rows: Sequence[Row]) -> dict[int, list[Json]]:
+def overlaps_by_id(pins: Sequence[Pin]) -> dict[int, list[Json]]:
     """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
     now (limn.locate.overlaps_by_id), never stored."""
-    return locate.overlaps_by_id(rows, pin_locator())
+    return locate.overlaps_by_id(pins, pin_locator())
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list[Json]:
@@ -672,7 +695,7 @@ def pin_context() -> PinContext:
         note_tags=note_tags,
         role_of=role_of,
         person_name=_person_name,
-        locate=pin_locator(),
+        locate=record_locator(),
         stamp=lambda r: stamp_location(r, C.src, C.state),
         thread_max=THREAD_MAX,
         trash_days=TRASH_DAYS,
@@ -693,9 +716,12 @@ def add_pin(D: Doc, request: AddRequest, actor: Json) -> OpenPin:
 def edit_scope(pid: int) -> tuple[bool, Doc]:
     """(region, document) of an edit of pin pid, read without the lock before the edit (as always): whether it is a
     view-only (region) pin, and the document its loc is checked against - the pin's own, else the first one."""
-    r0 = find_pin(read_pins()[0], pid)
-    region = r0 is not None and is_region_pin(r0)
-    return region, (doc_by_key(pin_doc_key(r0)) if r0 is not None else None) or DOCS[0]
+    pins, _ = read_pins()
+    i = pin_index(pins, pid)
+    if i is None:
+        return False, DOCS[0]
+    pin = pins[i]
+    return isinstance(pin.core.place, Region), doc_by_key(pin_doc_key(pin.record)) or DOCS[0]
 
 
 def edit_pin(
@@ -745,13 +771,15 @@ def people_payload() -> list[Json]:
     return people.candidates(known_people(snapshot_pins()), lambda login: person_role(roles, login))
 
 
-def known_people(rows: list[Row] | None = None) -> dict[str, Row]:
-    """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (rows, or the
-    stored pins when None), agents excluded (limn.people.known_people). An unusable people.json adds no one: the
-    candidates are then the people on the pins."""
+def known_people(pins: Sequence[Pin] | None = None) -> dict[str, Row]:
+    """@-tag candidates {login: {login,name,pic?,last_seen?}} - people.json plus the people on the pins (pins, or the
+    stored pins when None), agents excluded (limn.people.known_people, which scans each pin's stored actor fields in
+    stored order - the first one seen names a login). An unusable people.json adds no one: the candidates are then
+    the people on the pins."""
     ppl = load_people()
     listed = [] if isinstance(ppl, people.PeopleUnreadable) else ppl
-    return people.known_people(listed, rows if rows is not None else read_pins()[0], is_agent)
+    on = pins if pins is not None else read_pins()[0]
+    return people.known_people(listed, (pin.record for pin in on), is_agent)
 
 
 def event_log() -> events.EventLog:
@@ -785,7 +813,7 @@ def _read_events() -> tuple[list[Row], events.Signature | None]:
 
 
 def note_tags(
-    note: str, old_note: str, rows: list[Row], hints: Sequence[str] | None, actor: Mapping[str, Any], pid: object
+    note: str, old_note: str, pins: Sequence[Pin], hints: Sequence[str] | None, actor: Mapping[str, Any], pid: object
 ) -> NoteTags:
     """Resolve the saved note's @-tags and decide who gets a mention event for pin pid.
 
@@ -794,7 +822,7 @@ def note_tags(
     NOTE_MENTION_COOLDOWN_S (note_mention_targets over events.jsonl, read only when someone is newly tagged). Runs
     inside transact(): the caller emits the event under the same RT.pin_lock, so the next save sees it."""
     me = (actor or {}).get("login")
-    tags = tag_note(note, old_note, known_people(rows), hints, me)
+    tags = tag_note(note, old_note, known_people(pins), hints, me)
     if not tags.notify:
         return tags
     return tags._replace(notify=note_mention_targets(tags.notify, _read_events()[0], me, pid, time.time()))
@@ -858,19 +886,19 @@ def drop_pin(pid: int, actor: Json) -> TrashedPin | PinNotFound:
 # the Runtime's (RT.trash_checked).
 
 
-def trash_expires_ts(r: Record) -> float | None:
+def trash_expires_ts(entry: TrashedPin) -> float | None:
     """Epoch seconds at which a Trash entry expires (dropped_at + TRASH_DAYS), or None if dropped_at is unreadable."""
-    return trash.expires_ts(r, TRASH_DAYS)
+    return trash.expires_ts(entry, TRASH_DAYS)
 
 
-def trash_expired(r: Record, now: float | None = None) -> bool:
-    """Is Trash entry r past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
-    return trash.expired(r, TRASH_DAYS, time.time() if now is None else now)
+def trash_expired(entry: TrashedPin, now: float | None = None) -> bool:
+    """Is a Trash entry past TRASH_DAYS at now (default: the clock)? An entry of unknown age never is."""
+    return trash.expired(entry, TRASH_DAYS, time.time() if now is None else now)
 
 
-def _unexpired(rows: Sequence[Row], now: float | None = None) -> list[Row]:
-    """The Trash entries of rows still restorable at now (default: the clock)."""
-    return trash.unexpired(rows, TRASH_DAYS, time.time() if now is None else now)
+def _unexpired(entries: Sequence[TrashedPin], now: float | None = None) -> list[TrashedPin]:
+    """The Trash entries still restorable at now (default: the clock)."""
+    return trash.unexpired(entries, TRASH_DAYS, time.time() if now is None else now)
 
 
 def purge_trash(now: float | None = None) -> int:
@@ -922,29 +950,31 @@ def clear_pins(actor: Json | None = None) -> Json:
     return trash.clear_pins(pin_context(), actor)
 
 
-def render_pins_md(rows: list[Row]) -> None:
-    """Rewrites pins.md from rows alone (PinStore.render_md). Callers hold RT.pin_lock."""
-    pin_store().render_md(rows)
+def render_pins_md(pins: Sequence[Pin]) -> None:
+    """Rewrites pins.md from pins alone (PinStore.render_md). Callers hold RT.pin_lock."""
+    pin_store().render_md(pins)
 
 
-def pins_md_text(rows: list[Row], base: str | None = None) -> str:
-    """pins.md's text for rows: limn.pins.render.pins_md_text over pins_md_input(rows, base). The store renders with
+def pins_md_text(pins: Sequence[Pin], base: str | None = None) -> str:
+    """pins.md's text for pins: limn.pins.render.pins_md_text over pins_md_input(pins, base). The store renders with
     this after every write (base None: the file on disk) and GET /pins.md with the request's base."""
-    return render_pins_md_text(pins_md_input(rows, base))
+    return render_pins_md_text(pins_md_input(pins, base))
 
 
-def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
+def pins_md_input(pins: Sequence[Pin], base: str | None = None) -> PinsMdInput:
     """Everything one rendering of pins.md reads, gathered at the edge: the run settings in C, the documents and their
     build stamps, the clock, this machine's token file, people.json, and per pin what the overlap, @-tag, thread and
     file-location rules decide. base is GET /pins.md's request base, None for the file written to disk.
 
     Reads files (people.json, the build stamps, whether the token file exists, and the source file of each open
     one-line pin that carries a quote - each file read at most once per call) but writes nothing."""
-    rel = overlaps_by_id(rows)
+    rows = [pin.record for pin in pins]
+    rel = overlaps_by_id(pins)
     by_id = {r["id"]: r for r in rows}
     sources: dict[Path, list[str]] = {}
     facts: dict[int, PinFacts] = {}
-    for r in rows:
+    for pin in pins:
+        r = pin.record
         if state_of(r) is DonePin:
             continue
         location, line_len = "", None
@@ -962,10 +992,10 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
             location=location,
             line_len=line_len,
             badge=rel_badge(rel.get(r["id"], []), by_id, r),
-            reopened=pin_reopened_in_round(r),
-            addressed=tuple(addressed_to(r)),
-            fyi=tuple(fyi_mentions_to(r)),
-            round=tuple(thread_round(r)),
+            reopened=pin_reopened_in_round(pin.core.thread),
+            addressed=tuple(addressed_to(pin)),
+            fyi=tuple(fyi_mentions_to(pin)),
+            round=tuple(thread_round(pin.core.thread)),
         )
     docs = tuple(
         DocHeading(d.key, d.name, d.rel_path(), d.is_pdf, build.read_head(d), build.read_built_at(d)) for d in DOCS
@@ -979,7 +1009,7 @@ def pins_md_input(rows: list[Row], base: str | None = None) -> PinsMdInput:
         label=C.label,
         repo=C.repo,
         docs=docs,
-        people=known_people(rows),
+        people=known_people(pins),
         now=time.time(),
         updated=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
         token_file=existing_token_file_shown(C.access.agent_token_file),

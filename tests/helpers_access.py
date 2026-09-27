@@ -24,7 +24,19 @@ from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
 from limn.store import dump_jsonl
 
-from helpers import DEFAULT_ACCESS, Base, add_pin, fresh_runtime, ps, req, run_config, set_config, shut_wr, split_resp
+from helpers import (
+    DEFAULT_ACCESS,
+    Base,
+    add_pin,
+    fresh_runtime,
+    ps,
+    records,
+    req,
+    run_config,
+    set_config,
+    shut_wr,
+    split_resp,
+)
 
 # Tailnet identities as the request headers `tailscale serve` adds. Every server-level module uses these three.
 ALICE = {"Tailscale-User-Login": "alice@example.com", "Tailscale-User-Name": "Alice Kim"}
@@ -379,11 +391,11 @@ class MovedManuscriptBase(AccessBase):
 
     def stored(self):
         """The stored records of pins.jsonl by id, as read from disk."""
-        return {r["id"]: r for r in ps.read_pins()[0]}
+        return {r["id"]: r for r in records(ps.read_pins()[0])}
 
     def rewrite(self, fn):
         """Edit pins.jsonl directly (a state written by another version, or by hand)."""
-        rows = ps.read_pins()[0]
+        rows = records(ps.read_pins()[0])
         fn(rows)
         ps.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
 
