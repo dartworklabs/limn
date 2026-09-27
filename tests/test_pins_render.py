@@ -871,7 +871,7 @@ class AddressedInPinsMd(Base):
         self.assertIn("| %d · → @Wendy Kim · 질문 |" % a, row)  # priority: reopened > -> @ > question
         self.assertIn("`→ @이름` 이 붙은 핀 1건은 담당이 사람인", md)
         self.assertIn("명시적으로 시키지 않으면 건너뛴다", md)
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(next(r for r in rows if r["id"] == a)["addressed"], [self.W["login"]])
 
     # ---- assignee — docs/handbook/api.md §담당. Guessing the skip rule from free text was ambiguous (A-DEMO #43).
@@ -894,7 +894,7 @@ class AddressedInPinsMd(Base):
             },
             dict(self.W),
         ).record["id"]
-        rows = {r["id"]: r for r in ps.APP.pins_payload(ps.APP.snapshot_pins(), True)}
+        rows = {r["id"]: r for r in ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)}
         self.assertNotIn("assignee", rows[legacy])  # legacy pin: no field -> inferred per #87 (fix request = fyi)
         self.assertEqual((rows[legacy]["addressed"], rows[legacy]["fyi"]), ([], [self.S["login"]]))
         self.assertEqual((rows[person]["addressed"], rows[person]["fyi"]), ([self.S["login"]], []))

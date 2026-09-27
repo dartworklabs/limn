@@ -673,7 +673,7 @@ class LegacyPinsNotRewritten(Base):
         ps.APP.C.pins_jsonl.write_text(json.dumps(legacy, ensure_ascii=False) + "\n", encoding="utf-8")
         before = ps.APP.C.pins_jsonl.read_bytes()
         mtime = ps.APP.C.pins_jsonl.stat().st_mtime_ns
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.talk(req("GET", "/api/pins?all=1"))
         self.talk(req("GET", "/pins.md"))
         self.assertEqual(ps.APP.C.pins_jsonl.read_bytes(), before)
@@ -701,7 +701,7 @@ class LegacyMentionsNotRewritten(Base):
         f = ps.APP.C.pins_jsonl
         before = f.read_bytes()
         for _ in range(2):
-            ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+            ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
             self.talk(req("GET", "/api/pins?all=1"))
             self.talk(req("GET", "/pins.md"))
         self.assertEqual(f.read_bytes(), before)

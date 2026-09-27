@@ -29,6 +29,7 @@ from limn.documents import DocNotFound
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.listing import http as listing_http
 from limn.features.pins.trash import http as trash_http
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
@@ -375,9 +376,11 @@ class Answers(unittest.TestCase):
 
     def test_one_pin_drop_purge_and_clear(self):
         """GET /api/pins/{id}, drop, purge and clear: their bodies, and the 404s of an unknown pin or Trash entry."""
-        self.assertEqual(answers.pin_answer({"id": 4}), {"pin": {"id": 4}})
+        self.assertEqual(listing_http.pin_answer({"id": 4}), {"pin": {"id": 4}})
         self.assert_refused(
-            lambda: answers.pin_answer(PinNotFound(4)), 404, {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"}
+            lambda: listing_http.pin_answer(PinNotFound(4)),
+            404,
+            {"error": "핀 #4 이 없습니다.", "reason": "pin_not_found"},
         )
         trashed = TrashedPin.from_record({"id": 4})
         self.assertEqual(trash_http.drop_answer(trashed), {"ok": True})

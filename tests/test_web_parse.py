@@ -18,6 +18,7 @@ from limn.access import LOCAL_ACTOR
 from limn.features.pins.claims import input as claims_input
 from limn.features.pins.editing import input as editing_input, location as editing_location
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.pins.listing import input as listing_input
 from limn.features.pins.trash import input as trash_input
 from limn.files import BadPath, NotAFile, OutsideTree, file_in_tree
 from limn.pins.edit import LinePlace, PinEdited, RegionPlace, evolve_edit
@@ -424,8 +425,10 @@ class RouteRequests(unittest.TestCase):
     def test_route_queries(self):
         """GET /api/pins, POST /api/rebuild, GET /pdf and GET /api/meta read their query only through these; none but
         the event cursor refuses anything."""
-        self.assertEqual(parse.parse_pins_query({"all": ["1"], "doc": ["rev"]}), parse.PinsQuery(True, True))
-        self.assertEqual(parse.parse_pins_query({}), parse.PinsQuery(False, False))
+        self.assertEqual(
+            listing_input.parse_pins_query({"all": ["1"], "doc": ["rev"]}), listing_input.PinsQuery(True, True)
+        )
+        self.assertEqual(listing_input.parse_pins_query({}), listing_input.PinsQuery(False, False))
         self.assertEqual(parse.parse_rebuild_query({"async": ["1"]}), parse.RebuildQuery(False, True))
         self.assertEqual(parse.parse_rebuild_query({"log": ["1"], "async": ["0"]}), parse.RebuildQuery(True, False))
         self.assertEqual(parse.parse_build_name({"build": ["pages-x", "y"]}), "pages-x")

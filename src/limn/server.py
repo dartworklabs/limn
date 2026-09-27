@@ -90,7 +90,7 @@ from limn.events import EVENTS_KEEP, EventType
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
-from limn.features.pins.trash import service as trash_service
+from limn.features.pins.listing.service import PinListing
 from limn.features.pins.trash.service import PinTrash
 from limn.files import tex_lines, vendor_file as find_vendor_file
 from limn.guidance import shell_path
@@ -116,7 +116,6 @@ from limn.pins.model import (
     DonePin,
     OpenPin,
     Pin,
-    PinNotFound,
     Record,
     Region,
     TrashedPin,
@@ -354,6 +353,7 @@ class ServerApplication:
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
     pin_editing: PinEditing = field(init=False)
+    pin_listing: PinListing = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -361,6 +361,7 @@ class ServerApplication:
         self.pin_claims = PinClaims(self.pin_context)
         self.pin_trash = PinTrash(self.pin_context)
         self.pin_editing = PinEditing(self.pin_context)
+        self.pin_listing = PinListing(self, TRASH_DAYS)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE
@@ -599,39 +600,11 @@ class ServerApplication:
         loc = self.pin_location(r, self.C.src, self.C.state)
         return view.public_record(r, None if loc is None else (str(loc.path), loc.rel))
 
-    def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """GET /api/pins response (limn.pins.view.pins_payload): stored records + the computed fields rel (overlap), est
-        (location estimated), doc, state, addressed, fyi. None of these are stored."""
-        rows = [pin.record for pin in pins]
-        return view.pins_payload(
-            rows, allp, self.overlaps_by_id(pins), self.public, self.pin_doc_key, self._doc_est_context, time.time()
-        )
-
-    def pin_payload(self, pid: int) -> Json | PinNotFound:
-        """GET /api/pins/{id}: pin pid as GET /api/pins?all=1 lists it (the pins re-synced and saved first), or
-        PinNotFound."""
-        rec = next((r for r in self.pins_payload(self.snapshot_pins(), True) if r["id"] == pid), None)
-        return PinNotFound(pid) if rec is None else rec
-
     def _doc_est_context(self, key: str) -> EstContext | None:
         """What estimation reads of the builds of the document key names (limn.locate.est_context), or None when this
         instance no longer serves that document."""
         D = self.doc_by_key(key)
         return None if D is None else est_context(D)
-
-    def dropped_payload(self, now: float | None = None) -> list[Json]:
-        """GET /api/pins/dropped response - the Trash (limn.pins.view.dropped_payload): pins.dropped.jsonl ordered by
-        dropped_at, each entry with `expires_ts`, without expired entries or copies of live pins. Read-only, but reads
-        both files under one lock so a concurrent drop or restore cannot mix two moments of state."""
-        with self.RT.pin_lock:
-            pins = self.read_pins()[0]
-            entries = self.read_dropped()[0]
-        visible = trash_service.without_live_shadows(entries, pins)
-        return view.dropped_payload(
-            trash_service.unexpired(visible, TRASH_DAYS, time.time() if now is None else now),
-            self.public,
-            lambda entry: trash_service.expires_ts(entry, TRASH_DAYS),
-        )
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
         """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it

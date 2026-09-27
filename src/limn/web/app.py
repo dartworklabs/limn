@@ -28,9 +28,10 @@ from limn.documents import Doc, DocNotFound
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.listing.service import PinListing
 from limn.features.pins.trash.service import PinTrash
 from limn.locate import Picked, PickedRegion, PickRefusal
-from limn.pins.model import Pin, PinNotFound, Record
+from limn.pins.model import Pin, Record
 from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 from limn.viewer.assemble import ServedViewer
 from limn.web.parse import DocumentFacts, PickRequest, SourceRange
@@ -54,6 +55,7 @@ class App(Protocol):
     pin_claims: PinClaims
     pin_trash: PinTrash
     pin_editing: PinEditing
+    pin_listing: PinListing
     APP_NAME: str
     DEFAULT_ROLE: access.Role  # the role of a person people.json gives none
 
@@ -178,20 +180,8 @@ class App(Protocol):
         """The pins.md text."""
         ...
 
-    def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """GET /api/pins: records plus computed fields."""
-        ...
-
     def docs_payload(self) -> Json:
         """GET /api/docs."""
-        ...
-
-    def pin_payload(self, pid: int) -> Json | PinNotFound:
-        """GET /api/pins/{id}: one pin as GET /api/pins?all=1 lists it, or PinNotFound."""
-        ...
-
-    def dropped_payload(self, now: float | None = None) -> list[Json]:
-        """GET /api/pins/dropped: the Trash."""
         ...
 
     def snippet_api(self, rng: SourceRange, levels: bool) -> Json:

@@ -737,7 +737,7 @@ class Claim(Base):
         pid = self.add()
         ps.APP.pin_claims.claim_pin(pid, dict(LOCAL_ACTOR), 120)
         ps.APP.pin_trash.drop_pin(pid, dict(LOCAL_ACTOR))
-        dropped = ps.APP.dropped_payload()
+        dropped = ps.APP.pin_listing.dropped_payload()
         self.assertEqual(len(dropped), 1)
         self.assertNotIn("claimed_by", dropped[0])
 

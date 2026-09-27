@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
+from limn.features.pins.listing import http as listing_http
 from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
@@ -351,18 +352,14 @@ class Handler(BaseHTTPRequestHandler):
             return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
         if path == "/api/pins":
             app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
-            pins = parse.parse_pins_query(q)
-            rows = app.pins_payload(app.snapshot_pins(), pins.all)
-            if pins.doc_scoped:  # only that document's pins (overlap/estimation stay computed globally)
-                rows = [r for r in rows if r["doc"] == D.key]
-            return _json_reply(rows)
+            return _json_reply(listing_http.pins(app, q, D.key))
         if path == "/api/docs":
             return _json_reply(app.docs_payload())
         if path == "/api/pins/dropped":
-            return _json_reply({"dropped": app.dropped_payload()})
+            return _json_reply(listing_http.dropped(app))
         m = re.fullmatch(r"/api/pins/(\d+)", path)
         if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
-            return _json_reply(answers.pin_answer(app.pin_payload(int(m.group(1)))))
+            return _json_reply(listing_http.one(app, int(m.group(1))))
         return None
 
     def _get_source(self, path: str, q: Query, D: Document) -> Reply | None:

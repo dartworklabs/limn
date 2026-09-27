@@ -63,7 +63,7 @@ class TrashApi(AccessBase):
 
     def test_trash_listing_carries_the_purge_time(self):
         self.put_dropped(70, 10)
-        rec = ps.APP.dropped_payload()[0]
+        rec = ps.APP.pin_listing.dropped_payload()[0]
         self.assertAlmostEqual(rec["expires_ts"], position.epoch(rec["dropped_at"]) + 30 * 86400, delta=1)
         self.assertNotIn("expires_ts", trash_records()[0])  # computed, never stored
 
@@ -126,7 +126,7 @@ class TrashApi(AccessBase):
         self.put_dropped(50, 31)
         self.put_dropped(51, 29)
         self.put_dropped(52, None)  # no timestamp (hand-edited): kept, never guessed
-        ids = sorted(r["id"] for r in ps.APP.dropped_payload())
+        ids = sorted(r["id"] for r in ps.APP.pin_listing.dropped_payload())
         self.assertEqual(ids, [51, 52])  # a read never shows an expired pin...
         self.assertEqual(sorted(r["id"] for r in self.dropped_file()), [50, 51, 52])  # ...and never writes
         self.assertEqual(ps.APP.pin_trash.purge_trash(), 1)
@@ -251,7 +251,7 @@ class TrashRecovery(AccessBase):
         audit_path = ps.APP.C.audit_file
         before_audit = audit_path.read_bytes() if audit_path.exists() else b""
 
-        self.assertEqual(ps.APP.dropped_payload(), [])
+        self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
         self.assertEqual(self.call("GET", "/api/pins/dropped", headers=ALICE), (200, {"dropped": []}))
         self.assertEqual(ps.APP.C.dropped.read_bytes(), before)
         self.assertEqual(self.call("POST", "/api/pins/%d/purge" % pid, None, BOB)[0], 403)
@@ -272,7 +272,7 @@ class TrashRecovery(AccessBase):
         def read():
             """Signal entry, then capture the response after the store lock becomes available."""
             started.set()
-            result.extend(ps.APP.dropped_payload())
+            result.extend(ps.APP.pin_listing.dropped_payload())
             done.set()
 
         with ps.APP.RT.pin_lock:
@@ -395,7 +395,8 @@ class TrashRecovery(AccessBase):
                 self.assertEqual(live, stage == "pins.dropped.jsonl")
                 self.assertEqual(sum(row["id"] == pid for row in self.dropped_file()), 1)
                 self.assertEqual(
-                    [row["id"] for row in ps.APP.dropped_payload() if row["id"] == pid], [] if live else [pid]
+                    [row["id"] for row in ps.APP.pin_listing.dropped_payload() if row["id"] == pid],
+                    [] if live else [pid],
                 )
                 self.assertEqual(len(ps.APP._read_events()[0]), before_events)
                 if stage == "pins.jsonl":
@@ -416,7 +417,7 @@ class TrashRecovery(AccessBase):
                 with self.fail_after_write(stage), self.assertRaises(OSError):
                     ps.APP.pin_trash.restore_pin(pid, A)
                 self.assertIsNotNone(self.pin(pid))
-                self.assertEqual(ps.APP.dropped_payload(), [])
+                self.assertEqual(ps.APP.pin_listing.dropped_payload(), [])
                 if stage == "pins.jsonl":
                     self.assertEqual(ps.APP.C.pins_md.read_bytes(), before_md)
                 refusal = ps.APP.pin_trash.restore_pin(pid, A)
@@ -452,7 +453,7 @@ class TrashRecovery(AccessBase):
         with mock.patch.object(ps.build, "needs_build", return_value=False):
             self.assertIsNone(fresh.prepare(None, True))
         self.assertNotRegex(fresh.C.pins_md.read_text(encoding="utf-8"), r"\n\| %d[ ·|]" % pid)
-        self.assertEqual([row["id"] for row in fresh.dropped_payload()], [pid])
+        self.assertEqual([row["id"] for row in fresh.pin_listing.dropped_payload()], [pid])
         self.assertEqual(len(fresh._read_events()[0]), before_events)
 
 
@@ -591,7 +592,7 @@ class ClearEndpoint(AccessBase):
         atomic_write(ps.APP.C.dropped, dump_jsonl([entry.record for entry in old] + [shadow]) + "{broken\n")
         self.assertEqual(self.call("POST", "/api/clear", CLEAR_BODY, ALICE)[0], 200)
         self.assertEqual([row["id"] for row in trash_records()], [dropped_id])
-        self.assertEqual([row["id"] for row in ps.APP.dropped_payload()], [dropped_id])
+        self.assertEqual([row["id"] for row in ps.APP.pin_listing.dropped_payload()], [dropped_id])
         self.assertEqual(self.call("POST", "/api/pins/%d/restore" % live_id, None, ALICE)[0], 404)
         backups = list(ps.APP.C.state.glob("pins.dropped.jsonl.corrupt-*.bak"))
         self.assertEqual(len(backups), 1)

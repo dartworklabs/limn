@@ -1159,7 +1159,7 @@ class MultiDoc(Base):
             "at": "2026-09-01 10:00:00",
         }
         ps.APP.C.pins_jsonl.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
-        rows = ps.APP.pins_payload(ps.APP.read_pins()[0], True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.read_pins()[0], True)
         self.assertEqual(rows[0]["doc"], "ms")  # the first document
         self.assertNotIn('"doc"', ps.APP.C.pins_jsonl.read_text(encoding="utf-8"))  # no migration write occurs
         self.assertEqual(ps.APP.docs_payload()["docs"][0]["n_open"], 1)
@@ -1358,7 +1358,7 @@ class MultiDoc(Base):
         tid = self.add(4, 5)
         self.main.write_text("\n" + TEX, encoding="utf-8")  # lines shift down
         os.utime(self.main, (time.time() + 5, time.time() + 5))
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), False)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), False)
         by = {r["id"]: r for r in rows}
         self.assertEqual((by[tid]["lo"], by[tid]["hi"]), (5, 6))
         self.assertEqual(by[rid]["rel"], [])
@@ -1596,7 +1596,7 @@ class KindAndThread(Base):
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
         ps.APP.pin_lifecycle.close_pin(pid, dict(self.S), CloseRequest())
-        rows = ps.APP.pins_payload(ps.APP.snapshot_pins(), True)
+        rows = ps.APP.pin_listing.pins_payload(ps.APP.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", records(ps.APP.read_pins()[0])[0])  # a computed field — not stored
 

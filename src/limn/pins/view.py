@@ -27,7 +27,7 @@ Row: TypeAlias = Mapping[str, Any]
 Json: TypeAlias = dict[str, Any]
 # How the API shows a record before the computed fields: a copy placed on this machine (server.public()).
 Show: TypeAlias = Callable[[Row], Json]
-# When a Trash entry expires, in epoch seconds, or None when its age cannot be read (server.trash_expires_ts()).
+# When a Trash entry expires, in epoch seconds, or None when its age cannot be read (pin listing collaborator).
 ExpiresTs: TypeAlias = Callable[[TrashedPin], float | None]
 
 

@@ -308,19 +308,6 @@ def parse_events_query(q: Query) -> int | None | InputRejected:
     return parse_event_cursor(_first(q, "ev"))
 
 
-class PinsQuery(NamedTuple):
-    """GET /api/pins: every pin including closed ones (?all=1), and whether ?doc= names a document, which keeps only
-    that document's pins."""
-
-    all: bool
-    doc_scoped: bool
-
-
-def parse_pins_query(q: Query) -> PinsQuery:
-    """GET /api/pins's switches; never refused (a ?doc= naming no document was refused when the document was found)."""
-    return PinsQuery(parse_flag(q, "all"), bool(q.get("doc")))
-
-
 class RebuildQuery(NamedTuple):
     """POST /api/rebuild's switches: keep the whole log in the answer (?log=1), and build in the background (?async=1)."""
 

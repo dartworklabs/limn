@@ -38,12 +38,13 @@ catalog_schema: 1
 <!-- handbook-filemap:start -->
 | 경로 패턴 | 책임 | 수정 trigger | 갱신 주체 |
 | --- | --- | --- | --- |
-| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고, `PinLifecycle`·`PinClaims`·`PinTrash`·`PinEditing`에 실행별 문맥 생성 함수를 묶으며 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
+| `src/limn/server.py` | 조립 지점: 실행 설정 `RunConfig`, 실행별 자원 소유자 `Runtime`(핀 잠금, 신원·사람 캐시, pull 나눠 쓰기, 감시 상태, 작업 목록, 뷰어, 감시 스레드와 `stop()`), 문서 목록을 `ServerApplication` 하나에 묶는다. 앱 메서드가 옮긴 모듈에 이 실행의 설정과 협력자를 넘기고, 핀 변경 협력자에 실행별 문맥 생성 함수를, `PinListing`에 조회 사실을 묶으며 `web/app.py`의 `App` 프로토콜을 구현한다. `start()`는 실행 전용 처리기에 앱을 묶고 `StartedServer`로 소켓과 앱을 함께 돌려준다 | 시작·종료 순서, 앱이 넘기는 설정·협력자, `App`에 든 서비스의 이름·인자 변경 | architecture.md, operations.md, 연결된 모듈의 topic |
 | `src/limn/service/context.py` | 여러 핀 기능이 쓰는 `PinContext`: 저장소·시계·알림·감사·파일 위치 협력자 | 기능이 받는 협력자와 저장·알림 경계 변경 | domain.md, api.md, architecture.md 불변식 4 |
 | `src/limn/features/pins/lifecycle/*` | 닫기·다시 열기·확인·답글의 입력(`input.py`), HTTP 응답(`http.py`), 실행별 문맥을 받는 잠금·전이·알림(`service.py`). 다른 핀 동작과 함께 쓰는 순수 규칙은 현재 `pins/lifecycle.py`가 소유한다 | 네 경로의 파싱·응답·쓰기·알림·권한 흐름 변경 | api.md, domain.md, architecture.md, code-style-roadmap.md |
 | `src/limn/features/pins/claims/*` | claim·unclaim의 시간 입력과 상한(`input.py`), 성공·409 응답(`http.py`), 실행별 문맥으로 저장하는 `PinClaims`(`service.py`). 순수 claim 규칙은 공통 `pins/lifecycle.py`에 있다 | 시간 검사·응답·저장 순서 변경 | api.md, domain.md, architecture.md |
 | `src/limn/features/pins/trash/*` | 전체 비우기 확인 입력(`input.py`), 삭제·복원·영구 삭제·전체 비우기의 HTTP 응답(`http.py`), 실행별 문맥의 휴지통 변경·만료 정리(`service.py`). 순수 핀 전이는 공통 `pins/lifecycle.py`에 있다 | 휴지통의 쓰기·알림·감사 순서, 보존 기한, 응답 변경 | api.md, domain.md, architecture.md |
 | `src/limn/features/pins/editing/*` | 만들기·편집의 줄·PDF 영역 위치 검사(`location.py`), 본문 입력(`input.py`), 응답(`http.py`), 저장·알림(`service.py`). 순수 편집 규칙은 `pins/edit.py`에 있다 | 위치·필드 검사 순서, 저장·알림·응답 변경 | api.md, domain.md, architecture.md |
+| `src/limn/features/pins/listing/*` | 핀 목록·한 핀·휴지통의 쿼리 입력(`input.py`), HTTP 응답(`http.py`), 실행별 읽기(`service.py`). 순수 계산 필드 규칙은 `pins/view.py`에 있다 | 조회 순서, 필터, 계산 필드, 휴지통 가시성·응답 변경 | api.md, domain.md, architecture.md |
 | `src/limn/store.py` | 핀 저장소: 잠금 아래 쓰기 순서(`transact`), `pins.jsonl`·`pins.md`·휴지통 쓰기, 손상 줄 보존, 핀 번호(`pins.seq`), 보관(clear). 서버를 모르고 협력자를 인자로 받는다 | 저장 순서·파일 이름·보존 규칙 변경 | domain.md §저장소 안전성, architecture.md 불변식 4 |
 | `src/limn/pins/*` | 핀 도메인의 순수 코드: 상태 타입, 행위자 타입, 저장소가 믿는 레코드 모양 검사(`record.py`), 옮겨진 전이와 `pins.md`의 다시 열림 판단(`lifecycle.py`), 편집 판단과 새 핀 레코드, 핀 위치 규칙(`position.py`: 위치 추정·겹침·anchor 재동기화), JSON 정수·숫자 판정(`shapes.py`), `pins.md` 렌더(`render.py`: 입력 값 → 문자열, 겹침 배지), API가 레코드를 보이는 모양과 계산 필드(`view.py`: `public_record`·`state`·`GET /api/pins`·휴지통 본문) | 저장 레코드 필드 추가(`record.py`의 검사도 함께), 상태·전이·거절 규칙, 추정·겹침·줄 맞춤 규칙 변경, `pins.md` 열·표시·머리말 변경(계약) | domain.md, build-sync.md §위치 추정 (`est`), api.md §pins.md 형식, code-style-roadmap.md |
 | `src/limn/guidance.py` | 에이전트가 읽는 토큰 파일 문구(`UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text`) — 순수. `pins.md` 인증 줄과 헤더 없는 로컬 요청의 401이 같이 쓴다 | 인증 안내·401 문구 변경(계약) | api.md §인증, ADR-0007 |
@@ -94,7 +95,7 @@ catalog_schema: 1
 | [ADR-0006](../adr/0006-relative-pin-paths.md) | 핀의 파일을 원고 폴더 기준 상대 경로(`file_rel`)로도 적고, 옛 레코드는 읽을 때 해석한다(쓰기 마이그레이션 없음) — 옮긴 원고에서도 핀이 따라온다 | 확정·구현 (0.3.2), 후속 읽기 규칙 (0.3.4, 이슈 #24) |
 | [ADR-0007](../adr/0007-agent-token-file.md) | 서버 머신의 에이전트는 인스턴스별 토큰 파일(`~/.config/limn/<인스턴스>.token`, `0600`)로 인증하고, 그 뒤 인스턴스마다 `AGENT_LOOPBACK=0` | 확정 (2026-09-26) |
 | [ADR-0008](../adr/0008-trash-live-reconciliation.md) | 휴지통과 살아 있는 핀의 두 파일 쓰기가 중단되면 살아 있는 핀을 우선하고 그림자 사본을 정리한다 | 확정·구현 (2026-09-27) |
-| [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행. 핀 수명 주기·처리 중 표시·휴지통·만들기·편집을 옮겼다 | 확정·점진 구현 중 (2026-09-28) |
+| [ADR-0009](../adr/0009-backend-vertical-slices.md) | 백엔드를 기능별 세로 슬라이스로 점진 이행. 핀 수명 주기·처리 중 표시·휴지통·만들기·편집·JSON 조회를 옮겼다 | 확정·점진 구현 중 (2026-09-28) |
 
 ## 알려진 공백
 

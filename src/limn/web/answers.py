@@ -35,7 +35,7 @@ from limn.locate import (
     SourceUnreadable,
     SynctexOutside,
 )
-from limn.pins.model import PinNotFound, Record
+from limn.pins.model import Record
 from limn.revisions import (
     AllSlotsBusy,
     CommitNotRecent,
@@ -88,15 +88,6 @@ def found_doc(found: T | DocNotFound, text: Text) -> T:
     if isinstance(found, DocNotFound):
         raise HTTPError(404, "없는 문서입니다: %s" % text(found.key)[:40], docs=list(found.known), reason="unknown_doc")
     return found
-
-
-def pin_answer(result: dict[str, Any] | PinNotFound) -> Body:
-    """GET /api/pins/{id}: the pin as GET /api/pins?all=1 lists it (thread included), or 404 pin_not_found."""
-    match result:
-        case dict():
-            return {"pin": result}
-        case PinNotFound(pid=pid):
-            raise HTTPError(404, "핀 #%d 이 없습니다." % pid, reason="pin_not_found")
 
 
 def build_pdf_gone(name: str, pages_build: str, text: Text) -> NoReturn:
