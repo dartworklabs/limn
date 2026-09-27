@@ -1179,12 +1179,18 @@ class PhoneSheet(ViewerBase):
         page.wait_for_function("!SIDE_OPEN")
 
     def test_a_downward_fling_collapses_and_an_upward_fling_steps_up(self):
-        """Velocity counts: a short fast pull-down collapses (it used to only lower the sheet), a flick up goes to the next stop."""
+        """A fast pull-down collapses and a fast flick up steps up, even when the test runner is delayed."""
         page = self.view(PHONE, prefs={"sheetF": 0.45})
         cdp = self.cdp(page)
         self.tap(cdp, *self.center(page, "#btn-side"))
         page.wait_for_function("SIDE_OPEN")
         settle(page)
+        # The rule uses dragSample timestamps to judge velocity. Give this gesture 10 ms between samples so a loaded
+        # runner cannot turn the intended fast input into a slow drag while CDP dispatches the same touch points.
+        page.evaluate("""() => {
+          const sample = dragSample;
+          dragSample = (pts, _t, pos) => sample(pts, pts.length ? pts[pts.length - 1][0] + 10 : 0, pos);
+        }""")
         x, y = self.center(page, "#sheet-grip")
         self.swipe(cdp, x, y, x, y - 60, steps=2, dt=0)
         settle(page)
