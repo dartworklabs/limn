@@ -12,6 +12,8 @@ Run: uv run pytest -q tests/test_web.py
 
 import ast
 import dataclasses
+import importlib.util
+import json
 import re
 import subprocess
 import sys
@@ -33,7 +35,7 @@ from limn.web import answers
 from limn.web.app import App
 from limn.web.errors import PICK_REFUSALS, HTTPError, InputRejected, error_page_html, page_lang, ui_text
 
-from helpers import Base, ps
+from helpers import Base, ps, run_config
 from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -87,6 +89,58 @@ class Binding(Base):
         request field is the parsers' (limn.web.parse): server.py neither makes nor imports InputRejected."""
         self.assertIs(ps.HTTPError, HTTPError)
         self.assertFalse(hasattr(ps, "InputRejected"))
+
+    def test_file_loaded_server_copies_keep_their_own_run(self):
+        """Two server.py copies serve their own page, settings and document after one copy is rebound."""
+
+        def load_copy(name):
+            """Load server.py as instances and test tools do, without registering it in sys.modules."""
+            spec = importlib.util.spec_from_file_location(name, SRC / "limn" / "server.py")
+            assert spec is not None and spec.loader is not None
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+
+        # Running server.py by path prepends src/ to sys.path; restore the test process's import path afterward.
+        with mock.patch.object(sys, "path", sys.path.copy()):
+            first, second = load_copy("limn_server_first"), load_copy("limn_server_second")
+        for mod, label in ((first, "First"), (second, "Second")):
+            mod.C = run_config(self.src, self.main, self.src.parent / label, label=label)
+            mod.RT = mod.new_runtime(ServedViewer(f"<p>{label}</p>", "", {}))
+            mod.set_docs([mod.Doc(label.lower(), label, legacy=True, paths=mod.C.paths)])
+
+        def get(mod, path):
+            """One successful GET body from this copy's actual HTTP handler."""
+            request = f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:18999\r\n\r\n".encode()
+            response = talk_to(mod, request)
+            self.assertTrue(response.startswith(b"HTTP/1.1 200"), response[:200])
+            return response.split(b"\r\n\r\n", 1)[1]
+
+        def docs(mod):
+            """The document key and name exposed by this copy's GET /api/docs."""
+            response = json.loads(get(mod, "/api/docs"))
+            return response["default"], response["docs"][0]["name"]
+
+        self.assertEqual(get(first, "/"), b"<p>First</p>")
+        self.assertEqual(get(second, "/"), b"<p>Second</p>")
+        self.assertEqual(docs(first), ("first", "First"))
+        self.assertEqual(docs(second), ("second", "Second"))
+        self.assertEqual(first.Handler.app.C.label, "First")
+        self.assertEqual(second.Handler.app.C.label, "Second")
+        self.assertIs(first.Handler.app.request_doc(None), first.DOCS[0])
+        self.assertIs(second.Handler.app.request_doc(None), second.DOCS[0])
+        self.assertIsNot(first.DOCS, second.DOCS)
+        self.assertIsNot(first.RT.pin_lock, second.RT.pin_lock)
+
+        first.C = run_config(self.src, self.main, self.src.parent / "Restarted", label="Restarted")
+        first.RT = first.new_runtime(ServedViewer("<p>Restarted</p>", "", {}))
+        first.set_docs([first.Doc("restarted", "Restarted", legacy=True, paths=first.C.paths)])
+        self.assertEqual(get(first, "/"), b"<p>Restarted</p>")
+        self.assertEqual(get(second, "/"), b"<p>Second</p>")
+        self.assertEqual(docs(first), ("restarted", "Restarted"))
+        self.assertEqual(docs(second), ("second", "Second"))
+        self.assertEqual(second.Handler.app.C.label, "Second")
+        self.assertIs(second.Handler.app.request_doc(None), second.DOCS[0])
 
 
 class ImportDirection(unittest.TestCase):
