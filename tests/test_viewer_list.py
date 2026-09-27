@@ -303,3 +303,58 @@ class PinListLoading(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), {"doc": "b", "open": [2], "done": [4], "drawn": [[4]]})
+
+    def test_older_document_refresh_cannot_paint_after_switching_away_and_back(self):
+        """A refresh from a previous visit to the same document must not replace the current view."""
+        js = "\n".join(
+            [
+                extract_js_fn("refreshDoc"),
+                """
+                let DOC='b',SWITCHSEQ=1,META={pages:[{id:'current'}]};
+                const META_BY=new Map(),pending=[],painted=[];
+                const document={body:{classList:{contains:()=>false}}};
+                function topAnchor(){return null;}
+                function dq(u){return u;}
+                function api(){return new Promise(resolve=>pending.push(resolve));}
+                function drawMeta(){painted.push(META.pages[0].id);}
+                function vecReleaseAll(){} function $$(){return [];}
+                function restoreAnchor(){} function vecOpen(){} function loadPins(){return Promise.resolve();}
+                (async()=>{
+                  const stale=refreshDoc();
+                  DOC='a'; SWITCHSEQ++;
+                  DOC='b'; SWITCHSEQ++;
+                  META={pages:[{id:'new-visit'}]};
+                  pending[0]({data:{pages:[{id:'old-visit'}]}});
+                  await stale;
+                  console.log(JSON.stringify({painted,meta:META.pages[0].id}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"painted": [], "meta": "new-visit"})
+
+    def test_cached_document_switch_reuses_fetched_meta_for_changed_build(self):
+        """A changed cached document applies the meta it fetched without a second request."""
+        js = "\n".join(
+            [
+                extract_js_fn("switchDoc"),
+                extract_js_fn("refreshDoc"),
+                """
+                let DOC='a',SWITCHSEQ=0,META={pages:[{id:'a'}]},CUR=null,EDIT=null;
+                const META_BY=new Map([['b',{pages:[{id:'old'}],pages_build:'v1'}]]);
+                const VIEW_BY=new Map(),requests=[];
+                const document={body:{classList:{contains:()=>false}}};
+                function $(sel){return {hidden:true};}
+                function docInfo(k){return k==='b'?{key:k}:null;}
+                function saveView(){} function cancelRepick(){} function savePrefs(){} function setHash(){}
+                function hideTip(){} function showDoc(){} function drawMeta(){}
+                function topAnchor(){return null;} function restoreAnchor(){}
+                function vecReleaseAll(){} function $$(){return [];}
+                function vecOpen(){} function loadPins(){return Promise.resolve();}
+                function dq(u,k){return u+(k||DOC);}
+                function api(url){requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
+                (async()=>{await switchDoc('b');console.log(JSON.stringify({requests,build:META.pages_build}));})();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"requests": ["/api/metab"], "build": "v2"})
