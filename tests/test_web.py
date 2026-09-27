@@ -50,7 +50,15 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
 BUILD_ROUTES_SOURCE = (SRC / "limn" / "features" / "builds" / "routes.py").read_text(encoding="utf-8")
 REVISION_ROUTES_SOURCE = (SRC / "limn" / "features" / "revisions" / "routes.py").read_text(encoding="utf-8")
-GET_ROUTE_SOURCES = (HANDLER_SOURCE, BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE)
+DOCUMENT_ROUTES_SOURCE = (SRC / "limn" / "features" / "document_views" / "routes.py").read_text(encoding="utf-8")
+COLLABORATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "collaboration" / "routes.py").read_text(encoding="utf-8")
+GET_ROUTE_SOURCES = (
+    HANDLER_SOURCE,
+    BUILD_ROUTES_SOURCE,
+    REVISION_ROUTES_SOURCE,
+    DOCUMENT_ROUTES_SOURCE,
+    COLLABORATION_ROUTES_SOURCE,
+)
 
 
 def app_members() -> list:

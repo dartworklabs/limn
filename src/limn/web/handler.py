@@ -23,8 +23,6 @@ from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from limn.features.collaboration import http as collaboration_http
-from limn.features.document_views import http as document_views_http
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
@@ -37,6 +35,7 @@ from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
+from limn.web.routes import GetRequest
 
 MAX_BODY = 1 << 20
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
@@ -247,31 +246,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
         """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
-        the routes have always been matched (a /pages/ name with no image falls through to the rest): the viewer
-        shell, document views, the pins, the source, the vendor files and registered feature routes. Sends the matching
+        the routes have always been matched (a /pages/ name with no image falls through): the viewer
+        shell, remaining pin and source routes, vendor files and registered feature routes. Sends the matching
         route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
         reply = (
-            self._get_viewer(actor, path, q, D)
-            or self._get_outline(path, D)
+            self._get_viewer(actor, path)
             or self._get_pins(path, q, D)
             or self._get_source(path, q, D)
             or self._get_vendor(path)
-            or self._get_registered(path, q, D)
+            or self._get_registered(actor, path, q, D)
         )
         if reply is None:
             raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
         self._send(*reply)
 
-    def _get_viewer(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
-        """The viewer shell: the page, its @-tag people, icons, version, meta (with the browser's notifications) and
-        service worker. None for any other path."""
+    def _get_viewer(self, actor: Json, path: str) -> Reply | None:
+        """The viewer shell, icons, version and service worker; None for another path."""
         app = self.app
         if path == "/":
             # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
             self._record(actor)
             return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
-        if path == "/api/people":  # @-tag autocomplete candidates (no write), each with its people.json role
-            return _json_reply(collaboration_http.people_list(app.people_directory, actor, self.principal.role))
         if path == "/favicon.ico":
             return Reply(204, b"", "image/x-icon")
         if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
@@ -279,25 +274,12 @@ class Handler(BaseHTTPRequestHandler):
             return Reply(200, mark_png(size, app.C.accent, rounded), "image/png", "public, max-age=86400")
         if path == "/api/version":  # the installed Limn version - no write
             return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
-        if path == "/api/meta":
-            return _json_reply(
-                document_views_http.meta(
-                    app.document_views, D, actor, self.principal.role, q, lambda: self._record(actor)
-                )
-            )
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
             return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
         return None
 
-    def _get_outline(self, path: str, D: Document) -> Reply | None:
-        """The document's outline labels, or None for another path."""
-        if path == "/api/outline-labels":
-            return _json_reply(document_views_http.outline(self.app.document_views, D))
-        return None
-
     def _get_pins(self, path: str, q: Query, D: Document) -> Reply | None:
-        """The pins: pins.md (the remote agent's entry point), the list (all documents, or D's with ?doc=), the
-        documents, the Trash and one pin. None for any other path."""
+        """The pins: pins.md, the list (all documents, or D's with ?doc=), the Trash and one pin."""
         app = self.app
         # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
         if path == "/pins.md":
@@ -308,8 +290,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/pins":
             app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
             return _json_reply(listing_http.pins(app, q, D.key))
-        if path == "/api/docs":
-            return _json_reply(document_views_http.docs(app.document_views))
         if path == "/api/pins/dropped":
             return _json_reply(listing_http.dropped(app))
         m = re.fullmatch(r"/api/pins/(\d+)", path)
@@ -340,10 +320,13 @@ class Handler(BaseHTTPRequestHandler):
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
         return None
 
-    def _get_registered(self, path: str, q: Query, D: Document) -> Reply | None:
+    def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
         """Try the application's feature-owned GET routes in registration order."""
+        request = GetRequest(
+            path, q, D, actor, self.principal, self.headers.get("Host") or "", lambda: self._record(actor)
+        )
         for route in self.app.get_routes:
-            reply = route(path, q, D)
+            reply = route(request)
             if reply is not None:
                 return reply
         return None

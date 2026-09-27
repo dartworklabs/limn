@@ -72,8 +72,10 @@ from limn.documents import (
 )
 from limn.features.builds import routes as build_routes, run as build_run
 from limn.features.builds.service import BuildRequests
+from limn.features.collaboration import routes as collaboration_routes
 from limn.features.collaboration.directory import PeopleDirectory
 from limn.features.collaboration.notices import Notices
+from limn.features.document_views import routes as document_routes
 from limn.features.document_views.reads import MetaSettings
 from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
@@ -407,8 +409,10 @@ class ServerApplication:
         )
         self.revision_requests = RevisionRequests(self.revision_context)
         self.get_routes = (
-            lambda path, query, doc: build_routes.get(path, query, doc, self.hdr_text),
-            lambda path, query, doc: revision_routes.get(path, query, doc, self.revision_requests),
+            lambda request: build_routes.get(request.path, request.query, request.doc, self.hdr_text),
+            lambda request: revision_routes.get(request.path, request.query, request.doc, self.revision_requests),
+            lambda request: document_routes.get(request, self.document_views),
+            lambda request: collaboration_routes.get(request, self.people_directory),
         )
         self.post_doc_routes = (
             PostDocRoute(
