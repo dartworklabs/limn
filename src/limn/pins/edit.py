@@ -12,7 +12,7 @@ from posixpath import isabs
 from typing import Any, Literal, TypeAlias, TypeGuard, get_args
 
 from limn.pins.lifecycle import PinT, author, rev_after, signature, thread_message, with_entry
-from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin
+from limn.pins.model import Actor, DonePin, KindReq, LineSpan, OpenPin, Pin, Record, ReviewPin, is_kind_req
 from limn.pins.shapes import is_finite_num, is_int
 
 # The assignee value that hands a pin to the agent rather than to a person (docs/handbook/api.md §담당).
@@ -190,6 +190,31 @@ class EditRequest:
     kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Reject locally invalid edit fields even when a caller bypasses the HTTP parser."""
+        if self.base_rev is not None and not is_int(self.base_rev):
+            raise ValueError("base_rev must be an integer")
+        if self.note is not None and (not isinstance(self.note, str) or len(self.note) > NOTE_MAX):
+            raise ValueError("note must be a short string")
+        if self.note_append is not None and (
+            not isinstance(self.note_append, str) or not self.note_append.strip() or len(self.note_append) > 2000
+        ):
+            raise ValueError("note_append must be a short nonblank string")
+        if self.place is not None and not isinstance(self.place, (LinePlace, RegionPlace)):
+            raise ValueError("place must be a pin location")
+        if any(value is not None and not is_int(value) for value in (self.lo, self.hi)):
+            raise ValueError("lo and hi must be integers")
+        if self.scope is not None and not is_scope(self.scope):
+            raise ValueError("scope must name a range level")
+        if self.kind is not None and (not isinstance(self.kind, str) or len(self.kind) > 80):
+            raise ValueError("kind must be a short string")
+        if self.kind_req is not None and not is_kind_req(self.kind_req):
+            raise ValueError("kind_req must name a pin kind")
+        if self.assignee is not None and (not isinstance(self.assignee, str) or not self.assignee):
+            raise ValueError("assignee must be a nonempty string")
+        if not isinstance(self.hints, tuple) or not all(isinstance(hint, str) for hint in self.hints):
+            raise ValueError("hints must be login strings")
 
     def reshapes(self) -> bool:
         """Does the edit change where the pin points or what it spans (place, lines, scope, kind)? A closed pin refuses that."""
@@ -428,6 +453,19 @@ class AddRequest:
     kind_req: KindReq | None = None
     assignee: str | None = None
     hints: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Keep an internally constructed add's place and local fields in the same shapes as parsed input."""
+        if not isinstance(self.place, (LinePlace, RegionPlace)):
+            raise ValueError("place must be a pin location")
+        if not isinstance(self.note, str) or len(self.note) > NOTE_MAX:
+            raise ValueError("note must be a short string")
+        if self.kind_req is not None and not is_kind_req(self.kind_req):
+            raise ValueError("kind_req must name a pin kind")
+        if self.assignee is not None and (not isinstance(self.assignee, str) or not self.assignee):
+            raise ValueError("assignee must be a nonempty string")
+        if not isinstance(self.hints, tuple) or not all(isinstance(hint, str) for hint in self.hints):
+            raise ValueError("hints must be login strings")
 
 
 def new_line_pin(

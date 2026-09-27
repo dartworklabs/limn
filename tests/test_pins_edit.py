@@ -380,6 +380,26 @@ class Helpers(unittest.TestCase):
 class NewPins(unittest.TestCase):
     """The records of new pins, field for field in the order the store has always written them."""
 
+    def test_add_request_rejects_invalid_local_values(self):
+        """An internal add cannot bypass the note and field shapes guaranteed by the HTTP parser."""
+        place = LinePlace({"file": "/ms/main.tex", "name": "main.tex", "lo": 4, "hi": 5, "page": 1}, frozenset())
+        for changes in ({"note": 42}, {"note": "x" * 4001}, {"kind_req": "other"}, {"assignee": ""}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                AddRequest(place=place, **({"note": "valid"} | changes))
+
+    def test_edit_request_rejects_invalid_local_values(self):
+        """An internal edit cannot write a replacement note or other fields the boundary would reject."""
+        for changes in (
+            {"note": "x" * 4001},
+            {"note_append": " "},
+            {"note_append": "x" * 2001},
+            {"lo": True},
+            {"kind_req": "other"},
+            {"assignee": ""},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                EditRequest(**changes)
+
     def test_new_line_pin(self):
         """Location, kind default, note, at, id, author, kind_req, mentions, assignee, anchor, synced_at, pdf_build,
         doc, rev 0, then where the file is (file rewritten in place, file_rel last)."""

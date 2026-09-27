@@ -115,7 +115,7 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이·편집·위치 규칙은 `pin.core.rev`·`pin.core.thread`·`pin.core.place`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장소는 레코드를 읽으며 핀으로 파싱해 서비스에 넘긴다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6). 비교 PDF 하나의 상태도 같은 방식으로 타입의 합(`IdleComparison | RunningComparison | ReadyComparison | FailedComparison`, [`limn/revisions.py`](../../src/limn/revisions.py))이다. 캐시를 읽는 쪽과 작업 목록이 이 타입을 내고, 캐시에서 답할지(`answered_from_cache`)와 응답 본문(`status_body`)은 타입으로 가른다. 저장된 `status.json`의 필드는 핀처럼 저장된 그대로 싣는다.
 
-새 핀의 위치 값(`LinePlace`·`RegionPlace`)은 직접 생성해도 필수 좌표와 필드 종류를 검사하고, 저장 필드의 불변 스냅숏을 가진다. HTTP 파서는 그 전에 파일 존재·줄 수·문서의 쪽 수처럼 외부 사실이 필요한 조건을 확인한다. `ClaimRequest`는 내부 생성에서도 양수 정수 시간을 요구하고, 닫기 이벤트의 적용 함수는 열린 핀만 받는다. HTTP의 시간 상한과 전이 허용 여부는 각각 경계와 판단 함수의 별도 책임이다.
+새 핀의 위치 값(`LinePlace`·`RegionPlace`)은 직접 생성해도 필수 좌표와 필드 종류를 검사하고, 저장 필드의 불변 스냅숏을 가진다. `AddRequest`·`EditRequest`는 내부 생성에서도 메모 길이와 필드 종류를 검사하고, `CloseRequest`는 변경 범위의 모양을 검사해 불변 사본으로 보관한다. HTTP 파서는 파일 존재·줄 수·문서의 쪽 수·담당자 신원처럼 외부 사실이 필요한 조건을 먼저 확인한다. `ClaimRequest`는 내부 생성에서도 양수 정수 시간을 요구하고, 닫기 이벤트의 적용 함수는 열린 핀만 받는다. HTTP의 시간 상한과 전이 허용 여부는 각각 경계와 판단 함수의 별도 책임이다.
 
 저장소가 받아들인 레코드는 `fits_record()`의 검사 뒤 `parse_pin()`이 정수 ID와 완전한 줄 또는 영역 위치로 올린다. 자유로운 옛 레코드 파서는 미완성 값도 보존하므로 `PinCore.id`·`place`는 선택 타입으로 남는다. 복원 정렬처럼 저장 경계를 지난 호출부는 `PinCore.pid`로 ID 필수 조건을 드러낸다. 별도 `VerifiedPin` 타입은 없앤 위험 분기보다 저장소·동기화·서비스의 변환 지점이 많아 도입하지 않는다.
 

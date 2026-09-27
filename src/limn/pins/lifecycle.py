@@ -5,8 +5,10 @@ in server.py), and actors arrive parsed. An outcome the caller must answer is a 
 annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from posixpath import isabs
+from types import MappingProxyType
 from typing import Any, TypeVar
 
 from limn.pins.model import (
@@ -25,6 +27,7 @@ from limn.pins.model import (
     claim_unexpired,
     parse_pin,
 )
+from limn.pins.shapes import is_int
 
 PinT = TypeVar("PinT", OpenPin, ReviewPin, DonePin)
 
@@ -89,15 +92,40 @@ def confirm_review(pin: ReviewPin, by: Person, at: str) -> DonePin:
 
 @dataclass(frozen=True)
 class CloseRequest:
-    """What a close carries, validated at the boundary: reply and ref texts, the changed ranges, and the review choice.
+    """A close's reply, ref, changed ranges and review choice, with local shapes guarded on construction.
 
-    review None leaves the choice to the closer: an agent's close awaits review, a person's is done at once.
+    The boundary checks text limits and paths against the manuscript; changes are copied into immutable mappings so a
+    caller cannot change a range after validation. review None leaves the choice to the closer: an agent's close
+    awaits review, a person's is done at once.
     """
 
     reply: str | None = None
     ref: str | None = None
     changes: tuple[Record, ...] = ()
     review: bool | None = None
+
+    def __post_init__(self) -> None:
+        """Reject malformed local fields before a direct caller can save a broken close record."""
+        if self.reply is not None and not isinstance(self.reply, str):
+            raise ValueError("reply must be a string")
+        if self.ref is not None and not isinstance(self.ref, str):
+            raise ValueError("ref must be a string")
+        if self.review is not None and not isinstance(self.review, bool):
+            raise ValueError("review must be a boolean")
+        if not isinstance(self.changes, tuple):
+            raise ValueError("changes must be a tuple of ranges")
+        for change in self.changes:
+            if (
+                not isinstance(change, Mapping)
+                or set(change) != {"file", "lo", "hi"}
+                or not isinstance(change["file"], str)
+                or not isabs(change["file"])
+                or not is_int(change["lo"])
+                or not is_int(change["hi"])
+                or not 1 <= change["lo"] <= change["hi"]
+            ):
+                raise ValueError("changes must contain absolute files and ordered positive lines")
+        object.__setattr__(self, "changes", tuple(MappingProxyType(dict(change)) for change in self.changes))
 
 
 @dataclass(frozen=True)
