@@ -22,9 +22,9 @@ const SYNC_STATE=Object.freeze({DISABLED:'disabled',CHECKING:'checking',DEFERRED
 const REVISION_STATE=Object.freeze({IDLE:'idle',RUNNING:'running',READY:'ready',ERROR:'error'});   // a comparison PDF's status `state`
 const SCOPE_MODE=Object.freeze({PIN:'pin',COMMIT:'commit'});   // a pin's change scope `mode` / a comparison's `scope` (scope.ScopeMode)
 const SCOPE_SOURCE=Object.freeze({CHANGES:'changes',INFERRED:'inferred',NONE:'none'});   // where a pin's change scope came from (scope.ScopeSource)
-const THREAD_EV=Object.freeze({CLOSE:'close',REOPEN:'reopen',CONFIRM:'confirm',ASSIGN:'assign'});   // a thread record's `ev` (pins.lifecycle.ThreadEv)
+const THREAD_EV=Object.freeze({CLOSE:'close',REOPEN:'reopen',CONFIRM:'confirm',ASSIGN:'assign'});   // a thread record's `ev` (pins.model.ThreadEv)
 const RANGE_REL=Object.freeze({EQUAL:'equal',INSIDE:'inside',CONTAINS:'contains',PARTIAL:'partial'});   // how two line ranges overlap (pins.position.selection_rel)
-const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kind_req` (pins.edit.KindReq)
+const KIND_REQ=Object.freeze({FIX:'fix',QUESTION:'question'});   // a pin's `kind_req` (pins.model.KindReq)
 const ROLE=Object.freeze({OWNER:'owner',EDITOR:'editor',VIEWER:'viewer',AGENT:'agent'});   // a person's `role` (access.ROLES)
 const EVENT_TYPE=Object.freeze({MENTION:'mention',REVIEW_REQUESTED:'review_requested',REPLIED:'replied',REOPENED:'reopened',ASSIGNED:'assigned',DROPPED:'dropped'});   // an event's `type` (events.EventType)
 const LOCAL_LOGIN='local',ASSIGNEE_AGENT='agent';   // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)

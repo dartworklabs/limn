@@ -20,13 +20,13 @@ import unittest
 from pathlib import Path
 from typing import get_args
 
-from limn import access, events, pull, scope
-from limn.pins import edit, lifecycle, model, position
+from limn import access, build, events, pull, scope
+from limn.pins import edit, model, position
 from limn.pins.view import pin_state
 from limn.viewer import assemble
 
 import helpers_js
-from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, ps, run_node
+from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, run_node
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
 CORPUS = Path(__file__).parent / "data" / "pin_records.jsonl"
@@ -233,9 +233,9 @@ class CommentsHoldNoCode(unittest.TestCase):
 
 
 def build_states() -> set[str]:
-    """Every value GET /api/build's `state` can hold: the build status the server starts each document with (idle), and
-    every state the build code writes (limn/build.py)."""
-    return {ps.BUILD_STATE["state"]} | written_states(PKG / "build.py")
+    """Every value GET /api/build's `state` can hold: limn.build's closed set of build states, which includes the idle
+    state the server starts each document with."""
+    return set(build.BUILD_STATES)
 
 
 def written_states(path: Path) -> set[str]:
@@ -297,9 +297,9 @@ SERVER_SETS = {
     "REVISION_STATE": lambda: written_states(PKG / "revisions.py"),
     "SCOPE_MODE": lambda: set(get_args(scope.ScopeMode)),
     "SCOPE_SOURCE": lambda: set(get_args(scope.ScopeSource)),
-    "THREAD_EV": lambda: set(get_args(lifecycle.ThreadEv)),
+    "THREAD_EV": lambda: set(get_args(model.ThreadEv)),
     "RANGE_REL": lambda: set(get_args(position.RangeRel)) | {"equal"},  # selection_rel adds 'equal' to RangeRel
-    "KIND_REQ": lambda: set(get_args(edit.KindReq)),
+    "KIND_REQ": lambda: set(get_args(model.KindReq)),
     "ROLE": lambda: set(access.ROLES),
     "EVENT_TYPE": lambda: set(get_args(events.EventType)),
     "LOCAL_LOGIN": lambda: {access.LOCAL_LOGIN},

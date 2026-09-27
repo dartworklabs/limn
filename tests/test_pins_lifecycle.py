@@ -495,9 +495,25 @@ class ThreadMessage(unittest.TestCase):
     """Thread entry ids are one past the largest integer id and never reused."""
 
     def test_id_skips_non_integer_ids(self):
-        """Booleans and strings are not ids; the next id follows the largest real one."""
-        thread = [{"id": 3}, {"id": True}, {"id": "9"}, "junk"]
+        """Booleans and strings are not ids (the entry keeps them unlifted); the next id follows the largest real one."""
+        thread = parse_pin({"id": 1, "thread": [{"id": 3}, {"id": True}, {"id": "9"}, {}]}).core.thread
         self.assertEqual(thread_message(thread, {"login": "a", "name": "A"}, AT)["id"], 4)
+        self.assertEqual(thread_message(None, {"login": "a", "name": "A"}, AT)["id"], 1)
+
+    def test_a_transition_keeps_every_earlier_entry_as_stored(self):
+        """A reply appends its entry after the earlier ones, written back byte for byte - unknown fields, unlifted
+        parts and field order included - and a thread that could not be lifted counts as none."""
+        earlier = [{"text": "t", "id": 2, "x": [1], "at": "t", "by": {"login": "b"}}, {"id": "7", "ev": "vote"}]
+        pin = parse_pin({"id": 1, "thread": earlier, "rev": 1})
+        replied = evolve_reply(pin, Replied(ALICE_PERSON, AT, "hi", ()))
+        self.assertEqual(replied.record["thread"][:2], earlier)
+        self.assertEqual(
+            [list(entry) for entry in replied.record["thread"]],
+            [["text", "id", "x", "at", "by"], ["id", "ev"], ["id", "by", "at", "text"]],
+        )
+        self.assertEqual(replied.record["thread"][2]["id"], 3)
+        junk = parse_pin({"id": 1, "thread": [{"id": 5}, "junk"]})
+        self.assertEqual(evolve_reply(junk, Replied(ALICE_PERSON, AT, "hi", ())).record["thread"][0]["id"], 1)
 
     def test_optional_fields_only_when_given(self):
         """ref and mentions appear only when passed; an empty text is stored as ''."""

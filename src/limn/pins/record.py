@@ -19,9 +19,7 @@ from collections.abc import Callable
 from posixpath import isabs  # os.path.isabs on POSIX, the only platform Limn runs on - string work only
 from typing import TypeGuard
 
-from limn.pins.edit import is_kind_req
-from limn.pins.lifecycle import THREAD_EVENTS
-from limn.pins.model import is_region_pin
+from limn.pins.model import THREAD_EVENTS, is_kind_req, is_region_pin
 from limn.pins.shapes import is_int, is_num
 from limn.scope import valid_changes
 

@@ -86,14 +86,14 @@
 | 표 | 값 | 출처 |
 | --- | --- | --- |
 | `PIN_STATE` | open · review · done | `pins.model.StateName` |
-| `BUILD_STATE` | idle · running · ok · ok_errors · fail | `GET /api/build`의 `state`(`build.py`, 시작 값 idle) |
+| `BUILD_STATE` | idle · running · ok · ok_errors · fail | `GET /api/build`의 `state`(`build.BUILD_STATES`, 시작 값 idle 포함) |
 | `PULL_STATE` | ok · up_to_date · skipped · error | 빌드의 `pull.state`(`pull.pull_record()`) |
 | `SYNC_STATE` | disabled · checking · deferred · updating · updated · current · blocked · error | meta의 `sync.state`(`pull.SyncState`와 `pull`·`gitsync`가 쓰는 상태) |
 | `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`revisions.py`) |
 | `SCOPE_MODE`, `SCOPE_SOURCE` | pin · commit, changes · inferred · none | `scope.ScopeMode`, `scope.ScopeSource` |
-| `THREAD_EV` | close · reopen · confirm · assign | `pins.lifecycle.ThreadEv` |
+| `THREAD_EV` | close · reopen · confirm · assign | `pins.model.ThreadEv` |
 | `RANGE_REL` | equal · inside · contains · partial | `pins.position.selection_rel()` |
-| `KIND_REQ` | fix · question | `pins.edit.KindReq` |
+| `KIND_REQ` | fix · question | `pins.model.KindReq` |
 | `ROLE` | owner · editor · viewer · agent | `access.ROLES` |
 | `EVENT_TYPE` | mention · review_requested · replied · reopened · assigned · dropped | `events.EventType` |
 | `LOCAL_LOGIN`, `ASSIGNEE_AGENT` | local, agent | `access.LOCAL_LOGIN`, `pins.edit.ASSIGNEE_AGENT` |
