@@ -26,7 +26,6 @@ from urllib.parse import parse_qs, urlparse
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
-from limn.features.pins.location import http as location_http
 from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
 from limn.web import answers, parse
@@ -34,7 +33,7 @@ from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
 from limn.web.reply import Reply, json_reply as _json_reply
-from limn.web.routes import GetRequest
+from limn.web.routes import GetRequest, PostDocRequest
 
 MAX_BODY = 1 << 20
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
@@ -323,12 +322,10 @@ class Handler(BaseHTTPRequestHandler):
         self._record(actor)
         d = self._body()
         registered = next((route for route in self.app.post_doc_routes if route.path == path), None)
-        if path in ("/api/pick", "/api/pin") or registered is not None:
+        if registered is not None:
             q = parse_qs(u.query)
-            D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=path == "/api/pin")))
-            if registered is not None:
-                return self._json(*registered.action(q, d, D))
-            return self._post_pin_doc(actor, path, d, D)
+            D = self._request_doc(accepted(parse.parse_doc_choice(q, d, new_pin=registered.new_pin)))
+            return self._json(*registered.action(PostDocRequest(q, d, D, actor, self.principal)))
         return self._post_other(actor, path, d)
 
     def _post_other(self, actor: Json, path: str, d: Json) -> None:
@@ -340,13 +337,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/clear":  # owner only (check_role), and only with the confirmation phrase
             return self._json(trash_http.clear(self.app, actor, d))
         raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
-
-    def _post_pin_doc(self, actor: Json, path: str, d: Json, D: Document) -> None:
-        """The two pin creation routes still matched by the handler: pick and new pin."""
-        app = self.app
-        if path == "/api/pick":
-            return self._json(location_http.pick(app, D, d))
-        return self._json(editing_http.add(app, D, actor, d))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call

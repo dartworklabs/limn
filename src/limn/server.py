@@ -79,6 +79,7 @@ from limn.features.document_views import routes as document_routes
 from limn.features.document_views.reads import MetaSettings
 from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
+from limn.features.pins.editing import routes as editing_routes
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
 from limn.features.pins.listing import routes as listing_routes
@@ -420,11 +421,17 @@ class ServerApplication:
         self.post_doc_routes = (
             PostDocRoute(
                 build_routes.POST_PATH,
-                lambda query, body, doc: build_routes.post(query, body, doc, self.build_requests),
+                lambda request: build_routes.post(request.query, request.body, request.doc, self.build_requests),
             ),
             PostDocRoute(
                 revision_routes.POST_PATH,
-                lambda query, body, doc: revision_routes.post(query, body, doc, self.revision_requests),
+                lambda request: revision_routes.post(request.query, request.body, request.doc, self.revision_requests),
+            ),
+            PostDocRoute(location_routes.POST_PATH, lambda request: location_routes.post(request, self)),
+            PostDocRoute(
+                editing_routes.POST_PATH,
+                lambda request: editing_routes.post(request, self),
+                new_pin=editing_routes.POST_NEW_PIN,
             ),
         )
 

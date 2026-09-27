@@ -54,6 +54,7 @@ DOCUMENT_ROUTES_SOURCE = (SRC / "limn" / "features" / "document_views" / "routes
 COLLABORATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "collaboration" / "routes.py").read_text(encoding="utf-8")
 LISTING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "listing" / "routes.py").read_text(encoding="utf-8")
 LOCATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "location" / "routes.py").read_text(encoding="utf-8")
+EDITING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "editing" / "routes.py").read_text(encoding="utf-8")
 GET_ROUTE_SOURCES = (
     HANDLER_SOURCE,
     BUILD_ROUTES_SOURCE,
@@ -345,9 +346,9 @@ class GuardOrder(AccessBase):
             with self.subTest(literal=literal):
                 self.assertTrue(any(r == literal or (literal.endswith("/") and r.startswith(literal)) for r in routes))
         post_paths = set()
-        for source in (BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE):
+        for source in (BUILD_ROUTES_SOURCE, REVISION_ROUTES_SOURCE, LOCATION_ROUTES_SOURCE, EDITING_ROUTES_SOURCE):
             post_paths |= set(re.findall(r'^POST_PATH = "([^"]+)"', source, re.M))
-        self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build"})
+        self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build", "/api/pick", "/api/pin"})
         self.assertTrue(post_paths <= set(POST_ROUTES))
         acts = re.search(r"/api/pins/\(\\d\+\)/\(([a-z|]+)\)", HANDLER_SOURCE).group(1).split("|")
         self.assertEqual(sorted(acts), sorted(PIN_ACTIONS))

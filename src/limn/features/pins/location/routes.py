@@ -3,7 +3,9 @@
 from limn.features.pins.location import http
 from limn.features.pins.location.http import LocationApp
 from limn.web.reply import Reply, json_reply
-from limn.web.routes import GetRequest
+from limn.web.routes import GetRequest, PostDocRequest
+
+POST_PATH = "/api/pick"
 
 
 def get(request: GetRequest, app: LocationApp) -> Reply | None:
@@ -14,3 +16,8 @@ def get(request: GetRequest, app: LocationApp) -> Reply | None:
     if path == "/api/overlaps":
         return json_reply(http.overlaps(app, request.doc, request.query))
     return None
+
+
+def post(request: PostDocRequest, app: LocationApp) -> tuple[dict[str, object], int]:
+    """Answer a PDF selection for the already selected document."""
+    return http.pick(app, request.doc, request.body), 200

@@ -5,7 +5,7 @@ from typing import Any, NamedTuple, TypeAlias
 
 from limn import access
 from limn.documents import Doc
-from limn.web.parse import Json, Query
+from limn.web.parse import Query
 from limn.web.reply import Reply
 
 
@@ -24,8 +24,19 @@ class GetRequest(NamedTuple):
 GetRoute: TypeAlias = Callable[[GetRequest], Reply | None]
 
 
+class PostDocRequest(NamedTuple):
+    """A guarded POST with parsed JSON, its selected document and request-local identity."""
+
+    query: Query
+    body: dict[str, Any]
+    doc: Doc
+    actor: dict[str, Any]
+    principal: access.Principal
+
+
 class PostDocRoute(NamedTuple):
     """One POST path whose action needs the document selected by the common handler."""
 
     path: str
-    action: Callable[[Query, Json, Doc], tuple[dict[str, object], int]]
+    action: Callable[[PostDocRequest], tuple[dict[str, object], int]]
+    new_pin: bool = False
