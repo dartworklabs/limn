@@ -2,7 +2,7 @@
 
 from typing import Any, NoReturn
 
-from limn.revisions import (
+from limn.features.revisions.core import (
     AllSlotsBusy,
     CommitNotRecent,
     DiffFailed,

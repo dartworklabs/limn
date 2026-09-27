@@ -1,4 +1,4 @@
-"""limn.revisions through the server: manuscript history, the pin-scoped diff, comparison builds in the sandbox, and
+"""limn.features.revisions.core through the server: manuscript history, the pin-scoped diff, comparison builds in the sandbox, and
 the outline of a revision's snapshot, over the server's revision context and its HTTP routes.
 
 The module's boundaries, the refusal values and the attribution rules of pin scoping are tests/test_scope.py. Here the revision services run against a real temporary git repository wired as server.py wires
@@ -20,14 +20,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, meta as limn_meta, revisions, scope as scoping
+from limn import build as limn_build, meta as limn_meta, scope as scoping
 from limn.access import LOCAL_ACTOR
 from limn.documents import Doc
 from limn.features.pins.lifecycle import input as lifecycle_input
-from limn.features.revisions import input as revision_input
+from limn.features.revisions import core as revisions, input as revision_input
+from limn.features.revisions.core import revision_history
 from limn.mapping import anchor_of
 from limn.pins.lifecycle import CloseRequest
-from limn.revisions import revision_history
 from limn.store import find_pin
 from limn.web.errors import InputRejected, scope_http_error
 

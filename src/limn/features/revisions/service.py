@@ -3,9 +3,9 @@
 from collections.abc import Callable
 from typing import Any
 
-from limn import revisions
 from limn.documents import Doc
-from limn.revisions import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
+from limn.features.revisions import core as revisions
+from limn.features.revisions.core import DiffRefusal, PdfRefusal, StartRefusal, StatusRefusal
 
 
 class RevisionRequests:

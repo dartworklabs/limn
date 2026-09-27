@@ -3,8 +3,8 @@
 import re
 from typing import NamedTuple
 
+from limn.features.revisions.core import REVISION_ID_RE
 from limn.pins.shapes import is_int
-from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
 from limn.web.parse import Json, Query, query_first
 

@@ -90,7 +90,7 @@
 | `BUILD_STATE` | idle · running · ok · ok_errors · fail | `GET /api/build`의 `state`(`build.BUILD_STATES`, 시작 값 idle 포함) |
 | `PULL_STATE` | ok · up_to_date · skipped · error | 빌드의 `pull.state`(`pull.pull_record()`) |
 | `SYNC_STATE` | disabled · checking · deferred · updating · updated · current · blocked · error | meta의 `sync.state`(`pull.SyncState`와 `pull`·`gitsync`가 쓰는 상태) |
-| `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`revisions.py`) |
+| `REVISION_STATE` | idle · running · ready · error | 비교 PDF 상태(`features/revisions/core.py`) |
 | `SCOPE_MODE`, `SCOPE_SOURCE` | pin · commit, changes · inferred · none | `scope.ScopeMode`, `scope.ScopeSource` |
 | `THREAD_EV` | close · reopen · confirm · assign | `pins.model.ThreadEv` |
 | `RANGE_REL` | equal · inside · contains · partial | `pins.position.selection_rel()` |

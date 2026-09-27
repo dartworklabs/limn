@@ -22,9 +22,10 @@ import subprocess
 import time
 from unittest import mock
 
-from limn import revisions, startup
+from limn import startup
 from limn.access import LOCAL_ACTOR
 from limn.features.pins.lifecycle import input as lifecycle_input
+from limn.features.revisions import core as revisions
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 

@@ -34,10 +34,10 @@ from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http, resolve as pick_resolve
 from limn.features.pins.trash import http as trash_http
 from limn.features.revisions import answer as revision_answer
+from limn.features.revisions.core import DocumentBusy
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
-from limn.revisions import DocumentBusy
 from limn.viewer.assemble import ServedViewer
 from limn.web import answers
 from limn.web.app import App

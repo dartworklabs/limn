@@ -22,10 +22,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build as limn_build, gitsync, revisions
+from limn import build as limn_build, gitsync
 from limn.access import LOCAL_ACTOR
 from limn.build import BuildOk, BuildStarted
 from limn.documents import Doc
+from limn.features.revisions import core as revisions
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
 from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
 
@@ -54,7 +55,7 @@ class ModuleBoundary(unittest.TestCase):
         self.assertFalse(names & {"C", "DOCS", "cur_doc", "build_async", "multi_doc", "now_str", "_git"})
 
     def test_git_runs_without_a_shell(self):
-        """The runner the server passes (limn.revisions.git) goes through limn.gitrun.run_git, which takes a list and
+        """The runner the server passes (limn.features.revisions.core.git) goes through limn.gitrun.run_git, which takes a list and
         never a shell - the security contract of every pull step, whose arguments hold no request input
         (tests/test_gitrun.py pins run_git itself)."""
         src = inspect.getsource(revisions.git)

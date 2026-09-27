@@ -51,7 +51,6 @@ from limn import (
     locate,
     meta as meta_reads,
     people,
-    revisions,
     startup,
 )
 from limn.access import (
@@ -92,6 +91,10 @@ from limn.features.pins.listing.service import PinListing
 from limn.features.pins.location import resolve as pick_resolve, source as pick_source
 from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
+from limn.features.revisions import core as revisions
+from limn.features.revisions.core import (
+    git as _git,
+)
 from limn.features.revisions.service import RevisionRequests
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
@@ -118,9 +121,6 @@ from limn.pins.model import (
 from limn.pins.position import EstContext
 from limn.pins.record import Broken
 from limn.pins.view import pin_state as pin_state
-from limn.revisions import (
-    git as _git,
-)
 from limn.service.context import Event, Json, PinContext, is_agent, who
 from limn.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
 from limn.store import PinFiles, PinStore, Row, pin_index

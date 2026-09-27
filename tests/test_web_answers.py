@@ -1,6 +1,6 @@
 """limn.features.revisions.answer.revision_refused - the HTTP answer to every refusal of the revision routes, as one table.
 
-GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.revisions (and the
+GET /api/revision-diff|-build|-pdf and POST /api/revision-build answer each refusal value of limn.features.revisions.core (and the
 pin-scoping refusals of limn.scope) with a fixed status, the Korean `error` text agents read and a stable `reason`
 (docs/handbook/api.md §변경 보기와 비교 PDF, §오류 응답). Most of these refusals need a git failure, a symlinked cache, a
 held lock or a vanished file to reach through a route, so the table builds each value directly and checks the whole
@@ -14,9 +14,8 @@ import json
 import typing
 import unittest
 
-from limn import revisions
-from limn.features.revisions import answer as revision_answer
-from limn.revisions import (
+from limn.features.revisions import answer as revision_answer, core as revisions
+from limn.features.revisions.core import (
     AllSlotsBusy,
     CommitNotRecent,
     DiffFailed,
@@ -56,7 +55,7 @@ REFUSALS = {
 
 
 def refusal_types() -> set[type]:
-    """Every member of limn.revisions.RevisionRefusal, its nested unions flattened."""
+    """Every member of limn.features.revisions.core.RevisionRefusal, its nested unions flattened."""
     seen: set[type] = set()
     todo = list(typing.get_args(revisions.RevisionRefusal))
     while todo:
@@ -85,7 +84,7 @@ class RevisionRefusalTable(unittest.TestCase):
         """A refusal type added to RevisionRefusal (or to the scoping refusals revision_refused also answers) without
         a row here would go unpinned: the sets must agree."""
         self.assertEqual(refusal_types() | set(typing.get_args(ScopeRefusal)), set(REFUSALS))
-        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.revisions"]), 11)
+        self.assertEqual(len([t for t in REFUSALS if t.__module__ == "limn.features.revisions.core"]), 11)
 
     def test_each_refusal_gets_its_status_reason_and_text(self):
         """revision_refused raises HTTPError(status, text, reason) and nothing more: no extra body field, no page."""

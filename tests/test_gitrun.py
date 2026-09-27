@@ -21,7 +21,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn import build, cli, gitrun, gitsync, revisions, startup
+from limn import build, cli, gitrun, gitsync, startup
+from limn.features.revisions import core as revisions
 from limn.gitrun import KEPT_GIT_VARS, git_command, git_env
 from limn.pull import UpToDate
 

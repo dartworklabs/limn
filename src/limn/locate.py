@@ -39,7 +39,7 @@ Locator: TypeAlias = Callable[[Pin], PinLocation | None]
 
 class BuildRoot(Protocol):
     """A document as doc_scope reads it: only its build root. limn.documents.Doc is one, and so is the revision
-    services' document (limn.revisions.RevisionDoc), whose recorded paths the composition root locates too."""
+    services' document (limn.features.revisions.core.RevisionDoc), whose recorded paths the composition root locates too."""
 
     @property
     def src(self) -> Path:

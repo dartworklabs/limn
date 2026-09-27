@@ -38,7 +38,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 층 | 모듈 | 하는 일 | 모르는 것 |
 | --- | --- | --- | --- |
 | 순수 도메인 | `pins/`(상태 타입·레코드 검사·전이·편집·위치 규칙·API 모양·`pins.md` 렌더), `mapping.py`, `scope.py`, `pull.py`, `mentions.py`, `outline.py`, `guidance.py`, `mark.py` | 핀 수명 주기와 위치 계산의 규칙. 입력 값에서 결과 값이나 거절 값을 낸다 | 파일, subprocess, 시계, HTTP. 모듈마다 import 검사가 지킨다 |
-| 부수효과 셸 | `service/context.py`(공통 핀 문맥), `store.py`, `build.py`, `locate.py`, `revisions.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
+| 부수효과 셸 | `service/context.py`(공통 핀 문맥), `store.py`, `build.py`, `locate.py`, `gitsync.py`, `gitrun.py`, `documents.py`, `meta.py`, `people.py`, `events.py`, `audit.py`, `files.py`, `access.py`, `startup.py`·`args.py`·`config.py` | 파일·git·SyncTeX·빌드 도구를 다루고, 순수 규칙에 묻고, 결과를 쓴다. 문서·설정·협력자를 인자로 받는다 | 실행 설정 `C`, `server.py`, HTTP 층 |
 | 기능 슬라이스 | `features/pins/lifecycle/`의 `input.py`·`http.py`·`service.py` | 닫기·다시 열기·확인·답글의 입력 검사, 응답, 잠금 아래 전이와 알림. 순수 전이 규칙은 아직 claim·휴지통 등과 함께 쓰는 `pins/lifecycle.py`에 있다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/claims/`의 `input.py`·`http.py`·`service.py` | 처리 중 표시·해제의 시간 입력, 409 응답, 잠금 아래 claim 기록. 순수 규칙은 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/pins/trash/`의 `input.py`·`http.py`·`service.py` | 삭제·복원·영구 삭제·전체 비우기의 입력·응답, 잠금 아래 휴지통 변경과 기동·주기 정리. 순수 핀 전이는 공통 `pins/lifecycle.py`가 소유한다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
@@ -46,7 +46,7 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 기능 슬라이스 | `features/pins/listing/`의 `input.py`·`http.py`·`service.py`·`markdown.py` | 핀 목록·한 핀·휴지통의 JSON 조회와 `pins.md`의 요청·저장 렌더 입력 조립. 순수 필드·문장 규칙은 `pins/view.py`·`pins/render.py`가 소유한다 | `server.py`. 필요한 조회 사실은 좁은 계약으로 받는다 |
 | 기능 슬라이스 | `features/pins/location/`의 `input.py`·`http.py`·`service.py`·`resolve.py`·`source.py`·`range.py` | PDF 선택과 원문 구간 조회·겹침 조회의 입력 검사·응답·실행별 협력자, SyncTeX·텍스트 역변환과 토큰 캐시. 저장된 핀의 공통 위치 규칙은 `locate.py`에 남는다 | `server.py`. 실행별 문맥은 조립 지점이 묶는다 |
 | 기능 슬라이스 | `features/builds/`의 `input.py`·`answer.py`·`http.py`·`service.py` | 빌드 조회·재빌드 요청의 입력, 응답과 실행별 동기·비동기 선택. 빌드 잠금·실행 단계·이력 규칙은 `build.py`가 소유한다 | `server.py`. 문서와 실행 함수를 명시적으로 받는다 |
-| 기능 슬라이스 | `features/revisions/`의 `input.py`·`answer.py`·`http.py`·`service.py` | Git 이력·비교 PDF의 요청 검사, 거절·성공 응답과 실행별 비교 문맥 연결. Git 읽기·샌드박스·캐시·작업 슬롯은 아직 `revisions.py`가 소유한다 | `server.py`. 실행별 문맥을 함수로 받는다 |
+| 기능 슬라이스 | `features/revisions/`의 `input.py`·`answer.py`·`http.py`·`service.py` | Git 이력·비교 PDF의 요청 검사, 거절·성공 응답과 실행별 비교 문맥 연결. Git 읽기·샌드박스·캐시·작업 슬롯은 같은 기능의 `core.py`가 소유한다 | `server.py`. 실행별 문맥을 함수로 받는다 |
 | 공통 HTTP | `web/`(`handler.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사·경로 분기와 아직 옮기지 않은 경로의 파싱·응답. 옮긴 경로는 각 기능 패키지의 HTTP 입구를 부른다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
 | 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 핀 변경 협력자에 `pin_context` 생성 함수를, `PinListing`·`PinMarkdown`에 필요한 조회 사실을 묶는다 | — |
 

@@ -294,7 +294,7 @@ SERVER_SETS = {
     "BUILD_STATE": build_states,
     "PULL_STATE": pull_states,
     "SYNC_STATE": sync_states,
-    "REVISION_STATE": lambda: written_states(PKG / "revisions.py"),
+    "REVISION_STATE": lambda: written_states(PKG / "features/revisions/core.py"),
     "SCOPE_MODE": lambda: set(get_args(scope.ScopeMode)),
     "SCOPE_SOURCE": lambda: set(get_args(scope.ScopeSource)),
     "THREAD_EV": lambda: set(get_args(model.ThreadEv)),

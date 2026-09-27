@@ -4,7 +4,7 @@ HTTPError is the one exception the handler turns into an error response ({"error
 <code>, ...extra}); the messages and reason codes are part of the agent contract (docs/handbook/api.md §오류 응답) and
 the messages are never reworded - the viewer shows English by the reason (ui_en.json `reason:<code>`). InputRejected is the value a
 boundary parser returns instead of raising. The tables below give the pin-scoping refusals (limn.scope) and the
-failed steps of a comparison build (limn.revisions.StepFailed) their texts. Pick refusals live with the location
+failed steps of a comparison build (limn.features.revisions.core.StepFailed) their texts. Pick refusals live with the location
 feature. The HTTP answers read these tables, and the
 composition root hands revision_failure_text() to the comparison worker, which records the same texts in its status.
 BUILD_FAILURES gives a failed document build (limn.build.FailedBuild) the text its log opens with;
@@ -20,7 +20,7 @@ from email.message import Message
 from typing import NamedTuple, TypeAlias
 
 from limn.build import BuildAborted, BuildFailed, BuildFailureKind, CopyFailed, FailedBuild
-from limn.revisions import BuildFailure, FailureKind, StepFailed
+from limn.features.revisions.core import BuildFailure, FailureKind, StepFailed
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeRefusal, ScopeUnreadable, ScopeUnwritable, UnsafePath
 
 # A page-kind error's (kind, params): kind is a key of ERROR_PAGE_TEXT, params fill its {placeholders}.
@@ -79,7 +79,7 @@ def scope_http_error(e: ScopeRefusal) -> HTTPError:
     return HTTPError(code, msg, reason=reason)
 
 
-# A failed step of a comparison build (limn.revisions.StepFailed.kind) -> (message, API reason) its "error" status
+# A failed step of a comparison build (limn.features.revisions.core.StepFailed.kind) -> (message, API reason) its "error" status
 # carries (api.md §변경 보기와 비교 PDF). These never become an HTTP status of their own: the build runs in the
 # background and GET /api/revision-build reports the stored status. tests check that every kind has its row.
 REVISION_FAILURES: dict[FailureKind, tuple[str, str]] = {

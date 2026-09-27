@@ -16,10 +16,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from limn import build, revisions
+from limn import build
 from limn.features.pins.location import resolve as pick_resolve
 from limn.features.pins.location.http import PICK_REFUSALS
 from limn.features.pins.location.service import PinLocationService
+from limn.features.revisions import core as revisions
 from limn.guidance import UNAUTHENTICATED
 from limn.pins.edit import NOTE_MAX
 from limn.web.errors import (
@@ -34,7 +35,7 @@ from limn.web.errors import (
 from helpers import UI_EN, extract_js_fn, ps, req, run_node, set_config, split_resp
 from helpers_access import BOB, CAROL, AccessBase, talk_to
 
-# The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
+# The modules that build error bodies or statuses: server.py, the services moved out of it (limn/features/revisions/core.py: the
 # comparison worker's own "build_failed" status; limn/scope.py, limn/documents.py: the refusal values), the access boundary (limn/access.py: identify,
 # admit, check_role and bearer_of raise their refusals) and the HTTP layer (limn/web: the handler, the parsers, the
 # answers, the refusal tables), plus feature-owned HTTP and input modules. Every static guard below reads all of them;
@@ -45,7 +46,7 @@ SOURCES = {
     p.relative_to(PKG).as_posix(): p.read_text(encoding="utf-8")
     for p in [
         Path(ps.__file__),
-        PKG / "revisions.py",
+        PKG / "features/revisions/core.py",
         PKG / "scope.py",
         PKG / "documents.py",
         PKG / "locate.py",
@@ -186,7 +187,7 @@ class EveryErrorHasAReason(unittest.TestCase):
                 self.assertEqual((e.code, e.body), (status, {"error": msg, "reason": reason}))
 
     def test_the_build_failure_table_names_a_reason_for_every_kind(self):
-        """REVISION_FAILURES gives every kind of a failed comparison step (limn.revisions.FailureKind) its Korean text
+        """REVISION_FAILURES gives every kind of a failed comparison step (limn.features.revisions.core.FailureKind) its Korean text
         and a snake_case reason."""
         self.assertEqual(set(REVISION_FAILURES), set(typing.get_args(revisions.FailureKind)))
         for kind, (msg, reason) in REVISION_FAILURES.items():

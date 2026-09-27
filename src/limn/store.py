@@ -88,7 +88,7 @@ def dump_jsonl(rows: Iterable[Row]) -> str:
 
 
 def find_pin(rows: list[Row], pid: int) -> Row | None:
-    """The first record whose id is pid, or None - a lookup over records as the API shows them (limn.revisions)."""
+    """The first record whose id is pid, or None - a lookup over records as the API shows them (limn.features.revisions.core)."""
     return next((r for r in rows if r.get("id") == pid), None)
 
 

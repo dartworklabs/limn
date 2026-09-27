@@ -29,11 +29,12 @@ from pathlib import Path
 
 import pytest
 
-from limn import config, revisions
+from limn import config
 from limn.access import LOCAL_ACTOR
 from limn.config import AccessOptions, RunConfig
 from limn.features.pins.editing import input as editing_input
 from limn.features.pins.location import http as location_http
+from limn.features.revisions import core as revisions
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
 from limn.store import find_pin
@@ -327,7 +328,7 @@ def pick(d: dict, mod=None, doc=None):
 
 
 def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):
-    """What a comparison request of document doc (default the first) compares (limn.revisions.revision_spec with the
+    """What a comparison request of document doc (default the first) compares (limn.features.revisions.core.revision_spec with the
     server copy's context), or its refusal value."""
     mod = (mod or ps).APP
     return revisions.revision_spec(doc or mod.docs[0], commit, pin, mod.revision_context())
