@@ -27,6 +27,7 @@ from unittest import mock
 
 from limn import build as limn_build, files, gitsync, locate, mapping, mentions, startup
 from limn.access import LOCAL_ACTOR
+from limn.build import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
 from limn.events import NOTIFY_TYPES
 from limn.pins import position, render as md_render
 from limn.pins.edit import NOTE_MAX, NoteTooLong
@@ -530,7 +531,7 @@ class OverlapRoutes(Base):
         """With the real build: a pick over the first page's top returns the quote, the overlaps and the build it
         resolved against, also for an older build still on screen; a vanished build is flagged, a bad name refused."""
         res = ps.build_all(ps.DOCS[0])
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         pages = limn_build.page_list(limn_build.cur_pages(ps.DOCS[0]), ps.C.dpi)
         self.assertTrue(pages)
         p = pages[0]
@@ -542,7 +543,7 @@ class OverlapRoutes(Base):
         # if the screen shows an old build, it's resolved against that build and its name is returned (a drag made right after a rebuild, before the screen updates).
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         time.sleep(1.1)
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         d2 = pick({"page": 1, "x0": 0, "y0": 0, "x1": p["pt_w"], "y1": p["pt_h"] * 0.4, "pdf_build": b1})
         self.assertEqual(d2["pdf_build"], b1)
@@ -703,15 +704,7 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_ok_omits_log(self):
         def fake_build(D=None):
-            return {
-                "ok": True,
-                "state": "ok",
-                "errors": [],
-                "log": "font path\n" * 200,
-                "elapsed_s": 0.01,
-                "pages": 1,
-                "head": "abc1234",
-            }
+            return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "abc1234", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
@@ -722,14 +715,9 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_ok_errors_trims_log_to_40_lines(self):
         def fake_build(D=None):
-            return {
-                "ok": True,
-                "state": "ok_errors",
-                "errors": [{"line": 1, "msg": "x"}],
-                "log": "\n".join("l%d" % i for i in range(200)),
-                "elapsed_s": 0.01,
-                "pages": 1,
-            }
+            return BuildOkWithErrors(
+                [{"line": 1, "msg": "x"}], "\n".join("l%d" % i for i in range(200)), 0.01, None, 1.0, None, "-", "", 1
+            )
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild"))
@@ -738,7 +726,7 @@ class RebuildLogDiet(Base):
 
     def test_sync_rebuild_log1_query_bypasses_diet(self):
         def fake_build(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": "keep-full", "elapsed_s": 0.01, "pages": 1}
+            return BuildOk("keep-full", 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             out = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -747,7 +735,7 @@ class RebuildLogDiet(Base):
 
     def test_get_api_build_applies_same_diet_and_log1_bypasses(self):
         def fake_build(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": "font path\n" * 200, "elapsed_s": 0.01, "pages": 1}
+            return BuildOk("font path\n" * 200, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build):
             ps.build_all(ps.DOCS[0])
@@ -763,7 +751,7 @@ class RebuildLogDiet(Base):
         big_log = "font path\n" * 300
 
         def fake_build_before(D=None):
-            return {"ok": True, "state": "ok", "errors": [], "log": big_log, "elapsed_s": 0.01, "pages": 1}
+            return BuildOk(big_log, 0.01, None, 1.0, None, "-", "", 1)
 
         with mock.patch.object(ps, "_build", side_effect=fake_build_before):
             before = self.talk(req("POST", "/api/rebuild?log=1"))
@@ -1130,13 +1118,13 @@ class MultiDoc(Base):
 
         def slow_build(D=None):
             gate.wait(5)
-            return {"ok": False, "state": "fail", "errors": [], "log": "x", "elapsed_s": 0.0}
+            return BuildAborted("crashed", "x")
 
         with mock.patch.object(ps, "_build", side_effect=slow_build):
-            self.assertEqual(ps.build_async(self.ms), {"state": "running"})
-            self.assertTrue(ps.build_async(self.ms).get("busy"))  # the same document allows only one build at a time
-            self.assertTrue(ps.build_all(self.ms).get("busy"))
-            self.assertEqual(ps.build_async(self.rrd), {"state": "running"})  # different documents run concurrently
+            self.assertEqual(ps.build_async(self.ms), BuildStarted())
+            self.assertEqual(ps.build_async(self.ms), BuildBusy())  # the same document allows only one build at a time
+            self.assertEqual(ps.build_all(self.ms), BuildBusy())
+            self.assertEqual(ps.build_async(self.rrd), BuildStarted())  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
             self.assertFalse(ps.BUILD_LOCK.locked())  # the single-document global lock is left untouched
             gate.set()
@@ -1177,7 +1165,7 @@ class MultiDoc(Base):
         rv = self.rv
         self.assertTrue(limn_build.pdf_changed(rv))  # not rendered yet
         res = ps._build_tracked(rv)
-        self.assertEqual(res["state"], "ok", res.get("log"))
+        self.assertIsInstance(res, BuildOk, res)
         first = limn_build.cur_pages(rv).name
         self.assertTrue((limn_build.cur_pages(rv) / "review.pdf").is_file())
         self.assertFalse(limn_build.pdf_changed(rv))
@@ -1187,7 +1175,7 @@ class MultiDoc(Base):
         self.assertTrue(limn_build.pdf_changed(rv))
         time.sleep(1.1)  # page directory names are second-granularity
         res = ps._build_tracked(rv)
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         self.assertNotEqual(limn_build.cur_pages(rv).name, first)
         self.assertEqual(limn_build.state_snapshot(rv)["seq"], 2)
         b = limn_build.load_builds(rv)["by"]

@@ -465,10 +465,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         full = (parse_qs(u.query).get("log") or ["0"])[0] == "1"
         if (parse_qs(u.query).get("async") or ["0"])[0] == "1":
-            r = app.build_async(D)
-            return self._json(r, 409 if r.get("busy") else 202)
-        r = app.build_all(D)
-        return self._json(answers.diet_log(r, full), 409 if r.get("busy") else 200)
+            return self._json(*answers.rebuild_started_answer(app.build_async(D)))
+        return self._json(*answers.rebuild_answer(app.build_all(D), full))
 
     def _pin_action(self, actor: Json, pid: int, act: str, d: Json) -> None:
         """POST /api/pins/{pid}/{act}: parse the action's fields (in the order the server has always checked them), call

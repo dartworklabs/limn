@@ -19,8 +19,10 @@ from unittest import mock
 
 from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
+from limn.build import BuildFailed, BuildOk, BuildOkWithErrors
 from limn.mapping import anchor_of
 from limn.pins import position
+from limn.web.errors import build_failure_log
 
 from helpers import TEX, Base, add_pin, edit_pin, needs_tex, ps, req
 
@@ -269,17 +271,9 @@ class Estimate(Base):
         ps.C.pages_ptr.write_text(name)
         limn_build.finish_build(
             ps.DOCS[0],
-            {
-                "ok": True,
-                "state": "ok",
-                "errors": [],
-                "log": "",
-                "elapsed_s": 0.1,
-                "pages": 1,
-                "build": name,
-                "src_hash": src_hash,
-            },
+            BuildOk("", 0.1, None, None, src_hash, "-", name, 1),
             src_mtime if src_mtime is not None else time.time(),
+            build_failure_log,
         )
         return name
 
@@ -399,8 +393,9 @@ class Estimate(Base):
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
             ps.DOCS[0],
-            {"ok": False, "state": "fail", "errors": [{"line": 3, "msg": "x"}], "log": "boom", "elapsed_s": 0.1},
+            BuildFailed("no_pdf", "", "boom", [{"line": 3, "msg": "x"}], 0.1, None, 1.0, None),
             None,
+            build_failure_log,
         )
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertEqual(m["build_seq"], 2)
@@ -417,8 +412,9 @@ class Estimate(Base):
         self._fake_build("pages-20260101000000", "h1")
         limn_build.finish_build(
             ps.DOCS[0],
-            {"ok": False, "state": "ok_errors", "errors": [{"line": 1, "msg": "m"}], "log": "L", "elapsed_s": 0.1},
+            BuildOkWithErrors([{"line": 1, "msg": "m"}], "L", 0.1, None, 1.0, None, "-", "", 1),
             None,
+            build_failure_log,
         )
         ps.BUILD_STATE.update(state="idle", seq=0, last=None, errors=[], log_tail="")  # simulate a restart
         limn_build.seed_builds(ps.DOCS[0], ps.C.state)
@@ -463,19 +459,19 @@ class Estimate(Base):
     @needs_tex("latexmk", "pdftoppm")
     def test_real_build_est_end_to_end(self):
         """With the real latexmk: an unchanged rebuild -> no est, a rebuild after editing the manuscript -> est, and it stays after editing the note."""
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         b1 = limn_build.cur_pages(ps.DOCS[0]).name
         pid = self.add()
         self.assertEqual(self.pin(pid)["pdf_build"], b1)
         time.sleep(1.1)  # build directory names are second-granularity
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertNotEqual(limn_build.cur_pages(ps.DOCS[0]).name, b1)
         self.assertIs(self.est_of(pid), False)
         self.main.write_text(
             TEX.replace("After table epsilonunique.", "After table epsilonunique longer."), encoding="utf-8"
         )
         time.sleep(1.1)
-        self.assertEqual(ps.build_all(ps.DOCS[0])["state"], "ok")
+        self.assertEqual(type(ps.build_all(ps.DOCS[0])), BuildOk)
         self.assertIs(self.est_of(pid), True)
         edit_pin(pid, {"note": "메모만", "base_rev": self.pin(pid)["rev"]}, dict(LOCAL_ACTOR))
         self.assertIs(self.est_of(pid), True)

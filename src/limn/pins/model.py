@@ -2,25 +2,27 @@
 
 A stored pin is a JSON record (docs/handbook/api.md §핀 레코드). Its state is not a stored field; it follows
 from done/review (state_of), and the name the API shows for it is the state type's `state` (limn.pins.view.pin_state).
-Each state type lifts the fields only that state has into typed attributes - an open pin's claim, a closed pin's
-close, a done pin's confirmation, a Trash copy's drop - so a claim on a closed pin or a confirmation on an open one
-has no attribute to live in. Every other field, including ones an older or newer version wrote, is kept as stored
-(`fields`), and `record` writes the pin back in the stored field order: a record parsed and written back unchanged
-gives the same JSON line, byte for byte.
+Every state holds the fields all pins share as one typed `core` (PinCore: id, document, place, note, author, rev,
+kind_req, assignee, mentions, thread, and the line-matching state), and lifts the fields only that state has into
+typed attributes - an open pin's claim, a closed pin's close, a done pin's confirmation, a Trash copy's drop - so a
+claim on a closed pin or a confirmation on an open one has no attribute to live in. Every other field, including
+ones an older or newer version wrote, is kept as stored (`fields`), and `record` writes the pin back in the stored
+field order: a record parsed and written back unchanged gives the same JSON line, byte for byte.
 
 Parsing is lenient, as the store has always been: a legacy record may lack any of these fields, and a lifted field
 whose stored value is not of the expected kind is not lifted - it stays among `fields` exactly as stored, and the
-state reads as if it were absent. The transitions in lifecycle.py and edit.py still build the next record field by
-field, because the stored order is part of the byte contract, and parse it into the next state at once.
+pin reads as if it were absent. The transitions in lifecycle.py and edit.py read the typed attributes, and still
+build the next record field by field, because the stored order is part of the byte contract, and parse it into the
+next state at once.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal, TypeAlias, TypeVar
+from typing import Any, ClassVar, Literal, TypeAlias, TypeGuard, TypeVar, get_args
 
-from limn.pins.shapes import is_num
+from limn.pins.shapes import is_int, is_num
 
 Record: TypeAlias = Mapping[str, Any]
 # The name of a pin's state as the API and pins.md show it (GET /api/pins `state`, docs/handbook/api.md §검토 대기).
@@ -30,6 +32,24 @@ StateName: TypeAlias = Literal["open", "review", "done"]
 Signature: TypeAlias = Mapping[str, Any]
 # A lifted group's table: stored key -> (attribute name, does a stored value have the kind the attribute holds).
 Shapes: TypeAlias = Mapping[str, tuple[str, Callable[[object], bool]]]
+# kind_req: what a pin asks for - a fix (the default; every legacy pin is one) or an answer (docs/handbook/api.md §스레드).
+KindReq: TypeAlias = Literal["fix", "question"]
+KIND_REQS: tuple[KindReq, ...] = get_args(KindReq)
+# The mark a thread entry may carry (ev): the close, reopen and confirm transitions (limn.pins.lifecycle) and an
+# assignee change (limn.pins.edit). A reply has none. limn.pins.record accepts no other stored value.
+ThreadEv: TypeAlias = Literal["close", "reopen", "confirm", "assign"]
+THREAD_EVENTS: tuple[ThreadEv, ...] = get_args(ThreadEv)
+
+
+def is_kind_req(v: object) -> TypeGuard[KindReq]:
+    """Is v one of KIND_REQS? The check a request parser, the stored-record check and PinCore's lift share."""
+    return v in KIND_REQS
+
+
+def is_thread_ev(v: object) -> TypeGuard[ThreadEv]:
+    """Is v one of THREAD_EVENTS - a mark a thread entry may carry? A string compare only (never a hash, so any
+    stored JSON value may be asked)."""
+    return isinstance(v, str) and v in THREAD_EVENTS
 
 
 def _is_text(value: object) -> bool:
@@ -42,9 +62,29 @@ def _is_signature(value: object) -> bool:
     return isinstance(value, Mapping)
 
 
+def _is_object(value: object) -> bool:
+    """A JSON object of any fields - how a line pin's anchor is stored (its shape is limn.mapping's)."""
+    return isinstance(value, Mapping)
+
+
 def _is_changes(value: object) -> bool:
     """A list of JSON objects - the stored form of a close's changed ranges ([{file, lo, hi}])."""
     return isinstance(value, list) and all(isinstance(change, Mapping) for change in value)
+
+
+def _is_texts(value: object) -> bool:
+    """A list of strings - how mentions (logins) are stored, on a pin and on a thread entry."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _is_bool(value: object) -> bool:
+    """A JSON boolean - how stale is stored."""
+    return isinstance(value, bool)
+
+
+def _is_frac(value: object) -> TypeGuard[list[float]]:
+    """Four JSON numbers in a list - how a region's frac ([x, y, w, h] as fractions of the page) is stored."""
+    return isinstance(value, list) and len(value) == 4 and all(is_num(x) for x in value)
 
 
 @dataclass(frozen=True)
@@ -132,9 +172,14 @@ DROPPED_SHAPES: Shapes = {"dropped_at": ("at", _is_text), "dropped_by": ("by", _
 GroupT = TypeVar("GroupT", Claim, Close, Confirmation, Dropped)
 
 
+def _fitting(record: Record, shapes: Shapes) -> dict[str, Any]:
+    """The group's fields that record stores with the expected kind, under their stored keys, in table order."""
+    return {key: record[key] for key, (_, fits) in shapes.items() if key in record and fits(record[key])}
+
+
 def _taken(record: Record, shapes: Shapes) -> dict[str, Any]:
     """The group's fields that record stores with the expected kind, keyed by attribute name."""
-    return {attr: record[key] for key, (attr, fits) in shapes.items() if key in record and fits(record[key])}
+    return {shapes[key][0]: value for key, value in _fitting(record, shapes).items()}
 
 
 def _lift(record: Record, shapes: Shapes, group: type[GroupT], required: Sequence[str]) -> GroupT | None:
@@ -146,8 +191,9 @@ def _lift(record: Record, shapes: Shapes, group: type[GroupT], required: Sequenc
     return group(**taken)
 
 
-def _stored(value: Claim | Close | Confirmation | Dropped | None, shapes: Shapes) -> dict[str, Any]:
-    """A lifted group back as stored fields: each attribute that is set, under its stored key, in table order."""
+def _stored(value: object, shapes: Shapes) -> dict[str, Any]:
+    """A lifted group (a Claim, a Close, a PinCore ... or None) back as stored fields: each attribute of the table
+    that is set, under its stored key, in table order."""
     if value is None:
         return {}
     return {key: getattr(value, attr) for key, (attr, _) in shapes.items() if getattr(value, attr) is not None}
@@ -179,6 +225,179 @@ def _check(state: object, fields: Record, lifted: Record) -> None:
 
 
 @dataclass(frozen=True)
+class ThreadEntry:
+    """One entry of a pin's thread (docs/handbook/api.md §스레드 (답글)): a reply, or a state-transition mark (ev).
+
+    id, by, at and text are what every entry this server writes has; ev marks a transition, ref is a close's
+    reference and mentions the entry's @-tags, each only when given. Parsed like a pin: a part that is missing or of
+    the wrong kind is not lifted and stays among `fields` as stored (an ev outside THREAD_EVENTS too), and `record`
+    writes the entry back in its stored field order.
+    """
+
+    id: int | None = None
+    by: Signature | None = None
+    at: str | None = None
+    text: str | None = None
+    ev: ThreadEv | None = None
+    ref: str | None = None
+    mentions: Sequence[str] | None = None
+    fields: Record = field(default_factory=dict)
+    order: tuple[str, ...] = field(default=(), compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Reject a part held both lifted and kept (writing the entry back would have to pick one): a defect."""
+        twice = _stored(self, THREAD_ENTRY_SHAPES).keys() & self.fields.keys()
+        if twice:
+            raise ValueError("ThreadEntry lifts %s but also keeps it" % sorted(twice))
+
+    @classmethod
+    def from_record(cls, entry: Record) -> ThreadEntry:
+        """The entry a stored thread object describes; never fails."""
+        taken = _taken(entry, THREAD_ENTRY_SHAPES)
+        return cls(**taken, fields=_others(entry, _fitting(entry, THREAD_ENTRY_SHAPES)), order=tuple(entry))
+
+    @property
+    def record(self) -> dict[str, Any]:
+        """The entry as stored: a new dict in stored field order."""
+        return _render(self.fields, self.order, _stored(self, THREAD_ENTRY_SHAPES))
+
+
+THREAD_ENTRY_SHAPES: Shapes = {
+    "id": ("id", is_int),
+    "by": ("by", _is_signature),
+    "at": ("at", _is_text),
+    "text": ("text", _is_text),
+    "ev": ("ev", is_thread_ev),
+    "ref": ("ref", _is_text),
+    "mentions": ("mentions", _is_texts),
+}
+
+
+def _is_thread(value: object) -> TypeGuard[list[Record]]:
+    """A list of JSON objects - a stored thread whose entries can be lifted one by one."""
+    return isinstance(value, list) and all(isinstance(entry, Mapping) for entry in value)
+
+
+@dataclass(frozen=True)
+class LineSpan:
+    """Where a line pin points: its .tex file (the absolute path as stored) and the lines lo..hi (1-based, inclusive).
+
+    The rest of a line pin's location - name, the PDF page and frac it was dragged on, raw_lo/raw_hi, kind, via,
+    score, scope, quote - is kept among the pin's fields as stored.
+    """
+
+    file: str
+    lo: int
+    hi: int
+
+
+@dataclass(frozen=True)
+class Region:
+    """Where a view-only PDF pin points (is_region_pin): the PDF (its path as stored), the page (1-based) and frac,
+    the region as fractions of the page [x, y, w, h] - the stored list itself. Its quote and pdf_build are kept among
+    the pin's fields as stored."""
+
+    pdf: str
+    page: int
+    frac: Sequence[float]
+
+
+# Where a pin points: lines of a .tex file, or a region of a view-only PDF's page.
+PinPlace: TypeAlias = LineSpan | Region
+
+
+def _place_of(record: Record) -> PinPlace | None:
+    """The place a stored record gives, lifted whole or not at all: a Region when the record is shaped as a region pin
+    (is_region_pin) with an integer page and a four-number frac; a LineSpan when it is not and has a non-empty file
+    string and integer lo and hi. None otherwise - then every one of those fields stays among the kept ones."""
+    if is_region_pin(record):
+        page, frac = record.get("page"), record.get("frac")
+        if is_int(page) and _is_frac(frac):
+            return Region(record["pdf"], page, frac)
+        return None
+    file, lo, hi = record.get("file"), record.get("lo"), record.get("hi")
+    if isinstance(file, str) and file and is_int(lo) and is_int(hi):
+        return LineSpan(file, lo, hi)
+    return None
+
+
+def _place_stored(place: PinPlace | None) -> dict[str, Any]:
+    """A lifted place back as its stored fields."""
+    match place:
+        case LineSpan():
+            return {"file": place.file, "lo": place.lo, "hi": place.hi}
+        case Region():
+            return {"pdf": place.pdf, "page": place.page, "frac": place.frac}
+        case None:
+            return {}
+
+
+@dataclass(frozen=True)
+class PinCore:
+    """What a pin is whatever its state: the fields every state shares, typed (docs/handbook/api.md §핀 레코드).
+
+    id; doc, the document key (a pin from before several documents has none); place; note; at and author, when and
+    by whom it was made; rev (a missing rev counts as 0 wherever a rev is compared or bumped); kind_req (none is a
+    fix); assignee; mentions, the note's @-tags; thread; and the line-matching state - anchor (the head/tail text a
+    line pin follows, kept as stored for limn.mapping), synced_at (epoch seconds), stale and sync. Each is lifted only
+    when stored with its kind - mentions a list of strings, thread a list of objects (each a ThreadEntry) - and place
+    only whole; anything else stays among the state's kept fields as stored, and the core reads it as absent.
+    """
+
+    id: int | None = None
+    doc: str | None = None
+    place: PinPlace | None = None
+    note: str | None = None
+    at: str | None = None
+    author: Signature | None = None
+    rev: int | None = None
+    kind_req: KindReq | None = None
+    assignee: str | None = None
+    mentions: Sequence[str] | None = None
+    thread: Sequence[ThreadEntry] | None = None
+    anchor: Record | None = None
+    synced_at: float | None = None
+    stale: bool | None = None
+    sync: str | None = None
+
+    @classmethod
+    def from_record(cls, record: Record) -> PinCore:
+        """The shared fields a stored record holds with their kind; never fails."""
+        thread = record.get("thread")
+        return cls(
+            place=_place_of(record),
+            thread=tuple(ThreadEntry.from_record(entry) for entry in thread) if _is_thread(thread) else None,
+            **_taken(record, CORE_SHAPES),
+        )
+
+    def stored(self) -> dict[str, Any]:
+        """The core back as stored fields, each one that is set: the table's in table order, then the place, then the
+        thread with every entry written back as stored."""
+        out = {**_stored(self, CORE_SHAPES), **_place_stored(self.place)}
+        if self.thread is not None:
+            out["thread"] = [entry.record for entry in self.thread]
+        return out
+
+
+# The core's plain fields (place and thread have their own rules in PinCore).
+CORE_SHAPES: Shapes = {
+    "id": ("id", is_int),
+    "doc": ("doc", _is_text),
+    "note": ("note", _is_text),
+    "at": ("at", _is_text),
+    "author": ("author", _is_signature),
+    "rev": ("rev", is_int),
+    "kind_req": ("kind_req", is_kind_req),
+    "assignee": ("assignee", _is_text),
+    "mentions": ("mentions", _is_texts),
+    "anchor": ("anchor", _is_object),
+    "synced_at": ("synced_at", is_num),
+    "stale": ("stale", _is_bool),
+    "sync": ("sync", _is_text),
+}
+
+
+@dataclass(frozen=True)
 class OpenPin:
     """A pin nobody has closed: its stored done is false or missing. Only an open pin carries a claim.
 
@@ -187,24 +406,31 @@ class OpenPin:
     """
 
     state: ClassVar[StateName] = "open"
+    core: PinCore
     claim: Claim | None
     fields: Record
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Reject a stored done that says closed, or a claim field held twice."""
-        _check(self, self.fields, _stored(self.claim, CLAIM_SHAPES))
+        """Reject a stored done that says closed, or a core or claim field held twice."""
+        _check(self, self.fields, self._lifted())
+
+    def _lifted(self) -> dict[str, Any]:
+        """The core and the claim as stored fields."""
+        return {**self.core.stored(), **_stored(self.claim, CLAIM_SHAPES)}
 
     @classmethod
     def from_record(cls, record: Record) -> OpenPin:
         """The open pin a stored record describes; ValueError if its done says it is closed."""
+        core = PinCore.from_record(record)
         claim = _lift(record, CLAIM_SHAPES, Claim, required=("by",))
-        return cls(claim, _others(record, _stored(claim, CLAIM_SHAPES)), tuple(record))
+        lifted = {**core.stored(), **_stored(claim, CLAIM_SHAPES)}
+        return cls(core, claim, _others(record, lifted), tuple(record))
 
     @property
     def record(self) -> dict[str, Any]:
-        """The pin as stored: a new dict in stored field order, the claim written back where it was."""
-        return _render(self.fields, self.order, _stored(self.claim, CLAIM_SHAPES))
+        """The pin as stored: a new dict in stored field order, the core and the claim written back where they were."""
+        return _render(self.fields, self.order, self._lifted())
 
 
 @dataclass(frozen=True)
@@ -213,24 +439,31 @@ class ReviewPin:
     no claim; a confirmation comes only with the move to done."""
 
     state: ClassVar[StateName] = "review"
+    core: PinCore
     close: Close
     fields: Record
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Reject stored done/review that do not say awaiting review, or a close field held twice."""
-        _check(self, self.fields, _stored(self.close, CLOSE_SHAPES))
+        """Reject stored done/review that do not say awaiting review, or a core or close field held twice."""
+        _check(self, self.fields, self._lifted())
+
+    def _lifted(self) -> dict[str, Any]:
+        """The core and the close as stored fields."""
+        return {**self.core.stored(), **_stored(self.close, CLOSE_SHAPES)}
 
     @classmethod
     def from_record(cls, record: Record) -> ReviewPin:
         """The pin awaiting review a stored record describes; ValueError unless done and review are true."""
+        core = PinCore.from_record(record)
         close = Close(**_taken(record, CLOSE_SHAPES))
-        return cls(close, _others(record, _stored(close, CLOSE_SHAPES)), tuple(record))
+        lifted = {**core.stored(), **_stored(close, CLOSE_SHAPES)}
+        return cls(core, close, _others(record, lifted), tuple(record))
 
     @property
     def record(self) -> dict[str, Any]:
-        """The pin as stored: a new dict in stored field order, the close written back where it was."""
-        return _render(self.fields, self.order, _stored(self.close, CLOSE_SHAPES))
+        """The pin as stored: a new dict in stored field order, the core and the close written back where they were."""
+        return _render(self.fields, self.order, self._lifted())
 
 
 @dataclass(frozen=True)
@@ -239,34 +472,39 @@ class DonePin:
     and no claim. A legacy done record with no review field is done too."""
 
     state: ClassVar[StateName] = "done"
+    core: PinCore
     close: Close
     confirmation: Confirmation | None
     fields: Record
     order: tuple[str, ...] = field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Reject stored done/review that do not say done, or a close or confirmation field held twice."""
-        _check(
-            self, self.fields, {**_stored(self.close, CLOSE_SHAPES), **_stored(self.confirmation, CONFIRMATION_SHAPES)}
-        )
+        """Reject stored done/review that do not say done, or a core, close or confirmation field held twice."""
+        _check(self, self.fields, self._lifted())
+
+    def _lifted(self) -> dict[str, Any]:
+        """The core, the close and the confirmation as stored fields."""
+        return {
+            **self.core.stored(),
+            **_stored(self.close, CLOSE_SHAPES),
+            **_stored(self.confirmation, CONFIRMATION_SHAPES),
+        }
 
     @classmethod
     def from_record(cls, record: Record) -> DonePin:
         """The done pin a stored record describes; ValueError unless done is set and review is not true. A
         confirmation is lifted only whole - confirmed_by an object and confirmed_at a string."""
+        core = PinCore.from_record(record)
         close = Close(**_taken(record, CLOSE_SHAPES))
         confirmation = _lift(record, CONFIRMATION_SHAPES, Confirmation, required=("by", "at"))
-        lifted = {**_stored(close, CLOSE_SHAPES), **_stored(confirmation, CONFIRMATION_SHAPES)}
-        return cls(close, confirmation, _others(record, lifted), tuple(record))
+        lifted = {**core.stored(), **_stored(close, CLOSE_SHAPES), **_stored(confirmation, CONFIRMATION_SHAPES)}
+        return cls(core, close, confirmation, _others(record, lifted), tuple(record))
 
     @property
     def record(self) -> dict[str, Any]:
-        """The pin as stored: a new dict in stored field order, close and confirmation written back where they were."""
-        return _render(
-            self.fields,
-            self.order,
-            {**_stored(self.close, CLOSE_SHAPES), **_stored(self.confirmation, CONFIRMATION_SHAPES)},
-        )
+        """The pin as stored: a new dict in stored field order, the core, close and confirmation written back where
+        they were."""
+        return _render(self.fields, self.order, self._lifted())
 
 
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin

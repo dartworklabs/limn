@@ -1,7 +1,7 @@
-"""The HTTP answer to every outcome of a pin operation: one function per route, one `match` per function.
+"""The HTTP answer to every outcome of a pin operation or a build: one function per route, one `match` per function.
 
 Each function takes the outcome value a server.py shell returned (limn.pins types, PinNotFound, the revision
-services' values) or a request parser returned (InputRejected, limn.web.parse) and gives the body of the 200 response,
+services' values, limn.build's outcomes) or a request parser returned (InputRejected, limn.web.parse) and gives the body of the 200 response,
 or raises HTTPError with the status and body of a refusal; the handler sends the body and its _run turns the HTTPError into the error response. Statuses, bodies and messages are the agent
 contract (docs/handbook/api.md) and are kept word for word. A record goes out through `show` (server.py's public(),
 which places the pin's file on this machine), and a state name comes from `state_of` (server.py's pin_state()).
@@ -11,6 +11,16 @@ Nothing here reads files, the clock or the request.
 from collections.abc import Callable
 from typing import Any, NoReturn, TypeAlias, TypeVar
 
+from limn.build import (
+    BuildAborted,
+    BuildBusy,
+    BuildFailed,
+    BuildOk,
+    BuildOkWithErrors,
+    BuildStarted,
+    CopyFailed,
+    FinishedBuild,
+)
 from limn.pins.edit import ClosedPinReshaped, EditRefusal, NoteTooLong, PinOutsideTree, RangeOutsideFile, StaleEdit
 from limn.pins.lifecycle import (
     AgentCannotConfirm,
@@ -41,7 +51,7 @@ from limn.revisions import (
     UnsafeCache,
 )
 from limn.scope import PinNotInDoc, ScopeMismatch, ScopeUnreadable, ScopeUnwritable, UnsafePath
-from limn.web.errors import HTTPError, InputRejected, scope_http_error
+from limn.web.errors import HTTPError, InputRejected, build_failure_log, scope_http_error
 
 Body: TypeAlias = dict[str, object]
 Show: TypeAlias = Callable[[Record], object]
@@ -162,7 +172,7 @@ def confirm_answer(result: DonePin | AlreadyDone | PinStillOpen | AgentCannotCon
 
 def add_answer(result: OpenPin) -> Body:
     """POST /api/pin: the new pin's id (a refused field was answered by accepted() before the pin was made)."""
-    return {"id": result.record["id"]}
+    return {"id": result.core.id}
 
 
 def edit_answer(result: OpenPin | ReviewPin | DonePin | EditRefusal | PinNotFound, show: Show) -> Body:
@@ -237,12 +247,17 @@ def revision_pdf_answer(result: bytes | RevisionRefusal) -> bytes:
     revision_refused(result)
 
 
+def _last_log_lines(text: object) -> str:
+    """The last LOG_TAIL_LINES lines of a log (a missing or empty log reads as "")."""
+    return "\n".join(str(text or "").splitlines()[-LOG_TAIL_LINES:])
+
+
 def diet_log(payload: dict[str, Any], full: bool) -> dict[str, Any]:
-    """The build state or build result as GET /api/build and POST /api/rebuild answer it (docs/handbook/build-sync.md
-    §에이전트 응답 다이어트): log/log_tail are dropped when state=='ok' (even a success ran a few KB via font paths),
-    and for any other state (ok_errors, fail, ...) trimmed to their last LOG_TAIL_LINES lines - on a copy. With full
-    (?log=1) payload itself comes back. The build state (BUILD_STATE, builds.json) is never changed: this applies only
-    right before the HTTP response."""
+    """The build state as GET /api/build answers it (docs/handbook/build-sync.md §에이전트 응답 다이어트): log/log_tail
+    are dropped when state=='ok' (even a success ran a few KB via font paths), and for any other state (ok_errors,
+    fail, ...) trimmed to their last LOG_TAIL_LINES lines - on a copy. With full (?log=1) payload itself comes back.
+    The build state (BUILD_STATE, builds.json) is never changed: this applies only right before the HTTP response.
+    POST /api/rebuild's answer applies the same diet by outcome type (rebuild_answer)."""
     if full:
         return payload
     out = dict(payload)
@@ -253,5 +268,79 @@ def diet_log(payload: dict[str, Any], full: bool) -> dict[str, Any]:
         if state == "ok":
             out.pop(key, None)
         else:
-            out[key] = "\n".join(str(out[key] or "").splitlines()[-LOG_TAIL_LINES:])
+            out[key] = _last_log_lines(out[key])
     return out
+
+
+def finished_build_body(result: FinishedBuild) -> Body:
+    """A finished build as JSON - POST /api/rebuild's body before the log diet, in the key order the agent contract has
+    always had: ok, state, errors, log, elapsed_s, then only what the build got as far as - pull (when --git-pull ran),
+    src_mtime (a LaTeX build), src_hash (once the copy was fingerprinted), and for new pages head, build, pages. A
+    failure's log is limn.web.errors.build_failure_log's text."""
+    match result:
+        case BuildOk():
+            return _new_pages_body(result, "ok", [])
+        case BuildOkWithErrors(errors=errors):
+            return _new_pages_body(result, "ok_errors", errors)
+        case CopyFailed(pull=pull, src_mtime=src_mtime, elapsed_s=elapsed_s):
+            body = _failed_body([], build_failure_log(result), elapsed_s)
+            _put_source(body, pull, src_mtime)
+            return body
+        case BuildFailed(errors=errors, pull=pull, src_mtime=src_mtime, src_hash=src_hash, elapsed_s=elapsed_s):
+            body = _failed_body(errors, build_failure_log(result), elapsed_s)
+            _put_source(body, pull, src_mtime)
+            body["src_hash"] = src_hash
+            return body
+        case BuildAborted():
+            return _failed_body([], build_failure_log(result), 0.0)
+
+
+def _new_pages_body(result: BuildOk | BuildOkWithErrors, state: str, errors: list[Any]) -> Body:
+    """The body of a build that made new page images: ok true, its state and errors, the log, then the source keys
+    and the new pages (src_hash, head, build, pages)."""
+    body: Body = {"ok": True, "state": state, "errors": errors, "log": result.log, "elapsed_s": result.elapsed_s}
+    _put_source(body, result.pull, result.src_mtime)
+    body.update(src_hash=result.src_hash, head=result.head, build=result.build, pages=result.pages)
+    return body
+
+
+def _failed_body(errors: list[Any], log: str, elapsed_s: float) -> Body:
+    """The leading keys of a failed build's body (ok false, state fail, errors, log, elapsed_s)."""
+    return {"ok": False, "state": "fail", "errors": errors, "log": log, "elapsed_s": elapsed_s}
+
+
+def _put_source(body: Body, pull: dict[str, Any] | None, src_mtime: float | None) -> None:
+    """Append the pull record (only when a pull ran) and the compiled manuscript's mtime (only for a LaTeX build)."""
+    if pull is not None:
+        body["pull"] = pull
+    if src_mtime is not None:
+        body["src_mtime"] = src_mtime
+
+
+def rebuild_answer(result: FinishedBuild | BuildBusy, full: bool) -> tuple[Body, int]:
+    """POST /api/rebuild (synchronous): the finished build's body and 200, or 409 {"ok": false, "busy": true} when the
+    document was already building. Without full (?log=1) the log is dropped for BuildOk and cut to its last
+    LOG_TAIL_LINES lines for every other outcome (§에이전트 응답 다이어트)."""
+    match result:
+        case BuildBusy():
+            return {"ok": False, "busy": True}, 409
+        case BuildOk():
+            body = finished_build_body(result)
+            if not full:
+                del body["log"]
+            return body, 200
+        case BuildOkWithErrors() | CopyFailed() | BuildFailed() | BuildAborted():
+            body = finished_build_body(result)
+            if not full:
+                body["log"] = _last_log_lines(body["log"])
+            return body, 200
+
+
+def rebuild_started_answer(result: BuildStarted | BuildBusy) -> tuple[Body, int]:
+    """POST /api/rebuild?async=1: 202 {"state": "running"} when the build started, 409 with busy true when the document
+    was already building."""
+    match result:
+        case BuildStarted():
+            return {"state": "running"}, 202
+        case BuildBusy():
+            return {"state": "running", "busy": True}, 409
