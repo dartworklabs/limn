@@ -25,6 +25,7 @@ from typing import Any, Protocol, TypeAlias
 from limn import access
 from limn.config import Cfg
 from limn.documents import Doc, DocNotFound
+from limn.locate import Picked, PickedRegion, PickRefusal
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
 from limn.pins.lifecycle import (
     AgentCannotConfirm,
@@ -289,7 +290,7 @@ class App(Protocol):
         """POST /api/clear."""
         ...
 
-    def pick(self, D: Document, request: PickRequest) -> Json:
+    def pick(self, D: Document, request: PickRequest) -> Picked | PickedRegion | PickRefusal:
         """POST /api/pick: a dragged region -> source lines."""
         ...
 

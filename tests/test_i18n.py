@@ -19,13 +19,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-from limn import access, config, locate, startup
+from limn import access, config, startup
 from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
 from limn.pins.lifecycle import CloseRequest
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
-from limn.web import parse
+from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
 from helpers import add_pin, blank_png, shut_wr
@@ -329,19 +329,9 @@ class ComposedMessages(unittest.TestCase):
 
 
 def pick_warning_sentences():
-    """The Korean sentences limn.locate's pick() and _pick_region() put into `warn`, as templates: each %d / %.0f becomes {x}."""
-    import ast
-
-    tree = ast.parse(Path(locate.__file__).read_text(encoding="utf-8"))
-    out = set()
-    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("pick", "_pick_region")):
-        for asg in (n for n in ast.walk(fn) if isinstance(n, ast.Assign)):
-            if not any(isinstance(t, ast.Name) and t.id in ("warn", "stale_note") for t in asg.targets):
-                continue
-            for n in ast.walk(asg.value):
-                if isinstance(n, ast.Constant) and isinstance(n.value, str) and HANGUL.search(n.value):
-                    out.add(re.sub(r"%(?:\.0f|d)", "{x}", n.value).replace("%%", "%"))
-    return out
+    """The Korean sentences a pick's `warn` is made of (limn.web.answers.PICK_WARNINGS), as templates: each %d / %.0f
+    becomes {x}."""
+    return {re.sub(r"%(?:\.0f|d)", "{x}", s).replace("%%", "%") for s in answers.PICK_WARNINGS.values()}
 
 
 class PickWarnings(unittest.TestCase):
@@ -370,7 +360,7 @@ class PickWarnings(unittest.TestCase):
         return json.loads(r.stdout)
 
     def test_every_server_sentence_has_a_template_with_english(self):
-        """Each warning sentence in pick()/_pick_region() is in PICK_WARNS (placeholders aside) and in the table."""
+        """Each warning sentence of answers.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""
         table = re.search(r"const PICK_WARNS=\[(.*?)\];", ps.HTML, re.S)
         self.assertIsNotNone(table)
         templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))

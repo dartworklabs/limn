@@ -99,6 +99,56 @@ class FloatEnvironments(unittest.TestCase):
         self.assertEqual((without["default_level"], without["lo"], without["hi"]), ("para", 5, 5))
 
 
+class TraceRange(unittest.TestCase):
+    """trace_range: SyncTeX's range and the text's range compete on score; the winner is expanded into the ladder and
+    a weak match or two disagreeing paths are flagged. The fixture manuscript, each token on one line (weight 0.5)."""
+
+    lines = TEX.splitlines()
+    envs = ("figure", "table")
+
+    @staticmethod
+    def weights(*tokens):
+        """The weights TokenCache gives tokens that each occur on one line of TEX."""
+        return [(t, 0.5) for t in tokens]
+
+    def test_no_path_is_no_range(self):
+        """No SyncTeX answer and fewer than two weighed tokens: nothing to trace (the shell answers no_source_here)."""
+        self.assertIsNone(mapping.trace_range([], self.lines, None, self.envs))
+        self.assertIsNone(mapping.trace_range(self.weights("zetaunique"), self.lines, None, self.envs))
+
+    def test_synctex_alone_is_taken_and_never_weak_without_text(self):
+        """With no text to weigh (a figure), SyncTeX's range stands at score 0 and is not flagged weak."""
+        t = mapping.trace_range([], self.lines, (14, 14), self.envs)
+        self.assertEqual((t.via, t.raw_lo, t.raw_hi, t.score, t.weak, t.split), ("synctex", 14, 14, 0.0, False, None))
+        self.assertEqual((t.lo, t.hi, t.kind, t.default_level), (12, 16, "float", "env"))
+
+    def test_the_better_score_wins_and_synctex_wins_a_tie(self):
+        """Text found elsewhere with a higher score wins; the same score keeps SyncTeX."""
+        text = mapping.trace_range(self.weights("seven", "betaunique"), self.lines, (4, 4), self.envs)
+        self.assertEqual((text.via, text.raw_lo, text.score), ("text", 8, 1.0))
+        tie = mapping.trace_range(self.weights("seven", "betaunique"), self.lines, (8, 8), self.envs)
+        self.assertEqual((tie.via, tie.raw_lo, tie.score), ("synctex", 8, 1.0))
+
+    def test_a_low_score_is_weak_and_not_also_split(self):
+        """Below 0.3 with tokens weighed is weak; the disagreement check is then skipped."""
+        tw = self.weights("betaunique") + [("qqqqq", 1.0), ("wwwww", 1.0), ("eeeee", 1.0)]
+        t = mapping.trace_range(tw, self.lines, (8, 8), self.envs)
+        self.assertEqual((t.via, t.weak, t.split), ("synctex", True, None))
+        self.assertLess(t.score, mapping.WEAK_SCORE)
+
+    def test_close_scores_at_different_places_are_split(self):
+        """SyncTeX at line 8 and the text at line 4 score alike: SyncTeX wins the tie and both first lines are named."""
+        tw = self.weights("rarewordalpha", "about", "betaunique", "gammaunique")
+        t = mapping.trace_range(tw, self.lines, (8, 8), self.envs)
+        self.assertEqual((t.via, t.score, t.lo, t.hi, t.weak, t.split), ("synctex", 0.5, 8, 9, False, (8, 4)))
+
+    def test_paths_expanding_into_one_block_are_not_split(self):
+        """The loser's line inside the chosen range is the same place, not a disagreement."""
+        tw = self.weights("eight", "gammaunique")
+        t = mapping.trace_range(tw, self.lines, (8, 8), self.envs)
+        self.assertEqual((t.lo, t.hi, t.split), (8, 9, None))
+
+
 # ---------------------------------------------------------------- through server.py's wiring
 #
 # The range ladder on the fixture manuscript with the server's default float environments. These classes load

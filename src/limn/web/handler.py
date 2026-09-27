@@ -444,7 +444,7 @@ class Handler(BaseHTTPRequestHandler):
             selection = parse.parse_pick(d, app.document_facts(D))
             if isinstance(selection, parse.PickBuildGone):
                 return self._json(answers.pick_build_gone())
-            return self._json(app.pick(D, accepted(selection)))
+            return self._json(answers.pick_answer(app.pick(D, accepted(selection))))
         if path == "/api/pin":
             want = d.get("doc")
             if isinstance(want, str) and want != D.key:

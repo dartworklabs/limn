@@ -987,8 +987,9 @@ def pick_context() -> locate.PickContext:
     return locate.PickContext(C.src, C.envs, C.state, TOKEN_CACHE, overlaps_for_range)
 
 
-def pick(D: Doc, request: locate.Selection) -> Json:
-    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines (limn.locate.pick)."""
+def pick(D: Doc, request: locate.Selection) -> locate.Picked | locate.PickedRegion | locate.PickRefusal:
+    """POST /api/pick: a selection of document D (parsed by limn.web.parse.parse_pick) -> source lines, a view-only
+    region, or why it cannot be traced (limn.locate.pick); limn.web.answers.pick_answer gives the body."""
     return locate.pick(D, request, pick_context())
 
 

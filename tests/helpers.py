@@ -206,15 +206,15 @@ def edit_pin(pid: int, d: dict, actor: dict, mod=None):
 
 
 def pick(d: dict, mod=None, doc=None):
-    """What POST /api/pick does below its HTTP answer for document doc (default the first): the selection parsed
-    (limn.web.parse.parse_pick), then resolved. A gone build gives the 200 body the handler sends; a refused field
-    raises the HTTPError the handler would answer with."""
+    """The body POST /api/pick answers for document doc (default the first), without the socket: the selection parsed
+    (limn.web.parse.parse_pick), resolved and answered (limn.web.answers.pick_answer). A gone build gives the 200 body
+    the handler sends; a refused field raises the HTTPError the handler would answer with."""
     mod = mod or ps
     D = doc or mod.DOCS[0]
     selection = parse.parse_pick(d, mod.document_facts(D))
     if isinstance(selection, parse.PickBuildGone):
         return answers.pick_build_gone()
-    return mod.pick(D, answers.accepted(selection))
+    return answers.pick_answer(mod.pick(D, answers.accepted(selection)))
 
 
 def revision_spec(commit: str, pin: int | None = None, mod=None, doc=None):

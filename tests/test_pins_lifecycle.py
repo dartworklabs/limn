@@ -72,7 +72,16 @@ PURE_IMPORTS = {
 }  # the last two: pure text modules render.py uses (checked below)
 # What the non-pins modules the package imports may import in turn - string work only, no files, processes or clock.
 # pathlib is there for PurePath alone (guidance.shell_path); Path would reach the file system.
-PURE_TEXT_IMPORTS = {"__future__", "collections.abc", "typing", "re", "shlex", "pathlib", "limn.pins.shapes"}
+PURE_TEXT_IMPORTS = {
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "typing",
+    "re",
+    "shlex",
+    "pathlib",
+    "limn.pins.shapes",
+}
 ALICE_PERSON = Person("alice@example.com", "Alice Kim", "https://example.com/a.png")
 AT = "2026-09-26 10:00:00"
 

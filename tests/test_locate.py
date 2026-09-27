@@ -21,6 +21,7 @@ from limn import build as limn_build, locate
 from limn.access import LOCAL_ACTOR
 from limn.mapping import anchor_of
 from limn.pins import position
+from limn.web import parse
 
 from helpers import TEX, Base, add_pin, edit_pin, ps, req
 
@@ -225,6 +226,43 @@ class Anchor(Base):
         self._shift(2)
         p = self.pin(pid)
         self.assertEqual((p["lo"], p["hi"]), (10, 11))
+
+
+class PickOutcomes(Base):
+    """locate.pick returns one value per outcome: a refusal type for each way a selection is not traced, else Picked.
+    SyncTeX and pdftotext are stubbed at the module's two subprocess functions; the rest is the server's context."""
+
+    def pick(self, synctex, text):
+        """pick on the first document for a box on page 1, SyncTeX answering synctex and pdftotext printing text."""
+        D = ps.DOCS[0]
+        request = parse.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (600.0, 800.0), None)
+        with (
+            mock.patch.object(locate, "by_synctex", return_value=synctex),
+            mock.patch.object(locate, "region_text", return_value=text),
+        ):
+            return locate.pick(D, request, ps.pick_context())
+
+    def test_each_refusal_is_its_own_type_with_its_detail(self):
+        """A .bbl/.bib, a file outside the tree, an unreadable file and nothing traced are four refusal values."""
+        D = ps.DOCS[0]
+        (self.src / "bin.tex").write_bytes(b"\xff\xfe")
+        self.assertEqual(self.pick((str(D.build / "refs.bbl"), 1, 1), "x"), locate.GeneratedFile(".bbl"))
+        self.assertEqual(self.pick(("/elsewhere/x.tex", 3, 3), "x"), locate.SynctexOutside(Path("/elsewhere/x.tex")))
+        self.assertEqual(
+            self.pick((str(D.build / "bin.tex"), 1, 1), "x"), locate.SourceUnreadable(self.src / "bin.tex")
+        )
+        self.assertEqual(self.pick(None, ""), locate.NoSourceHere())
+
+    def test_a_traced_selection_carries_its_range_and_build_facts(self):
+        """SyncTeX's line in the build copy is traced back to the checkout; the facts the answer needs are values."""
+        got = self.pick((str(ps.DOCS[0].build / "main.tex"), 8, 8), "Body line seven betaunique.")
+        self.assertIsInstance(got, locate.Picked)
+        self.assertEqual(
+            (got.file, got.page, got.traced.via, got.traced.lo, got.traced.hi), (self.main, 1, "synctex", 8, 9)
+        )
+        self.assertEqual(
+            (got.n_lines, got.quote, got.pdf_build, got.building), (20, "Body line seven betaunique.", "pages", False)
+        )
 
 
 # ---------------------------------------------------------------- location estimation (.est) — server-side judgment

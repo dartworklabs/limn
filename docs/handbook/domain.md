@@ -118,7 +118,7 @@ stale은 이 전이와 별개다. 줄 맞춤이 머리 줄을 잃으면 열린 �
 
 UI는 일치율이 90% 이상이면 아무것도 붙이지 않는다. 낮을 때만 위치 옆에 '위치 불확실' 배지를 달고, 30% 미만이면 경고 색을 쓴다. 찾은 방법(좌표/글자)·일치율·무엇을 확인할지는 배지 설명에 둔다. 예전 표시였던 '일치 93%'·'글자 일치 100%'는 뜻을 알 수 없었다. 배지 표현의 규칙은 [viewer.md](viewer.md) §상태 표현에 있다.
 
-실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `score_range`·`by_text`(순수 계산)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다.
+실행 정본은 [`src/limn/locate.py`](../../src/limn/locate.py)의 `pick`(SyncTeX·pdftotext를 돌리고 파일을 읽는 쪽)과 `TokenCache.weights`, [`src/limn/mapping.py`](../../src/limn/mapping.py)의 `trace_range`·`score_range`·`by_text`(순수 계산: 두 경로의 경쟁, 약한 일치와 두 경로가 갈린 경우의 판정)다. 원고 루트·`--float-envs`·캐시·겹침 조회는 조립 지점이 `PickContext`로 넘긴다. `pick`은 결과를 값으로 돌려준다 — 찾은 범위(`Picked`), 보기 전용 문서의 영역(`PickedRegion`), 되짚지 못한 이유 하나(`PickRefusal`: 생성 파일·원고 밖 파일·읽지 못한 파일·되짚을 곳 없음). 응답 본문과 경고·거절 문장은 HTTP 층([`src/limn/web/answers.py`](../../src/limn/web/answers.py)의 `pick_answer`·`PICK_WARNINGS`, [`src/limn/web/errors.py`](../../src/limn/web/errors.py)의 `PICK_REFUSALS`)이 만든다.
 
 ## 범위 사다리
 
