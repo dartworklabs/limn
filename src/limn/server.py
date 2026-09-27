@@ -70,7 +70,7 @@ from limn.documents import (
     DocNotFound,
     DocumentFacts,
 )
-from limn.features.builds import run as build_run
+from limn.features.builds import routes as build_routes, run as build_run
 from limn.features.builds.service import BuildRequests
 from limn.features.collaboration.directory import PeopleDirectory
 from limn.features.collaboration.notices import Notices
@@ -127,6 +127,7 @@ from limn.viewer.assemble import (
 from limn.web.app import App
 from limn.web.errors import HTTPError as HTTPError, build_failure_log, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
+from limn.web.routes import GetRoute
 
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
@@ -329,6 +330,7 @@ class ServerApplication:
     document_views: DocumentViews = field(init=False)
     sync_service: SyncService = field(init=False)
     revision_requests: RevisionRequests = field(init=False)
+    get_routes: tuple[GetRoute, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         """Bind pin features to this application's context factory."""
@@ -403,6 +405,7 @@ class ServerApplication:
             now=lambda: time.time(),
         )
         self.revision_requests = RevisionRequests(self.revision_context)
+        self.get_routes = (lambda path, query, doc: build_routes.get(path, query, doc, self.hdr_text),)
 
     APP_NAME = APP_NAME
     DEFAULT_ROLE = DEFAULT_ROLE

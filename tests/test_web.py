@@ -48,6 +48,7 @@ from helpers_access import AccessBase, member_add, talk_to
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 HANDLER_SOURCE = (SRC / "limn" / "web" / "handler.py").read_text(encoding="utf-8")
+BUILD_ROUTES_SOURCE = (SRC / "limn" / "features" / "builds" / "routes.py").read_text(encoding="utf-8")
 
 
 def app_members() -> list:
@@ -210,7 +211,8 @@ class HandlerStructure(unittest.TestCase):
         boundary."""
         raw = [
             "%d: %s" % (n.lineno, ast.unparse(n))
-            for n in ast.walk(ast.parse(HANDLER_SOURCE))
+            for source in (HANDLER_SOURCE, BUILD_ROUTES_SOURCE)
+            for n in ast.walk(ast.parse(source))
             if (
                 isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Attribute)
@@ -239,8 +241,8 @@ class HandlerStructure(unittest.TestCase):
                 self.assertIn("reason='not_found'", exc)
 
 
-# One request per route of the handler (a /pages/ and a /vendor/pdfjs/ name stand for their prefixes, pin 1 for an
-# id). GuardOrder checks the lists against the handler's source, so a route added without a guard test fails there.
+# One request per route of the handler and registered build routes (a /pages/ and a /vendor/pdfjs/ name stand for
+# their prefixes, pin 1 for an id). GuardOrder checks these lists against the route sources.
 PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "unclaim", "reply", "confirm")
 GET_ROUTES = (
     "/",
@@ -316,11 +318,13 @@ class GuardOrder(AccessBase):
         return [("GET", p) for p in GET_ROUTES] + [("POST", p) for p in POST_ROUTES]
 
     def test_the_route_lists_cover_the_handler(self):
-        """Every path the handler compares against, every prefix it serves and every pin action is in the lists."""
-        literals = set(re.findall(r'path == "([^"]+)"', HANDLER_SOURCE))
-        literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', HANDLER_SOURCE))
-        for group in re.findall(r"path in \(([^)]*)\)", HANDLER_SOURCE):
-            literals |= set(re.findall(r'"([^"]+)"', group))
+        """Every path the handler or registered build route matches, and every pin action, is in the lists."""
+        literals = set()
+        for source in (HANDLER_SOURCE, BUILD_ROUTES_SOURCE):
+            literals |= set(re.findall(r'path == "([^"]+)"', source))
+            literals |= set(re.findall(r'path\.startswith\("([^"]+)"\)', source))
+            for group in re.findall(r"path in \(([^)]*)\)", source):
+                literals |= set(re.findall(r'"([^"]+)"', group))
         self.assertGreater(len(literals), 20)
         routes = GET_ROUTES + POST_ROUTES
         for literal in sorted(literals):

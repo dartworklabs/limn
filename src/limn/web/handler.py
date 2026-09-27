@@ -20,7 +20,7 @@ import traceback
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple
+from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
 from limn.features.builds import http as builds_http
@@ -38,25 +38,11 @@ from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
 from limn.web.errors import HTTPError, error_page_html, page_lang
+from limn.web.reply import Reply, json_reply as _json_reply
 
 MAX_BODY = 1 << 20
 # The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
 VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
-
-
-class Reply(NamedTuple):
-    """One complete response a GET route answers with, for Handler._send: status, body, Content-Type and
-    Cache-Control (None: _send's default)."""
-
-    code: int
-    body: bytes
-    ctype: str
-    cache: str | None = None
-
-
-def _json_reply(obj: object, code: int = 200) -> Reply:
-    """obj as a UTF-8 JSON response (non-ASCII kept as is)."""
-    return Reply(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
 
 def _read(path: Path) -> bytes | None:
@@ -264,14 +250,15 @@ class Handler(BaseHTTPRequestHandler):
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
         """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
         the routes have always been matched (a /pages/ name with no image falls through to the rest): the viewer
-        shell, the document's history and build, the pins, the source, the files. Sends the one response the matching
+        shell, document views, the pins, the source, the vendor files and registered feature routes. Sends the matching
         route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
         reply = (
             self._get_viewer(actor, path, q, D)
             or self._get_document(path, q, D)
             or self._get_pins(path, q, D)
             or self._get_source(path, q, D)
-            or self._get_files(path, q, D)
+            or self._get_vendor(path)
+            or self._get_registered(path, q, D)
         )
         if reply is None:
             raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
@@ -305,8 +292,7 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _get_document(self, path: str, q: Query, D: Document) -> Reply | None:
-        """Document D's history and build: its recent commits, a commit's changes (revision routes), its outline labels
-        and its build state. None for any other path."""
+        """Document D's history, commit changes and outline labels. None for any other path."""
         app = self.app
         if path == "/api/revisions":
             return _json_reply(revisions_http.history(app.revision_requests, D))
@@ -314,8 +300,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._get_revision(path, D, q)
         if path == "/api/outline-labels":
             return _json_reply(document_views_http.outline(app.document_views, D))
-        if path == "/api/build":
-            return _json_reply(builds_http.status(D, q))
         return None
 
     def _get_revision(self, path: str, D: Document, q: Query) -> Reply:
@@ -365,14 +349,9 @@ class Handler(BaseHTTPRequestHandler):
             return _json_reply(location_http.overlaps(app, D, q))
         return None
 
-    def _get_files(self, path: str, q: Query, D: Document) -> Reply | None:
-        """Files: D's page images (a name with no image falls through), the bundled PDF.js (404 for any other name) and
-        the PDF of a build (404 through builds_http.pdf). None for any other path."""
+    def _get_vendor(self, path: str) -> Reply | None:
+        """Serve the bundled PDF.js file, with a 404 for any invalid or missing vendor name."""
         app = self.app
-        if path.startswith("/pages/"):
-            data = builds_http.page(D, path)
-            if data is not None:
-                return Reply(200, data, "image/png")
         if path.startswith("/vendor/pdfjs/"):
             # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
             vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
@@ -381,11 +360,14 @@ class Handler(BaseHTTPRequestHandler):
                 # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
                 return Reply(200, data, VENDOR_MIME[vf.suffix], "public, max-age=86400")
             raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
-        if path == "/pdf":
-            # The PDF matching the page images' build (for vector rendering). It never falls back to a different
-            # build (the viewer falls back to PNG and re-reads /api/meta instead).
-            data = builds_http.pdf(D, q, app.hdr_text)
-            return Reply(200, data, "application/pdf", "private, max-age=600")
+        return None
+
+    def _get_registered(self, path: str, q: Query, D: Document) -> Reply | None:
+        """Try the application's feature-owned GET routes in registration order."""
+        for route in self.app.get_routes:
+            reply = route(path, q, D)
+            if reply is not None:
+                return reply
         return None
 
     def _body(self) -> Json:
