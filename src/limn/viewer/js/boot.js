@@ -44,14 +44,14 @@ const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업
   status_failed:'로컬 수정 상태를 읽지 못했습니다',unexpected:'동기화 중 오류가 났습니다',
   building:'다른 PDF 빌드가 진행 중입니다',build_failed:'새 원고의 PDF 빌드가 실패했습니다'};
 function updateSyncBadge(s){const b=$('#meta-sync'); if(!b)return;
-  if(!s||s.state==='disabled'||s.state==='current'){b.hidden=true; return;}
-  b.hidden=false; b.classList.toggle('badge-warning',s.state==='blocked'||s.state==='error');
+  if(!s||s.state===SYNC_STATE.DISABLED||s.state===SYNC_STATE.CURRENT){b.hidden=true; return;}
+  b.hidden=false; b.classList.toggle('badge-warning',s.state===SYNC_STATE.BLOCKED||s.state===SYNC_STATE.ERROR);
   const reason=tr(SYNC_REASON[s.reason]||s.reason||'');
-  b.textContent=tr(s.state==='updating'?'최신 main PDF 반영 중':s.state==='updated'?'최신 main 반영됨':
-    s.state==='deferred'?'빌드 뒤 main 확인':s.state==='checking'?'main 확인 중':'main 동기화 확인 필요');
+  b.textContent=tr(s.state===SYNC_STATE.UPDATING?'최신 main PDF 반영 중':s.state===SYNC_STATE.UPDATED?'최신 main 반영됨':
+    s.state===SYNC_STATE.DEFERRED?'빌드 뒤 main 확인':s.state===SYNC_STATE.CHECKING?'main 확인 중':'main 동기화 확인 필요');
   b.dataset.tip=reason?(b.textContent+' · '+reason+' · '+tr('기존 PDF가 보일 수 있습니다')):b.textContent;
 }
-function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role==='viewer');}
+function isViewer(){return !!(typeof META!=='undefined'&&META&&META.me&&META.me.role===ROLE.VIEWER);}
 // A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it.
 function viewerBlocked(){if(!isViewer())return false; toast('보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다','warn'); return true;}
 function drawMeta(){
@@ -61,7 +61,7 @@ function drawMeta(){
   $('#meta-head').textContent=META.head; $('#meta-built').textContent=String(META.built_at||'').slice(0,16).replace('T',' ');
   const me=META.me||{};
   $('#me').innerHTML=avatar(me)+'<span class="au-n">'+esc(who(me))+'</span>';
-  $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!=='local'?' ('+me.login+')':'')});
+  $('#me').dataset.tip=tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',{name:(isAgent(me)?who(me):me.name||'')+(me.login&&me.login!==LOCAL_LOGIN?' ('+me.login+')':'')});
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent=META.pins_md||'';

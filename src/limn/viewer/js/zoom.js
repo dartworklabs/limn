@@ -28,7 +28,7 @@ function wheelFactor(dy,mode){if(!dy)return 1;
   const dist=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)||1;
   let tr=0,last=null;
   const apply=()=>{tr=0; if(!TP||!last)return; const w=TP.w*last.d/TP.d;
-    setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(TP.a,last.m[0],last.m[1]);};
+    setW(w); if(LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=true; zoomRestore(TP.a,last.m[0],last.m[1]);};
   L.addEventListener('touchstart',e=>{if(e.touches.length!==2){if(e.touches.length>2)TP=null; return;}
     if(e.cancelable)e.preventDefault();
     const a=e.touches[0],b=e.touches[1],m=mid(a,b); cancelDrag(); cancelLP();

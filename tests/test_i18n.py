@@ -27,7 +27,7 @@ from limn.viewer import assemble
 from limn.web import parse
 from limn.web.errors import scope_http_error
 
-from helpers import add_pin, blank_png, shut_wr
+from helpers import add_pin, blank_png, extract_js_fn, shut_wr
 from helpers_access import ALICE_ACTOR
 from helpers_browser import ChromiumTestCase
 
@@ -258,22 +258,6 @@ class BrowserLanguage(ChromiumTestCase):
         )
         page2.goto("http://viewer.test/")
         self.assertEqual(page2.evaluate("LANG"), "ko")
-
-
-def extract_js_fn(name: str) -> str:
-    """One 'function NAME(...){...}' definition out of the viewer script (braces balanced as written)."""
-    src = ps.HTML
-    i = src.index("function %s(" % name)
-    j = src.index("{", i)
-    depth, k = 0, j
-    while True:
-        if src[k] == "{":
-            depth += 1
-        elif src[k] == "}":
-            depth -= 1
-            if depth == 0:
-                return src[i : k + 1]
-        k += 1
 
 
 class ComposedMessages(unittest.TestCase):

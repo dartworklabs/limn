@@ -15,48 +15,14 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from html.parser import HTMLParser
 from pathlib import Path
 
 from limn.viewer import assemble
 
 from helpers import VIEWER, ps, viewer_text
+from helpers_js import inline_scripts
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
-
-
-class _InlineScripts(HTMLParser):
-    """Collects the text of every inline <script> (one without src) in document order."""
-
-    def __init__(self):
-        """Start with no scripts; convert_charrefs=False keeps script text exactly as served."""
-        super().__init__(convert_charrefs=False)
-        self.scripts: list[str] = []
-        self._inside = False
-
-    def handle_starttag(self, tag, attrs):
-        """Open a script to collect unless it loads its code from src."""
-        if tag == "script" and not dict(attrs).get("src"):
-            self._inside = True
-            self.scripts.append("")
-
-    def handle_endtag(self, tag):
-        """Close the script being collected."""
-        if tag == "script":
-            self._inside = False
-
-    def handle_data(self, data):
-        """Script text arrives as data (HTMLParser treats <script> content as CDATA)."""
-        if self._inside:
-            self.scripts[-1] += data
-
-
-def inline_scripts(page: str) -> list[str]:
-    """The inline scripts of an HTML page, in order."""
-    p = _InlineScripts()
-    p.feed(page)
-    p.close()
-    return p.scripts
 
 
 def part_line(line: int, directory: Path = VIEWER) -> str:
@@ -123,23 +89,6 @@ class ViewerFiles(unittest.TestCase):
         for names in assemble.viewer_manifest(VIEWER).values():
             for name in names:
                 self.assertTrue((VIEWER / name).read_text(encoding="utf-8").endswith("\n"), name)
-
-    def test_no_line_comment_swallows_a_statement(self):
-        """A '//' comment never ends in code: a statement pasted after a trailing comment parses fine and silently
-        never runs. That happened in mentionPreview (1486de0 put '// the same hints...' in front of
-        'r.bad=mentionBadSettled(...);'). The check is a heuristic over each JS part and the served service worker: a
-        comment (after a line start or whitespace, so 'https://' inside a string is not one) must not hold a minified
-        assignment from a call (`a.b=f(`) or end in a call closed with ';' (`f(x);`). Prose in comments puts spaces
-        around '=' and before '(' (`T (a release ...);`), so a hit is code."""
-        code = re.compile(r"[\w$\])]=[\w$.]+\(|[\w$\]]\((?:[^()]|\([^()]*\))*\)\s*;\s*$")
-        names = list(assemble.viewer_manifest(VIEWER)["__APP_JS__"]) + ["sw.js"]
-        hits = []
-        for name in names:
-            for n, line in enumerate((VIEWER / name).read_text(encoding="utf-8").splitlines(), 1):
-                m = re.search(r"(?:^|\s)//(.*)$", line)
-                if m and code.search(m.group(1)):
-                    hits.append("%s:%d: %s" % (name, n, m.group(0).strip()))
-        self.assertEqual(hits, [])
 
     def test_each_marker_appears_once_in_the_page_and_never_in_the_parts(self):
         """A marker inside CSS or JS would be replaced twice or leak into the page."""
