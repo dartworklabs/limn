@@ -507,31 +507,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(answers.claim_answer(app.claim_pin(pid, actor, ttl, eta), ttl, eta, app.public))
         if act == "unclaim":
             return self._json(answers.unclaim_answer(app.unclaim_pin(pid, actor), app.public))
-        reply = ref = reason = None
-        review = None
-        changes = None
         if act == "close":
-            reply, ref = accepted(parse.parse_close_body(d))
-            changes = accepted(parse.parse_close_changes(d.get("changes"), app.C.src))
-            review = accepted(parse.parse_review_flag(d))
+            close = accepted(parse.parse_close(d, app.C.src))
+            review = close.review
             if review is None and self.principal.role == "agent":
                 review = True  # a person with the agent role closes into review like any agent
-        else:  # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
-            reason = accepted(parse.parse_thread_text(d.get("reason"), "reason", required=False))
-        return self._json(
-            answers.state_answer(
-                app.set_done(
-                    pid,
-                    act == "close",
-                    actor,
-                    reply,
-                    ref,
-                    review=review,
-                    reason=reason,
-                    hints=accepted(parse.parse_mention_hints(d.get("mentions"))),
-                    changes=changes,
-                ),
-                app.public,
-                app.pin_state,
+            return self._json(
+                answers.state_answer(
+                    app.close_pin(pid, actor, replace(close, review=review)), app.public, app.pin_state
+                )
             )
-        )
+        # reopen - optional body {"reason"}: the reopen reason (recorded in the thread)
+        reason, hints = accepted(parse.parse_reopen(d))
+        return self._json(answers.state_answer(app.reopen_pin(pid, actor, reason, hints), app.public, app.pin_state))

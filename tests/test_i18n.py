@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from limn import access, config, locate, startup
 from limn.access import LOCAL_ACTOR
 from limn.cli import cli_audit
+from limn.pins.lifecycle import CloseRequest
 from limn.scope import ScopeUnreadable
 from limn.viewer import assemble
 from limn.web import parse
@@ -507,9 +508,9 @@ class EnglishChrome(ChromiumTestCase):
         add(22, 23, "Agent note", agent)
         for author in (ALICE_ACTOR, BOB_LEE):
             pid = add(24, 25, "Shorten the caption", author)
-            ps.set_done(pid, True, agent, reply="표 설명을 줄였습니다", ref="PR #7")
+            ps.close_pin(pid, agent, CloseRequest(reply="표 설명을 줄였습니다", ref="PR #7"))
         done = add(26, 27, "Fix the unit", ALICE_ACTOR)
-        ps.set_done(done, True, ALICE_ACTOR)
+        ps.close_pin(done, ALICE_ACTOR, CloseRequest())
         dropped = add(28, 29, "Wrong spot", ALICE_ACTOR)
         ps.drop_pin(dropped, ALICE_ACTOR)
         add_pin(

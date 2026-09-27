@@ -115,6 +115,7 @@ from limn.pins.lifecycle import (
     AlreadyLive,
     ClaimClosedPin,
     ClaimedByOther,
+    CloseRequest,
     NotClaimed,
     NotInTrash,
     PinStillOpen,
@@ -166,7 +167,6 @@ from limn.viewer.assemble import (
 )
 from limn.web.errors import HTTPError as HTTPError, Messages, revision_failure_text
 from limn.web.handler import Handler as WebHandler, Server, Server6
-from limn.web.parse import CloseChange
 
 build_state_snapshot = build.state_snapshot
 
@@ -805,19 +805,18 @@ def reply_pin(
     return transitions.reply_pin(pin_context(), pid, text, actor, hints, reopen, human)
 
 
-def set_done(
-    pid: int,
-    done: bool,
-    actor: Json,
-    reply: str | None = None,
-    ref: str | None = None,
-    review: bool | None = None,
-    reason: str | None = None,
-    hints: list[str] | None = None,
-    changes: Sequence[CloseChange] | None = None,
-) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """POST /api/pins/{id}/close (done=True) and /reopen (done=False) (limn.service.transitions.set_done)."""
-    return transitions.set_done(pin_context(), pid, done, actor, reply, ref, review, reason, hints, changes)
+def close_pin(pid: int, actor: Json, request: CloseRequest) -> ReviewPin | DonePin | AlreadyClosed | PinNotFound:
+    """POST /api/pins/{id}/close with its parsed body (limn.web.parse.parse_close; CloseRequest() is a close with
+    no body) (limn.service.transitions.close_pin)."""
+    return transitions.close_pin(pin_context(), pid, actor, request)
+
+
+def reopen_pin(
+    pid: int, actor: Json, reason: str | None = None, hints: list[str] | None = None
+) -> OpenPin | PinNotFound:
+    """POST /api/pins/{id}/reopen with its reason and @-tag hints (limn.web.parse.parse_reopen)
+    (limn.service.transitions.reopen_pin)."""
+    return transitions.reopen_pin(pin_context(), pid, actor, reason, hints)
 
 
 def confirm_pin(pid: int, actor: Json) -> DonePin | AlreadyDone | PinStillOpen | AgentCannotConfirm | PinNotFound:

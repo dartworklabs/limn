@@ -5,8 +5,8 @@ record in place only when the rule accepts (so the saved line keeps its field or
 write committed. Every outcome goes back unchanged for the HTTP layer to answer.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from limn.mentions import pin_mentions_all, resolve_mentions
 from limn.pins.lifecycle import (
@@ -28,17 +28,9 @@ from limn.pins.lifecycle import (
     reopen_request,
     reopens_on_reply,
 )
-from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, Record, ReviewPin, parse_pin
+from limn.pins.model import DonePin, OpenPin, Pin, PinNotFound, ReviewPin, parse_pin
 from limn.service.context import Event, PinContext, Row, is_agent, typed_actor
 from limn.store import find_pin
-
-
-class CloseChange(Protocol):
-    """One changed range a close records, as limn.web.parse.parse_close_changes gives it."""
-
-    def record(self) -> Record:
-        """Its stored form in the pin's `changes`."""
-        ...
 
 
 def reply_pin(
@@ -130,29 +122,6 @@ def _with_reply(pin: Pin, event: Replied) -> Pin:
             return evolve_reply(pin, event)
         case DonePin():
             return evolve_reply(pin, event)
-
-
-def set_done(
-    ctx: PinContext,
-    pid: int,
-    done: bool,
-    actor: Mapping[str, Any],
-    reply: str | None = None,
-    ref: str | None = None,
-    review: bool | None = None,
-    reason: str | None = None,
-    hints: Iterable[str] | None = None,
-    changes: Sequence[CloseChange] | None = None,
-) -> OpenPin | ReviewPin | DonePin | AlreadyClosed | PinNotFound:
-    """Close (done=True) or reopen (done=False) - the single entry POST /close and /reopen and older callers use.
-
-    `reply`/`ref`/`changes` (already parsed by limn.web.parse.parse_close_body/parse_close_changes: changes is a
-    sequence of CloseChange, each giving its stored form by .record()) and `review` belong to a close; `reason` and
-    `hints` to a reopen. The rules are in limn.pins.lifecycle; see close_pin and reopen_pin.
-    """
-    if done:
-        return close_pin(ctx, pid, actor, CloseRequest(reply, ref, tuple(c.record() for c in changes or ()), review))
-    return reopen_pin(ctx, pid, actor, reason, hints)
 
 
 def close_pin(

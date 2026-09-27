@@ -40,6 +40,7 @@ from limn.pins.edit import (
     is_kind_req,
     is_scope,
 )
+from limn.pins.lifecycle import CloseRequest
 from limn.pins.shapes import is_int
 from limn.revisions import REVISION_ID_RE
 from limn.web.errors import InputRejected
@@ -329,6 +330,46 @@ def parse_close_changes(v: object, root: Path) -> tuple[CloseChange, ...] | None
             )
         out.append(CloseChange(str(base / rel), lo, hi))
     return tuple(out) or None
+
+
+def parse_close(d: Json, root: Path) -> CloseRequest | InputRejected:
+    """A POST /api/pins/{id}/close body, in the order the server has always checked it: reply and ref
+    (parse_close_body), changes against the manuscript tree root (parse_close_changes), review (parse_review_flag),
+    then mentions. A close tags nobody, so its `mentions` is dropped - but a malformed one has always been refused with
+    400 bad_mentions, and still is. Any other field is ignored. The result carries each change in its stored form."""
+    body = parse_close_body(d)
+    if isinstance(body, InputRejected):
+        return body
+    changes = parse_close_changes(d.get("changes"), root)
+    if isinstance(changes, InputRejected):
+        return changes
+    review = parse_review_flag(d)
+    if isinstance(review, InputRejected):
+        return review
+    hints = parse_mention_hints(d.get("mentions"))
+    if isinstance(hints, InputRejected):
+        return hints
+    return CloseRequest(body.reply, body.ref, tuple(c.record() for c in changes or ()), review)
+
+
+class ReopenBody(NamedTuple):
+    """A reopen's optional reason (None when absent or blank) and the viewer's @-tag hints for it."""
+
+    reason: str | None
+    hints: list[str]
+
+
+def parse_reopen(d: Json) -> ReopenBody | InputRejected:
+    """A POST /api/pins/{id}/reopen body, in the order the server has always checked it: the optional reason
+    (parse_thread_text, recorded in the thread when the pin was closed), then mentions. Any other field - a close's
+    reply or review sent to reopen, say - is ignored."""
+    reason = parse_thread_text(d.get("reason"), "reason", required=False)
+    if isinstance(reason, InputRejected):
+        return reason
+    hints = parse_mention_hints(d.get("mentions"))
+    if isinstance(hints, InputRejected):
+        return hints
+    return ReopenBody(reason, hints)
 
 
 class ClaimBody(NamedTuple):

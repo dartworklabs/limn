@@ -18,6 +18,7 @@ import time
 import unittest
 
 from limn.access import LOCAL_ACTOR
+from limn.pins.lifecycle import CloseRequest
 
 from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
@@ -305,7 +306,7 @@ class ViewerBase(BrowserBase):
             {"file": str(self.main), "lo": 20, "hi": 21, "page": 2, "note": "검토할 핀", "frac": [0.2, 0.3, 0.4, 0.04]},
             actor(ALICE),
         ).record["id"]  # add_pin returns the new OpenPin (limn.pins.edit)
-        ps.set_done(rid, True, dict(LOCAL_ACTOR), reply="고침")
+        ps.close_pin(rid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
 
     def view(self, device, lang="ko", prefs=None, reduced=False, init=None, dark=False, hash_=""):
         """Open the viewer on a device preset. prefs = pinPrefs before boot (coach marks are pre-seen unless given)."""

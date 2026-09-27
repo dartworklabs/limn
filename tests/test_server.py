@@ -35,6 +35,7 @@ from limn.pins.lifecycle import (
     AgentCannotConfirm,
     ClaimClosedPin,
     ClaimedByOther,
+    CloseRequest,
     ThreadFull,
     pin_reopened_in_round,
 )
@@ -1092,7 +1093,7 @@ class MultiDoc(Base):
         )
         self.assertEqual((p["frac"][0], p["quote"], p["pdf_build"]), (0.3, "new", "pages-20260101000000"))
         self.assertTrue(ps.valid_rec(self.pin(pid)))
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))  # close/drop are resolved by id, independent of document
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())  # close/drop are resolved by id, independent of document
         self.assertTrue(self.pin(pid)["done"])
 
     def test_region_record_validation_is_by_shape(self):
@@ -1267,7 +1268,7 @@ class ClaimEta(Base):
             pid = self.add()
             ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 10}))
             if how == "close":
-                rec = record_of(ps.set_done(pid, True, self.A))
+                rec = record_of(ps.close_pin(pid, self.A, CloseRequest()))
             elif how == "unclaim":
                 rec = record_of(ps.unclaim_pin(pid, self.A))
             else:
@@ -1561,7 +1562,7 @@ class KindAndThread(Base):
         pid = self.add()
         p = record_of(edit_pin(pid, {"kind_req": "question", "base_rev": 0}, dict(self.S)))
         self.assertEqual(p["kind_req"], "question")
-        ps.set_done(pid, True, dict(self.S))
+        ps.close_pin(pid, dict(self.S), CloseRequest())
         p = record_of(edit_pin(pid, {"kind_req": "fix", "base_rev": self.pin(pid)["rev"]}, dict(self.S)))
         self.assertEqual(p["kind_req"], "fix")
 
@@ -1607,14 +1608,15 @@ class KindAndThread(Base):
             ps.reply_pin(pid, "1", dict(self.S))
             ps.reply_pin(pid, "2", dict(self.S))
             self.assertEqual(ps.reply_pin(pid, "3", dict(self.S)), ThreadFull(2))  # answered 409 "full" over HTTP
-            ps.set_done(pid, True, dict(self.S), "닫음")  # a status-transition record is exempt from the cap
+            # a status-transition record is exempt from the cap
+            ps.close_pin(pid, dict(self.S), CloseRequest(reply="닫음"))
         self.assertEqual([m.get("ev") for m in self.pin(pid)["thread"]], [None, None, "close"])
 
     def test_close_reply_is_appended_to_thread_once(self):
         pid = self.add()
         ps.reply_pin(pid, "질문이 있어요", dict(self.S))
-        ps.set_done(pid, True, dict(self.S), "제목을 고침", "PR #227")
-        ps.set_done(pid, True, dict(self.S), "두 번째 닫기")  # already closed — nothing gets appended
+        ps.close_pin(pid, dict(self.S), CloseRequest(reply="제목을 고침", ref="PR #227"))
+        ps.close_pin(pid, dict(self.S), CloseRequest(reply="두 번째 닫기"))  # already closed — nothing gets appended
         th = self.pin(pid)["thread"]
         self.assertEqual(
             [(m["id"], m.get("ev"), m["text"], m.get("ref")) for m in th],
@@ -1637,7 +1639,7 @@ class KindAndThread(Base):
         self.assertEqual((code, d["pin"]["id"], d["pin"]["state"]), (200, pid, "open"))
         code, _, _ = split_resp(self.talk(req("GET", "/api/pins/999")))
         self.assertEqual(code, 404)
-        ps.set_done(pid, True, dict(self.S))
+        ps.close_pin(pid, dict(self.S), CloseRequest())
         rows = ps.pins_payload(ps.snapshot_pins(), True)
         self.assertEqual(rows[0]["state"], "done")
         self.assertNotIn("state", ps.read_pins()[0][0])  # a computed field — not stored
@@ -1715,8 +1717,8 @@ class KindAndThread(Base):
         self.assertEqual(row.count("|") - row.count("\\|"), 6)  # still a 5-column table
         self.assertIn("/api/pins/N/reply", md)
         self.assertIn("'질문' = 고칠 곳이 아니라 물음이다", md)
-        ps.set_done(q, True, dict(self.S), "답했다")
-        ps.set_done(q, False, dict(self.S))
+        ps.close_pin(q, dict(self.S), CloseRequest(reply="답했다"))
+        ps.reopen_pin(q, dict(self.S))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % q))
         self.assertNotIn("[스레드", row)  # messages from before the close aren't shown
@@ -1757,7 +1759,7 @@ class ReviewState(Base):
 
     def test_review_pins_are_not_open_for_agents(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         _, _, raw = split_resp(self.talk(req("GET", "/api/pins")))
         self.assertEqual(json.loads(raw), [])  # not in the open-pin list (legacy contract)
         self.assertIsInstance(ps.claim_pin(pid, dict(LOCAL_ACTOR), 30), ClaimClosedPin)  # 409 "done"
@@ -1766,7 +1768,7 @@ class ReviewState(Base):
 
     def test_confirm_and_idempotence(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         W = {"Tailscale-User-Login": self.W["login"], "Tailscale-User-Name": self.W["name"]}
         code, d = self.post("/api/pins/%d/confirm" % pid, None, W)
         self.assertEqual((code, d["state"]), (200, "done"))
@@ -1786,7 +1788,7 @@ class ReviewState(Base):
         # observed bug: a request without an identity header (agent/local curl) could succeed at /confirm —
         # awaiting review is a record that "a human saw this," so an agent confirming its own work defeats the purpose.
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post("/api/pins/%d/confirm" % pid)  # no header = agent
         self.assertEqual(code, 403)
         self.assertIn("확인은 사람이 합니다", d.get("error", ""))
@@ -1795,7 +1797,7 @@ class ReviewState(Base):
 
     def test_reopen_with_reason_appends_to_thread_and_clears_review(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         code, d = self.post(
             "/api/pins/%d/reopen" % pid,
             {"reason": "식 번호가 아직 틀림"},
@@ -1820,9 +1822,9 @@ class ReviewState(Base):
 
     def test_reopen_after_confirm_drops_confirmation(self):
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR))
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest())
         ps.confirm_pin(pid, dict(self.S))
-        ps.set_done(pid, False, dict(self.S), reason="다시")
+        ps.reopen_pin(pid, dict(self.S), reason="다시")
         p = self.pin(pid)
         self.assertNotIn("confirmed_by", p)
         self.assertEqual(pin_state(p), "open")
@@ -1839,7 +1841,7 @@ class ReviewState(Base):
             {"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "q", "kind_req": "question"}, dict(self.S)
         ).record["id"]
         b = self.add(8, 9)
-        ps.set_done(a, True, dict(LOCAL_ACTOR), "구간은 0 을 포함 | 유의하지 않음", "PR #12")
+        ps.close_pin(a, dict(LOCAL_ACTOR), CloseRequest(reply="구간은 0 을 포함 | 유의하지 않음", ref="PR #12"))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("열린 핀 1건  ·  검토 대기 1건(맨 아래, 처리하지 않는다)  ·  닫힌 핀 0건", md)
         sec = md[md.index("## 검토 대기 1건") :]
@@ -2131,9 +2133,9 @@ class MentionsPeopleEvents(Base):
         # "reopened" marker was missing (the old check only looked at "is the round's first message a
         # reopen?"). pin_reopened_in_round() now skips over confirm.
         pid = self.add()
-        ps.set_done(pid, True, dict(LOCAL_ACTOR), "고침")
+        ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         ps.confirm_pin(pid, dict(self.S))
-        ps.set_done(pid, False, dict(self.S), reason="다시 봐 주세요")
+        ps.reopen_pin(pid, dict(self.S), reason="다시 봐 주세요")
         self.assertTrue(pin_reopened_in_round(self.pin(pid)))
         md = ps.C.pins_md.read_text(encoding="utf-8")
         row = next(ln for ln in md.splitlines() if ln.startswith("| %d " % pid))
