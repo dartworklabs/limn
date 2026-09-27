@@ -57,7 +57,7 @@ catalog_schema: 1
 | `src/limn/events.py` | 알림 한 건과 받는 사람, 폴링이 고르는 이벤트(순수), `events.jsonl` 쓰기·읽기(`EventLog`) | 이벤트 종류·필드·받는 사람·보관 건수 변경 | api.md §이벤트 (`events.jsonl`), §브라우저 알림 커서 |
 | `src/limn/audit.py` | `audit.jsonl` 한 줄과 추가 전용 쓰기, CLI 행위자 | 감사 항목·쓰기 방식 변경 | api.md §감사 기록 (`audit.jsonl`), SECURITY.md |
 | `src/limn/scope.py` | 핀 단위 변경(0.3)의 순수 판단: hunk 블록 귀속, 핀 hunk diff, 합성 판, 거절 값 | 귀속 순서·`scope` 필드·`changes` 검사 변경 | api.md §핀 단위 변경 보기, ADR-0005 |
-| `src/limn/revisions.py` | 원고 이력의 git 쪽: 최근 커밋, 소스 diff, 비교 PDF 빌드와 캐시. 결과는 값 | 이력·diff·비교 PDF 경로와 한도·캐시 규칙 변경 | api.md §변경 보기와 비교 PDF, verification.md |
+| `src/limn/revisions.py` | 원고 이력의 git 쪽: 최근 커밋, 소스 diff, 비교 PDF 빌드와 캐시. 결과는 값이고, 비교 하나의 상태는 네 타입(`IdleComparison`·`RunningComparison`·`ReadyComparison`·`FailedComparison`)이다 | 이력·diff·비교 PDF 경로와 한도·캐시 규칙 변경 | api.md §변경 보기와 비교 PDF, verification.md |
 | `src/limn/documents.py` | 문서(`Doc`: 빌드 루트·메인·문서별 상태 폴더와 빌드 잠금·상태), 문서 키 규칙, 문서 목록을 인자로 받는 조회(`request_doc`·`doc_for_file`·`pin_doc_key`)와 조회 결과 값(`DocNotFound`), 파서가 읽는 원고 사실(`DocumentFacts`), `to_source` | 문서 경로·키 규칙 변경 | domain.md §여러 문서, build-sync.md |
 | `src/limn/mark.py` | Limn 마크: 기하 하나, 뷰어 인라인 SVG·파비콘 SVG·PNG | 마크 모양·크기·색 규칙 변경 | viewer.md §마크와 파비콘 |
 | `src/limn/viewer/*` | 뷰어 화면: `index.html`, 스타일 조각 `css/*.css`, 스크립트 조각 `js/*.js`, 조각 순서 `parts.txt`, 브라우저 알림의 서비스 워커 `sw.js`(`GET /sw.js`, `service_worker()`가 읽는다). 조립은 `assemble.py`(`viewer_html`: 조각을 순서대로 이어 한 장의 HTML로 만들고 PDF.js 버전·마크·Lucide 아이콘 표·영어 메시지 표를 채운다) | 레이아웃·토큰·컴포넌트·상호작용 변경, 조각 추가(`parts.txt`에 줄을 더한다), 아이콘 추가(`assemble.py`의 `LUCIDE`), PDF.js 버전 변경(`PDFJS_VERSION`) | viewer.md, verification.md |
