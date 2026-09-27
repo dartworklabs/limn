@@ -800,7 +800,7 @@ class ClaimEstimate(Base):
         now = CLAIM_CLOCK
         with mock.patch("time.time", return_value=now):
             first = record_of(ps.claim_pin(pid, self.A, *parse.parse_claim_body({"eta_min": 5})))
-            with ps.PIN_LOCK:  # move it back to having been claimed 10 minutes ago
+            with ps.RT.pin_lock:  # move it back to having been claimed 10 minutes ago
                 rows, _ = ps.read_pins()
                 r = find_pin(rows, pid)
                 for k in ("claim_ts", "eta_ts", "claim_until"):
@@ -822,7 +822,7 @@ class ClaimEstimate(Base):
         refused = ps.claim_pin(pid, self.B, *parse.parse_claim_body({"eta_min": 5}))  # answered 409 "claimed"
         self.assertIsInstance(refused, ClaimedByOther)
         self.assertIsNotNone(refused.eta_ts)
-        with ps.PIN_LOCK:  # A's claim has expired
+        with ps.RT.pin_lock:  # A's claim has expired
             rows, _ = ps.read_pins()
             find_pin(rows, pid)["claim_until"] = time.time() - 1
             ps.write_pins(rows)
@@ -932,8 +932,6 @@ class MentionsOnEdit(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def events(self):
         return ps._read_events()[0]

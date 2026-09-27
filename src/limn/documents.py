@@ -21,7 +21,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from limn import build
 from limn.files import tex_lines
@@ -32,29 +32,19 @@ DOCS_MAX = 12
 DEFAULT_DOC_KEY = "main"
 
 
-class RunPaths(Protocol):
-    """The instance's run paths a document reads (server.py's run settings C): read at every access, so a change to
-    them (main() filling them in, a test pointing them elsewhere) is seen at once."""
+@dataclass(frozen=True)
+class RunPaths:
+    """The instance's run paths a document reads (limn.config.RunConfig.paths), fixed when the run starts: the
+    composition root makes the documents once the state folder is known and hands each this value."""
 
-    @property
-    def src(self) -> Path:
-        """--manuscript: the manuscript tree."""
-        ...
-
-    @property
-    def main(self) -> Path:
-        """The main .tex of an instance started without --doc."""
-        ...
-
-    @property
-    def state(self) -> Path:
-        """The instance state folder."""
-        ...
+    src: Path  # --manuscript: the manuscript tree
+    main: Path  # the main .tex of an instance started without --doc
+    state: Path  # the instance state folder
 
     @property
     def build(self) -> Path:
         """The build copy of an instance started without --doc."""
-        ...
+        return self.state / "build"
 
 
 def fresh_build_state() -> dict[str, Any]:
@@ -80,9 +70,9 @@ def fresh_build_state() -> dict[str, Any]:
 class Doc:
     """One document. kind is 'tex' (LaTeX, lines traced back via SyncTeX) or 'pdf' (view-only - page/region only).
 
-    paths are the instance's run paths (RunPaths), given at construction by the composition root. legacy=True means
-    a single document started without --doc: its manuscript and build folders are the run paths' own (read on each
-    access, so the legacy state-folder layout keeps working). root=True puts build artifacts at the state folder
+    paths are the instance's run paths (RunPaths, a frozen value), given at construction by the composition root.
+    legacy=True means a single document started without --doc: its manuscript and build folders are the run paths'
+    own, so the legacy state-folder layout keeps working. root=True puts build artifacts at the state folder
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime

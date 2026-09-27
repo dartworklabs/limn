@@ -1,7 +1,8 @@
 """server.py - the composition root and the wired handler, driven over a socketpair (no port is opened).
 
-What stays here is what only server.py can answer: its own functions and bindings (app_version, build_html,
-favicon_href, valid_rec - the store's record check as server.py binds it, default_pdfjs_dir, main() as the one exit),
+What stays here is what only server.py can answer: its own functions and bindings (app_version, the page it serves
+and its favicon, an import that reads no file, valid_rec - the store's record check as server.py binds it,
+default_pdfjs_dir, main() as the one exit),
 the build response's log diet the handler applies (ResponseDiet: limn.web.answers.diet_log, kept here beside the
 rebuild route's RebuildLogDiet), the requests end to end through the handler and the server's
 wiring (smuggling and origin checks, the static routes, /pins.md, the build responses, several documents), and the
@@ -14,10 +15,13 @@ fixtures are tests/helpers.py.
 Run: uv run pytest tests/test_server.py
 """
 
+import dataclasses
 import json
 import os
 import re
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -49,10 +53,13 @@ from helpers import (
     edit_pin,
     jreq,
     needs_tex,
+    page_for,
     pick,
     ps,
     record_of,
     req,
+    run_config,
+    set_config,
     shut_wr,
     split_resp,
 )
@@ -62,7 +69,7 @@ from helpers_access import BOB_ACTOR
 class Smuggling(Base):
     def test_403_body_is_not_parsed_as_next_request(self):
         pid = self.add()
-        ps.C.allow = frozenset({"ok@example.com"})
+        set_config(allow=frozenset({"ok@example.com"}))
         inner = req("POST", "/api/pins/%d/close" % pid)
         out = self.talk(
             req(
@@ -265,7 +272,7 @@ class CrossOrigin(Base):
         self.assertIsNotNone(self.pin(pid))
 
     def test_no_origin_check_switch(self):
-        ps.C.origin_check = False
+        set_config(origin_check=False)
         out = self.talk(
             req("GET", "/api/meta", headers={"Host": "box.example.com", "Tailscale-User-Login": "ok@example.com"})
         )
@@ -274,7 +281,7 @@ class CrossOrigin(Base):
         self.assertIn(b" 403 ", self.talk(req("GET", "/api/meta", headers={"Host": "box.example.com"})))
 
     def test_allow_rejects_headerless_tailnet_request(self):
-        ps.C.allow = frozenset({"ok@example.com"})
+        set_config(allow=frozenset({"ok@example.com"}))
         out = self.talk(req("GET", "/api/meta", headers={"Host": "box.tail1234.ts.net"}))  # tag-device shape
         self.assertIn(b" 403 ", out)
         out = self.talk(req("GET", "/api/meta"))  # loopback curl
@@ -357,14 +364,14 @@ class VendorPdfjs(Base):
         secret.write_text("secret-module", encoding="utf-8")
         (d / "evil.mjs").symlink_to(secret)
         (d / "ok.mjs").write_text("export const ok=1;", encoding="utf-8")
-        ps.C.pdfjs_dir = d
+        set_config(pdfjs_dir=d)
         self.assertEqual(self.get("/vendor/pdfjs/ok.mjs")[0], 200)
         code, _h, body = self.get("/vendor/pdfjs/evil.mjs")
         self.assertEqual(code, 404)
         self.assertNotIn(b"secret-module", body)
 
     def test_missing_vendor_dir_is_404_not_500(self):
-        ps.C.pdfjs_dir = Path(self.tmp.name) / "nowhere"
+        set_config(pdfjs_dir=Path(self.tmp.name) / "nowhere")
         code, h, _ = self.get("/vendor/pdfjs/pdf.min.mjs")
         self.assertEqual(code, 404)  # the viewer sees this and falls back to PNG
 
@@ -610,8 +617,8 @@ class ResponseDiet(unittest.TestCase):
 
 class RebuildLogDiet(Base):
     def tearDown(self):
-        if ps.BUILD_LOCK.locked():
-            ps.BUILD_LOCK.release()
+        if ps.DOCS[0].lock.locked():
+            ps.DOCS[0].lock.release()
         super().tearDown()
 
     def test_sync_rebuild_ok_omits_log(self):
@@ -713,8 +720,9 @@ class StartupRefusals(unittest.TestCase):
 
 class BuildHtmlSubstitution(unittest.TestCase):
     def test_label_and_accent_appear_in_output(self):
-        """build_html fills the label (title, identity crumb after the Limn mark), the accent stripe and every placeholder."""
-        out = ps.build_html("A-DEMO", "#1d4ed8")
+        """The served page (limn.viewer.assemble.run_page over the template) fills the label (title, identity crumb
+        after the Limn mark), the accent stripe and every placeholder."""
+        out = page_for("A-DEMO", "#1d4ed8")
         self.assertIn("<title>Limn · A-DEMO</title>", out)
         # the Limn mark (test_brand.py)
         self.assertIn('id="paper-identity-mark" aria-hidden="true"><svg class="limn-mark"', out)
@@ -728,20 +736,114 @@ class BuildHtmlSubstitution(unittest.TestCase):
         self.assertNotIn("__FAVICON_HREF__", out)
 
     def test_label_is_html_escaped(self):
-        out = ps.build_html("<script>alert(1)</script>", "#1d4ed8")
+        out = page_for("<script>alert(1)</script>", "#1d4ed8")
         self.assertNotIn("<script>alert(1)</script>", out)
         self.assertIn("&lt;script&gt;", out)
 
     def test_favicon_is_data_svg_of_the_mark_in_the_accent(self):
         """The favicon is the Limn mark in the accent (since 0.3.4; it used to be the label's first letter). The label
         never reaches the SVG, so no label character can break it; a non-#rrggbb accent is refused."""
-        out = ps.favicon_href("#1d4ed8")
+        out = viewer_assemble.favicon_href("#1d4ed8")
         self.assertTrue(out.startswith("data:image/svg+xml,"))
         from urllib.parse import unquote
 
         self.assertIn('fill="#1d4ed8"', unquote(out))
         with self.assertRaises(ValueError):
-            ps.favicon_href('#1d4ed8"/><script>')
+            viewer_assemble.favicon_href('#1d4ed8"/><script>')
+
+
+class ImportReadsNoFile(unittest.TestCase):
+    """Importing server.py reads no data file: the viewer package (~49 files) is read by start(), never at import."""
+
+    def test_loading_the_module_opens_only_python_sources(self):
+        """Load server.py by path in a fresh interpreter with an audit hook on `open`: every file opened under
+        src/limn while the module loads is Python source or bytecode - no viewer part, ui_en.json or sw.js."""
+        code = (
+            "import importlib.util, sys\n"
+            "seen = []\n"
+            "sys.addaudithook(lambda ev, args: seen.append(str(args[0])) if ev == 'open' and args else None)\n"
+            "spec = importlib.util.spec_from_file_location('s', %r)\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+            "print('\\n'.join(p for p in seen if p.startswith(%r) and not p.endswith(('.py', '.pyc'))))\n"
+        ) % (str(PKG / "server.py"), str(PKG))
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split(), [])
+
+
+class ProcessRuntime(unittest.TestCase):
+    """new_runtime / Runtime: the per-process resources are one value made fresh for each start, and stop() ends the
+    long-lived threads it started."""
+
+    def runtime(self):
+        """A fresh Runtime serving a stand-in viewer."""
+        return ps.new_runtime(viewer_assemble.ServedViewer("<p></p>", "", {}))
+
+    def test_each_runtime_owns_fresh_resources(self):
+        """Two runtimes share no lock, cache, registry or status object, and a new one has no thread and is not
+        stopping - so a restart (or a test) starts from nothing held over."""
+        a, b = self.runtime(), self.runtime()
+        shared = [
+            f.name for f in dataclasses.fields(a) if f.name != "viewer" and getattr(a, f.name) is getattr(b, f.name)
+        ]
+        self.assertEqual(shared, [])
+        self.assertEqual((a.threads, a.stopping.is_set()), ([], False))
+
+    def test_stop_ends_both_watch_threads(self):
+        """The view-only PDF watch and the remote-main watch, started as prepare() starts them, end on stop(); a second
+        stop() is harmless."""
+        rt = self.runtime()
+        rounds = []
+        with mock.patch.object(ps, "DOCS", []):
+            rt.start_thread(ps.watch_pdf_docs, rt.stopping, 0.01)
+            rt.start_thread(rt.sync_watch.watch, rt.stopping, 0.01, lambda: rounds.append(1) or {}, lambda: "t")
+            self.assertTrue(all(t.is_alive() for t in rt.threads))
+            rt.stop(timeout=5)
+        self.assertEqual([t.is_alive() for t in rt.threads], [False, False])
+        self.assertGreater(len(rounds), 0)
+        rt.stop(timeout=0)
+
+    def test_main_stops_the_runtime_when_serving_ends(self):
+        """main() stops the Runtime whatever ends serve_forever (Ctrl-C here), and lets that end propagate."""
+
+        class Served:
+            """A started server whose serving is interrupted."""
+
+            def serve_forever(self):
+                """End like a Ctrl-C."""
+                raise KeyboardInterrupt
+
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=Served()),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            ps.main()
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_start_stops_watch_when_listen_refuses(self):
+        """A port lost after the probe cannot leave a watch thread running after startup refuses."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = run_config(root, root / "main.tex", root / "state")
+            rt = self.runtime()
+            refusal = StartupRefused("port taken")
+            with (
+                mock.patch.object(ps.startup, "access_options", return_value=cfg.access),
+                mock.patch.object(ps, "configure_run", return_value=ps.RunStart(cfg, None)),
+                mock.patch.object(ps, "read_viewer"),
+                mock.patch.object(ps, "serve_viewer", return_value=rt.viewer),
+                mock.patch.object(ps, "new_runtime", return_value=rt),
+                mock.patch.object(ps, "prepare", side_effect=lambda *_: rt.start_thread(rt.stopping.wait)),
+                mock.patch.object(ps, "report"),
+                mock.patch.object(ps, "listen", return_value=refusal),
+            ):
+                self.assertEqual(ps.start(mock.Mock(port=0, no_build=True)), refusal)
+            self.assertTrue(rt.stopping.is_set())
+            self.assertEqual([t.is_alive() for t in rt.threads], [False])
 
 
 # ---------------------------------------------------------------- §Multiple documents (--doc) — switching documents inside one viewer
@@ -793,11 +895,10 @@ class MultiDoc(Base):
     def test_single_doc_mode_keeps_legacy_paths(self):
         ps.set_docs(None)
         self.assertFalse(ps.multi_doc())
-        self.assertIs(ps.DOCS[0], ps.LEGACY_DOC)
+        self.assertTrue(ps.DOCS[0].legacy)
         self.assertEqual(limn_build.cur_pages(ps.DOCS[0]), ps.C.state / "pages")
-        self.assertEqual(ps.LEGACY_DOC.build, ps.C.build)
-        self.assertIs(ps.LEGACY_DOC.lock, ps.BUILD_LOCK)  # the old global lock/state IS this document's
-        self.assertIs(ps.LEGACY_DOC.bstate, ps.BUILD_STATE)
+        self.assertEqual(ps.DOCS[0].build, ps.C.build)
+        self.assertEqual(ps.DOCS[0].paths, ps.C.paths)  # the frozen run paths it was made with
         pid = self.add()
         self.assertEqual(self.pin(pid)["doc"], "main")
         md = ps.pins_md_text(ps.snapshot_pins())
@@ -875,7 +976,6 @@ class MultiDoc(Base):
         Regression: the notices were built before the record had its doc, so pin_doc_key read the first document (ms)
         and the viewer opened a notice about a pin in rr on the wrong document.
         """
-        ps._EVENTS_CACHE.clear()
         ps.record_person(dict(self.WENDY))
         pin = add_pin(
             {
@@ -895,7 +995,6 @@ class MultiDoc(Base):
     def test_later_notices_about_a_pin_name_its_document(self):
         """Edit, reply, close and reopen notices about a pin in the second document carry that document's key: they
         are made from the stored record, which has its doc."""
-        ps._EVENTS_CACHE.clear()
         ps.record_person(dict(self.WENDY))
         pid = add_pin(
             {"file": str(self.rr), "lo": 4, "hi": 5, "page": 1, "doc": "rr", "note": "정의 확인"}, dict(BOB_ACTOR)
@@ -1038,7 +1137,6 @@ class MultiDoc(Base):
             self.assertEqual(ps.build_all(self.ms), BuildBusy())
             self.assertEqual(ps.build_async(self.rrd), BuildStarted())  # different documents run concurrently
             self.assertTrue(self.ms.lock.locked() and self.rrd.lock.locked())
-            self.assertFalse(ps.BUILD_LOCK.locked())  # the single-document global lock is left untouched
             gate.set()
             for _ in range(100):
                 if not (self.ms.lock.locked() or self.rrd.lock.locked()):
@@ -1058,10 +1156,7 @@ class MultiDoc(Base):
             calls.append(m)
             return UpToDate(None)
 
-        with (
-            mock.patch.object(gitsync, "pull", side_effect=fake_pull),
-            mock.patch.object(ps, "PULL_SHARE", gitsync.PullShare()),
-        ):
+        with mock.patch.object(gitsync, "pull", side_effect=fake_pull):  # the fresh Runtime's pull share (Base)
             a = ps.repo_pull()
             b = ps.repo_pull()
         self.assertEqual(len(calls), 1)  # once per repository

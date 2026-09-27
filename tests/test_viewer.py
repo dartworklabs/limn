@@ -1,5 +1,5 @@
 """The viewer page (src/limn/viewer): its scripts run under node, its HTML and CSS read as the page the server serves
-(ps.HTML), and its layout measured in a real Chromium.
+(HTML), and its layout measured in a real Chromium.
 
 Most classes check the served page for the fixed pattern and the absence of the old bug pattern. The ...Logic classes
 pull pure functions out of the page with extract_js_fn and run them under node (skipped without node).
@@ -23,15 +23,19 @@ from limn.viewer import assemble as viewer_assemble
 
 from helpers import (
     DOCS_DIR,
+    HTML,
     PKG,
     RULE_CASES,
     SKILL_KO,
     SKILL_MD,
+    SW_JS,
+    UI_EN,
     extract_js_fn,
     js_esc,
     js_i18n,
     js_icons,
     js_thread,
+    page_for,
     ps,
     rec_for,
     run_node,
@@ -401,7 +405,7 @@ class FrontendLogic(unittest.TestCase):
 # Running the full polling loop and automatic panel display, which spans timers, fetch, and visibility,
 # under node would require faking fetch/document.hidden/setInterval entirely (this project's hard
 # constraint is stdlib-only, so we can't add such a shim to the server) — so instead we check the actual
-# deployed ps.HTML source string for the fixed pattern and the absence of the pre-fix pattern. This isn't
+# deployed HTML source string for the fixed pattern and the absence of the pre-fix pattern. This isn't
 # execution verification, but it does catch regressions (reverting to the original bug pattern).
 
 
@@ -409,20 +413,20 @@ class FrontendStructure(unittest.TestCase):
     def test_build_polling_is_conditional_not_permanent(self):
         # bug: startBuildPolling() used to unconditionally set setInterval(pollBuild,1000), calling
         # /api/build every second even when the tab was hidden or there was nothing to do.
-        m = re.search(r"function startBuildPolling\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"function startBuildPolling\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIsNotNone(m)
         self.assertNotIn("setInterval(pollBuild", m.group(1))
         self.assertIn("pollBuild()", m.group(1))
-        m1 = re.search(r"\nfunction pollBuild\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m1 = re.search(r"\nfunction pollBuild\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("if(document.hidden)returnPromise.resolve()", m1.group(1).replace(" ", ""))
         self.assertIn("if(BUILD_INFLIGHT)returnBUILD_INFLIGHT", m1.group(1).replace(" ", ""))
-        m2 = re.search(r"async function pollBuildOnce\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m2 = re.search(r"async function pollBuildOnce\(\)\{(.*?)\n\}", HTML, re.S)
         body = m2.group(1)
         self.assertIn("if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000)", body.replace(" ", ""))
         self.assertIn("clearInterval(BUILD_TIMER)", body)
 
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
-        m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1).replace(" ", "")
         self.assertIn("d.build&&d.build.state===BUILD_STATE.RUNNING", body)
         self.assertIn("d.build_seq!==LAST_BUILD_SEQ", body)
@@ -431,7 +435,7 @@ class FrontendStructure(unittest.TestCase):
     def test_light_poll_is_single_flight(self):
         # bug: when visibilitychange and focus overlapped, pollLight() would call /api/meta·loadPins
         # fresh each time, firing loadPins up to 3 times. It needs the same single-flight pattern as pollBuild.
-        m = re.search(r"\nfunction pollLight\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"\nfunction pollLight\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1).replace(" ", "")
         self.assertIn("if(document.hidden)returnPromise.resolve()", body)
@@ -439,18 +443,18 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn("LIGHT_INFLIGHT=pollLightOnce()", body)
 
     def test_build_err_reopen_affordance_exists(self):
-        self.assertIn('id="build-err-chip"', ps.HTML)
-        self.assertIn('data-act="build-err-reopen"', ps.HTML)
-        self.assertIn("case 'build-err-reopen'", ps.HTML)
-        self.assertIn("function hideBuildErr()", ps.HTML)
-        self.assertIn("case 'err-close':hideBuildErr()", ps.HTML)
+        self.assertIn('id="build-err-chip"', HTML)
+        self.assertIn('data-act="build-err-reopen"', HTML)
+        self.assertIn("case 'build-err-reopen'", HTML)
+        self.assertIn("function hideBuildErr()", HTML)
+        self.assertIn("case 'err-close':hideBuildErr()", HTML)
 
     def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
         # regression: when switchDoc() runs synchronously through drawDocTabs->drawDocsMenu for a cached
         # document, it redraws the open #docs-menu, detaching the clicked <a> from the DOM. Calling
         # a.closest() after switchDoc() then returns null and the menu stays open — inMenu must always
         # be determined *before* calling switchDoc().
-        m = re.search(r"case 'doc':\{(.*?)\}", ps.HTML, re.S)
+        m = re.search(r"case 'doc':\{(.*?)\}", HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         js = (
@@ -476,7 +480,7 @@ class FrontendStructure(unittest.TestCase):
         self.assertTrue(data["closed"], "#docs-menu must close even when the selected document is cached")
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
-        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1)
         cur_idx = body.index("CUR=d;")
         self.assertGreater(body.index("OVERLAP_DISMISSED=null"), cur_idx)
@@ -484,33 +488,33 @@ class FrontendStructure(unittest.TestCase):
 
     def test_level_and_nudge_recount_overlap_only_for_composer(self):
         for act in ("level", "nudge"):
-            m = re.search(r"case '%s':\{(.*?)\}\s*\n" % act, ps.HTML)
+            m = re.search(r"case '%s':\{(.*?)\}\s*\n" % act, HTML)
             self.assertIsNotNone(m)
             self.assertIn("if(!inEdit)recomputeOverlap()", m.group(1).replace(" ", ""))
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
-        self.assertIn("pdf_build:META.pages_build", ps.HTML)  # drag -> /api/pick
-        self.assertIn("quote:d.quote,pdf_build:d.pdf_build", ps.HTML)  # pick response -> /api/pin
-        self.assertIn("frac:c.frac,pdf_build:c.pdf_build", ps.HTML)  # relocate -> loc
+        self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
+        self.assertIn("quote:d.quote,pdf_build:d.pdf_build", HTML)  # pick response -> /api/pin
+        self.assertIn("frac:c.frac,pdf_build:c.pdf_build", HTML)  # relocate -> loc
 
     def test_no_wall_clock_estimate_left_in_viewer(self):
-        self.assertNotIn("pinAtEpoch", ps.HTML)
-        self.assertNotIn("frac_build", ps.HTML)
-        self.assertNotIn("LAST_SEEN_BUILD", ps.HTML)
+        self.assertNotIn("pinAtEpoch", HTML)
+        self.assertNotIn("frac_build", HTML)
+        self.assertNotIn("LAST_SEEN_BUILD", HTML)
 
     def test_trash_ui_exists(self):
         # §B, v0.2.2: deleted pins live in the Trash dialog ([⋯] -> 휴지통 N, or the link under the list) with a restore button -
         # not in a section of the list.
-        self.assertIn('<dialog id="trash"', ps.HTML)
-        self.assertIn('id="trash-list"', ps.HTML)
-        self.assertIn("case 'trash-open':openTrash();break;", ps.HTML)
-        self.assertNotIn('id="dropped-toggle"', ps.HTML)
-        self.assertIn("function droppedCard(", ps.HTML)
-        self.assertIn('data-act="restore"', ps.HTML)
-        self.assertIn("case 'restore':restorePin(id)", ps.HTML)
+        self.assertIn('<dialog id="trash"', HTML)
+        self.assertIn('id="trash-list"', HTML)
+        self.assertIn("case 'trash-open':openTrash();break;", HTML)
+        self.assertNotIn('id="dropped-toggle"', HTML)
+        self.assertIn("function droppedCard(", HTML)
+        self.assertIn('data-act="restore"', HTML)
+        self.assertIn("case 'restore':restorePin(id)", HTML)
 
     def test_load_pins_fetches_dropped_list_for_diff_and_panel(self):
-        m = re.search(r"async function loadPins\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"async function loadPins\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("/api/pins/dropped", body)
@@ -527,7 +531,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_done_card_shows_close_reply_and_ref(self):
         # §C: a closed card shows the reply/ref left at close time (both go through esc).
-        m = re.search(r"function doneCard\(p\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"function doneCard\(p\)\{(.*?)\n\}", HTML, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("p.close_ref", body)
@@ -549,24 +553,24 @@ class FrontendStructure(unittest.TestCase):
 
 class FrontendClaimUI(unittest.TestCase):
     def test_claim_badge_and_unclaim_button_wired(self):
-        self.assertIn("function claimActive(", ps.HTML)
-        self.assertIn("function claimLabel(", ps.HTML)
-        self.assertIn('data-act="unclaim"', ps.HTML)
-        self.assertIn("case 'unclaim':unclaimPin(id)", ps.HTML)
-        self.assertIn("function unclaimPin(", ps.HTML)
-        self.assertIn("/api/pins/'+id+'/unclaim'", ps.HTML)
+        self.assertIn("function claimActive(", HTML)
+        self.assertIn("function claimLabel(", HTML)
+        self.assertIn('data-act="unclaim"', HTML)
+        self.assertIn("case 'unclaim':unclaimPin(id)", HTML)
+        self.assertIn("function unclaimPin(", HTML)
+        self.assertIn("/api/pins/'+id+'/unclaim'", HTML)
 
     def test_no_claim_button_offered_to_viewer(self):
         # the viewer never claims (agent-only) — there must be no 'claim' action button.
-        self.assertNotIn('data-act="claim"', ps.HTML)
+        self.assertNotIn('data-act="claim"', HTML)
 
     def test_build_status_fetch_requests_full_log(self):
-        self.assertIn("/api/build?log=1", ps.HTML)
+        self.assertIn("/api/build?log=1", HTML)
 
     def test_pull_chip_and_toast_wiring(self):
-        self.assertIn("원격 main 당겨오는 중", ps.HTML)
-        self.assertIn("function pullSuffix(", ps.HTML)
-        self.assertIn("pullSuffix(b)", ps.HTML)
+        self.assertIn("원격 main 당겨오는 중", HTML)
+        self.assertIn("function pullSuffix(", HTML)
+        self.assertIn("pullSuffix(b)", HTML)
 
 
 # Mobile (Galaxy Z Fold 7 etc.) — docs/handbook/viewer.md §모바일 레이아웃. Measured live with Playwright; here we
@@ -574,7 +578,7 @@ class FrontendClaimUI(unittest.TestCase):
 # functions under node.
 class FrontendMobileStructure(unittest.TestCase):
     def test_viewport_meta_allows_zoom_and_handles_keyboard_and_notch(self):
-        m = re.search(r'<meta name="viewport" content="([^"]*)"', ps.HTML)
+        m = re.search(r'<meta name="viewport" content="([^"]*)"', HTML)
         self.assertIsNotNone(m)
         v = m.group(1)
         for part in (
@@ -589,12 +593,12 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertNotIn("maximum-scale", v)
 
     def test_rebuild_label_is_short_everywhere(self):
-        self.assertIn('data-act="rebuild"', ps.HTML)
+        self.assertIn('data-act="rebuild"', HTML)
         self.assertRegex(
-            ps.HTML,
+            HTML,
             r'id="btn-rebuild"[^>]*aria-label="PDF 재빌드"[^>]*><svg class="ic ic-refresh-cw"[^>]*>(?:(?!</svg>).)*</svg><span class="lbl">PDF 재빌드</span></button>',
         )
-        self.assertNotIn("다시 만들기", ps.HTML)
+        self.assertNotIn("다시 만들기", HTML)
         self.assertNotIn("다시 만들기", Path(ps.__file__).read_text(encoding="utf-8"))
         for doc in [SKILL_MD, SKILL_KO] + sorted(DOCS_DIR.glob("*.md")):
             self.assertFalse("PDF 다시 만들기" in doc.read_text(encoding="utf-8"), doc.name)
@@ -613,8 +617,8 @@ class FrontendMobileStructure(unittest.TestCase):
             'id="m-trash"',
             'id="m-jump"',
         ):
-            self.assertIn(el, ps.HTML)
-        self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', ps.HTML).group(0))
+            self.assertIn(el, HTML)
+        self.assertIn('aria-pressed="false"', re.search(r'<button id="btn-select"[^>]*>', HTML).group(0))
         # less important buttons are hidden in compact mode (.sec) and live inside [⋯] with the same data-act
         for bid, act in (
             ("btn-reload", "reload"),
@@ -624,18 +628,18 @@ class FrontendMobileStructure(unittest.TestCase):
             ("btn-theme", "theme"),
             ("btn-help", "help"),
         ):
-            tag = re.search(r'<button id="%s"[^>]*>' % bid, ps.HTML).group(0)
+            tag = re.search(r'<button id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertRegex(tag, r'class="sec( btn-[a-z]+)*"')
-            more = ps.HTML[ps.HTML.index('<dialog id="more"') : ps.HTML.index('<dialog id="help"')]
+            more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
             self.assertIn('data-act="%s"' % act, more)
-        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump"')
-        self.assertIn("body.compact .sec{display:none}", ps.HTML)
+        self.assertRegex(HTML, r'<input class="n sec" id="jump"')
+        self.assertIn("body.compact .sec{display:none}", HTML)
         for act in ("side", "selmode", "more", "more-close", "m-jump", "coach-close", "card-toggle"):
-            self.assertIn("case '%s':" % act, ps.HTML)
+            self.assertIn("case '%s':" % act, HTML)
 
     def test_touch_css_targets_inputs_safe_area_and_selection_touch_action(self):
         """Touch CSS: 44px controls, 16px inputs, safe areas, and exactly which rules set touch-action (PDF, grips, panel, sheet bar)."""
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}")]
         self.assertIn("min-height:44px", coarse)
@@ -671,51 +675,51 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #toasts{", css)
 
     def test_selection_uses_pointer_events_one_path(self):
-        self.assertIn("$('#doc').addEventListener('pointerdown'", ps.HTML)
+        self.assertIn("$('#doc').addEventListener('pointerdown'", HTML)
         for ev in ("pointermove", "pointerup", "pointercancel"):
-            self.assertIn("window.addEventListener('%s'" % ev, ps.HTML)
-        self.assertIn("if(mouse||SELMODE)", ps.HTML)  # mouse still drags like before, regardless of mode
-        self.assertIn("if(!e.isPrimary){cancelDrag()", ps.HTML)  # a second finger (pinch) drops the selection
-        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", ps.HTML)  # no old mouse-only path remains
-        self.assertIn("function quickPick(", ps.HTML)
-        self.assertIn("LONGPRESS_MS", ps.HTML)
+            self.assertIn("window.addEventListener('%s'" % ev, HTML)
+        self.assertIn("if(mouse||SELMODE)", HTML)  # mouse still drags like before, regardless of mode
+        self.assertIn("if(!e.isPrimary){cancelDrag()", HTML)  # a second finger (pinch) drops the selection
+        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", HTML)  # no old mouse-only path remains
+        self.assertIn("function quickPick(", HTML)
+        self.assertIn("LONGPRESS_MS", HTML)
 
     def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
-        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("if(LAST_PTR==='mouse')$('#note').focus(", m.group(1))
-        self.assertIn("if(touchRecent()||MQ_NOHOVER.matches)return; armTip(", ps.HTML)
+        self.assertIn("if(touchRecent()||MQ_NOHOVER.matches)return; armTip(", HTML)
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap). The card as a whole gets no tooltip.
-        self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", ps.HTML)
+        self.assertIn("||touchRecent()||MQ_NOHOVER.matches){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}", HTML)
         self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", extract_js_fn("card"))
-        self.assertIn("document.addEventListener('contextmenu'", ps.HTML)
+        self.assertIn("document.addEventListener('contextmenu'", HTML)
 
     def test_keyboard_and_resize_hooks(self):
-        self.assertIn("visualViewport.addEventListener('resize',onViewport)", ps.HTML)
-        self.assertIn("new ResizeObserver(", ps.HTML)
-        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
+        self.assertIn("visualViewport.addEventListener('resize',onViewport)", HTML)
+        self.assertIn("new ResizeObserver(", HTML)
+        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", HTML, re.S)
         self.assertIn("topAnchor()", m.group(1))
         self.assertIn("restoreAnchor(a)", m.group(1))
 
     def test_page_images_lazy(self):
-        self.assertIn('<img loading="lazy"', ps.HTML)
+        self.assertIn('<img loading="lazy"', HTML)
 
 
 # Vector rendering (docs/handbook/viewer.md §벡터 렌더링) — checks the deployed HTML for the PDF.js path, fallback, visible-area rendering, and the pixel cap.
 class FrontendVector(unittest.TestCase):
     def fn(self, name):
-        m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, ps.HTML, re.S)
+        m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, HTML, re.S)
         self.assertIsNotNone(m, name)
         return m.group(1)
 
     def test_loads_vendored_pdfjs_same_origin_with_version(self):
-        self.assertNotIn("__PDFJS_VERSION__", ps.HTML)
-        self.assertIn("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION, ps.HTML)
-        self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", ps.HTML)
-        self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", ps.HTML)
+        self.assertNotIn("__PDFJS_VERSION__", HTML)
+        self.assertIn("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION, HTML)
+        self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", HTML)
+        self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", HTML)
         for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
-            self.assertNotIn(cdn, ps.HTML)  # runs only inside the tailnet — no external CDN
-        self.assertIn("isEvalSupported:false", ps.HTML)
-        self.assertIn("useWasm:false", ps.HTML)  # wasm isn't in vendor (vendor/pdfjs/README.md)
+            self.assertNotIn(cdn, HTML)  # runs only inside the tailnet — no external CDN
+        self.assertIn("isEvalSupported:false", HTML)
+        self.assertIn("useWasm:false", HTML)  # wasm isn't in vendor (vendor/pdfjs/README.md)
 
     def test_pdf_is_the_screen_build(self):
         body = self.fn("vecOpen")
@@ -725,7 +729,7 @@ class FrontendVector(unittest.TestCase):
         # close the old document after a rebuild. PDFDocumentProxy has no destroy (observed: 'old.destroy is not a function').
         self.assertIn("vecClose(old)", body)
         self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
-        self.assertNotRegex(ps.HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
+        self.assertNotRegex(HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
 
     def test_stale_doc_detached_before_awaiting_new_pdf(self):
         # on a cache miss from a different document/rebuild, VEC.doc is left empty until the fetch
@@ -752,9 +756,9 @@ class FrontendVector(unittest.TestCase):
         fail = self.fn("vecFail")
         self.assertIn("vecReleaseAll()", fail)  # removing the canvas reveals the PNG underneath
         self.assertIn("$('#vec-chip')", fail)
-        self.assertIn('id="vec-chip" class="badge badge-warning" hidden', ps.HTML)
-        self.assertIn('<img loading="lazy"', ps.HTML)  # PNG remains as the first paint / fallback
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        self.assertIn('id="vec-chip" class="badge badge-warning" hidden', HTML)
+        self.assertIn('<img loading="lazy"', HTML)  # PNG remains as the first paint / fallback
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(".pg.drawn>img{visibility:hidden}", css)
         self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)  # .pg receives the drag
 
@@ -772,7 +776,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_no_text_layer(self):
         for s in ("getTextContent", "TextLayer", "textLayer"):
-            self.assertNotIn(s, ps.HTML)
+            self.assertNotIn(s, HTML)
 
 
 class FrontendVectorLogic(unittest.TestCase):
@@ -878,36 +882,34 @@ class FrontendVectorLogic(unittest.TestCase):
 # PDF-area-only zoom (docs/handbook/viewer.md §PDF 영역 전용 확대) — whether browser zoom input is intercepted to change only the page width.
 class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
-        self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", ps.HTML)
-        i = ps.HTML.index("L.addEventListener('wheel'")
-        self.assertIn("{passive:false}", ps.HTML[i : i + 300])
-        self.assertIn(
-            "const L=$('#left')", ps.HTML[i - 200 : i]
-        )  # PDF area only — sidebar wheel scrolling is left alone
-        self.assertIn("zoomTo(W*f,pt[0],pt[1])", ps.HTML)  # anchored to the pointer
+        self.assertIn("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return; e.preventDefault();", HTML)
+        i = HTML.index("L.addEventListener('wheel'")
+        self.assertIn("{passive:false}", HTML[i : i + 300])
+        self.assertIn("const L=$('#left')", HTML[i - 200 : i])  # PDF area only — sidebar wheel scrolling is left alone
+        self.assertIn("zoomTo(W*f,pt[0],pt[1])", HTML)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
-            self.assertIn("L.addEventListener('%s'" % ev, ps.HTML)
-        i = ps.HTML.index("L.addEventListener('touchstart'")
-        blk = ps.HTML[i : i + 400]
+            self.assertIn("L.addEventListener('%s'" % ev, HTML)
+        i = HTML.index("L.addEventListener('touchstart'")
+        blk = HTML[i : i + 400]
         self.assertIn("e.touches.length!==2", blk)
         self.assertIn("cancelDrag(); cancelLP();", blk)  # a pinch discards the in-progress selection/long-press
         self.assertIn("{passive:false}", blk)
 
     def test_keyboard_zoom_skips_inputs(self):
-        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
         body = m.group(1)
         self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField){const z=zoomKey(e);", body)
         self.assertIn("e.preventDefault(); if(z==='fit')fitW(); else zoom(z==='in'?1:-1)", body)
         self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
 
     def test_zoom_bounds_and_anchor(self):
-        self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", ps.HTML)
-        setw = re.search(r"\nfunction setW\(w,save\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", HTML)
+        setw = re.search(r"\nfunction setW\(w,save\)\{(.*?)\}\n", HTML, re.S).group(1)
         self.assertIn("wBounds(fitWidth())", setw)
         self.assertNotIn("2200", setw)
-        zt = re.search(r"\nfunction zoomTo\(w,cx,cy\)\{(.*?)\}\n", ps.HTML, re.S).group(1)
+        zt = re.search(r"\nfunction zoomTo\(w,cx,cy\)\{(.*?)\}\n", HTML, re.S).group(1)
         self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setW(w)"))
         self.assertLess(zt.index("setW(w)"), zt.index("zoomRestore(a)"))
 
@@ -1150,47 +1152,47 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         )
         self.assertIsNone(got[3])
         self.assertIsNone(got[4])
-        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", ps.HTML)
+        self.assertIn("const VIA_HIDE=90,VIA_WARN=30;", HTML)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
     def test_grip_is_one_pointer_events_separator(self):
-        tag = re.search(r'<div id="grip"[^>]*>', ps.HTML).group(0)
+        tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
             self.assertIn(part, tag)
-        self.assertIn("$('#grip'); let D=null;", ps.HTML)
-        self.assertIn("g.setPointerCapture(e.pointerId)", ps.HTML)
-        self.assertNotIn("$('#grip').addEventListener('mousedown'", ps.HTML)  # no old mouse-only path remains
-        self.assertNotIn("body.compact #grip{display:none}", ps.HTML)  # still visible in mid too
-        self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", ps.HTML)
+        self.assertIn("$('#grip'); let D=null;", HTML)
+        self.assertIn("g.setPointerCapture(e.pointerId)", HTML)
+        self.assertNotIn("$('#grip').addEventListener('mousedown'", HTML)  # no old mouse-only path remains
+        self.assertNotIn("body.compact #grip{display:none}", HTML)  # still visible in mid too
+        self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", HTML)
 
     def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
-        self.assertIn("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}", ps.HTML)
-        m = re.search(r"\nfunction setSideWidth\(w\)\{(.*?)\}\n", ps.HTML, re.S)
+        self.assertIn("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}", HTML)
+        m = re.search(r"\nfunction setSideWidth\(w\)\{(.*?)\}\n", HTML, re.S)
         self.assertIsNotNone(m)
         self.assertIn("savePrefs({[sideKey()]:w})", m.group(1))
         self.assertIn("relayout()", m.group(1))
-        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", ps.HTML, re.S)
+        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", HTML, re.S)
         body = m.group(1)
         # the panel width must be settled first for the page width to match
         self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))
         # ResizeObserver doesn't re-fit every frame while dragging
-        self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", ps.HTML)
-        self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", ps.HTML)
+        self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", HTML)
+        self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", HTML)
 
     def test_sheet_grip_and_size_presets_in_more(self):
-        tag = re.search(r'<div id="sheet-grip"[^>]*>', ps.HTML).group(0)
+        tag = re.search(r'<div id="sheet-grip"[^>]*>', HTML).group(0)
         self.assertIn('role="separator"', tag)
         self.assertIn('aria-orientation="horizontal"', tag)
-        self.assertIn(":not(#sheet-grip){display:none}", ps.HTML)  # the grip stays even on a collapsed sheet
-        self.assertIn("var(--sheet-f,.64)", ps.HTML)
-        more = ps.HTML[ps.HTML.index('<dialog id="more"') : ps.HTML.index('<dialog id="help"')]
+        self.assertIn(":not(#sheet-grip){display:none}", HTML)  # the grip stays even on a collapsed sheet
+        self.assertIn("var(--sheet-f,.64)", HTML)
+        more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
-        self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", ps.HTML)
-        self.assertIn("renderSizeSeg(); d.showModal()", ps.HTML)
+        self.assertIn("case 'size-preset':sizePreset(+a.dataset.i)", HTML)
+        self.assertIn("renderSizeSeg(); d.showModal()", HTML)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
-        right = ps.HTML[ps.HTML.index('<div id="right">') : ps.HTML.index('<div id="tip"')]
+        right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
         comp = right[right.index('<div id="composer"') : right.index('<div id="list">')]
         self.assertNotIn('id="btn-save"', comp)
         acts = right.index('<div id="c-actions">')
@@ -1198,7 +1200,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         # cancel comes first, the primary action (save pin) is wide on the right
         self.assertLess(right.index('id="btn-cancel"', acts), right.index('id="btn-save"', acts))
         self.assertRegex(right, r'<button class="btn-default" id="btn-save"')  # primary action = the default variant
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("#composer[hidden]~#c-actions{display:none}", css)
         self.assertIn("grid-template-columns:1fr 2fr", css)
         self.assertIn("body.compact #c-actions{position:sticky;bottom:0", css)
@@ -1206,31 +1208,31 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("#composer:not([hidden])~#list #empty{display:none}", css)
 
     def test_composer_is_one_loc_line_segmented_ladder_and_folded_snippet(self):
-        self.assertNotIn('id="c-meta"', ps.HTML)  # location info repeated 3x -> now one line
-        self.assertNotIn("드래그한 줄 L'+d.raw_lo", ps.HTML)
-        row = ps.HTML[ps.HTML.index('<div class="c-loc-row">') : ps.HTML.index('<div id="c-warn"')]
+        self.assertNotIn('id="c-meta"', HTML)  # location info repeated 3x -> now one line
+        self.assertNotIn("드래그한 줄 L'+d.raw_lo", HTML)
+        row = HTML[HTML.index('<div class="c-loc-row">') : HTML.index('<div id="c-warn"')]
         for el in ('id="c-loc"', 'id="c-page"', 'id="c-tag"', 'id="c-copy"'):
             self.assertIn(el, row)
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         seg = re.search(r"\n\.seg\{([^}]*)\}", css).group(1)
         self.assertIn("flex-wrap:nowrap", seg)
         self.assertIn("overflow-x:auto", seg)
-        self.assertIn('<div class="step" role="group"', ps.HTML)
+        self.assertIn('<div class="step" role="group"', HTML)
         # 4 lines + 8px top/bottom padding
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
-        m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
         self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
         # on a narrow sheet the note field sits above the source snippet (so it doesn't hide under the action row)
         self.assertIn("body.lay-narrow #note{order:1", css)
 
     def test_card_head_tags_row_and_action_grid(self):
-        m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", ps.HTML, re.S)
+        m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
         body = m.group(1)
         self.assertNotIn('<span class="tags">', body)  # badges are not inside the head row
         # one line after the head (fold button)
         self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))
         self.assertLess(body.index("b-drop"), body.index("b-close"))  # done (primary) sits at the far right
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(".pin .acts{display:grid;grid-auto-flow:column;grid-auto-columns:1fr", css)
         # done = soft (pale blue, author-specified 09-23), drop = destructive
         self.assertIn('class="btn-sm btn-soft b-close"', body)
@@ -1241,7 +1243,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn('class="btn-sm btn-destructive b-drop"', body)
 
     def test_compact_toolbar_is_one_even_row(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.compact #bar1 .sp{display:none}", css)
         self.assertIn("body.compact #bar1 #btn-more{flex:0 0 44px", css)
 
@@ -1249,7 +1251,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         # unfolded fold devices / tablets (mid): the action row doesn't follow the panel — it's pinned
         # full-width at the bottom of the screen, and the nav row is pinned full-width at the top
         # (docs/handbook/viewer.md §펼친 화면 레이아웃). Live browser measurements are in FrontendResponsiveBrowser.
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         css_nc = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         self.assertIn("body.lay-mid #bar1{position:fixed;left:0;right:0;top:auto;bottom:var(--kb,0px);", css)
         self.assertIn("body.lay-mid #doc-nav{position:fixed;top:0;left:0;right:0;", css)
@@ -1274,8 +1276,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("body.lay-mid #toasts{", css)
         # an overflowing document-link row fades at the edge instead of showing a scrollbar
         self.assertIn("body.lay-mid #doc-links.fade-r{mask-image:", css)
-        self.assertIn("function docLinksFade(){", ps.HTML)
-        self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", ps.HTML)
+        self.assertIn("function docLinksFade(){", HTML)
+        self.assertIn("$('#doc-links').addEventListener('scroll',docLinksFade,{passive:true});", HTML)
 
 
 # ---------------------------------------------------------------- design token guard (docs/handbook/viewer.md §디자인 토큰과 컴포넌트)
@@ -1300,7 +1302,7 @@ INLINE_STYLE_OK = {"background:__ACCENT__"}  # the instance label color — the 
 
 def css_rules():
     """The (selector, [(property, value)]) list inside <style>. Strips comments and flattens @media rules too."""
-    css = ps.HTML[ps.HTML.index("<style>") + len("<style>") : ps.HTML.index("</style>")]
+    css = HTML[HTML.index("<style>") + len("<style>") : HTML.index("</style>")]
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     out = []
     for m in re.finditer(r"([^{}]*)\{([^{}]*)\}", css):
@@ -1388,7 +1390,7 @@ class FrontendDesignTokens(unittest.TestCase):
         )
 
     def test_inline_styles_and_scripts_carry_no_design_literals(self):
-        body = ps.HTML[ps.HTML.index("</style>") :]
+        body = HTML[HTML.index("</style>") :]
         for st in re.findall(r'style="([^"]*)"', body):
             self.assertTrue(
                 st in INLINE_STYLE_OK or not (COLOR_RE.search(st) or re.search(r"font-size|radius", st)), st
@@ -1400,16 +1402,16 @@ class FrontendDesignTokens(unittest.TestCase):
         self.assertIsNone(re.search(r"['\"]#[0-9a-fA-F]{3,8}['\"]", body))
 
     def test_every_var_is_defined(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         # values JS measures and sets (--kb, --side-w, etc.)
-        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", ps.HTML))
+        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", HTML))
         used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
         defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
         self.assertEqual(used - defined - runtime, set())  # no old tokens left over from a rename (--acc, --dim, ...)
 
     def test_component_variants_exist(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         for cls in (
             "button.btn-default{",
             "button.btn-secondary{",
@@ -1436,7 +1438,7 @@ class FrontendDesignTokens(unittest.TestCase):
 # right-hand panel (1,100px+ away), with a tacky left color stripe. It now appears sonner-style right
 # where you just clicked (bottom-right of the panel column, just above the action row; on narrow, above the sheet).
 class FrontendToasts(unittest.TestCase):
-    css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+    css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def rules(self, pat):
         return [(sel, dict(d)) for sel, d in css_rules() if re.search(pat, sel)]
@@ -1451,7 +1453,7 @@ class FrontendToasts(unittest.TestCase):
         self.assertIn("box-shadow", base)
         # state is shown via the leading icon's color — not a stripe
         for kind, icon in (("ok", "circle-check"), ("warn", "triangle-alert"), ("err", "circle-x")):
-            self.assertIn("%s:()=>ic('%s')" % (kind, icon), ps.HTML)
+            self.assertIn("%s:()=>ic('%s')" % (kind, icon), HTML)
         self.assertIn(".toast.warn>.ic{color:var(--warning)}", self.css)
         self.assertIn(".toast.err>.ic{color:var(--destructive)}", self.css)
 
@@ -1536,7 +1538,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
         self.assertEqual(bad, [])
 
     def test_card_buttons_are_filled_and_destructive_is_quiet(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
             ".pin :is(.acts,.e-acts,.r-acts) button:not(.btn-soft):not(.btn-destructive):not(.btn-default){background:var(--secondary);"
             "color:var(--secondary-foreground);border-color:transparent}",
@@ -1544,7 +1546,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
         )
         self.assertIn(".pin .acts button.btn-destructive{background:transparent}", css)
         self.assertIn(".seg button.on{background:var(--popover);border-color:transparent;", css)
-        more = ps.HTML[ps.HTML.index('<div class="more-grid">') :]
+        more = HTML[HTML.index('<div class="more-grid">') :]
         more = more[: more.index("</dialog>")]
         for tag in re.findall(r"<button[^>]*>", more):
             self.assertIn("btn-secondary", tag)  # dialog buttons are filled, borderless too
@@ -1558,7 +1560,7 @@ class FrontendNoNestedOutlines(unittest.TestCase):
 
 # ---------------------------------------------------------------- meaning/function check (docs/handbook/viewer.md §뜻과 모양) + UX QA (2026-09-24)
 class FrontendSemanticAudit(unittest.TestCase):
-    css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+    css = HTML[HTML.index("<style>") : HTML.index("</style>")]
 
     def test_relative_time_with_absolute_on_hover(self):
         if not shutil.which("node"):
@@ -1577,7 +1579,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         out = json.loads(run_node(js))
         self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
         self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
-        self.assertIn("setInterval(tickRel,60000);", ps.HTML)
+        self.assertIn("setInterval(tickRel,60000);", HTML)
         # formerly: it could wrap to '09-24 1…'
         self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)
 
@@ -1639,10 +1641,10 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-pin button{flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("revTargetNote"))
         self.assertIn("REV_BACK=DOC", extract_js_fn("showChange"))
-        self.assertIn("case 'rev-back':", ps.HTML)
+        self.assertIn("case 'rev-back':", HTML)
 
     def test_source_diff_wrap_toggle_defaults_on_touch(self):
-        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', ps.HTML)
+        self.assertIn('id="revision-wrap" class="tg btn-sm" data-act="diff-wrap"', HTML)
         self.assertIn("setDiffWrap(typeof v==='boolean'?v:MQ_COARSE.matches)", extract_js_fn("initDiffWrap"))
         self.assertIn("#revision-diff.wrap .rd-code{flex:1;min-width:0;white-space:pre-wrap", self.css)
 
@@ -1681,12 +1683,12 @@ class PinNumberJump(unittest.TestCase):
     """Clicking the #number in a card's header jumps to that pin's spot in the PDF (same data-act="view" as [보기]/page N)."""
 
     def test_number_is_a_button_that_jumps(self):
-        src = ps.HTML
+        src = HTML
         self.assertIn('<span class="n go" role="button" tabindex="0" data-act="view"', src)
         self.assertIn("누르면 PDF에서 이 핀 자리로 갑니다", src)
 
     def test_number_is_keyboard_and_touch_reachable(self):
-        src = ps.HTML
+        src = HTML
         self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
         self.assertIn(".loc,.pg-link,.pin .n.go{display:inline-flex;align-items:center;min-height:44px}", src)
         # regression: #N used to render at only its text width (26-35px), falling short of the 44px
@@ -1705,14 +1707,14 @@ class PinNumberJump(unittest.TestCase):
         )
 
     def test_view_action_still_routes_to_jumppin(self):
-        self.assertIn("case 'view':jumpPin(id);break;", ps.HTML)
+        self.assertIn("case 'view':jumpPin(id);break;", HTML)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
         # regression: button.btn-icon.btn-sm{width:var(--control-h-sm)} (base rule, 0-0-2-1) is more
         # specific than the touch rule button.btn-icon{width:var(--control-h-touch)} (0-0-1-1), so the
         # card fold button (.b-fold) and the toast close button stayed at 24px even on touch (observed).
         # It has to be pinned again at the same specificity (.btn-icon.btn-sm) inside @media(pointer:coarse) to win.
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}\n") + 3]
         self.assertIn(
@@ -1721,14 +1723,14 @@ class PinNumberJump(unittest.TestCase):
             coarse,
         )
         # real usage: both the card fold button and the toast close button use the .btn-icon.btn-sm combination.
-        self.assertIn("btn-icon btn-sm btn-ghost cmp b-fold", ps.HTML)
-        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", ps.HTML)
+        self.assertIn("btn-icon btn-sm btn-ghost cmp b-fold", HTML)
+        self.assertIn("c.className='btn-icon btn-sm btn-ghost'", HTML)
 
     def test_compact_bar1_buttons_keep_touch_min_width_despite_shrink_to_fit(self):
         # regression: body.compact #bar1 button{min-width:0} (specific due to the id) beat the touch rule
         # button{min-width:44px}, so on a narrow screen like lay-mid the [select] button shrank to 40px
         # (observed). The same selector is pinned again inside @media(pointer:coarse) to keep the 44px floor.
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.compact #bar1 button{flex:1 1 auto;min-width:0;", css)
         self.assertIn("@media (pointer:coarse){body.compact #bar1 button{min-width:44px}}", css)
         # this override must come after the min-width:0 rule in source order to win at equal specificity.
@@ -1739,29 +1741,29 @@ class PinNumberJump(unittest.TestCase):
 
 
 class HtmlTemplateStructure(unittest.TestCase):
-    """Whether ps.HTML, as of module load (before main() runs), has the label placeholder and markup —
+    """Whether HTML, as of module load (before main() runs), has the label placeholder and markup —
     structural verification must always hold regardless of the actual substituted value."""
 
     def test_title_has_label_placeholder(self):
-        self.assertIn("<title>Limn · __LABEL__</title>", ps.HTML)
+        self.assertIn("<title>Limn · __LABEL__</title>", HTML)
 
     def test_favicon_placeholder(self):
         """The SVG favicon placeholder, next to its PNG fallbacks keyed by the accent (test_brand.py)."""
-        self.assertIn('<link rel="icon" type="image/svg+xml" href="__FAVICON_HREF__">', ps.HTML)
-        self.assertIn('href="/favicon-32.png?c=__ACCENT_KEY__"', ps.HTML)
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="__FAVICON_HREF__">', HTML)
+        self.assertIn('href="/favicon-32.png?c=__ACCENT_KEY__"', HTML)
 
     def test_brand_stripe_present(self):
-        self.assertIn('id="brand-stripe"', ps.HTML)
-        self.assertIn("#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px", ps.HTML)
+        self.assertIn('id="brand-stripe"', HTML)
+        self.assertIn("#brand-stripe{position:fixed;top:0;left:0;right:0;height:4px", HTML)
 
     def test_identity_crumb_precedes_desktop_doc_links_and_not_right_toolbar(self):
-        self.assertLess(ps.HTML.index('id="paper-identity"'), ps.HTML.index('id="doc-links"'))
-        self.assertLess(ps.HTML.index('id="paper-identity"'), ps.HTML.index('id="right"'))
-        self.assertNotIn('id="brand-chip"', ps.HTML)
+        self.assertLess(HTML.index('id="paper-identity"'), HTML.index('id="doc-links"'))
+        self.assertLess(HTML.index('id="paper-identity"'), HTML.index('id="right"'))
+        self.assertNotIn('id="brand-chip"', HTML)
 
     def test_identity_crumb_does_not_take_mobile_space(self):
-        self.assertIn("body.lay-narrow #paper-identity{display:none}", ps.HTML)
-        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", ps.HTML)
+        self.assertIn("body.lay-narrow #paper-identity{display:none}", HTML)
+        self.assertIn("body:not(.lay-narrow) #doc-nav{display:flex}", HTML)
 
     def test_document_title_prefixes_label(self):
         # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
@@ -1777,7 +1779,7 @@ class FrontendDocs(unittest.TestCase):
     """Distinguishes the desktop document selector from the mobile document menu."""
 
     def test_document_selector_and_mobile_button(self):
-        css = ps.HTML
+        css = HTML
         self.assertIn("#doc-select-wrap{display:none;", css)
         self.assertIn("#doc-links{display:none;", css)
         self.assertIn("body.docs-multi:not(.lay-narrow) #doc-links{display:flex}", css)
@@ -1786,27 +1788,27 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("body.lay-narrow.docs-multi #btn-doc{display:inline-flex}", css)
         self.assertIn("body.view-only #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
-        self.assertIn("$('#all-docs').hidden=!multiDoc()", ps.HTML)
-        self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", ps.HTML)
+        self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
+        self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", HTML)
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
-        self.assertIn('<select id="doc-select" aria-label="문서 선택">', ps.HTML)
-        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택">', ps.HTML)
-        self.assertIn('id="view-manuscript" data-act="view-mode"', ps.HTML)
-        self.assertIn('id="view-revisions" data-act="view-mode"', ps.HTML)
-        self.assertIn('<nav id="outline" aria-label="원고 목차">', ps.HTML)
-        self.assertIn("body.outline-collapsed #outline{display:none}", ps.HTML)
-        self.assertIn('id="nav-toc-toggle" data-act="outline"', ps.HTML)
-        self.assertLess(ps.HTML.index('id="doc-nav"'), ps.HTML.index('id="right"'))
+        self.assertIn('<select id="doc-select" aria-label="문서 선택">', HTML)
+        self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택">', HTML)
+        self.assertIn('id="view-manuscript" data-act="view-mode"', HTML)
+        self.assertIn('id="view-revisions" data-act="view-mode"', HTML)
+        self.assertIn('<nav id="outline" aria-label="원고 목차">', HTML)
+        self.assertIn("body.outline-collapsed #outline{display:none}", HTML)
+        self.assertIn('id="nav-toc-toggle" data-act="outline"', HTML)
+        self.assertLess(HTML.index('id="doc-nav"'), HTML.index('id="right"'))
         body = extract_js_fn("drawDocTabs")
         self.assertIn("box.value=DOC", body)
         self.assertIn("DOCS.map", body)
         self.assertIn('aria-current="', body)
 
     def test_default_theme_is_light(self):
-        self.assertIn('<html lang="ko" data-theme="light">', ps.HTML)
-        self.assertIn("p={theme:'light'}", ps.HTML)
-        self.assertIn("prefs().theme||'light'", ps.HTML)
+        self.assertIn('<html lang="ko" data-theme="light">', HTML)
+        self.assertIn("p={theme:'light'}", HTML)
+        self.assertIn("prefs().theme||'light'", HTML)
 
     def test_outline_labels_only_attach_to_matching_pdf_entries(self):
         js = "\n".join(
@@ -1867,7 +1869,7 @@ class FrontendDocs(unittest.TestCase):
             "@@ -3,2 +3,2 @@ heading\n-old <script>alert(1)</script>\n"
             "+new <img src=x onerror=alert(1)>\n context\n"
         )
-        esc = re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+        esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
         js = "\n".join(
             [
                 esc,
@@ -1890,7 +1892,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("rd-meta", rendered)
 
     def test_revision_file_selection_renders_only_selected_patch(self):
-        esc = re.search(r"^const esc=.*;$", ps.HTML, re.M).group(0)
+        esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
         js = "\n".join(
             [
                 esc,
@@ -1943,7 +1945,7 @@ class FrontendDocs(unittest.TestCase):
         )
 
     def test_switch_shortcuts_skip_input_fields(self):
-        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", ps.HTML, re.S)
+        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
         body = m.group(1)
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
@@ -1951,7 +1953,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertLess(body.index("const t=e.target,inField="), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
-        self.assertIn("const VEC_CACHE_MAX=3;", ps.HTML)
+        self.assertIn("const VEC_CACHE_MAX=3;", HTML)
         put = extract_js_fn("vecCachePut")
         self.assertIn("while(c.size>VEC_CACHE_MAX)", put)
         self.assertIn("vecClose(d)", put)
@@ -1964,8 +1966,8 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("vecOpen()", show)
 
     def test_cross_doc_card_actions_switch_first(self):
-        self.assertIn("function jumpPin(id){if(viaDoc(id,jumpPin))return;", ps.HTML)
-        self.assertIn("function openEdit(id){if(viaDoc(id,openEdit))return;", ps.HTML)
+        self.assertIn("function jumpPin(id){if(viaDoc(id,jumpPin))return;", HTML)
+        self.assertIn("function openEdit(id){if(viaDoc(id,openEdit))return;", HTML)
         js = "\n".join(
             [
                 r"""
@@ -1995,7 +1997,7 @@ class FrontendDocs(unittest.TestCase):
         )
         self.assertIn("body.doc=d.doc||DOC||undefined;", body)
         self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
-        self.assertIn("#composer.region #c-levels", ps.HTML)
+        self.assertIn("#composer.region #c-levels", HTML)
 
 
 # ---------------------------------------------------------------- icons: Lucide only, no emoji/symbol glyphs
@@ -2044,7 +2046,7 @@ class FrontendIcons(unittest.TestCase):
             self.assertIn(attr, svg)
 
     def test_every_used_icon_exists_and_every_icon_is_used(self):
-        h = ps.HTML
+        h = HTML
         self.assertNotIn("{{ic:", h)
         self.assertNotIn("__LUCIDE_JSON__", h)
         used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
@@ -2054,7 +2056,7 @@ class FrontendIcons(unittest.TestCase):
         self.assertEqual(set(viewer_assemble.LUCIDE) - used, set())
 
     def test_no_emoji_or_symbol_glyph_icons_in_viewer(self):
-        found = sorted(set(ICON_GLYPHS.findall(html_without_comments(ps.HTML))))
+        found = sorted(set(ICON_GLYPHS.findall(html_without_comments(HTML))))
         self.assertEqual(found, [])
 
     def test_js_ic_matches_server_icon_svg(self):
@@ -2074,9 +2076,9 @@ class FrontendIcons(unittest.TestCase):
             ("btn-more", "더보기"),
             ("c-copy", "위치 복사"),
         ):
-            tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, ps.HTML).group(0)
+            tag = re.search(r'<button[^>]*id="%s"[^>]*>' % bid, HTML).group(0)
             self.assertIn('aria-label="%s"' % label, tag)
-        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", ps.HTML)
+        self.assertIn("b.innerHTML=ic(THEME_ICON[t]);", HTML)
 
 
 # ---------------------------------------------------------------- status stripe / archive (closed, dropped pins)
@@ -2199,7 +2201,7 @@ class FrontendArchive(unittest.TestCase):
         self.assertEqual(out, [["완료 3 새 1", "false", True, True], ["완료 3", "true", False, True], ["완료 5 새 1"]])
 
     def test_sections_are_sticky_and_wired(self):
-        h = ps.HTML
+        h = HTML
         for sid in ("sec-open", "sec-review", "sec-done"):
             self.assertIn('id="%s"' % sid, h)
         self.assertNotIn('id="sec-dropped"', h)  # v0.2.2: deleted pins are in the Trash dialog
@@ -2223,7 +2225,7 @@ class FrontendArchive(unittest.TestCase):
     def test_status_without_stripes_dot_badge_and_icons(self):
         # author feedback (2026-09-24): a left color stripe looks tacky. Status uses a dot in the card
         # header plus a badge with the same meaning; the archive uses a leading icon.
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         for sel, decls in css_rules():
             if re.search(r"\.pin\b|\.arc-row|\.toast|#revision-pin|\.dm-item", sel):
                 keys = [k for k, _ in decls]
@@ -2306,7 +2308,7 @@ class FrontendClaimEta(unittest.TestCase):
     def test_card_uses_claim_tag_and_ticker(self):
         self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
         self.assertIn('data-claim="', extract_js_fn("claimTag"))
-        self.assertIn("setInterval(tickClaims,30000);", ps.HTML)
+        self.assertIn("setInterval(tickClaims,30000);", HTML)
         self.assertNotIn("toLocaleTimeString", extract_js_fn("claimInfo"))
 
 
@@ -2316,34 +2318,32 @@ class FrontendToolbarOneRow(unittest.TestCase):
     moved to the open-pin-list header, and lives inside [더보기] in compact mode."""
 
     def test_reload_lives_in_list_head_not_toolbar(self):
-        bar = ps.HTML[ps.HTML.index('<div class="bar" id="bar1"') : ps.HTML.index('<div class="bar" id="bar2"')]
+        bar = HTML[HTML.index('<div class="bar" id="bar1"') : HTML.index('<div class="bar" id="bar2"')]
         self.assertNotIn('id="btn-reload"', bar)
-        head = ps.HTML[ps.HTML.index('<div class="sec-head">') : ps.HTML.index('<div id="pins">')]
+        head = HTML[HTML.index('<div class="sec-head">') : HTML.index('<div id="pins">')]
         self.assertRegex(
             head, r'<button id="btn-reload" class="sec btn-sm" data-act="reload" aria-label="핀 다시 읽기"'
         )
 
     def test_label_chip_truncates_and_tip_has_full_label(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("#bar1 .chip{height:var(--control-h-sm);display:block;", css)
         self.assertIn("flex:0 1 auto;min-width:40px}", css)
         self.assertIn("text-overflow:ellipsis", re.search(r"\n\.chip\{[^}]*\}", css).group(0))
         # in compact, the label yields space first
         self.assertIn("body.compact #bar1 .chip{flex:0 50 auto;min-width:28px}", css)
-        out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
+        out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('data-tip="Long-DemoPaper1 — 이 창이 다루는 논문', out)
 
     def test_fold_closed_moves_label_into_more_and_keeps_doc_name(self):
         # on a folded fold device (344px), the label shrank to 'C…' and the document button to '본..', unreadable (2026-09-23).
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
         self.assertIn("body.lay-narrow #bar1 #btn-doc{flex:none;overflow:visible}", css)
         self.assertIn("body.lay-narrow #btn-doc .nm{overflow:visible;text-overflow:clip", css)
-        more = ps.HTML[
-            ps.HTML.index('<dialog id="more"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))
-        ]
+        more = HTML[HTML.index('<dialog id="more"') : HTML.index("</dialog>", HTML.index('<dialog id="more"'))]
         self.assertIn('<span id="more-label" class="chip" data-tip="__LABEL__ — ', more)
-        out = ps.build_html("Long-DemoPaper1", "#1d4ed8")
+        out = page_for("Long-DemoPaper1", "#1d4ed8")
         self.assertIn('<dialog id="more" aria-label="더보기 · Long-DemoPaper1">', out)
         self.assertIn("#more .more-head .chip{background:var(--brand);", css)
 
@@ -2352,16 +2352,16 @@ class FrontendToolbarOneRow(unittest.TestCase):
         # shrinking the label to 'CE-iTra…' (71px), unreadable (observed in touch QA). Same fix as narrow —
         # hide the toolbar chip and show the full name only via #more-label inside [더보기]. #more is
         # layout-condition-free shared markup, so it works as-is in mid too.
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("body.lay-narrow #bar1 .chip,body.lay-mid #bar1 .chip{display:none}", css)
-        self.assertIn('id="btn-more" class="cmp btn-icon"', ps.HTML)  # [더보기] is shared across compact (= mid/narrow)
+        self.assertIn('id="btn-more" class="cmp btn-icon"', HTML)  # [더보기] is shared across compact (= mid/narrow)
 
 
 class FrontendToolbarSize(unittest.TestCase):
     """Whether the toolbar's 쪽 (page) field matches the buttons' height/font size (desktop 28px, touch 44px). Measured live with Playwright."""
 
     def test_page_field_matches_toolbar_buttons(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn("#bar1{flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2);--tb-h:var(--control-h)}", css)
         self.assertIn("--control-h:28px", css)
         self.assertIn("--control-h-touch:44px", css)
@@ -2376,8 +2376,8 @@ class FrontendToolbarSize(unittest.TestCase):
         coarse = css[css.index("@media (pointer:coarse){") :]
         self.assertIn("#bar1{flex-wrap:wrap;--tb-h:var(--control-h-touch)}", coarse)
         self.assertIn("#bar1 input.n{width:84px;flex:0 0 84px;max-width:none;font-size:var(--text-xl)}", coarse)
-        self.assertRegex(ps.HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
-        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', ps.HTML)
+        self.assertRegex(HTML, r'<input class="n sec" id="jump" placeholder="쪽 이동"')
+        self.assertIn('id="m-jump" inputmode="numeric" placeholder="쪽"', HTML)
 
 
 class FrontendSaveWhilePicking(unittest.TestCase):
@@ -2578,7 +2578,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium and build the viewer page (boot() off) once for the class."""
         super().setUpClass()
-        cls.html = ps.build_html("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
+        cls.html = page_for("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
     def open_viewer(self, width, touch=False, preferences=None):
         context = self.browser.new_context(viewport={"width": width, "height": 900}, is_mobile=touch, has_touch=touch)
@@ -2800,8 +2800,8 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("body.kind_req=KIND_NEW;", extract_js_fn("savePin"))
         self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
         self.assertIn("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
-        self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", ps.HTML)  # Esc closes the input field first
-        self.assertIn('id="c-kind"', ps.HTML)
+        self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", HTML)  # Esc closes the input field first
+        self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
         # one path; the server decides
         self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',keepalive:true})", send)
@@ -2809,7 +2809,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("deferred(", send)  # sent when the undo toast goes away
 
     def test_compact_collapsed_card_hides_thread(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
             "body.compact .pin:not(.open):not(.editing) :is(.tags,.au,.note,.acts,.head>.sp,.thread){display:none}", css
         )
@@ -2893,8 +2893,8 @@ class FrontendReview(unittest.TestCase):
         body = extract_js_fn("loadPins")
         self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)===PIN_STATE.REVIEW)", body)
         self.assertIn("DONE_ALL=d.filter(p=>pinState(p)===PIN_STATE.DONE)", body)
-        self.assertIn('id="sec-review"', ps.HTML)
-        self.assertIn('id="side-rv"', ps.HTML)
+        self.assertIn('id="sec-review"', HTML)
+        self.assertIn('id="side-rv"', HTML)
 
     def test_review_card_reply_hint_says_what_a_reply_does(self):
         # observed bug (v0.2.0): a review card's reply field used the same hint text as a normal reply, so it wasn't clear what
@@ -2957,7 +2957,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertEqual(out, [0, -1, [[10, 13], [81, 81]], True, False, True, False])
 
     def test_wiring(self):
-        h = ps.HTML
+        h = HTML
         self.assertIn('data-act="change"', extract_js_fn("doneCard"))
         self.assertIn('data-act="change"', extract_js_fn("card"))
         self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
@@ -2972,7 +2972,7 @@ class FrontendChangeView(unittest.TestCase):
     def test_pin_scope_wiring(self):
         """The pin-scoped view's markup, actions, pin parameter, one-time fallback and shared CSS rules stay wired (v0.3)."""
         # v0.3 (docs/handbook/viewer.md §변경 보기, ADR-0005): the pin's hunks, the rest folded under one control, one PDF toggle
-        h = ps.HTML
+        h = HTML
         self.assertIn(
             '<button id="revision-other-toggle" class="btn-ghost btn-sm" data-act="revision-other" aria-expanded="false" '
             'aria-controls="revision-other" hidden>',
@@ -3158,7 +3158,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(out, [["agent", True, True], [True, False]])
 
     def test_assign_controls_in_composer_edit_and_card(self):
-        h = ps.HTML
+        h = HTML
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn('\'<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\'', h)
         self.assertIn("body.assignee=ASSIGN_NEW.v||ASSIGNEE_AGENT;", extract_js_fn("savePin"))
@@ -3171,7 +3171,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn("assign:'담당 바꿈'", h)
 
     def test_preview_row_under_every_mention_field(self):
-        h = ps.HTML
+        h = HTML
         self.assertIn('<div id="note-mentions" class="m-preview" aria-live="polite" hidden></div>', h)
         # edit and reply
         self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)
@@ -3210,7 +3210,7 @@ class FrontendMentions(unittest.TestCase):
         # (observed bug: an @-mention from an old round stayed marked as "a pin that called me" even after reopening).
 
     def test_wiring(self):
-        h = ps.HTML
+        h = HTML
         self.assertIn('id="mention-pop"', h)
         self.assertIn('id="mention-filter"', h)
         self.assertIn("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;", extract_js_fn("savePin"))
@@ -3227,7 +3227,7 @@ class FrontendSpacingGrid(unittest.TestCase):
     like 6, 10, 14, 18px (grid cleanup QA 2026-09-25)."""
 
     def test_spacing_is_on_the_grid(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         bad = []
         for m in re.finditer(r"(?<![\w-])((?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)?)\s*:\s*([^;{}]+)", css):
             for n in re.findall(r"(?<![\w.-])(\d+(?:\.\d+)?)px", m.group(2)):
@@ -3343,7 +3343,7 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [None, ["@Sa"], ["@홍길동"], ["@Sa"]])
 
     def test_list_highlight_is_a_flat_full_width_row(self):
-        css = ps.HTML[ps.HTML.index("<style>") : ps.HTML.index("</style>")]
+        css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         self.assertIn(
             "#mention-pop{position:fixed;z-index:90;min-width:200px;max-width:min(360px,calc(100vw - 16px));padding:var(--space-1) 0;",
             css,
@@ -3415,7 +3415,7 @@ class FrontendQuestionHint(unittest.TestCase):
         self.assertEqual(self.judge(texts), [False] * len(texts))
 
     def test_hint_is_wired_to_both_forms_and_never_switches_by_itself(self):
-        html = ps.HTML
+        html = HTML
         self.assertIn('id="c-qhint"', html)  # composer
         self.assertIn('class="e-qhint q-hint"', html)  # edit panel (the kind can be changed)
         # clicking it switches — same as the existing kind action
@@ -3433,7 +3433,7 @@ class FrontendNotify(unittest.TestCase):
             self.skipTest("node not available")
 
     def harness(self, script):
-        rank = re.search(r"^const NOTIFY_RANK=.*;$", ps.HTML, re.M).group(0)
+        rank = re.search(r"^const NOTIFY_RANK=.*;$", HTML, re.M).group(0)
         return "\n".join(
             [
                 rank,
@@ -3493,7 +3493,7 @@ class FrontendNotify(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [4, "&ev=4", [[1, "mention"], [2, "replied"]], 6, ""])
 
     def test_wiring(self):
-        h = ps.HTML
+        h = HTML
         self.assertIn('id="m-notify"', h)
         self.assertIn('id="btn-notify"', h)
         tog = extract_js_fn("notifyToggle")
@@ -3578,17 +3578,15 @@ class FrontendReplyRule(unittest.TestCase):
 
 class ViewerMarkup(unittest.TestCase):
     def test_no_reopen_button_anywhere(self):
-        self.assertNotIn('data-act="rv-reopen"', ps.HTML)
-        self.assertNotIn("case 'rv-reopen'", ps.HTML)
-        self.assertNotIn("openReply(id,'reopen')", ps.HTML)
+        self.assertNotIn('data-act="rv-reopen"', HTML)
+        self.assertNotIn("case 'rv-reopen'", HTML)
+        self.assertNotIn("openReply(id,'reopen')", HTML)
 
     def test_dropped_section_left_the_list(self):
-        lst = ps.HTML[ps.HTML.index('<div id="list">') : ps.HTML.index('<div id="c-actions">')]
+        lst = HTML[HTML.index('<div id="list">') : HTML.index('<div id="c-actions">')]
         self.assertNotIn("sec-dropped", lst)
-        self.assertIn('<dialog id="trash"', ps.HTML)
-        more = ps.HTML[
-            ps.HTML.index('<dialog id="more"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="more"'))
-        ]
+        self.assertIn('<dialog id="trash"', HTML)
+        more = HTML[HTML.index('<dialog id="more"') : HTML.index("</dialog>", HTML.index('<dialog id="more"'))]
         self.assertIn('id="m-trash"', more)
         self.assertIn('data-act="trash-open"', more)
 
@@ -3598,21 +3596,19 @@ class ViewerMarkup(unittest.TestCase):
                 m = re.search(
                     r'<button class="sec-tg" id="%s-toggle" data-act="sec-toggle" data-sec="%s" aria-expanded="(true|false)" '
                     r'aria-controls="[a-z-]+"' % (sec, sec),
-                    ps.HTML,
+                    HTML,
                 )
                 self.assertIsNotNone(m, sec)
 
     def test_help_defines_pin_once(self):
-        help_ = ps.HTML[
-            ps.HTML.index('<dialog id="help"') : ps.HTML.index("</dialog>", ps.HTML.index('<dialog id="help"'))
-        ]
+        help_ = HTML[HTML.index('<dialog id="help"') : HTML.index("</dialog>", HTML.index('<dialog id="help"'))]
         self.assertIn("<tr><td>핀</td><td>출력물의 한 자리 + 요청이나 질문 + 그 대화", help_)
         self.assertEqual(help_.count("<tr><td>핀</td>"), 1)
-        en = ps.UI_EN["출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다"]
+        en = UI_EN["출력물의 한 자리 + 요청이나 질문 + 그 대화. 번호(#N)는 다시 쓰이지 않습니다"]
         self.assertTrue(en.startswith("A place in the output + a request or question + its conversation"), en)
 
     def test_dropped_is_a_notification_type(self):
-        self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", ps.HTML).group(0))
+        self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", HTML).group(0))
         self.assertIn("dropped", NOTIFY_TYPES)
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
@@ -3621,8 +3617,8 @@ class ViewerMarkup(unittest.TestCase):
             "actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
             extract_js_fn("notifyShow"),
         )
-        self.assertIn("e.action==='restore'", ps.SW_JS)
-        self.assertIn("d.type==='restore-pin'", ps.HTML)
+        self.assertIn("e.action==='restore'", SW_JS)
+        self.assertIn("d.type==='restore-pin'", HTML)
 
 
 class ViewerFunctions(unittest.TestCase):

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import VIEWER, Base, ps, req, split_resp, viewer_text
+from helpers import HTML, SW_JS, VIEWER, Base, page_for, req, split_resp, viewer_text
 from helpers_js import inline_scripts
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
@@ -109,7 +109,7 @@ class ViewerFiles(unittest.TestCase):
         for marker in assemble.VIEWER_MARKERS:
             expected = expected.replace(marker, viewer_text(marker))
         self.assertEqual(assemble.load_viewer_html(VIEWER), expected)
-        self.assertNotIn("__APP_", ps.HTML)
+        self.assertNotIn("__APP_", HTML)
 
     def test_a_missing_marker_is_a_packaging_error_at_load(self):
         """A template without its marker fails loudly instead of serving a page without its script."""
@@ -170,7 +170,7 @@ class ViewerScriptParses(unittest.TestCase):
     def test_every_inline_script_of_the_served_page_parses(self):
         """The page GET / serves - parts joined and every placeholder filled - has three inline scripts (two in the
         head, the main one at the end of the body), and node parses each as a classic script."""
-        page = ps.build_html("Paper", "#2563eb")
+        page = page_for("Paper", "#2563eb")
         scripts = inline_scripts(page)
         self.assertEqual(len(scripts), 3)
         self.assertIn(viewer_text("__APP_JS__")[:200], scripts[-1])
@@ -193,8 +193,8 @@ class ViewerScriptParses(unittest.TestCase):
             self.assertIn(" at %s:1:" % victim, errors[0])
 
     def test_the_served_service_worker_parses(self):
-        """GET /sw.js serves viewer/sw.js as it is (ps.SW_JS), and node parses it as a classic script."""
-        self.assertEqual(ps.SW_JS, (VIEWER / "sw.js").read_text(encoding="utf-8"))
+        """GET /sw.js serves viewer/sw.js as it is (SW_JS), and node parses it as a classic script."""
+        self.assertEqual(SW_JS, (VIEWER / "sw.js").read_text(encoding="utf-8"))
         r = subprocess.run(
             [shutil.which("node"), "--check", str(VIEWER / "sw.js")],
             capture_output=True,
@@ -210,7 +210,6 @@ class ServiceWorkerRoute(Base):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
 
     def get(self, path, headers=None):
         code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))

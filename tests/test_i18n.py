@@ -27,7 +27,19 @@ from limn.viewer import assemble
 from limn.web import answers, parse
 from limn.web.errors import scope_http_error
 
-from helpers import add_pin, blank_png, extract_js_fn, run_node, shut_wr
+from helpers import (
+    HTML,
+    UI_EN,
+    add_pin,
+    blank_png,
+    extract_js_fn,
+    fresh_runtime,
+    page_for,
+    run_config,
+    run_node,
+    serve_viewer,
+    shut_wr,
+)
 from helpers_access import ALICE_ACTOR
 from helpers_browser import ChromiumTestCase, booted, settle, watch_idle
 
@@ -112,8 +124,8 @@ def composed_keys(html):
 class MessageTable(unittest.TestCase):
     def test_table_loads_and_values_are_english(self):
         """Keys are Korean UI strings, or reason:<code> for an API error reason (tests/test_errors.py); values are English."""
-        self.assertGreater(len(ps.UI_EN), 300)
-        for k, v in ps.UI_EN.items():
+        self.assertGreater(len(UI_EN), 300)
+        for k, v in UI_EN.items():
             self.assertTrue(HANGUL.search(k) or re.fullmatch(r"reason:[a-z][a-z0-9_]*", k), k)
             for form in v.values() if isinstance(v, dict) else [v]:
                 self.assertFalse(HANGUL.search(form), (k, v))
@@ -123,7 +135,7 @@ class MessageTable(unittest.TestCase):
         # A composed key ('{n}쪽') and its English value use the same {name} slots; the English side may drop
         # a Korean-only slot (the particle {p}). Plural forms are {"one", "other"}, chosen by the n the caller passes.
         slots = re.compile(r"\{(\w+)\}")
-        for k, v in ps.UI_EN.items():
+        for k, v in UI_EN.items():
             forms = list(v.values()) if isinstance(v, dict) else [v]
             if isinstance(v, dict):
                 self.assertEqual(set(v) - {"one", "other"}, set(), k)
@@ -146,19 +158,19 @@ class MessageTable(unittest.TestCase):
         self.assertTrue(path.exists())
 
     def test_every_composed_key_has_a_translation(self):
-        used = composed_keys(ps.HTML)
+        used = composed_keys(HTML)
         self.assertGreater(len(used), 150)
-        self.assertEqual(sorted(k for k in used if k not in ps.UI_EN), [])
+        self.assertEqual(sorted(k for k in used if k not in UI_EN), [])
 
     def test_every_static_ui_string_has_a_translation(self):
-        html = ps.build_html("A-DEMO", "#2563eb")
+        html = page_for("A-DEMO", "#2563eb")
 
         def covered(s):  # same lookup as trMsg(): the whole string, else each part around ' — ' or ' · '
-            if s in ps.UI_EN:
+            if s in UI_EN:
                 return True
             for sep in (" — ", " · "):
                 if s.find(sep) > 0:
-                    return all(p in ps.UI_EN or not HANGUL.search(p) for p in s.split(sep))
+                    return all(p in UI_EN or not HANGUL.search(p) for p in s.split(sep))
             return False
 
         missing = sorted(s for s in static_ui_strings(html) if not covered(s))
@@ -174,32 +186,32 @@ class MessageTable(unittest.TestCase):
             "Limn — 사용법",
             "화면 언어를 바꿉니다 (한국어 / English)",
         ):
-            self.assertIn(s, ps.UI_EN)
+            self.assertIn(s, UI_EN)
 
 
 class Wiring(unittest.TestCase):
     def test_table_is_embedded_and_script_safe(self):
-        html = ps.build_html("A-DEMO", "#2563eb")
+        html = page_for("A-DEMO", "#2563eb")
         self.assertNotIn("__UI_EN_JSON__", html)
         # build_html fills placeholders; keys must not contain them
-        self.assertFalse([k for k in ps.UI_EN if "__" in k])
+        self.assertFalse([k for k in UI_EN if "__" in k])
         m = re.search(r"I18N_EN=(\{.*?\}), I18N_ATTRS=", html, re.S)
         self.assertIsNotNone(m)
-        self.assertEqual(json.loads(m.group(1).replace("<\\/", "</")), ps.UI_EN)
+        self.assertEqual(json.loads(m.group(1).replace("<\\/", "</")), UI_EN)
         self.assertNotIn("</script", m.group(1))
 
     def test_language_choice_order(self):
-        head = ps.HTML[: ps.HTML.index("<body")]
+        head = HTML[: HTML.index("<body")]
         i_q, i_saved, i_nav = (head.index(x) for x in ("get('lang')", "getItem('limnLang')", "navigator.language"))
         self.assertLess(i_q, i_saved)
         self.assertLess(i_saved, i_nav)
         self.assertIn("indexOf('ko')===0?'ko':'en'", head)
 
     def test_toasts_boot_and_switch_are_wired(self):
-        self.assertIn("function toast(msg,kind,action,dd){msg=trMsg(msg);", ps.HTML)
-        self.assertIn("async function boot(){i18nStart();", ps.HTML)
-        self.assertIn('id="m-lang"', ps.HTML)
-        self.assertIn("case 'lang':switchLang();break;", ps.HTML)
+        self.assertIn("function toast(msg,kind,action,dd){msg=trMsg(msg);", HTML)
+        self.assertIn("async function boot(){i18nStart();", HTML)
+        self.assertIn('id="m-lang"', HTML)
+        self.assertIn("case 'lang':switchLang();break;", HTML)
 
 
 class BrowserLanguage(ChromiumTestCase):
@@ -209,7 +221,7 @@ class BrowserLanguage(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium and build the viewer page (boot() off) once for the class."""
         super().setUpClass()
-        cls.html = ps.build_html("A-DEMO", "#2563eb").replace("\nboot();", "\n")
+        cls.html = page_for("A-DEMO", "#2563eb").replace("\nboot();", "\n")
 
     def open(self, query, locale):
         context = self.browser.new_context(locale=locale)
@@ -230,8 +242,8 @@ class BrowserLanguage(ChromiumTestCase):
     def test_query_parameter_english(self):
         page = self.open("?lang=en", "ko-KR")
         self.assertEqual(page.evaluate("document.documentElement.lang"), "en")
-        self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), ps.UI_EN["PDF 재빌드"])
-        self.assertEqual(page.get_attribute("#btn-help", "aria-label"), ps.UI_EN["도움말"])
+        self.assertEqual(page.text_content("#btn-rebuild .lbl").strip(), UI_EN["PDF 재빌드"])
+        self.assertEqual(page.get_attribute("#btn-help", "aria-label"), UI_EN["도움말"])
         self.assertEqual(page.text_content("#m-lang").strip(), "한국어")
         page.evaluate("toast('저장을 되돌렸습니다','ok')")
         self.assertIn("Reverted the save", page.text_content("body"))
@@ -269,7 +281,7 @@ class ComposedMessages(unittest.TestCase):
             self.skipTest("node not available")
         js = "\n".join(
             [
-                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
                 extract_js_fn("tr"),
                 extract_js_fn("tl"),
                 "console.log(JSON.stringify(%s));" % body,
@@ -323,11 +335,11 @@ class PickWarnings(unittest.TestCase):
         """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
         if not shutil.which("node"):
             self.skipTest("node not available")
-        table = re.search(r"const PICK_WARNS=\[.*?\];", ps.HTML, re.S)
+        table = re.search(r"const PICK_WARNS=\[.*?\];", HTML, re.S)
         self.assertIsNotNone(table)
         js = "\n".join(
             [
-                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
                 table.group(0),
                 extract_js_fn("tr"),
                 extract_js_fn("tl"),
@@ -339,11 +351,11 @@ class PickWarnings(unittest.TestCase):
 
     def test_every_server_sentence_has_a_template_with_english(self):
         """Each warning sentence of answers.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""
-        table = re.search(r"const PICK_WARNS=\[(.*?)\];", ps.HTML, re.S)
+        table = re.search(r"const PICK_WARNS=\[(.*?)\];", HTML, re.S)
         self.assertIsNotNone(table)
         templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))
         self.assertEqual(sorted(re.sub(r"\{\w+\}", "{x}", t) for t in templates), sorted(pick_warning_sentences()))
-        self.assertEqual([t for t in templates if not isinstance(ps.UI_EN.get(t), str)], [])
+        self.assertEqual([t for t in templates if not isinstance(UI_EN.get(t), str)], [])
 
     def test_english_translates_each_joined_sentence(self):
         """A warning of three joined sentences, with its numbers, comes out as three English sentences, no Hangul."""
@@ -418,14 +430,13 @@ class EnglishChrome(ChromiumTestCase):
         """Start Chromium, write the demo state (people, pins in every state, two documents) and serve its page."""
         super().setUpClass()
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.saved_html = ps.HTML
         cls.make_state(Path(cls.tmp.name))
-        ps.HTML = ps.build_html("Demo", "#2563eb")
+        serve_viewer("Demo", "#2563eb", ps)
 
     @classmethod
     def tearDownClass(cls):
         """Put the server copy's page and document list back, remove the state, close Chromium."""
-        ps.HTML = cls.saved_html
+        serve_viewer("원고", config.ACCENT_PALETTE[0], ps)
         ps.set_docs(None)
         cls.tmp.cleanup()
         super().tearDownClass()
@@ -436,16 +447,11 @@ class EnglishChrome(ChromiumTestCase):
         src.mkdir()
         for name in ("main.tex", "reply.tex"):
             (src / name).write_text(TEX, encoding="utf-8")
+        (root / "state").mkdir()
+        ps.C = run_config(src, src / "main.tex", root / "state", label="Demo")
+        fresh_runtime(ps)
         C = ps.C
-        C.src, C.main = src, src / "main.tex"
-        C.state = root / "state"
-        C.state.mkdir()
-        C.build = C.state / "build"
-        C.port, C.dpi, C.timeout = 18999, 150, 60
-        C.envs = tuple(ps.DEFAULT_ENVS.split(","))
-        C.allow, C.origin_check, C.git_pull, C.pdfjs_dir = frozenset(), True, False, None
-        C.label, C.accent, C.repo = "Demo", config.ACCENT_PALETTE[0], None
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C))
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "rr=답변서:reply.tex"], src, ps.C.paths))
         ps.init_seq()
         page = blank_png(1275, 1650)  # a letter page at 150 dpi
         for D in ps.DOCS:
@@ -649,7 +655,7 @@ class EnglishChrome(ChromiumTestCase):
         page, toasts = self.error_toasts("en")
         for reason, _, title, desc in toasts:
             with self.subTest(reason=reason):
-                self.assertEqual(desc, ps.UI_EN["reason:" + reason])
+                self.assertEqual(desc, UI_EN["reason:" + reason])
                 self.assertFalse(HANGUL.search(title + desc), (title, desc))
         self.assert_english(page, "after the error toasts")
 

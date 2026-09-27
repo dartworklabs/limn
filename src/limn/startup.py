@@ -1,16 +1,17 @@
 """The startup rules of `limn serve`: what a command line is allowed to start, and what it starts with.
 
-The composition root (server.py) runs the steps in order and applies each answer to its run settings (C); this module
-decides and never reads C or imports server.py (tests/test_startup.py checks). A step that cannot go on returns a
+The composition root (server.start) runs the steps in order and makes the run settings (limn.config.RunConfig) from
+their answers; this module decides and never reads C or imports server.py (tests/test_startup.py checks). A step that cannot go on returns a
 StartupRefused instead of ending the process - server.main() is the one place that exits (coding rule R3).
 
 - Access (a security boundary, docs/adr/0002-access-control.md): access_options() turns the access flags into an
   AccessOptions or the refusal. The rule: bind loopback by default; a non-loopback --bind only with --auth
   trusted-proxy or an explicit --i-know-this-is-insecure; the deprecated headerless loopback agent only under tailscale
   on a loopback bind. access_log_lines() is the startup log about the result.
-- Documents and files: the --doc specs (parse_doc_arg, make_docs; a refusal is a DocsRefusal value, worded by
-  doc_refusal_message), the main .tex without --doc (detect_main, pick_documents), the state folder (state_dir,
-  state_placement), and people.json's permissions (tighten_state_perms).
+- Documents and files: the --doc specs (parse_doc_arg, parse_docs; a refusal is a DocsRefusal value, worded by
+  doc_refusal_message), the main .tex without --doc (detect_main, pick_documents), the documents over the run's paths
+  once the state folder is known (docs_of; make_docs is both steps), the state folder (state_dir, state_placement), and
+  people.json's permissions (tighten_state_perms).
 - The port: a free one (free_port), whether --port can be listened on (probe_port), and the one line for one that
   cannot (listen_refusal).
 - The instance label and accent (default_label, clean_label, run_label, run_accent), and the startup summary.
@@ -42,9 +43,6 @@ from limn.access import (
     AUTH_PROVIDERS,
     HEADER_NAME_RE,
     LOOPBACK_AGENT_DEPRECATION,
-    AuthProvider,
-    HostEntry,
-    IPNetwork,
     is_auth_provider,
     is_loopback_bind,
     local_owner_actor,
@@ -52,7 +50,7 @@ from limn.access import (
     parse_public_hosts,
     valid_login,
 )
-from limn.config import ACCENT_PALETTE, Cfg
+from limn.config import ACCENT_PALETTE, AccessOptions as AccessOptions, RunConfig
 from limn.documents import DEFAULT_DOC_KEY, DOC_KEY_RE, DOC_NAME_MAX, DOCS_MAX, Doc, RunPaths
 from limn.gitrun import run_git
 from limn.mapping import truncate_quote
@@ -86,26 +84,6 @@ class StartupRefused(NamedTuple):
 
 
 # ---------------------------------------------------------------- access (docs/adr/0002-access-control.md)
-
-
-@dataclass(frozen=True)
-class AccessOptions:
-    """The access settings a command line starts with. Every field is also a run setting of the same name (Cfg), which
-    the composition root sets from this value; the startup log (access_log_lines) reads the same value back."""
-
-    auth: AuthProvider  # identity provider
-    bind: str  # the listen address
-    agent_loopback: bool  # a headerless loopback request is the agent (deprecated)
-    tailnet_agent: bool  # ...also one through tailscale serve (opt-in, deprecated)
-    public_hosts: tuple[HostEntry, ...]  # --public-host entries
-    trusted_proxies: tuple[IPNetwork, ...]  # --trusted-proxies networks
-    proxy_user_header: str  # the header carrying the user under --auth trusted-proxy
-    proxy_name_header: str  # ...the display name
-    proxy_email_header: str | None  # ...the e-mail (None = not configured)
-    members_only: bool  # admit only logins in people.json or --allow
-    local_user: str | None  # the owner's login under --auth local (None = $USER, then "owner")
-    insecure: bool  # a non-loopback bind allowed only by --i-know-this-is-insecure
-    agent_token_file: Path | None  # where this machine's agents keep the token (ADR-0007); never read
 
 
 def access_options(a: argparse.Namespace) -> AccessOptions | StartupRefused:
@@ -538,13 +516,12 @@ def doc_refusal_message(r: DocsRefusal) -> str:
             return "--doc 키가 겹칩니다: %s" % key
 
 
-def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc] | DocsRefusal:
-    """--doc list -> Doc list, each reading the run paths it is given (paths, the composition root's C), or the first
-    refusal: more than DOCS_MAX values (checked before any is parsed), a value parse_doc_arg refuses, or a key used
-    twice. A LaTeX document keyed main uses the state-folder-root layout (root)."""
+def parse_docs(specs: Sequence[str], ms: Path) -> list[DocSpec] | DocsRefusal:
+    """--doc list -> the parsed documents in order, or the first refusal: more than DOCS_MAX values (checked before any
+    is parsed), a value parse_doc_arg refuses, or a key used twice."""
     if len(specs) > DOCS_MAX:
         return TooManyDocs(len(specs))
-    out: list[Doc] = []
+    out: list[DocSpec] = []
     seen: set[str] = set()
     for spec in specs:
         p = parse_doc_arg(spec, ms)
@@ -553,18 +530,31 @@ def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc] | Do
         if p["key"] in seen:
             return DocKeyRepeated(p["key"])
         seen.add(p["key"])
-        out.append(
-            Doc(
-                p["key"],
-                p["name"],
-                p["kind"],
-                src=p["src"],
-                main=p["main"],
-                root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"),
-                paths=paths,
-            )
-        )
+        out.append(p)
     return out
+
+
+def docs_of(specs: Sequence[DocSpec], paths: RunPaths) -> list[Doc]:
+    """The documents of parsed --doc specs over the run's paths (the frozen value the composition root made once the
+    state folder was known). A LaTeX document keyed main uses the state-folder-root layout (root)."""
+    return [
+        Doc(
+            p["key"],
+            p["name"],
+            p["kind"],
+            src=p["src"],
+            main=p["main"],
+            root=(p["key"] == DEFAULT_DOC_KEY and p["kind"] == "tex"),
+            paths=paths,
+        )
+        for p in specs
+    ]
+
+
+def make_docs(specs: Sequence[str], ms: Path, paths: RunPaths) -> list[Doc] | DocsRefusal:
+    """--doc list -> Doc list over the run paths it is given (parse_docs, then docs_of), or parse_docs' refusal."""
+    parsed = parse_docs(specs, ms)
+    return docs_of(parsed, paths) if isinstance(parsed, list) else parsed
 
 
 def detect_main(src: Path) -> Path | StartupRefused:
@@ -585,27 +575,28 @@ def detect_main(src: Path) -> Path | StartupRefused:
 
 @dataclass(frozen=True)
 class RunDocuments:
-    """What the command line serves: the --doc documents (None without --doc: the single document of --main) and the
-    main .tex of the run (the first LaTeX --doc document's, else the first document's; else --main's or the detected one)."""
+    """What the command line serves: the parsed --doc documents (None without --doc: the single document of --main) and
+    the main .tex of the run (the first LaTeX --doc document's, else the first document's; else --main's or the
+    detected one). The documents are made over the run's paths (docs_of) once the state folder is known."""
 
-    docs: list[Doc] | None
+    docs: list[DocSpec] | None
     main: Path
 
 
-def pick_documents(src: Path, specs: Sequence[str], main: str | None, paths: RunPaths) -> RunDocuments | StartupRefused:
+def pick_documents(src: Path, specs: Sequence[str], main: str | None) -> RunDocuments | StartupRefused:
     """The documents of a command line with manuscript folder src (already resolved), or the refusal, in this order: a
     missing manuscript folder, --doc together with --main, a bad --doc, no or several top-level .tex files, a --main
-    that does not exist. The --doc documents read the run paths they are given (paths)."""
+    that does not exist."""
     if not src.is_dir():
         return StartupRefused("Manuscript directory does not exist: %s" % src)
     if specs:
         if main:
             return StartupRefused("--doc and --main are not used together - the main file is set via the --doc path.")
-        docs = make_docs(specs, src, paths)
+        docs = parse_docs(specs, src)
         if not isinstance(docs, list):
             return StartupRefused(doc_refusal_message(docs))
-        first_tex = next((d for d in docs if not d.is_pdf), docs[0])
-        return RunDocuments(docs, first_tex.main)
+        first_tex = next((d for d in docs if d["kind"] != "pdf"), docs[0])
+        return RunDocuments(docs, first_tex["main"])
     main_file = (src / main) if main else detect_main(src)
     if isinstance(main_file, StartupRefused):
         return main_file
@@ -767,18 +758,19 @@ def run_accent(accent_arg: str | None, label: str) -> str | StartupRefused:
 # ---------------------------------------------------------------- the startup summary
 
 
-def summary_lines(c: Cfg, multi_doc: bool, access_lines: Sequence[str], pdfjs_found: bool) -> list[str]:
+def summary_lines(c: RunConfig, multi_doc: bool, access_lines: Sequence[str], pdfjs_found: bool) -> list[str]:
     """The startup summary: manuscript (the folder with --doc, else the main .tex), label, state folder, address,
     access (access_lines), the allow list, and the optional features. pdfjs_found says whether both PDF.js files are
     in c.pdfjs_dir."""
-    host = "[%s]" % c.bind if ":" in c.bind else c.bind
+    bind = c.access.bind
+    host = "[%s]" % bind if ":" in bind else bind
     out = [
         "manuscript  %s" % (c.src if multi_doc else c.main),
         "label       %s (%s)%s"
         % (c.label, c.accent, "" if c.repo else " - no git origin, using the folder name as default"),
         "state       %s" % c.state,
     ]
-    if is_loopback_bind(c.bind):
+    if is_loopback_bind(bind):
         out.append("address     http://%s:%d/   (external exposure only via tailscale serve)" % (host, c.port))
     else:
         out.append("address     http://%s:%d/" % (host, c.port))
@@ -788,7 +780,7 @@ def summary_lines(c: Cfg, multi_doc: bool, access_lines: Sequence[str], pdfjs_fo
             "allow       %s%s"
             % (
                 ", ".join(sorted(c.allow)),
-                " (a loopback request with no header is still allowed)" if c.agent_loopback else "",
+                " (a loopback request with no header is still allowed)" if c.access.agent_loopback else "",
             )
         )
     if not c.origin_check:

@@ -29,7 +29,7 @@ from limn.web.errors import (
     scope_http_error,
 )
 
-from helpers import extract_js_fn, ps, req, run_node, split_resp
+from helpers import UI_EN, extract_js_fn, ps, req, run_node, set_config, split_resp
 from helpers_access import BOB, CAROL, AccessBase, talk_to
 
 # The modules that build error bodies or statuses: server.py, the services moved out of it (limn/revisions.py: the
@@ -229,14 +229,14 @@ class EnglishTable(unittest.TestCase):
         """reason:<code> is in ui_en.json with a non-empty English value for every code the server can emit."""
         codes = emitted_reasons()
         self.assertGreater(len(codes), 60)
-        missing = sorted(c for c in codes if not isinstance(ps.UI_EN.get("reason:" + c), str))
+        missing = sorted(c for c in codes if not isinstance(UI_EN.get("reason:" + c), str))
         self.assertEqual(missing, [])
         for c in codes:
-            self.assertFalse(HANGUL.search(ps.UI_EN["reason:" + c]), c)
+            self.assertFalse(HANGUL.search(UI_EN["reason:" + c]), c)
 
     def test_no_english_message_for_a_reason_the_server_never_emits(self):
         """A reason:<code> key the server no longer emits is stale."""
-        keys = {k[len("reason:") :] for k in ps.UI_EN if k.startswith("reason:")}
+        keys = {k[len("reason:") :] for k in UI_EN if k.startswith("reason:")}
         self.assertEqual(sorted(keys - emitted_reasons()), [])
 
 
@@ -287,7 +287,7 @@ class RefusalBodies(AccessBase):
         self.assertEqual((code, d), (404, {"error": "없는 경로입니다: /api/nope", "reason": "not_found"}))
         code, d = self.call("GET", "/api/pins", peer="10.0.0.5")
         self.assertEqual((code, d), (401, {"error": UNAUTHENTICATED, "reason": "unauthenticated"}))
-        ps.C.agent_loopback = False  # 0.3.3 (ADR-0007): the local refusal names the token file
+        set_config(agent_loopback=False)  # 0.3.3 (ADR-0007): the local refusal names the token file
         code, d = self.call("GET", "/api/pins")
         self.assertEqual((code, d["reason"]), (401, "loopback_agent_off"))
         self.assertTrue(d["error"].startswith(UNAUTHENTICATED))
@@ -318,7 +318,7 @@ class ErrText(unittest.TestCase):
         """Run the viewer's real tr/tl/trMsg/errText under node in lang and return the JSON of body."""
         js = "\n".join(
             [
-                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(ps.UI_EN, ensure_ascii=False)),
+                "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
                 extract_js_fn("tr"),
                 extract_js_fn("tl"),
                 extract_js_fn("trMsg"),
@@ -342,11 +342,11 @@ class ErrText(unittest.TestCase):
         self.assertEqual(
             out,
             [
-                ps.UI_EN["reason:pin_not_found"],
-                ps.UI_EN["변경사항을 읽지 못했습니다."],
+                UI_EN["reason:pin_not_found"],
+                UI_EN["변경사항을 읽지 못했습니다."],
                 "서버 문구",
                 "",
-                ps.UI_EN["reason:conflict"],
+                UI_EN["reason:conflict"],
             ],
         )
 
@@ -364,7 +364,7 @@ class ErrText(unittest.TestCase):
 
 class ErrorPage(AccessBase):
     def test_members_only_refusal_is_a_readable_page(self):
-        ps.C.members_only = True
+        set_config(members_only=True)
         for lang, want in (
             ("ko-KR,ko;q=0.9", "이 뷰어의 멤버가 아닙니다"),
             ("en-US,en;q=0.9", "not a member of this viewer"),
@@ -383,7 +383,7 @@ class ErrorPage(AccessBase):
         self.assertEqual((code, hdrs["content-type"].split(";")[0]), (403, "application/json"))  # the API stays JSON
 
     def test_page_escapes_the_login(self):
-        ps.C.members_only = True
+        set_config(members_only=True)
         h = {"Tailscale-User-Login": "<b>x</b>@example.com", "Tailscale-User-Name": "X", "Accept": "text/html"}
         _, _, body = split_resp(talk_to(ps, req("GET", "/", b"", h)))
         self.assertNotIn("<b>x</b>", body.decode("utf-8"))

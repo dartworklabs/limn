@@ -23,7 +23,7 @@ from limn.pins.model import OpenPin, ReviewPin
 from limn.pins.view import pin_state
 from limn.store import find_pin
 
-from helpers import ROOT, add_pin, ps
+from helpers import ROOT, add_pin, ps, set_config
 from helpers_access import ALICE, BOB, CAROL, AccessBase, actor, token_create
 
 A, B = actor(ALICE), actor(BOB)
@@ -34,7 +34,6 @@ class ReplyApi(AccessBase):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
 
@@ -220,8 +219,8 @@ class AgentAsPerson(AccessBase):
 
     def setUp(self):
         super().setUp()
-        ps.C.auth = "local"
-        ps.C.agent_loopback = False
+        set_config(auth="local")
+        set_config(agent_loopback=False)
         pid = add_pin({"file": str(self.main), "lo": 4, "hi": 5, "page": 1, "note": "n"}, A).record["id"]
         ps.close_pin(pid, dict(LOCAL_ACTOR), CloseRequest(reply="고침"))
         self.pid = pid

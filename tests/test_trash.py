@@ -19,7 +19,7 @@ from limn.files import atomic_write
 from limn.pins import position
 from limn.store import dump_jsonl
 
-from helpers import Base, ps
+from helpers import Base, ps, set_config
 from helpers_access import ALICE, BOB, CAROL, CLEAR_BODY, DAVE, TS_HOST, AccessBase, actor, token_create
 
 A, B = actor(ALICE), actor(BOB)
@@ -28,7 +28,6 @@ A, B = actor(ALICE), actor(BOB)
 class TrashApi(AccessBase):
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
 
@@ -184,7 +183,6 @@ class LazyTrashExpiry(AccessBase):
 
     def setUp(self):
         super().setUp()
-        ps._TRASH_CHECKED[0] = 0.0
 
     def put_dropped(self, pid, dropped_epoch):
         rec = {
@@ -233,9 +231,8 @@ class LazyTrashExpiry(AccessBase):
 
 class TrashClockStart(Base):
     def test_startup_purge_starts_the_hourly_clock(self):
-        ps._TRASH_CHECKED[0] = 0.0
         ps.purge_trash()
-        self.assertGreater(ps._TRASH_CHECKED[0], time.time() - 5)
+        self.assertGreater(ps.RT.trash_checked[0], time.time() - 5)
 
 
 # ---------------------------------------------------------------- POST /api/clear: owner only, a confirmation phrase, a backup (v0.2.1 QA B)
@@ -244,7 +241,6 @@ class TrashClockStart(Base):
 class ClearEndpoint(AccessBase):
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
         self.set_people(
             [
                 {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"},
@@ -302,6 +298,6 @@ class ClearEndpoint(AccessBase):
         self.assertEqual(self.add(), 3)  # ids keep counting
 
     def test_local_owner_may_clear(self):
-        ps.C.auth, ps.C.agent_loopback, ps.C.local_user = "local", False, "alice"
+        set_config(auth="local", agent_loopback=False, local_user="alice")
         code, d = self.call("POST", "/api/clear", CLEAR_BODY)
         self.assertEqual((code, d.get("cleared")), (200, 2), d)

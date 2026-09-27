@@ -33,8 +33,6 @@ class MentionRules(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
         for h in (ALICE, BOB, CAROL, DAVE):
             ps.record_person(actor(h))
         self.A, self.B, self.C, self.D = (actor(h) for h in (ALICE, BOB, CAROL, DAVE))
@@ -130,8 +128,6 @@ class NoteMentionCooldown(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
         for h in (ALICE, BOB, CAROL):
             ps.record_person(actor(h))
         self.A, self.B, self.C = (actor(h) for h in (ALICE, BOB, CAROL))
@@ -226,8 +222,6 @@ class MentionEvents(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def events(self):
         return ps._read_events()[0]
@@ -339,7 +333,6 @@ class EventCursor(Base):
 
     def setUp(self):
         super().setUp()
-        ps._EVENTS_CACHE.clear()
 
     def get(self, path, headers=None):
         code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))

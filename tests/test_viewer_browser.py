@@ -22,14 +22,14 @@ import subprocess
 import time
 from unittest import mock
 
-from limn import access, revisions, startup
+from limn import revisions, startup
 from limn.access import LOCAL_ACTOR
 from limn.pins.lifecycle import CloseRequest
 from limn.pins.view import pin_state
 from limn.store import find_pin
 from limn.web import parse
 
-from helpers import add_pin, blank_png, minimal_pdf, ps
+from helpers import SW_JS, add_pin, blank_png, minimal_pdf, ps
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_browser import BrowserBase, booted, settle, watch_idle
 
@@ -342,7 +342,6 @@ class ViewerFlows(BrowserBase):
             ),
             encoding="utf-8",
         )
-        ps.ROLES_CACHE = access.FileCache()
         ps.drop_pin(self.open_id, B)
         page = self.page_for("desktop", "ko", n_open=0)
         page.click("#trash-link")
@@ -414,7 +413,7 @@ class ColdDeepLink(BrowserBase):
         super().setUp()
         src = ps.C.src
         (src / "hl.tex").write_text((src / "main.tex").read_text(encoding="utf-8"), encoding="utf-8")
-        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C))
+        ps.set_docs(startup.make_docs(["ms=본문:main.tex", "hl=하이라이트:hl.tex"], src, ps.C.paths))
         for D in ps.DOCS:
             pages = D.dir / "pages-20260925100000"
             pages.mkdir(parents=True, exist_ok=True)
@@ -483,7 +482,7 @@ class ColdDeepLink(BrowserBase):
         self.assertEqual(page.evaluate("location.hash"), "#doc=hl")
 
     def test_service_worker_carries_the_restore_action_into_a_new_window(self):
-        self.assertIn("e.action==='restore'?'&act=restore':''", ps.SW_JS)
+        self.assertIn("e.action==='restore'?'&act=restore':''", SW_JS)
 
 
 class PreviewEqualsServer(BrowserBase):

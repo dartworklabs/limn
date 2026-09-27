@@ -25,7 +25,7 @@ from limn.pins.lifecycle import CloseRequest
 from limn.pins.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
 from limn.web import parse
 
-from helpers import SKILL_KO, SKILL_MD, Base, add_pin, edit_pin, extract_js_fn, ps, req, run_node
+from helpers import SKILL_KO, SKILL_MD, Base, add_pin, edit_pin, extract_js_fn, ps, req, run_node, set_config
 from helpers_access import ALICE_ACTOR, BOB_ACTOR, TS_HOST, AccessBase, token_create
 
 RENDER_PY = Path(render.__file__)
@@ -687,7 +687,7 @@ class AuthorPrefixInPinsMd(Base):
 
 class InstanceIdInPinsMd(Base):
     def test_disk_header_has_paper_and_repo_line(self):
-        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        set_config(label="A-DEMO", repo="git@github.com:example-lab/paper-a.git")
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         lines = md.splitlines()
@@ -695,26 +695,26 @@ class InstanceIdInPinsMd(Base):
         self.assertEqual(lines[src_idx + 1], "논문: A-DEMO · 저장소: git@github.com:example-lab/paper-a.git")
 
     def test_header_shows_placeholder_without_repo(self):
-        ps.C.label, ps.C.repo = "paper-a", None
+        set_config(label="paper-a", repo=None)
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("논문: paper-a · 저장소: (없음)", md)
 
     def test_guidance_mentions_remote_check_only_when_repo_known(self):
-        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        set_config(label="A-DEMO", repo="git@github.com:example-lab/paper-a.git")
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertIn("git remote get-url origin", md)
         self.assertIn("다르면 다른 논문의 핀이니 멈춘다", md)
 
     def test_guidance_omits_remote_check_without_repo(self):
-        ps.C.label, ps.C.repo = "paper-a", None
+        set_config(label="paper-a", repo=None)
         self.add()
         md = ps.C.pins_md.read_text(encoding="utf-8")
         self.assertNotIn("git remote get-url origin", md)
 
     def test_get_pins_md_endpoint_also_has_id_line(self):
-        ps.C.label, ps.C.repo = "A-DEMO", "git@github.com:example-lab/paper-a.git"
+        set_config(label="A-DEMO", repo="git@github.com:example-lab/paper-a.git")
         self.add()
         out = self.talk(req("GET", "/pins.md"))
         body = out.split(b"\r\n\r\n", 1)[1].decode("utf-8")
@@ -831,8 +831,6 @@ class AddressedInPinsMd(Base):
 
     def setUp(self):
         super().setUp()
-        ps._PEOPLE_SEEN.clear()
-        ps._EVENTS_CACHE.clear()
 
     def test_pins_md_marks_human_addressed_pins_and_tells_agents_to_skip(self):
         ps.record_person(dict(self.W))
