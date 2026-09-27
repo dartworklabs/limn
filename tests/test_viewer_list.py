@@ -175,6 +175,104 @@ class PinListLoading(unittest.TestCase):
             {"open": [1], "rev": "old", "src": "old-src", "drawn": [[1]]},
         )
 
+    def test_failed_boot_pin_read_is_retried_by_first_light_poll(self):
+        """A failed first pin fetch leaves no revision baseline, so the next light poll loads the missing rows."""
+        js = "\n".join(
+            [
+                extract_js_fn("pinState"),
+                extract_js_fn("derivePinLists"),
+                extract_js_fn("applyPinLists"),
+                extract_js_fn("loadPins"),
+                extract_js_fn("boot"),
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC=null,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
+                let EDIT=null,REPLY=null,CUR=null,PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
+                let LAST_PINS_REV=null,LAST_SRC_MTIME=null,LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
+                const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
+                const SEC_SEEN={open:null,review:null,done:null},MQ_COARSE={matches:false};
+                const document={hidden:false};
+                let pinReads=0;
+                function api(url){
+                  if(url==='/api/meta'||url==='/api/meta?light=1')
+                    return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',build_seq:0,docs:[]}});
+                  if(url==='/api/pins?all=1'){
+                    pinReads++;
+                    return pinReads===1 ? Promise.reject(Error('temporary')) : Promise.resolve({data:[{id:1}]});
+                  }
+                  if(url==='/api/pins/dropped')return Promise.resolve({data:{dropped:[]}});
+                  throw Error(url);
+                }
+                function dq(url){return url;} function notifyQuery(){return '';}
+                function $(sel){return {hidden:true,innerHTML:''};}
+                function i18nStart(){} function takeLinkHash(){return {};}
+                function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
+                function saveBtnLabel(){return 'save';} async function loadDocs(){}
+                function initialDoc(){return 'main';} function multiDoc(){return false;}
+                function loadViews(){} function drawMeta(){} function applySideWidth(){}
+                function applyOutlineState(){} function applyViewWidth(){return false;}
+                function buildDoc(){} function autoW(){} function vecBoot(){}
+                function restoreView(){} function drawDocTabs(){} function restoreDraft(){}
+                function coach(){} function startLightPolling(){} function startBuildPolling(){}
+                function drawNotify(){} function prefs(){return {};}
+                function loadPeople(){} function diffToast(){} function reviewToast(){}
+                function drawPins(){} function marks(){} function docTitle(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
+                function noteOtherDocs(){} function pollBuild(){}
+                (async()=>{
+                  await boot(); const before={rev:LAST_PINS_REV,src:LAST_SRC_MTIME,open:OPEN_ALL.map(p=>p.id)};
+                  await pollLightOnce();
+                  console.log(JSON.stringify({before,after:{rev:LAST_PINS_REV,src:LAST_SRC_MTIME,
+                    open:OPEN_ALL.map(p=>p.id)},pinReads}));
+                })();
+                """,
+            ]
+        )
+        self.assertEqual(
+            json.loads(run_node(js)),
+            {
+                "before": {"rev": None, "src": None, "open": []},
+                "after": {"rev": "r1", "src": "s1", "open": [1]},
+                "pinReads": 2,
+            },
+        )
+
+    def test_successful_boot_pin_read_sets_baseline_without_extra_poll_fetch(self):
+        """A successful first pin read records meta's baseline, so an unchanged light poll does not fetch again."""
+        js = "\n".join(
+            [
+                extract_js_fn("boot"),
+                extract_js_fn("pollLightOnce"),
+                """
+                let DOC=null,META=null,LAST_PINS_REV=null,LAST_SRC_MTIME=null;
+                let LAST_BUILD_SEQ=null,BUILD_TIMER=null,POLL_FAILS=0;
+                const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),MQ_COARSE={matches:false};
+                const document={hidden:false}; let pinReads=0;
+                function api(url){return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',
+                  build_seq:0,docs:[]}});}
+                function dq(url){return url;} function notifyQuery(){return '';}
+                function $(sel){return {hidden:true,innerHTML:''};}
+                function i18nStart(){} function takeLinkHash(){return {};}
+                function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
+                function saveBtnLabel(){return 'save';} async function loadDocs(){}
+                function initialDoc(){return 'main';} function multiDoc(){return false;}
+                function loadViews(){} function drawMeta(){} function applySideWidth(){}
+                function applyOutlineState(){} function applyViewWidth(){return false;}
+                function buildDoc(){} function autoW(){} function vecBoot(){}
+                function restoreView(){} function drawDocTabs(){} function restoreDraft(){}
+                function coach(){} function startLightPolling(){} function startBuildPolling(){}
+                function drawNotify(){} function prefs(){return {};}
+                async function loadPins(){pinReads++;return true;}
+                function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
+                function noteOtherDocs(){} function pollBuild(){}
+                (async()=>{await boot(); await pollLightOnce();
+                  console.log(JSON.stringify({rev:LAST_PINS_REV,src:LAST_SRC_MTIME,pinReads}));})();
+                """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), {"rev": "r1", "src": "s1", "pinReads": 1})
+
     def test_cached_document_switch_shows_its_done_rows_before_refresh(self):
         """Switching to cached document B draws B's completed rows before its background fetch resolves."""
         js = "\n".join(

@@ -40,7 +40,7 @@ async function pollLightOnce(){
   // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
   const sig=d.src_sig||d.src_mtime;
   // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
-  const needsPins=LAST_PINS_REV!==null&&(d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME);
+  const needsPins=LAST_PINS_REV===null||d.pins_rev!==LAST_PINS_REV||sig!==LAST_SRC_MTIME;
   if(!needsPins||await loadPins()){LAST_PINS_REV=d.pins_rev; LAST_SRC_MTIME=sig;}
   // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
   // runs during that (or when this tab itself pressed rebuild()).

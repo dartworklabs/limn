@@ -185,7 +185,7 @@ Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)
 
 에이전트가 `curl` 로 핀을 닫거나 원고를 고치면 몇 초 안에 뷰어 화면에 반영돼야 한다. 그런데 `GET /api/pins` 와 라이트가 아닌 `GET /api/meta` 는 **쓰기 부작용**이 있다. `sync_all` 이 앵커로 줄을 다시 맞추고 파일에 쓰기 때문이다. 그래서 이 둘을 그대로 폴링할 수는 없다.
 
-폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다. 핀 읽기가 실패하거나 더 새로운 성공 응답에 밀리면 그 값을 읽은 것으로 기록하지 않아 다음 폴링에서 재시도한다.
+폴링에는 `GET /api/meta?light=1` 을 쓴다. 라이트 meta는 `n_open`·`n_done` 이 빠지고 `snapshot_pins()`(sync 쓰기)를 부르지 않는다. 뷰어는 응답의 두 값이 **바뀌었을 때만** `GET /api/pins`(sync 있음)를 불러 목록을 다시 그린다. 첫 핀 읽기가 실패했거나 이후 읽기가 실패·무효화됐으면 읽은 기준값을 갱신하지 않아 다음 폴링에서 재시도한다.
 
 - `pins_rev`: `pins.jsonl` 의 `f"{mtime_ns}:{size}"`. 파일이 없으면 `"0"`(`limn.meta.pins_rev`).
 - `src_mtime`: 아래에서 설명한다.
