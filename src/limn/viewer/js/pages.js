@@ -13,12 +13,12 @@ function buildDoc(){
 const ZOOM_MIN=0.5,ZOOM_MAX=5,ZOOM_STEP=1.2;
 function wBounds(fit){const f=Math.max(160,fit),lo=Math.max(160,Math.round(f*ZOOM_MIN)); return [lo,Math.max(lo,Math.round(f*ZOOM_MAX))];}
 function setW(w,save){const b=wBounds(fitWidth()); W=Math.round(Math.min(b[1],Math.max(b[0],w))); $$('.pg').forEach(e=>e.style.width=W+'px');
-  if(save!==false&&LAYOUT==='wide')savePrefs({w:W}); vecInvalidate();}
+  if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({w:W}); vecInvalidate();}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
 // Fit-width: in compact, the body's inner width; in wide, #left.clientWidth minus 48px (left/right margins).
-function fitWidth(){return LAYOUT!=='wide'?innerW():$('#left').clientWidth-48;}
+function fitWidth(){return LAYOUT!==LAYOUT_MODE.WIDE?innerW():$('#left').clientWidth-48;}
 // compact always fits the screen width (unless the user pressed -/+, in which case it stays fixed for that layout). wide behaves as before.
-function autoW(){if(LAYOUT!=='wide'){if(!ZOOMED)setW(innerW(),false);return;}
+function autoW(){if(LAYOUT!==LAYOUT_MODE.WIDE){if(!ZOOMED)setW(innerW(),false);return;}
   if(prefs().w!==undefined)return; const f=$('#left').clientWidth-44-16; setW(f<900?f:900,false);}
 // Zoom anchor: the page under screen coordinates (cx,cy) and its fraction within that page. If the point falls in the gap between pages, the vertically nearest page is used.
 // Without coordinates, the center of the PDF area is used (keyboard/button).
@@ -31,11 +31,11 @@ function zoomAnchor(cx,cy){const L=$('#left'),lr=L.getBoundingClientRect();
 // Restores the anchor's in-page fractional position back to screen coordinates (cx,cy) - so the text under the pointer stays put even after zooming.
 function zoomRestore(a,cx,cy){if(!a)return; const L=$('#left'),r=a.pg.getBoundingClientRect();
   L.scrollLeft+=r.left+a.fx*r.width-(cx==null?a.cx:cx); L.scrollTop+=r.top+a.fy*r.height-(cy==null?a.cy:cy);}
-function zoomTo(w,cx,cy){const a=zoomAnchor(cx,cy); setW(w); if(LAYOUT!=='wide')ZOOMED=true; zoomRestore(a);}
+function zoomTo(w,cx,cy){const a=zoomAnchor(cx,cy); setW(w); if(LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=true; zoomRestore(a);}
 function zoom(k){zoomTo(W*Math.pow(ZOOM_STEP,k));}
 // Fit width: keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW(){const a=topAnchor(),L=$('#left');
-  if(LAYOUT!=='wide'){ZOOMED=false; setW(innerW(),false);} else setW(L.clientWidth-48);
+  if(LAYOUT!==LAYOUT_MODE.WIDE){ZOOMED=false; setW(innerW(),false);} else setW(L.clientWidth-48);
   restoreAnchor(a); L.scrollLeft=0;}
 function goPage(v){const el=document.getElementById('p'+parseInt(v===undefined?$('#jump').value:v,10)); if(el) el.scrollIntoView({behavior:SMOOTH});}
 $('#jump').addEventListener('keydown',e=>{if(e.key==='Enter')goPage();});

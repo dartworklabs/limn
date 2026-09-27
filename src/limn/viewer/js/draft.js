@@ -40,6 +40,6 @@ function restoreDraft(){let rec=null; const k=META?draftKey(META.label,DOC):null
   if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
     if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); b.innerHTML='<i>새 핀</i>'; PENDING=b;}
     CUR=c; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
-    renderComposer(); setSide(true); applySide(); if(LAYOUT!=='wide')revealBox(PENDING);}
+    renderComposer(); setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(PENDING);}
   toast(how==='full'?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다','ok',
     {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}});}

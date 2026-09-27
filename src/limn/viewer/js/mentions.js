@@ -44,21 +44,21 @@ function mentionTokens(people){const by=new Map();
 // person; otherwise a question pin's first @-tag; otherwise the agent. I can never be picked (just as the server
 // excludes a tag mentioning me). With no @-tags, there's nothing to pick (the agent).
 function defaultAssignee(text,kind,hints){const r=mentionScan(text,hints),me=meLogin(),hit=r.hit.filter(l=>l!==me);
-  if(r.first&&r.first!==me)return r.first; if(kind==='question'&&hit.length)return hit[0]; return 'agent';}
+  if(r.first&&r.first!==me)return r.first; if(kind===KIND_REQ.QUESTION&&hit.length)return hit[0]; return ASSIGNEE_AGENT;}
 function assignPeople(text,hints,keep){const me=meLogin(),out=mentionScan(text,hints).hit.filter(l=>l!==me);
-  if(keep&&keep!=='agent'&&!out.includes(keep))out.push(keep); return out;}
+  if(keep&&keep!==ASSIGNEE_AGENT&&!out.includes(keep))out.push(keep); return out;}
 function assignSeg(people,value,act){if(!people.length)return '';
   const opt=(v,label,tip)=>'<button type="button" role="radio" data-act="'+act+'" data-v="'+esc(v)+'" aria-checked="'+(v===value)+'"'+(v===value?' class="on"':'')+
     ' data-tip="'+esc(tip)+'">'+label+'</button>';
-  return '<span class="as-lab">'+esc(tr('담당'))+'</span><div class="seg as-seg">'+opt('agent',esc(tr('에이전트')),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'))+
+  return '<span class="as-lab">'+esc(tr('담당'))+'</span><div class="seg as-seg">'+opt(ASSIGNEE_AGENT,esc(tr('에이전트')),tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'))+
     people.map(l=>opt(l,'@'+esc(peopleName(l)),tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다',{name:peopleName(l)}))).join('')+'</div>';}
 // The composer panel's assignee: before the user picks one (touched=false), the default is re-chosen every time the note changes. If the picked person disappears from the note, it falls back to the default.
 // Both assignee rows read the note with the hints the save carries (mentionHints), so they offer exactly whom the server tags.
-const ASSIGN_NEW={v:'agent',touched:false};
+const ASSIGN_NEW={v:ASSIGNEE_AGENT,touched:false};
 function renderAssignNew(){const ta=$('#note'),box=$('#c-assign'); if(!ta||!box)return;
   const hs=new Set(mentionHints(ta)),ppl=assignPeople(ta.value,hs);
-  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!=='agent'&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
-  if(!ppl.length){ASSIGN_NEW.v='agent'; box.hidden=true; box.innerHTML=''; return;}
+  if(!ASSIGN_NEW.touched||(ASSIGN_NEW.v!==ASSIGNEE_AGENT&&!ppl.includes(ASSIGN_NEW.v))){ASSIGN_NEW.v=defaultAssignee(ta.value,KIND_NEW,hs); ASSIGN_NEW.touched=false;}
+  if(!ppl.length){ASSIGN_NEW.v=ASSIGNEE_AGENT; box.hidden=true; box.innerHTML=''; return;}
   box.innerHTML=assignSeg(ppl,ASSIGN_NEW.v,'assign-new'); box.hidden=false;}
 function renderAssignEdit(){const E=EDIT; if(!E)return; const ta=E.el.querySelector('.e-note'),box=E.el.querySelector('.e-assign'); if(!ta||!box)return;
   const ppl=assignPeople(ta.value,new Set(mentionHints(ta)),E.assignee);

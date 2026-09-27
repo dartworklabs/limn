@@ -471,7 +471,7 @@ class ViewerMarkup(unittest.TestCase):
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
         self.assertIn(
-            "actions:e.type==='dropped'&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
+            "actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
             extract_js_fn("notifyShow"),
         )
         self.assertIn("e.action==='restore'", ps.SW_JS)

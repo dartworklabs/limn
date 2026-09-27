@@ -17,8 +17,8 @@ function buildChipText(b){
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
 function pullSuffix(b){
   const p=b&&b.pull; if(!p||!p.state)return '';
-  if(p.state==='ok')return ' · '+tl('원격 반영 {range}',{range:String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7)});
-  if(p.state==='skipped'||p.state==='error')return ' · '+tl(p.state==='error'?'git pull 실패({reason})':'git pull 건너뜀({reason})',{reason:p.reason||'?'});
+  if(p.state===PULL_STATE.OK)return ' · '+tl('원격 반영 {range}',{range:String(p.head_before||'?').slice(0,7)+'..'+String(p.head_after||'?').slice(0,7)});
+  if(p.state===PULL_STATE.SKIPPED||p.state===PULL_STATE.ERROR)return ' · '+tl(p.state===PULL_STATE.ERROR?'git pull 실패({reason})':'git pull 건너뜀({reason})',{reason:p.reason||'?'});
   return '';
 }
 // Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if the
@@ -34,7 +34,7 @@ async function pollBuildOnce(){
   try{b=(await api(dq('/api/build?log=1'),{what:'빌드 상태',silent:true})).data;}catch(e){return;}
   if(k!==DOC)return;                    // the document changed - showDoc will query the new one again
   const chip=$('#build-chip');
-  if(b.state==='running'){
+  if(b.state===BUILD_STATE.RUNNING){
     chip.hidden=false; chip.textContent=buildChipText(b); $('#btn-rebuild').disabled=true;
     if(!BUILD_TIMER)BUILD_TIMER=setInterval(pollBuild,1000);
     BUILD_BOOTED=true; return;
@@ -50,10 +50,10 @@ async function pollBuildOnce(){
     try{await refreshDoc();}catch(e){}
     if(k!==DOC)return;
     const secs=Math.round(b.elapsed_s||0);
-    if(b.state==='ok'){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
-    else if(b.state==='ok_errors'){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
-    else if(b.state==='fail'){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
-  }else if(!booted&&(b.state==='fail'||b.state==='ok_errors')){
+    if(b.state===BUILD_STATE.OK){toast(tr(META.view_only?'PDF가 바뀌어 쪽을 새로 그렸습니다':'PDF 재빌드 완료')+' · '+tl('{n}쪽',{n:META.pages.length})+' · '+tl('{s}초',{s:secs})+pullSuffix(b),'ok'); LAST_BUILD_ERR=null; BUILD_ERR_BY.delete(k); hideBuildErr();}
+    else if(b.state===BUILD_STATE.OK_ERRORS){toast(tr('PDF를 재빌드했지만 LaTeX 오류가 있습니다')+pullSuffix(b),'warn'); showBuildErr(b);}
+    else if(b.state===BUILD_STATE.FAIL){toast(tr('빌드 실패 — 화면은 이전 PDF입니다')+pullSuffix(b),'err'); showBuildErr(b);}
+  }else if(!booted&&(b.state===BUILD_STATE.FAIL||b.state===BUILD_STATE.OK_ERRORS)){
     showBuildErr(b);   // a freshly opened tab - a build that already failed just opens the panel/chip with no toast (leaves a way to look at it again)
   }
 }
