@@ -49,8 +49,8 @@ extend-exclude = ["src/limn/vendor", "tools/handbook-publish"]   # copied from u
 
 [tool.ruff.lint]
 # Coding rule R4 (docs/handbook/code-style-roadmap.md §R4): bug candidates ("F", "B", "PLW1510") and style rules
-# ("E", "W", "I", "UP", "SIM"); `ruff format` owns the layout. Docstring rules ("D") come later, new modules first.
-select = ["F", "E", "W", "I", "B", "UP", "SIM", "PLW1510"]
+# ("E", "W", "I", "UP", "SIM"); `ruff format` owns the layout. D100-D107 require docstrings in production code.
+select = ["F", "E", "W", "I", "B", "UP", "SIM", "PLW1510", "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 ignore = [
     "E501",   # line length: the formatter wraps code; long comment and docstring lines are not checked
     "UP030",  # str.format templates keep their explicit field numbers ...
@@ -62,6 +62,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # The limn.* imports follow the sys.path bootstrap that lets an instance run the file directly.
 "src/limn/server.py" = ["E402"]
+# Legacy tests do not yet meet the R9 docstring rule; production code is gated first.
+"tests/*.py" = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it

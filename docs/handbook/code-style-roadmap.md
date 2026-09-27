@@ -200,7 +200,7 @@ def parse_note(v: object) -> str | InputRejected:
 | `UP042` `class X(str, Enum)` → `StrEnum` | 바꾸면 멤버의 `str()`·`format()` 결과가 달라진다 |
 | `server.py`의 `E402` | `limn.*` import가 파일로 실행될 때를 위한 `sys.path` 준비 뒤에 와야 한다([architecture.md](architecture.md) §현재 구조) |
 | `tools/handbook-publish/` 제외 | 플러그인에서 복사한 사본이다. 고칠 일이 있으면 원본에서 고친다. 번들한 `src/limn/vendor/`도 뺀다 |
-| docstring 규칙 `D` | 아직 켜지 않았다. §다음 |
+| 테스트 파일의 docstring 누락 `D100`–`D107` | 프로덕션 코드는 검사한다. 기존 테스트의 누락은 많아 `tests/*.py`에서 제외하고, 새로 쓰거나 고친 테스트는 R9에 따라 리뷰한다. §다음 |
 
 통째 포매팅처럼 줄만 바꾼 커밋은 [`.git-blame-ignore-revs`](../../.git-blame-ignore-revs)에 적는다. 로컬에서 `git config blame.ignoreRevsFile .git-blame-ignore-revs`를 한 번 하면 `git blame`이 그 커밋을 건너뛴다.
 
@@ -252,7 +252,7 @@ def _build(D: Doc) -> FinishedBuild:
 
 **업계에서 부르는 이름.** 계약에 의한 설계(Design by Contract, Bertrand Meyer)의 전제·결과를 글로 적는 것. 파이썬 형식은 PEP 257이 정한다.
 
-**지금 코드.** 옮긴 모듈의 함수에는 모두 docstring이 있다. 주석과 docstring이 설계를 가리킬 때는 Handbook의 절을 `docs/handbook/<topic>.md §<절 제목>` 형태로 적고, [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)가 그 절이 실제로 있는지 본다.
+**지금 코드.** 프로덕션 파이썬의 공개 모듈·클래스·함수·메서드는 Ruff `D100`–`D107`이 docstring 누락을 검사한다. private 도우미의 누락과 내용이 계약을 설명하는지는 리뷰에서 본다. 주석과 docstring이 설계를 가리킬 때는 Handbook의 절을 `docs/handbook/<topic>.md §<절 제목>` 형태로 적고, [`tests/test_handbook_refs.py`](../../tests/test_handbook_refs.py)가 그 절이 실제로 있는지 본다.
 
 > **예시**
 >
@@ -265,7 +265,7 @@ def state_of(record: Record) -> type[OpenPin] | type[ReviewPin] | type[DonePin]:
     done and review, so it is cheap enough for every pin of every read (limn.pins.view.pin_state)."""
 ```
 
-**확인하는 법.** 리뷰에서 docstring을 구현·테스트와 대조해, 말과 코드가 다르면 둘 중 틀린 쪽을 고친다. 누락을 잡는 정량 게이트는 아직 없다(Ruff `D`, §다음).
+**확인하는 법.** `uv run ruff check`가 프로덕션 코드의 공개 항목 누락을 잡는다. private 도우미와 테스트 파일의 누락, docstring 내용은 리뷰에서 구현·테스트와 대조해, 말과 코드가 다르면 둘 중 틀린 쪽을 고친다(§다음).
 
 ## R8 정확한 타입 표기
 
@@ -344,6 +344,6 @@ def identify(headers: Message, peer: str, settings: AccessSettings, lookups: Acc
 
 3. **서버의 명시적 `App`은 테스트 결합을 푼 뒤 옮긴다(R5–R6, R8).** 현재 처리기는 [`server.py`](../../src/limn/server.py)의 `_ModuleApp(globals())`을 통해 `web/app.py`의 서비스를 요청 때마다 읽는다. 파일 경로로 로드한 서버 사본과 테스트의 함수·`C`·`RT` 재바인딩도 이 동작에 기대므로, 메서드 일부만 감싸면 전역 의존과 객체 필드가 서로 다른 값을 가질 수 있다. 먼저 서버 사본별 격리와 조립·종료 순서, 테스트의 협력자 교체 지점을 고정한다. 그다음 설정·런타임·문서 목록의 소유자가 하나인 객체로 서비스 묶음을 옮기고 동적 전역 대리자를 제거한다. **합격:** 새 객체 자체가 `App` 프로토콜을 타입 검사로 만족하고, 파일 실행·패키지 실행·서버 사본 격리·시작 실패 시 자원 종료·모든 경로의 본문 읽기 → Host/Origin → 신원 → 입장 → 역할 검사 순서가 유지된다(`test_web.py`, `test_access.py`, `test_server.py`). HTTP 응답과 `pins.md`는 계약 스냅숏으로 비교한다.
 
-4. **새 경계를 기계적으로 지킨다(R4, R7–R9).** 고친 모듈의 계약 docstring을 코드·테스트와 대조하고, Ruff `D`는 적용할 범위를 정해 단계적으로 켠다. 테스트는 문자열 존재보다 요청·저장·화면에서 관찰한 결과를 우선한다. 정적 검사나 새 라이브러리는 실제 결함을 잡거나 코드를 줄이는 경우에만 더하고 대표 위반을 주입해 게이트가 실패하는지 확인한다. 런타임 의존성을 더하려면 표준 라이브러리 전용 불변식 때문에 먼저 설계 판단과 ADR이 필요하다([architecture.md](architecture.md) §멈춤 신호). **합격:** 로컬과 CI의 같은 명령이 같은 위반을 잡고, 영향을 받은 기능의 테스트와 타입 검사, 필요하면 전체 차등 비교가 통과한다.
+4. **새 경계를 기계적으로 지킨다(R4, R7–R9).** 프로덕션 파이썬의 Ruff `D100`–`D107`은 누락만 잡는다. 기존 테스트의 누락을 정리하며 검사 범위를 넓히고, 고친 모듈의 계약 docstring을 코드·테스트와 대조한다. 테스트는 문자열 존재보다 요청·저장·화면에서 관찰한 결과를 우선한다. 정적 검사나 새 라이브러리는 실제 결함을 잡거나 코드를 줄이는 경우에만 더하고 대표 위반을 주입해 게이트가 실패하는지 확인한다. 런타임 의존성을 더하려면 표준 라이브러리 전용 불변식 때문에 먼저 설계 판단과 ADR이 필요하다([architecture.md](architecture.md) §멈춤 신호). **합격:** 로컬과 CI의 같은 명령이 같은 위반을 잡고, 영향을 받은 기능의 테스트와 타입 검사, 필요하면 전체 차등 비교가 통과한다.
 
 함수 추출은 길이보다 독립적인 규칙과 변화 이유를 기준으로 한다. `compile_tex()`·`revision_compile()`은 입출력을 순서대로 지휘할 수 있다. PDF·SyncTeX의 한 줄짜리 mtime 비교만 각각 감싸면 파일 관찰과 실패 우선순위의 책임은 그대로 남으므로, 그런 추출보다 오래된 산출물을 사용했을 때의 결과를 테스트로 지킨다.
