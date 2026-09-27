@@ -29,7 +29,7 @@ async function switchDoc(k){
   hideTip(); showDoc(VIEW_BY.get(k));
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
-      META_BY.set(k,f); if(changed)await refreshDoc(); else{META=f; drawMeta();}}}catch(e){}}
+      META_BY.set(k,f); if(changed)await refreshDoc(f); else{META=f; drawMeta();}}}catch(e){}}
 }
 // Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
 // The build chip, error panel, and auto-polling baseline are switched to that document's values too.

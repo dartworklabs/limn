@@ -4,9 +4,12 @@ function topAnchor(off){const L=$('#left'),top=L.getBoundingClientRect().top+(of
   return null;}
 function restoreAnchor(a){if(!a)return; const pg=document.getElementById('p'+a.page); if(!pg)return; const L=$('#left');
   L.scrollTop+=pg.getBoundingClientRect().top-L.getBoundingClientRect().top+a.frac*pg.getBoundingClientRect().height;}
-async function refreshDoc(){const a=topAnchor(),k=DOC;
-  const m=(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data; META_BY.set(k,m);
-  if(k!==DOC)return;                    // switched to another document while waiting - only the cache is refreshed
+// Apply a supplied meta snapshot, or fetch one for the current document. A switch away and back invalidates an
+// in-flight refresh even when the document key matches again; its old pages must not replace the new visit.
+async function refreshDoc(meta){const a=topAnchor(),k=DOC,seq=SWITCHSEQ;
+  const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기'})).data:meta;
+  if(k!==DOC||seq!==SWITCHSEQ)return;
+  META_BY.set(k,m);
   const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});}
@@ -33,4 +36,3 @@ async function rebuild(){
     if(BUILD_INFLIGHT){try{await BUILD_INFLIGHT;}catch(e){}}
     await pollBuild();
   }catch(e){}}
-
