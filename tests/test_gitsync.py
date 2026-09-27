@@ -24,6 +24,7 @@ from unittest import mock
 
 from limn import build as limn_build, gitsync, revisions
 from limn.access import LOCAL_ACTOR
+from limn.build import BuildOk, BuildStarted
 from limn.documents import Doc
 from limn.gitsync import PullShare, SyncWatch, pull, repo_pull
 from limn.pull import Pulled, PullFailed, PullSkipped, UpToDate
@@ -38,11 +39,12 @@ class ModuleBoundary(unittest.TestCase):
     """gitsync.py sits below the server: settings, documents, runner and clock come in as arguments."""
 
     def test_imports_no_server_or_http_layer(self):
-        """Of limn only limn.pull; no HTTP import. It runs git only through the runner it is given."""
+        """Of limn only limn.pull (the rules) and limn.build (a document's build state, read as the build defines it);
+        no HTTP import. It runs git only through the runner it is given."""
         tree = ast.parse(GITSYNC_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.pull"})
+        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.pull", "limn.build"})
         self.assertFalse({"http", "http.server", "urllib", "subprocess"} & modules)
 
     def test_reads_no_server_global(self):
@@ -417,22 +419,21 @@ class GitPullBuildIntegration(Base):
             self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = True
         res = ps.build_all(ps.DOCS[0])
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         # the temporary manuscript from Base.setUp() isn't a git repo — verify not_git actually triggers.
-        self.assertEqual(
-            res["pull"], {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None}
-        )
-        self.assertEqual(res.get("head"), ps.C.state.joinpath("head.txt").read_text().strip())
+        self.assertEqual(res.pull, {"state": "skipped", "reason": "not_git", "head_before": None, "head_after": None})
+        self.assertEqual(res.head, ps.C.state.joinpath("head.txt").read_text().strip())
         snap = limn_build.state_snapshot(ps.DOCS[0])
-        self.assertEqual(snap.get("pull"), res["pull"])
-        self.assertEqual(snap.get("head"), res["head"])
+        self.assertEqual(snap.get("pull"), res.pull)
+        self.assertEqual(snap.get("head"), res.head)
 
     def test_pull_absent_when_flag_off(self):
         if not (shutil.which("latexmk") and shutil.which("pdftoppm")):
             self.skipTest("latexmk/pdftoppm not available")
         ps.C.git_pull = False
         res = ps.build_all(ps.DOCS[0])
-        self.assertNotIn("pull", res)
+        self.assertIsInstance(res, BuildOk)
+        self.assertIsNone(res.pull)
 
     def test_pull_bumped_mtime_does_not_falsely_mark_stale(self):
         # bug: _build_tracked() used to commit the pre-pull value (src_mtime_at_start) as built_src_mtime,
@@ -450,7 +451,7 @@ class GitPullBuildIntegration(Base):
 
         with mock.patch.object(ps, "repo_pull", side_effect=fake_pull):
             res = ps.build_all(ps.DOCS[0])
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         ps._SRC_MTIME_CACHE[2] = 0.0
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], False)
@@ -482,7 +483,7 @@ class GitPullBuildIntegration(Base):
             mock.patch.object(limn_build, "run_logged", side_effect=bump_then_run),
         ):
             res = ps.build_all(ps.DOCS[0])
-        self.assertEqual(res["state"], "ok")
+        self.assertIsInstance(res, BuildOk)
         ps._SRC_MTIME_CACHE[2] = 0.0
         m = ps.meta(ps.DOCS[0], dict(LOCAL_ACTOR), light=True)
         self.assertIs(m["stale_build"], True)
@@ -503,7 +504,7 @@ class AutomaticMainSync(Base):
         ps.C.git_pull = True
         with (
             mock.patch.object(gitsync, "pull", return_value=Pulled("a" * 40, "b" * 40)) as git_pull,
-            mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build,
+            mock.patch.object(ps, "build_async", return_value=BuildStarted()) as build,
         ):
             out = ps.sync_main_once()
         git_pull.assert_called_once_with(self.src, main_only=True, git=revisions.git)
@@ -516,7 +517,7 @@ class AutomaticMainSync(Base):
         (ps.C.state / "head.txt").write_text("aaaaaaa", encoding="utf-8")
         with (
             mock.patch.object(gitsync, "pull", return_value=UpToDate("b" * 40)),
-            mock.patch.object(ps, "build_async", return_value={"state": "running"}) as build,
+            mock.patch.object(ps, "build_async", return_value=BuildStarted()) as build,
         ):
             out = ps.sync_main_once()
         build.assert_called_once()

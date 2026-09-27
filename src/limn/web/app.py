@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeAlias
 
 from limn import access
+from limn.build import BuildBusy, BuildStarted, FinishedBuild
 from limn.config import Cfg
 from limn.documents import Doc, DocNotFound
 from limn.pins.edit import AddRequest, EditRefusal, EditRequest
@@ -299,10 +300,11 @@ class App(Protocol):
         """POST /api/revision-build."""
         ...
 
-    def build_all(self, D: Document) -> Json:
-        """POST /api/rebuild: build document D now."""
+    def build_all(self, D: Document) -> FinishedBuild | BuildBusy:
+        """POST /api/rebuild: build document D now, or BuildBusy when it is already building."""
         ...
 
-    def build_async(self, D: Document) -> Json:
-        """POST /api/rebuild?async=1: start document D's build in the background."""
+    def build_async(self, D: Document) -> BuildStarted | BuildBusy:
+        """POST /api/rebuild?async=1: start document D's build in the background, or BuildBusy when it is already
+        building."""
         ...

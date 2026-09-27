@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias, TypeGuard, TypeVar
+from typing import Any, Literal, Protocol, TypeAlias, TypeGuard, TypeVar, get_args
 
 from limn.files import atomic_write
 from limn.gitrun import run_git
@@ -53,21 +53,160 @@ SRC_MTIME_EXTS = SRC_TEX_EXTS + SRC_FIG_EXTS
 # Build artifact directories (in case the state directory is placed inside the manuscript) + directories the build rsync excludes.
 BUILD_OUTDIRS = ("build", "out") + BUILD_EXCLUDE_DIRS
 
-# One build's outcome, as the HTTP answer of POST /api/rebuild carries it (see compile_tex for the keys).
-BuildResult: TypeAlias = dict[str, Any]
+# The build state's "state" (GET /api/build, builds.json `last.state`): no build yet, a build running, or how the last
+# one finished. The viewer's chip and error panel read the same names.
+BuildState: TypeAlias = Literal["idle", "running", "ok", "ok_errors", "fail"]
+BUILD_STATES: tuple[BuildState, ...] = get_args(BuildState)
+FinishedState: TypeAlias = Literal["ok", "ok_errors", "fail"]
+# One LaTeX error of the error panel: {"line": <int or None>, "msg": <text>} (latex_errors).
+LatexError: TypeAlias = dict[str, Any]
+Json: TypeAlias = dict[str, Any]
+
+# ---------------------------------------------------------------- Build outcomes
+#
+# A build ends in one of these values; nothing here writes their JSON or their failure texts. The HTTP answer of POST
+# /api/rebuild is written once, at the web edge (limn.web.answers.rebuild_answer), and a failure's log text comes from
+# the web layer's table (limn.web.errors.BUILD_FAILURES) through the `describe` function the composition root passes
+# to the calls that record a finished build. Where a field is "None: no key", the answer leaves that key out - the
+# answer has always carried only what the build got as far as.
+
+# Why a build failed; each kind has one text in limn.web.errors.BUILD_FAILURES. The narrower kinds are what each
+# failure type can carry (tests pin that together they are every kind but "copy", which is CopyFailed's own).
+BuildFailureKind: TypeAlias = Literal[
+    "copy", "timeout", "no_pdf", "no_synctex", "render", "pdf_copy", "pdf_missing", "crashed", "worker_crashed"
+]
+RenderFailureKind: TypeAlias = Literal["render", "pdf_copy"]
+OutputFailureKind: TypeAlias = Literal["timeout", "no_pdf", "no_synctex", "render", "pdf_copy"]
+AbortKind: TypeAlias = Literal["pdf_missing", "crashed", "worker_crashed"]
+
+
+@dataclass(frozen=True)
+class BuildOk:
+    """A build that made new page images with no LaTeX error.
+
+    log is latexmk's last lines ("" for a view-only render); pull is the --git-pull record (None: no pull ran, no key);
+    src_mtime the manuscript mtime it compiled (None for a view-only document, no key); src_hash the fingerprint of
+    what it compiled (None when it could not be read); head the short commit, build the new page directory's name,
+    pages how many page images it holds."""
+
+    log: str
+    elapsed_s: float
+    pull: Json | None
+    src_mtime: float | None
+    src_hash: str | None
+    head: str
+    build: str
+    pages: int
+
+
+@dataclass(frozen=True)
+class BuildOkWithErrors:
+    """A LaTeX build that made new page images although the log has errors ('! ' lines, at most five in errors).
+    The other fields are BuildOk's."""
+
+    errors: list[LatexError]
+    log: str
+    elapsed_s: float
+    pull: Json | None
+    src_mtime: float
+    src_hash: str | None
+    head: str
+    build: str
+    pages: int
+
+
+@dataclass(frozen=True)
+class CopyFailed:
+    """The manuscript copy could not be trusted (limn.build.ManuscriptCopyError, its text in error), so nothing was
+    compiled. pull and src_mtime as in BuildOk; no fingerprint was taken."""
+
+    error: str
+    elapsed_s: float
+    pull: Json | None
+    src_mtime: float
+
+
+@dataclass(frozen=True)
+class BuildFailed:
+    """The build ran but left no new page images: latexmk timed out, made no fresh PDF or no SyncTeX file, or the
+    pages could not be rendered or stored. detail fills the kind's text (the OSError of pdf_copy, else "");
+    output is latexmk's last lines, appended after the text (None for a view-only render, which runs no latexmk).
+    errors, pull, src_mtime and src_hash as in BuildOk and BuildOkWithErrors."""
+
+    kind: OutputFailureKind
+    detail: str
+    output: str | None
+    errors: list[LatexError]
+    elapsed_s: float
+    pull: Json | None
+    src_mtime: float | None
+    src_hash: str | None
+
+
+@dataclass(frozen=True)
+class BuildAborted:
+    """The build stopped before it measured anything: a view-only document's PDF is missing (detail: its path), or the
+    build died of an unexpected exception (detail: its repr) - in the tracked build (crashed) or in the background
+    worker around it (worker_crashed). Reported with elapsed_s 0.0."""
+
+    kind: AbortKind
+    detail: str
+
+
+FailedBuild: TypeAlias = CopyFailed | BuildFailed | BuildAborted
+FinishedBuild: TypeAlias = BuildOk | BuildOkWithErrors | FailedBuild
+# The text of a failed build's log (limn.web.errors.build_failure_log), passed in by the composition root.
+Describe: TypeAlias = Callable[[FailedBuild], str]
+
+
+@dataclass(frozen=True)
+class BuildBusy:
+    """The document is already building (its build lock is held); nothing was started."""
+
+
+@dataclass(frozen=True)
+class BuildStarted:
+    """A background build of the document was started; its state is running."""
+
+
+@dataclass(frozen=True)
+class BuildSkipped:
+    """Startup found the document's page images current, so it did not build."""
+
+
+@dataclass(frozen=True)
+class PagesNotRendered:
+    """render_pages made no page directory: pdftoppm failed (render), or the PDF and its companions could not be
+    copied next to the pages (pdf_copy; detail is the OSError)."""
+
+    kind: RenderFailureKind
+    detail: str
+
 
 # Guards the read-and-refill of every document's src_mtime memo (BuildDoc.mcache). A leaf lock: nothing is
 # called while holding it, and it owns nothing that needs closing.
 _MTIME_LOCK = threading.Lock()
 
 
-class BuildDoc(Protocol):
+class BuildStateHolder(Protocol):
+    """A document's build state as a reader outside the build sees it (the remote-main watch, limn.gitsync)."""
+
+    @property
+    def bstate(self) -> dict[str, Any]:
+        """The build state GET /api/build reports (see state_snapshot); its "state" is a BuildState."""
+
+    @property
+    def bstate_lock(self) -> threading.Lock:
+        """Guards bstate."""
+
+
+class BuildDoc(BuildStateHolder, Protocol):
     """What the build needs from a document. server.Doc provides it; this module never imports the server.
 
     The paths say where the manuscript is and where this document's artifacts go; the rest are the document's
     own build resources - one build at a time (lock), the progress/error state the viewer polls (bstate and
-    its lock), the builds.json read-modify-write lock (builds_lock) and the 2-second src_mtime memo (mcache,
-    a [key, value, measured-at] list)."""
+    its lock, from BuildStateHolder), the builds.json read-modify-write lock (builds_lock) and the 2-second
+    src_mtime memo (mcache, a [key, value, measured-at] list)."""
 
     @property
     def src(self) -> Path:
@@ -104,14 +243,6 @@ class BuildDoc(Protocol):
     @property
     def lock(self) -> threading.Lock:
         """Held for the whole of one build of this document."""
-
-    @property
-    def bstate(self) -> dict[str, Any]:
-        """The build state GET /api/build reports (see state_snapshot)."""
-
-    @property
-    def bstate_lock(self) -> threading.Lock:
-        """Guards bstate."""
 
     @property
     def builds_lock(self) -> threading.Lock:
@@ -310,27 +441,31 @@ def state_snapshot(D: BuildDoc) -> dict[str, Any]:
 # ---------------------------------------------------------------- One build at a time per document
 
 
-def build_now(D: BuildDoc, run: Callable[[], BuildResult]) -> BuildResult:
-    """Run one build of D synchronously. If D is already building, returns busy without waiting.
+def build_now(D: BuildDoc, run: Callable[[], FinishedBuild]) -> FinishedBuild | BuildBusy:
+    """Run one build of D synchronously. If D is already building, returns BuildBusy without waiting.
 
     run is the tracked build (see run_tracked) bound to D by the caller. One lock per document - different
     documents build concurrently (each has its own build folder)."""
     lock = D.lock
     if not lock.acquire(blocking=False):
-        return {"ok": False, "busy": True}
+        return BuildBusy()
     try:
         return run()
     finally:
         lock.release()
 
 
-def build_in_background(D: BuildDoc, run: Callable[[], BuildResult], started_at: str) -> dict[str, Any]:
-    """POST /api/rebuild?async=1: if D's lock is free, runs the same tracked build on a daemon thread and returns immediately.
+def build_in_background(
+    D: BuildDoc, run: Callable[[], FinishedBuild], started_at: str, describe: Describe
+) -> BuildStarted | BuildBusy:
+    """POST /api/rebuild?async=1: if D's lock is free, runs the same tracked build on a daemon thread and returns
+    BuildStarted at once; BuildBusy when D is already building.
 
     The state turns running before the thread starts, so the next poll already sees it. If run itself dies,
-    the build is still finished as fail - the chip must never stay at running."""
+    the build is still finished as a failure (BuildAborted worker_crashed, its log text from describe) - the chip
+    must never stay at running."""
     if not D.lock.acquire(blocking=False):
-        return {"state": "running", "busy": True}
+        return BuildBusy()
     state_update(D, state="running", phase="copy", started_at=started_at, start_ts=time.time())
 
     def worker() -> None:
@@ -338,37 +473,29 @@ def build_in_background(D: BuildDoc, run: Callable[[], BuildResult], started_at:
         try:
             run()
         except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the tracked build itself dies
-            finish_build(
-                D,
-                {
-                    "ok": False,
-                    "state": "fail",
-                    "errors": [],
-                    "log": "빌드 스레드에서 예상 밖 예외가 났습니다: %r" % e,
-                    "elapsed_s": 0.0,
-                },
-                None,
-            )
+            finish_build(D, BuildAborted("worker_crashed", repr(e)), None, describe)
         finally:
             D.lock.release()
 
     threading.Thread(target=worker, daemon=True).start()
-    return {"state": "running"}
+    return BuildStarted()
 
 
-def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildResult], started_at: str) -> BuildResult:
+def run_tracked(
+    D: BuildDoc, state_dir: Path, compile_step: Callable[[], FinishedBuild], started_at: str, describe: Describe
+) -> FinishedBuild:
     """Wraps one build (compile_step) to fill in D's build state (progress chip / error panel) and the build history.
 
     compile_step is compile_tex for a LaTeX document or the view-only PDF render, bound to D by the caller.
     Even if it raises an unexpected exception (e.g. an OSError near an rsync/latexmk call), the build state is
     never left stuck at running - if this function died inside an async worker, the next poll would show
-    "building" forever. built_src_mtime is fixed to the mtime of "the manuscript this build actually
-    compiled" - with --git-pull that's after the pull (fast-forward can bump the .tex mtime); otherwise
-    compile_tex measures it right before the copy and returns it as res["src_mtime"] (force=True, skipping the
-    2-second cache). Only when the step can't return that value (a PDF document, or a failure before
-    res["src_mtime"] gets filled in) does the build start time (src_mtime_at_start) stand in instead. It's
-    only committed to file on ok|ok_errors - on failure the screen still shows the old PDF, so the
-    "manuscript modified" badge must not turn off."""
+    "building" forever; the exception becomes BuildAborted crashed. built_src_mtime is fixed to the mtime of
+    "the manuscript this build actually compiled" - with --git-pull that's after the pull (fast-forward can bump
+    the .tex mtime); otherwise compile_tex measures it right before the copy and returns it as the outcome's
+    src_mtime (force=True, skipping the 2-second cache). Only when the outcome has no such value (a PDF document,
+    or a build that stopped before measuring) does the build start time (src_mtime_at_start) stand in instead.
+    It's only committed to file on a successful build - on failure the screen still shows the old PDF, so the
+    "manuscript modified" badge must not turn off. describe gives a failure its log text (build state, history)."""
     with D.bstate_lock:
         last_s = D.bstate.get("last_s")
     state_update(
@@ -382,56 +509,103 @@ def run_tracked(D: BuildDoc, state_dir: Path, compile_step: Callable[[], BuildRe
         log_tail="",
     )
     src_mtime_at_start = src_mtime(D, state_dir, force=True)
+    res: FinishedBuild
     try:
         res = compile_step()
     except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the build dies
-        res = {
-            "ok": False,
-            "state": "fail",
-            "errors": [],
-            "log": "빌드 중 예상 밖 예외가 났습니다: %r" % e,
-            "elapsed_s": 0.0,
-        }
-    src_mtime_for_build = res.get("src_mtime")
-    if not is_num(src_mtime_for_build):
-        # fallback for cases res couldn't fill in - a PDF document, or a failure before the copy
-        src_mtime_for_build = src_mtime_at_start
-    if res.get("state") in ("ok", "ok_errors"):
+        res = BuildAborted("crashed", repr(e))
+    compiled = compiled_mtime(res)
+    # fallback for outcomes without one - a PDF document, or a build that stopped before measuring
+    src_mtime_for_build = src_mtime_at_start if compiled is None else compiled
+    if isinstance(res, BuildOk | BuildOkWithErrors):
         write_built_src_mtime(D, state_dir, src_mtime_for_build)
-    finish_build(D, res, src_mtime_for_build)
+    finish_build(D, res, src_mtime_for_build, describe)
     return res
 
 
-def finish_build(D: BuildDoc, res: BuildResult, src_mtime_for_build: float | None) -> None:
+def compiled_mtime(res: FinishedBuild) -> float | None:
+    """The mtime of the manuscript the build compiled (measured after the pull, before the copy), or None when the
+    build never measured it (a view-only render, or a build that stopped first)."""
+    match res:
+        case BuildOk(src_mtime=m) | BuildOkWithErrors(src_mtime=m) | CopyFailed(src_mtime=m) | BuildFailed(src_mtime=m):
+            return m
+        case BuildAborted():
+            return None
+
+
+def finished_state(res: FinishedBuild) -> FinishedState:
+    """The build state name of a finished build: ok, ok_errors (new pages, LaTeX errors) or fail."""
+    match res:
+        case BuildOk():
+            return "ok"
+        case BuildOkWithErrors():
+            return "ok_errors"
+        case CopyFailed() | BuildFailed() | BuildAborted():
+            return "fail"
+
+
+def build_errors(res: FinishedBuild) -> list[LatexError]:
+    """The LaTeX errors a finished build reports ([] when it has none or never ran latexmk)."""
+    match res:
+        case BuildOkWithErrors(errors=errors) | BuildFailed(errors=errors):
+            return errors
+        case BuildOk() | CopyFailed() | BuildAborted():
+            return []
+
+
+def build_elapsed(res: FinishedBuild) -> float:
+    """How long the build took in seconds (rounded to 0.1); 0.0 for a build that stopped before measuring."""
+    match res:
+        case BuildOk(elapsed_s=s) | BuildOkWithErrors(elapsed_s=s) | CopyFailed(elapsed_s=s) | BuildFailed(elapsed_s=s):
+            return s
+        case BuildAborted():
+            return 0.0
+
+
+def build_pull(res: FinishedBuild) -> Json | None:
+    """The --git-pull record of the build, or None when no pull ran."""
+    match res:
+        case BuildOk(pull=p) | BuildOkWithErrors(pull=p) | CopyFailed(pull=p) | BuildFailed(pull=p):
+            return p
+        case BuildAborted():
+            return None
+
+
+def finish_build(D: BuildDoc, res: FinishedBuild, src_mtime_for_build: float | None, describe: Describe) -> None:
     """A build finished (success or failure either way) - record it in history, bump build_seq, then update D's build state.
 
     src_mtime_for_build is the mtime of "the manuscript this build actually compiled" (after the pull with
     --git-pull, otherwise measured right before the copy - see run_tracked()). Because build_ref_mtime()
     looks at this history entry before built_src_mtime.txt, the value recorded here is the effective baseline
-    for the "manuscript modified" badge.
+    for the "manuscript modified" badge. A failure's log is describe's text for it.
 
     build_seq is "number of finished builds". The viewer notices a build it never saw by checking whether
     this value changed - even a build that starts and finishes inside a single 5-second polling gap (never
     observed as running) still bumps seq. seq and the final state are changed together (so there's never a
     visible moment where the state is final but seq is still the old value)."""
-    state = res.get("state", "fail")
+    state = finished_state(res)
+    new_pages: BuildOk | BuildOkWithErrors | None
+    if isinstance(res, BuildOk | BuildOkWithErrors):
+        new_pages, log = res, res.log
+    else:
+        new_pages, log = None, describe(res)
     last = {
         "state": state,
-        "errors": list(res.get("errors") or [])[:5],
+        "errors": list(build_errors(res))[:5],
         "finished_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "elapsed_s": res.get("elapsed_s", 0.0),
-        "log_tail": str(res.get("log") or "")[-4000:],
-        "head": res.get("head"),
-        "pull": res.get("pull"),
+        "elapsed_s": build_elapsed(res),
+        "log_tail": log[-4000:],
+        "head": None if new_pages is None else new_pages.head,
+        "pull": build_pull(res),
     }
     with D.bstate_lock:
         last["started_at"] = D.bstate.get("started_at")
     ent = None
-    if state in ("ok", "ok_errors") and res.get("build"):
+    if new_pages is not None and new_pages.build:
         ent = {
-            "build": res["build"],
+            "build": new_pages.build,
             "src_mtime": src_mtime_for_build,
-            "src_hash": res.get("src_hash"),
+            "src_hash": new_pages.src_hash,
             "finished_at": last["finished_at"],
         }
     seq = record_build(D, last, ent)
@@ -444,11 +618,11 @@ def finish_build(D: BuildDoc, res: BuildResult, src_mtime_for_build: float | Non
         finished_at=last["finished_at"],
         elapsed_s=last["elapsed_s"],
         last_s=last["elapsed_s"],
-        pages=res.get("pages", 0),
+        pages=0 if new_pages is None else new_pages.pages,
         errors=last["errors"],
         head=last["head"],
         pull=last["pull"],
-        log_tail=res.get("log", ""),
+        log_tail=log,
         built_at=read_built_at(D),
         last={
             "state": state,
@@ -459,6 +633,14 @@ def finish_build(D: BuildDoc, res: BuildResult, src_mtime_for_build: float | Non
             "pull": last["pull"],
         },
     )
+
+
+def last_build_failed(D: BuildStateHolder) -> bool:
+    """Did D's last finished build fail (its build state is fail)? The remote-main watch reads this for a document at
+    rest; a running or never-run build has not failed."""
+    with D.bstate_lock:
+        state: BuildState = D.bstate.get("state", "idle")
+    return state == "fail"
 
 
 # ---------------------------------------------------------------- The LaTeX build
@@ -543,41 +725,40 @@ def copy_manuscript(src: Path, dest: Path) -> None:
         raise ManuscriptCopyError(str(e)) from e
 
 
-def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]] | None) -> BuildResult:
+def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], Json] | None) -> FinishedBuild:
     """Builds D with -synctex=1 from a copy, leaving the original untouched, then renders pages into a new directory and only swaps the pointer.
 
-    pull is the --git-pull step (None when the flag is off); its result is reported as res["pull"]. Three
-    outcomes: fail = no new PDF or timeout (screen keeps the old PDF), ok_errors = a new PDF came out but there
-    are LaTeX errors ('! ' lines), ok = no errors. The result (the HTTP answer of POST /api/rebuild) has ok,
-    state, errors, log, elapsed_s and, as far as the build got, pull, src_mtime, src_hash, head, build (the new
-    page directory's name) and pages."""
+    pull is the --git-pull step (None when the flag is off); its record is the outcome's pull. Outcomes: CopyFailed
+    (the copy could not be trusted, nothing compiled), BuildFailed (no new PDF, a timeout, no SyncTeX, or the pages
+    could not be rendered - the screen keeps the old PDF), BuildOkWithErrors (a new PDF with LaTeX errors, '! '
+    lines) and BuildOk (no errors). Each carries what the build got as far as: the pull, the manuscript mtime it
+    compiled, the copy's fingerprint, latexmk's last lines, and for a success the new page directory."""
     t0 = time.time()
     D.build.mkdir(parents=True, exist_ok=True)
-    res: BuildResult = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
+    pulled: Json | None = None
 
     # --git-pull fast-forwards to remote main before the copy step (docs/handbook/build-sync.md §pull 단계).
     if pull is not None:
         state_update(D, phase="pull")
-        res["pull"] = pull()
+        pulled = pull()
         state_update(D, phase="copy")
     # mtime of the manuscript this build will actually compile - after the pull if there was one (a
     # fast-forward can bump the .tex mtime), otherwise measured now (right before the copy). run_tracked()
     # commits this value to built_src_mtime/history - using the build start time (before the pull) instead
     # caused the new mtime from the pull to be misread as "not built yet", leaving the "manuscript modified"
     # badge on even right after a success.
-    res["src_mtime"] = src_mtime(D, cfg.state, force=True)
+    compiled_at = src_mtime(D, cfg.state, force=True)
 
     try:
         copy_manuscript(D.src, D.build)
     except ManuscriptCopyError as e:
-        res["log"] = "원고 사본을 만들지 못했습니다: %s" % e
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        return res
+        return CopyFailed(str(e), round(time.time() - t0, 1), pulled, compiled_at)
     # The fingerprint is taken from the copy - these are exactly the files this build actually compiles (the original can still change meanwhile).
+    src_hash: str | None
     try:
-        res["src_hash"] = source_fingerprint(D, D.build, cfg.state)
+        src_hash = source_fingerprint(D, D.build, cfg.state)
     except OSError:
-        res["src_hash"] = None
+        src_hash = None
 
     state_update(D, phase="latex")
     # A single document runs in the build root as before; a --doc document runs in the folder holding its main .tex (Doc.out).
@@ -587,7 +768,6 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
     with contextlib.suppress(OSError):
         atomic_write(D.dir / "build.log", out)
     tail = "\n".join(out.splitlines()[-40:])[-4000:]
-    res["log"] = tail
 
     pdf = D.out / (D.main.stem + ".pdf")
     syn = D.out / (D.main.stem + ".synctex.gz")
@@ -600,42 +780,37 @@ def compile_tex(D: BuildDoc, cfg: BuildConfig, pull: Callable[[], dict[str, Any]
         )
     except OSError:
         logtxt = out
-    res["errors"] = latex_errors(logtxt)
+    errors = latex_errors(logtxt)
+
+    def failed(kind: OutputFailureKind, detail: str = "") -> BuildFailed:
+        """This build's failure of `kind`, with latexmk's last lines and what it compiled."""
+        return BuildFailed(kind, detail, tail, errors, round(time.time() - t0, 1), pulled, compiled_at, src_hash)
 
     fresh = (not timed_out) and pdf.exists() and pdf.stat().st_mtime >= t0 - 1
     if not fresh:
-        res["log"] = ("시간 초과로 멈췄습니다.\n" if timed_out else "새 PDF 가 나오지 않았습니다.\n") + tail
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        return res
+        return failed("timeout" if timed_out else "no_pdf")
     if not syn.exists() or syn.stat().st_mtime < t0 - 1:
-        res["log"] = "synctex.gz 가 없습니다 — latexmk 가 -synctex=1 을 받았는지 확인하세요.\n" + tail
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        return res
+        return failed("no_synctex")
 
     extra = [syn]
     aux = D.out / (D.main.stem + ".aux")
     if aux.is_file() and aux.stat().st_mtime >= t0 - 1:
         extra.append(aux)
-    rendered = render_pages(D, pdf, extra, cfg.dpi)
-    if rendered[0] is None:  # (None, error message)
-        res["log"] = rendered[1] + "\n" + tail
-        res["elapsed_s"] = round(time.time() - t0, 1)
-        return res
-    newdir = rendered[0]
+    newdir = render_pages(D, pdf, extra, cfg.dpi)
+    if isinstance(newdir, PagesNotRendered):
+        return failed(newdir.kind, newdir.detail)
     head_short = commit_pages(D, newdir)
-    res["head"] = head_short
-
-    res["state"] = "ok_errors" if res["errors"] else "ok"
-    res["ok"] = True
-    res["build"] = newdir.name
-    res["pages"] = len(list(newdir.glob("page-*.png")))
-    res["elapsed_s"] = round(time.time() - t0, 1)
-    return res
+    pages = len(list(newdir.glob("page-*.png")))
+    elapsed_s = round(time.time() - t0, 1)
+    if errors:
+        return BuildOkWithErrors(errors, tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
+    return BuildOk(tail, elapsed_s, pulled, compiled_at, src_hash, head_short, newdir.name, pages)
 
 
-def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> tuple[Path, None] | tuple[None, str]:
-    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps showing the old directory until this finishes.
-    Returns (directory, None) or (None, error message)."""
+def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> Path | PagesNotRendered:
+    """Renders pages into a new directory and drops in a copy of the PDF (and extra - synctex). The screen keeps
+    showing the old directory until this finishes. Returns the new directory, or why there is none (the half-made
+    directory is removed)."""
     D.dir.mkdir(parents=True, exist_ok=True)
     bid = time.strftime("%Y%m%d%H%M%S")
     name = "pages-" + bid
@@ -658,15 +833,15 @@ def render_pages(D: BuildDoc, pdf: Path, extra: list[Path], dpi: int) -> tuple[P
         ok_render = False
     if not ok_render:
         shutil.rmtree(newdir, ignore_errors=True)
-        return None, "쪽 이미지를 그리지 못했습니다(pdftoppm)."
+        return PagesNotRendered("render", "")
     try:
         shutil.copy2(pdf, newdir / D.pdf_name)
         for f in extra:
             shutil.copy2(f, newdir / f.name)
     except OSError as e:
         shutil.rmtree(newdir, ignore_errors=True)
-        return None, "PDF 사본을 쪽 디렉토리에 두지 못했습니다: %s" % e
-    return newdir, None
+        return PagesNotRendered("pdf_copy", str(e))
+    return newdir
 
 
 def commit_pages(D: BuildDoc, newdir: Path) -> str:
@@ -702,39 +877,32 @@ def pdf_signature(D: BuildDoc) -> str | None:
         return None
 
 
-def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildResult:
+def render_pdf_doc(D: BuildDoc, cfg: BuildConfig) -> BuildOk | BuildFailed | BuildAborted:
     """The 'build' of view-only document D - renders its PDF into page images at cfg.dpi. No LaTeX, SyncTeX, or pull.
     The PDF's signature is recorded (pdf_sig.txt) after a render, successful or not, so a PDF that fails to render is
-    retried only when the file changes, never on every poll. A missing PDF is a fail result naming it."""
+    retried only when the file changes, never on every poll. A missing PDF is BuildAborted pdf_missing naming it."""
     t0 = time.time()
-    res: BuildResult = {"ok": False, "state": "fail", "errors": [], "log": "", "elapsed_s": 0.0}
     sig = pdf_signature(D)
     if sig is None:
-        res["log"] = "PDF 가 없습니다: %s" % D.main
-        return res
+        return BuildAborted("pdf_missing", str(D.main))
+    src_hash: str | None
     try:
-        res["src_hash"] = doc_fingerprint(D, cfg.state)
+        src_hash = doc_fingerprint(D, cfg.state)
     except OSError:
-        res["src_hash"] = None
-    newdir, err = render_pages(D, D.main, [], cfg.dpi)
-    if newdir is None:
-        res["log"] = err
-        res["elapsed_s"] = round(time.time() - t0, 1)
+        src_hash = None
+    newdir = render_pages(D, D.main, [], cfg.dpi)
+    if isinstance(newdir, PagesNotRendered):
+        failed = BuildFailed(newdir.kind, newdir.detail, None, [], round(time.time() - t0, 1), None, None, src_hash)
         # never retries the same file every 3 seconds - re-renders only when the file changes
         with contextlib.suppress(OSError):
             atomic_write(D.dir / "pdf_sig.txt", sig)
-        return res
-    res["head"] = commit_pages(D, newdir)
+        return failed
+    head = commit_pages(D, newdir)
     with contextlib.suppress(OSError):
         atomic_write(D.dir / "pdf_sig.txt", sig)
-    res.update(
-        state="ok",
-        ok=True,
-        build=newdir.name,
-        pages=len(list(newdir.glob("page-*.png"))),
-        elapsed_s=round(time.time() - t0, 1),
+    return BuildOk(
+        "", round(time.time() - t0, 1), None, None, src_hash, head, newdir.name, len(list(newdir.glob("page-*.png")))
     )
-    return res
 
 
 def pdf_changed(D: BuildDoc) -> bool:
@@ -750,14 +918,13 @@ def pdf_changed(D: BuildDoc) -> bool:
     return sig != done
 
 
-def refresh_pdf_doc(D: Doc, start: Callable[[Doc], BuildResult]) -> bool:
+def refresh_pdf_doc(D: Doc, start: Callable[[Doc], BuildStarted | BuildBusy]) -> bool:
     """If view-only document D's PDF changed (pdf_changed), start its tracked re-render with `start` (the composition
     root's background build). True when a render started; False for a LaTeX document, an unchanged or missing PDF, or
-    a render already running (start answered busy)."""
+    a render already running (start answered BuildBusy)."""
     if not D.is_pdf or not pdf_changed(D):
         return False
-    r = start(D)
-    return not r.get("busy")
+    return isinstance(start(D), BuildStarted)
 
 
 # ---------------------------------------------------------------- Build history (builds.json)

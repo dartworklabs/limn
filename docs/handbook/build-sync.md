@@ -33,13 +33,31 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 | --- | --- | --- |
 | `ok` | 새 PDF가 나왔고 LaTeX 로그에 `! ` 줄이 없다 | 새 쪽으로 교체 |
 | `ok_errors` | 새 PDF는 나왔지만 `! ` 줄이 있다(nonstopmode의 `\undefinedmacro` 등) | 새 쪽으로 교체 + 오류 알림 |
-| `fail` | 새 PDF가 없거나(PDF mtime < 시작 시각) 시간 초과 | **이전 쪽 그대로** |
+| `fail` | 원고 사본을 못 믿거나, 새 PDF가 없거나(PDF mtime < 시작 시각), 시간 초과, SyncTeX 파일이 없거나, 쪽을 못 그렸다 | **이전 쪽 그대로** |
 
-비동기 조회(`GET /api/build`)에는 빌드 전의 `idle` 과 진행 중인 `running` 이 더 있다(§비동기 재빌드).
+비동기 조회(`GET /api/build`)에는 빌드 전의 `idle` 과 진행 중인 `running` 이 더 있다(§비동기 재빌드). 다섯 이름은 `limn/build.py` 의 `BuildState`(`BUILD_STATES`)다.
+
+### 빌드 결과
+
+빌드 한 번은 값 하나로 끝난다. 상태 문자열이 든 dict를 돌려주지 않는다. 경우마다 frozen dataclass가 따로 있고, 코드는 `match` 로 타입을 가른다(mypy `exhaustive-match` 가 빠진 경우를 잡는다). 모두 [`src/limn/build.py`](../../src/limn/build.py) 에 있다.
+
+| 값 | 뜻 | `state` |
+| --- | --- | --- |
+| `BuildOk` | 새 쪽, LaTeX 오류 없음 | `ok` |
+| `BuildOkWithErrors` | 새 쪽, `! ` 줄 있음(`errors`) | `ok_errors` |
+| `CopyFailed` | 원고 사본을 못 믿어 컴파일하지 않았다 | `fail` |
+| `BuildFailed(kind)` | 컴파일했지만 새 쪽이 없다. `kind` 는 `timeout`·`no_pdf`·`no_synctex`·`render`(pdftoppm)·`pdf_copy`(PDF 사본을 쪽 옆에 못 둠) | `fail` |
+| `BuildAborted(kind)` | 아무것도 재기 전에 멈췄다. `kind` 는 `pdf_missing`(보기 전용 PDF가 없다)·`crashed`(추적 빌드의 예상 밖 예외)·`worker_crashed`(백그라운드 스레드의 예상 밖 예외) | `fail` |
+
+실패 셋의 이름은 `FailedBuild`, 끝난 빌드 전체는 `FinishedBuild` 다. 빌드를 시작하는 쪽의 값은 따로다. 이미 빌드 중이면 `BuildBusy`, 백그라운드 빌드를 걸었으면 `BuildStarted`, 기동 때 쪽이 이미 맞아 빌드하지 않았으면 `BuildSkipped` 다. 쪽 그리기(`render_pages`)는 새 디렉토리나 `PagesNotRendered(kind)` 를 돌려준다.
+
+실패 로그의 첫 문장은 빌드 모듈에 없다. [`src/limn/web/errors.py`](../../src/limn/web/errors.py) 의 `BUILD_FAILURES` 표가 `kind` 마다 한국어 문장 하나를 갖고, `build_failure_log` 가 그 문장에 세부(사본 오류, `OSError`, PDF 경로, 예외의 repr)를 채운 뒤 latexmk가 돌았으면 줄바꿈과 latexmk 마지막 줄을 붙인다. 조립 지점(`server.py`)이 이 함수를 추적 빌드(`run_tracked`)와 백그라운드 빌드(`build_in_background`)에 넘기므로, 응답의 `log`, `GET /api/build` 의 `log_tail`, `builds.json` 의 `last.log_tail`, 기동 거절 문구가 모두 같은 글이다. 비교 PDF의 `REVISION_FAILURES` 와 같은 방식이다.
+
+원격 main 감시(`limn/gitsync.py`)는 문서의 마지막 빌드가 실패했는지를 `last_build_failed` 로 읽는다. 빌드 상태 dict를 직접 들여다보지 않는다.
 
 ### 응답
 
-응답은 `{"ok": <state≠fail>, "state", "errors": [{"line", "msg"}], "log", "elapsed_s", "head", "pull"}` 이다. 성공하면 `pages`(새 쪽 수)도 붙는다.
+`POST /api/rebuild` 의 본문은 한 곳, [`limn/web/answers.py`](../../src/limn/web/answers.py) 의 `finished_build_body` 가 만든다. 키 순서는 `ok`(state≠fail), `state`, `errors: [{"line", "msg"}]`, `log`, `elapsed_s` 이고, 그 뒤로 빌드가 간 데까지만 붙는다. `pull`(`--git-pull` 일 때), `src_mtime`(LaTeX 빌드가 컴파일한 원고의 mtime), `src_hash`(사본의 지문을 잰 뒤. 못 읽었으면 `null`), 새 쪽이 나왔으면 `head`·`build`(새 쪽 디렉토리 이름)·`pages`(새 쪽 수)다. 원고 사본에서 멈춘 실패에는 `src_hash` 가 없고, `BuildAborted` 는 앞의 다섯 키만 있다(`elapsed_s` 0.0). 상태 코드와 다이어트는 `rebuild_answer`(동기)와 `rebuild_started_answer`(비동기)가 정한다.
 
 | 필드 | 뜻 |
 | --- | --- |
@@ -161,7 +179,7 @@ Limn이 띄우는 git은 모두 [`src/limn/gitrun.py`](../../src/limn/gitrun.py)
 | `ok_errors`·`fail` | 마지막 40줄 |
 | `?log=1` 을 붙인 요청(두 경로 모두) | 다이어트 없이 전체 꼬리(4000자) |
 
-뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(`BUILD_STATE`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다. 다이어트는 응답을 보내기 직전의 HTTP 층 일이라 [`limn/web/answers.py`](../../src/limn/web/answers.py)의 `diet_log`(줄 수 `LOG_TAIL_LINES`)에 있다.
+뷰어의 오류 패널은 `?log=1` 을 항상 붙인다. 그래서 뷰어 동작은 그대로다. 내부 상태(`BUILD_STATE`, `builds.json`)는 다이어트와 무관하게 전체 로그를 보관한다. 다이어트는 응답을 보내기 직전의 HTTP 층 일이라 [`limn/web/answers.py`](../../src/limn/web/answers.py)에 있다. `GET /api/build` 는 빌드 상태 dict에 `diet_log` 를, `/api/rebuild` 는 결과 타입에 `rebuild_answer` 를 쓴다(`BuildOk` 면 `log` 를 빼고 나머지는 자른다). 줄 수는 둘 다 `LOG_TAIL_LINES` 다.
 
 ## 자동 동기화 (가벼운 meta 폴링)
 
