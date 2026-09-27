@@ -32,6 +32,7 @@ from limn.build import (
     PagesNotRendered,
     ViewOnlyNoRebuild,
 )
+from limn.documents import Doc, RunPaths
 from limn.web.answers import finished_build_body, rebuild_answer, rebuild_started_answer
 from limn.web.errors import BUILD_FAILURES, HTTPError, build_failure_log
 
@@ -77,6 +78,7 @@ class PlainDoc:
     bstate_lock: threading.Lock = field(default_factory=threading.Lock)
     builds_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
+    mcache_lock: threading.Lock = field(default_factory=threading.Lock)
     is_pdf: bool = False
 
     @property
@@ -123,6 +125,20 @@ class NoServerState(unittest.TestCase):
         source = BUILD_PY.read_text(encoding="utf-8")
         self.assertNotIn("C.", source)
         self.assertNotIn("cur_doc(", source)
+
+
+class DocumentMemoOwnership(unittest.TestCase):
+    """A document owns its source-mtime memo and lock even when seeded with a caller's list."""
+
+    def test_seeded_memo_is_not_shared_between_documents(self):
+        """Changing one document's injected memo cannot change another document or the caller's seed."""
+        paths = RunPaths(Path("manuscript"), Path("manuscript/main.tex"), Path("state"))
+        seed = ["manuscript", 1.0, 2.0]
+        a = Doc("a", "A", mcache=seed, paths=paths)
+        b = Doc("b", "B", mcache=seed, paths=paths)
+        a.mcache[1] = 3.0
+        self.assertEqual((b.mcache, seed), (["manuscript", 1.0, 2.0], ["manuscript", 1.0, 2.0]))
+        self.assertIsNot(a.mcache_lock, b.mcache_lock)
 
 
 class LatexErrors(unittest.TestCase):
@@ -287,6 +303,25 @@ class TwoDocumentsAtOnce(unittest.TestCase):
             build.load_builds(b)["by"][build.cur_pages(b).name]["src_hash"],
         )
 
+    def test_source_mtime_cache_lock_is_owned_by_each_document(self):
+        """A busy document's memo does not block another document's source scan."""
+        a, b = self.docs["a"], self.docs["b"]
+        completed = threading.Event()
+
+        def read_other_document() -> None:
+            """Measure b's source while a's memo is unavailable to the caller."""
+            build.src_mtime(b, self.state, force=True)
+            completed.set()
+
+        with a.mcache_lock:
+            worker = threading.Thread(target=read_other_document)
+            worker.start()
+            try:
+                self.assertTrue(completed.wait(2), "another document's source scan was blocked")
+            finally:
+                worker.join(2)
+        self.assertFalse(worker.is_alive())
+
 
 # latexmk stand-in whose behaviour LIMN_TEST_LATEXMK picks: ok (PDF, SyncTeX, clean log), errors (the same with a
 # '! ' line in the log), nopdf (output only), nosynctex (a PDF without SyncTeX) or hang (outlives the timeout).
@@ -434,6 +469,21 @@ class Outcomes(unittest.TestCase):
         self.assertEqual(res, BuildAborted("crashed", repr(OSError("boom"))))
         self.assertEqual(build.state_snapshot(self.D)["state"], "fail")
         self.assertEqual(build_failure_log(res), "빌드 중 예상 밖 예외가 났습니다: OSError('boom')")
+
+    def test_source_mtime_failure_finishes_tracked_build(self):
+        """A failed source scan after entering running becomes a recorded failure, leaving the document reusable."""
+        self.D.dir.mkdir(parents=True)
+        with mock.patch.object(build, "src_mtime", side_effect=OSError("scan failed")):
+            res = build.build_now(
+                self.D,
+                lambda: build.run_tracked(
+                    self.D, self.state, lambda: self.fail("compile ran"), "t0", build_failure_log
+                ),
+            )
+        self.assertEqual(res, BuildAborted("crashed", repr(OSError("scan failed"))))
+        self.assertFalse(self.D.lock.locked())
+        self.assertEqual(build.state_snapshot(self.D)["state"], "fail")
+        self.assertEqual(build.load_builds(self.D)["last"]["state"], "fail")
 
 
 class RebuildAnswer(unittest.TestCase):

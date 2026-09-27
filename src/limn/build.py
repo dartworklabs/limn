@@ -191,11 +191,6 @@ class PagesNotRendered:
     detail: str
 
 
-# Guards the read-and-refill of every document's src_mtime memo (BuildDoc.mcache). A leaf lock: nothing is
-# called while holding it, and it owns nothing that needs closing.
-_MTIME_LOCK = threading.Lock()
-
-
 class BuildStateHolder(Protocol):
     """A document's build state as a reader outside the build sees it (the remote-main watch, limn.gitsync)."""
 
@@ -214,7 +209,7 @@ class BuildDoc(BuildStateHolder, Protocol):
     The paths say where the manuscript is and where this document's artifacts go; the rest are the document's
     own build resources - one build at a time (lock), the progress/error state the viewer polls (bstate and
     its lock, from BuildStateHolder), the builds.json read-modify-write lock (builds_lock) and the 2-second
-    src_mtime memo (mcache, a [key, value, measured-at] list)."""
+    src_mtime memo (mcache, a [key, value, measured-at] list) and its lock."""
 
     @property
     def src(self) -> Path:
@@ -259,6 +254,10 @@ class BuildDoc(BuildStateHolder, Protocol):
     @property
     def mcache(self) -> list[Any]:
         """The src_mtime memo: [key, value, measured-at]."""
+
+    @property
+    def mcache_lock(self) -> threading.Lock:
+        """Guards this document's src_mtime memo without serializing other documents."""
 
 
 Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
@@ -554,7 +553,8 @@ def run_tracked(
     """Wraps one build (compile_step) to fill in D's build state (progress chip / error panel) and the build history.
 
     compile_step is compile_tex for a LaTeX document or the view-only PDF render, bound to D by the caller.
-    Even if it raises an unexpected exception (e.g. an OSError near an rsync/latexmk call), the build state is
+    Even if the source-mtime scan or compile step raises an unexpected exception (e.g. an OSError near an
+    rsync/latexmk call), the build state is
     never left stuck at running - if this function died inside an async worker, the next poll would show
     "building" forever; the exception becomes BuildAborted crashed. built_src_mtime is fixed to the mtime of
     "the manuscript this build actually compiled" - with --git-pull that's after the pull (fast-forward can bump
@@ -575,9 +575,10 @@ def run_tracked(
         errors=[],
         log_tail="",
     )
-    src_mtime_at_start = src_mtime(D, state_dir, force=True)
+    src_mtime_at_start: float | None = None
     res: FinishedBuild
     try:
+        src_mtime_at_start = src_mtime(D, state_dir, force=True)
         res = compile_step()
     except Exception as e:  # noqa: BLE001 — must not stay stuck at running even if the build dies
         res = BuildAborted("crashed", repr(e))
@@ -1263,11 +1264,12 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
 
     force=True skips the memo and measures now - if write_built_src_mtime() used the 2-second memo value
     as-is when recording the build-start mtime, then editing the manuscript within 2 seconds of the memo
-    being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time"."""
+    being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time".
+    The cache and its leaf lock belong to D; the file scan runs outside the lock."""
     cache = D.mcache
     key = str(D.src)
     if not force:
-        with _MTIME_LOCK:
+        with D.mcache_lock:
             ckey, at = cache[0], cache[2]
             val: float = cache[1]
             if ckey == key and time.time() - at < 2.0:
@@ -1280,7 +1282,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False) -> float:
         for _rel, e in iter_sources(D, D.src, state_dir):
             with contextlib.suppress(OSError):
                 newest = max(newest, e.stat().st_mtime)
-    with _MTIME_LOCK:
+    with D.mcache_lock:
         cache[0], cache[1], cache[2] = key, newest, time.time()
     return newest
 

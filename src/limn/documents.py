@@ -76,7 +76,7 @@ class Doc:
     root (the same place as for a single document). Under --doc, only the LaTeX document keyed main gets this - so
     adding documents to a single-document instance keeps the body's build history (the source of location
     estimation) continuous. A Doc carries its own build lock, build state and its lock, history lock and src_mtime
-    memo (limn.build.BuildDoc)."""
+    memo and its lock (limn.build.BuildDoc)."""
 
     def __init__(
         self,
@@ -95,7 +95,8 @@ class Doc:
         *,
         paths: RunPaths,
     ) -> None:
-        """A document; src/main are its build root and main file unless legacy (then the run paths' own)."""
+        """A document; src/main are its build root and main file unless legacy (then the run paths' own).
+        A supplied mcache is copied so its mutable memo and lock belong only to this document."""
         self.key, self.name, self.kind = key, name, kind
         self._src, self._main, self.legacy = src, main, legacy
         self.paths = paths
@@ -104,7 +105,8 @@ class Doc:
         self.bstate = bstate if bstate is not None else fresh_build_state()
         self.bstate_lock = bstate_lock or threading.Lock()
         self.builds_lock = builds_lock or threading.Lock()
-        self.mcache = mcache if mcache is not None else [None, 0.0, 0.0]
+        self.mcache = list(mcache) if mcache is not None else [None, 0.0, 0.0]
+        self.mcache_lock = threading.Lock()
 
     @property
     def src(self) -> Path:
