@@ -16,6 +16,7 @@ Run: uv run pytest tests/test_server.py
 """
 
 import dataclasses
+import io
 import json
 import os
 import re
@@ -820,23 +821,114 @@ class ProcessRuntime(unittest.TestCase):
         self.assertFalse(rt.threads[0].is_alive())
 
     def test_main_stops_the_runtime_when_serving_ends(self):
-        """main() stops the Runtime whatever ends serve_forever (Ctrl-C here), and lets that end propagate."""
+        """An interrupted server closes its socket and stops the Runtime while preserving Ctrl-C."""
 
         class Served:
             """A started server whose serving is interrupted."""
+
+            closed = False
 
             def serve_forever(self):
                 """End like a Ctrl-C."""
                 raise KeyboardInterrupt
 
+            def server_close(self):
+                """Record that the listening socket would be released."""
+                self.closed = True
+
         rt = self.runtime()
+        server = Served()
         with (
             mock.patch.object(ps, "build_arg_parser"),
-            mock.patch.object(ps, "start", return_value=Served()),
+            mock.patch.object(ps, "start", return_value=server),
             mock.patch.object(ps, "RT", rt, create=True),
             self.assertRaises(KeyboardInterrupt),
         ):
             ps.main()
+        self.assertTrue(server.closed)
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_main_closes_server_after_normal_serve_return(self):
+        """A server whose loop returns normally releases its socket and stops its Runtime."""
+
+        server = mock.Mock()
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+        ):
+            ps.main()
+        server.server_close.assert_called_once_with()
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_main_stops_runtime_even_when_server_close_fails(self):
+        """A socket-close failure cannot leave watch threads running after serving ends."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaisesRegex(OSError, "cannot close socket"),
+        ):
+            ps.main()
+        self.assertTrue(rt.stopping.is_set())
+
+    def test_main_preserves_serving_error_when_cleanup_also_fails(self):
+        """Both cleanup steps are attempted without replacing the error that ended serving."""
+
+        server = mock.Mock()
+        server.serve_forever.side_effect = RuntimeError("serving failed")
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = mock.Mock()
+        rt.stop.side_effect = OSError("cannot stop runtime")
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            self.assertRaisesRegex(RuntimeError, "serving failed"),
+        ):
+            ps.main()
+        server.server_close.assert_called_once_with()
+        rt.stop.assert_called_once_with()
+
+    def test_main_reports_secondary_cleanup_error_after_normal_return(self):
+        """If both cleanup steps fail after normal serving, the first error propagates and the second is reported."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = mock.Mock()
+        rt.stop.side_effect = OSError("cannot stop runtime")
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            self.assertRaisesRegex(OSError, "cannot close socket"),
+        ):
+            ps.main()
+        rt.stop.assert_called_once_with()
+        self.assertIn("cannot stop runtime", stderr.getvalue())
+
+    def test_main_does_not_treat_callers_error_as_serving_error(self):
+        """A caller handling an unrelated error does not hide a new server cleanup failure."""
+
+        server = mock.Mock()
+        server.server_close.side_effect = OSError("cannot close socket")
+        rt = self.runtime()
+        with (
+            mock.patch.object(ps, "build_arg_parser"),
+            mock.patch.object(ps, "start", return_value=server),
+            mock.patch.object(ps, "RT", rt, create=True),
+        ):
+            try:
+                raise ValueError("outer error")
+            except ValueError:
+                with self.assertRaisesRegex(OSError, "cannot close socket"):
+                    ps.main()
         self.assertTrue(rt.stopping.is_set())
 
     def test_start_stops_watch_when_listen_refuses(self):
