@@ -17,13 +17,11 @@ import re
 import socket
 import sys
 import traceback
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from limn.mark import png as mark_png
 from limn.web import answers, parse
 from limn.web.answers import accepted
 from limn.web.app import App, Document, Json, Principal, Query
@@ -32,16 +30,6 @@ from limn.web.reply import Reply, json_reply as _json_reply
 from limn.web.routes import GetRequest, OtherPostRequest, PinActionRequest, PostDocRequest
 
 MAX_BODY = 1 << 20
-# The Content-Type of a file the /vendor/pdfjs/ route serves, by suffix (limn.files.vendor_file admits only .mjs).
-VENDOR_MIME: Mapping[str, str] = {".mjs": "text/javascript; charset=utf-8"}
-
-
-def _read(path: Path) -> bytes | None:
-    """A served file's bytes, or None when it cannot be read (the route then answers 404 or falls through)."""
-    try:
-        return path.read_bytes()
-    except OSError:
-        return None
 
 
 class Server(ThreadingHTTPServer):
@@ -240,44 +228,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
         """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
-        the routes have always been matched (a /pages/ name with no image falls through): the viewer
-        shell, vendor files and registered feature routes. Sends the matching
+        the routes have always been matched (a /pages/ name with no image falls through): registered feature routes. Sends the matching
         route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
-        reply = self._get_viewer(actor, path) or self._get_vendor(path) or self._get_registered(actor, path, q, D)
+        reply = self._get_registered(actor, path, q, D)
         if reply is None:
             raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
         self._send(*reply)
-
-    def _get_viewer(self, actor: Json, path: str) -> Reply | None:
-        """The viewer shell, icons, version and service worker; None for another path."""
-        app = self.app
-        if path == "/":
-            # the tailnet person who opened this viewer (@-tag candidate) - local/agent is never recorded
-            self._record(actor)
-            return Reply(200, app.viewer().page.encode(), "text/html; charset=utf-8")
-        if path == "/favicon.ico":
-            return Reply(204, b"", "image/x-icon")
-        if path in ("/favicon-32.png", "/apple-touch-icon.png"):  # PNG fallbacks of the SVG favicon, drawn by limn.mark
-            size, rounded = (32, True) if path == "/favicon-32.png" else (180, False)
-            return Reply(200, mark_png(size, app.C.accent, rounded), "image/png", "public, max-age=86400")
-        if path == "/api/version":  # the installed Limn version - no write
-            return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
-        if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
-            return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
-        return None
-
-    def _get_vendor(self, path: str) -> Reply | None:
-        """Serve the bundled PDF.js file, with a 404 for any invalid or missing vendor name."""
-        app = self.app
-        if path.startswith("/vendor/pdfjs/"):
-            # The viewer's vector renderer (PDF.js). Accepts only a single name component - a subpath, '..', or an encoded character gets a 404.
-            vf = app.vendor_file(path[len("/vendor/pdfjs/") :])
-            data = None if vf is None else _read(vf)
-            if vf is not None and data is not None:
-                # Since the filename carries no version, the viewer appends ?v=<PDFJS_VERSION> to bust the cache.
-                return Reply(200, data, VENDOR_MIME[vf.suffix], "public, max-age=86400")
-            raise HTTPError(404, "없는 vendor 파일입니다: %s" % app.hdr_text(path)[:100], reason="not_found")
-        return None
 
     def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
         """Try the application's feature-owned GET routes in registration order."""

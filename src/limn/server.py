@@ -98,6 +98,7 @@ from limn.features.revisions.core import (
 from limn.features.revisions.service import RevisionRequests
 from limn.features.sync import run as gitsync
 from limn.features.sync.service import SyncContext, SyncService
+from limn.features.viewer_shell import routes as viewer_shell_routes
 from limn.files import vendor_file as find_vendor_file
 from limn.locate import PinLocation, est_context, locate_file
 from limn.mark import inline_svg
@@ -416,6 +417,7 @@ class ServerApplication:
         )
         self.revision_requests = RevisionRequests(self.revision_context)
         self.get_routes = (
+            lambda request: viewer_shell_routes.get(request, self),
             lambda request: build_routes.get(request.path, request.query, request.doc, self.hdr_text),
             lambda request: revision_routes.get(request.path, request.query, request.doc, self.revision_requests),
             lambda request: document_routes.get(request, self.document_views),

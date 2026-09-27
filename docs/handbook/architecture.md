@@ -50,7 +50,8 @@ Limn은 **하나의 배포 단위(`dartwork-limn` 패키지) 안에서 표준 �
 | 기능 슬라이스 | `features/collaboration/`의 `directory.py`·`notices.py`·`http.py`·`routes.py` | 사람 파일·후보·기록, 이벤트 파일·멘션 재알림·폴링을 실행별 잠금·캐시·시계에 묶고 `/api/people` 경로와 본문을 만든다. 공통 파일 형식과 순수 규칙은 `people.py`·`events.py`·`mentions.py`에 있다 | `server.py`. 실행별 협력자를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/document_views/`의 `input.py`·`reads.py`·`service.py`·`http.py`·`routes.py` | meta 이벤트 커서 입력, 문서·빌드·목차 읽기, 실행별 핀·동기화·이벤트 조합과 세 조회 경로·응답 | `server.py`. 문서와 실행별 협력자를 명시적으로 받는다 |
 | 기능 슬라이스 | `features/revisions/`의 `input.py`·`answer.py`·`http.py`·`routes.py`·`service.py`·`core.py`·`execution.py`·`jobs.py` | Git 이력·비교 PDF의 요청 검사, 거절·성공 응답과 실행별 비교 문맥 연결. 네 GET 경로와 비교 작업 시작 POST의 매칭·응답은 `routes.py`, Git 이력·diff와 공통 결과 타입은 `core.py`, 스냅숏·격리 실행은 `execution.py`, 비교 캐시·작업 상태는 `jobs.py`가 소유한다 | `server.py`. 실행별 문맥을 함수로 받는다 |
-| 공통 HTTP | `web/`(`handler.py`·`reply.py`·`routes.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사, 요청별 `GetRequest`·`PostDocRequest`와 등록 경로 호출, 공통 응답 형식, 아직 옮기지 않은 경로의 분기·파싱·응답. 빌드·Git 이력·문서·사람·핀 조회 GET과 재빌드·비교 시작·PDF 선택·핀 만들기 POST는 각 기능 패키지에서 매칭한다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
+| 기능 슬라이스 | `features/viewer_shell/`의 `routes.py` | 뷰어 첫 화면·파비콘·버전·서비스 워커·PDF.js 파일의 GET 경로, 응답과 캐시 정책. 화면 조각·번들 파일 자체는 `viewer/`·`vendor/`에 있다 | `server.py`. 실행별 뷰어·파일·색 값을 좁은 계약으로 받는다 |
+| 공통 HTTP | `web/`(`handler.py`·`reply.py`·`routes.py`·`parse.py`·`answers.py`·`errors.py`·`app.py`) | 본문 읽기·접근 검사, 요청별 `GetRequest`·`PostDocRequest`·`PinActionRequest`와 등록 경로 호출, 공통 응답 형식, 아직 옮기지 않은 요청·결과의 파싱·응답. 모든 GET 및 문서 POST·핀 ID POST는 기능 패키지가 경로를 등록한다 | `server.py`. 앱 계약은 `web/app.py`의 `App` 프로토콜이다 |
 | 조립 지점 | `server.py` | 시작 단계를 차례로 불러 실행 설정 `C`, 실행별 런타임 `RT`, 문서 목록을 `ServerApplication` 하나에 묶는다. 실행별 핀 변경 협력자에 `pin_context` 생성 함수를, `PinListing`·`PinMarkdown`에 필요한 조회 사실을 묶는다 | — |
 
 층 밖에 나란히 있는 것이 둘이다.

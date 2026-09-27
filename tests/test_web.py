@@ -35,6 +35,7 @@ from limn.features.pins.location import http as location_http, resolve as pick_r
 from limn.features.pins.trash import http as trash_http
 from limn.features.revisions import answer as revision_answer
 from limn.features.revisions.core import DocumentBusy
+from limn.features.viewer_shell import routes as viewer_shell_routes
 from limn.pins.edit import StaleEdit
 from limn.pins.lifecycle import AgentCannotConfirm, ClaimedByOther, NotInTrash, PinStillOpen, ThreadFull
 from limn.pins.model import DonePin, OpenPin, PinNotFound, ReviewPin, TrashedPin
@@ -55,8 +56,10 @@ COLLABORATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "collaboration" / "ro
 LISTING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "listing" / "routes.py").read_text(encoding="utf-8")
 LOCATION_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "location" / "routes.py").read_text(encoding="utf-8")
 EDITING_ROUTES_SOURCE = (SRC / "limn" / "features" / "pins" / "editing" / "routes.py").read_text(encoding="utf-8")
+VIEWER_SHELL_ROUTES_SOURCE = (SRC / "limn" / "features" / "viewer_shell" / "routes.py").read_text(encoding="utf-8")
 GET_ROUTE_SOURCES = (
     HANDLER_SOURCE,
+    VIEWER_SHELL_ROUTES_SOURCE,
     BUILD_ROUTES_SOURCE,
     REVISION_ROUTES_SOURCE,
     DOCUMENT_ROUTES_SOURCE,
@@ -108,6 +111,7 @@ class Binding(Base):
         for label in ("First", "Second"):
             app = mock.Mock(wraps=ps.Handler.app)
             app.viewer.return_value = ServedViewer(f"<p>{label}</p>", "", {})
+            app.get_routes = (lambda request, bound=app: viewer_shell_routes.get(request, bound),)
             handler = type(f"{label}Handler", (ps.Handler,), {"app": app})
             pages.append(talk_to(types.SimpleNamespace(Handler=handler), b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
 
@@ -182,6 +186,7 @@ class Binding(Base):
 
         replacement = mock.Mock(wraps=first.Handler.app)
         replacement.viewer.return_value = ServedViewer("<p>Replacement</p>", "", {})
+        replacement.get_routes = (lambda request: viewer_shell_routes.get(request, replacement),)
         with mock.patch.object(first.Handler, "app", replacement):
             self.assertEqual(get(first, "/"), b"<p>Replacement</p>")
             self.assertEqual(get(second, "/"), b"<p>Second</p>")
