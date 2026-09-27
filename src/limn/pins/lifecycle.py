@@ -7,7 +7,7 @@ annotation, never an exception (docs/handbook/code-style-roadmap.md R1, R3).
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from limn.pins.model import (
     Actor,
@@ -402,8 +402,7 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
     live says whether the id is already among the live pins; then nothing is restored.
     """
     if live:
-        # A Trash copy carries the id find_trashed() matched; the cast informs the checker, the value is as stored.
-        return AlreadyLive(cast(int, trashed.pin.core.id))
+        return AlreadyLive(trashed.pin.core.pid)  # the id find_trashed() matched
     record = {key: value for key, value in trashed.record.items() if key not in ("dropped_at", "dropped_by")}
     record["restored_at"] = at
     record["restored_by"] = signature(by)
@@ -414,12 +413,6 @@ def restore(trashed: TrashedPin, live: bool, by: Actor, at: str) -> Pin | Alread
 def rev_after(rev: int | None) -> int:
     """The revision after a change to a pin at `rev` (PinCore.rev): a missing rev counts as 0."""
     return (rev or 0) + 1
-
-
-def next_rev(record: Record) -> int:
-    """rev_after() for a stored record as the store reads it (limn.pins.position's re-sync of a row): a missing or
-    empty rev counts as 0."""
-    return int(record.get("rev") or 0) + 1
 
 
 def signature(by: Actor) -> dict[str, str]:

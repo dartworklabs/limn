@@ -7,8 +7,8 @@ Three rules, each a computation over values the caller has already read:
   the same manuscript. The wall clock is never read; the facts arrive as an EstContext (est_basis).
 - **Overlap** - how open line pins of one file relate to each other (overlaps_by_id) and to a not-yet-saved
   selection (selection_rel, overlaps_for_range). Computed on every read, never stored.
-- **Anchor re-sync** - where a pin's lines are after the manuscript was edited (follow_anchor), and the record that
-  results (resync).
+- **Anchor re-sync** - where a pin's lines are after the manuscript was edited (follow_anchor), and the open pin
+  that results (resync).
 
 Nothing here reads files, the clock, subprocesses or HTTP (coding rule R1). Reading the .tex files, the build history
 and where a pin's file is now is limn.locate's job; it passes the facts in and applies what comes back.
@@ -20,11 +20,11 @@ from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
 from limn.mapping import anchor_holds, anchor_of, anchor_offset, find_line
-from limn.pins.lifecycle import next_rev
-from limn.pins.model import OpenPin, is_region_pin, state_of
+from limn.pins.lifecycle import rev_after
+from limn.pins.model import LineSpan, OpenPin, Pin
 from limn.pins.shapes import is_num
 
-# One stored pin as the store holds it: a JSON object. The rules here only read it; resync returns a changed copy.
+# One stored pin record as JSON gives it (estimation still reads the record).
 Row: TypeAlias = Mapping[str, Any]
 # How one range relates to another: a lies inside b, a contains b, or they overlap in part.
 RangeRel: TypeAlias = Literal["inside", "contains", "partial"]
@@ -150,41 +150,42 @@ def range_rel(a_lo: int, a_hi: int, b_lo: int, b_hi: int) -> RangeRel | None:
     return "partial"
 
 
-def overlaps_by_id(rows: Sequence[Row], file_of: Callable[[Row], str]) -> dict[int, list[dict[str, Any]]]:
+def overlaps_by_id(pins: Sequence[Pin], file_of: Callable[[Pin], str]) -> dict[int, list[dict[str, Any]]]:
     """The relationship of every pair of open line pins on the same file (never stored): {id: [{"id", "rel"}, ...]},
-    with an entry (possibly empty) for every open pin, in row order.
+    with an entry (possibly empty) for every open pin, in the pins' order.
 
-    file_of(r) names the file an open line pin is counted in - the caller's located path, so pins made before and
-    after a move of the checkout are one file; it is called once per open line pin, in row order. When two ranges
-    are exactly equal, the one with the smaller id is treated as the outer one (contains) - since neither is truly
-    nested inside the other, a single deterministic rule is needed."""
+    file_of(pin) names the file an open line pin is counted in - the caller's located path, so pins made before and
+    after a move of the checkout are one file; it is called once per open line pin, in order. When two ranges are
+    exactly equal, the one with the smaller id is treated as the outer one (contains) - since neither is truly nested
+    inside the other, a single deterministic rule is needed."""
     out: dict[int, list[dict[str, Any]]] = {}
-    by_file: dict[str, list[Row]] = {}
-    for r in rows:
-        if state_of(r) is not OpenPin:
+    by_file: dict[str, list[tuple[int, LineSpan]]] = {}
+    for pin in pins:
+        if not isinstance(pin, OpenPin):
             continue
-        out.setdefault(r["id"], [])
-        if is_region_pin(r):  # a view-only PDF's pin - no line-range overlap
+        out.setdefault(pin.core.pid, [])
+        span = pin.core.place
+        if not isinstance(span, LineSpan):  # a view-only PDF's pin - no line-range overlap
             continue
-        by_file.setdefault(file_of(r), []).append(r)
+        by_file.setdefault(file_of(pin), []).append((pin.core.pid, span))
     for group in by_file.values():
-        for i, a in enumerate(group):
-            for b in group[i + 1 :]:
-                if (a["lo"], a["hi"]) == (b["lo"], b["hi"]):
-                    outer, inner = (a, b) if a["id"] < b["id"] else (b, a)
-                    out[inner["id"]].append({"id": outer["id"], "rel": "inside"})
-                    out[outer["id"]].append({"id": inner["id"], "rel": "contains"})
+        for i, (a, sa) in enumerate(group):
+            for b, sb in group[i + 1 :]:
+                if (sa.lo, sa.hi) == (sb.lo, sb.hi):
+                    outer, inner = (a, b) if a < b else (b, a)
+                    out[inner].append({"id": outer, "rel": "inside"})
+                    out[outer].append({"id": inner, "rel": "contains"})
                     continue
-                rel_a = range_rel(a["lo"], a["hi"], b["lo"], b["hi"])  # does a fall inside b?
+                rel_a = range_rel(sa.lo, sa.hi, sb.lo, sb.hi)  # does a fall inside b?
                 if rel_a == "inside":
-                    out[a["id"]].append({"id": b["id"], "rel": "inside"})
-                    out[b["id"]].append({"id": a["id"], "rel": "contains"})
+                    out[a].append({"id": b, "rel": "inside"})
+                    out[b].append({"id": a, "rel": "contains"})
                 elif rel_a == "contains":
-                    out[a["id"]].append({"id": b["id"], "rel": "contains"})
-                    out[b["id"]].append({"id": a["id"], "rel": "inside"})
+                    out[a].append({"id": b, "rel": "contains"})
+                    out[b].append({"id": a, "rel": "inside"})
                 elif rel_a == "partial":
-                    out[a["id"]].append({"id": b["id"], "rel": "partial"})
-                    out[b["id"]].append({"id": a["id"], "rel": "partial"})
+                    out[a].append({"id": b, "rel": "partial"})
+                    out[b].append({"id": a, "rel": "partial"})
     return out
 
 
@@ -202,23 +203,24 @@ def selection_rel(lo: int, hi: int, b_lo: int, b_hi: int) -> Literal["equal"] | 
 
 
 def overlaps_for_range(
-    file: str, lo: int, hi: int, rows: Sequence[Row], file_of: Callable[[Row], str]
+    file: str, lo: int, hi: int, pins: Sequence[Pin], file_of: Callable[[Pin], str]
 ) -> list[dict[str, Any]]:
-    """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins of rows counted
-    in that file (file_of, as in overlaps_by_id): [{"id", "lo", "hi", "rel"}] in row order. Nothing is saved.
+    """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins counted in that
+    file (file_of, as in overlaps_by_id): [{"id", "lo", "hi", "rel"}] in the pins' order. Nothing is saved.
 
     Between saved pins (overlaps_by_id), equal ranges are split into inner/outer by id, but a new selection
     has no id yet, so an identical range is reported separately as 'equal' - the viewer surfaces all four
     relationships via a banner with wording that spells out the relationship."""
     out = []
-    for r in rows:
-        if state_of(r) is not OpenPin or is_region_pin(r):
+    for pin in pins:
+        span = pin.core.place
+        if not isinstance(pin, OpenPin) or not isinstance(span, LineSpan):
             continue
-        if file_of(r) != file:
+        if file_of(pin) != file:
             continue
-        rel = selection_rel(lo, hi, r["lo"], r["hi"])
+        rel = selection_rel(lo, hi, span.lo, span.hi)
         if rel:
-            out.append({"id": r["id"], "lo": r["lo"], "hi": r["hi"], "rel": rel})
+            out.append({"id": pin.core.pid, "lo": span.lo, "hi": span.hi, "rel": rel})
     return out
 
 
@@ -257,10 +259,13 @@ def follow_anchor(anchor: Mapping[str, Any], lo: int, hi: int, nlines: Sequence[
     return Followed(new_lo, new_hi, "ok" if (new_lo, new_hi) == (lo, hi) else "moved %+d" % (new_lo - lo))
 
 
-def resync(r: Row, lines: Sequence[str], nlines: Sequence[str], mtime: float, path: str) -> dict[str, Any] | None:
-    """Open line pin r re-matched against its file as read now - the file at path (where the pin's file is found
-    today, ADR-0006), its lines, their normalised form nlines and its mtime. Returns the changed record (a copy, keys
-    in the stored order) or None when nothing changes.
+def resync(
+    pin: OpenPin, span: LineSpan, lines: Sequence[str], nlines: Sequence[str], mtime: float, path: str
+) -> OpenPin | None:
+    """Open line pin `pin`, placed at span (its core.place), re-matched against its file as read now - the file at
+    path (where the pin's file is found today, ADR-0006), its lines, their normalised form nlines and its mtime.
+    Returns the pin re-matched (its record keeps the stored field order, new fields last) or None when nothing
+    changes. A synced_at that is missing or null counts as 0 (never synced).
 
     - A legacy pin saved without an anchor gets one from its current lines, once - never from a file the record does
       not name (path differs from the stored file: it may be a guess).
@@ -270,30 +275,33 @@ def resync(r: Row, lines: Sequence[str], nlines: Sequence[str], mtime: float, pa
     - Otherwise its lines follow the anchor (follow_anchor): moved lines or a lost anchor bump rev; a re-match on a
       moved record writes path into `file`, so lines, synced_at and file describe one file again. `file_rel` is never
       added here."""
-    moved = path != r["file"]  # measured on another file than the stored one (ADR-0006)
-    if "anchor" not in r:  # backfill a legacy pin saved without an anchor, once
+    moved = path != span.file  # measured on another file than the stored one (ADR-0006)
+    anchor = pin.core.anchor
+    if anchor is None:  # backfill a legacy pin saved without an anchor, once
         if moved:
             return None  # never from a file the record does not name (it may be a guess)
-        out = dict(r)
-        out["anchor"] = anchor_of(lines, r["lo"], r["hi"])
+        out = dict(pin.record)
+        out["anchor"] = anchor_of(lines, span.lo, span.hi)
         out["synced_at"] = mtime
-        return out
-    if not r["anchor"]:  # a pin that selected only blank lines has no anchor to follow
+        return OpenPin.from_record(out)
+    if not anchor:  # a pin that selected only blank lines has no anchor to follow
         return None
-    if r.get("synced_at", 0) >= mtime and (not moved or anchor_holds(r["anchor"], r["lo"], nlines)):
+    synced_at = pin.core.synced_at if pin.core.synced_at is not None else 0
+    if synced_at >= mtime and (not moved or anchor_holds(anchor, span.lo, nlines)):
         return None
-    out = dict(r)
-    before = (r["lo"], r["hi"], bool(r.get("stale")))
-    match follow_anchor(r["anchor"], r["lo"], r["hi"], nlines):
+    out = dict(pin.record)
+    match follow_anchor(anchor, span.lo, span.hi, nlines):
         case AnchorLost():
             out["stale"], out["sync"] = True, "lost"
+            after = (span.lo, span.hi, True)
         case Followed(lo=lo, hi=hi, sync=sync):
             out["sync"] = sync
             out["lo"], out["hi"] = lo, hi
             out.pop("stale", None)
-    if (out["lo"], out["hi"], bool(out.get("stale"))) != before:
-        out["rev"] = next_rev(out)
+            after = (lo, hi, False)
+    if after != (span.lo, span.hi, bool(pin.core.stale)):
+        out["rev"] = rev_after(pin.core.rev)
     if moved:
         out["file"] = path  # the new numbers describe this file
     out["synced_at"] = mtime
-    return out
+    return OpenPin.from_record(out)

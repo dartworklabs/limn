@@ -14,6 +14,7 @@ from pathlib import Path
 
 from limn.mapping import anchor_of, norm
 from limn.pins import position
+from limn.pins.model import parse_pin
 from limn.pins.position import AnchorLost, EstContext, Followed
 
 POSITION_PY = Path(position.__file__)
@@ -35,6 +36,23 @@ LINES = ["\\section{Intro}", "alpha line one", "beta line two", "", "gamma line 
 def ctx(cur="pages-2", by=None, built_at=None, bsm=None):
     """An EstContext for the current build cur with the given history entries."""
     return EstContext(cur, by or {}, built_at, bsm)
+
+
+def parsed(rows):
+    """The pins stored records parse to (limn.pins.model.parse_pin), in order."""
+    return [parse_pin(r) for r in rows]
+
+
+def stored_file(pin):
+    """A line pin's stored file (its LineSpan's), the file_of the overlap rules count it in when nothing moved."""
+    return pin.core.place.file
+
+
+def resync_record(r, lines, nlines, mtime, path):
+    """resync of the open line pin record r parses to, as the record it writes (None when nothing changes)."""
+    pin = parse_pin(r)
+    new = position.resync(pin, pin.core.place, lines, nlines, mtime, path)
+    return None if new is None else new.record
 
 
 class Purity(unittest.TestCase):
@@ -128,7 +146,7 @@ class Overlap(unittest.TestCase):
             {"id": 3, "file": "a", "lo": 9, "hi": 12},
             {"id": 5, "file": "a", "lo": 3, "hi": 4},
         ]
-        rel = position.overlaps_by_id(rows, lambda r: r["file"])
+        rel = position.overlaps_by_id(parsed(rows), stored_file)
         self.assertEqual(
             rel[1], [{"id": 2, "rel": "contains"}, {"id": 3, "rel": "partial"}, {"id": 5, "rel": "contains"}]
         )
@@ -144,9 +162,9 @@ class Overlap(unittest.TestCase):
             {"id": 3, "file": "/new/x.tex", "lo": 1, "hi": 5, "done": True},
             {"id": 4, "pdf": "/ms/figure.pdf", "page": 1, "frac": [0, 0, 0.5, 0.5]},
         ]
-        rel = position.overlaps_by_id(rows, lambda r: "x.tex")
+        rel = position.overlaps_by_id(parsed(rows), lambda pin: "x.tex")
         self.assertEqual(rel, {1: [{"id": 2, "rel": "contains"}], 2: [{"id": 1, "rel": "inside"}], 4: []})
-        self.assertEqual(position.overlaps_by_id(rows, lambda r: r["file"]), {1: [], 2: [], 4: []})
+        self.assertEqual(position.overlaps_by_id(parsed(rows), stored_file), {1: [], 2: [], 4: []})
 
     def test_selection_relation_names_equal_separately(self):
         """A new selection has no id, so an identical range is "equal"; the others are as between pins."""
@@ -165,7 +183,7 @@ class Overlap(unittest.TestCase):
             {"id": 4, "file": "a", "lo": 20, "hi": 21},
         ]
         self.assertEqual(
-            position.overlaps_for_range("a", 4, 9, rows, lambda r: r["file"]),
+            position.overlaps_for_range("a", 4, 9, parsed(rows), stored_file),
             [{"id": 1, "lo": 4, "hi": 9, "rel": "equal"}],
         )
 
@@ -201,14 +219,14 @@ class AnchorResync(unittest.TestCase):
 
     def test_resync_leaves_a_pin_alone_when_the_file_is_not_newer(self):
         """synced_at >= mtime on the stored file: nothing to do (None)."""
-        self.assertIsNone(position.resync(self.pin(), LINES, [norm(t) for t in LINES], 100.0, "/ms/main.tex"))
+        self.assertIsNone(resync_record(self.pin(), LINES, [norm(t) for t in LINES], 100.0, "/ms/main.tex"))
 
     def test_resync_moves_lines_bumps_rev_and_keeps_key_order(self):
         """A newer file with lines moved: lo/hi follow, sync "moved +1", rev+1, synced_at; the input is not changed and
         the copy keeps the stored key order (pins.jsonl bytes)."""
         r = self.pin(stale=True)
         edited = ["inserted"] + LINES
-        new = position.resync(r, edited, [norm(t) for t in edited], 200.0, "/ms/main.tex")
+        new = resync_record(r, edited, [norm(t) for t in edited], 200.0, "/ms/main.tex")
         self.assertEqual(
             (new["lo"], new["hi"], new["sync"], new["rev"], new["synced_at"]), (3, 4, "moved +1", 3, 200.0)
         )
@@ -218,33 +236,39 @@ class AnchorResync(unittest.TestCase):
 
     def test_resync_unmoved_lines_keep_rev(self):
         """A newer file whose pinned lines did not move: sync "ok", synced_at updated, rev unchanged."""
-        new = position.resync(self.pin(), LINES, [norm(t) for t in LINES], 200.0, "/ms/main.tex")
+        new = resync_record(self.pin(), LINES, [norm(t) for t in LINES], 200.0, "/ms/main.tex")
         self.assertEqual((new["lo"], new["hi"], new["sync"], new["rev"], new["synced_at"]), (2, 3, "ok", 2, 200.0))
 
     def test_resync_lost_anchor_marks_stale(self):
         """The anchor's head is gone: stale, sync "lost", rev+1, the old numbers kept."""
         edited = [t for t in LINES if t != "alpha line one"]
-        new = position.resync(self.pin(), edited, [norm(t) for t in edited], 200.0, "/ms/main.tex")
+        new = resync_record(self.pin(), edited, [norm(t) for t in edited], 200.0, "/ms/main.tex")
         self.assertEqual((new["lo"], new["hi"], new["stale"], new["sync"], new["rev"]), (2, 3, True, "lost", 3))
 
     def test_resync_backfills_a_legacy_anchor_only_from_its_own_file(self):
         """A pin without an anchor gets one from its stored file, never from a located file it does not name."""
         legacy = {"id": 1, "file": "/ms/main.tex", "lo": 2, "hi": 3}
-        new = position.resync(legacy, LINES, [norm(t) for t in LINES], 50.0, "/ms/main.tex")
+        new = resync_record(legacy, LINES, [norm(t) for t in LINES], 50.0, "/ms/main.tex")
         self.assertEqual((new["anchor"], new["synced_at"]), (anchor_of(LINES, 2, 3), 50.0))
-        self.assertIsNone(position.resync(legacy, LINES, [norm(t) for t in LINES], 50.0, "/new/main.tex"))
+        self.assertIsNone(resync_record(legacy, LINES, [norm(t) for t in LINES], 50.0, "/new/main.tex"))
+
+    def test_resync_counts_a_null_synced_at_as_never_synced(self):
+        """A record the check accepts may store synced_at: null; it reads as 0, so a newer file re-matches the pin
+        (the raw read compared None with the mtime and raised on every request)."""
+        new = resync_record(self.pin(synced_at=None), LINES, [norm(t) for t in LINES], 200.0, "/ms/main.tex")
+        self.assertEqual((new["sync"], new["synced_at"], new["rev"]), ("ok", 200.0, 2))
 
     def test_resync_blank_anchor_has_nothing_to_follow(self):
         """A pin that selected only blank lines (empty anchor) is never re-matched."""
-        self.assertIsNone(position.resync(self.pin(anchor={}), LINES, [norm(t) for t in LINES], 999.0, "/ms/main.tex"))
+        self.assertIsNone(resync_record(self.pin(anchor={}), LINES, [norm(t) for t in LINES], 999.0, "/ms/main.tex"))
 
     def test_resync_moved_record_rematches_when_anchor_no_longer_holds_and_records_the_file(self):
         """Located elsewhere (moved checkout) with synced_at not older: kept while the anchor holds at lo; re-matched,
         with `file` set to the located path, once it does not."""
         nlines = [norm(t) for t in LINES]
-        self.assertIsNone(position.resync(self.pin(), LINES, nlines, 50.0, "/new/main.tex"))
+        self.assertIsNone(resync_record(self.pin(), LINES, nlines, 50.0, "/new/main.tex"))
         shifted = ["x"] + LINES
-        new = position.resync(self.pin(), shifted, [norm(t) for t in shifted], 50.0, "/new/main.tex")
+        new = resync_record(self.pin(), shifted, [norm(t) for t in shifted], 50.0, "/new/main.tex")
         self.assertEqual((new["lo"], new["file"], new["synced_at"]), (3, "/new/main.tex", 50.0))
         self.assertNotIn("file_rel", new)
 

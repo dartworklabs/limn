@@ -309,8 +309,9 @@ class Core(unittest.TestCase):
     """The fields every state shares are typed on `core`; what does not have its stored kind stays among the fields."""
 
     def test_a_line_pin_lifts_its_shared_fields_and_keeps_the_rest(self):
-        """id, doc, place, note, at, author, rev, kind_req, assignee, mentions, thread and the line-matching state are
-        lifted in one PinCore; the location details, pdf_build and the edit marker stay among the fields."""
+        """id, doc, place, note, at, author, rev, kind_req, assignee, mentions, thread, the line-matching state, how
+        the pin was placed (name, its PDF mark's page, pdf_build) and the edit marker are lifted in one PinCore; the
+        quote and fields this version does not know stay among the fields."""
         anchor = {"head": "a", "tail": "b", "head_off": 0, "tail_off": 0}
         entry = {"id": 1, "by": BY, "at": "t", "text": "fixed", "ev": "close", "ref": "PR #1"}
         record = {
@@ -335,6 +336,8 @@ class Core(unittest.TestCase):
             "sync": "lost",
             "thread": [entry],
             "edited_at": "t1",
+            "quote": "q",
+            "x_future": 1,
         }
         pin = parse_pin(record)
         self.assertEqual(
@@ -355,9 +358,50 @@ class Core(unittest.TestCase):
                 synced_at=1790000000.0,
                 stale=True,
                 sync="lost",
+                name="main.tex",
+                page=1,
+                pdf_build="b1",
+                edited_at="t1",
             ),
         )
-        self.assertEqual(pin.fields, {"name": "main.tex", "page": 1, "pdf_build": "b1", "edited_at": "t1"})
+        self.assertEqual(pin.fields, {"quote": "q", "x_future": 1})
+        self.assertEqual(list(pin.record.items()), list(record.items()))
+
+    def test_a_line_pins_placement_is_lifted_and_a_regions_page_and_frac_are_its_place(self):
+        """kind, scope, via, score, raw_lo/raw_hi, frac, frac_build and file_rel are lifted on a line pin's core; a
+        region pin's page and frac are its Region, never the core's."""
+        record = {
+            "file": "/ms/main.tex",
+            "lo": 4,
+            "hi": 5,
+            "raw_lo": 4,
+            "raw_hi": 4,
+            "kind": "para",
+            "scope": "para",
+            "via": "synctex",
+            "score": 0.9,
+            "frac": [0.1, 0.2, 0.3, 0.4],
+            "frac_build": "old",
+            "file_rel": "main.tex",
+            "edited_by": BY,
+            "id": 3,
+        }
+        core = parse_pin(record).core
+        self.assertEqual(
+            (core.kind, core.scope, core.via, core.score, core.raw_lo, core.raw_hi, core.frac, core.frac_build),
+            ("para", "para", "synctex", 0.9, 4, 4, [0.1, 0.2, 0.3, 0.4], "old"),
+        )
+        self.assertEqual((core.file_rel, core.edited_by), ("main.tex", BY))
+        region = parse_pin(LEGACY["region pin (view-only PDF)"]).core
+        self.assertEqual((region.page, region.frac, region.name, region.kind), (None, None, "scan.pdf", "region"))
+        with self.assertRaises(ValueError):
+            PinCore(place=Region("/ms/scan.pdf", 2, [0, 0, 1, 1]), page=2)
+
+    def test_pid_is_the_id_of_a_pin_that_has_one(self):
+        """core.pid is the integer id; a pin built without one has none to give (a defect)."""
+        self.assertEqual(parse_pin({"id": 4}).core.pid, 4)
+        with self.assertRaises(ValueError):
+            _ = parse_pin({"id": "4"}).core.pid
 
     def test_a_region_pin_is_placed_by_pdf_page_and_frac_lifted_whole(self):
         """A view-only PDF pin's place is its PDF, page and frac; a frac that is not four numbers lifts none of them,
@@ -366,7 +410,7 @@ class Core(unittest.TestCase):
         self.assertEqual(region.core.place, Region("/ms/scan.pdf", 2, [0.1, 0.2, 0.3, 0.05]))
         self.assertEqual(region.fields["file"], None)
         for name, kept in (
-            ("region pin with a three-number frac", {"pdf", "page", "frac"}),
+            ("region pin with a three-number frac", {"pdf", "frac"}),  # no Region, so the core lifts its page
             ("line pin with a string lo", {"file", "lo", "hi"}),
             ("line pin with an empty file", {"file", "lo", "hi"}),
         ):

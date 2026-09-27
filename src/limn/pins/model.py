@@ -283,8 +283,8 @@ def _is_thread(value: object) -> TypeGuard[list[Record]]:
 class LineSpan:
     """Where a line pin points: its .tex file (the absolute path as stored) and the lines lo..hi (1-based, inclusive).
 
-    The rest of a line pin's location - name, the PDF page and frac it was dragged on, raw_lo/raw_hi, kind, via,
-    score, scope, quote - is kept among the pin's fields as stored.
+    How it was placed there - name, the PDF page and frac it was dragged on, raw_lo/raw_hi, kind, via, score, scope,
+    the build of its mark, file_rel - is lifted on the pin's core (PinCore); its quote is kept among the pin's fields.
     """
 
     file: str
@@ -295,8 +295,8 @@ class LineSpan:
 @dataclass(frozen=True)
 class Region:
     """Where a view-only PDF pin points (is_region_pin): the PDF (its path as stored), the page (1-based) and frac,
-    the region as fractions of the page [x, y, w, h] - the stored list itself. Its quote and pdf_build are kept among
-    the pin's fields as stored."""
+    the region as fractions of the page [x, y, w, h] - the stored list itself. Its pdf_build is lifted on the core and
+    its quote kept among the pin's fields as stored."""
 
     pdf: str
     page: int
@@ -339,10 +339,16 @@ class PinCore:
 
     id; doc, the document key (a pin from before several documents has none); place; note; at and author, when and
     by whom it was made; rev (a missing rev counts as 0 wherever a rev is compared or bumped); kind_req (none is a
-    fix); assignee; mentions, the note's @-tags; thread; and the line-matching state - anchor (the head/tail text a
-    line pin follows, kept as stored for limn.mapping), synced_at (epoch seconds), stale and sync. Each is lifted only
-    when stored with its kind - mentions a list of strings, thread a list of objects (each a ThreadEntry) - and place
-    only whole; anything else stays among the state's kept fields as stored, and the core reads it as absent.
+    fix); assignee; mentions, the note's @-tags; thread; the line-matching state - anchor (the head/tail text a line
+    pin follows, kept as stored for limn.mapping), synced_at (epoch seconds), stale and sync; how the pin was placed -
+    name (the file's name, or the PDF's), kind and scope (the rung of the range ladder), via and score (the path and
+    score of the pick), raw_lo/raw_hi (the dragged lines before the ladder), a line pin's PDF mark (page and frac,
+    the page and box it was dragged on - a region pin's are its place), pdf_build and the legacy frac_build (the build
+    those coordinates belong to), file_rel (the file relative to the manuscript root, ADR-0006); and the edit marker
+    (edited_at, edited_by). Each is lifted only when stored with its kind - mentions a list of strings, thread a list
+    of objects (each a ThreadEntry), frac four numbers - and place only whole; anything else stays among the state's
+    kept fields as stored, and the core reads it as absent. The quote is never lifted: the record check does not vouch
+    for its kind, so readers take it as stored.
     """
 
     id: int | None = None
@@ -360,16 +366,46 @@ class PinCore:
     synced_at: float | None = None
     stale: bool | None = None
     sync: str | None = None
+    name: str | None = None
+    kind: str | None = None
+    scope: str | None = None
+    via: str | None = None
+    score: float | None = None
+    raw_lo: int | None = None
+    raw_hi: int | None = None
+    page: int | None = None
+    frac: Sequence[float] | None = None
+    pdf_build: str | None = None
+    frac_build: str | None = None
+    file_rel: str | None = None
+    edited_at: str | None = None
+    edited_by: Signature | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a page or frac held both by a Region place and by the core (writing it back would have to pick one):
+        a defect."""
+        if isinstance(self.place, Region) and (self.page is not None or self.frac is not None):
+            raise ValueError("PinCore holds page/frac beside a Region place")
 
     @classmethod
     def from_record(cls, record: Record) -> PinCore:
-        """The shared fields a stored record holds with their kind; never fails."""
+        """The shared fields a stored record holds with their kind; never fails. A Region place takes the record's
+        page and frac, so the core lifts them only for another place."""
         thread = record.get("thread")
+        place = _place_of(record)
         return cls(
-            place=_place_of(record),
+            place=place,
             thread=tuple(ThreadEntry.from_record(entry) for entry in thread) if _is_thread(thread) else None,
-            **_taken(record, CORE_SHAPES),
+            **_taken(record, REGION_CORE_SHAPES if isinstance(place, Region) else CORE_SHAPES),
         )
+
+    @property
+    def pid(self) -> int:
+        """The pin's id. Every pin the store hands out has an integer one (limn.pins.record checks it); asking a pin
+        built without one is a defect (ValueError)."""
+        if self.id is None:
+            raise ValueError("a pin without an id has no identity")
+        return self.id
 
     def stored(self) -> dict[str, Any]:
         """The core back as stored fields, each one that is set: the table's in table order, then the place, then the
@@ -395,7 +431,23 @@ CORE_SHAPES: Shapes = {
     "synced_at": ("synced_at", is_num),
     "stale": ("stale", _is_bool),
     "sync": ("sync", _is_text),
+    "name": ("name", _is_text),
+    "kind": ("kind", _is_text),
+    "scope": ("scope", _is_text),
+    "via": ("via", _is_text),
+    "score": ("score", is_num),
+    "raw_lo": ("raw_lo", is_int),
+    "raw_hi": ("raw_hi", is_int),
+    "page": ("page", is_int),
+    "frac": ("frac", _is_frac),
+    "pdf_build": ("pdf_build", _is_text),
+    "frac_build": ("frac_build", _is_text),
+    "file_rel": ("file_rel", _is_text),
+    "edited_at": ("edited_at", _is_text),
+    "edited_by": ("edited_by", _is_signature),
 }
+# A region pin's page and frac are its place (Region), so its core lifts every other plain field.
+REGION_CORE_SHAPES: Shapes = {key: shape for key, shape in CORE_SHAPES.items() if key not in ("page", "frac")}
 
 
 @dataclass(frozen=True)

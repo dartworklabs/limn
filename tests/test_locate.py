@@ -138,17 +138,20 @@ class Overlaps(unittest.TestCase):
 
     NEW = Path("/ms/new/main.tex")
 
-    def locator(self, r):
+    def locator(self, pin):
         """Places pins stored under /old/ at NEW (a moved checkout); every other file cannot be placed."""
-        return locate.PinLocation("main.tex", self.NEW) if str(r.get("file", "")).startswith("/old/") else None
+        return locate.PinLocation("main.tex", self.NEW) if pin.core.place.file.startswith("/old/") else None
 
     def setUp(self):
         """Pin 1 from before the move, pin 2 after it (same lines inside), a done pin and one in another file."""
         self.rows = [
-            {"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
-            {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
-            {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
-            {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5},
+            parse_pin(r)
+            for r in (
+                {"id": 1, "file": "/old/main.tex", "lo": 3, "hi": 9},
+                {"id": 2, "file": str(self.NEW), "lo": 4, "hi": 5},
+                {"id": 3, "file": str(self.NEW), "lo": 4, "hi": 5, "done": True},
+                {"id": 4, "file": "/elsewhere.tex", "lo": 4, "hi": 5},
+            )
         ]
 
     def test_pins_before_and_after_a_move_are_one_file(self):

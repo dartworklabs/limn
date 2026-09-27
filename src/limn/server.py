@@ -495,8 +495,21 @@ def stamp_location(r: Row, root: Path, state: Path) -> PinLocation | None:
     return locate.stamp_location(r, root, state, doc_by_key(pin_doc_key(r)))
 
 
+def pin_file(pin: Pin, root: Path, state: Path) -> PinLocation | None:
+    """Where stored line pin pin's file is under the manuscript root on this machine now (limn.locate.pin_file, the tail
+    guess limited to the folder of the pin's own document, never in the state folder), or None."""
+    return locate.pin_file(pin, root, state, doc_by_key(pin_doc_key(pin.record)))
+
+
 def pin_locator() -> locate.Locator:
-    """pin_location() bound to this instance's manuscript root and state folder, read now."""
+    """pin_file() bound to this instance's manuscript root and state folder, read now: where a stored pin's file is."""
+    root, state = C.src, C.state
+    return lambda pin: pin_file(pin, root, state)
+
+
+def record_locator() -> Callable[[Record], PinLocation | None]:
+    """pin_location() bound to this instance's manuscript root and state folder, read now: where the file a record's
+    location fields name is (the services locate a new pin's file, or an edit's, this way)."""
     root, state = C.src, C.state
     return lambda r: pin_location(r, root, state)
 
@@ -584,13 +597,13 @@ def dropped_payload(now: float | None = None) -> list[Json]:
 def overlaps_by_id(pins: Sequence[Pin]) -> dict[int, list[Json]]:
     """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
     now (limn.locate.overlaps_by_id), never stored."""
-    return locate.overlaps_by_id([pin.record for pin in pins], pin_locator())
+    return locate.overlaps_by_id(pins, pin_locator())
 
 
 def overlaps_for_range(file: str, lo: int, hi: int) -> list[Json]:
     """The overlap relationships between a not-yet-saved range of file and that file's open pins, as re-synced now
     (limn.locate.overlaps_for_range). Nothing is saved."""
-    return locate.overlaps_for_range(file, lo, hi, [pin.record for pin in snapshot_pins()], pin_locator())
+    return locate.overlaps_for_range(file, lo, hi, snapshot_pins(), pin_locator())
 
 
 # ---------------------------------------------------------------- Pin ids
@@ -655,7 +668,7 @@ def pin_context() -> PinContext:
         note_tags=note_tags,
         role_of=role_of,
         person_name=_person_name,
-        locate=pin_locator(),
+        locate=record_locator(),
         stamp=lambda r: stamp_location(r, C.src, C.state),
         thread_max=THREAD_MAX,
         trash_days=TRASH_DAYS,

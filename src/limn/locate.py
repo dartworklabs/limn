@@ -18,7 +18,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, TypeAlias, cast
+from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn import build
 from limn.documents import Doc, to_source
@@ -36,7 +36,7 @@ from limn.mapping import (
 )
 from limn.pins import position
 from limn.pins.edit import PDF_QUOTE_MAX
-from limn.pins.model import OpenPin, Pin, is_region_pin, parse_pin, state_of
+from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, ReviewPin
 from limn.pins.position import EstContext, epoch, est_basis, resync
 
 # One stored pin as the store reads it: a JSON object (limn.store.Row).
@@ -186,9 +186,8 @@ class PinLocation(NamedTuple):
     path: Path  # root / rel - the absolute path the API returns as `file`
 
 
-# Where a stored pin's file is now, as the composition root binds pin_location to its root and documents. It only
-# reads the record, so a read-only record (a Mapping) is enough.
-Locator: TypeAlias = Callable[[Mapping[str, Any]], PinLocation | None]
+# Where a stored pin's file is now, as the composition root binds pin_file to its root and the pin's document.
+Locator: TypeAlias = Callable[[Pin], PinLocation | None]
 
 
 class BuildRoot(Protocol):
@@ -248,10 +247,19 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
 
 
 def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
-    """Where line pin r's file is under the manuscript root on this machine now (locate_file, the tail guess limited to
-    the folder of doc - the pin's own document, None when it is no longer configured), or None: a view-only PDF pin,
-    or a file the rule cannot place inside the tree (root minus the state folder `state`)."""
+    """Where the file of r - a record, or the location fields of one (file, file_rel) - is under the manuscript root
+    on this machine now (locate_file, the tail guess limited to the folder of doc - the pin's own document, None when
+    it is no longer configured), or None: no file (a view-only PDF pin), or a file the rule cannot place inside the
+    tree (root minus the state folder `state`). A stored pin is located by pin_file."""
     return locate_file(r.get("file"), r.get("file_rel"), root, state, doc)
+
+
+def pin_file(pin: Pin, root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
+    """Where a stored line pin's file is under the manuscript root on this machine now: its LineSpan's file and its
+    file_rel by locate_file, as pin_location reads them off the record. None for a pin placed on a region (it has no
+    file) or a file the rule cannot place inside the tree."""
+    span = pin.core.place
+    return locate_file(span.file if isinstance(span, LineSpan) else None, pin.core.file_rel, root, state, doc)
 
 
 def stamp_location(r: Row, root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
@@ -265,11 +273,14 @@ def stamp_location(r: Row, root: Path, state: Path, doc: Doc | None) -> PinLocat
     return loc
 
 
-def located_file(r: Row, locate: Locator) -> str:
+def located_file(pin: Pin, locate: Locator) -> str:
     """The file an open line pin is counted in for overlaps: where locate places it now, else its stored `file` - so
     pins made before and after a move of the checkout are one file."""
-    loc = locate(r)
-    return str(loc.path) if loc else str(r.get("file"))
+    loc = locate(pin)
+    if loc is not None:
+        return str(loc.path)
+    span = pin.core.place
+    return str(span.file if isinstance(span, LineSpan) else None)
 
 
 # ---------------------------------------------------------------- Overlap - a computed field, never stored
@@ -278,17 +289,17 @@ def located_file(r: Row, locate: Locator) -> str:
 # the file locate finds for it now (located_file), so a moved checkout's old and new pins overlap as one file.
 
 
-def overlaps_by_id(rows: Sequence[Row], locate: Locator) -> dict[int, list[dict[str, Any]]]:
-    """The relationship of every pair of open line pins of rows on the same file, as locate places each pin's file now
+def overlaps_by_id(pins: Sequence[Pin], locate: Locator) -> dict[int, list[dict[str, Any]]]:
+    """The relationship of every pair of open line pins on the same file, as locate places each pin's file now
     (limn.pins.position.overlaps_by_id): {id: [{"id", "rel"}, ...]} with an entry for every open pin. Never stored."""
-    return position.overlaps_by_id(rows, lambda r: located_file(cast(Row, r), locate))  # r is one of rows
+    return position.overlaps_by_id(pins, lambda pin: located_file(pin, locate))
 
 
-def overlaps_for_range(file: str, lo: int, hi: int, rows: Sequence[Row], locate: Locator) -> list[dict[str, Any]]:
-    """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins of rows that
-    locate places in that file now (limn.pins.position.overlaps_for_range): [{"id", "lo", "hi", "rel"}] in row order.
+def overlaps_for_range(file: str, lo: int, hi: int, pins: Sequence[Pin], locate: Locator) -> list[dict[str, Any]]:
+    """The overlap relationships between a not-yet-saved range lo..hi of file and the open line pins that locate
+    places in that file now (limn.pins.position.overlaps_for_range): [{"id", "lo", "hi", "rel"}] in the pins' order.
     Nothing is saved."""
-    return position.overlaps_for_range(file, lo, hi, rows, lambda r: located_file(cast(Row, r), locate))  # one of rows
+    return position.overlaps_for_range(file, lo, hi, pins, lambda pin: located_file(pin, locate))
 
 
 # ---------------------------------------------------------------- Anchors and re-syncing
@@ -305,10 +316,12 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
     changed = False
     cache: dict[Path, tuple[list[str], list[str], float]] = {}
     for i, pin in enumerate(pins):
-        r = pin.record
-        if state_of(r) is not OpenPin or is_region_pin(r):  # a view-only PDF's pin has no lines - nothing to re-match
-            continue
-        loc = locate(r)
+        match pin:
+            case OpenPin(core=PinCore(place=LineSpan() as span)):
+                pass
+            case OpenPin() | ReviewPin() | DonePin():  # closed, or a view-only PDF's pin: no lines to re-match
+                continue
+        loc = locate(pin)
         if loc is None:
             continue
         f = loc.path
@@ -321,9 +334,9 @@ def sync_all(pins: list[Pin], locate: Locator) -> bool:
             ls = tex_lines(f)
             cache[f] = (ls, [norm(t) for t in ls], f.stat().st_mtime)
         lines, nlines, mtime = cache[f]
-        new = resync(r, lines, nlines, mtime, str(f))
+        new = resync(pin, span, lines, nlines, mtime, str(f))
         if new is not None:
-            pins[i] = parse_pin(new)
+            pins[i] = new
             changed = True
     return changed
 
