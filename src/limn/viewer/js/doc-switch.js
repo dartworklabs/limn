@@ -31,11 +31,13 @@ async function switchDoc(k){
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
       META_BY.set(k,f); if(changed)await refreshDoc(); else{META=f; drawMeta();}}}catch(e){}}
 }
-// Redraws the screen from the current META (tab switching). The build chip, error panel, and auto-polling baseline are all switched to that document's values too.
+// Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
+// The build chip, error panel, and auto-polling baseline are switched to that document's values too.
 function showDoc(v){
   drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
   if(!v&&$('#left'))$('#left').scrollTop=0;
-  PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks(); drawDocTabs();
+  PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC);
+  drawPins(); marks(); drawDocTabs();
   $('#outline-items').textContent=tr('PDF 목차를 읽는 중입니다.');
   if(document.body.classList.contains('revision-open'))loadRevisions();
   vecOpen();
@@ -56,4 +58,3 @@ window.addEventListener('hashchange',()=>{const k=hashDoc(); if(k&&k!==DOC&&docI
 function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
   const k=pdoc(p); switchDoc(k).then(()=>{if(DOC===k)then(id);}); return true;}
-

@@ -518,8 +518,9 @@ class FrontendStructure(unittest.TestCase):
         self.assertIsNotNone(m)
         body = m.group(1)
         self.assertIn("/api/pins/dropped", body)
-        self.assertIn("DROPPED=dropped", body)
-        self.assertIn("diffToast(prevOpen,d,dropped)", body)
+        applied = extract_js_fn("applyPinLists")
+        self.assertIn("DROPPED=dropped", applied)
+        self.assertIn("diffToast(prevOpen,rows,dropped)", applied)
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
@@ -1772,7 +1773,7 @@ class HtmlTemplateStructure(unittest.TestCase):
             "+' · '+tl('열린 {n}',{n:PINS.length})",
             extract_js_fn("docTitle"),
         )
-        self.assertIn("docTitle(true);", extract_js_fn("loadPins"))
+        self.assertIn("docTitle(true);", extract_js_fn("applyPinLists"))
 
 
 class FrontendDocs(unittest.TestCase):
@@ -2890,9 +2891,7 @@ class FrontendReview(unittest.TestCase):
                 "#6 다시 열림",
             ],
         )
-        body = extract_js_fn("loadPins")
-        self.assertIn("REVIEW_ALL=d.filter(p=>pinState(p)===PIN_STATE.REVIEW)", body)
-        self.assertIn("DONE_ALL=d.filter(p=>pinState(p)===PIN_STATE.DONE)", body)
+        # The partition itself is exercised against legacy and document-scoped records in test_viewer_list.py.
         self.assertIn('id="sec-review"', HTML)
         self.assertIn('id="side-rv"', HTML)
 
