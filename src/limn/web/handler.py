@@ -26,7 +26,6 @@ from urllib.parse import parse_qs, urlparse
 from limn.features.pins.claims import http as claims_http
 from limn.features.pins.editing import http as editing_http
 from limn.features.pins.lifecycle import http as lifecycle_http
-from limn.features.pins.listing import http as listing_http
 from limn.features.pins.location import http as location_http
 from limn.features.pins.trash import http as trash_http
 from limn.mark import png as mark_png
@@ -247,15 +246,9 @@ class Handler(BaseHTTPRequestHandler):
     def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
         """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
         the routes have always been matched (a /pages/ name with no image falls through): the viewer
-        shell, remaining pin and source routes, vendor files and registered feature routes. Sends the matching
+        shell, vendor files and registered feature routes. Sends the matching
         route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
-        reply = (
-            self._get_viewer(actor, path)
-            or self._get_pins(path, q, D)
-            or self._get_source(path, q, D)
-            or self._get_vendor(path)
-            or self._get_registered(actor, path, q, D)
-        )
+        reply = self._get_viewer(actor, path) or self._get_vendor(path) or self._get_registered(actor, path, q, D)
         if reply is None:
             raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
         self._send(*reply)
@@ -276,35 +269,6 @@ class Handler(BaseHTTPRequestHandler):
             return _json_reply({"name": app.APP_NAME, "version": app.app_version()})
         if path == "/sw.js":  # the service worker for browser notifications (app data is never cached)
             return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
-        return None
-
-    def _get_pins(self, path: str, q: Query, D: Document) -> Reply | None:
-        """The pins: pins.md, the list (all documents, or D's with ?doc=), the Trash and one pin."""
-        app = self.app
-        # a remote agent's entry point, the same sync path as GET /api/pins (docs/handbook/api.md §원격 에이전트 진입점)
-        if path == "/pins.md":
-            app.pin_trash.maybe_purge_trash()
-            base = app.remote_base_for(self.headers.get("Host") or "")
-            text = listing_http.markdown(app, base)
-            return Reply(200, text.encode("utf-8"), "text/markdown; charset=utf-8")
-        if path == "/api/pins":
-            app.pin_trash.maybe_purge_trash()  # hourly Trash expiry on a long-running server (this path already writes)
-            return _json_reply(listing_http.pins(app, q, D.key))
-        if path == "/api/pins/dropped":
-            return _json_reply(listing_http.dropped(app))
-        m = re.fullmatch(r"/api/pins/(\d+)", path)
-        if m:  # one pin (including its thread) - for when an agent needs to read a long thread in full
-            return _json_reply(listing_http.one(app, int(m.group(1))))
-        return None
-
-    def _get_source(self, path: str, q: Query, D: Document) -> Reply | None:
-        """A range of D's manuscript: its snippet (with the range ladder on ?levels=1) and the pins overlapping it.
-        None for any other path."""
-        app = self.app
-        if path == "/api/snippet":
-            return _json_reply(location_http.snippet(app, D, q))
-        if path == "/api/overlaps":
-            return _json_reply(location_http.overlaps(app, D, q))
         return None
 
     def _get_vendor(self, path: str) -> Reply | None:

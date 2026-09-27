@@ -81,9 +81,10 @@ from limn.features.document_views.service import DocumentViews
 from limn.features.pins.claims.service import PinClaims
 from limn.features.pins.editing.service import PinEditing
 from limn.features.pins.lifecycle.service import PinLifecycle
+from limn.features.pins.listing import routes as listing_routes
 from limn.features.pins.listing.markdown import PinMarkdown
 from limn.features.pins.listing.service import PinListing
-from limn.features.pins.location import resolve as pick_resolve, source as pick_source
+from limn.features.pins.location import resolve as pick_resolve, routes as location_routes, source as pick_source
 from limn.features.pins.location.service import PinLocationService
 from limn.features.pins.trash.service import PinTrash
 from limn.features.revisions import core as revisions, routes as revision_routes
@@ -413,6 +414,8 @@ class ServerApplication:
             lambda request: revision_routes.get(request.path, request.query, request.doc, self.revision_requests),
             lambda request: document_routes.get(request, self.document_views),
             lambda request: collaboration_routes.get(request, self.people_directory),
+            lambda request: listing_routes.get(request, self, self.pin_trash.maybe_purge_trash, self.remote_base_for),
+            lambda request: location_routes.get(request, self),
         )
         self.post_doc_routes = (
             PostDocRoute(
