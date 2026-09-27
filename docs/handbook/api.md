@@ -6,23 +6,21 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 > **핵심**
 >
-> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. 오류 응답은 언제나 한국어 메시지와 이유 코드를 담은 `{"error": ..., "reason": ...}` JSON이다(§오류 응답). 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다.
->
-> 접근 제어를 넣은 0.2.0도 이 원칙을 지켰다. 기존 경로, 필드, 상태 이름은 그대로다. 더한 것은 `me`·사람 목록의 `role` 필드, `401` 응답, 역할에 따른 `403` 응답, pins.md 안내 한 줄뿐이다(§인증).
+> 이 API와 pins.md 형식은 다른 저장소의 에이전트가 읽는 안정 계약이다. 경로, JSON 필드 이름, 상태 이름, pins.md 형식(열, 번호 칸 표시, 한국어 머리말 낱말)은 버전을 붙인 이관 계획 없이 바꾸지 않는다. 새 필드와 새 경로는 덧붙이기만 한다. 오류 응답은 언제나 한국어 메시지와 이유 코드를 담은 `{"error": ..., "reason": ...}` JSON이다(§오류 응답). 이 원칙의 정본은 [CONTRIBUTING.md](../../CONTRIBUTING.md) 다. 필드나 경로 뒤의 `(0.3.4+)` 같은 표시는 그것이 처음 들어간 버전이다.
 
 ## 요청 형식과 경계
 
 요청 본문은 1 MiB 이하의 JSON 객체여야 하고 `Content-Type: application/json` 을 달아야 한다. 어기면 `400`·`413`·`415` 중 하나가 온다. 본문이 없는 POST는 헤더 없이도 통과한다. 에이전트의 `curl -X POST …/close` 가 이런 요청이다.
 
-오류 응답은 항상 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다. 기존 경로는 계약을 유지해 왔고, 새 필드·경로는 덧붙이기만 했다.
+오류 응답은 항상 `{"error": "<한국어 메시지>", "reason": "<이유 코드>"}` JSON이다(§오류 응답). 예상 밖 예외도 연결을 끊지 않고 `500` JSON으로 돌려준다.
 
 - **본문을 먼저 끝까지 읽는다.** 서버는 어떤 응답보다 먼저 본문을 Content-Length 만큼 읽는다. 오류(`4xx`·`5xx`)를 보낸 뒤에는 연결을 닫는다. 읽지 않은 본문이 남으면 같은 keep-alive 연결의 다음 요청으로 해석된다. 그러면 신원 확인, `--allow`·`--members-only` 입장 검사, 작성자 기록을 우회할 수 있다. `tailscale serve` 는 백엔드 연결을 재사용하므로 이 틈이 실제로 열린다.
 - **`Transfer-Encoding` 요청은 `400`** 이다. Content-Length 가 여러 개이거나 음이 아닌 정수가 아니어도 `400` 이다.
 - **잘린 본문은 실행하지 않는다.** 본문이 Content-Length 보다 짧게 끊기면 `400` 이고 아무 동작도 하지 않는다. `/api/clear` 도 예외가 아니다.
-- **교차 출처 `Origin` 과 낯선 `Host` 는 `403`** 이다. 허용하는 Host는 루프백 이름, `*.ts.net`, 그리고 0.2.0부터 `--public-host` 로 준 이름이다. 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사에 있다.
+- **교차 출처 `Origin` 과 낯선 `Host` 는 `403`** 이다. 허용하는 Host는 루프백 이름, `*.ts.net`, 그리고 `--public-host` 로 준 이름이다. 규칙과 이유는 [operations.md](operations.md) §Host·Origin 검사에 있다.
 - **소켓 타임아웃은 30초**다. 본문을 보내다 멈춘 연결과 유휴 keep-alive 연결이 닫힌다. 재빌드처럼 오래 걸리는 처리 시간과는 관계없다.
 - **이 경계를 지난 요청은 신원 확인을 거친다.** 신원을 정하지 못하면 `401`, 들어올 수 없는 사람이면 `403`, 역할이 허락하지 않는 변경이면 `403` 이다. 순서와 규칙은 §인증에 있다.
-- **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 상태 폴더도 원고 트리가 아니다. `--state-dir` 이 `--manuscript` 안(점이 아닌 이름 아래 포함)을 가리키면 그 폴더 아래(`people.json`·`tokens.json`·`audit.jsonl`·`events.jsonl`·핀 파일)는 같은 거절과 같은 문장으로 트리 밖이 된다. 상태 폴더가 원고 옆이나 원고를 품은 위쪽에 있으면 트리에서 빠지는 것은 없다. 이 규칙들 전에 점 폴더나 상태 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이 된다. 정본은 `src/limn/files.py` 의 `tree_part` 다.
+- **원고 트리는 `--manuscript` 아래에서 점으로 시작하는 이름 아래를 뺀 곳이다.** `.git`·`.env`·`.ssh`·`.latexmkrc` 같은 이름은 저장소나 기기의 비밀이지 원고가 아니다. 파일 이름을 받는 경로(`/api/snippet`·`/api/overlaps`·새 핀·편집의 `loc`·닫기의 `changes`)는 심볼릭 링크를 푼 경로의 `--manuscript` 아래 부분에 점으로 시작하는 칸이 있으면 트리 밖으로 보고 거절한다. 이유 코드는 트리 밖 파일에 쓰던 `file_outside_manuscript`·`change_outside_manuscript` 그대로이고 문장도 같다. `a.b.tex` 처럼 이름 중간의 점, `~/.local/paper` 처럼 `--manuscript` 자신이 점 폴더 아래 있는 것은 상관없다. 상태 폴더도 원고 트리가 아니다. `--state-dir` 이 `--manuscript` 안(점이 아닌 이름 아래 포함)을 가리키면 그 폴더 아래(`people.json`·`tokens.json`·`audit.jsonl`·`events.jsonl`·핀 파일)는 같은 거절과 같은 문장으로 트리 밖이 된다. 상태 폴더가 원고 옆이나 원고를 품은 위쪽에 있으면 트리에서 빠지는 것은 없다. 점 폴더나 상태 폴더를 가리키게 저장된 핀은 트리 밖 핀(`pin_outside_manuscript`)이다. 정본은 `src/limn/files.py` 의 `tree_part` 다.
 - **모든 응답은 다른 페이지의 프레임에 담기지 않는다.** 서버가 내는 모든 응답(표준 라이브러리가 직접 내는 `501` 같은 오류 쪽도)에 `X-Frame-Options: DENY` 와 `Content-Security-Policy: frame-ancestors 'none'` 이 붙는다. CSP에는 이 지시어 하나뿐이라 뷰어의 인라인 스크립트는 제한하지 않는다. 다른 사이트가 뷰어를 투명한 틀에 넣어 클릭을 훔치는 일(클릭재킹)을 막는다.
 
 ### 오류 응답
@@ -34,7 +32,7 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 ```
 
 - `error` 는 사람이 읽는 한국어 문장이고 계약이다. 글자 하나 바꾸지 않는다. `409` 의 `done`·`conflict`·`open`·`full`·`claimed` 처럼 `error` 가 이미 코드인 응답도 그대로다.
-- `reason` 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 0.3.4부터 모든 오류 본문에 붙는다. 덧붙인 필드라 옛 에이전트는 모르고 지나친다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
+- `reason`(0.3.4+) 은 같은 거절의 안정 코드다(영문 소문자·숫자·`_`). 모든 오류 본문에 붙고, 이 필드를 모르는 에이전트는 지나쳐도 된다. 있는 코드는 바꾸지 않고, 새 거절에는 새 코드를 더한다. `error` 가 이미 코드인 `409` 는 `reason` 도 같은 값이다.
 - 한 코드가 뜻이 같은 여러 문장을 묶을 수 있다. 예를 들어 `bad_changes` 는 `changes` 모양이 틀린 네 경우다. 거절을 가르는 값(필드 이름, 한도, 줄 수)은 `error` 문장에만 있다.
 - 비교 PDF 상태(`state:"error"`)의 `reason`(§상태와 캐시)과 `POST /api/pick` 이 `200` 으로 돌려주는 `{error, reason}` 도 같은 코드 집합이다.
 - 뷰어는 영어 화면에서 이 코드로 메시지 표(`ui_en.json` 의 `reason:<코드>`)를 찾는다([viewer.md](viewer.md) §뷰어 규칙을 바꿀 때). 서버가 내는 코드마다 영어 문장이 있어야 하고, 서버가 내지 않는 코드의 문장은 없어야 한다(`tests/test_errors.py`).
@@ -50,18 +48,18 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 | 위치 | `400` | `bad_file`·`file_outside_manuscript`·`file_not_found`·`range_outside_file`·`pin_outside_manuscript`·`bad_page`·`page_out_of_range`·`bad_frac`·`frac_outside_page`·`bad_pdf_build` |
 | pick(`200`) | `200` | `pdf_build_gone`·`generated_file`·`synctex_outside`·`source_unreadable`·`no_source_here` |
 | 변경 보기 | `400`·`404`·`503` | `bad_commit`·`no_history`·`commit_not_recent`·`diff_unreadable`·`not_in_repo`·`pin_not_in_doc`·`revision_not_ready`·`revision_pdf_missing` |
-| 비교 PDF(0.2.2부터 있던 코드) | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
+| 비교 PDF | `409`·`422`·`503`, 상태 `error` | `no_parent`·`tool_unavailable`·`timeout`·`size_limit`·`snapshot_failed`·`unsafe_snapshot`·`missing_main`·`diff_failed`·`compile_failed`·`invalid_pdf`·`unsafe_cache`·`busy`·`build_failed`·`scope_failed` |
 | 예상 밖 예외 | `500` | `internal` |
 
 코드와 문장의 짝은 HTTP 층 `src/limn/web/`(처리기·요청 파서·결과마다의 응답·`SCOPE_REJECTIONS`·비교 PDF 실패 표 `REVISION_FAILURES`)과 `src/limn/access.py`(신원·입장·역할 거절)가 정본이다. 비교 PDF 워커의 예상 밖 실패(`build_failed`)만 `src/limn/revisions.py` 에 있다. 문장마다 어느 코드인지는 `reason=` 을 찾으면 된다. 재빌드의 `409 {busy:true}`(§빌드)는 `error` 가 없는 상태 응답이라 이 모양이 아니다. 뷰어는 그 `409` 를 기다린 응답으로 받는다.
 
 ## 인증
 
-모든 요청은 처리되기 전에 "이 요청은 누구인가"부터 정한다. 0.1까지는 이 신원이 핀에 누가 했는지 적는 데만 쓰였다. 0.2.0부터는 같은 신원으로 들어올 수 있는 사람과 바꿀 수 있는 일도 가를 수 있다. 설계와 단계 계획은 [ADR-0002](../adr/0002-access-control.md), 신원·역할의 뜻은 [domain.md](domain.md) §작성자 귀속에 있다. 서버 인자는 [operations.md](operations.md) §실행 인자, 인스턴스 설정 키와 `limn token`·`limn member` 명령은 [instances.md](instances.md) 에서 다룬다.
+모든 요청은 처리되기 전에 "이 요청은 누구인가"부터 정한다. 이 신원은 핀에 누가 했는지 적는 데 쓰고, 설정하면 들어올 수 있는 사람과 바꿀 수 있는 일도 가른다. 설계와 단계 계획은 [ADR-0002](../adr/0002-access-control.md), 신원·역할의 뜻은 [domain.md](domain.md) §작성자 귀속에 있다. 서버 인자는 [operations.md](operations.md) §실행 인자, 인스턴스 설정 키와 `limn token`·`limn member` 명령은 [instances.md](instances.md) 에서 다룬다.
 
 > **핵심**
 >
-> 아무 설정도 하지 않은 테일넷 인스턴스(`--auth tailscale`, 허용 목록 없음)는 0.1과 똑같이 동작한다. 테일넷에서 닿는 사람은 누구나 들어와 첫 방문 때 역할 없이(`editor`) 기록되고, 헤더 없는 루프백 요청은 여전히 에이전트다. 역할, 허용 목록, 토큰 전용 운영은 모두 켜야만 적용된다.
+> 아무 설정도 하지 않은 테일넷 인스턴스(`--auth tailscale`, 허용 목록 없음)에서는 테일넷에서 닿는 사람은 누구나 들어와 첫 방문 때 역할 없이(`editor`) 기록되고, 헤더 없는 루프백 요청은 에이전트다. 역할, 허용 목록, 토큰 전용 운영은 모두 켜야만 적용된다.
 
 ### 신원을 정하는 순서
 
@@ -69,9 +67,9 @@ Limn 서버(`limn serve`, 구현은 [`src/limn/server.py`](../../src/limn/server
 
 1. **`Authorization: Bearer <토큰>`** 이 있으면 에이전트 API 토큰으로 본다(§토큰). 유효한 토큰은 어떤 신원 헤더보다 앞선다. 요청자는 에이전트 `{"login": "agent:<토큰 이름>", "name": "<토큰 이름>"}` 이 된다. 이 규칙은 모든 신원 방식에 같다.
 2. 토큰이 없으면 인스턴스의 **신원 방식**(`--auth`)이 정한다. 아래 표를 본다.
-3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. 0.1의 동작이고 **폐지 예정**이다(§헤더 없는 루프백 에이전트). 0.2.1부터는 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
+3. 신원 방식이 `tailscale` 일 때만, 헤더도 토큰도 없는 루프백 요청은 에이전트 `{"login":"local","name":"로컬/에이전트"}` 다. **폐지 예정**인 동작이다(§헤더 없는 루프백 에이전트). 이 기기를 부른 요청(`Host` 가 루프백 이름이거나 없고, `X-Forwarded-*`·`Forwarded` 헤더가 없는 요청)에만 해당한다. `tailscale serve` 를 거친 헤더 없는 요청(태그 장치 등)은 토큰을 쓰라는 메시지와 함께 `403` 이다.
 
-어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다. 헤더 없는 루프백 에이전트가 꺼진 `tailscale` 인스턴스에서, 이 기기가 보낸 헤더 없는 요청(프록시 표시 헤더 없음)의 `401` 메시지는 그 문구 뒤에 토큰 파일 안내를 더한다(0.3.3, [ADR-0007](../adr/0007-agent-token-file.md)): 서버가 아는 토큰 파일 경로로 쓴 `curl -H "Authorization: Bearer $(cat <파일>)" …` 형식, 그리고 파일이 아직 없으면 `limn token create <인스턴스> --save`. 기존 문구는 그대로 앞에 둔다.
+어느 단계에서도 정해지지 않으면 `401 {"error": …}` 이고 응답 헤더 `WWW-Authenticate: Bearer realm="limn"` 이 붙는다. 오류 메시지는 에이전트에게 `limn token create <인스턴스>` 로 토큰을 받으라고 알려 준다. 헤더 없는 루프백 에이전트가 꺼진 `tailscale` 인스턴스에서, 이 기기가 보낸 헤더 없는 요청(프록시 표시 헤더 없음)의 `401` 메시지는 그 문구 뒤에 토큰 파일 안내를 더한다(0.3.3+, [ADR-0007](../adr/0007-agent-token-file.md)): 서버가 아는 토큰 파일 경로로 쓴 `curl -H "Authorization: Bearer $(cat <파일>)" …` 형식, 그리고 파일이 아직 없으면 `limn token create <인스턴스> --save`. 기존 문구는 그대로 앞에 둔다.
 
 | 신원 방식 | 신원을 읽는 곳 | 그 밖의 요청 |
 | --- | --- | --- |
@@ -100,7 +98,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **어디서나 같다**: 토큰은 루프백 밖에서 와도, 프록시 뒤에서 와도 같은 에이전트다.
 - **물러서지 않는다**: 모르는 토큰, 폐기된 토큰, 빈 Bearer 헤더, Bearer 헤더가 두 번 온 요청은 `401` 이다. 다른 신원으로 물러서지 않는다. 물러서면 폐기한 토큰을 든 에이전트가 사람이나 로컬 에이전트로 조용히 통과한다.
 - **다른 방식은 무시한다**: `Basic` 처럼 `Bearer` 가 아닌 `Authorization` 방식은 Limn의 것이 아니므로 읽지 않는다.
-- **서버 머신의 에이전트는 토큰 파일**(0.3.3, [ADR-0007](../adr/0007-agent-token-file.md)): 소유자가 `limn token create <인스턴스> --save` 로 `~/.config/limn/<인스턴스>.token`(권한 `0600`, 저장소 밖)에 토큰을 둔다. 에이전트는 요청마다 `-H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)"` 로 그 파일을 읽어 보낸다. 파일 내용을 화면에 찍거나 저장소에 옮기지 않는다. `$(cat …)` 로 펼친 값은 그 `curl` 이 도는 동안 명령줄(`ps`)에 보이므로, 여러 계정이 쓰는 머신에서는 `printf 'Authorization: Bearer %s\n' "$(cat <파일>)" | curl -H @- …` 처럼 표준 입력으로 넘긴다(`printf` 는 셸 내장이다). 원격 에이전트는 지금처럼 건네받은 토큰(`$LIMN_TOKEN`)을 쓴다. 파일 규칙과 CLI는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일에 있다.
+- **서버 머신의 에이전트는 토큰 파일**(0.3.3+, [ADR-0007](../adr/0007-agent-token-file.md)): 소유자가 `limn token create <인스턴스> --save` 로 `~/.config/limn/<인스턴스>.token`(권한 `0600`, 저장소 밖)에 토큰을 둔다. 에이전트는 요청마다 `-H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)"` 로 그 파일을 읽어 보낸다. 파일 내용을 화면에 찍거나 저장소에 옮기지 않는다. `$(cat …)` 로 펼친 값은 그 `curl` 이 도는 동안 명령줄(`ps`)에 보이므로, 여러 계정이 쓰는 머신에서는 `printf 'Authorization: Bearer %s\n' "$(cat <파일>)" | curl -H @- …` 처럼 표준 입력으로 넘긴다(`printf` 는 셸 내장이다). 원격 에이전트는 지금처럼 건네받은 토큰(`$LIMN_TOKEN`)을 쓴다. 파일 규칙과 CLI는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일에 있다.
 
 ### 입장 — `--allow` 와 `--members-only`
 
@@ -109,10 +107,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 설정 | 들어오는 사람 |
 | --- | --- |
 | `--members-only` | `people.json` 에 있거나 `--allow` 에 있는 로그인. `people.json` 을 쓸 수 없는 동안은 `--allow` 에 있는 로그인만(§역할) |
-| `--allow` 만 | `--allow` 에 있는 로그인. 0.1과 같은 뜻이다 |
+| `--allow` 만 | `--allow` 에 있는 로그인 |
 | 둘 다 없음 | 신원 방식이 확인한 모든 사람. 첫 방문 때 `role` 필드 없이 `people.json` 에 기록된다 |
 
-거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 0.2.1부터 허용 목록이 없어도 `403` 이다. 0.1은 허용 목록이 있을 때만 막았고, 0.2.0은 허용 목록이 없으면 이것을 에이전트로 받았다. `--tailnet-agent` 로 0.2.0 동작을 되살려도 허용 목록이 있으면 `403` 이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
+거부된 로그인은 `403` 이고 `people.json` 에 기록되지 않는다. 토큰과 `local` 방식의 소유자는 늘 들어온다. `*.ts.net` Host로 헤더 없이 온 요청(태그 장치 등)은 허용 목록이 없어도 `403` 이다. `--tailnet-agent` 로 이런 요청을 에이전트로 받게 해도 허용 목록이 있으면 `403` 이다. `limn member add`·`remove` 로 바꾼 명단은 재시작 없이 다음 요청부터 적용된다.
 
 ### 역할
 
@@ -127,9 +125,9 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 - `GET` 은 들어온 모든 역할에 열려 있다. `viewer` 도 핀 목록, `pins.md`, PDF를 읽는다.
 - 알 수 없는 `role` 값을 `viewer` 로 보는 것은 일부러다. 오타 난 역할이 전권이 되지 않고 가장 좁은 권한으로 닫힌다.
-- **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 예전대로 모두 `editor` 다. 전에 읽은 역할을 계속 쓰는 방법은 고르지 않았다. 답이 프로세스의 이력에 따라 달라지고(재시작하면 바뀐다), `tokens.json` 도 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
+- **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
-- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1부터, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2부터, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
+- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
@@ -148,24 +146,24 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 ### 헤더 없는 루프백 에이전트
 
-0.1에서는 헤더 없이 루프백으로 온 요청을 에이전트로 봤다. 0.2.0은 이 동작을 `tailscale` 방식에서 기본으로 남겨 두되 **폐지 예정**으로 표시한다. 서버는 기동 로그와 처음 그런 요청이 왔을 때 경고를 한 번 남긴다.
+`tailscale` 방식은 헤더 없이 루프백으로 온 요청을 기본으로 에이전트로 본다. 이 동작은 **폐지 예정**이다. 서버는 기동 로그와 처음 그런 요청이 왔을 때 경고를 한 번 남긴다.
 
-- `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다. 0.3.3부터 이 `401` 메시지가 서버 머신 에이전트의 토큰 파일을 알려 준다(§신원을 정하는 순서). 끄는 순서는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일이다.
+- `--no-agent-loopback`(인스턴스 설정 `AGENT_LOOPBACK=0`)을 주면 이런 요청은 `401` 이다. 에이전트가 토큰을 쓰기 시작하면 끈다. 이 `401` 메시지는 서버 머신 에이전트의 토큰 파일을 알려 준다(0.3.3+, §신원을 정하는 순서). 끄는 순서는 [instances.md](instances.md) §서버 머신의 에이전트: 토큰 파일이다.
 - `local`, `trusted-proxy` 방식이나 루프백이 아닌 `--bind` 에서는 늘 꺼져 있다. 거기서 `--agent-loopback` 을 요구하면 서버가 기동을 거부한다.
 - 같은 머신의 로컬 프로세스는 헤더를 빼서 에이전트를, 헤더를 붙여 사람을 흉내 낼 수 있다. 여러 사람이 쓰는 머신이면 에이전트에게 토큰을 주고, 이 동작을 끄고, `--members-only` 나 역할로 좁힌다.
-- **이 기기를 부른 요청에만 해당한다(0.2.1).** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) §남는 한계). 0.2.0은 허용 목록이 없을 때 이런 요청(태그 장치, 공용 CI 노드)을 에이전트로 받아 핀을 닫고 모두 지울 수도 있었다. 이제는 `403` 이고 메시지가 토큰을 쓰라고 알려 준다.
-- `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 0.2.0 동작을 일부러 되살린다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
+- **이 기기를 부른 요청에만 해당한다.** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다([ADR-0003](../adr/0003-tailnet-headerless-and-owner-clear.md) §남는 한계). 프록시를 거친 헤더 없는 요청은 `403` 이고 메시지가 토큰을 쓰라고 알려 준다. 에이전트로 받으면 태그 장치나 공용 CI 노드가 핀을 닫을 수 있기 때문이다.
+- `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 이런 요청을 일부러 에이전트로 받는다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
 
 ### pins.md 안내 줄
 
-`<state_dir>/pins.md` 의 안내 문단 바로 뒤에 다음 두 줄이 늘 붙는다(§pins.md 형식). 앞 줄은 0.2.1에 더한 claim 안내이고, `<base>` 는 close 예시와 같은 base URL이다. 뒷줄은 0.2.0부터 있던 인증 안내이고, 0.2.1에서 마지막 구절(테일넷 주소의 헤더 없는 요청은 `403`)이 붙었다. 에이전트가 표를 읽는 순간 핀을 잡는 법과 인증 방법을 알게 하려는 것이다. 머리줄의 다른 줄은 바뀌지 않았다.
+`<state_dir>/pins.md` 의 안내 문단 바로 뒤에 다음 두 줄이 늘 붙는다(§pins.md 형식). 앞 줄은 claim 안내이고, `<base>` 는 close 예시와 같은 base URL이다. 뒷줄은 인증 안내다. 에이전트가 표를 읽는 순간 핀을 잡는 법과 인증 방법을 알게 하려는 것이다. 그 뒤에 답글 안내 한 줄(`REPLY_GUIDANCE`)이 이어진다(§답글이 핀을 다시 여는 규칙 (0.2.2)).
 
 ```text
 처리를 시작하는 핀은 먼저 잡는다 — `curl -X POST -H 'Content-Type: application/json' -d '{"eta_min":15}' <base>/api/pins/N/claim`(eta_min = 예상 분, 번호 칸에 '처리 중(이름, 약 N분)' 으로 보인다) · 고치기 직전에 그 핀 하나만 잡는다 · 409 면 다른 쪽이 잡은 핀이니 건너뛴다 · 포기하면 `<base>/api/pins/N/unclaim`
 에이전트 인증: 모든 요청에 `Authorization: Bearer <토큰>` 헤더를 붙인다(`curl -H "Authorization: Bearer $LIMN_TOKEN" …`, 토큰은 사용자가 `limn token create <인스턴스>` 로 발급해 준다) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — 원격 에이전트는 반드시 토큰을 붙인다
 ```
 
-0.3.3부터 인증 안내 줄 끝에 구절 하나가 더 붙을 수 있다. 서버가 이 인스턴스의 토큰 파일을 알고(`--agent-token-file`, `limn run` 이 `LIMN_AGENT_TOKEN_FILE` 로 넘긴다) 그 파일이 있을 때만이다. 서버는 파일이 있는지만 보고 읽지 않는다. 구절은 기존 줄 뒤에 ` · ` 로 이어 붙으므로 줄의 앞부분은 위와 같다. 토큰은 담지 않는다. 원격 base로 렌더하는 `GET /pins.md` 에는 붙지 않는다. 원격 에이전트는 그 파일에 닿지 못하기 때문이다(§원격 에이전트 진입점).
+인증 안내 줄 끝에는 구절 하나가 더 붙을 수 있다(0.3.3+). 서버가 이 인스턴스의 토큰 파일을 알고(`--agent-token-file`, `limn run` 이 `LIMN_AGENT_TOKEN_FILE` 로 넘긴다) 그 파일이 있을 때만이다. 서버는 파일이 있는지만 보고 읽지 않는다. 구절은 기존 줄 뒤에 ` · ` 로 이어 붙으므로 줄의 앞부분은 위와 같다. 토큰은 담지 않는다. 원격 base로 렌더하는 `GET /pins.md` 에는 붙지 않는다. 원격 에이전트는 그 파일에 닿지 못하기 때문이다(§원격 에이전트 진입점).
 
 ```text
 … — 원격 에이전트는 반드시 토큰을 붙인다 · 이 기기의 에이전트는 토큰 파일을 붙인다: `curl -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" …`(파일 내용은 출력하지도 저장소에 옮기지도 않는다)
@@ -202,7 +200,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/version` | `{"name":"limn","version":<문자열>}`. `limn serve --version` 과 같은 값이다. 지금 인스턴스가 어느 설치 버전으로 도는지 확인할 때 쓴다. 쓰기 없음 |
-| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자. 0.2.0부터 `role` 이 붙는다 — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
+| `GET` | `/api/meta` | `pages`(쪽 목록), `built_at`, `head`(원고 커밋), `main`(최상위 `.tex` 이름), `label`·`accent`·`repo`(이 인스턴스의 이름표·강조색·git origin URL, [operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때), `n_open`·`n_review`·`n_done`(§검토 대기), `pins_md`·`state_dir`(절대경로), `me`(지금 요청자와 그 `role` — §인증), `building`(재빌드 진행 중), `stale_build`(이 PDF 를 만든 뒤 원고 `.tex` 가 바뀌었는가), `src_mtime`·`build_src_mtime`·`src_age_s`·`pins_rev`([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)), `pages_build`(지금 화면의 빌드 id, `pages.cur` 값), `build_seq`(끝난 빌드 수)·`last_build:{state,errors,finished_at,seq}`·`build:{state,phase,started_at}`([build-sync.md](build-sync.md) §비동기 재빌드), `doc`·`doc_name`·`kind`·`view_only`·`multi`(§문서 매개변수), `ev_seq`(§브라우저 알림 커서). 여러 문서면 `docs`(`/api/docs` 항목에서 `n_open` 을 뺀 것)와 `src_sig` 가 붙는다(라이트 포함). `src_sig` 는 문서마다의 `src_mtime` 을 이은 문자열이다. 그래서 뷰어는 다른 문서의 원고가 바뀌어도 목록을 다시 읽는다. 전체 meta는 요청한 사람을 기록한다(§@태그·사람·이벤트) |
 | `GET` | `/api/meta?light=1` | 위와 같되 `n_open`·`n_review`·`n_done` 이 없고 **쓰기를 하지 않는다**(`snapshot_pins()` 의 sync 쓰기를 하지 않는다). 폴링 전용이다. [build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링) |
 | `GET` | `/api/meta?ev=<seq>` | 라이트와 함께 쓸 수 있다. 요청자에게 온 새 이벤트를 `events` 로 싣는다 — §브라우저 알림 커서 |
 | `GET` | `/api/docs` | 문서 목록 `{docs:[{key,name,kind:"tex"\|"pdf",view_only,path,main,n_open,stale_build,building,build:{state,phase},build_seq,last_state,pages_build,n_pages,src_mtime}], default, multi, other_open}`. 핀은 읽기만 한다(sync 쓰기 없음). `other_open` 은 지금 설정에 없는 문서 키의 열린 핀 수다 |
@@ -219,7 +217,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `GET` | `/api/outline-labels?doc=<키>` | 현재 PDF와 함께 보존한 `.aux` 의 목차 → `{build,labels:[{number,title,page,level,anchor}]}`. PDF.js outline과 제목·계층·순서가 일치할 때만 번호를 붙인다. `page` 는 인쇄 쪽번호 문자열(로마 숫자 가능)이며 물리 PDF 페이지 인덱스가 아니다. `.aux` 가 없는 기존 빌드는 빈 배열이다. 지원하지 않는 복잡한 TeX 제목은 빈 `number`·`title` 자리표시자가 된다 |
 | `GET` | `/sw.js` | 브라우저 알림용 서비스 워커(`text/javascript; charset=utf-8`, `Cache-Control: no-cache`, 범위 `/`). `fetch` 처리기가 없어 앱 데이터를 캐시하지 않는다 |
 | `GET` | `/favicon.ico` | 빈 본문 `204` |
-| `GET` | `/favicon-32.png`, `/apple-touch-icon.png` | 0.3.4. SVG 파비콘을 못 쓰는 브라우저·홈 화면용 PNG 대체본이다. 32×32 둥근 타일과 180×180 네모 타일(iOS가 모서리를 깎는다)을 이 인스턴스의 `--accent` 로 그린다([viewer.md](viewer.md) §마크와 파비콘). `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?c=<색 16진>` 을 붙여 색이 바뀌면 캐시를 가른다. 쿼리는 그 밖의 뜻이 없다. Host·Origin·신원 검사는 다른 `GET` 과 같다 |
+| `GET` | `/favicon-32.png`, `/apple-touch-icon.png` | (0.3.4+) SVG 파비콘을 못 쓰는 브라우저·홈 화면용 PNG 대체본이다. 32×32 둥근 타일과 180×180 네모 타일(iOS가 모서리를 깎는다)을 이 인스턴스의 `--accent` 로 그린다([viewer.md](viewer.md) §마크와 파비콘). `image/png`, `Cache-Control: public, max-age=86400`. 뷰어는 `?c=<색 16진>` 을 붙여 색이 바뀌면 캐시를 가른다. 쿼리는 그 밖의 뜻이 없다. Host·Origin·신원 검사는 다른 `GET` 과 같다 |
 
 ### 빌드
 
@@ -235,8 +233,8 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | `GET` | `/api/revisions?doc=<키>` | 선택한 메인 `.tex` 폴더의 `.tex`·`.bib`·`.sty`·`.cls`·`.bst` 파일을 바꾼 최근 Git 커밋 12개 → `{available,revisions:[{id,date,subject}]}`. Git 저장소가 아니거나 보기 전용 PDF면 `available:false` |
-| `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404`. 0.3부터 선택 `&pin=<번호>` 를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404` |
-| `POST` | `/api/revision-build` | 본문 `{commit,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 0.3의 선택 `pin`(정수)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
+| `GET` | `/api/revision-diff?doc=<키>&commit=<40자리 SHA-1>` | 위 목록에 나온 커밋의 실제 unified diff → `{id,diff,truncated}`. 선택한 메인 파일 폴더 안의 같은 원고 확장자만 포함하고 최대 256 KiB를 보낸다. 잘못된 ID는 `400`, 목록 밖 ID와 보기 전용 PDF는 `404`. 선택 `&pin=<번호>`(0.3+)를 주면 `scope` 를 더한다(§핀 단위 변경 보기). 빈 `pin=` 은 없는 것과 같다. `pin` 이 양의 정수가 아니면 `400`, 이 문서의 핀이 아니면 `404` |
+| `POST` | `/api/revision-build` | 본문 `{commit,doc?,pin?}`. 선택 커밋의 첫 부모 → 선택 커밋 비교 PDF를 비동기로 시작한다. `202 {state:"running",job_id,base,head,engine,warnings,error,reason}`, 성공 캐시가 있으면 `200 {state:"ready",…}`. `doc` 은 쿼리로도 받는다. 선택 `pin`(정수, 0.3+)을 주면 그 핀의 변경만 적용한 비교가 되고 상태에 `scope`·`pin`·`source`·`hunks`·`other` 가 더해진다(§핀 단위 변경 보기). 그 밖의 필드가 있거나 `pin` 이 정수가 아니면 `400` |
 | `GET` | `/api/revision-build?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 같은 상태 스키마를 조회한다. `state` 는 `idle`(미실행·만료), `running`, `ready`, `error`. `error` 는 설명, `reason` 은 오류 분류다. 매번 현재 문서의 최근 커밋 목록을 다시 확인한다 |
 | `GET` | `/api/revision-pdf?doc=<키>&commit=<40자리 SHA-1>[&pin=<번호>]` | 성공한 같은 비교의 PDF(`Cache-Control: private, max-age=600`). 미완성·실패·만료는 `404` 이며 현재 원고 PDF로 대체하지 않는다. 현재 쪽·SyncTeX·핀 좌표와 무관한 열람 전용 결과다 |
 
@@ -248,10 +246,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | --- | --- | --- |
 | `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `?all=1` 이면 닫힌 핀까지 준다. 이 경로는 줄 맞춤(sync) 쓰기를 한다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
-| `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(쓰기 부작용 없음). 계산 필드는 0.2.2에서 더한 `expires_ts`(지워질 시각, epoch 초) 하나다. `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
+| `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. `pins.dropped.jsonl` 을 `dropped_at` 순으로 그대로 낸다(쓰기 부작용 없음). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. `dropped_at` 에서 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins` 와 같은 sync 경로를 탄 뒤 렌더한다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
 | `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다. 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
-| `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 더 이상 쓰지 않는다(§겹친 핀과 덧붙이기). 에이전트와 옛 뷰어 호환용으로 남긴다 |
+| `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
 
@@ -260,16 +258,16 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 자른 60자다. `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, frac, note, scope, quote, pdf_build`. 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다 |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
-| `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다 |
-| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 0.2.2부터 뷰어에는 [다시 열기] 버튼이 없다. 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 호환과 [완료]의 되돌리기에 남는다 |
+| `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
+| `POST` | `/api/pins/{id}/reopen` | 닫은 핀을 되돌린다(`reopened_by`). `close_reply`·`close_ref`·`changes`·`review`·`confirmed_*` 가 있었으면 지운다. 다시 닫을 때 새로 남기기 위해서다. 선택 본문 `{"reason"}` 은 스레드에 남는다 → `{ok, pin, state}`. 뷰어에는 [다시 열기] 버튼이 없고 사람의 답글이 규칙으로 다시 연다(§스레드 (답글)). 이 경로는 에이전트와 뷰어의 [완료] 되돌리기가 쓴다 |
 | `POST` | `/api/pins/{id}/confirm` | 검토 대기 → 완료. 사람만 누를 수 있다. 에이전트 역할(토큰 포함)이면 `403` 이다 → `{ok, pin, state}` — §검토 대기, §인증 |
 | `POST` | `/api/pins/{id}/reply` | 답글 `{"text", "mentions"?, "reopen"?}` → `{ok, pin, msg, state, reopened}`. 닫힌 핀에 사람이 단 답글은 규칙에 따라 핀을 다시 열 수 있다 — §스레드 (답글) |
 | `POST` | `/api/pins/{id}/drop` | 핀을 목록에서 빼 휴지통(`pins.dropped.jsonl`)으로 옮긴다(`dropped_by`) → `{ok}`. 없는 id면 `200 {"ok": false}`. 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트). 같은 쓰기에서 30일이 지난 휴지통 항목을 뺀다 |
 | `POST` | `/api/pins/{id}/restore` | 삭제한 핀을 같은 id로 되살린다. 서버를 다시 띄운 뒤에도 된다(`restored_by`). 응답은 `200 {ok, pin}`, 휴지통에 없으면(30일이 지난 항목 포함) `404`, 같은 id가 이미 있으면 `409` |
-| `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그, 0.3.1부터 `audit.jsonl` 한 줄(§감사 기록 (`audit.jsonl`))을 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
+| `POST` | `/api/pins/{id}/purge` | 휴지통의 핀을 영구 삭제한다(0.2.2+). **`owner` 역할만**(그 밖은 `403`). 휴지통에 없으면(열린·닫힌 핀 포함) `404` → `{ok, purged: <id>}`. `purged` 감사 이벤트와 서버 로그, `audit.jsonl` 한 줄(§감사 기록 (`audit.jsonl`))을 남긴다. 번호는 다시 쓰이지 않는다 — §휴지통 |
 | `POST` | `/api/pins/{id}/claim` | 처리 중 표시를 걸거나, 같은 신원이면 연장한다 — §처리 중 표시 (claim). 선택 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`. 정수가 아니거나 1보다 작으면 `400`, 상한을 넘으면 상한으로 깎는다. 응답은 `{ok, pin, ttl_min_applied, eta_min_applied?}`. 다른 신원이 유효한 claim을 쥐고 있으면 `409 {"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}`. 닫힌 핀이면 `409 {"error":"done","pin":...}`. 없는 id면 `200 {"ok": false}` |
 | `POST` | `/api/pins/{id}/unclaim` | 처리 중 표시를 지운다. claim을 건 신원과 무관하다. claim은 잠금이 아니라 표시이기 때문이다 → `{ok, pin}`. 없는 id면 `200 {"ok": false}`. `viewer` 역할은 다른 변경처럼 `403` 이다 |
-| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1부터, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남고, 0.3.1부터 잘리지 않는 `audit.jsonl` 에도 남는다(§감사 기록 (`audit.jsonl`)). 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
+| `POST` | `/api/clear` | 전체를 아카이브하고 비우는 일괄 리셋이다. **`owner` 역할만** 부를 수 있고(0.2.1+, 그 밖은 `403`), 본문 `{"confirm": "clear all pins"}` 가 있어야 한다(없거나 다르면 `400`). 아카이브 이름은 `pins_<timestamp>.jsonl.bak` 이고, 같은 초에 또 비우면 `pins_<timestamp>-1.jsonl.bak` … 로 이어진다. id 발급 번호는 이어진다. 응답은 `{"ok": true, "cleared": <지운 핀 수>, "archive": "<보관본 이름>"}` 이고, 누가 했는지 `cleared` 이벤트와 서버 로그에 남고, 잘리지 않는 `audit.jsonl` 에도 남는다(§감사 기록 (`audit.jsonl`)). 뷰어는 이 경로를 쓰지 않는다. **에이전트는 쓰지 않는다** |
 
 ## 비교 PDF 실행과 캐시
 
@@ -306,7 +304,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 ### 상태와 캐시
 
-비교 상태는 문서별 `<state>/revisions/` 에 보존한다. 캐시 키에는 저장소, 빌드 루트, 메인 경로, 두 전체 SHA, 엔진, 구현 버전이 들어간다. 핀 하나의 변경만 적용한 비교(0.3)는 여기에 고른 블록 목록이 더해진다. 핀 번호는 넣지 않는다. 그래서 (커밋, hunk 집합)마다 한 비교이고, 같은 블록을 가진 두 핀은 한 PDF를 함께 쓴다. 핀이 커밋 전체를 가지거나 하나도 없으면 커밋 전체 비교의 키를 그대로 쓴다. 핀 단위 비교는 캐시 폴더에 표시 파일(`scoped`)을 두고 따로 센다(최대 여섯, `REVISION_SCOPED_KEEP`). 그래서 핀 단위 비교가 많아도 커밋 전체 비교를 밀어내지 않는다. 성공 PDF와 상태는 작업이 끝난 뒤에 확정한다. 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다.
+비교 상태는 문서별 `<state>/revisions/` 에 보존한다. 캐시 키에는 저장소, 빌드 루트, 메인 경로, 두 전체 SHA, 엔진, 구현 버전이 들어간다. 핀 하나의 변경만 적용한 비교는 여기에 고른 블록 목록이 더해진다. 핀 번호는 넣지 않는다. 그래서 (커밋, hunk 집합)마다 한 비교이고, 같은 블록을 가진 두 핀은 한 PDF를 함께 쓴다. 핀이 커밋 전체를 가지거나 하나도 없으면 커밋 전체 비교의 키를 그대로 쓴다. 핀 단위 비교는 캐시 폴더에 표시 파일(`scoped`)을 두고 따로 센다(최대 여섯, `REVISION_SCOPED_KEEP`). 그래서 핀 단위 비교가 많아도 커밋 전체 비교를 밀어내지 않는다. 성공 PDF와 상태는 작업이 끝난 뒤에 확정한다. 원고의 `pages.cur`, `builds.json`, 핀은 바꾸지 않는다.
 
 - 프로세스 전체에서 동시에 최대 두 작업, 한 문서 상태 폴더에서 최대 한 작업을 허용한다.
 - 같은 작업을 다시 요청하면 기존 상태를 돌려준다. 다른 작업이 자리를 차지했으면 `409 reason:busy` 다.
@@ -325,7 +323,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 
 ## 핀 단위 변경 보기
 
-0.3부터 변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)가 선택 `pin` 을 받는다. 한 커밋이 핀 여럿을 고쳤을 때 그 핀의 변경만 보이기 위해서다. 결정과 버린 대안은 [ADR-0005](../adr/0005-pin-scoped-changes.md)에 있다. `pin` 이 없는 요청의 응답은 0.2.2와 같다.
+변경 보기의 세 경로(`/api/revision-diff`, `/api/revision-build`, `/api/revision-pdf`)는 선택 `pin`(0.3+)을 받는다. 한 커밋이 핀 여럿을 고쳤을 때 그 핀의 변경만 보이기 위해서다. 결정과 버린 대안은 [ADR-0005](../adr/0005-pin-scoped-changes.md)에 있다. `pin` 이 없는 요청은 커밋 전체를 다룬다.
 
 ### 핀의 hunk를 고르는 순서
 
@@ -337,7 +335,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 | 2 | 1이 아무것도 못 고르면, 핀 범위를 커밋에 비춰 겹치는 블록 | `inferred` |
 | 3 | 2도 못 고르면 없음. 커밋 전체를 보인다 | `none` |
 
-- `changes` 는 기록한 커밋의 줄 번호다. 그래서 요청한 커밋이 `close_ref` 가 가리키는 커밋일 때만 쓴다. 가리키는 커밋은 뷰어의 `matchRevision` 과 같은 규칙으로 찾는다(`ref_commit`, 두 구현을 테스트가 대조한다): 최근 커밋 가운데 7–40자리 해시가 앞부분인 커밋, 없으면 제목에 `(#N)`·`pull request #N`·`#N` 이 든 커밋(스쿼시·머지 커밋)이다. 다른 커밋에서는 같은 줄이 다른 핀의 수정일 수 있으므로 2의 추정만 쓰고, `source` 도 `inferred` 로 말한다(리뷰 M1).
+- `changes` 는 기록한 커밋의 줄 번호다. 그래서 요청한 커밋이 `close_ref` 가 가리키는 커밋일 때만 쓴다. 가리키는 커밋은 뷰어의 `matchRevision` 과 같은 규칙으로 찾는다(`ref_commit`, 두 구현을 테스트가 대조한다): 최근 커밋 가운데 7–40자리 해시가 앞부분인 커밋, 없으면 제목에 `(#N)`·`pull request #N`·`#N` 이 든 커밋(스쿼시·머지 커밋)이다. 다른 커밋에서는 같은 줄이 다른 핀의 수정일 수 있으므로 2의 추정만 쓰고, `source` 도 `inferred` 로 말한다.
 - 2의 핀 범위는 이렇게 정한다. 닫힌 핀은 마지막 줄 맞춤의 번호를 지니는데, 그 번호가 커밋의 새 쪽인지 옛 쪽인지는 기록이 없다. 그래서 anchor를 새 쪽과 옛 쪽 모두에서 기록된 줄 가까이 찾고(`sync_all()` 과 같은 규칙), 기록된 줄에 더 가까운 쪽부터 쓴다(같으면 새 쪽). 거기서 블록이 안 겹치면 다음 후보로 간다. 마지막 후보는 날 범위다. `stale` 이면 옛 쪽, 아니면 새 쪽으로 읽는다.
 - 핀 파일은 짝의 옛 이름이든 새 이름이든 맞으면 된다.
 - 한쪽이 빈 블록(순수 삽입·삭제)은 그 자리 앞뒤 줄에 닿은 것으로 본다. 지운 줄 바로 앞이나 뒤를 가리켜도 그 삭제를 고른다.
@@ -346,7 +344,7 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 - 한 번 정한 답은 메모리에 32개까지 둔다(`ScopeCache`, 두 패치는 256 KiB + 1바이트에서 잘라 둔다). 커밋을 읽지 못한 답(시간 초과·크기 초과)은 두지 않아 다음 요청이 다시 시도한다. 캐시에 없어 git을 읽는 계산은 동시에 두 개까지다(`SCOPE_SLOTS`). 더 오면 기다리고, 60초 안에 자리가 나지 않으면 커밋 전체를 보인다(이것도 두지 않는다).
 - 블록은 `git diff -U0 --inter-hunk-context=0` 으로 읽는다. 사용자의 `diff.interHunkContext` 설정이 가까운 두 핀의 블록을 하나로 붙이지 못하게 하려는 것이다.
 - 핀의 줄 번호는 `str.splitlines()`(`tex_lines`)로 센 번호이고 git은 줄바꿈 문자(`\n`)로만 센다. 폼 피드·홀로 쓴 CR·U+2028 같은 문자가 있으면 둘이 어긋나므로, anchor 찾기와 날 범위는 splitlines 번호로 하고 git 번호로 바꿔 블록과 견준다.
-- `changes` 는 그것을 적은 닫기(`changes_at` = 그때의 `done_at`)일 때만 쓴다. 0.2.2로 되돌린 동안 다시 열고 닫으면 0.2.2가 `changes` 를 지우지도 새로 적지도 않으므로, 이전 닫기의 줄을 이번 커밋에 쓰지 않으려는 것이다.
+- `changes` 는 그것을 적은 닫기(`changes_at` = 그때의 `done_at`)일 때만 쓴다. `changes` 를 모르는 이전 버전 서버는 다시 열고 닫아도 `changes` 를 지우지도 새로 적지도 않으므로, 이전 닫기의 줄을 이번 커밋에 쓰지 않으려는 것이다.
 
 ### `GET /api/revision-diff?pin=`
 
@@ -355,14 +353,14 @@ latexmk -norc -pdf -no-shell-escape -interaction=nonstopmode -halt-on-error
 | 필드 | 뜻 |
 | --- | --- |
 | `pin` | 요청한 핀 번호 |
-| `mode` | `pin` = 핀이 커밋의 일부만 가진다. `commit` = 커밋 전체가 핀의 것이거나, 하나도 아니거나, 가를 수 없었다. 뷰어는 `commit` 이면 0.2.2와 똑같이 보인다 |
+| `mode` | `pin` = 핀이 커밋의 일부만 가진다. `commit` = 커밋 전체가 핀의 것이거나, 하나도 아니거나, 가를 수 없었다. 뷰어는 `commit` 이면 커밋 전체를 보인다 |
 | `source` | `changes`·`inferred`·`none` (위 표) |
 | `hunks` / `other` | 핀의 것 / 나머지 바뀐 자리(블록) 수. 이름만 바뀐 파일·바이너리 파일은 나머지 한 자리다 |
 | `diff` / `other_diff` | `mode` 가 `pin` 일 때만. 핀의 블록 / 나머지 블록만 담은 unified diff(각각 UTF-8 최대 256 KiB, 잘렸으면 `truncated` / `other_truncated` 가 `true`). 앞뒤 3줄 맥락은 이웃 블록에서 멈추므로 다른 핀의 변경이 맥락 줄로 끼지 않는다. 새 쪽 줄 번호는 커밋의 실제 번호다 |
 
 ### 비교 PDF
 
-`mode` 가 `pin` 이면 새 쪽을 **옛 판 + 핀의 블록만** 적용한 합성 판으로 만들어 옛 판과 latexdiff 한다. 옛 스냅숏을 한 번 더 떠서 블록을 적용하고, 파일은 옛 이름을 지킨다(핀의 것인 이름 바꾸기는 제자리 수정). 더한 파일은 쓰고 지운 파일은 지운다. 실행은 §비교 PDF 실행과 캐시의 격리 파이프라인과 한도를 그대로 쓴다. 상태 응답에 `scope`(`pin`|`commit`)·`pin`·`source`·`hunks`·`other` 가 더해진다. 합성 판이 컴파일되지 않으면 그 비교는 `state:"error"` 이고, 뷰어가 커밋 전체 비교로 넘어간다. 두 SHA-1과 파이프라인이 같으면 결과도 같으므로, 핀 비교의 컴파일·diff 실패(`compile_failed`·`diff_failed`·`scope_failed`)는 캐시가 살아 있는 동안 POST에 다시 빌드하지 않고 그 오류를 돌려준다. 커밋 전체 비교는 예전처럼 다시 시도한다. 상태 파일(`status.json`)에는 요청마다 다른 `scope`·`pin`·`source`·`hunks`·`other` 를 저장하지 않는다. 이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/scope.py`·`limn/revisions.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려주고, 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `answers.revision_answer`, 빌드 상태는 워커가 조립 지점에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
+`mode` 가 `pin` 이면 새 쪽을 **옛 판 + 핀의 블록만** 적용한 합성 판으로 만들어 옛 판과 latexdiff 한다. 옛 스냅숏을 한 번 더 떠서 블록을 적용하고, 파일은 옛 이름을 지킨다(핀의 것인 이름 바꾸기는 제자리 수정). 더한 파일은 쓰고 지운 파일은 지운다. 실행은 §비교 PDF 실행과 캐시의 격리 파이프라인과 한도를 그대로 쓴다. 상태 응답에 `scope`(`pin`|`commit`)·`pin`·`source`·`hunks`·`other` 가 더해진다. 합성 판이 컴파일되지 않으면 그 비교는 `state:"error"` 이고, 뷰어가 커밋 전체 비교로 넘어간다. 두 SHA-1과 파이프라인이 같으면 결과도 같으므로, 핀 비교의 컴파일·diff 실패(`compile_failed`·`diff_failed`·`scope_failed`)는 캐시가 살아 있는 동안 POST에 다시 빌드하지 않고 그 오류를 돌려준다. 커밋 전체 비교는 POST마다 다시 시도한다. 상태 파일(`status.json`)에는 요청마다 다른 `scope`·`pin`·`source`·`hunks`·`other` 를 저장하지 않는다. 이 절의 거부(이 문서의 핀이 아님, 핀의 블록을 다시 읽지 못함·찾지 못함·사본에 쓰지 못함, 허용되지 않는 경로)는 안쪽 코드(`limn/scope.py`·`limn/revisions.py`)가 경우마다 한 값(`ScopeRefusal`)으로 돌려주고, 상태 코드·한국어 문구·`reason` 은 한 표 `SCOPE_REJECTIONS` 가 정한다(요청은 `answers.revision_answer`, 빌드 상태는 워커가 조립 지점에서 받은 `revision_failure_text`). 문구는 계약이라 `test_revisions.ScopedErrorBodies` 가 본문을 그대로 고정한다. 커밋 전체 비교를 여러 핀과 `pin` 없는 요청이 함께 쓰기 때문이다.
 
 ## 핀 수정 (`/api/pins/{id}/edit`)
 
@@ -396,20 +394,20 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/close \
 ```
 
 - **에이전트는 무엇을 고쳤는지와 커밋을 남긴다.** `reply` 에는 고친 내용(≤500자), `ref` 에는 참조(≤80자)를 적는다. 서버에는 둘 다 선택이다. 나중에 공저자가 닫힌 핀을 볼 때 원고를 다시 뒤지지 않고도 왜 닫혔는지 알 수 있다.
-- **에이전트 규칙(0.3).** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)).
-- **`changes`(0.3, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 트리 안(원고 폴더 안이고 점으로 시작하는 이름 아래도, 원고 안에 둔 상태 폴더 아래도 아닌 곳, §요청 형식과 경계)이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 닫아도 바뀌지 않으며, 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
-- 본문이 없거나 비어 있으면(빈 문자열·공백만) 예전과 같이 동작한다. 옛 에이전트의 본문 없는 `curl -X POST …/close` 는 그대로 통과한다.
+- **에이전트 규칙.** 에이전트는 닫을 때 늘 `changes` 를 보내고 `ref` 에 `PR #번호 (커밋 해시)` 를 적는다. 해시는 그 수정이 들어간 커밋이다. 원고 저장소가 PR을 스쿼시 머지하고 에이전트가 머지 뒤에 닫으면 `main` 의 머지 커밋이고, `changes` 의 번호도 그 커밋이 만든 판(머지된 `main`) 기준이다. 뷰어는 `ref` 의 해시로 커밋을 찾고, 그 커밋 안에서 `changes` 로 핀의 hunk를 고른다. 핀마다 커밋을 나누면 커밋이 곧 핀이라 더 좋지만 필수는 아니다. 서버가 강제하지는 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)).
+- **`changes`(0.3+, 서버에는 선택).** `[{file, lo, hi}]` 는 `ref` 의 커밋에서 **이 핀 때문에** 바꾼 줄 범위다. 줄 번호는 그 커밋 뒤(새 쪽) 기준이고, `file` 은 `pins.md` 위치 칸처럼 `--manuscript` 기준 상대 경로이거나 그 안의 절대 경로다. 목록이고 50개(`CLOSE_CHANGES_MAX`) 이하, 항목마다 `file`·`lo`·`hi` 세 필드만, `lo`·`hi` 는 `1 ≤ lo ≤ hi ≤ 1,000,000` 인 정수(불리언 아님), `file` 은 비어 있지 않고 1,024자 이하이며 NUL이 없고 풀어 쓴 경로가 원고 트리 안(원고 폴더 안이고 점으로 시작하는 이름 아래도, 원고 안에 둔 상태 폴더 아래도 아닌 곳, §요청 형식과 경계)이어야 한다. 어기면 `400` 이고 아무것도 바뀌지 않는다. 빈 목록은 없는 것과 같다. 첫 닫기에만 절대 경로로 풀어 `changes` 에 저장하고(그 닫기의 `done_at` 을 `changes_at` 에 함께), 다시 열기가 지운다. `GET /api/pins`·`/api/pins/{id}` 에 그대로 나오고 `pins.md` 에는 싣지 않는다.
+- 본문이 없거나 비어 있으면(빈 문자열·공백만) 사유 없이 닫는다. 본문 없는 `curl -X POST …/close` 도 통과한다.
 - 문자열이 아니거나 상한을 넘으면 `400` 이고 아무것도 바뀌지 않는다. 값은 다른 필드처럼 뷰어에서 `esc()` 로 이스케이프해 렌더한다.
 - 성공하면 핀에 `close_reply`·`close_ref` 로 저장되고 닫힌 카드에 보인다. 같은 `ref` 를 가진 닫힌 핀은 UI가 묶어 보일 수 있다.
 - 토큰 없는 에이전트의 `curl` 은 신원 헤더가 없으므로 `closed_by` 가 `{"login":"local","name":"로컬/에이전트"}` 로 남는다. 토큰을 붙이면 `{"login":"agent:<토큰 이름>","name":"<토큰 이름>"}` 이다(§인증).
 
 > **주의**
 >
-> 이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않는다. `done_at`, `closed_by`, `rev`, `close_reply`, `close_ref` 가 모두 첫 닫기 값 그대로고, 두 번째 호출의 `reply`·`ref` 는 버려진다. 예전에는 두 번째 닫기가 `done_at`·`closed_by` 를 덮어써 처음 닫은 사람이 사라졌다(실측 결함). 사유를 새로 남기려면 `/reopen` 으로 한 번 연 뒤 다시 `/close` 한다. `reopen` 이 옛 `close_reply`·`close_ref` 를 지우므로 다음 닫기가 새 사유로 채운다.
+> 이미 닫힌 핀을 다시 닫으면 아무것도 바꾸지 않고, 두 번째 호출의 `reply`·`ref`·`changes` 는 버려진다. 사유를 새로 남기려면 `/reopen` 으로 한 번 연 뒤 다시 `/close` 한다. `reopen` 이 옛 `close_reply`·`close_ref`·`changes` 를 지우므로 다음 닫기가 새 사유로 채운다. 규칙과 이유는 [domain.md](domain.md) §전이에 딸린 규칙에 있다.
 
 ## 스레드 (답글)
 
-초기 시범 원고의 핀 42건 중 10건(24%)은 고칠 곳이 아니라 질문이었다. 예를 들어 #30은 '구간이 0을 포함한다는 게 뭐지?'였다. 그런데 답을 남길 곳이 닫기 사유 한 칸뿐이라 되물을 수 없었다. 그래서 핀마다 선택 필드 `thread` 를 두고, 사람과 에이전트가 같은 경로(`POST /api/pins/{id}/reply`)로 글을 단다.
+핀에는 고칠 곳만이 아니라 질문('구간이 0을 포함한다는 게 뭐지?')도 온다. 닫기 사유 한 칸으로는 되물을 수 없으므로, 핀마다 선택 필드 `thread` 를 두고 사람과 에이전트가 같은 경로(`POST /api/pins/{id}/reply`)로 글을 단다.
 
 ```bash
 curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d '{"text": "95% 신뢰구간이다"}'
@@ -419,7 +417,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 틀린 입력은 `400`, 없는 id는 `200 {"ok": false}`, 답글이 이미 200건이면 `409 {"error":"full"}` 이다. 상태 전환 기록은 이 상한과 무관하게 붙는다.
 - 메시지 모양은 `{id, by:{login,name,pic?}, at, text, mentions?, ev?, ref?}` 다. `id` 는 핀 안에서 1부터 오른다.
 - 상태 전환도 스레드에 한 줄씩 남는다. `ev` 가 `close` 면 글은 닫기 사유이고 `ref` 가 붙는다. `reopen` 이면 글은 다시 연 이유다. 그 밖에 `confirm`, `assign`(§@태그·사람·이벤트)이 있다.
-- 닫기 사유는 옛 `close_reply`·`close_ref` 에도 그대로 적힌다. 옛 뷰어와 에이전트 호환을 위해서다.
+- 닫기 사유는 `close_reply`·`close_ref` 에도 그대로 적힌다. 스레드를 읽지 않는 클라이언트도 사유를 보게 하려는 것이다.
 - 질문 핀은 답글을 단 뒤 따로 닫는다.
 
 ### 답글이 핀을 다시 여는 규칙 (0.2.2)
@@ -434,22 +432,22 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | 질문 핀 | 누구나 | — | 답으로 남는다. 상태 그대로 |
 
 - **사람**은 에이전트가 아닌 신원이다. 토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람은 에이전트라 규칙으로는 다시 열지 않는다.
-- **토큰 없이 사람 신원으로 보내는 에이전트**(사람으로 로그인한 머신에서 테일넷 주소로 보내며 닫을 때 `"review": true` 를 넣는 에이전트, `--auth local` 인스턴스에 헤더 없는 `curl`)는 서버에게 사람이다. 그런 에이전트는 답글마다 `"reopen": false` 를 넣는다. `pins.md` 안내 줄(`REPLY_GUIDANCE`, 토큰 안내 줄 다음에 더한 줄)과 SKILL이 같은 말을 한다.
+- **토큰 없이 사람 신원으로 보내는 에이전트**(사람으로 로그인한 머신에서 테일넷 주소로 보내며 닫을 때 `"review": true` 를 넣는 에이전트, `--auth local` 인스턴스에 헤더 없는 `curl`)는 서버에게 사람이다. 그런 에이전트는 답글마다 `"reopen": false` 를 넣는다. `pins.md` 안내 줄(`REPLY_GUIDANCE`, 토큰 안내 줄 다음 줄)과 SKILL이 같은 말을 한다.
 - **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신과 `agent` 역할인 계정을 빼고 하나라도 있다는 뜻이다. `@Codex 고쳐 주세요`처럼 에이전트 역할 계정을 부른 답글은 사람을 부른 것이 아니다.
 - 본문의 선택 `reopen` 이 `true`/`false` 면 규칙보다 앞선다. 불리언이 아니면 `400` 이다. 열린 핀은 `reopen: true` 여도 바뀌지 않는다. 뷰어의 [상태 유지]가 `false` 를 보낸다.
-- 응답은 `{ok, pin, msg, state, reopened}` 다. `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다. `state`·`reopened` 는 0.2.2에서 더했다.
+- 응답은 `{ok, pin, msg, state, reopened}` 다(`state`·`reopened` 는 0.2.2+). `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다.
 - 다시 여는 답글에는 답글 200건 상한이 걸리지 않는다. 상태 전환 기록이기 때문이다.
 - 다시 여는 답글도 보통 답글처럼 알린다. 작성자는 `reopened`, 이 글이 태그한 사람은 `mention`, 그 밖에 이 핀에서 불린 적 있는 사람은 `replied` 다. 한 사람이 둘을 받지 않는다.
-- 다시 열린 핀은 `pins.md` 열린 표로 돌아온다. 번호 칸에 `다시 열림`, 메모 칸 뒤에 `다시 연 이유(<이름>): <답글>` 이 붙는다(§질문·다시 열림·사람에게 물은 핀). 형식은 예전 그대로다.
+- 다시 열린 핀은 `pins.md` 열린 표로 돌아온다. 번호 칸에 `다시 열림`, 메모 칸 뒤에 `다시 연 이유(<이름>): <답글>` 이 붙는다(§질문·다시 열림·사람에게 물은 핀).
 - 핀 종류는 `kind_req`(`fix`|`question`, 없으면 `fix`)다. `POST /api/pin` 과 `/edit` 이 받고, `/edit` 은 닫힌 핀에서도 받는다. 범위 종류를 뜻하는 옛 `kind` 와는 다른 필드다.
 
 ## 검토 대기
 
-흐름은 `close` → `review` → `confirm` 이다. 초기 시범 원고에서 에이전트가 닫은 핀을 작성자가 다시 연 일이 42건 중 2건(#28·#42) 있었다. 그런데 사람이 결과를 봤다는 기록이 없었다. 그래서 에이전트가 닫은 핀은 바로 완료가 아니라 검토 대기로 보낸다.
+흐름은 `close` → `review` → `confirm` 이다. 에이전트가 닫은 핀은 바로 완료가 아니라 검토 대기로 간다. 사람이 결과를 봤다는 기록을 남기기 위해서다. 상태와 전이의 규칙은 [domain.md](domain.md) §전이와 할 수 있는 쪽이 정본이고, 이 절은 요청과 응답이다.
 
 | 전환 | 조건 | 결과 |
 | --- | --- | --- |
-| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 0.2.1부터 `403` 이다(§인증) |
+| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 `403` 이다(§인증) |
 | 닫기 | 사람(`editor`·`owner` 역할, `local` 방식의 소유자) | `done:true` = 완료(그 사람이 검토자다) |
 | 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로 `true` 를 보낸다. 같은 에이전트는 답글에 `"reopen": false` 를 넣는다(사람 신원의 답글은 닫힌 핀을 다시 연다, §답글이 핀을 다시 여는 규칙 (0.2.2)) |
 | `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`) |
@@ -459,11 +457,10 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | `POST /reopen` | 닫힌 핀(검토 대기·완료) | 열림. `review`·`confirmed_*`·`close_reply`·`close_ref` 를 지우고 스레드에 `ev:reopen` 을 남긴다. 선택 `{"reason"}`(≤1000자)이 그 글이다 |
 | `POST /reply` | 닫힌 핀에 사람이, 사람을 @태그하지 않은 답글 | `POST /reopen` 과 같다. 답글이 그 글이다(§답글이 핀을 다시 여는 규칙 (0.2.2)) |
 
-확인은 사람만 누를 수 있다. 뷰어는 작성자에게 확인을 권할 뿐이고, `editor`·`owner` 역할인 사람이면 누구나 누를 수 있다. 토큰은 늘 `agent` 역할이라 토큰으로는 확인할 수 없다.
+토큰은 늘 `agent` 역할이라 토큰으로는 확인할 수 없다.
 
-- **하위 호환**: 검토 대기도 `done:true` 라서 옛 계약이 그대로 선다. `GET /api/pins`(열린 핀만)에 나오지 않고, `claim` 은 `409 done` 이며, 줄 맞춤·겹침 계산은 건너뛴다. 옛 서버와 옛 탭은 완료로 본다. `review` 가 없는 옛 `done:true` 는 완료다. 읽을 때 이관 쓰기를 하지 않는다.
+- 검토 대기도 `done:true` 라서 `GET /api/pins`(열린 핀만)에 나오지 않고 `claim` 은 `409 done` 이다. `review` 가 없는 `done:true` 는 완료다([domain.md](domain.md) §전이에 딸린 규칙).
 - 응답과 `GET /api/pins` 항목에는 계산 필드 `state`(`open`|`review`|`done`)가 붙는다. 저장하지 않는다. `/api/meta` 는 `n_open`·`n_review`·`n_done` 을 싣는다. `n_done` 은 완료만 센다.
-- 두 번째 닫기는 예전처럼 아무것도 바꾸지 않는다. 검토 대기 핀을 에이전트가 다시 닫아도 그대로다.
 
 ## @태그·사람·이벤트
 
@@ -473,7 +470,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 ### 사람 목록
 
-`<state_dir>/people.json` 은 `{"version":1,"people":[{login,name,pic?,first_seen,last_seen,role?}]}` 모양이다. @태그 후보이자 0.2.0부터는 멤버 명단이다.
+`<state_dir>/people.json` 은 `{"version":1,"people":[{login,name,pic?,first_seen,last_seen,role?}]}` 모양이다. @태그 후보이자 멤버 명단이다.
 
 - 이 뷰어를 연(`GET /`, 전체 `/api/meta`) 사람과, 쓰기 요청을 보낸 사람을 적는다. `limn member add` 로 더한 사람도 있다. 에이전트(토큰 포함)는 적지 않는다.
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
@@ -502,12 +499,12 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 담당(`assignee`)이 없는 옛 핀은 태그로 누구에게 물었는지 추론한다. 계산 필드 `addressed` 는 메모의 `mentions` 와 지금 차례 스레드 글의 `mentions` 를 합친 것이다. "지금 차례"는 마지막 닫기 뒤, 다시 열렸으면 그 다시 엶부터다([viewer.md](viewer.md) §스레드와 검토).
 
 - `addressed` 는 **질문(`kind_req=question`) 핀에서만** 채워진다. pins.md 번호 칸의 `→ @이름` 이 이것이고, 에이전트는 건너뛴다.
-- 수정 요청(`fix`) 핀의 같은 재료는 `fyi` 필드에 담긴다. pins.md 에는 `참고 @이름` 으로만 보이고, 건너뛰지 않는다. 예전에는 FYI로 사람을 태그한 수정 요청 핀이 `→ @이름` 으로 잡혀 영영 건너뛰어졌다(실측).
+- 수정 요청(`fix`) 핀의 같은 재료는 `fyi` 필드에 담긴다. pins.md 에는 `참고 @이름` 으로만 보이고, 건너뛰지 않는다. 수정 요청 핀의 태그까지 `→ @이름` 으로 잡으면 FYI로 사람을 태그한 핀을 에이전트가 영영 건너뛰기 때문이다.
 - 번호 칸 표시 우선순위는 `다시 열림` > `→ @이름` > `질문` 이다.
 
 ### 담당 (`assignee`)
 
-`assignee` 는 누가 이 핀을 처리하는지 적은 값이다. `"agent"` 또는 사람 로그인이다. 본문 글에서 짐작하던 건너뛰기 규칙이 모호했기 때문에 생겼다. 초기 시범 원고 #43의 수정 요청 핀 `이거 콜링 제대로 작동하나 @Bob Park 확인 부탁합니다` 는 Bob에게 맡긴 것이었다. 그런데 `참고 @Bob Park` 로 떠서 에이전트가 자기 일로 읽었다.
+`assignee` 는 누가 이 핀을 처리하는지 적은 값이다. `"agent"` 또는 사람 로그인이다. 글에서 짐작하는 건너뛰기 규칙은 모호하기 때문이다. 사람에게 맡긴 수정 요청(`… @Bob Park 확인 부탁합니다`)도 글만 보면 `참고 @Bob Park` 로 떠서 에이전트가 자기 일로 읽는다.
 
 - `POST /api/pin` 과 `/edit` 이 받는다. `"agent"` 이거나 이 뷰어가 아는 사람(`GET /api/people`)의 로그인이 아니면 `400`(한국어 메시지)이다.
 - `/edit` 은 닫힌 핀에서도 받는다. 담당이 바뀌면 스레드에 `ev:"assign"` 을 남긴다. 글은 `담당: @이름` 또는 `담당: 에이전트` 다. 만들 때의 담당은 스레드에 기록하지 않는다.
@@ -527,24 +524,24 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 | `type` | 언제 | `to` |
 | --- | --- | --- |
-| `mention` | 답글이나 다시 연 이유가 누군가를 @태그함. 전에 불린 사람이어도 **매번** 간다(0.2.1). 메모 저장·수정은 @태그 횟수가 전보다 늘어난 사람에게 간다(새 핀은 태그된 모두). 그래서 `@이름` 옆의 오타만 고치면 아무도 받지 않고, `note_append` 로 `@이름` 을 다시 쓰면 받는다. 단 메모에서 온 mention 은 (행위자, 받는 사람, 핀)마다 10분에 한 번이다(0.3.1, 아래) | 태그된 사람(글쓴이 자신은 빠진다) |
+| `mention` | 답글이나 다시 연 이유가 누군가를 @태그함. 전에 불린 사람이어도 **매번** 간다. 메모 저장·수정은 @태그 횟수가 전보다 늘어난 사람에게 간다(새 핀은 태그된 모두). 그래서 `@이름` 옆의 오타만 고치면 아무도 받지 않고, `note_append` 로 `@이름` 을 다시 쓰면 받는다. 단 메모에서 온 mention 은 (행위자, 받는 사람, 핀)마다 10분에 한 번이다(아래) | 태그된 사람(글쓴이 자신은 빠진다) |
 | `review_requested` | 핀이 검토 대기로 감 | 작성자 |
 | `replied` | 답글 | 작성자 + 이 핀에서 불린 적 있는 사람. 단 이 답글이 @태그한 사람은 빠진다. 그 사람은 `mention` 하나만 받는다. 한 글로 한 사람이 두 알림을 받지 않는다 |
 | `reopened` | 닫힌 핀을 다시 엶 | 작성자. 다시 연 이유가 작성자를 @태그하면 `mention` 하나만 받는다 |
 | `assigned` | 핀을 만들거나 고치며 담당을 사람으로 정함(바뀔 때만) | 새 담당 |
-| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움(0.2.1) | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다. 이 기록은 5000건 회전에 밀려날 수 있어서 0.3.1부터 `audit.jsonl` 에도 남긴다 |
-| `dropped` | 핀을 휴지통으로 보냄(0.2.2) | 작성자(작성자 자신이 지웠으면 기록하지 않는다). `excerpt` 는 메모다. 뷰어는 [되살리기]를 단 알림으로 보인다 |
-| `purged` | 소유자가 휴지통에서 영구 삭제함(0.2.2) | 아무도 아님(`to` 는 `[]`). `cleared` 처럼 감사 기록이다. `pin` 과 `by` 만 싣는다 |
+| `cleared` | 소유자가 `/api/clear` 로 모든 핀을 지움 | 아무도 아님(`to` 는 `[]`). 알림이 아니라 감사 기록이다. `pin`·`doc` 대신 `n`(보관한 핀 수)과 `archive`(보관본 이름)를 싣는다. 이 기록은 5000건 회전에 밀려날 수 있어서 `audit.jsonl` 에도 남긴다 |
+| `dropped` | 핀을 휴지통으로 보냄 | 작성자(작성자 자신이 지웠으면 기록하지 않는다). `excerpt` 는 메모다. 뷰어는 [되살리기]를 단 알림으로 보인다 |
+| `purged` | 소유자가 휴지통에서 영구 삭제함 | 아무도 아님(`to` 는 `[]`). `cleared` 처럼 감사 기록이다. `pin` 과 `by` 만 싣는다 |
 
 - `to` 에서 행위자 자신과 `local` 은 빠진다. `to` 가 비면 기록하지 않는다. `cleared`·`purged` 만 예외로 `to` 가 비어도 남긴다.
-- `doc` 은 그 핀이 속한 문서의 키다(§문서 매개변수). `doc` 이 없는 옛 핀은 첫 문서로 읽는다. 0.3.5까지는 새 줄 핀이 보내는 `mention`·`assigned` 가 핀의 문서 대신 첫 문서의 키를 적었다. 그래서 여러 문서 인스턴스에서 둘째 문서의 새 핀 알림이 첫 문서를 가리켰다. 이미 쓰인 기록은 고치지 않는다.
+- `doc` 은 그 핀이 속한 문서의 키다(§문서 매개변수). `doc` 이 없는 옛 핀은 첫 문서로 읽는다. 0.3.5 이하가 쓴 기록에서는 새 줄 핀의 `mention`·`assigned` 가 핀의 문서 대신 첫 문서의 키를 싣고 있을 수 있다. 이미 쓰인 기록은 고치지 않는다.
 - 핀 쓰기가 커밋된 뒤, 잠금 아래에서 파일 전체를 원자적으로 바꿔 쓴다. 앞부분은 그대로 두므로 추가 전용이 유지된다.
 - 최근 5000건만 남긴다. 그래도 `seq` 는 계속 오른다. 소비자는 바이트 위치가 아니라 `seq` 로 따라온다. 오래 남아야 하는 감사 기록은 §감사 기록 (`audit.jsonl`)에 따로 쓴다.
-- **메모 mention 의 재알림 간격(0.3.1, 이슈 #10 L3).** 메모 저장·수정·`note_append` 가 보내는 `mention` 은 (행위자 로그인, 받는 사람 로그인, 핀 번호)마다 10분(`NOTE_MENTION_COOLDOWN_S`)에 한 번만 기록한다. 편집할 수 있는 사람이 메모의 `@Bob` 을 지웠다 다시 쓰기를 되풀이하면 편집마다 Bob 에게 알림이 가고, 메모 수정은 `edited_at` 말고는 흔적을 남기지 않기 때문이다. 판단은 `events.jsonl` 에 남은 기록으로 한다. 메모에서 온 `mention` 은 `msg` 가 없고, 답글·다시 연 이유의 `mention` 은 스레드 글 번호 `msg` 를 싣는다. 걸러진 알림은 쓰지 않으므로 10분은 마지막으로 보낸 알림부터 잰다. 핀의 `mentions` 필드(메모가 부른 사람)는 그대로 갱신된다. 답글과 다시 연 이유는 보이는 스레드 글을 남기므로 지금처럼 매번 간다.
+- **메모 mention 의 재알림 간격.** 메모 저장·수정·`note_append` 가 보내는 `mention` 은 (행위자 로그인, 받는 사람 로그인, 핀 번호)마다 10분(`NOTE_MENTION_COOLDOWN_S`)에 한 번만 기록한다. 편집할 수 있는 사람이 메모의 `@Bob` 을 지웠다 다시 쓰기를 되풀이하면 편집마다 Bob 에게 알림이 가고, 메모 수정은 `edited_at` 말고는 흔적을 남기지 않기 때문이다. 판단은 `events.jsonl` 에 남은 기록으로 한다. 메모에서 온 `mention` 은 `msg` 가 없고, 답글·다시 연 이유의 `mention` 은 스레드 글 번호 `msg` 를 싣는다. 걸러진 알림은 쓰지 않으므로 10분은 마지막으로 보낸 알림부터 잰다. 핀의 `mentions` 필드(메모가 부른 사람)는 그대로 갱신된다. 답글과 다시 연 이유는 보이는 스레드 글을 남기므로 매번 간다.
 
 ## 감사 기록 (`audit.jsonl`)
 
-`<state_dir>/audit.jsonl` 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다(0.3.1, 이슈 #10 L5). 실행 정본은 [`src/limn/audit.py`](../../src/limn/audit.py) 의 `audit_entry`·`append_audit`·`os_actor` 다. `events.jsonl` 은 최근 5000건만 남겨서, 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려났다. 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
+`<state_dir>/audit.jsonl`(0.3.1+) 은 되돌릴 수 없는 일과 소유자·운영자의 일을 적는 추가 전용 기록이다. 실행 정본은 [`src/limn/audit.py`](../../src/limn/audit.py) 의 `audit_entry`·`append_audit`·`os_actor` 다. `events.jsonl` 은 최근 5000건만 남겨 알림이 쌓이면 누가 모든 핀을 지웠는지(`cleared`)가 밀려나므로, 이 파일은 Limn이 자르거나 다시 쓰지 않는다. 한 줄에 JSON 하나다.
 
 ```json
 {"at": "2026-09-26 10:12:03", "ts": 1790392323.412, "action": "cleared", "by": {"login": "alice@example.com", "name": "Alice Kim"}, "via": "http", "details": {"n": 42, "archive": "pins_260926_101203.jsonl.bak"}}
@@ -563,8 +560,8 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 일이 끝난 뒤에 적는다. 거부된 요청(`400`·`403`·`404`), 없는 토큰·멤버를 고른 명령은 적지 않는다.
 - 쓰기는 `.audit.lock` 프로세스 간 잠금 아래에서 `O_APPEND` 로 줄을 덧붙이고 `fsync` 한다. 앞의 바이트는 읽지 못하는 줄이어도 고치지 않는다. 파일은 권한 `0600` 으로 만들고, 이미 있으면 `0600` 으로 좁힌다. 심볼릭 링크를 따라가지 않는다.
 - 쓰기가 실패하면 서버 로그(stderr)에 경고만 남기고 일은 그대로 끝난다. 이미 일어난 일을 되돌리지 않는다.
-- 기존 `cleared`·`purged` 이벤트는 호환을 위해 `events.jsonl` 에도 계속 쓴다. 뷰어와 API는 이 파일을 읽지 않는다. 회전이 없으므로 오래 쓰면 운영자가 옮겨 보관한다(드문 일만 적어서 크게 늘지 않는다).
-- 0.3.0 이하로 되돌려도 된다. 옛 서버와 옛 `limn` 명령은 이 파일을 모르고 열지 않는다. 되돌린 동안의 일은 적히지 않는다.
+- `cleared`·`purged` 는 `events.jsonl` 에도 이벤트로 쓴다. 뷰어와 API는 이 파일을 읽지 않는다. 회전이 없으므로 오래 쓰면 운영자가 옮겨 보관한다(드문 일만 적어서 크게 늘지 않는다).
+- 0.3.0 이하로 되돌려도 된다. 그 서버와 `limn` 명령은 이 파일을 모르고 열지 않으며, 되돌린 동안의 일은 적히지 않는다.
 
 ## 브라우저 알림 커서
 
@@ -584,22 +581,18 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 curl -s -H "Authorization: Bearer $LIMN_TOKEN" https://<기기>.<tailnet>.ts.net:<port>/pins.md
 ```
 
-원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙고, 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기). **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 0.2.1부터 `403` 이다(§인증). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다. 루프백(`http://127.0.0.1:<port>`) 에이전트는 바뀌지 않았다.
+원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙고, 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기). **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 `403` 이다(§인증). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다.
 
 - `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다. 그래서 줄 번호가 최신이다.
-- 바뀌는 것은 close 예시의 base URL뿐이다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 지금까지처럼 `http://127.0.0.1:<port>` 다.
+- 바뀌는 것은 close 예시의 base URL뿐이다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 `http://127.0.0.1:<port>` 다.
 - 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다. 루프백에는 없다. 루프백 쪽은 이미 그 파일을 직접 읽고 있기 때문이다.
-- 원격일 때는 인증 안내 줄에 토큰 파일 구절(0.3.3, §pins.md 안내 줄)이 붙지 않는다. 그 파일은 서버 머신에만 있다.
+- 원격일 때는 인증 안내 줄에 토큰 파일 구절(§pins.md 안내 줄)이 붙지 않는다. 그 파일은 서버 머신에만 있다.
 - 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base로 쓴다. 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
 - Host·Origin 검사는 다른 `GET` 과 같다([operations.md](operations.md) §Host·Origin 검사). 낯선 Host는 `403` 이다.
 
 ## 처리 중 표시 (claim)
 
-작성자 쪽과 공저자 쪽의 두 에이전트가 같은 핀을 동시에 고칠 수 있다. `POST /api/pins/{id}/claim` 은 이 충돌을 줄이는 표시다. 이것은 **잠금이 아니라 TTL이 있는 낙관적 표시**다. 다른 사람이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다. 협업은 "claim 먼저, `처리 중(…)` 은 건너뛰기" 관례에 기댄다([SKILL.ko.md](../../skill/SKILL.ko.md) §핀 처리).
-
-> **주의**
->
-> claim은 고치기 직전에 그 핀만 건다. 한꺼번에 잡으면 손대지 않은 핀까지 잠긴다. 실측(2026-09-23)에서 23건을 `ttl_min` 480으로 한꺼번에 잡았고, 뷰어의 `~04:02` 가 예상 완료 시각처럼 읽혔다.
+작성자 쪽과 공저자 쪽의 두 에이전트가 같은 핀을 동시에 고칠 수 있다. `POST /api/pins/{id}/claim` 은 이 충돌을 줄이는 표시다. **잠금이 아니라 TTL이 있는 낙관적 표시**라서 다른 쪽이 그 핀을 닫거나 강제로 다시 잡는 것을 막지 않는다. 이 규칙과 "고치기 직전에 그 핀만 claim, `처리 중(…)` 은 건너뛰기" 관례는 [domain.md](domain.md) §전이에 딸린 규칙에 있다. 이 절은 요청과 응답의 계약이다.
 
 ```bash
 curl -s -X POST http://127.0.0.1:<port>/api/pins/3/claim -H 'Content-Type: application/json' -d '{"eta_min": 15}'
@@ -611,9 +604,9 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | 칸 | 범위 | 뜻 |
 | --- | --- | --- |
 | `eta_min` | 1..240 | **처리 예상 시간(견적)**. 레코드에 `eta_ts = 지금 + eta_min×60`(epoch 초)으로 저장한다. 견적 기준은 [SKILL.ko.md](../../skill/SKILL.ko.md) §핀 처리 4단계 |
-| `ttl_min` | 1..120 | **잠금 자동 해제**까지의 시간(안전장치). 생략하면 `eta_min` 이 있을 때 `min(120, max(30, eta_min×2))`, 없으면 120. 상한은 480에서 120으로 낮췄다. 멈춘 에이전트가 한나절 동안 핀을 쥐지 않게 하려는 것이다 |
+| `ttl_min` | 1..120 | **잠금 자동 해제**까지의 시간(안전장치). 생략하면 `eta_min` 이 있을 때 `min(120, max(30, eta_min×2))`, 없으면 120. 상한 120은 멈춘 에이전트가 한나절 동안 핀을 쥐지 않게 하려는 것이다 |
 
-두 칸 모두 선택이다. 정수가 아니거나 1보다 작으면 `400` 이고 아무것도 바뀌지 않는다. **상한을 넘는 값은 거부하지 않고 상한으로 깎는다.** 예를 들어 `ttl_min` 480은 120, `eta_min` 300은 240이 된다. 옛 절차대로 `ttl_min` 480으로 잡은 에이전트가 같은 값으로 연장하다 `400` 을 받아 작업이 깨지지 않게 하려는 하위 호환이다. 응답의 `ttl_min_applied`(늘)와 `eta_min_applied`(`eta_min` 을 보냈을 때)가 실제로 적용한 값이다.
+두 칸 모두 선택이다. 정수가 아니거나 1보다 작으면 `400` 이고 아무것도 바뀌지 않는다. **상한을 넘는 값은 거부하지 않고 상한으로 깎는다.** 예를 들어 `ttl_min` 480은 120, `eta_min` 300은 240이 된다. 큰 값으로 잡던 에이전트가 같은 값으로 연장하다 `400` 을 받아 작업이 깨지지 않게 하려는 것이다. 응답의 `ttl_min_applied`(늘)와 `eta_min_applied`(`eta_min` 을 보냈을 때)가 실제로 적용한 값이다.
 
 ### 신원·연장·충돌
 
@@ -621,32 +614,24 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - **같은 신원이 다시 걸면 연장**이다. `claim_until` 을 지금부터 다시 잰다. `eta_min` 을 주면 `eta_ts` 도 지금부터 새 견적으로 바꾸고, 안 주면 앞 견적을 둔다. 시작 시각(`claimed_at`·`claim_ts`)은 그대로이고 `rev` 가 1 오른다.
 - **다른 신원이 유효한(만료 안 된) claim을 쥐고 있으면 `409`** 다. 본문은 `{"error":"claimed","claimed_by":{...},"claim_until":...,"eta_ts":...}` 다.
 - 새로 잡으면 옛 `eta_ts` 는 지운다. 만료된 남의 claim을 새로 잡는 경우도 같다.
-- 닫힌 핀에 claim을 걸면 `409 {"error":"done","pin":...}`. 없는 id는 기존 관례대로 `200 {"ok": false}` 다.
-- `unclaim` 은 claim을 건 신원과 무관하게 지운다. claim은 들어온 사람끼리의 협업 표시이지 잠금이 아니다([domain.md](domain.md) §작성자 귀속). 그래서 처리 중 표시는 소유자 확인 없이 풀 수 있다. 막는 것은 역할 검사뿐이다. `viewer` 역할의 `unclaim` 은 `403` 이다.
-- `close` 와 `drop` 은 claim 필드를 함께 지운다. 닫히거나 삭제된 핀에 처리 중 표시가 남지 않는다. 다른 사람이 claim한 핀을 닫는 것 자체는 막지 않는다. 그래서 에이전트는 처리를 포기하거나 사용자에게 넘길 때만 `unclaim` 을 부른다.
+- 닫힌 핀에 claim을 걸면 `409 {"error":"done","pin":...}`. 없는 id는 다른 경로처럼 `200 {"ok": false}` 다.
+- `unclaim` 은 claim을 건 신원과 무관하게 지운다. 막는 것은 역할 검사뿐이라 `viewer` 역할의 `unclaim` 은 `403` 이다.
+- `close` 와 `drop` 은 claim 필드를 함께 지운다. 그래서 에이전트는 처리를 포기하거나 사용자에게 넘길 때만 `unclaim` 을 부른다.
 
 ### 시각 필드
 
 `claim_until`·`claim_ts`·`eta_ts` 는 epoch 초다. 브라우저 시간대와 무관하게 비교하기 위해서다([build-sync.md](build-sync.md) §위치 추정 (`est`)과 같은 이유).
 
-이름이 `*_at` 이 아닌 것은 일부러다. 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 본다. 숫자인 `*_at` 필드를 쓰면, 이 필드를 모르는 옛 서버가 그 레코드를 깨진 줄로 버린다.
+이름이 `*_at` 이 아닌 것은 일부러다. 레코드 검증(`valid_rec`)은 `*_at` 을 문자열 시각으로 본다. 숫자인 `*_at` 필드를 쓰면, 이 필드를 모르는 이전 버전 서버가 그 레코드를 깨진 줄로 버린다.
 
 - 만료된 claim은 모든 표시에서 없는 것으로 본다. `<state_dir>/pins.md`, 뷰어 카드, 충돌 판정이 모두 그렇다. 저장값 자체는 다음 쓰기 때 정리될 뿐이다.
 - `claim_ts` 가 없는 옛 claim은 `GET /api/pins` 가 `claimed_at`(서버 현지 시각 문자열)을 epoch로 풀어 계산 필드 `claim_ts` 로 싣는다. 저장하지 않는다.
 
 ### 표시
 
-`<state_dir>/pins.md` 번호 칸에는 유효한 claim이 있으면 `처리 중(<이름>, 약 15분)` 이 붙는다(§pins.md 형식). 분은 남은 견적을 5분 단위로 올린 값이다. 견적을 넘겼으면 `예상 초과` 가 붙고, 견적 없이 잡았으면 `처리 중(<이름>)` 이다.
+`<state_dir>/pins.md` 번호 칸에는 유효한 claim이 있으면 `처리 중(<이름>, 약 15분)` 이 붙는다(§pins.md 형식). 분은 남은 견적을 5분 단위로 올린 값이다. 견적은 대략이기 때문이다. 견적을 넘겼으면 `예상 초과` 가 붙고, 견적 없이 잡았으면 `처리 중(<이름>)` 이다.
 
-뷰어 카드는 머리에 호박색 점을 두고 아래 배지를 보인다. 분과 시각은 모두 5분 단위로 올린다. 견적은 대략이기 때문이다. 시각은 보는 기기의 현지 시각이고, 30초마다 다시 센다.
-
-| 상태 | 배지 |
-| --- | --- |
-| 견적 안 | `처리 중 · 약 15분 · 20:40쯤` |
-| 견적 초과 | `예상보다 늦어짐 (+5분)`(초과한 분) |
-| 견적 없는 claim | `처리 중 · 20:02부터 (23분째)` |
-
-잠금 자동 해제 시각(`claim_until`)은 배지에 쓰지 않고 설명(툴팁)에만 둔다. 배지에 두었을 때 예상 완료 시각으로 읽혔기 때문이다. 배지와 함께 [풀기] 버튼(unclaim)이 뜬다. **뷰어에는 claim을 거는 버튼이 없다.** claim은 에이전트 전용 동작이다.
+뷰어 카드의 호박색 점과 배지(`처리 중 · 약 15분 · 20:40쯤` 등)는 [viewer.md](viewer.md) §상태 표현에 있다. **뷰어에는 claim을 거는 버튼이 없다.** claim은 에이전트 전용 동작이고, 뷰어는 표시를 지우는 [풀기] 버튼(unclaim)만 보인다.
 
 ## 겹친 핀과 덧붙이기
 
@@ -664,7 +649,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 뷰어의 배너
 
-- **범위가 바뀔 때마다 다시 센다.** 뷰어는 드래그, 단계 전환, 한 줄 버튼마다 이 탭의 열린 핀 목록으로 같은 규칙(`overlapsFor`·`selRel`)을 돌린다. 회귀 테스트가 이 규칙을 서버 구현과 대조한다. pick 순간에만 세던 때는 [문단] 단계로 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠서 중복 핀이 저장됐다(실측).
+- **범위가 바뀔 때마다 다시 센다.** 뷰어는 드래그, 단계 전환, 한 줄 버튼마다 이 탭의 열린 핀 목록으로 같은 규칙(`overlapsFor`·`selRel`)을 돌린다. 회귀 테스트가 이 규칙을 서버 구현과 대조한다. pick 순간에만 세면 [문단] 단계로 바꿔 기존 핀과 똑같은 범위를 만들어도 배너가 안 떠 중복 핀이 저장되기 때문이다.
 - 서버가 본 겹친 핀이 이 탭 목록에 없으면 목록을 다시 받는다. 다른 사람이 방금 저장한 경우다.
 - 네 관계 모두 배너 대상이다. 대표 하나를 이 순서로 고른다: 같은 범위 > 안(가장 좁은 바깥 핀) > 감쌈(가장 넓은 안쪽 핀) > 걸침(id가 가장 작은 것).
 - 문구가 관계를 밝힌다: `열린 핀 #4와 같은 범위입니다 (L405-L406)` / `… #4 범위 안입니다` / `… #4를 감쌉니다` / `… #4와 일부 겹칩니다`. 조사는 숫자 읽기로 가린다. 버튼은 `[#4 메모에 덧붙이기] [별도 핀으로 저장]` 이다.
@@ -695,19 +680,19 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ## 휴지통
 
-삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 저장은 예전과 같은 `pins.dropped.jsonl` 이고 레코드 모양도 같다.
+삭제(`/drop`)한 핀은 휴지통에 30일(`TRASH_DAYS`) 동안 머문다(0.2.2+, [ADR-0004](../adr/0004-one-reply-trash-sections.md)). 저장은 `pins.dropped.jsonl` 이고 레코드는 핀 레코드에 `dropped_at`·`dropped_by` 를 더한 모양이다.
 
 | 동작 | 규칙 |
 | --- | --- |
 | 보기 | `GET /api/pins/dropped`. `dropped_at` 에서 30일이 지난 항목은 싣지 않는다. 항목마다 계산 필드 `expires_ts`(지워질 시각, epoch 초)가 붙는다. 뷰어의 '며칠 뒤 지워짐'이 이것을 써서 보는 기기의 시간대와 상관없다. 읽기는 파일을 고치지 않는다 |
 | 되살리기 | `POST /api/pins/{id}/restore`. 누구나(`viewer` 제외). 30일이 지난 항목은 `404` 다 |
-| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때, 삭제·되살리기 때, 그리고 오래 떠 있는 서버를 위해 `GET /api/pins`·`GET /pins.md`(이미 줄 맞춤 쓰기를 하는 읽기)에서 한 시간에 한 번(`TRASH_CHECK_EVERY_S`) 파일에서 뺀다. 라이트 폴링(`/api/meta?light=1`)은 여전히 쓰지 않는다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
+| 저절로 지우기 | 30일이 지난 항목은 서버 기동 때, 삭제·되살리기 때, 그리고 오래 떠 있는 서버를 위해 `GET /api/pins`·`GET /pins.md`(이미 줄 맞춤 쓰기를 하는 읽기)에서 한 시간에 한 번(`TRASH_CHECK_EVERY_S`) 파일에서 뺀다. 라이트 폴링(`/api/meta?light=1`)은 쓰지 않는다. 서버 로그에 `trash: purged N pin(s)` 가 남는다. `dropped_at` 은 `now_str` 모양(서버 현지 시각)과 ISO+오프셋을 읽고, 읽을 수 없는 항목은 나이를 모르므로 남긴다. 쓰기가 실패하면(읽기 전용 상태 디렉터리) 경고만 남기고 기동은 계속된다. 읽을 수 없는 줄은 휴지통 파일을 다시 쓸 때 `pins.dropped.jsonl.corrupt-<시각>.bak` 으로 원래 바이트를 남긴다 |
 | 영구 삭제 | `POST /api/pins/{id}/purge`. **`owner` 역할만** 한다. 휴지통에 없으면 `404` 다. `purged` 감사 이벤트와 서버 로그를 남긴다 |
 | 알림 | 작성자가 아닌 쪽이 지우면 작성자에게 `dropped` 이벤트가 간다(§이벤트 (`events.jsonl`)) |
 
 - 핀 번호는 `pins.seq` 에 남으므로 영구 삭제한 번호도 다시 쓰이지 않는다.
-- `pins.md` 는 예전처럼 삭제한 핀을 싣지 않는다.
-- 0.2.1로 되돌려도 휴지통 파일을 그대로 읽는다. 옛 서버는 30일 규칙을 모를 뿐이다.
+- `pins.md` 는 삭제한 핀을 싣지 않는다.
+- 0.2.1로 되돌려도 휴지통 파일을 그대로 읽는다. 그 서버는 30일 규칙을 모를 뿐이다.
 
 ## 핀 레코드 스키마
 
@@ -728,8 +713,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 | 필드 | 뜻 |
 | --- | --- |
-| `file` | 핀이 가리키는 원고 파일의 **이 서버 머신 절대 경로**다. 저장값은 마지막으로 그 핀을 쓰거나 줄을 다시 맞춘 때의 경로다. 응답의 값은 0.3.2부터 §핀 파일의 위치로 찾은 **지금 경로**이고, 찾지 못하면 저장값 그대로다 |
-| `file_rel` | 0.3.2([ADR-0006](../adr/0006-relative-pin-paths.md)), 저장 전용. 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 싣지 않는다(대신 `rel_path`). 문자열이 아니면 그 줄은 깨진 줄이다 |
+| `file` | 핀이 가리키는 원고 파일의 **이 서버 머신 절대 경로**다. 저장값은 마지막으로 그 핀을 쓰거나 줄을 다시 맞춘 때의 경로다. 응답의 값은 §핀 파일의 위치로 찾은 **지금 경로**(0.3.2+)이고, 찾지 못하면 저장값 그대로다 |
+| `file_rel` | (0.3.2+, [ADR-0006](../adr/0006-relative-pin-paths.md)) 저장 전용. 원고 폴더(`--manuscript`) 기준 POSIX 상대 경로다(`sections/introduction.tex`). 서버가 **그 핀을** 만들거나 고치거나(`/edit`, 위치 다시 잡기 포함) 되살릴 때 `file` 과 함께 적는다. 옛 레코드에는 없고, 채우려고 다시 쓰지 않는다. 응답에는 싣지 않는다(대신 `rel_path`). 문자열이 아니면 그 줄은 깨진 줄이다 |
 | `doc` | 핀이 속한 문서 키(§문서 매개변수 (`doc=`)). 없는 옛 레코드는 첫 문서로 **읽는다**. 이관 쓰기를 하지 않는다. `GET /api/pins` 응답에는 늘 채워진다(계산) |
 | `pdf` | 보기 전용 PDF 문서의 핀에만 있다. 그 PDF의 절대경로다. 이 필드가 있고 `file` 이 없으면 보기 전용 핀으로 검증한다(`page`·`frac` 필수, `lo`·`hi` 없음). 문서 키가 지금 설정에 없어도 깨진 줄로 치지 않는다 |
 | `rev` | 레코드 내용이 바뀌는 모든 쓰기(줄 이동·stale, 수정, 닫기, 다시 열기, 되살리기)에서 +1. 없으면 0 |
@@ -741,8 +726,8 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `author` | 만든 사람 `{login, name, pic?}` |
 | `edited_at`, `edited_by` | 저장 뒤 마지막 수정 시각과 사람 |
 | `closed_by` / `reopened_by` | 닫은 사람과 다시 연 사람(`done_at`·`reopened_at` 과 함께) |
-| `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유. 무엇을 고쳤는지(≤500자)와 참조(PR 번호 등, ≤80자)다. 첫 닫기에만 적히고, 이미 닫힌 핀을 다시 닫아도 바뀌지 않는다(§닫을 때 사유 남기기). `reopen` 이 지운다 |
-| `changes` / `changes_at` | 0.3. 닫을 때 남긴 선택 `[{file, lo, hi}]` — 이 핀 때문에 바꾼 줄(커밋 뒤 번호, `file` 은 절대 경로)이다(§닫을 때 사유 남기기). `changes_at` 은 그 닫기의 `done_at` 이다(§핀 단위 변경 보기). 첫 닫기에만 적히고 `reopen` 이 둘 다 지운다. 모양이 틀리면(목록이 아니거나 `file` 이 문자열이 아니거나 `lo`·`hi` 가 정수가 아니면) 그 줄은 깨진 줄이다 |
+| `close_reply` / `close_ref` | 닫을 때 남긴 선택 사유. 무엇을 고쳤는지(≤500자)와 참조(PR 번호 등, ≤80자)다. 첫 닫기에만 적히고 `reopen` 이 지운다(§닫을 때 사유 남기기) |
+| `changes` / `changes_at` | (0.3+) 닫을 때 남긴 선택 `[{file, lo, hi}]` — 이 핀 때문에 바꾼 줄(커밋 뒤 번호, `file` 은 절대 경로)이다(§닫을 때 사유 남기기). `changes_at` 은 그 닫기의 `done_at` 이다(§핀 단위 변경 보기). 첫 닫기에만 적히고 `reopen` 이 둘 다 지운다. 모양이 틀리면(목록이 아니거나 `file` 이 문자열이 아니거나 `lo`·`hi` 가 정수가 아니면) 그 줄은 깨진 줄이다 |
 | `dropped_by` / `restored_by` | 삭제 기록(`pins.dropped.jsonl`)의 삭제자, 되살린 레코드의 복원자 |
 | `kind_req` | `fix`\|`question`. 핀 종류다(§스레드 (답글)). 없으면 fix |
 | `thread` | 답글과 상태 전환 기록 `[{id, by, at, text, mentions?, ev?, ref?}]`(§스레드 (답글)) |
@@ -752,31 +737,30 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 | `confirmed_by` / `confirmed_at` | 검토 대기를 확인한 사람과 시각 |
 | `claimed_by` / `claimed_at` / `claim_ts` / `claim_until` / `eta_ts` | 처리 중 표시(§처리 중 표시 (claim)). `claimed_by` 는 작성자 귀속과 같은 `{login,name}` 형식이고, `claimed_at` 은 시작 시각 문자열이다. `claim_ts`(시작), `claim_until`(잠금 자동 해제), `eta_ts`(예상 완료)는 epoch 초다. `claim_until` 이 지난 값이면 없는 것으로 본다. `close`·`drop`·`unclaim` 이 모두 지운다 |
 
-`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
+`snippet`, `warn`, `levels`, `default_level`, `rel`, `rel_path`, `overlaps`, `est`, `state`, `addressed` 는 응답에만 있고 저장하지 않는다(§겹친 핀과 덧붙이기, [build-sync.md](build-sync.md) §위치 추정 (`est`)). `rel_path`(0.3.2+)는 §핀 파일의 위치로 찾은 원고 폴더 기준 상대 경로이고, 옛 레코드에도 계산해서 싣는다. 찾지 못하면 없다. `rel`(겹침 관계)과는 다른 필드다.
 
 ### 핀 파일의 위치
 
-원고 체크아웃을 옮기면(이름 바꾸기, 새 클론 위치, 다른 머신, 상태 디렉터리 복원) 저장된 절대 경로 `file` 이 옛 위치를 가리킨다. 0.3.1까지는 그런 핀이 원고 밖으로 보여 줄 맞춤·범위 수정·인용이 멈췄다([이슈 #7](https://github.com/dartworklabs/limn/issues/7)). 0.3.2부터 서버는 읽을 때마다 아래 순서로 핀의 파일을 지금 원고 폴더에서 찾는다(`pin_rel_path`, [ADR-0006](../adr/0006-relative-pin-paths.md)). 먼저 맞는 것을 쓴다.
+원고 체크아웃을 옮기면(이름 바꾸기, 새 클론 위치, 다른 머신, 상태 디렉터리 복원) 저장된 절대 경로 `file` 이 옛 위치를 가리킨다. 그래도 그 핀이 원고 밖으로 보여 줄 맞춤·범위 수정·인용이 멈추지 않게, 서버는 읽을 때마다 아래 순서로 핀의 파일을 지금 원고 폴더에서 찾는다(`pin_rel_path`, 0.3.2+, [ADR-0006](../adr/0006-relative-pin-paths.md)). 먼저 맞는 것을 쓴다.
 
 1. 저장된 `file` 이 지금 원고 폴더 안이면(심볼릭 링크를 푼 뒤) 그 경로다. 파일이 지워졌어도 그렇다.
-2. `file_rel` 이 비어 있지 않은 상대 경로이고 `..` 조각이 없으며 저장된 `file` 이 그 경로로 끝나면 `<원고 폴더>/<file_rel>` 이다. 다만 `file` 의 꼬리 가운데 `file_rel` 보다 긴 것이 원고 안에 있으면 그것이다(원고 폴더를 넓힌 경우). 0.3으로 되돌린 동안 위치를 다시 잡으면 `file` 만 바뀌어 둘이 어긋나므로, 낡은 `file_rel` 은 버린다.
-3. 옛 레코드는 `file` 의 꼬리 가운데 **핀의 문서 폴더**(그 문서의 빌드 루트) 안에 실제로 있는 가장 긴 것이다(`sections/intro.tex` 가 `intro.tex` 보다 앞선다). `..` 조각이 든 꼬리는 보지 않는다. 0.3.4부터 꼬리를 문서 폴더에 이어 붙여 찾는다([이슈 #24](https://github.com/dartworklabs/limn/issues/24)). 그래서 여러 문서 인스턴스에서 다른 문서의 같은 이름 파일(`response/main.tex`)로 풀리지 않고, `--doc` 과 함께 이름을 바꾼 문서 폴더(`response/` → `reply/`)도 따라간다. `--doc` 없이 띄운 인스턴스는 문서 폴더가 원고 폴더라 0.3.2와 같다. `--doc` 이 하나라도 하위 폴더를 가리키면 그 폴더에서만 찾는다. 레코드의 문서가 지금 설정에 없으면 원고 폴더 전체에서 찾는다. 1·2는 기록된 사실이라 문서 폴더로 좁히지 않는다.
+2. `file_rel` 이 비어 있지 않은 상대 경로이고 `..` 조각이 없으며 저장된 `file` 이 그 경로로 끝나면 `<원고 폴더>/<file_rel>` 이다. 다만 `file` 의 꼬리 가운데 `file_rel` 보다 긴 것이 원고 안에 있으면 그것이다(원고 폴더를 넓힌 경우). `file_rel` 을 모르는 이전 버전이 위치를 다시 잡으면 `file` 만 바뀌어 둘이 어긋나므로, 그렇게 어긋난 `file_rel` 은 버린다.
+3. 옛 레코드는 `file` 의 꼬리 가운데 **핀의 문서 폴더**(그 문서의 빌드 루트) 안에 실제로 있는 가장 긴 것이다(`sections/intro.tex` 가 `intro.tex` 보다 앞선다). `..` 조각이 든 꼬리는 보지 않는다. 꼬리는 문서 폴더에 이어 붙여 찾는다(0.3.4+). 그래서 여러 문서 인스턴스에서 다른 문서의 같은 이름 파일(`response/main.tex`)로 풀리지 않고, `--doc` 과 함께 이름을 바꾼 문서 폴더(`response/` → `reply/`)도 따라간다. `--doc` 없이 띄운 인스턴스는 문서 폴더가 원고 폴더다. `--doc` 이 하나라도 하위 폴더를 가리키면 그 폴더에서만 찾는다. 레코드의 문서가 지금 설정에 없으면 원고 폴더 전체에서 찾는다. 1·2는 기록된 사실이라 문서 폴더로 좁히지 않는다.
 4. 어느 것도 맞지 않으면 원고 밖이다. 줄 맞춤·`lo`/`hi` 수정(`400`)·`«…»` 인용이 멈추고 그 파일은 읽지 않는다.
 
 1~3의 결과도 심볼릭 링크를 푼 경로가 원고 폴더 안일 때만 쓴다. 원고 안의 링크가 바깥을 가리키면 원고 밖이다. 찾은 경로는 줄 맞춤, 범위 수정, `pins.md` 위치 칸과 인용, 겹침 계산(`rel`·`overlaps`), 핀 단위 변경 보기, 그리고 응답의 `file`·`rel_path` 에 쓴다.
 
-**닫을 때 보낸 `changes` 의 경로(0.3.4).** 핀 단위 변경 보기는 `changes[].file` 도 같은 규칙(1·3·4, 핀의 문서 폴더)으로 지금 원고 폴더에서 찾은 뒤 저장소 기준 경로로 바꾼다([이슈 #24](https://github.com/dartworklabs/limn/issues/24)). 그래서 옮기거나 다른 곳에 클론한 원고에서도 에이전트가 기록한 줄(`source:"changes"`)을 쓴다. 0.3.2는 이 경로를 버리고 추정(`inferred`)으로 갔다. 저장된 `changes` 는 다시 쓰지 않고, 응답의 `changes[].file` 도 저장값 그대로다. 찾지 못한 경로는 예전처럼 버리고 추정한다.
+**닫을 때 보낸 `changes` 의 경로(0.3.4+).** 핀 단위 변경 보기는 `changes[].file` 도 같은 규칙(1·3·4, 핀의 문서 폴더)으로 지금 원고 폴더에서 찾은 뒤 저장소 기준 경로로 바꾼다. 그래서 옮기거나 다른 곳에 클론한 원고에서도 에이전트가 기록한 줄(`source:"changes"`)을 쓴다. 저장된 `changes` 는 다시 쓰지 않고, 응답의 `changes[].file` 도 저장값 그대로다. 찾지 못한 경로는 버리고 추정(`inferred`)한다.
 
 - **쓰기 마이그레이션은 없다.** 읽기가 `file_rel` 을 채우지 않는다. 다른 핀의 변경·닫기·claim 으로 파일을 다시 쓸 때도 그렇다.
 - **줄 맞춤.** 찾은 파일이 저장된 `file` 과 다르면(옮긴 레코드) `synced_at` 은 다른 파일에서 잰 값이다. 그래서 anchor 머리 줄이 기록된 자리에 그대로 있을 때만 줄 맞춤을 건너뛴다. 그대로 옮긴 경우에는 아무것도 쓰지 않는다. 내용이 달라 다시 맞추면 그 파일을 `file` 에 함께 적어, 줄 번호와 `file` 이 같은 파일을 가리키게 한다. anchor 가 없는 옛 핀은 옮긴 파일에서 anchor 를 채우지 않는다.
-- 0.3.1(또는 0.3.0)으로 되돌려도 된다. 두 버전은 `file_rel` 을 모르는 필드로 지나치고, 0.3.2가 다시 쓴 레코드의 `file` 은 지금 경로라 옛 버전에서도 원고 안이다. 옛 버전 응답에는 `rel_path` 가 없다.
+- 0.3.1 이하로 되돌려도 된다. 그 버전은 `file_rel` 을 모르는 필드로 지나치고, 다시 쓴 레코드의 `file` 은 지금 경로라 원고 안이다. 그 버전의 응답에는 `rel_path` 가 없다.
 
 ## pins.md 형식
 
 `<state_dir>/pins.md` 는 에이전트가 읽는 열린 핀 표다. 5열 표 `| # | 쪽 | 위치 | 범위 | 메모 |` 로 되어 있다.
 
-- 옛 `종류` 열이 `범위` 로 바뀌었다.
-- `작성` 열은 v2에서 없앴다. 작성자는 `GET /api/pins` 와 뷰어 카드에서만 본다. 닫힌 핀도 마찬가지다.
+- 작성자 열은 없다. 작성자는 `GET /api/pins` 와 뷰어 카드에서 본다. 닫힌 핀도 마찬가지다.
 - 스니펫은 일부러 넣지 않는다. 줄 범위만 있으면 에이전트가 원본을 `Read` 로 직접 읽는 편이 항상 더 싸고 정확하다. 스니펫은 그 시점의 스냅샷이라 원본과 어긋날 수 있다.
 
 > **주의**
@@ -788,12 +772,12 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 1. `원고: <경로>` 바로 다음 줄은 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 이다([operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때). 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않게 하려는 줄이다.
 2. `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다.
 3. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 두 줄이 온다. `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 이다. git 저장소가 아니거나 아직 빌드하지 않아 파일이 없으면 이 두 줄만 생략한다.
-4. 안내 문단의 첫 문장(닫기 안내)은 0.3에서 바뀌었다(§닫기 안내 줄). 머리줄에서 바뀐 곳은 이것 하나다.
-5. 안내 문단 바로 뒤에 두 줄이 늘 붙는다. 0.2.1부터 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 이 오고, 0.2.0부터 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 온다(마지막 구절은 0.2.1). 전문은 §인증의 pins.md 안내 줄에 있다. 둘 다 더한 줄이고 머리줄의 다른 부분은 바뀌지 않았다.
+4. 안내 문단은 닫기 안내로 시작한다(§닫기 안내 줄).
+5. 안내 문단 바로 뒤에 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 과 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 늘 붙는다. 전문은 §인증의 pins.md 안내 줄에 있다.
 
 ### 닫기 안내 줄
 
-안내 문단은 닫기 안내로 시작한다. 0.3에서 이 문장만 바뀌었다. 줄의 시작 `처리한 핀은 닫는다` 와 `· 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다` 부터의 뒤쪽은 0.2.2와 같다. 닫을 때 `changes` 와 `ref` = `PR #번호 (커밋 해시)` 를 보내라고 하고, 핀별 커밋은 권하되 요구하지 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)). `<base>` 는 base URL이다.
+안내 문단은 닫기 안내로 시작한다. 줄은 `처리한 핀은 닫는다` 로 시작하고, 닫을 때 `changes` 와 `ref` = `PR #번호 (커밋 해시)` 를 보내라고 하며, 핀별 커밋은 권하되 요구하지 않는다([ADR-0005](../adr/0005-pin-scoped-changes.md)). `<base>` 는 base URL이다.
 
 ```text
 처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: `curl -X POST -H 'Content-Type: application/json' -d '{"reply":"무엇을 고쳤는지(≤500자)","ref":"PR #12 (커밋 해시)","changes":[{"file":"main.tex","lo":12,"hi":14}]}' <base>/api/pins/N/close`(본문 생략 가능, 그러면 옛 방식처럼 사유 없이 닫힘. `changes` 의 줄 번호는 `ref` 의 커밋이 만든 판 기준 — 스쿼시 머지 뒤 닫으면 머지된 main 기준, 경로는 위치 칸 기준. 핀마다 커밋을 나누면 더 좋지만 필수는 아니다) · 줄 번호는 갱신 시각 기준이니 원문을 다시 읽고 고친다 · …
@@ -801,13 +785,13 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 ### 열
 
-- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename과 같아서 단일 파일 원고의 행은 예전과 같다. `\input`·`\include` 로 쪼갠 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 0.3.2부터 원고 체크아웃을 옮긴 뒤에도 같다(§핀 파일의 위치). 원고 밖으로 풀리는 핀만 파일 이름으로 줄어든다. 파일명의 `|` 는 `\|` 로 이스케이프한다(아래 §이스케이프).
+- **위치**: `--manuscript`(`C.src`) 기준 **상대경로**다. 루트 파일은 basename과 같다. `\input`·`\include` 로 쪼갠 하위 파일은 `sections/intro.tex L12-L18` 처럼 구분된다. 원고 체크아웃을 옮긴 뒤에도 같다(§핀 파일의 위치). 원고 밖으로 풀리는 핀만 파일 이름으로 줄어든다. 파일명의 `|` 는 `\|` 로 이스케이프한다(아래 §이스케이프).
 - **범위**: `scope` 가 있으면 `env*`→`env:<이름>`, `para`→`paragraph`, `raw`·`lines`→`lines` 로 쓴다. 없으면 옛 `kind` 값을 그대로 쓴다.
 - **줄 번호 시점**: `<state_dir>/pins.md` 를 갱신한 시각 기준이다. 앞선 핀을 고쳐 줄이 밀렸을 수 있으면 `GET /api/pins` 로 다시 맞춘 값을 받는다.
 
 ### 번호 칸의 표시
 
-표시는 번호 뒤에 ` · ` 로 이어 쓴다. 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분) · 수정됨`. 예전 기호(`⊂#N` `∩#N` `⏳` `✎` `⚠`)는 뜻이 드러나지 않아 짧은 말로 바꿨다. 겹침 표시는 핀당 하나이고, 우선순위는 같은 범위 > 범위 안 > 일부 겹침이다.
+표시는 번호 뒤에 ` · ` 로 이어 쓴다. 예: `7 · #6 범위 안 · 처리 중(에이전트 B, 약 10분) · 수정됨`. 기호(`⊂#N` `⏳` `✎` 같은) 대신 뜻이 드러나는 짧은 말을 쓴다. 겹침 표시는 핀당 하나이고, 우선순위는 같은 범위 > 범위 안 > 일부 겹침이다.
 
 | 표시 | 뜻 | 에이전트의 행동 |
 | --- | --- | --- |
@@ -849,14 +833,14 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 
 **메모 앞 `[작성자]`.** 열린 핀의 작성자가 2명 이상이면 메모 앞에 `[<author.name>] ` 이 붙는다. 작성자는 `author.login` 으로 가르고, 작성자 없는 옛 핀은 한 부류로 친다.
 
-- `@` 로 시작하지 않게 한 것은 @태그로 잘못 읽히지 않게 하려는 것이다. 실측에서 `@Alice Kim: …` 이 멘션처럼 보였다.
+- `@` 로 시작하지 않게 한 것은 @태그로 잘못 읽히지 않게 하려는 것이다. `@Alice Kim: …` 은 멘션처럼 보인다.
 - 작성자가 1명뿐이면 토큰을 아끼려고 붙이지 않는다.
 - 결과 보고나 `close` 의 `reply` 를 쓸 때 누구 핀인지 참고하는 용도다([domain.md](domain.md) §작성자 귀속). 배정 기준이 아니다.
 
 ### 검토 대기와 닫힌 핀
 
-- **검토 대기**: 열린 표에서 빠지고 맨 아래 `## 검토 대기 N건 — …처리하지 않는다` 소절의 4열 표 `| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |` 에 실린다. 여러 문서면 위치 앞에 문서 키가 붙는다. 검토 대기 핀이 있을 때만 머리줄에 `검토 대기 N건(맨 아래, 처리하지 않는다)` 이 끼고, 없으면 머리줄은 예전 모양 그대로다.
-- **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 닫힌 핀이 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다. `<details>` 로 펼쳐야 했던 예전 방식은 없앴다.
+- **검토 대기**: 열린 표에서 빠지고 맨 아래 `## 검토 대기 N건 — …처리하지 않는다` 소절의 4열 표 `| # | 위치 | 확인할 사람 | 닫을 때 남긴 답 |` 에 실린다. 여러 문서면 위치 앞에 문서 키가 붙는다. 검토 대기 핀이 있을 때만 머리줄에 `검토 대기 N건(맨 아래, 처리하지 않는다)` 이 낀다.
+- **닫힌 핀**: 표에서 빠지고 머리줄에 건수로만 남는다(`닫힌 핀 N건(뷰어의 '닫힌 핀'에서 확인)`). 닫힌 핀이 쌓여도 `<state_dir>/pins.md` 크기가 늘지 않는다.
 
 ### 여러 문서
 
@@ -866,7 +850,7 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 2. 열린 핀이 있는 문서마다 소절 `` ## <이름> · `<키>` · `<--manuscript 기준 경로>` `` 를 둔다. 보기 전용이면 제목 끝에 `— 보기 전용 PDF(줄 번호 없음)` 이 붙는다.
 3. 소절 안에 그 문서의 `기준: <head> · 빌드 <built_at>` 줄이 온다. 보기 전용은 `빌드` 대신 `그림` 이다. 그 뒤에 5열 표가 온다.
 
-머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서는 예전 모양 그대로다.
+머리의 단일 `기준:` 줄은 소절로 옮겨 간다. 설정에 없는 문서 키의 핀은 `` ## 설정에 없는 문서 · `<키>` `` 소절로 드러난다. 단일 문서에는 문서 소절이 없다.
 
 ### 보기 전용 핀의 행
 
@@ -882,4 +866,4 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - `|` 는 `\|` 가 된다.
 - 줄바꿈은 메모 칸에서 `⏎`, 나머지 칸(번호, 쪽, 위치, 범위, 인용)에서 공백이 된다.
 
-칸마다 따로 처리하던 때 범위 칸의 env 분기가 빠져, kind `env:x|y` 가 8열 행을 만든 적이 있다(독립 검증 실측). 그래서 한 함수로 모았다.
+칸마다 따로 처리하면 한 칸의 분기가 빠져 kind `env:x|y` 같은 값이 열을 늘리기 때문이다.
