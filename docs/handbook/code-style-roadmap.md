@@ -113,7 +113,7 @@ HTTP 층의 `confirm_answer()`가 이 다섯 결과를 `match` 하나로 받아 
 
 **업계에서 부르는 이름.** Make illegal states unrepresentable (Yaron Minsky, "Effective ML"). Scott Wlaschin의 책 *Domain Modeling Made Functional*이 같은 방법을 자세히 다룬다.
 
-**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6).
+**지금 코드.** 핀은 상태 타입의 합 `Pin = OpenPin | ReviewPin | DonePin`이고, 휴지통 사본은 `TrashedPin`이다([`limn/pins/model.py`](../../src/limn/pins/model.py)). 모든 상태가 함께 가진 필드는 `core: PinCore`로 타입이 있고, 전이와 편집 규칙은 `pin.core.rev`·`pin.core.thread`처럼 이 속성을 읽는다. 그 상태에만 있는 필드는 타입의 속성이다. 열린 핀만 처리 중 표시(`Claim`)를, 닫힌 핀만 닫은 기록(`Close`)을, 완료 핀만 확인(`Confirmation`)을, 휴지통 사본만 삭제 기록(`Dropped`)을 가진다. 저장 형식(`pins.jsonl`)과 API 모양은 그대로다([architecture.md](architecture.md) §불변식 3, 6).
 
 > **예시**
 >
@@ -126,9 +126,10 @@ class DonePin:
     and no claim. A legacy done record with no review field is done too."""
 
     state: ClassVar[StateName] = "done"
+    core: PinCore  # id, doc, place, note, rev, thread ... - what every state shares
     close: Close
     confirmation: Confirmation | None
-    fields: Record  # every field the state does not lift, as stored
+    fields: Record  # every field the core and the state do not lift, as stored
 
 
 Pin: TypeAlias = OpenPin | ReviewPin | DonePin
@@ -140,9 +141,9 @@ def parse_pin(record: Record) -> Pin: ...  # by the one rule state_of(); never f
 옛 레코드와 어긋난 값은 이렇게 담는다.
 
 - 상태를 가르는 규칙은 `state_of()` 하나다. `done`이 아니면 열림, `done`이고 `review`가 참이면 검토 대기, 나머지 `done`(옛 `review` 없는 레코드 포함)은 완료다. API의 `state` 이름도 이 타입의 이름이다.
-- 필드가 없거나 값의 종류가 틀리면 속성으로 올리지 않는다. `fields`에 저장된 그대로 남고, 상태는 그 필드가 없는 것처럼 읽는다. 파싱은 실패하지 않는다.
+- 필드가 없거나 값의 종류가 틀리면 속성으로 올리지 않는다. `fields`에 저장된 그대로 남고, 핀은 그 필드가 없는 것처럼 읽는다. 위치(`LineSpan`·`Region`)는 필드가 모두 맞을 때만 올린다. 파싱은 실패하지 않는다.
 - 다른 상태의 필드는 속성이 되지 않는다. 다시 연 핀에 남는 지난 닫기의 `done_at`·`closed_by`는 `fields`에 있을 뿐이다.
-- 모든 상태가 함께 쓰는 필드와 이 버전이 모르는 필드는 `fields`에 두고, `order`가 저장 때의 필드 순서를 기억한다. 필드 순서는 바이트 계약의 일부다.
+- 드물게 쓰는 필드와 이 버전이 모르는 필드는 `fields`에 두고, `order`가 저장 때의 필드 순서를 기억한다. 필드 순서는 바이트 계약의 일부다.
 
 한 상태에만 쓰는 전이는 그 상태 타입만 받는다(`confirm_review(pin: ReviewPin, ...)`). 어떤 상태든 올 수 있는 입구는 `match pin:`으로 타입을 나눈다. 상태 문자열을 비교하지 않는다.
 

@@ -121,6 +121,14 @@ class DecideEdit(unittest.TestCase):
         self.assertEqual(decide(pin, count=10, base_rev=2, lo=6), RangeOutsideFile(10, 6, 5))
         self.assertEqual(decide(pin, count=0, base_rev=2, lo=1, hi=1).lines, (1, 1))  # an empty file still has line 1
 
+    def test_lo_hi_on_a_pin_without_lines_is_outside_the_tree(self):
+        """A pin whose core has no line span - a region pin, whose lo/hi the parser refuses before this - has no lines
+        in the tree to move, whatever the line count."""
+        region = OpenPin.from_record(
+            {"pdf": "/ms/scan.pdf", "page": 1, "frac": [0.1, 0.1, 0.2, 0.2], "id": 3, "rev": 2}
+        )
+        self.assertEqual(decide(region, count=10, base_rev=2, lo=1), PinOutsideTree())
+
     def test_range_changes_when_moved_or_when_the_pin_was_stale(self):
         """The same lines are no change unless the pin had lost its place; one bound alone keeps the stored other."""
         pin = OpenPin.from_record(line_record())
