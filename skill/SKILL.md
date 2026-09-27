@@ -206,8 +206,8 @@ The reference files are the chapters of Limn's System Handbook, written in Korea
 | Rebuild (sync and async), `--git-pull`, auto-sync, position estimate (`est`) | [build-sync.md](../docs/handbook/build-sync.md) |
 | Architecture and invariants | [architecture.md](../docs/handbook/architecture.md) |
 | The two reverse-mapping paths, range ladder, line realignment (`anchor`), storage safety, author attribution, several documents and view-only PDFs, known limits | [domain.md](../docs/handbook/domain.md) |
-| Viewer states and UI rules | [viewer.md](../docs/handbook/viewer.md) |
-| All server arguments, `--doc`, port avoidance, security details (why Host/Origin), systemd, `tailscale serve`, state files, using the viewer | [operations.md](../docs/handbook/operations.md) |
+| Using the viewer, viewer states and UI rules | [viewer.md](../docs/handbook/viewer.md) |
+| All server arguments, `--doc`, port avoidance, security details (why Host/Origin), systemd, `tailscale serve`, state files | [operations.md](../docs/handbook/operations.md) |
 | Per-manuscript instances: `limn add`, config keys, ports, updates, removal | [instances.md](../docs/handbook/instances.md) |
 
 ## Related
